@@ -66,7 +66,7 @@ async def build_execution_chat_context(
     """
     context_parts = []
     store = MindscapeStore()
-    tasks_store = TasksStore(db_path=store.db_path)
+    tasks_store = TasksStore()
 
     try:
         # Get execution (Task) by execution_id

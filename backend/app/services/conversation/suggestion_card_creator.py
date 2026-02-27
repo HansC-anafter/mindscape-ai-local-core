@@ -361,7 +361,7 @@ class SuggestionCardCreator:
             from ...services.mindscape_store import MindscapeStore
 
             store = MindscapeStore()
-            preference_store = TaskPreferenceStore(store.db_path)
+            preference_store = PostgresTaskPreferenceStore()
 
             workspace = await store.get_workspace(workspace_id)
             if workspace:

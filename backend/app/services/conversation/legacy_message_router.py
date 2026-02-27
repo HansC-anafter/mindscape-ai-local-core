@@ -445,7 +445,7 @@ class LegacyMessageRouter:
                 # Update task execution context if applicable
                 from backend.app.services.stores.tasks_store import TasksStore
 
-                tasks_store = TasksStore(db_path=self.store.db_path)
+                tasks_store = TasksStore()
                 task = tasks_store.get_task_by_execution_id(user_event.id)
                 if task:
                     if not task.execution_context:

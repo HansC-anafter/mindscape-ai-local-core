@@ -45,8 +45,8 @@ class WorkflowTracker:
 
     def __init__(self, store: MindscapeStore):
         self.store = store
-        self.tool_calls_store = ToolCallsStore(store.db_path)
-        self.stage_results_store = StageResultsStore(store.db_path)
+        self.tool_calls_store = ToolCallsStore()
+        self.stage_results_store = StageResultsStore()
 
     def create_playbook_step_event(
         self,
@@ -217,7 +217,7 @@ class WorkflowTracker:
             default_cluster = None
             try:
                 from backend.app.services.stores.tasks_store import TasksStore
-                tasks_store = TasksStore(db_path=self.store.db_path)
+                tasks_store = TasksStore()
                 task = tasks_store.get_task_by_execution_id(execution_id)
                 if task and task.execution_context:
                     default_cluster = task.execution_context.get("default_cluster")

@@ -57,10 +57,12 @@ class SummaryPolicy:
             from backend.app.services.stores.workspace_runtime_profile_store import (
                 WorkspaceRuntimeProfileStore,
             )
-            from backend.app.services.stores.workspaces_store import WorkspacesStore
+            from backend.app.services.stores.postgres.workspaces_store import (
+                PostgresWorkspacesStore,
+            )
 
             if workspace_id and self.store:
-                workspaces_store = WorkspacesStore(db_path=self.store.db_path)
+                workspaces_store = PostgresWorkspacesStore()
                 workspace = await workspaces_store.get_workspace(workspace_id)
 
                 if workspace:

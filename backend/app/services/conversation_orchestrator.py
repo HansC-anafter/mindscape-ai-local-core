@@ -42,8 +42,8 @@ from backend.app.services.intent_analyzer import IntentPipeline
 from backend.app.services.playbook_runner import PlaybookRunner
 from backend.app.services.i18n_service import get_i18n_service
 from backend.app.services.stores.tasks_store import TasksStore
-from backend.app.services.stores.timeline_items_store import TimelineItemsStore
-from backend.app.services.stores.artifacts_store import ArtifactsStore
+from backend.app.services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
+from backend.app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
 from backend.app.services.conversation.plan_builder import PlanBuilder
 from backend.app.services.conversation.task_manager import TaskManager
 from backend.app.services.conversation.cta_handler import CTAHandler
@@ -103,9 +103,9 @@ class ConversationOrchestrator:
         self.intent_registry = intent_registry
 
         # Stores
-        self.tasks_store = TasksStore(store.db_path)
-        self.timeline_items_store = TimelineItemsStore(store.db_path)
-        self.artifacts_store = ArtifactsStore(store.db_path)
+        self.tasks_store = TasksStore()
+        self.timeline_items_store = PostgresTimelineItemsStore()
+        self.artifacts_store = PostgresArtifactsStore()
 
         # Core modules
         self.plan_builder = PlanBuilder(store=store, default_locale=default_locale)

@@ -267,8 +267,8 @@ class ChatOrchestratorService:
         from backend.features.workspace.chat.streaming.context_builder import (
             build_streaming_context,
         )
-        from backend.app.services.stores.timeline_items_store import (
-            TimelineItemsStore,
+        from backend.app.services.stores.postgres.timeline_items_store import (
+            PostgresTimelineItemsStore,
         )
 
         timeline_items_store = PostgresTimelineItemsStore()
@@ -441,8 +441,8 @@ class ChatOrchestratorService:
         from backend.features.workspace.chat.streaming.context_builder import (
             build_streaming_context,
         )
-        from backend.app.services.stores.timeline_items_store import (
-            TimelineItemsStore,
+        from backend.app.services.stores.postgres.timeline_items_store import (
+            PostgresTimelineItemsStore,
         )
 
         timeline_items_store = PostgresTimelineItemsStore()

@@ -69,7 +69,7 @@ async def route_via_pipeline_core(
         WorkspaceRuntimeProfileStore,
     )
 
-    rt_store = WorkspaceRuntimeProfileStore(db_path=store.db_path)
+    rt_store = WorkspaceRuntimeProfileStore()
     runtime_profile = await rt_store.get_runtime_profile(workspace_id)
     if not runtime_profile:
         runtime_profile = await rt_store.create_default_profile(workspace_id)

@@ -8,9 +8,21 @@ and dispatch, and session finalization.
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Agenda item constraints
+_AGENDA_MAX_ITEMS = 10
+_AGENDA_ITEM_MAX_LEN = 200
+
+
+def _sanitize_agenda_item(msg: str) -> str:
+    """Truncate and clean an agenda item."""
+    clean = msg.strip()
+    if len(clean) > _AGENDA_ITEM_MAX_LEN:
+        clean = clean[:_AGENDA_ITEM_MAX_LEN] + "..."
+    return clean
 
 
 def build_execution_launcher(store: Any) -> Optional[Any]:
@@ -156,17 +168,19 @@ async def ensure_meeting_session(
     thread_id: str,
     session_store: Any,
     project_id: Optional[str] = None,
+    user_message: Optional[str] = None,
 ) -> Optional[Any]:
     """Get or create the active MeetingSession for this workspace/thread.
 
-    - If an active session exists, reuse it.
-    - If not, create a new one.
+    - If an active session exists, reuse it (appending user_message to agenda).
+    - If not, create a new one with user_message as initial agenda.
 
     Args:
         workspace_id: Workspace ID.
         thread_id: Thread ID.
         session_store: MeetingSessionStore instance.
         project_id: Optional project ID.
+        user_message: Optional user message to include in agenda.
 
     Returns:
         MeetingSession or None on error.
@@ -183,6 +197,21 @@ async def ensure_meeting_session(
         )
         if session:
             logger.info(f"[PipelineCore] Reusing active session {session.id}")
+            # Append user_message to agenda (dedup + cap)
+            if user_message:
+                sanitized = _sanitize_agenda_item(user_message)
+                if sanitized:
+                    current = list(session.agenda or [])
+                    if sanitized not in current and len(current) < _AGENDA_MAX_ITEMS:
+                        current.append(sanitized)
+                        session.agenda = current
+                        try:
+                            await loop.run_in_executor(
+                                None,
+                                lambda: session_store.update(session),
+                            )
+                        except Exception as exc:
+                            logger.debug("Non-fatal agenda update: %s", exc)
             return session
 
         # Create new session with lens_id resolved from active preset
@@ -209,11 +238,17 @@ async def ensure_meeting_session(
         except Exception as exc:
             logger.warning("[PipelineCore] Failed to resolve lens for session: %s", exc)
 
+        initial_agenda = None
+        if user_message:
+            sanitized = _sanitize_agenda_item(user_message)
+            if sanitized:
+                initial_agenda = [sanitized]
         new_session = MeetingSession.new(
             workspace_id=workspace_id,
             project_id=project_id,
             thread_id=thread_id,
             lens_id=lens_id,
+            agenda=initial_agenda,
         )
         await loop.run_in_executor(
             None,

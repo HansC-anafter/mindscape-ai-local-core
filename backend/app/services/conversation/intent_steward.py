@@ -15,15 +15,23 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 from ...models.mindscape import (
-    IntentSignal, IntentLayoutPlan, IntentStewardInput,
-    IntentOperation, EphemeralTask, SignalMapping,
-    IntentCard, IntentTag, IntentTagStatus, IntentSource
+    IntentSignal,
+    IntentLayoutPlan,
+    IntentStewardInput,
+    IntentOperation,
+    EphemeralTask,
+    SignalMapping,
+    IntentCard,
+    IntentTag,
+    IntentTagStatus,
+    IntentSource,
 )
 from ...services.mindscape_store import MindscapeStore
 from ...services.stores.intent_tags_store import IntentTagsStore
-from ...services.stores.timeline_items_store import TimelineItemsStore
-from ...services.stores.events_store import EventsStore
+from backend.app.services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
+from ...services.stores.postgres.events_store import PostgresEventsStore
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +49,7 @@ class IntentStewardService:
     MIN_CONFIDENCE_THRESHOLD = 0.7
     MAX_PREFILTERED_SIGNALS = 20
 
-    def __init__(
-        self,
-        store: MindscapeStore,
-        default_locale: str = "en"
-    ):
+    def __init__(self, store: MindscapeStore, default_locale: str = "en"):
         """
         Initialize Intent Steward Service
 
@@ -55,16 +59,16 @@ class IntentStewardService:
         """
         self.store = store
         self.default_locale = default_locale
-        self.intent_tags_store = IntentTagsStore(db_path=store.db_path)
-        self.timeline_items_store = TimelineItemsStore(db_path=store.db_path)
-        self.events_store = EventsStore(db_path=store.db_path)
+        self.intent_tags_store = IntentTagsStore()
+        self.timeline_items_store = PostgresTimelineItemsStore()
+        self.events_store = PostgresEventsStore()
 
     async def analyze_turn(
         self,
         workspace_id: str,
         profile_id: str,
         turn_id: str,
-        conversation_id: Optional[str] = None
+        conversation_id: Optional[str] = None,
     ) -> IntentLayoutPlan:
         """
         Analyze a conversation turn and generate IntentLayoutPlan
@@ -85,39 +89,46 @@ class IntentStewardService:
             )
 
             steward_input = await self._collect_input_data(
-                workspace_id=workspace_id,
-                profile_id=profile_id,
-                turn_id=turn_id
+                workspace_id=workspace_id, profile_id=profile_id, turn_id=turn_id
             )
 
-            filtered_signals = await self.prefilter_signals(steward_input.recent_signals)
+            filtered_signals = await self.prefilter_signals(
+                steward_input.recent_signals
+            )
 
             layout_plan = await self.steward_analyze(
-                filtered_signals=filtered_signals,
-                context=steward_input
+                filtered_signals=filtered_signals, context=steward_input
             )
 
-            layout_plan.metadata.update({
-                "turn_id": turn_id,
-                "workspace_id": workspace_id,
-                "profile_id": profile_id,
-                "conversation_id": conversation_id,
-                "steward_version": "v2_phase1",
-                "timestamp": _utc_now().isoformat(),
-                "mode": "observation"
-            })
+            layout_plan.metadata.update(
+                {
+                    "turn_id": turn_id,
+                    "workspace_id": workspace_id,
+                    "profile_id": profile_id,
+                    "conversation_id": conversation_id,
+                    "steward_version": "v2_phase1",
+                    "timestamp": _utc_now().isoformat(),
+                    "mode": "observation",
+                }
+            )
 
-            auto_layout_enabled = await self._check_auto_layout_flag(profile_id, workspace_id)
+            auto_layout_enabled = await self._check_auto_layout_flag(
+                profile_id, workspace_id
+            )
 
             if auto_layout_enabled:
-                await self._execute_layout_plan(layout_plan, workspace_id, profile_id, turn_id)
+                await self._execute_layout_plan(
+                    layout_plan, workspace_id, profile_id, turn_id
+                )
                 layout_plan.metadata["executed"] = True
                 layout_plan.metadata["mode"] = "execution"
             else:
                 layout_plan.metadata["executed"] = False
                 layout_plan.metadata["mode"] = "observation"
 
-            await self._write_analysis_log(layout_plan, workspace_id, profile_id, turn_id)
+            await self._write_analysis_log(
+                layout_plan, workspace_id, profile_id, turn_id
+            )
 
             logger.info(
                 f"IntentSteward: Analysis complete for turn {turn_id}, "
@@ -129,7 +140,9 @@ class IntentStewardService:
             return layout_plan
 
         except Exception as e:
-            logger.error(f"IntentSteward: Failed to analyze turn {turn_id}: {e}", exc_info=True)
+            logger.error(
+                f"IntentSteward: Failed to analyze turn {turn_id}: {e}", exc_info=True
+            )
             # Return empty plan on error
             return IntentLayoutPlan(
                 metadata={
@@ -137,15 +150,12 @@ class IntentStewardService:
                     "workspace_id": workspace_id,
                     "profile_id": profile_id,
                     "error": str(e),
-                    "timestamp": _utc_now().isoformat()
+                    "timestamp": _utc_now().isoformat(),
                 }
             )
 
     async def _collect_input_data(
-        self,
-        workspace_id: str,
-        profile_id: str,
-        turn_id: str
+        self, workspace_id: str, profile_id: str, turn_id: str
     ) -> IntentStewardInput:
         """
         Collect input data for IntentSteward analysis
@@ -164,7 +174,7 @@ class IntentStewardService:
             events = self.events_store.list_events(
                 workspace_id=workspace_id,
                 limit=10,
-                event_types=["message", "tool_call", "playbook_execution"]
+                event_types=["message", "tool_call", "playbook_execution"],
             )
             recent_messages = [
                 {
@@ -172,7 +182,9 @@ class IntentStewardService:
                     "type": event.type,
                     "content": event.content or "",
                     "metadata": event.metadata or {},
-                    "created_at": event.created_at.isoformat() if event.created_at else None
+                    "created_at": (
+                        event.created_at.isoformat() if event.created_at else None
+                    ),
                 }
                 for event in events
             ]
@@ -187,7 +199,7 @@ class IntentStewardService:
                 workspace_id=workspace_id,
                 profile_id=profile_id,
                 status=IntentTagStatus.CANDIDATE,
-                limit=50
+                limit=50,
             )
 
             # Convert to IntentSignals
@@ -199,11 +211,15 @@ class IntentStewardService:
                     label=tag.label,
                     confidence=tag.confidence or 0.5,
                     status=tag.status.value,
-                    source=tag.source.value if isinstance(tag.source, IntentSource) else str(tag.source),
+                    source=(
+                        tag.source.value
+                        if isinstance(tag.source, IntentSource)
+                        else str(tag.source)
+                    ),
                     signal_type="intent",
                     message_id=tag.message_id,
                     metadata=tag.metadata or {},
-                    created_at=tag.created_at
+                    created_at=tag.created_at,
                 )
                 recent_signals.append(signal)
         except Exception as e:
@@ -215,8 +231,10 @@ class IntentStewardService:
             all_intents = self.store.list_intents(profile_id=profile_id)
             # Filter: ACTIVE status and HIGH/MEDIUM priority, limit to 10
             current_intent_cards = [
-                intent for intent in all_intents
-                if intent.status.value == "active" and intent.priority.value in ["high", "medium"]
+                intent
+                for intent in all_intents
+                if intent.status.value == "active"
+                and intent.priority.value in ["high", "medium"]
             ][:10]
         except Exception as e:
             logger.warning(f"Failed to collect current intent cards: {e}")
@@ -224,12 +242,11 @@ class IntentStewardService:
         return IntentStewardInput(
             recent_messages=recent_messages,
             recent_signals=recent_signals,
-            current_intent_cards=current_intent_cards
+            current_intent_cards=current_intent_cards,
         )
 
     async def prefilter_signals(
-        self,
-        signals: List[IntentSignal]
+        self, signals: List[IntentSignal]
     ) -> List[IntentSignal]:
         """
         Prefilter signals using heuristics and small model
@@ -249,7 +266,8 @@ class IntentStewardService:
             return []
 
         high_confidence = [
-            s for s in signals
+            s
+            for s in signals
             if s.confidence and s.confidence >= self.MIN_CONFIDENCE_THRESHOLD
         ]
 
@@ -269,8 +287,12 @@ class IntentStewardService:
             label = signal.label.strip()
             label_clean = label.replace(" ", "").replace("\n", "")
 
-            if (len(label) >= 3 and len(label) <= 200 and
-                not label_clean.isdigit() and label_clean):
+            if (
+                len(label) >= 3
+                and len(label) <= 200
+                and not label_clean.isdigit()
+                and label_clean
+            ):
                 filtered.append(signal)
 
                 if len(filtered) >= self.MAX_PREFILTERED_SIGNALS:
@@ -283,9 +305,7 @@ class IntentStewardService:
         return filtered
 
     async def steward_analyze(
-        self,
-        filtered_signals: List[IntentSignal],
-        context: IntentStewardInput
+        self, filtered_signals: List[IntentSignal], context: IntentStewardInput
     ) -> IntentLayoutPlan:
         """
         Analyze filtered signals with LLM and generate IntentLayoutPlan
@@ -330,13 +350,15 @@ class IntentStewardService:
             if representative.confidence >= 0.8 and len(group_signals) >= 2:
                 # Check if similar IntentCard already exists
                 existing_intent = self._find_similar_intent(
-                    representative.label,
-                    context.current_intent_cards
+                    representative.label, context.current_intent_cards
                 )
 
                 if existing_intent:
                     # Update existing IntentCard
-                    if len(layout_plan.long_term_intents) < self.MAX_UPDATE_INTENT_CARDS:
+                    if (
+                        len(layout_plan.long_term_intents)
+                        < self.MAX_UPDATE_INTENT_CARDS
+                    ):
                         operation = IntentOperation(
                             operation_type="UPDATE_INTENT_CARD",
                             intent_id=existing_intent.id,
@@ -344,18 +366,21 @@ class IntentStewardService:
                                 "title": existing_intent.title,
                                 "description": existing_intent.description or "",
                                 "priority": existing_intent.priority.value,
-                                "status": existing_intent.status.value
+                                "status": existing_intent.status.value,
                             },
                             relation_signals=[s.id for s in group_signals],
                             confidence=representative.confidence,
                             reasoning=f"High confidence signal ({representative.confidence:.2f}) "
-                                     f"with multiple occurrences ({len(group_signals)}) "
-                                     f"matches existing IntentCard"
+                            f"with multiple occurrences ({len(group_signals)}) "
+                            f"matches existing IntentCard",
                         )
                         layout_plan.long_term_intents.append(operation)
                 else:
                     # Create new IntentCard
-                    if len(layout_plan.long_term_intents) < self.MAX_CREATE_INTENT_CARDS:
+                    if (
+                        len(layout_plan.long_term_intents)
+                        < self.MAX_CREATE_INTENT_CARDS
+                    ):
                         operation = IntentOperation(
                             operation_type="CREATE_INTENT_CARD",
                             intent_id=None,
@@ -363,13 +388,13 @@ class IntentStewardService:
                                 "title": representative.label,
                                 "description": f"Auto-detected from {len(group_signals)} signals",
                                 "priority": "medium",
-                                "status": "active"
+                                "status": "active",
                             },
                             relation_signals=[s.id for s in group_signals],
                             confidence=representative.confidence,
                             reasoning=f"High confidence signal ({representative.confidence:.2f}) "
-                                     f"with multiple occurrences ({len(group_signals)}) "
-                                     f"warrants IntentCard creation"
+                            f"with multiple occurrences ({len(group_signals)}) "
+                            f"warrants IntentCard creation",
                         )
                         layout_plan.long_term_intents.append(operation)
             else:
@@ -379,7 +404,7 @@ class IntentStewardService:
                     title=representative.label,
                     description=None,
                     reasoning=f"Signal confidence {representative.confidence:.2f} or "
-                             f"occurrence count {len(group_signals)} below threshold"
+                    f"occurrence count {len(group_signals)} below threshold",
                 )
                 layout_plan.ephemeral_tasks.append(task)
 
@@ -387,18 +412,20 @@ class IntentStewardService:
             for signal in group_signals:
                 mapping = SignalMapping(
                     signal_id=signal.id,
-                    action="mapped_to_intent_id" if len(group_signals) >= 2 and representative.confidence >= 0.8 else "ignored",
+                    action=(
+                        "mapped_to_intent_id"
+                        if len(group_signals) >= 2 and representative.confidence >= 0.8
+                        else "ignored"
+                    ),
                     target_intent_id=None,  # Will be set when IntentCard is created
-                    reasoning=f"Grouped with {len(group_signals)} similar signals"
+                    reasoning=f"Grouped with {len(group_signals)} similar signals",
                 )
                 layout_plan.signal_mapping.append(mapping)
 
         return layout_plan
 
     async def _llm_analyze_signals(
-        self,
-        filtered_signals: List[IntentSignal],
-        context: IntentStewardInput
+        self, filtered_signals: List[IntentSignal], context: IntentStewardInput
     ) -> Optional[IntentLayoutPlan]:
         """
         Analyze signals using LLM
@@ -435,15 +462,23 @@ class IntentStewardService:
                 logger.warning(f"Could not get LLM provider: {e}")
                 return None
 
-            signals_text = "\n".join([
-                f"- {i+1}. {sig.label} (confidence: {sig.confidence:.2f})"
-                for i, sig in enumerate(filtered_signals[:10])
-            ])
+            signals_text = "\n".join(
+                [
+                    f"- {i+1}. {sig.label} (confidence: {sig.confidence:.2f})"
+                    for i, sig in enumerate(filtered_signals[:10])
+                ]
+            )
 
-            current_intents_text = "\n".join([
-                f"- {intent.title} ({intent.status.value}, {intent.priority.value})"
-                for intent in context.current_intent_cards[:5]
-            ]) if context.current_intent_cards else "None"
+            current_intents_text = (
+                "\n".join(
+                    [
+                        f"- {intent.title} ({intent.status.value}, {intent.priority.value})"
+                        for intent in context.current_intent_cards[:5]
+                    ]
+                )
+                if context.current_intent_cards
+                else "None"
+            )
 
             system_prompt = """You are an Intent Steward AI that analyzes user intent signals and decides which should become long-term IntentCards.
 
@@ -488,8 +523,7 @@ Determine which signals should become IntentCards (CREATE or UPDATE) and which a
 Return only valid JSON, no additional text."""
 
             messages = build_prompt(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt
+                system_prompt=system_prompt, user_prompt=user_prompt
             )
 
             response = await call_llm(
@@ -497,7 +531,7 @@ Return only valid JSON, no additional text."""
                 llm_provider=llm_provider,
                 model=model_name,
                 temperature=0.3,
-                max_tokens=2000
+                max_tokens=2000,
             )
 
             content = response.get("content", "").strip()
@@ -511,10 +545,15 @@ Return only valid JSON, no additional text."""
 
             layout_plan = IntentLayoutPlan()
 
-            for op_data in result.get("operations", [])[:self.MAX_CREATE_INTENT_CARDS + self.MAX_UPDATE_INTENT_CARDS]:
+            for op_data in result.get("operations", [])[
+                : self.MAX_CREATE_INTENT_CARDS + self.MAX_UPDATE_INTENT_CARDS
+            ]:
                 op_type = op_data.get("type", "")
                 if op_type == "CREATE_INTENT_CARD":
-                    if len(layout_plan.long_term_intents) < self.MAX_CREATE_INTENT_CARDS:
+                    if (
+                        len(layout_plan.long_term_intents)
+                        < self.MAX_CREATE_INTENT_CARDS
+                    ):
                         operation = IntentOperation(
                             operation_type="CREATE_INTENT_CARD",
                             intent_id=None,
@@ -522,32 +561,44 @@ Return only valid JSON, no additional text."""
                                 "title": op_data.get("title", ""),
                                 "description": op_data.get("description", ""),
                                 "priority": op_data.get("priority", "medium"),
-                                "status": op_data.get("status", "active")
+                                "status": op_data.get("status", "active"),
                             },
                             relation_signals=[sig.id for sig in filtered_signals[:3]],
                             confidence=op_data.get("confidence", 0.7),
-                            reasoning=op_data.get("reasoning", "")
+                            reasoning=op_data.get("reasoning", ""),
                         )
                         layout_plan.long_term_intents.append(operation)
                 elif op_type == "UPDATE_INTENT_CARD":
-                    if len(layout_plan.long_term_intents) < self.MAX_CREATE_INTENT_CARDS + self.MAX_UPDATE_INTENT_CARDS:
+                    if (
+                        len(layout_plan.long_term_intents)
+                        < self.MAX_CREATE_INTENT_CARDS + self.MAX_UPDATE_INTENT_CARDS
+                    ):
                         existing_intent = self._find_similar_intent(
-                            op_data.get("title", ""),
-                            context.current_intent_cards
+                            op_data.get("title", ""), context.current_intent_cards
                         )
                         if existing_intent:
                             operation = IntentOperation(
                                 operation_type="UPDATE_INTENT_CARD",
                                 intent_id=existing_intent.id,
                                 intent_data={
-                                    "title": op_data.get("title", existing_intent.title),
-                                    "description": op_data.get("description", existing_intent.description or ""),
-                                    "priority": op_data.get("priority", existing_intent.priority.value),
-                                    "status": op_data.get("status", existing_intent.status.value)
+                                    "title": op_data.get(
+                                        "title", existing_intent.title
+                                    ),
+                                    "description": op_data.get(
+                                        "description", existing_intent.description or ""
+                                    ),
+                                    "priority": op_data.get(
+                                        "priority", existing_intent.priority.value
+                                    ),
+                                    "status": op_data.get(
+                                        "status", existing_intent.status.value
+                                    ),
                                 },
-                                relation_signals=[sig.id for sig in filtered_signals[:3]],
+                                relation_signals=[
+                                    sig.id for sig in filtered_signals[:3]
+                                ],
                                 confidence=op_data.get("confidence", 0.7),
-                                reasoning=op_data.get("reasoning", "")
+                                reasoning=op_data.get("reasoning", ""),
                             )
                             layout_plan.long_term_intents.append(operation)
 
@@ -556,11 +607,13 @@ Return only valid JSON, no additional text."""
                     signal_id=filtered_signals[0].id if filtered_signals else "",
                     title=ephem_data.get("title", ""),
                     description=None,
-                    reasoning=ephem_data.get("reasoning", "")
+                    reasoning=ephem_data.get("reasoning", ""),
                 )
                 layout_plan.ephemeral_tasks.append(task)
 
-            logger.info(f"LLM analysis generated {len(layout_plan.long_term_intents)} operations, {len(layout_plan.ephemeral_tasks)} ephemeral tasks")
+            logger.info(
+                f"LLM analysis generated {len(layout_plan.long_term_intents)} operations, {len(layout_plan.ephemeral_tasks)} ephemeral tasks"
+            )
             return layout_plan
 
         except json.JSONDecodeError as e:
@@ -571,9 +624,7 @@ Return only valid JSON, no additional text."""
             return None
 
     def _find_similar_intent(
-        self,
-        label: str,
-        existing_intents: List[IntentCard]
+        self, label: str, existing_intents: List[IntentCard]
     ) -> Optional[IntentCard]:
         """
         Find similar existing IntentCard by label
@@ -594,11 +645,7 @@ Return only valid JSON, no additional text."""
                 return intent
         return None
 
-    async def _check_auto_layout_flag(
-        self,
-        profile_id: str,
-        workspace_id: str
-    ) -> bool:
+    async def _check_auto_layout_flag(self, profile_id: str, workspace_id: str) -> bool:
         """
         Check if auto intent layout is enabled
 
@@ -611,6 +658,7 @@ Return only valid JSON, no additional text."""
         """
         try:
             from ...services.system_settings_store import SystemSettingsStore
+
             settings_store = SystemSettingsStore()
             setting = settings_store.get_setting("auto_intent_layout")
 
@@ -631,7 +679,7 @@ Return only valid JSON, no additional text."""
         layout_plan: IntentLayoutPlan,
         workspace_id: str,
         profile_id: str,
-        turn_id: str
+        turn_id: str,
     ):
         """
         Execute IntentLayoutPlan - create/update IntentCards
@@ -658,10 +706,14 @@ Return only valid JSON, no additional text."""
                             title=intent_data.get("title", ""),
                             description=intent_data.get("description", ""),
                             status=IntentStatus(intent_data.get("status", "active")),
-                            priority=PriorityLevel(intent_data.get("priority", "medium")),
+                            priority=PriorityLevel(
+                                intent_data.get("priority", "medium")
+                            ),
                             tags=intent_data.get("tags", []),
                             category=intent_data.get("category"),
-                            progress_percentage=intent_data.get("progress_percentage", 0),
+                            progress_percentage=intent_data.get(
+                                "progress_percentage", 0
+                            ),
                             created_at=_utc_now(),
                             updated_at=_utc_now(),
                             started_at=None,
@@ -676,8 +728,8 @@ Return only valid JSON, no additional text."""
                                 "steward_version": "v2_phase2",
                                 "relation_signals": operation.relation_signals,
                                 "confidence": operation.confidence,
-                                "reasoning": operation.reasoning
-                            }
+                                "reasoning": operation.reasoning,
+                            },
                         )
                         created_intent = self.store.create_intent(new_intent)
 
@@ -686,11 +738,13 @@ Return only valid JSON, no additional text."""
                             if mapping.signal_id in operation.relation_signals:
                                 mapping.target_intent_id = created_intent.id
 
-                        executed_operations.append({
-                            "type": "CREATE",
-                            "intent_id": created_intent.id,
-                            "title": created_intent.title
-                        })
+                        executed_operations.append(
+                            {
+                                "type": "CREATE",
+                                "intent_id": created_intent.id,
+                                "title": created_intent.title,
+                            }
+                        )
 
                         logger.info(
                             f"IntentSteward: Created IntentCard {created_intent.id}: {created_intent.title}"
@@ -701,12 +755,16 @@ Return only valid JSON, no additional text."""
                 elif operation.operation_type == "UPDATE_INTENT_CARD":
                     try:
                         if not operation.intent_id:
-                            logger.warning("UPDATE operation missing intent_id, skipping")
+                            logger.warning(
+                                "UPDATE operation missing intent_id, skipping"
+                            )
                             continue
 
                         existing_intent = self.store.get_intent(operation.intent_id)
                         if not existing_intent:
-                            logger.warning(f"IntentCard {operation.intent_id} not found, skipping update")
+                            logger.warning(
+                                f"IntentCard {operation.intent_id} not found, skipping update"
+                            )
                             continue
 
                         # Save original state for rollback
@@ -715,7 +773,11 @@ Return only valid JSON, no additional text."""
                             "description": existing_intent.description,
                             "priority": existing_intent.priority.value,
                             "status": existing_intent.status.value,
-                            "metadata": existing_intent.metadata.copy() if existing_intent.metadata else {}
+                            "metadata": (
+                                existing_intent.metadata.copy()
+                                if existing_intent.metadata
+                                else {}
+                            ),
                         }
 
                         # Update intent data
@@ -725,40 +787,50 @@ Return only valid JSON, no additional text."""
                         if "description" in intent_data:
                             existing_intent.description = intent_data["description"]
                         if "priority" in intent_data:
-                            existing_intent.priority = PriorityLevel(intent_data["priority"])
+                            existing_intent.priority = PriorityLevel(
+                                intent_data["priority"]
+                            )
                         if "status" in intent_data:
                             existing_intent.status = IntentStatus(intent_data["status"])
 
                         # Update metadata
                         if not existing_intent.metadata:
                             existing_intent.metadata = {}
-                        existing_intent.metadata.update({
-                            "source": "intent_steward_auto",
-                            "last_steward_update": turn_id,
-                            "workspace_id": workspace_id,
-                            "steward_version": "v2_phase2",
-                            "relation_signals": operation.relation_signals,
-                            "confidence": operation.confidence,
-                            "reasoning": operation.reasoning,
-                            "rollback_data": original_state  # Store original state for rollback
-                        })
+                        existing_intent.metadata.update(
+                            {
+                                "source": "intent_steward_auto",
+                                "last_steward_update": turn_id,
+                                "workspace_id": workspace_id,
+                                "steward_version": "v2_phase2",
+                                "relation_signals": operation.relation_signals,
+                                "confidence": operation.confidence,
+                                "reasoning": operation.reasoning,
+                                "rollback_data": original_state,  # Store original state for rollback
+                            }
+                        )
                         existing_intent.updated_at = _utc_now()
 
                         # Save update using IntentsStore
-                        updated_intent = self.store.intents.update_intent(existing_intent)
+                        updated_intent = self.store.intents.update_intent(
+                            existing_intent
+                        )
                         if updated_intent:
-                            executed_operations.append({
-                                "type": "UPDATE",
-                                "intent_id": updated_intent.id,
-                                "title": updated_intent.title,
-                                "original_state": original_state
-                            })
+                            executed_operations.append(
+                                {
+                                    "type": "UPDATE",
+                                    "intent_id": updated_intent.id,
+                                    "title": updated_intent.title,
+                                    "original_state": original_state,
+                                }
+                            )
 
                             logger.info(
                                 f"IntentSteward: Updated IntentCard {updated_intent.id}: {updated_intent.title}"
                             )
                         else:
-                            logger.warning(f"Failed to update IntentCard {existing_intent.id}")
+                            logger.warning(
+                                f"Failed to update IntentCard {existing_intent.id}"
+                            )
                     except Exception as e:
                         logger.error(f"Failed to update IntentCard: {e}", exc_info=True)
 
@@ -778,7 +850,7 @@ Return only valid JSON, no additional text."""
         layout_plan: IntentLayoutPlan,
         workspace_id: str,
         profile_id: str,
-        turn_id: str
+        turn_id: str,
     ):
         """
         Write analysis result to log
@@ -801,21 +873,31 @@ Return only valid JSON, no additional text."""
                 profile_id=profile_id,
                 workspace_id=workspace_id,
                 pipeline_steps={
-                    "steward_version": "v2_phase2" if layout_plan.metadata.get("executed") else "v2_phase1",
-                    "mode": layout_plan.metadata.get("mode", "observation")
+                    "steward_version": (
+                        "v2_phase2"
+                        if layout_plan.metadata.get("executed")
+                        else "v2_phase1"
+                    ),
+                    "mode": layout_plan.metadata.get("mode", "observation"),
                 },
                 final_decision={
                     "layout_plan": layout_plan.model_dump(),
                     "planned_operations": len(layout_plan.long_term_intents),
                     "ephemeral_tasks": len(layout_plan.ephemeral_tasks),
-                    "signal_mappings": len(layout_plan.signal_mapping)
+                    "signal_mappings": len(layout_plan.signal_mapping),
                 },
                 metadata={
                     "turn_id": turn_id,
-                    "steward_phase": "phase2_execution" if layout_plan.metadata.get("executed") else "phase1_observation",
+                    "steward_phase": (
+                        "phase2_execution"
+                        if layout_plan.metadata.get("executed")
+                        else "phase1_observation"
+                    ),
                     "executed": layout_plan.metadata.get("executed", False),
-                    "executed_operations": layout_plan.metadata.get("executed_operations", [])
-                }
+                    "executed_operations": layout_plan.metadata.get(
+                        "executed_operations", []
+                    ),
+                },
             )
 
             # Write to intent_logs store
@@ -830,5 +912,6 @@ Return only valid JSON, no additional text."""
             )
 
         except Exception as e:
-            logger.error(f"Failed to write IntentSteward analysis log: {e}", exc_info=True)
-
+            logger.error(
+                f"Failed to write IntentSteward analysis log: {e}", exc_info=True
+            )

@@ -420,9 +420,9 @@ class SuggestionActionHandler:
 
             # Create timeline item for the action
             from ...models.workspace import TimelineItem, TimelineItemType
-            from ...services.stores.timeline_items_store import TimelineItemsStore
+            from backend.app.services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
 
-            timeline_items_store = TimelineItemsStore(db_path=self.store.db_path)
+            timeline_items_store = PostgresTimelineItemsStore()
 
             timeline_item = TimelineItem(
                 id=str(uuid.uuid4()),

@@ -40,7 +40,7 @@ class IntentClusterService:
             store: MindscapeStore instance
         """
         self.store = store
-        self.clusters_store = IntentClustersStore(db_path=store.db_path)
+        self.clusters_store = IntentClustersStore()
         self.embedding_generator = IntentEmbeddingGenerator(store=store)
 
     async def generate_embeddings(
