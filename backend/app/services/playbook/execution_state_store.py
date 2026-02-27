@@ -26,7 +26,7 @@ class ExecutionStateStore:
     ):
         """Save execution state to database for persistence"""
         try:
-            tasks_store = TasksStore(db_path=self.store.db_path)
+            tasks_store = TasksStore()
             task = tasks_store.get_task_by_execution_id(execution_id)
 
             if task:
@@ -76,7 +76,7 @@ class ExecutionStateStore:
     ) -> Optional[Any]:
         """Restore execution state from database"""
         try:
-            tasks_store = TasksStore(db_path=self.store.db_path)
+            tasks_store = TasksStore()
             task = tasks_store.get_task_by_execution_id(execution_id)
 
             if not task:
@@ -146,7 +146,7 @@ class ExecutionStateStore:
             Dict with execution state including inputs, or None if not found
         """
         try:
-            tasks_store = TasksStore(db_path=self.store.db_path)
+            tasks_store = TasksStore()
             task = tasks_store.get_task_by_execution_id(execution_id)
 
             if not task:
@@ -194,7 +194,7 @@ class ExecutionStateStore:
             playbook_code: Playbook code (optional)
         """
         try:
-            tasks_store = TasksStore(db_path=self.store.db_path)
+            tasks_store = TasksStore()
             task = tasks_store.get_task(execution_id)
 
             # Convert step_index from 1-based to 0-based for execution_context

@@ -311,7 +311,7 @@ class PlaybookRunExecutor:
                 from backend.app.models.workspace import Task, TaskStatus
 
                 store = MindscapeStore()
-                tasks_store = TasksStore(store.db_path)
+                tasks_store = TasksStore()
                 existing = tasks_store.get_task_by_execution_id(execution_id)
                 execution_backend_hint = None
                 try:
@@ -438,7 +438,7 @@ class PlaybookRunExecutor:
                         from backend.app.models.workspace import TaskStatus
 
                         store = MindscapeStore()
-                        tasks_store = TasksStore(store.db_path)
+                        tasks_store = TasksStore()
                         total_steps = (
                             len(playbook_run.playbook_json.steps)
                             if playbook_run.playbook_json.steps
@@ -611,7 +611,7 @@ class PlaybookRunExecutor:
                         from backend.app.models.workspace import TaskStatus
 
                         store = MindscapeStore()
-                        tasks_store = TasksStore(store.db_path)
+                        tasks_store = TasksStore()
                         existing_task = tasks_store.get_task_by_execution_id(
                             execution_id
                         )
@@ -1018,7 +1018,7 @@ class PlaybookRunExecutor:
 
         execution_id = str(uuid.uuid4())
         store = MindscapeStore()
-        tasks_store = TasksStore(store.db_path)
+        tasks_store = TasksStore()
         total_steps = (
             len(playbook_run.playbook_json.steps)
             if playbook_run.playbook_json.steps

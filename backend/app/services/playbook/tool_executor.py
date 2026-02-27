@@ -430,7 +430,7 @@ Please retry the tool call."""
         if effective_workspace_id:
             try:
                 # Get runtime profile (create default if not exists, like GET API)
-                profile_store = WorkspaceRuntimeProfileStore(db_path=self.store.db_path)
+                profile_store = WorkspaceRuntimeProfileStore()
                 runtime_profile = await profile_store.get_runtime_profile(
                     effective_workspace_id
                 )
@@ -448,9 +448,11 @@ Please retry the tool call."""
                 tool_registry = ToolRegistryService(db_path=self.store.db_path)
 
                 # Get event store for event recording
-                from backend.app.services.stores.events_store import EventsStore
+                from backend.app.services.stores.postgres.events_store import (
+                    PostgresEventsStore,
+                )
 
-                event_store = EventsStore(db_path=self.store.db_path)
+                event_store = PostgresEventsStore()
 
                 # Check policy (always check, even with default profile)
                 policy_guard = PolicyGuard(
@@ -1077,7 +1079,7 @@ Please retry the tool call."""
 
         if effective_workspace_id:
             try:
-                profile_store = WorkspaceRuntimeProfileStore(db_path=self.store.db_path)
+                profile_store = WorkspaceRuntimeProfileStore()
                 runtime_profile = await profile_store.get_runtime_profile(
                     effective_workspace_id
                 )

@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 class ParameterRequirement(Enum):
     """Parameter requirement level"""
+
     REQUIRED = "required"
     OPTIONAL = "optional"
     INJECTED = "injected"  # Automatically injected from context
@@ -33,11 +34,14 @@ class ParameterRequirement(Enum):
 @dataclass
 class ParameterDefinition:
     """Definition of a single parameter"""
+
     name: str
     requirement: ParameterRequirement
     description: Optional[str] = None
     default_value: Any = None
-    source: Optional[str] = None  # Where to get this parameter (e.g., 'context.workspace_id')
+    source: Optional[str] = (
+        None  # Where to get this parameter (e.g., 'context.workspace_id')
+    )
     param_type: Optional[str] = None  # Parameter type hint (e.g., 'str', 'int', 'dict')
 
 
@@ -50,6 +54,7 @@ class ToolContract:
     Contracts should be loaded from external sources (e.g., manifest.yaml),
     not hardcoded here.
     """
+
     tool_name: str
     capability: Optional[str] = None
     parameters: Dict[str, ParameterDefinition] = field(default_factory=dict)
@@ -58,7 +63,8 @@ class ToolContract:
     def get_required_parameters(self) -> Set[str]:
         """Get set of required parameter names"""
         return {
-            name for name, param in self.parameters.items()
+            name
+            for name, param in self.parameters.items()
             if param.requirement == ParameterRequirement.REQUIRED
         }
 
@@ -99,11 +105,7 @@ class ContractRegistry:
         self._contracts[key] = contract
         logger.debug(f"Registered contract for {contract.tool_name}")
 
-    def load_contracts_from_manifest(
-        self,
-        manifest_path: Path,
-        capability_code: str
-    ):
+    def load_contracts_from_manifest(self, manifest_path: Path, capability_code: str):
         """
         Load contracts from capability manifest.yaml
 
@@ -113,33 +115,36 @@ class ContractRegistry:
         """
         try:
             import yaml
-            with open(manifest_path, 'r', encoding='utf-8') as f:
+
+            with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest = yaml.safe_load(f)
 
+            # Resolve external schema_path references in tool definitions
+            from backend.app.services.manifest_utils import resolve_tool_schema_paths
+
+            resolve_tool_schema_paths(manifest, manifest_path.parent)
+
             # Load tool contracts from manifest
-            tools = manifest.get('tools', [])
+            tools = manifest.get("tools", [])
             for tool in tools:
-                tool_name = tool.get('name')
+                tool_name = tool.get("name")
                 if not tool_name:
                     continue
 
                 full_tool_name = f"{capability_code}.{tool_name}"
                 contract = self._create_contract_from_tool_def(
-                    full_tool_name,
-                    capability_code,
-                    tool
+                    full_tool_name, capability_code, tool
                 )
                 if contract:
                     self.register_contract(contract)
 
         except Exception as e:
-            logger.warning(f"Failed to load contracts from manifest {manifest_path}: {e}")
+            logger.warning(
+                f"Failed to load contracts from manifest {manifest_path}: {e}"
+            )
 
     def _create_contract_from_tool_def(
-        self,
-        tool_name: str,
-        capability: str,
-        tool_def: Dict[str, Any]
+        self, tool_name: str, capability: str, tool_def: Dict[str, Any]
     ) -> Optional[ToolContract]:
         """
         Create contract from tool definition in manifest
@@ -157,39 +162,37 @@ class ContractRegistry:
         parameters = {}
 
         # If tool has parameter schema defined, parse it
-        param_schema = tool_def.get('parameters', {})
+        param_schema = tool_def.get("parameters", {})
         if isinstance(param_schema, dict):
             for param_name, param_info in param_schema.items():
                 if isinstance(param_info, dict):
                     requirement = ParameterRequirement.OPTIONAL
-                    if param_info.get('required', False):
+                    if param_info.get("required", False):
                         requirement = ParameterRequirement.REQUIRED
-                    elif param_info.get('injected', False):
+                    elif param_info.get("injected", False):
                         requirement = ParameterRequirement.INJECTED
 
                     parameters[param_name] = ParameterDefinition(
                         name=param_name,
                         requirement=requirement,
-                        description=param_info.get('description'),
-                        default_value=param_info.get('default'),
-                        source=param_info.get('source'),  # e.g., 'context.workspace_id'
-                        param_type=param_info.get('type')
+                        description=param_info.get("description"),
+                        default_value=param_info.get("default"),
+                        source=param_info.get("source"),  # e.g., 'context.workspace_id'
+                        param_type=param_info.get("type"),
                     )
 
         if not parameters:
             return None
 
         return ToolContract(
-            tool_name=tool_name,
-            capability=capability,
-            parameters=parameters
+            tool_name=tool_name, capability=capability, parameters=parameters
         )
 
     def get_contract(
         self,
         tool_name: str,
         capability: Optional[str] = None,
-        tool: Optional[str] = None
+        tool: Optional[str] = None,
     ) -> Optional[ToolContract]:
         """
         Get contract for a tool

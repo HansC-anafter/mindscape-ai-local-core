@@ -440,7 +440,7 @@ class FlowExecutor:
             from backend.app.services.stores.tasks_store import TasksStore
             from backend.app.services.project.project_sandbox_manager import ProjectSandboxManager
 
-            tasks_store = TasksStore(db_path=self.store.db_path)
+            tasks_store = TasksStore()
             task = tasks_store.get_task_by_execution_id(execution_id)
 
             if not task:

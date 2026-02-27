@@ -18,7 +18,7 @@ def _utc_now():
 import uuid
 from backend.app.models.project import ProjectPhase
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.stores.project_phases_store import ProjectPhasesStore
+from backend.app.services.stores.postgres.project_phases_store import PostgresProjectPhasesStore
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class ProjectPhaseManager:
 
     def __init__(self, store: MindscapeStore):
         self.store = store
-        self.phases_store = ProjectPhasesStore(db_path=store.db_path)
+        self.phases_store = PostgresProjectPhasesStore()
 
     async def create_phase(
         self,

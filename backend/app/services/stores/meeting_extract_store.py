@@ -57,6 +57,12 @@ INDEX_DDL = [
 ]
 
 
+class TableMissingError(RuntimeError):
+    """Raised when a required Alembic-managed table is missing."""
+
+    pass
+
+
 class MeetingExtractStore(PostgresStoreBase):
     """Store for MeetingExtract + items persistence (Postgres)."""
 
@@ -65,17 +71,39 @@ class MeetingExtractStore(PostgresStoreBase):
     def __init__(self, db_role: str = "core"):
         super().__init__(db_role=db_role)
         if not MeetingExtractStore._table_ensured:
-            self.ensure_table()
-            MeetingExtractStore._table_ensured = True
+            try:
+                self.ensure_table()
+                MeetingExtractStore._table_ensured = True
+            except TableMissingError:
+                raise  # Table missing is fatal
+            except Exception as exc:
+                logger.warning("ensure_table non-fatal error: %s", exc)
 
     def ensure_table(self) -> None:
-        """Create tables if they do not exist."""
-        with self.transaction() as conn:
-            conn.execute(text(TABLE_DDL))
-            conn.execute(text(ITEMS_TABLE_DDL))
-            for idx in INDEX_DDL:
-                conn.execute(text(idx))
-        logger.info("meeting_extracts + meeting_extract_items tables ensured")
+        """Verify all managed tables exist (created by Alembic migrations).
+
+        NOTE: Tables are managed by Alembic. This method only verifies
+        existence and raises TableMissingError if missing, instead of
+        creating them with potentially stale DDL.
+        """
+        required_tables = ["meeting_extracts", "meeting_extract_items"]
+        with self.get_connection() as conn:
+            for table_name in required_tables:
+                result = conn.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.tables "
+                        "WHERE table_schema = 'public' AND table_name = :tbl"
+                    ),
+                    {"tbl": table_name},
+                )
+                if not result.fetchone():
+                    msg = (
+                        f"{table_name} table missing! "
+                        f"Run: alembic -c alembic.postgres.ini upgrade heads"
+                    )
+                    logger.error(msg)
+                    raise TableMissingError(msg)
+        logger.info("meeting_extracts + meeting_extract_items tables verified")
 
     # ============== Write ==============
 

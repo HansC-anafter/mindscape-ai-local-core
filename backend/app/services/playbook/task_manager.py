@@ -24,7 +24,7 @@ class PlaybookTaskManager:
 
     def __init__(self, store: Any):
         self.store = store
-        self.tasks_store = TasksStore(db_path=store.db_path)
+        self.tasks_store = TasksStore()
 
     def create_execution_task(
         self,

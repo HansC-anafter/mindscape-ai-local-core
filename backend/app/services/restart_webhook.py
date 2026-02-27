@@ -39,6 +39,7 @@ class RestartWebhookService:
         validation_passed: bool,
         version: str = "1.0.0",
         extra_data: Optional[Dict[str, Any]] = None,
+        service: str = "backend",
     ) -> Dict[str, Any]:
         """
         Request backend restart via Device Node shell capability.
@@ -61,6 +62,8 @@ class RestartWebhookService:
             logger.warning(f"Restart skipped for {capability_code}: validation failed")
             return {"sent": False, "reason": "validation_failed"}
 
+        service_name = (service or "backend").strip().lower() or "backend"
+
         # MCP tool call format for Device Node
         mcp_request = {
             "jsonrpc": "2.0",
@@ -70,7 +73,7 @@ class RestartWebhookService:
                 "name": "shell_execute",
                 "arguments": {
                     "command": "docker",
-                    "args": ["compose", "restart", "backend"],
+                    "args": ["compose", "restart", service_name],
                     "cwd": self.project_root,
                     "capability": "docker_admin",
                 },
@@ -95,11 +98,12 @@ class RestartWebhookService:
             if response.status_code >= 200 and response.status_code < 300:
                 if result.get("result", {}).get("success", False):
                     logger.info(
-                        f"Backend restart triggered via Device Node for {capability_code}"
+                        f"Service restart triggered via Device Node for {capability_code} ({service_name})"
                     )
                     return {
                         "sent": True,
                         "method": "device_node",
+                        "service": service_name,
                         "capability": capability_code,
                         "result": result.get("result"),
                     }
@@ -109,6 +113,7 @@ class RestartWebhookService:
                     return {
                         "sent": False,
                         "reason": "device_node_error",
+                        "service": service_name,
                         "error": error,
                     }
             else:
@@ -116,22 +121,29 @@ class RestartWebhookService:
                 return {
                     "sent": False,
                     "reason": "http_error",
+                    "service": service_name,
                     "status_code": response.status_code,
                 }
 
         except httpx.TimeoutException:
             logger.error(f"Device Node timeout for {capability_code}")
-            return {"sent": False, "reason": "timeout"}
+            return {"sent": False, "reason": "timeout", "service": service_name}
         except httpx.ConnectError:
             logger.warning("Device Node not reachable - is it running on host?")
             return {
                 "sent": False,
                 "reason": "device_node_unreachable",
+                "service": service_name,
                 "hint": "Start Device Node on host with: cd device-node && npm run dev",
             }
         except Exception as e:
             logger.error(f"Device Node error: {e}")
-            return {"sent": False, "reason": "error", "error": str(e)}
+            return {
+                "sent": False,
+                "reason": "error",
+                "service": service_name,
+                "error": str(e),
+            }
 
 
 # Singleton instance

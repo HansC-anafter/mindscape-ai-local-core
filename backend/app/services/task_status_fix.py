@@ -14,7 +14,7 @@ def _utc_now():
     return datetime.now(timezone.utc)
 from typing import List, Dict, Any, Optional
 from backend.app.services.stores.tasks_store import TasksStore
-from backend.app.services.stores.timeline_items_store import TimelineItemsStore
+from backend.app.services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.models.workspace import Task, TaskStatus
 from backend.app.services.conversation.task_manager import TaskManager
@@ -35,8 +35,8 @@ class TaskStatusFixService:
             store: MindscapeStore instance (optional, will create if not provided)
         """
         self.store = store or MindscapeStore()
-        self.tasks_store = TasksStore(self.store.db_path)
-        self.timeline_items_store = TimelineItemsStore(self.store.db_path)
+        self.tasks_store = TasksStore()
+        self.timeline_items_store = PostgresTimelineItemsStore()
 
         plan_builder = PlanBuilder(
             store=self.store,

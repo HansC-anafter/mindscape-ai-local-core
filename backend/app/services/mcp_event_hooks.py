@@ -461,7 +461,9 @@ class MCPEventHookService:
         try:
             from ..services.conversation.intent_extractor import IntentExtractor
             from ..services.mindscape_store import MindscapeStore
-            from ..services.stores.timeline_items_store import TimelineItemsStore
+            from ..services.stores.postgres.timeline_items_store import (
+                PostgresTimelineItemsStore,
+            )
             from ..adapters.local.local_intent_registry_adapter import (
                 LocalIntentRegistryAdapter,
             )
@@ -469,7 +471,7 @@ class MCPEventHookService:
             store = self.store or MindscapeStore()
             extractor = IntentExtractor(
                 store=store,
-                timeline_items_store=TimelineItemsStore(),
+                timeline_items_store=PostgresTimelineItemsStore(),
                 intent_registry=LocalIntentRegistryAdapter(),
             )
 

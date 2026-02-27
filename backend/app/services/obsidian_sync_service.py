@@ -4,6 +4,7 @@ Obsidian Sync Service
 Background service for scanning Obsidian vaults and creating events.
 Integrates with event system and embedding pipeline.
 """
+
 import asyncio
 import logging
 from typing import Dict, Any, Optional
@@ -12,7 +13,7 @@ import uuid
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
 from backend.app.services.obsidian_scanner import ObsidianScanner
-from backend.app.services.stores.events_store import EventsStore
+from backend.app.services.stores.postgres.events_store import PostgresEventsStore
 from backend.app.services.system_settings_store import SystemSettingsStore
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ class ObsidianSyncService:
     """
 
     def __init__(self):
-        self.events_store = EventsStore()
+        self.events_store = PostgresEventsStore()
         self.settings_store = SystemSettingsStore()
         self.scanners: Dict[str, ObsidianScanner] = {}
         self._running = False
@@ -35,7 +36,12 @@ class ObsidianSyncService:
             setting = self.settings_store.get_setting("obsidian_config")
             if setting:
                 import json
-                config = json.loads(setting.value) if isinstance(setting.value, str) else setting.value
+
+                config = (
+                    json.loads(setting.value)
+                    if isinstance(setting.value, str)
+                    else setting.value
+                )
                 if config.get("enabled", False):
                     return config
             return None
@@ -61,7 +67,7 @@ class ObsidianSyncService:
                     vault_path=vault_path,
                     include_folders=include_folders,
                     exclude_folders=exclude_folders,
-                    include_tags=include_tags
+                    include_tags=include_tags,
                 )
                 scanners[vault_path] = scanner
             except Exception as e:
@@ -83,18 +89,19 @@ class ObsidianSyncService:
                 events = scanner.scan_vault()
 
                 for event_data in events:
-                    await self._create_event_from_scan(event_data, profile_id, vault_path)
+                    await self._create_event_from_scan(
+                        event_data, profile_id, vault_path
+                    )
 
                 if events:
-                    logger.info(f"Synced {len(events)} note changes from vault {vault_path}")
+                    logger.info(
+                        f"Synced {len(events)} note changes from vault {vault_path}"
+                    )
             except Exception as e:
                 logger.error(f"Error syncing vault {vault_path}: {e}")
 
     async def _create_event_from_scan(
-        self,
-        event_data: Dict[str, Any],
-        profile_id: str,
-        vault_path: str
+        self, event_data: Dict[str, Any], profile_id: str, vault_path: str
     ):
         """Create MindEvent from scanner event data"""
         try:
@@ -113,13 +120,13 @@ class ObsidianSyncService:
                     "body": event_data.get("content", ""),
                     "tags": event_data.get("tags", []),
                     "hash": event_data.get("hash"),
-                    "is_new": event_data.get("is_new", False)
+                    "is_new": event_data.get("is_new", False),
                 },
                 metadata={
                     "should_embed": event_data.get("should_embed", False),
                     "source": "obsidian_vault",
-                    "vault_path": vault_path
-                }
+                    "vault_path": vault_path,
+                },
             )
 
             should_embed = event_data.get("should_embed", False)
@@ -140,7 +147,9 @@ class ObsidianSyncService:
             return
 
         self._running = True
-        logger.info(f"Starting Obsidian background sync (interval: {interval_seconds}s)")
+        logger.info(
+            f"Starting Obsidian background sync (interval: {interval_seconds}s)"
+        )
 
         while self._running:
             try:
@@ -154,7 +163,3 @@ class ObsidianSyncService:
         """Stop background sync task"""
         self._running = False
         logger.info("Stopped Obsidian background sync")
-
-
-
-

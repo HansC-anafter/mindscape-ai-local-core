@@ -311,7 +311,7 @@ class SimpleRuntime(RuntimePort):
         if self.store:
             try:
                 from backend.app.services.stores.tasks_store import TasksStore
-                tasks_store = TasksStore(self.store.db_path)
+                tasks_store = TasksStore()
                 task = tasks_store.get_task(execution_id)
                 if task:
                     status = "completed" if task.status.value == "succeeded" else "failed" if task.status.value == "failed" else "running"
