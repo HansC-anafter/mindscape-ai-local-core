@@ -157,6 +157,7 @@ class PipelineCore:
                     thread_id,
                     self.session_store,
                     project_id,
+                    user_message=message,
                 )
                 if session:
                     result.meeting_session_id = session.id
@@ -236,8 +237,8 @@ class PipelineCore:
             from backend.features.workspace.chat.streaming.context_builder import (
                 build_streaming_context,
             )
-            from backend.app.services.stores.timeline_items_store import (
-                TimelineItemsStore,
+            from backend.app.services.stores.postgres.timeline_items_store import (
+                PostgresTimelineItemsStore,
             )
 
             timeline_items_store = PostgresTimelineItemsStore()

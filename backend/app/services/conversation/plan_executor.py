@@ -128,16 +128,11 @@ class PlanExecutor:
         runtime_profile = None
         if workspace:
             try:
-                # Get db_path from tasks_store (which has db_path attribute)
-                db_path = getattr(self.tasks_store, "db_path", None)
-                if db_path:
-                    profile_store = WorkspaceRuntimeProfileStore(db_path=db_path)
-                    runtime_profile = await profile_store.get_runtime_profile(
-                        workspace.id
-                    )
-                    # Ensure Phase 2 fields are initialized
-                    if runtime_profile:
-                        runtime_profile.ensure_phase2_fields()
+                profile_store = WorkspaceRuntimeProfileStore()
+                runtime_profile = await profile_store.get_runtime_profile(workspace.id)
+                # Ensure Phase 2 fields are initialized
+                if runtime_profile:
+                    runtime_profile.ensure_phase2_fields()
             except Exception as e:
                 logger.debug(f"Failed to load runtime profile: {e}")
 
@@ -216,10 +211,12 @@ class PlanExecutor:
                         raise ValueError(f"Invalid topology configuration: {e}")
 
                     # Get event store for event recording
-                    from backend.app.services.stores.events_store import EventsStore
+                    from backend.app.services.stores.postgres.events_store import (
+                        PostgresEventsStore,
+                    )
 
                     db_path = getattr(self.tasks_store, "db_path", None)
-                    event_store = EventsStore(db_path=db_path) if db_path else None
+                    event_store = PostgresEventsStore()
 
                     # Initialize MultiAgentOrchestrator (execution_id will be set later when available)
                     multi_agent_orchestrator = MultiAgentOrchestrator(
@@ -635,10 +632,12 @@ class PlanExecutor:
                             changed_files.extend(executed_task["changed_files"])
 
                     # Get event store for event recording
-                    from backend.app.services.stores.events_store import EventsStore
+                    from backend.app.services.stores.postgres.events_store import (
+                        PostgresEventsStore,
+                    )
 
                     db_path = getattr(self.tasks_store, "db_path", None)
-                    event_store = EventsStore(db_path=db_path) if db_path else None
+                    event_store = PostgresEventsStore()
 
                     # Use primary execution_id (from first task launch) for event association
                     # This ensures quality gate events are properly associated with the execution

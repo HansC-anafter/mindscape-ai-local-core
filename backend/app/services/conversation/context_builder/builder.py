@@ -323,7 +323,7 @@ class ContextBuilder:
                 from backend.app.services.stores.tasks_store import TasksStore
                 from backend.app.models.workspace import TaskStatus
 
-                tasks_store = TasksStore(self.store.db_path)
+                tasks_store = TasksStore()
 
                 if thread_id:
                     pending_tasks = tasks_store.list_pending_tasks_by_thread(
@@ -783,7 +783,7 @@ class ContextBuilder:
                 from backend.app.services.stores.tasks_store import TasksStore
                 from backend.app.models.workspace import TaskStatus
 
-                tasks_store = TasksStore(self.store.db_path)
+                tasks_store = TasksStore()
 
                 if thread_id:
                     running_tasks = tasks_store.list_running_tasks_by_thread(

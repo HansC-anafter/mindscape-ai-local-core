@@ -17,6 +17,7 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 from ...models.workspace import TimelineItem, TimelineItemType
 from ...models.mindscape import IntentTag, IntentTagStatus, IntentSource
 from ...services.mindscape_store import MindscapeStore
@@ -65,7 +66,7 @@ class IntentExtractor:
         self.i18n = get_i18n_service(default_locale=default_locale)
 
         self.intent_registry = intent_registry
-        self.intent_tags_store = IntentTagsStore(db_path=store.db_path)
+        self.intent_tags_store = IntentTagsStore()
 
         # Get model name from system settings - must be configured by user
         from ...services.system_settings_store import SystemSettingsStore
@@ -260,9 +261,11 @@ class IntentExtractor:
 
             # Check if should auto-execute based on workspace config
             # Similar to task auto-execution mechanism
-            from ...services.stores.workspaces_store import WorkspacesStore
+            from ...services.stores.postgres.workspaces_store import (
+                PostgresWorkspacesStore,
+            )
 
-            workspaces_store = WorkspacesStore(self.store.db_path)
+            workspaces_store = PostgresWorkspacesStore()
             workspace = await workspaces_store.get_workspace(ctx.workspace_id)
 
             auto_exec_config = (
@@ -300,7 +303,7 @@ class IntentExtractor:
                 from ...models.workspace import Task, TaskStatus
                 from ...services.stores.tasks_store import TasksStore
 
-                tasks_store = TasksStore(self.store.db_path)
+                tasks_store = TasksStore()
 
                 # Count candidate IntentTags created (not IntentCards)
                 intents_created = len(intent_tag_ids)
@@ -390,7 +393,7 @@ class IntentExtractor:
                 from ...models.workspace import Task, TaskStatus
                 from ...services.stores.tasks_store import TasksStore
 
-                tasks_store = TasksStore(self.store.db_path)
+                tasks_store = TasksStore()
 
                 # Create suggestion task
                 suggestion_task = Task(

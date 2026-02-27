@@ -27,7 +27,7 @@ def _utc_now():
 
 from backend.app.models.mindscape import IntentCard, IntentStatus, PriorityLevel
 from backend.app.models.workspace import TaskStatus, TimelineItem, TimelineItemType
-from backend.app.services.stores.timeline_items_store import TimelineItemsStore
+from backend.app.services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.i18n_service import get_i18n_service
 from backend.app.core.domain_context import LocalDomainContext
@@ -65,7 +65,7 @@ class IntentInfraService:
         self.store = store
         self.default_locale = default_locale
         self.semantic_backend = semantic_backend
-        self.timeline_items_store = TimelineItemsStore(store.db_path)
+        self.timeline_items_store = PostgresTimelineItemsStore()
         self.i18n = get_i18n_service(default_locale=default_locale)
 
     async def handle_extraction_task(

@@ -129,7 +129,7 @@ class ExecutionContextBuilder:
         try:
             from ...services.stores.intent_tags_store import IntentTagsStore
 
-            intent_tags_store = IntentTagsStore(db_path=self.store.db_path)
+            intent_tags_store = IntentTagsStore()
             intent_tag = intent_tags_store.get_intent_tag(
                 playbook_context["confirmed_intent_id"]
             )

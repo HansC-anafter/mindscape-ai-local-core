@@ -34,7 +34,7 @@ class SuggestionGenerator:
         from backend.app.services.i18n_service import get_i18n_service
         self.i18n = get_i18n_service(default_locale=default_locale)
         from backend.app.services.config_store import ConfigStore
-        self.config_store = ConfigStore(db_path=self.store.db_path)
+        self.config_store = ConfigStore()
 
     async def generate_suggestions(
         self,

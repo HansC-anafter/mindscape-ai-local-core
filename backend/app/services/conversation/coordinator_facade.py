@@ -136,7 +136,7 @@ class CoordinatorFacade:
         from ...services.config_store import ConfigStore
         from ...services.playbook_run_executor import PlaybookRunExecutor
 
-        self.config_store = ConfigStore(db_path=store.db_path)
+        self.config_store = ConfigStore()
         self.playbook_run_executor = PlaybookRunExecutor()
 
         # Initialize coordination modules

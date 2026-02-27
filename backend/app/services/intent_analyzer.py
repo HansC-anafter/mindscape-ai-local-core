@@ -435,7 +435,7 @@ Return only valid JSON or null.
         """
         from backend.app.services.stores.tasks_store import TasksStore
 
-        tasks_store = TasksStore(self.store.db_path)
+        tasks_store = TasksStore()
 
         pending_tasks = tasks_store.list_pending_tasks(workspace_id)
         running_tasks = tasks_store.list_running_tasks(workspace_id)
