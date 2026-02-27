@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useT } from '@/lib/i18n';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
+import { toTimestampMs } from '@/lib/time';
 import { useExecutionCore } from './hooks/useExecutionCore';
 import { useExecutionSteps } from './hooks/useExecutionSteps';
 import { usePlaybookMetadata } from './hooks/usePlaybookMetadata';
@@ -176,8 +177,8 @@ export default function ExecutionInspector({
   const latestArtifact = useMemo(() => {
     if (artifacts.length === 0) return undefined;
     const sorted = [...artifacts].sort((a, b) => {
-      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      const timeA = toTimestampMs(a.createdAt) ?? 0;
+      const timeB = toTimestampMs(b.createdAt) ?? 0;
       return timeB - timeA;
     });
     return sorted[0];

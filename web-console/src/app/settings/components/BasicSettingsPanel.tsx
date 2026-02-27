@@ -72,7 +72,11 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
 
     switch (activeSection) {
       case 'models-and-quota':
+      case 'api-quota':
+      case 'embedding':
+      case 'llm-chat':
         return <ModelsAndQuotaPanel />;
+
       case 'backend-mode':
         return (
           <div className="space-y-6">
@@ -120,60 +124,6 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
             )}
           </div>
         );
-
-      case 'api-quota':
-        if (loading) {
-          return (
-            <div className="text-center py-4 text-sm text-secondary">{t('loading' as any)}</div>
-          );
-        }
-        if (mode !== 'local') {
-          return (
-            <div className="text-sm text-secondary dark:text-gray-400">
-              {t('apiAndQuota' as any) || 'API 與配額'} {t('availableInLocalMode' as any) || 'is only available in local mode'}
-            </div>
-          );
-        }
-        return (
-          <div className="space-y-6">
-            <APIAndQuotaSettings
-              config={config}
-              openaiKey={openaiKey}
-              anthropicKey={anthropicKey}
-              onOpenaiKeyChange={setOpenaiKey}
-              onAnthropicKeyChange={setAnthropicKey}
-            />
-          </div>
-        );
-
-      case 'embedding':
-        if (mode !== 'local') {
-          return (
-            <div className="text-sm text-secondary dark:text-gray-400">
-              {t('embeddingModel' as any)} {t('availableInLocalMode' as any) || 'is only available in local mode'}
-            </div>
-          );
-        }
-        return (
-          <div className="space-y-6">
-            <EmbeddingSettings />
-          </div>
-        );
-
-      case 'llm-chat':
-        if (mode !== 'local') {
-          return (
-            <div className="text-sm text-secondary dark:text-gray-400">
-              {t('llmChatModel' as any) || 'LLM 推理與對話'} {t('availableInLocalMode' as any) || 'is only available in local mode'}
-            </div>
-          );
-        }
-        return (
-          <div className="space-y-6">
-            <LLMChatSettings />
-          </div>
-        );
-
 
       case 'oauth':
         return (
@@ -237,13 +187,13 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
         {sectionContent}
 
         <div className="flex justify-end border-t dark:border-gray-700 pt-4 mt-6">
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50"
-            >
-              {saving ? t('saving' as any) : t('save' as any)}
-            </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50"
+          >
+            {saving ? t('saving' as any) : t('save' as any)}
+          </button>
         </div>
       </form>
     </Card>

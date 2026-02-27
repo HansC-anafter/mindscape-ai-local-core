@@ -153,7 +153,11 @@ export function useChatEvents(
             (e.event_type === 'pipeline_stage' ? `${e.payload?.message || e.payload?.stage || 'Processing...'}` : '') ||
             (e.event_type === 'playbook_step' ? `Playbook step: ${e.payload?.step || ''}` : '') ||
             (e.event_type === 'tool_call' ? `Tool: ${e.payload?.tool_fqn || ''}` : ''),
-          timestamp: new Date(e.timestamp),
+          timestamp: new Date(
+            e.timestamp && !e.timestamp.endsWith('Z') && !e.timestamp.includes('+')
+              ? e.timestamp + 'Z'
+              : e.timestamp
+          ),
           event_type: e.event_type,
           is_welcome: e.payload?.is_welcome === true,
           suggestions: e.payload?.suggestions || [],
@@ -273,6 +277,10 @@ export function useChatEvents(
       inFlightRef.current = false;
     }
   }, [workspaceId, apiUrl, threadId, enabled]);
+
+
+  // NOTE: Real-time SSE streaming is handled by useMessageStream hook,
+  // which is integrated via MessagesContext. No need for SSE here.
 
   // Load events when threadId or enabled changes
   // Note: If threadId is null/undefined, backend will use default thread

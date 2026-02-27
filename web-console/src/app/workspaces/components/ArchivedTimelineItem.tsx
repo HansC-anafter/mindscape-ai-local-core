@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { t } from '@/lib/i18n';
+import { parseServerTimestamp } from '@/lib/time';
 
 interface ExecutionSession {
   execution_id: string;
@@ -67,7 +68,8 @@ export default function ArchivedTimelineItem({
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
+    const date = parseServerTimestamp(dateString);
+    if (!date) return 'N/A';
     // Convert UTC to local timezone explicitly
     return date.toLocaleString('zh-TW', {
       month: 'short',
@@ -81,9 +83,8 @@ export default function ArchivedTimelineItem({
 
   return (
     <div
-      className={`bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-1.5 opacity-60 hover:opacity-80 transition-all duration-200 cursor-pointer ${
-        isExpanded ? 'opacity-90' : ''
-      }`}
+      className={`bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-1.5 opacity-60 hover:opacity-80 transition-all duration-200 cursor-pointer ${isExpanded ? 'opacity-90' : ''
+        }`}
       onClick={handleClick}
     >
       {/* Compact Header */}
@@ -101,9 +102,8 @@ export default function ArchivedTimelineItem({
         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
           {getStatusBadge()}
           <svg
-            className={`w-3 h-3 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${
-              isExpanded ? 'rotate-180' : ''
-            }`}
+            className={`w-3 h-3 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''
+              }`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"

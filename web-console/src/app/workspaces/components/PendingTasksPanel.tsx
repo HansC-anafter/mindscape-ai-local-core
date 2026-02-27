@@ -7,6 +7,7 @@ import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { getPlaybookMetadata } from '@/lib/i18n/locales/playbooks';
 import { playbookMetadataZhTW } from '@/lib/i18n/locales/playbooks/metadata/zh-TW';
 import { getApiBaseUrl } from '../../../lib/api-url';
+import { parseServerTimestamp, toTimestampMs } from '@/lib/time';
 
 // Component for displaying and editing AI-inferred intent label
 function PlaybookIntentSubtitle({
@@ -324,11 +325,8 @@ export default function PendingTasksPanel({
       if (task.status?.toUpperCase() !== 'SUCCEEDED') return false;
       const completedAt = task.completed_at || task.updated_at || task.created_at;
       if (!completedAt) return false;
-      // Backend returns UTC time without timezone indicator, parse as UTC
-      const completedTimeStr = completedAt.includes('Z') || completedAt.includes('+') || completedAt.includes('-', 11)
-        ? completedAt
-        : completedAt + 'Z';
-      const completedTime = new Date(completedTimeStr).getTime();
+      const completedTime = toTimestampMs(completedAt);
+      if (completedTime === null) return false;
       const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
       return completedTime > fiveMinutesAgo;
     });
@@ -487,11 +485,8 @@ export default function PendingTasksPanel({
           if (task.status?.toUpperCase() !== 'SUCCEEDED') return false;
           const completedAt = task.completed_at || task.updated_at || task.created_at;
           if (!completedAt) return false;
-          // Backend returns UTC time without timezone indicator, parse as UTC
-          const completedTimeStr = completedAt.includes('Z') || completedAt.includes('+') || completedAt.includes('-', 11)
-            ? completedAt
-            : completedAt + 'Z';
-          const completedTime = new Date(completedTimeStr).getTime();
+          const completedTime = toTimestampMs(completedAt);
+          if (completedTime === null) return false;
           const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
           return completedTime > fiveMinutesAgo;
         });
@@ -566,21 +561,13 @@ export default function PendingTasksPanel({
   };
 
   const formatTime = (timestamp: string) => {
-    try {
-      // Backend returns UTC time without timezone indicator, parse as UTC
-      const timeStr = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 11)
-        ? timestamp
-        : timestamp + 'Z';
-      const date = new Date(timeStr);
-      // Use same format as MessageItem (main chat window)
-      return date.toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
-    } catch {
-      return '';
-    }
+    const date = parseServerTimestamp(timestamp);
+    if (!date) return '';
+    return date.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
   };
 
   // Always show panel, even when no tasks (for visibility)

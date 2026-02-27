@@ -1,0 +1,20 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "overrides": [
+    {
+      "files": [
+        "src/app/capabilities/**/*.{ts,tsx}",
+        "src/components/execution/**/*.{ts,tsx}"
+      ],
+      "rules": {
+        "no-restricted-syntax": [
+          "warn",
+          {
+            "selector": "NewExpression[callee.name='Date'][arguments.length=1]",
+            "message": "Use parseServerTimestamp() from '@/lib/time' for server-side timestamps."
+          }
+        ]
+      }
+    }
+  ]
+}

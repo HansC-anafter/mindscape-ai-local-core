@@ -5,6 +5,7 @@ import { useT } from '@/lib/i18n';
 import { MessageItem } from '@/components/MessageItem';
 import { ChatMessage } from '@/hooks/useChatEvents';
 import { useExecutionStream } from '@/hooks/useExecutionStream';
+import { parseServerTimestamp, toTimestampMs } from '@/lib/time';
 
 interface ExecutionChatMessage {
   id: string;
@@ -263,8 +264,8 @@ export default function ExecutionChatPanel({
             if (m.id === newMessage.id) return true;
             // For user messages, also check by content and timestamp to avoid duplicates
             if (m.role === 'user' && newMessage.role === 'user' &&
-                m.content === newMessage.content &&
-                Math.abs(new Date(m.created_at).getTime() - new Date(newMessage.created_at).getTime()) < 5000) {
+              m.content === newMessage.content &&
+              Math.abs((toTimestampMs(m.created_at) ?? 0) - (toTimestampMs(newMessage.created_at) ?? 0)) < 5000) {
               return true;
             }
             return false;
@@ -283,8 +284,8 @@ export default function ExecutionChatPanel({
               }
               // Also update user message if content matches (SSE returned the same user message)
               if (m.role === 'user' && newMessage.role === 'user' &&
-                  m.content === newMessage.content &&
-                  Math.abs(new Date(m.created_at).getTime() - new Date(newMessage.created_at).getTime()) < 5000) {
+                m.content === newMessage.content &&
+                Math.abs((toTimestampMs(m.created_at) ?? 0) - (toTimestampMs(newMessage.created_at) ?? 0)) < 5000) {
                 // Use the server's version which has the correct id
                 return newMessage;
               }
@@ -300,7 +301,7 @@ export default function ExecutionChatPanel({
           } else {
             // Add new message (from SSE)
             const updated = [...prev, newMessage].sort((a, b) =>
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              (toTimestampMs(a.created_at) ?? 0) - (toTimestampMs(b.created_at) ?? 0)
             );
             // Remove thinking state when real message arrives
             if (newMessage.role === 'assistant' && thinkingMessageIdRef.current) {
@@ -481,7 +482,7 @@ export default function ExecutionChatPanel({
 
           setMessages(prev => {
             const updated = [...prev, thinkingMessage].sort((a, b) =>
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              (toTimestampMs(a.created_at) ?? 0) - (toTimestampMs(b.created_at) ?? 0)
             );
             return updated;
           });
@@ -502,7 +503,7 @@ export default function ExecutionChatPanel({
 
           setMessages(prev => {
             const updated = [...prev, thinkingMessage].sort((a, b) =>
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              (toTimestampMs(a.created_at) ?? 0) - (toTimestampMs(b.created_at) ?? 0)
             );
             return updated;
           });
@@ -537,7 +538,7 @@ export default function ExecutionChatPanel({
       id: msg.id,
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content,
-      timestamp: new Date(msg.created_at),
+      timestamp: parseServerTimestamp(msg.created_at) ?? new Date(),
     };
   };
 
@@ -622,77 +623,76 @@ export default function ExecutionChatPanel({
           onScroll={handleScroll}
           className="h-full overflow-y-auto px-4 pt-4"
         >
-        {(() => {
-          return isLoading ? (
-            <div className="flex justify-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 dark:border-blue-500"></div>
-            </div>
-          ) : messages.length === 0 ? (
-          <div className="py-6">
-            <div className="text-center mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                {needsContinue
-                  ? t('playbookWaitingForResponse' as any) || 'Playbook 正在等待您的回應'
-                  : t('askPlaybookInspector' as any)}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {needsContinue
-                  ? t('sendMessageToContinue' as any) || '發送消息將繼續執行下一步。'
-                  : t('itKnowsStepsEventsErrors' as any)}
-              </p>
-            </div>
-            <div className="space-y-2">
-              {quickPrompts.map((quickPrompt, idx) => {
-                const isFirstAndFailed = idx === 0 && executionStatus === 'failed';
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => handleQuickPrompt(quickPrompt.prompt)}
-                    className={`w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 bg-surface-accent dark:bg-gray-800 border border-default dark:border-gray-700 rounded-md hover:bg-tertiary dark:hover:bg-gray-700 hover:border-default dark:hover:border-gray-600 transition-colors ${
-                      isFirstAndFailed ? 'ring-2 ring-accent/30 dark:ring-blue-800 border-accent/30 dark:border-blue-700 bg-accent-10 dark:bg-blue-900/20' : ''
-                    }`}
-                  >
-                    {quickPrompt.label}
-                    {isFirstAndFailed && (
-                      <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">{t('recommended' as any)}</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            {executionStatus === 'failed' && quickPrompts.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                <button
-                  onClick={() => handleQuickPrompt(quickPrompts[0].prompt)}
-                  className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-blue-700 rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
-                >
-                  {t('autoStart' as any)} {quickPrompts[0].label}
-                </button>
+          {(() => {
+            return isLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 dark:border-blue-500"></div>
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-2 pb-4">
-            {messages.map((message) => {
-              const isThinking = message.id === thinkingMessageIdRef.current;
-              const chatMessage = convertToChatMessage(message);
-              return (
-                <div key={message.id} className={isThinking ? 'opacity-70' : ''}>
-                  <MessageItem message={chatMessage} />
-                  {isThinking && (
-                    <div className="flex items-center gap-2 mt-1 ml-4 text-xs text-gray-500 dark:text-gray-400">
-                      <div className="w-1 h-1 bg-gray-400 dark:bg-gray-500 rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
-                      <div className="w-1 h-1 bg-gray-400 dark:bg-gray-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-                      <div className="w-1 h-1 bg-gray-400 dark:bg-gray-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
-                    </div>
-                  )}
+            ) : messages.length === 0 ? (
+              <div className="py-6">
+                <div className="text-center mb-4">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                    {needsContinue
+                      ? t('playbookWaitingForResponse' as any) || 'Playbook 正在等待您的回應'
+                      : t('askPlaybookInspector' as any)}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {needsContinue
+                      ? t('sendMessageToContinue' as any) || '發送消息將繼續執行下一步。'
+                      : t('itKnowsStepsEventsErrors' as any)}
+                  </p>
                 </div>
-              );
-            })}
-            <div ref={messagesEndRef} />
-          </div>
-        );
-        })()}
+                <div className="space-y-2">
+                  {quickPrompts.map((quickPrompt, idx) => {
+                    const isFirstAndFailed = idx === 0 && executionStatus === 'failed';
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => handleQuickPrompt(quickPrompt.prompt)}
+                        className={`w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 bg-surface-accent dark:bg-gray-800 border border-default dark:border-gray-700 rounded-md hover:bg-tertiary dark:hover:bg-gray-700 hover:border-default dark:hover:border-gray-600 transition-colors ${isFirstAndFailed ? 'ring-2 ring-accent/30 dark:ring-blue-800 border-accent/30 dark:border-blue-700 bg-accent-10 dark:bg-blue-900/20' : ''
+                          }`}
+                      >
+                        {quickPrompt.label}
+                        {isFirstAndFailed && (
+                          <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">{t('recommended' as any)}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {executionStatus === 'failed' && quickPrompts.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button
+                      onClick={() => handleQuickPrompt(quickPrompts[0].prompt)}
+                      className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-blue-700 rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
+                    >
+                      {t('autoStart' as any)} {quickPrompts[0].label}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2 pb-4">
+                {messages.map((message) => {
+                  const isThinking = message.id === thinkingMessageIdRef.current;
+                  const chatMessage = convertToChatMessage(message);
+                  return (
+                    <div key={message.id} className={isThinking ? 'opacity-70' : ''}>
+                      <MessageItem message={chatMessage} />
+                      {isThinking && (
+                        <div className="flex items-center gap-2 mt-1 ml-4 text-xs text-gray-500 dark:text-gray-400">
+                          <div className="w-1 h-1 bg-gray-400 dark:bg-gray-500 rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
+                          <div className="w-1 h-1 bg-gray-400 dark:bg-gray-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                          <div className="w-1 h-1 bg-gray-400 dark:bg-gray-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                <div ref={messagesEndRef} />
+              </div>
+            );
+          })()}
         </div>
 
         {/* Scroll to bottom button - fixed to visible viewport center bottom */}

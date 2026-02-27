@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { t } from '@/lib/i18n';
+import { formatLocalDateTime } from '@/lib/time';
 import { GovernanceDecisionDetail } from '@/app/workspaces/[workspaceId]/governance/components/GovernanceDecisionDetail';
 
 interface GovernanceDecision {
@@ -158,8 +159,8 @@ export default function GovernanceTab({
                 </span>
                 <span
                   className={`px-2 py-1 text-xs font-medium rounded ${decision.approved
-                      ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
-                      : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
+                    : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
                     }`}
                 >
                   {decision.approved ? t('approved' as any) || 'Approved' : t('rejected' as any) || 'Rejected'}
@@ -171,7 +172,7 @@ export default function GovernanceTab({
                 </p>
               )}
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                {new Date(decision.timestamp).toLocaleString()}
+                {formatLocalDateTime(decision.timestamp)}
               </p>
             </div>
           ))

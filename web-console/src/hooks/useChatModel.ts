@@ -96,16 +96,14 @@ export function useChatModel(
         setCurrentChatModel(data.chat_model.model_name);
       }
 
-      // Set available models: prefer enabledChatModels, fallback to API response
-      if (enabledChatModels.length > 0 && !modelsLoading) {
+      // Set available models from enabled models only (respects user's toggle settings)
+      if (!modelsLoading) {
         setAvailableChatModels(
           enabledChatModels.map(m => ({
             model_name: m.model_name,
             provider: m.provider,
           }))
         );
-      } else if (data.available_chat_models && data.available_chat_models.length > 0) {
-        setAvailableChatModels(data.available_chat_models);
       }
 
       // Mark as loaded only on success
