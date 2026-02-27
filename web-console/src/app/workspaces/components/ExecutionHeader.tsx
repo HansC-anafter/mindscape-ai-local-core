@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useT } from '@/lib/i18n';
+import { parseServerTimestamp } from '@/lib/time';
 import { RunProvenanceChips, ExecutionProvenance } from './RunProvenanceChips';
 import { useParams } from 'next/navigation';
 
@@ -92,12 +93,9 @@ export default function ExecutionHeader({
 
   const formatTime = (timeStr?: string) => {
     if (!timeStr) return '';
-    try {
-      const date = new Date(timeStr);
-      return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    } catch {
-      return '';
-    }
+    const date = parseServerTimestamp(timeStr);
+    if (!date) return '';
+    return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   };
 
   const displayRunNumber = executionRunNumber || parseInt(execution.execution_id.slice(-8), 16) % 10 + 1;

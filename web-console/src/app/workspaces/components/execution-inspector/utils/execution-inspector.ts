@@ -5,6 +5,7 @@ import type {
   PlaybookStepDefinition,
   Artifact,
 } from '../types/execution';
+import { parseServerTimestamp } from '@/lib/time';
 
 export interface AllStepInfo {
   step_index: number;
@@ -137,8 +138,9 @@ export function formatDuration(
     return '';
   }
 
-  const start = new Date(startedAt);
-  const end = completedAt ? new Date(completedAt) : new Date();
+  const start = parseServerTimestamp(startedAt);
+  if (!start) return '';
+  const end = completedAt ? parseServerTimestamp(completedAt) ?? new Date() : new Date();
   const diffMs = end.getTime() - start.getTime();
 
   const hours = Math.floor(diffMs / (1000 * 60 * 60));

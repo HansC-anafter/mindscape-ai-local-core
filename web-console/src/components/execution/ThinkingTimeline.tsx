@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { parseServerTimestamp } from '@/lib/time';
 
 export interface TimelineEntry {
   id: string;
@@ -21,7 +22,8 @@ interface ThinkingTimelineProps {
 
 function formatTime(timestamp: string): string {
   try {
-    const date = new Date(timestamp);
+    const date = parseServerTimestamp(timestamp);
+    if (!date) return timestamp;
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -90,9 +92,8 @@ const ThinkingTimeline: React.FC<ThinkingTimelineProps> = ({
 
       {/* Content */}
       <div
-        className={`overflow-hidden transition-all duration-300 ease-in-out ${
-          isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[400px] opacity-100'
-        }`}
+        className={`overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[400px] opacity-100'
+          }`}
       >
         <div className="px-3 pb-2">
           {displayEntries.length > 0 ? (

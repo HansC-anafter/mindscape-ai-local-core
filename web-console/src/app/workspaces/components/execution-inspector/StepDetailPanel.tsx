@@ -5,6 +5,7 @@ import type { ExecutionStep, ToolCall, StepEvent, PlaybookStepDefinition, Artifa
 import { deriveAllSteps } from './utils/execution-inspector';
 import { getStepStatusColor, getEffectiveStepStatus } from './utils/execution-inspector';
 import { loadCapabilityUIComponent, artifactsMatchComponent } from '@/lib/capability-ui-loader';
+import { parseServerTimestamp } from '@/lib/time';
 
 export interface StepDetailPanelProps {
   steps: ExecutionStep[];
@@ -218,30 +219,29 @@ export default function StepDetailPanel({
                     {toolCall.tool_name}
                   </span>
                   <span
-                    className={`text-xs px-2 py-0.5 rounded ${
-                      toolCall.status === 'completed'
+                    className={`text-xs px-2 py-0.5 rounded ${toolCall.status === 'completed'
                         ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
                         : toolCall.status === 'failed'
-                        ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                        : 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
-                    }`}
+                          ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                          : 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
+                      }`}
                   >
                     {toolCall.status}
                   </span>
                 </div>
                 {toolCall.started_at && (
                   <div className="text-xs text-gray-500 dark:text-gray-300">
-                    {new Date(toolCall.started_at).toLocaleTimeString(undefined, {
+                    {parseServerTimestamp(toolCall.started_at)?.toLocaleTimeString(undefined, {
                       hour: '2-digit',
                       minute: '2-digit',
                       second: '2-digit',
                     })}
                     {toolCall.completed_at &&
-                      ` - ${new Date(toolCall.completed_at).toLocaleTimeString(undefined, {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit',
-                        })}`}
+                      ` - ${parseServerTimestamp(toolCall.completed_at)?.toLocaleTimeString(undefined, {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })}`}
                   </div>
                 )}
                 {toolCall.error && (
@@ -343,7 +343,7 @@ export default function StepDetailPanel({
                 </div>
                 {artifact.createdAt && (
                   <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                    {new Date(artifact.createdAt).toLocaleTimeString()}
+                    {parseServerTimestamp(artifact.createdAt)?.toLocaleTimeString() ?? '—'}
                   </div>
                 )}
               </button>
