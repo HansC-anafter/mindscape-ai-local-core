@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { t } from '@/lib/i18n';
+import { toTimestampMs, parseServerTimestamp } from '@/lib/time';
 import OCRQualityIndicator from '@/components/ocr/OCRQualityIndicator';
 import StoragePathConfigModal from '@/components/StoragePathConfigModal';
 import RunningTimelineItem from './RunningTimelineItem';
@@ -315,7 +316,7 @@ export default function TimelinePanel({
     if (pendingRestart && currentExecutionsLength > 0 && currentExecutionsLength !== prevExecutionsLengthRef.current) {
       const matchingExecution = executions.find(
         e => e.playbook_code === pendingRestart.playbook_code &&
-          e.created_at && new Date(e.created_at).getTime() > pendingRestart.timestamp
+          e.created_at && (toTimestampMs(e.created_at) ?? 0) > pendingRestart.timestamp
       );
       if (matchingExecution) {
         setPendingRestart(null);
@@ -686,8 +687,8 @@ export default function TimelinePanel({
                 const samePlaybookExecutions = executions
                   .filter(e => e.execution_id !== focusExecutionId && e.playbook_code === focusedPlaybookCode)
                   .sort((a, b) => {
-                    const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-                    const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+                    const aTime = toTimestampMs(a.created_at) ?? 0;
+                    const bTime = toTimestampMs(b.created_at) ?? 0;
                     return bTime - aTime;
                   });
 
@@ -695,8 +696,8 @@ export default function TimelinePanel({
                 const otherPlaybookExecutions = executions
                   .filter(e => e.playbook_code !== focusedPlaybookCode)
                   .sort((a, b) => {
-                    const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-                    const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+                    const aTime = toTimestampMs(a.created_at) ?? 0;
+                    const bTime = toTimestampMs(b.created_at) ?? 0;
                     return bTime - aTime;
                   });
 
@@ -1012,8 +1013,8 @@ export default function TimelinePanel({
                 return currentStep?.requires_confirmation && currentStep.confirmation_status === 'pending';
               })
               .sort((a, b) => {
-                const aTime = a.paused_at ? new Date(a.paused_at).getTime() : 0;
-                const bTime = b.paused_at ? new Date(b.paused_at).getTime() : 0;
+                const aTime = toTimestampMs(a.paused_at) ?? 0;
+                const bTime = toTimestampMs(b.paused_at) ?? 0;
                 return bTime - aTime; // Newest first
               });
 
@@ -1031,8 +1032,8 @@ export default function TimelinePanel({
                 return !(exec.paused_at && currentStep?.requires_confirmation && currentStep.confirmation_status === 'pending');
               })
               .sort((a, b) => {
-                const aTime = a.started_at ? new Date(a.started_at).getTime() : 0;
-                const bTime = b.started_at ? new Date(b.started_at).getTime() : 0;
+                const aTime = toTimestampMs(a.started_at) ?? 0;
+                const bTime = toTimestampMs(b.started_at) ?? 0;
                 return bTime - aTime; // Newest first
               });
 
@@ -1041,12 +1042,12 @@ export default function TimelinePanel({
               .filter(exec => {
                 if (!['succeeded', 'failed'].includes(exec.status)) return false;
                 if (!exec.created_at) return false;
-                const createdAt = new Date(exec.created_at);
-                return createdAt < oneHourAgo;
+                const createdAt = parseServerTimestamp(exec.created_at);
+                return createdAt ? createdAt < oneHourAgo : false;
               })
               .sort((a, b) => {
-                const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-                const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+                const aTime = toTimestampMs(a.created_at) ?? 0;
+                const bTime = toTimestampMs(b.created_at) ?? 0;
                 return bTime - aTime; // Newest first
               });
 
@@ -1324,8 +1325,8 @@ export default function TimelinePanel({
                     <div className="space-y-1.5">
                       {nonExecutionItems
                         .sort((a: TimelineItem, b: TimelineItem) => {
-                          const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-                          const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+                          const aTime = toTimestampMs(a.created_at) ?? 0;
+                          const bTime = toTimestampMs(b.created_at) ?? 0;
                           return bTime - aTime; // Most recent first
                         })
                         .map((item: TimelineItem) => {
@@ -1354,11 +1355,11 @@ export default function TimelinePanel({
                                 </div>
                                 <span className="text-[10px] text-tertiary dark:text-gray-300 ml-2">
                                   {item.created_at
-                                    ? new Date(item.created_at).toLocaleTimeString(undefined, {
+                                    ? parseServerTimestamp(item.created_at)?.toLocaleTimeString(undefined, {
                                       hour: '2-digit',
                                       minute: '2-digit',
                                       hour12: true
-                                    })
+                                    }) ?? ''
                                     : ''}
                                 </span>
                               </div>
