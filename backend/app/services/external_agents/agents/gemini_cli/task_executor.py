@@ -182,7 +182,7 @@ class TaskExecutor:
         finally:
             self._active.pop(ctx.execution_id, None)
 
-        return result.to_dict()
+        return result.to_dict() if hasattr(result, "to_dict") else result
 
     async def cancel(self, execution_id: str) -> bool:
         """Cancel an active execution by ID."""

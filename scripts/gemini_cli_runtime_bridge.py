@@ -314,6 +314,17 @@ def main():
         table_lines = "\n".join(f"- {t}" for t in tables)
         instruction_parts.append(f"\nAvailable database tables:\n{table_lines}")
 
+    # Inject pack-level agent guides
+    pack_guides = agent_ctx.get("installed_pack_guides", [])
+    if pack_guides:
+        guide_lines = ["\n## Installed Capability Pack Guides"]
+        for pg in pack_guides:
+            guide_lines.append(
+                f"### {pg.get('display_name', '')} ({pg.get('pack_code', '')})\n"
+                f"{pg.get('guide', '')}"
+            )
+        instruction_parts.append("\n".join(guide_lines))
+
     system_instruction = "\n".join(instruction_parts) if instruction_parts else ""
 
     # Inject conversation context from dispatch payload (thread history,
