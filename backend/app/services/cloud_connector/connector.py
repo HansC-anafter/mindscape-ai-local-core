@@ -95,7 +95,7 @@ class CloudConnector:
         Token resolution order:
         1. CLOUD_PROVIDER_TOKEN / CLOUD_API_TOKEN environment variable
         2. OAuth access_token from the cloud provider runtime in the database
-        3. Mock token (development fallback)
+        3. Raise ValueError if no valid token is available
 
         Returns:
             Access token for WebSocket authentication
@@ -105,24 +105,29 @@ class CloudConnector:
 
         # Priority 2: OAuth token from cloud provider runtime in DB
         if not user_token:
-            user_token = self._get_runtime_oauth_token()
+            user_token = await self._get_runtime_oauth_token()
 
         if not user_token:
-            logger.warning(
-                "No auth token available (env vars not set, runtime OAuth token "
-                "not found). Using mock token for development."
+            logger.error(
+                "No auth token available for CloudConnector. "
+                "Set CLOUD_PROVIDER_TOKEN / CLOUD_API_TOKEN env var, "
+                "or connect an OAuth runtime in the database."
             )
-            return "mock_device_token_for_development"
+            raise ValueError(
+                "CloudConnector requires authentication. "
+                "No OAuth token available (env vars not set, "
+                "runtime OAuth token not found)."
+            )
 
         logger.info("Using OAuth token for CloudConnector WebSocket authentication")
         return user_token
 
-    def _get_runtime_oauth_token(self) -> str | None:
+    async def _get_runtime_oauth_token(self) -> str | None:
         """
         Read OAuth access_token from a connected OAuth runtime in DB.
 
-        Iterates all runtimes with auth_type='oauth2' and auth_status='connected',
-        returning the first one with a non-empty access_token.
+        Uses RuntimeAuthService.get_auth_headers() which handles automatic
+        refresh of expired tokens using refresh_token grants.
 
         Returns:
             Access token string, or None if unavailable.
@@ -146,24 +151,26 @@ class CloudConnector:
                 return None
 
             svc = RuntimeAuthService()
+
             for runtime in runtimes:
                 if not runtime.auth_config:
                     continue
                 try:
-                    token_data = svc.decrypt_token_blob(runtime.auth_config)
-                    access_token = token_data.get("access_token")
-                    if access_token:
-                        logger.debug(
-                            "Retrieved OAuth token from runtime %s", runtime.id
+                    headers = await svc.get_auth_headers(runtime, db)
+                    auth_header = headers.get("Authorization", "")
+                    if auth_header.startswith("Bearer "):
+                        access_token = auth_header[7:]
+                        logger.info(
+                            "Retrieved OAuth token (with auto-refresh) from runtime %s",
+                            runtime.id,
                         )
                         return access_token
                 except Exception as e:
                     logger.warning(
-                        "Failed to decrypt token from runtime %s: %s",
+                        "Failed to get valid token from runtime %s: %s",
                         runtime.id,
                         e,
                     )
-
             logger.debug("All connected runtimes have empty access_token")
             return None
         except Exception as e:
