@@ -31,7 +31,7 @@ store = MindscapeStore()
 # Initialize runtime profile store
 def get_runtime_profile_store() -> WorkspaceRuntimeProfileStore:
     """Get runtime profile store instance"""
-    return WorkspaceRuntimeProfileStore(store.db_path)
+    return WorkspaceRuntimeProfileStore()
 
 
 # Initialize control profile store
@@ -648,7 +648,7 @@ async def compare_preview(
         # Generate preview outputs using compiled profiles
         # Note: This is a simplified preview - full implementation would call LLM
         try:
-            runtime_profile_store = WorkspaceRuntimeProfileStore(db_path=store.db_path)
+            runtime_profile_store = WorkspaceRuntimeProfileStore()
             base_runtime_profile = await asyncio.to_thread(
                 runtime_profile_store.get_runtime_profile, workspace_id
             )

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from backend.app.models.mindscape import MindscapeProfile
-from backend.app.services.stores.profiles_store import ProfilesStore
+from backend.app.services.stores.postgres.profiles_store import PostgresProfilesStore
 from backend.app.services.mindscape_store import MindscapeStore
 import asyncio
 import logging
@@ -14,7 +14,7 @@ router = APIRouter()
 
 def get_profiles_store():
     store = MindscapeStore()
-    return ProfilesStore(store.db_path)
+    return PostgresProfilesStore()
 
 
 @router.get(
@@ -24,7 +24,7 @@ def get_profiles_store():
     description="Get profile by ID",
 )
 async def get_profile(
-    profile_id: str, store: ProfilesStore = Depends(get_profiles_store)
+    profile_id: str, store: PostgresProfilesStore = Depends(get_profiles_store)
 ):
     profile = await asyncio.to_thread(store.get_profile, profile_id)
     if not profile:
@@ -41,7 +41,7 @@ async def get_profile(
 async def update_profile(
     profile_id: str,
     updates: Dict[str, Any],
-    store: ProfilesStore = Depends(get_profiles_store),
+    store: PostgresProfilesStore = Depends(get_profiles_store),
 ):
     profile = await asyncio.to_thread(store.update_profile, profile_id, updates)
     if not profile:

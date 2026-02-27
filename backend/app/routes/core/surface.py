@@ -344,14 +344,14 @@ async def record_external_context(
             try:
                 from ...services.conversation.intent_extractor import IntentExtractor
                 from ...services.stores.mindscape_store import MindscapeStore
-                from ...services.stores.timeline_items_store import TimelineItemsStore
+                from backend.app.services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
                 from ...adapters.local.local_intent_registry_adapter import (
                     LocalIntentRegistryAdapter,
                 )
 
                 # Initialize stores (lightweight - uses connection pool)
                 store = MindscapeStore()
-                timeline_store = TimelineItemsStore()
+                timeline_store = PostgresTimelineItemsStore()
                 intent_registry = LocalIntentRegistryAdapter()
 
                 extractor = IntentExtractor(

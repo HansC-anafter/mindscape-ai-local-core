@@ -35,7 +35,7 @@ async def ensure_workspace_launch_status(workspace_id: str, workspace) -> str:
 
     # Check for execution records
     try:
-        tasks_store = TasksStore(store.db_path)
+        tasks_store = TasksStore()
         executions = await asyncio.to_thread(
             tasks_store.list_executions_by_workspace, workspace_id, limit=1
         )

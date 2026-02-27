@@ -20,20 +20,21 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 from backend.app.models.mindscape import EventType
-from backend.app.services.stores.events_store import EventsStore
-from backend.app.services.system_settings_store import SystemSettingsStore
+from backend.app.services.stores.postgres.events_store import PostgresEventsStore
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/workspaces/{workspace_id}/monitoring/runtime-profile",
-    tags=["runtime-profile-monitoring"]
+    tags=["runtime-profile-monitoring"],
 )
 
 
 class PolicyCheckStats(BaseModel):
     """PolicyGuard statistics"""
+
     total: int = 0
     allowed: int = 0
     denied: int = 0
@@ -44,6 +45,7 @@ class PolicyCheckStats(BaseModel):
 
 class BudgetUsageStats(BaseModel):
     """LoopBudget usage statistics"""
+
     exhausted_count: int = 0
     average_usage_percentages: Dict[str, float] = Field(default_factory=dict)
     max_usage_percentages: Dict[str, float] = Field(default_factory=dict)
@@ -52,6 +54,7 @@ class BudgetUsageStats(BaseModel):
 
 class QualityGateStats(BaseModel):
     """QualityGates statistics"""
+
     total: int = 0
     passed: int = 0
     failed: int = 0
@@ -60,6 +63,7 @@ class QualityGateStats(BaseModel):
 
 class MonitoringOverview(BaseModel):
     """Monitoring overview data"""
+
     policy_checks: PolicyCheckStats
     budget_usage: BudgetUsageStats
     quality_gates: QualityGateStats
@@ -69,7 +73,7 @@ class MonitoringOverview(BaseModel):
 @router.get("/overview", response_model=MonitoringOverview)
 async def get_monitoring_overview(
     workspace_id: str = PathParam(..., description="Workspace ID"),
-    hours: int = Query(24, ge=1, le=168, description="Time range in hours (1-168)")
+    hours: int = Query(24, ge=1, le=168, description="Time range in hours (1-168)"),
 ):
     """
     Get monitoring overview for a workspace
@@ -78,9 +82,7 @@ async def get_monitoring_overview(
     within the specified time range.
     """
     try:
-        settings_store = SystemSettingsStore()
-        db_path = settings_store.get_database_path()
-        events_store = EventsStore(db_path)
+        events_store = PostgresEventsStore()
 
         end_time = _utc_now()
         start_time = end_time - timedelta(hours=hours)
@@ -90,27 +92,33 @@ async def get_monitoring_overview(
             workspace_id=workspace_id,
             start_time=start_time,
             end_time=end_time,
-            limit=10000
+            limit=10000,
         )
-        policy_events = [e for e in policy_events if e.event_type == EventType.POLICY_CHECK]
+        policy_events = [
+            e for e in policy_events if e.event_type == EventType.POLICY_CHECK
+        ]
 
         # Get LoopBudget events
         budget_events = events_store.get_events_by_workspace(
             workspace_id=workspace_id,
             start_time=start_time,
             end_time=end_time,
-            limit=10000
+            limit=10000,
         )
-        budget_events = [e for e in budget_events if e.event_type == EventType.LOOP_BUDGET_EXHAUSTED]
+        budget_events = [
+            e for e in budget_events if e.event_type == EventType.LOOP_BUDGET_EXHAUSTED
+        ]
 
         # Get QualityGates events
         quality_events = events_store.get_events_by_workspace(
             workspace_id=workspace_id,
             start_time=start_time,
             end_time=end_time,
-            limit=10000
+            limit=10000,
         )
-        quality_events = [e for e in quality_events if e.event_type == EventType.QUALITY_GATE_CHECK]
+        quality_events = [
+            e for e in quality_events if e.event_type == EventType.QUALITY_GATE_CHECK
+        ]
 
         # Aggregate PolicyGuard stats
         policy_stats = PolicyCheckStats(total=len(policy_events))
@@ -126,11 +134,15 @@ async def get_monitoring_overview(
 
             reason = payload.get("reason", "unknown")
             if reason:
-                policy_stats.denial_reasons[reason] = policy_stats.denial_reasons.get(reason, 0) + 1
+                policy_stats.denial_reasons[reason] = (
+                    policy_stats.denial_reasons.get(reason, 0) + 1
+                )
 
             tool_id = payload.get("tool_id", "unknown")
             if tool_id:
-                policy_stats.tool_usage[tool_id] = policy_stats.tool_usage.get(tool_id, 0) + 1
+                policy_stats.tool_usage[tool_id] = (
+                    policy_stats.tool_usage.get(tool_id, 0) + 1
+                )
 
         # Aggregate LoopBudget stats
         budget_stats = BudgetUsageStats()
@@ -144,7 +156,9 @@ async def get_monitoring_overview(
                 budget_stats.exhausted_count += 1
                 exhausted_limits = payload.get("exhausted_limits", [])
                 for limit in exhausted_limits:
-                    budget_stats.exhausted_limits[limit] = budget_stats.exhausted_limits.get(limit, 0) + 1
+                    budget_stats.exhausted_limits[limit] = (
+                        budget_stats.exhausted_limits.get(limit, 0) + 1
+                    )
 
             # Collect usage percentages
             usage_percentages = payload.get("usage_percentages", {})
@@ -160,7 +174,9 @@ async def get_monitoring_overview(
             for key in all_keys:
                 values = [up.get(key, 0) for up in usage_percentages_list if key in up]
                 if values:
-                    budget_stats.average_usage_percentages[key] = sum(values) / len(values)
+                    budget_stats.average_usage_percentages[key] = sum(values) / len(
+                        values
+                    )
                     budget_stats.max_usage_percentages[key] = max(values)
 
         # Aggregate QualityGates stats
@@ -173,7 +189,9 @@ async def get_monitoring_overview(
                 quality_stats.failed += 1
                 failed_gates = payload.get("failed_gates", [])
                 for gate in failed_gates:
-                    quality_stats.failed_gates[gate] = quality_stats.failed_gates.get(gate, 0) + 1
+                    quality_stats.failed_gates[gate] = (
+                        quality_stats.failed_gates.get(gate, 0) + 1
+                    )
 
         return MonitoringOverview(
             policy_checks=policy_stats,
@@ -182,20 +200,24 @@ async def get_monitoring_overview(
             time_range={
                 "start": start_time.isoformat(),
                 "end": end_time.isoformat(),
-                "hours": hours
-            }
+                "hours": hours,
+            },
         )
 
     except Exception as e:
         logger.error(f"Failed to get monitoring overview: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get monitoring overview: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get monitoring overview: {str(e)}"
+        )
 
 
 @router.get("/policy-checks", response_model=List[Dict[str, Any]])
 async def get_policy_checks(
     workspace_id: str = PathParam(..., description="Workspace ID"),
     hours: int = Query(24, ge=1, le=168, description="Time range in hours (1-168)"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of events to return")
+    limit: int = Query(
+        100, ge=1, le=1000, description="Maximum number of events to return"
+    ),
 ):
     """
     Get PolicyGuard events for a workspace
@@ -203,9 +225,7 @@ async def get_policy_checks(
     Returns list of policy check events with details.
     """
     try:
-        settings_store = SystemSettingsStore()
-        db_path = settings_store.get_database_path()
-        events_store = EventsStore(db_path)
+        events_store = PostgresEventsStore()
 
         end_time = _utc_now()
         start_time = end_time - timedelta(hours=hours)
@@ -214,7 +234,7 @@ async def get_policy_checks(
             workspace_id=workspace_id,
             start_time=start_time,
             end_time=end_time,
-            limit=limit
+            limit=limit,
         )
 
         policy_events = [e for e in events if e.event_type == EventType.POLICY_CHECK]
@@ -223,12 +243,20 @@ async def get_policy_checks(
             {
                 "id": event.id,
                 "timestamp": event.timestamp.isoformat(),
-                "execution_id": event.payload.get("execution_id") if event.payload else None,
+                "execution_id": (
+                    event.payload.get("execution_id") if event.payload else None
+                ),
                 "tool_id": event.payload.get("tool_id") if event.payload else None,
-                "capability_code": event.payload.get("capability_code") if event.payload else None,
-                "risk_class": event.payload.get("risk_class") if event.payload else None,
+                "capability_code": (
+                    event.payload.get("capability_code") if event.payload else None
+                ),
+                "risk_class": (
+                    event.payload.get("risk_class") if event.payload else None
+                ),
                 "allowed": event.payload.get("allowed") if event.payload else None,
-                "requires_approval": event.payload.get("requires_approval") if event.payload else None,
+                "requires_approval": (
+                    event.payload.get("requires_approval") if event.payload else None
+                ),
                 "reason": event.payload.get("reason") if event.payload else None,
             }
             for event in policy_events
@@ -236,14 +264,18 @@ async def get_policy_checks(
 
     except Exception as e:
         logger.error(f"Failed to get policy checks: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get policy checks: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get policy checks: {str(e)}"
+        )
 
 
 @router.get("/budget-usage", response_model=List[Dict[str, Any]])
 async def get_budget_usage(
     workspace_id: str = PathParam(..., description="Workspace ID"),
     hours: int = Query(24, ge=1, le=168, description="Time range in hours (1-168)"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of events to return")
+    limit: int = Query(
+        100, ge=1, le=1000, description="Maximum number of events to return"
+    ),
 ):
     """
     Get LoopBudget usage events for a workspace
@@ -251,9 +283,7 @@ async def get_budget_usage(
     Returns list of budget usage and exhaustion events.
     """
     try:
-        settings_store = SystemSettingsStore()
-        db_path = settings_store.get_database_path()
-        events_store = EventsStore(db_path)
+        events_store = PostgresEventsStore()
 
         end_time = _utc_now()
         start_time = end_time - timedelta(hours=hours)
@@ -262,36 +292,56 @@ async def get_budget_usage(
             workspace_id=workspace_id,
             start_time=start_time,
             end_time=end_time,
-            limit=limit
+            limit=limit,
         )
 
-        budget_events = [e for e in events if e.event_type == EventType.LOOP_BUDGET_EXHAUSTED]
+        budget_events = [
+            e for e in events if e.event_type == EventType.LOOP_BUDGET_EXHAUSTED
+        ]
 
         return [
             {
                 "id": event.id,
                 "timestamp": event.timestamp.isoformat(),
-                "execution_id": event.payload.get("execution_id") if event.payload else None,
-                "metric_type": event.payload.get("metric_type") if event.payload else None,
-                "current_value": event.payload.get("current_value") if event.payload else None,
-                "usage_percentages": event.payload.get("usage_percentages") if event.payload else None,
-                "exhausted_limits": event.payload.get("exhausted_limits") if event.payload else None,
-                "current_state": event.payload.get("current_state") if event.payload else None,
-                "budget_limits": event.payload.get("budget_limits") if event.payload else None,
+                "execution_id": (
+                    event.payload.get("execution_id") if event.payload else None
+                ),
+                "metric_type": (
+                    event.payload.get("metric_type") if event.payload else None
+                ),
+                "current_value": (
+                    event.payload.get("current_value") if event.payload else None
+                ),
+                "usage_percentages": (
+                    event.payload.get("usage_percentages") if event.payload else None
+                ),
+                "exhausted_limits": (
+                    event.payload.get("exhausted_limits") if event.payload else None
+                ),
+                "current_state": (
+                    event.payload.get("current_state") if event.payload else None
+                ),
+                "budget_limits": (
+                    event.payload.get("budget_limits") if event.payload else None
+                ),
             }
             for event in budget_events
         ]
 
     except Exception as e:
         logger.error(f"Failed to get budget usage: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get budget usage: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get budget usage: {str(e)}"
+        )
 
 
 @router.get("/quality-gates", response_model=List[Dict[str, Any]])
 async def get_quality_gates(
     workspace_id: str = PathParam(..., description="Workspace ID"),
     hours: int = Query(24, ge=1, le=168, description="Time range in hours (1-168)"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of events to return")
+    limit: int = Query(
+        100, ge=1, le=1000, description="Maximum number of events to return"
+    ),
 ):
     """
     Get QualityGates events for a workspace
@@ -299,9 +349,7 @@ async def get_quality_gates(
     Returns list of quality gate check events.
     """
     try:
-        settings_store = SystemSettingsStore()
-        db_path = settings_store.get_database_path()
-        events_store = EventsStore(db_path)
+        events_store = PostgresEventsStore()
 
         end_time = _utc_now()
         start_time = end_time - timedelta(hours=hours)
@@ -310,25 +358,34 @@ async def get_quality_gates(
             workspace_id=workspace_id,
             start_time=start_time,
             end_time=end_time,
-            limit=limit
+            limit=limit,
         )
 
-        quality_events = [e for e in events if e.event_type == EventType.QUALITY_GATE_CHECK]
+        quality_events = [
+            e for e in events if e.event_type == EventType.QUALITY_GATE_CHECK
+        ]
 
         return [
             {
                 "id": event.id,
                 "timestamp": event.timestamp.isoformat(),
-                "execution_id": event.payload.get("execution_id") if event.payload else None,
+                "execution_id": (
+                    event.payload.get("execution_id") if event.payload else None
+                ),
                 "passed": event.payload.get("passed") if event.payload else None,
-                "failed_gates": event.payload.get("failed_gates") if event.payload else None,
+                "failed_gates": (
+                    event.payload.get("failed_gates") if event.payload else None
+                ),
                 "details": event.payload.get("details") if event.payload else None,
-                "enabled_gates": event.payload.get("enabled_gates") if event.payload else None,
+                "enabled_gates": (
+                    event.payload.get("enabled_gates") if event.payload else None
+                ),
             }
             for event in quality_events
         ]
 
     except Exception as e:
         logger.error(f"Failed to get quality gates: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get quality gates: {str(e)}")
-
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get quality gates: {str(e)}"
+        )

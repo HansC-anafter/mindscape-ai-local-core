@@ -41,7 +41,7 @@ def get_aggregator() -> DashboardAggregator:
 
 def get_saved_views_store() -> SavedViewsStore:
     store = MindscapeStore()
-    return SavedViewsStore(store.db_path)
+    return PostgresSavedViewsStore()
 
 
 # ==================== Summary ====================
