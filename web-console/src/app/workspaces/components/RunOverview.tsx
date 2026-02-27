@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { parseServerTimestamp, toTimestampMs } from '@/lib/time';
 
 interface ExecutionSession {
   execution_id: string;
@@ -36,18 +37,15 @@ export default function RunOverview({
 
   const formatDateTime = (timeStr?: string) => {
     if (!timeStr) return 'N/A';
-    try {
-      const date = new Date(timeStr);
-      return date.toLocaleString('zh-TW', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch {
-      return timeStr;
-    }
+    const date = parseServerTimestamp(timeStr);
+    if (!date) return timeStr;
+    return date.toLocaleString('zh-TW', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   const getStatusColor = (status: string) => {
@@ -155,7 +153,7 @@ export default function RunOverview({
           <div>
             <div className="text-sm text-gray-500 mb-1">Duration</div>
             <div className="text-sm font-medium text-gray-900">
-              {Math.floor((Date.now() - new Date(execution.started_at).getTime()) / 1000 / 60)} min
+              {Math.floor((Date.now() - (toTimestampMs(execution.started_at) ?? Date.now())) / 1000 / 60)} min
             </div>
           </div>
         ) : null}
