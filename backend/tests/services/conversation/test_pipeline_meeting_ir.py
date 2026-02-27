@@ -283,19 +283,21 @@ class TestAtomicReplaceTaskIR:
 
 
 class TestExtractHandoffIn:
-    """Verify PipelineCore._extract_handoff_in() handles all input forms."""
+    """Verify extract_handoff_in() handles all input forms."""
 
     def setup_method(self):
-        from backend.app.services.conversation.pipeline_core import PipelineCore
+        from backend.app.services.conversation.pipeline_meeting import (
+            extract_handoff_in,
+        )
 
-        self.pipeline = PipelineCore.__new__(PipelineCore)
+        self._extract = extract_handoff_in
 
     def test_none_request_returns_none(self):
-        assert self.pipeline._extract_handoff_in(None) is None
+        assert self._extract(None) is None
 
     def test_request_without_handoff_in_attr_returns_none(self):
         req = MagicMock(spec=[])
-        assert self.pipeline._extract_handoff_in(req) is None
+        assert self._extract(req) is None
 
     def test_dict_input_returns_handoff_in_model(self):
         req = MagicMock()
@@ -305,7 +307,7 @@ class TestExtractHandoffIn:
             "intent_summary": "Test",
             "goals": ["A"],
         }
-        result = self.pipeline._extract_handoff_in(req)
+        result = self._extract(req)
         assert result is not None
         assert result.handoff_id == "h-dict"
         assert result.goals == ["A"]
@@ -319,13 +321,13 @@ class TestExtractHandoffIn:
         )
         req = MagicMock()
         req.handoff_in = handoff
-        result = self.pipeline._extract_handoff_in(req)
+        result = self._extract(req)
         assert result is handoff
 
     def test_falsy_handoff_in_returns_none(self):
         req = MagicMock()
         req.handoff_in = {}
-        assert self.pipeline._extract_handoff_in(req) is None
+        assert self._extract(req) is None
 
 
 class TestPipelineCoreHandoffInPath:
@@ -338,13 +340,9 @@ class TestPipelineCoreHandoffInPath:
 
     def test_handoff_in_reaches_meeting_engine_and_persists(self):
         """Verify handoff_in passes through the full chain and is persisted."""
-        from backend.app.services.conversation.pipeline_core import PipelineCore
-
-        # Build a minimal PipelineCore with a mock store
-        pipeline = PipelineCore.__new__(PipelineCore)
-        mock_store = MagicMock()
-        mock_store.db_path = self.db_path
-        pipeline.store = mock_store
+        from backend.app.services.conversation.pipeline_meeting import (
+            extract_handoff_in,
+        )
 
         # Build a request with handoff_in
         request = MagicMock()
@@ -357,7 +355,7 @@ class TestPipelineCoreHandoffInPath:
         }
 
         # Extract handoff_in
-        handoff = pipeline._extract_handoff_in(request)
+        handoff = extract_handoff_in(request)
         assert handoff is not None
         assert handoff.handoff_id == "h-fullpath-001"
         assert handoff.goals == ["Hero banner", "Contact form"]

@@ -460,8 +460,10 @@ async def event_stream_generator(
         heartbeat_counter = 0
         HEARTBEAT_INTERVAL = 30  # Send heartbeat every 30 seconds
 
+        poll_count = 0
         while True:
             try:
+                poll_count += 1
                 # Query for new events using get_events_by_workspace
                 # Get events after last_poll_time
                 events = await asyncio.to_thread(
@@ -470,6 +472,16 @@ async def event_stream_generator(
                     start_time=last_poll_time,
                     limit=100,
                 )
+
+                # Debug: log every 5th poll
+                if poll_count <= 3 or poll_count % 10 == 0:
+                    logger.info(
+                        f"[SSE-DEBUG] poll#{poll_count} ws={workspace_id[:8]} "
+                        f"start_time={last_poll_time} "
+                        f"raw_events={len(events)} "
+                        f"filter={[e.value for e in event_type_enums] if event_type_enums else 'none'} "
+                        f"seen={len(seen_event_ids)}"
+                    )
 
                 # Filter by event types if provided
                 if event_type_enums:
@@ -481,6 +493,12 @@ async def event_stream_generator(
 
                 # Send new events (only those we haven't seen)
                 new_events = [e for e in events if e.id not in seen_event_ids]
+
+                if new_events:
+                    logger.info(
+                        f"[SSE-DEBUG] poll#{poll_count} FOUND {len(new_events)} new events! "
+                        f"types={[e.event_type.value for e in new_events]}"
+                    )
 
                 # Sort by timestamp ascending to process in chronological order
                 new_events.sort(
@@ -533,6 +551,9 @@ async def event_stream_generator(
                     }
 
                     # Send SSE formatted event
+                    logger.info(
+                        f"[SSE-DEBUG] YIELDING event {event.id[:8]} type={event_data['type']}"
+                    )
                     yield f"id: {event.id}\n"
                     yield f"event: {event_data['type']}\n"
                     yield f"data: {json.dumps(event_data)}\n\n"
