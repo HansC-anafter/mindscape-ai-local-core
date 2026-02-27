@@ -1,9 +1,8 @@
 import os
 import logging
-from typing import Optional, Union, Any, Dict
+from typing import Any, Dict
 from sqlalchemy.engine import Engine
 from sqlalchemy import create_engine
-import sqlite3
 
 from app.database.config import get_postgres_url_core, get_postgres_url_vector
 
@@ -13,8 +12,7 @@ logger = logging.getLogger(__name__)
 class ConnectionFactory:
     """
     Factory for creating/retrieving database connections.
-    Supports both SQLite (legacy) and PostgreSQL (target) modes based on configuration.
-    This is the core of the hybrid adapter layer for the migration.
+    PostgreSQL is the only supported backend as of 2026-02-23.
     """
 
     _instance = None
@@ -26,13 +24,11 @@ class ConnectionFactory:
         return cls._instance
 
     def __init__(self):
-        # Determine strict mode from env (default to False to allow fallback)
         self.force_postgres = (
-            os.getenv("MINDSCAPE_FORCE_POSTGRES", "false").lower() == "true"
+            os.getenv("MINDSCAPE_FORCE_POSTGRES", "true").lower() == "true"
         )
         self.core_url = get_postgres_url_core(required=False)
         self.vector_url = get_postgres_url_vector(required=False)
-        self.legacy_url = os.getenv("DATABASE_URL", "")
 
     def _get_role_url(self, role: str) -> str:
         if role == "vector":
@@ -45,57 +41,22 @@ class ConnectionFactory:
                 return self.core_url
         if self.core_url:
             return self.core_url
-        return self.legacy_url
+        raise RuntimeError(
+            "PostgreSQL URL not configured. "
+            "Set DATABASE_URL_CORE and DATABASE_URL_VECTOR environment variables."
+        )
 
     def get_db_type(self, role: str = "core") -> str:
-        """Return the current database type: 'sqlite' or 'postgres'"""
-        db_url = self._get_role_url(role)
-        if db_url.startswith("postgres"):
-            return "postgres"
-        return "sqlite"
+        """Return the current database type. Always 'postgres'."""
+        return "postgres"
 
-    def get_connection(self, role: str = "core") -> Union[sqlite3.Connection, Any]:
+    def get_connection(self, role: str = "core") -> Any:
         """
-        Get a raw connection object.
+        Get a raw SQLAlchemy connection to PostgreSQL.
 
-        IMPORTANT: As of 2026-01-27, PostgreSQL is the primary database.
-        SQLite fallback is deprecated and will be removed in a future release.
-
-        For Postgres: Returns a SQLAlchemy Connection
-        For SQLite (deprecated): Returns a sqlite3.Connection
+        Returns a SQLAlchemy Connection object.
         """
-        db_type = self.get_db_type(role)
-
-        if db_type == "sqlite":
-            # SQLite is now deprecated - always raise error unless explicitly allowed
-            if self.force_postgres:
-                raise RuntimeError(
-                    "PostgreSQL is enforced but DATABASE_URL is pointing to SQLite! "
-                    "Please configure DATABASE_URL_CORE and DATABASE_URL_VECTOR "
-                    "to point to PostgreSQL."
-                )
-
-            # Emit deprecation warning for SQLite usage
-            import warnings
-
-            warnings.warn(
-                "SQLite database connection is deprecated. "
-                "Please migrate to PostgreSQL by setting DATABASE_URL_CORE/DATABASE_URL_VECTOR.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
-            # Legacy SQLite behavior (mirrors StoreBase.get_connection)
-            db_path = self._get_role_url(role).replace("sqlite:///", "")
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
-            return conn
-
-        elif db_type == "postgres":
-            # PostgreSQL mode (primary)
-            return self._get_postgres_engine(role).connect()
-
-        raise ValueError(f"Unsupported database type: {db_type}")
+        return self._get_postgres_engine(role).connect()
 
     def _get_postgres_engine(self, role: str) -> Engine:
         if role in self._postgres_engines:

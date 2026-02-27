@@ -70,6 +70,12 @@ test_*.py
 test_*.json
 test_*.yaml
 
+# Allow selected committed tests for normalization work.
+!backend/tests/
+!backend/tests/test_system_control_restart_api.py
+!backend/tests/test_runner_time_tzinfo.py
+!web-console/src/lib/__tests__/time.test.ts
+
 # PDF test files
 *.pdf
 !docs/**/*.pdf
@@ -134,4 +140,3 @@ docker-compose.override.yml
 
 # Ignore nested backend/backend/ directory (should not exist)
 /backend/backend/
-
