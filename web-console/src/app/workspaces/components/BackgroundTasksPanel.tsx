@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useT } from '@/lib/i18n';
 import { ToolStatusChip } from '@/components/ToolStatusChip';
 import { dispatchBackgroundRoutineStatusChanged, listenToBackgroundRoutineStatusChanged, listenToToolStatusChanged } from '@/lib/tool-status-events';
+import { parseServerTimestamp } from '@/lib/time';
 
 interface BackgroundRoutine {
   id: string;
@@ -166,17 +167,14 @@ export default function BackgroundTasksPanel({
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch {
-      return 'N/A';
-    }
+    const date = parseServerTimestamp(dateString);
+    if (!date) return 'N/A';
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   const getStatusBadge = (routine: BackgroundRoutine) => {
@@ -264,11 +262,10 @@ export default function BackgroundTasksPanel({
             {routines.map((routine) => (
               <div
                 key={routine.id}
-                className={`border rounded p-2 transition-colors ${
-                  routine.enabled
+                className={`border rounded p-2 transition-colors ${routine.enabled
                     ? 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
                     : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 opacity-60'
-                }`}
+                  }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -282,19 +279,18 @@ export default function BackgroundTasksPanel({
                   <button
                     onClick={() => toggleRoutine(routine)}
                     disabled={updatingIds.has(routine.id)}
-                    className={`px-2 py-1 text-xs font-medium rounded transition-colors flex-shrink-0 ${
-                      updatingIds.has(routine.id)
+                    className={`px-2 py-1 text-xs font-medium rounded transition-colors flex-shrink-0 ${updatingIds.has(routine.id)
                         ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                         : routine.enabled
-                        ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/40 border border-red-300 dark:border-red-700'
-                        : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/40 border border-blue-300 dark:border-blue-700'
-                    }`}
+                          ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/40 border border-red-300 dark:border-red-700'
+                          : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/40 border border-blue-300 dark:border-blue-700'
+                      }`}
                   >
                     {updatingIds.has(routine.id)
                       ? t('processing' as any)
                       : routine.enabled
-                      ? t('disable' as any)
-                      : t('enable' as any)}
+                        ? t('disable' as any)
+                        : t('enable' as any)}
                   </button>
                 </div>
 
