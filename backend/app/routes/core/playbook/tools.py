@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Path, Query
 from ....services.tool_status_checker import ToolStatusChecker
 from ....services.tool_registry import ToolRegistryService
 from ....services.playbook_tool_checker import PlaybookToolChecker
+from ._shared import playbook_service
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ router = APIRouter(tags=["playbooks-tools"])
 @router.get("/{playbook_code}/tools/check", response_model=Dict[str, Any])
 async def check_playbook_tools(
     playbook_code: str = Path(..., description="Playbook code"),
-    profile_id: str = Query('default-user', description="User profile ID")
+    profile_id: str = Query("default-user", description="User profile ID"),
 ):
     """
     Check playbook tool dependencies and availability
@@ -35,11 +36,6 @@ async def check_playbook_tools(
         }
     """
     try:
-        from ....services.playbook_service import PlaybookService
-        from ....services.mindscape_store import MindscapeStore
-        mindscape_store = MindscapeStore()
-        playbook_service = PlaybookService(store=mindscape_store)
-
         playbook = await playbook_service.get_playbook(playbook_code)
         if not playbook:
             raise HTTPException(status_code=404, detail="Playbook not found")
@@ -57,8 +53,8 @@ async def check_playbook_tools(
                 "available": result["available"],
                 "missing": result["missing"],
                 "can_auto_install": result["can_auto_install"],
-                "errors": result["errors"]
-            }
+                "errors": result["errors"],
+            },
         }
 
     except HTTPException:
@@ -71,7 +67,7 @@ async def check_playbook_tools(
 @router.post("/{playbook_code}/tools/install", response_model=Dict[str, Any])
 async def install_playbook_tools(
     playbook_code: str = Path(..., description="Playbook code"),
-    profile_id: str = Query('default-user', description="User profile ID")
+    profile_id: str = Query("default-user", description="User profile ID"),
 ):
     """
     Auto-install tools required by Playbook
@@ -85,11 +81,6 @@ async def install_playbook_tools(
         }
     """
     try:
-        from ....services.playbook_service import PlaybookService
-        from ....services.mindscape_store import MindscapeStore
-        mindscape_store = MindscapeStore()
-        playbook_service = PlaybookService(store=mindscape_store)
-
         playbook = await playbook_service.get_playbook(playbook_code)
         if not playbook:
             raise HTTPException(status_code=404, detail="Playbook not found")
@@ -107,7 +98,7 @@ async def install_playbook_tools(
                 "installed": [],
                 "failed": [],
                 "available": check_result["available"],
-                "message": "All tools are already available"
+                "message": "All tools are already available",
             }
 
         installed = []
@@ -115,36 +106,35 @@ async def install_playbook_tools(
 
         for tool_dep in playbook.metadata.tool_dependencies:
             can_install = any(
-                t["name"] == tool_dep.name
-                for t in check_result["can_auto_install"]
+                t["name"] == tool_dep.name for t in check_result["can_auto_install"]
             )
 
             if can_install:
                 try:
                     install_result = await resolver.auto_install_tool(tool_dep)
                     if install_result["success"]:
-                        installed.append({
-                            "name": tool_dep.name,
-                            "type": tool_dep.type
-                        })
+                        installed.append({"name": tool_dep.name, "type": tool_dep.type})
                         logger.info(f"Successfully installed tool: {tool_dep.name}")
                     else:
-                        failed.append({
-                            "name": tool_dep.name,
-                            "type": tool_dep.type,
-                            "error": install_result["error"]
-                        })
-                        logger.error(f"Failed to install tool {tool_dep.name}: {install_result['error']}")
+                        failed.append(
+                            {
+                                "name": tool_dep.name,
+                                "type": tool_dep.type,
+                                "error": install_result["error"],
+                            }
+                        )
+                        logger.error(
+                            f"Failed to install tool {tool_dep.name}: {install_result['error']}"
+                        )
                 except Exception as e:
-                    failed.append({
-                        "name": tool_dep.name,
-                        "type": tool_dep.type,
-                        "error": str(e)
-                    })
+                    failed.append(
+                        {"name": tool_dep.name, "type": tool_dep.type, "error": str(e)}
+                    )
                     logger.error(f"Exception installing tool {tool_dep.name}: {e}")
 
         still_missing = [
-            t for t in check_result["missing"]
+            t
+            for t in check_result["missing"]
             if t["required"] and t["name"] not in [i["name"] for i in installed]
         ]
 
@@ -154,7 +144,7 @@ async def install_playbook_tools(
                 "installed": installed,
                 "failed": failed,
                 "still_missing": still_missing,
-                "message": "部分必要工具無法安裝"
+                "message": "Some required tools could not be installed",
             }
 
         return {
@@ -162,7 +152,7 @@ async def install_playbook_tools(
             "installed": installed,
             "failed": failed,
             "available": check_result["available"],
-            "message": f"成功安裝 {len(installed)} 個工具"
+            "message": f"Successfully installed {len(installed)} tool(s)",
         }
 
     except HTTPException:
@@ -173,9 +163,9 @@ async def install_playbook_tools(
 
 
 @router.get("/{playbook_code}/tools-check", response_model=Dict[str, Any])
-async def check_playbook_tools_readiness(
+async def check_playbook_tools_status(
     playbook_code: str = Path(..., description="Playbook code"),
-    profile_id: str = Query('default-user', description="Profile ID")
+    profile_id: str = Query("default-user", description="Profile ID"),
 ):
     """
     Check playbook tool dependencies and readiness
@@ -189,37 +179,36 @@ async def check_playbook_tools_readiness(
         GET /api/v1/playbooks/content_drafting/tools-check?profile_id=user123
     """
     try:
-        from ....services.playbook_service import PlaybookService
-        from ....services.mindscape_store import MindscapeStore
-        mindscape_store = MindscapeStore()
-        playbook_service = PlaybookService(store=mindscape_store), mindscape_store
-
         playbook = await playbook_service.get_playbook(playbook_code)
         if not playbook:
-            raise HTTPException(status_code=404, detail=f"Playbook not found: {playbook_code}")
+            raise HTTPException(
+                status_code=404, detail=f"Playbook not found: {playbook_code}"
+            )
 
         data_dir = os.getenv("DATA_DIR", "./data")
         tool_registry = ToolRegistryService(data_dir=data_dir)
         tool_status_checker = ToolStatusChecker(tool_registry)
         playbook_tool_checker = PlaybookToolChecker(tool_status_checker)
 
-        readiness, tool_statuses, missing_required = playbook_tool_checker.check_playbook_tools(
-            playbook=playbook,
-            profile_id=profile_id
+        readiness, tool_statuses, missing_required = (
+            playbook_tool_checker.check_playbook_tools(
+                playbook=playbook, profile_id=profile_id
+            )
         )
 
-        required_tools = playbook_tool_checker._extract_required_tools(playbook.metadata)
+        required_tools = playbook_tool_checker._extract_required_tools(
+            playbook.metadata
+        )
 
         return {
             "playbook_code": playbook_code,
             "readiness_status": readiness.value,
             "tool_statuses": {
-                tool_type: status.value
-                for tool_type, status in tool_statuses.items()
+                tool_type: status.value for tool_type, status in tool_statuses.items()
             },
             "missing_required_tools": missing_required,
             "required_tools": required_tools,
-            "optional_tools": playbook.metadata.optional_tools
+            "optional_tools": playbook.metadata.optional_tools,
         }
 
     except HTTPException:

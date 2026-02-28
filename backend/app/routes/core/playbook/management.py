@@ -6,6 +6,8 @@ import logging
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Path, Query
 
+from ._shared import playbook_service
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["playbooks-management"])
@@ -15,12 +17,6 @@ router = APIRouter(tags=["playbooks-management"])
 async def reindex_playbooks():
     """Re-scan and index all playbooks from file system"""
     try:
-        from ....services.playbook_service import PlaybookService
-        from ....services.mindscape_store import MindscapeStore
-
-        mindscape_store = MindscapeStore()
-        playbook_service = PlaybookService(store=mindscape_store)
-
         playbook_service.registry.invalidate_cache()
 
         await playbook_service.registry._load_all_playbooks()
@@ -43,12 +39,6 @@ async def reload_playbook(
 ):
     """Reload a specific playbook from file system"""
     try:
-        from ....services.playbook_service import PlaybookService
-        from ....services.mindscape_store import MindscapeStore
-
-        mindscape_store = MindscapeStore()
-        playbook_service = PlaybookService(store=mindscape_store)
-
         playbook_service.registry.invalidate_cache(playbook_code, locale)
 
         success = await playbook_service.registry.reload_playbook(playbook_code, locale)

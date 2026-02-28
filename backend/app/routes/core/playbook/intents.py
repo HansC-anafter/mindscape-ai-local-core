@@ -6,6 +6,8 @@ import logging
 from typing import List
 from fastapi import APIRouter, HTTPException, Path
 
+from ._shared import mindscape_store
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["playbooks-intents"])
@@ -18,9 +20,6 @@ async def associate_intent_playbook(
 ):
     """Associate an intent with a playbook"""
     try:
-        from ....services.mindscape_store import MindscapeStore
-        mindscape_store = MindscapeStore()
-
         association = mindscape_store.associate_intent_playbook(intent_id, playbook_code)
         return {
             "intent_id": association.intent_id,
@@ -38,9 +37,6 @@ async def remove_intent_playbook_association(
 ):
     """Remove association between intent and playbook"""
     try:
-        from ....services.mindscape_store import MindscapeStore
-        mindscape_store = MindscapeStore()
-
         success = mindscape_store.remove_intent_playbook_association(intent_id, playbook_code)
         if not success:
             raise HTTPException(status_code=404, detail="Association not found")
@@ -55,9 +51,6 @@ async def remove_intent_playbook_association(
 async def get_intent_playbooks(intent_id: str = Path(..., description="Intent ID")):
     """Get playbook codes associated with an intent"""
     try:
-        from ....services.mindscape_store import MindscapeStore
-        mindscape_store = MindscapeStore()
-
         playbook_codes = mindscape_store.get_intent_playbooks(intent_id)
         return playbook_codes
     except Exception as e:
