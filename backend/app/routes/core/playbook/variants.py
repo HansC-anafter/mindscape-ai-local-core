@@ -6,6 +6,8 @@ import logging
 from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException, Path, Query
 
+from ._shared import mindscape_store
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["playbooks-variants"])
@@ -21,9 +23,6 @@ async def get_playbook_variants(
     Returns empty list if no variants exist
     """
     try:
-        from ....services.mindscape_store import MindscapeStore
-        mindscape_store = MindscapeStore()
-
         variants = mindscape_store.list_personalized_variants(profile_id, playbook_code, active_only=True)
         return variants
     except Exception as e:

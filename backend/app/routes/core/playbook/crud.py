@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException, Path, Query
 
 from ....models.playbook import Playbook, CreatePlaybookRequest, UpdatePlaybookRequest
+from ._shared import _utc_now, mindscape_store, playbook_service
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +26,6 @@ async def update_playbook_meta(
 ):
     """Update user's personal meta for a playbook"""
     try:
-        from ....services.playbook_service import PlaybookService
-        from ....services.mindscape_store import MindscapeStore
-
-        mindscape_store = MindscapeStore()
-        playbook_service = PlaybookService(store=mindscape_store)
-
         playbook = await playbook_service.get_playbook(playbook_code)
         if not playbook:
             raise HTTPException(status_code=404, detail="Playbook not found")
@@ -67,7 +62,6 @@ async def create_playbook(request: CreatePlaybookRequest):
     """Create a new playbook"""
     try:
         from ....models.playbook import PlaybookMetadata
-        from datetime import datetime, timezone
 
         playbook = Playbook(
             metadata=PlaybookMetadata(
@@ -87,6 +81,8 @@ async def create_playbook(request: CreatePlaybookRequest):
             detail="Create playbook not yet implemented in PlaybookService",
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to create playbook: {str(e)}"
@@ -104,12 +100,6 @@ async def update_playbook(
         raise HTTPException(status_code=400, detail="Update request required")
 
     try:
-        from ....services.playbook_service import PlaybookService
-        from ....services.mindscape_store import MindscapeStore
-
-        mindscape_store = MindscapeStore()
-        playbook_service = PlaybookService(store=mindscape_store)
-
         existing_playbook = await playbook_service.get_playbook(
             playbook_code, locale=locale
         )

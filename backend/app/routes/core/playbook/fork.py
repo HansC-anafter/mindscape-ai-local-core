@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, Body
 from pydantic import BaseModel, Field
 
 from ....models.playbook import Playbook
+from ._shared import playbook_service
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,6 @@ async def fork_playbook(
         }
     """
     try:
-        from ....services.playbook_service import PlaybookService
-        from ....services.mindscape_store import MindscapeStore
-
-        mindscape_store = MindscapeStore()
-        playbook_service = PlaybookService(store=mindscape_store)
-
         # Get source playbook to validate
         source_playbook = await playbook_service.get_playbook(
             playbook_code,
@@ -106,4 +101,3 @@ async def fork_playbook(
     except Exception as e:
         logger.error(f"Failed to fork playbook {playbook_code}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to fork playbook: {str(e)}")
-

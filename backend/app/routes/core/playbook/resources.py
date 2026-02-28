@@ -19,14 +19,11 @@ Writing strategy:
 """
 
 import logging
-import json
-from typing import List, Optional, Dict, Any
-from pathlib import Path
-from fastapi import APIRouter, HTTPException, Path as PathParam, Query, Body
+from typing import List, Dict, Any
+from fastapi import APIRouter, HTTPException, Path as PathParam, Body
 
-from ....models.workspace import Workspace
-from ....services.mindscape_store import MindscapeStore
 from ....services.playbook_resource_overlay_service import PlaybookResourceOverlayService
+from ._shared import _utc_now, mindscape_store, playbook_service
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +32,7 @@ router = APIRouter(
     tags=["playbook-resources"]
 )
 
-store = MindscapeStore()
-overlay_service = PlaybookResourceOverlayService(store=store)
+overlay_service = PlaybookResourceOverlayService(store=mindscape_store)
 
 
 @router.get("/{resource_type}", response_model=List[Dict[str, Any]])
@@ -130,7 +126,6 @@ async def create_resource(
     """
     try:
         import uuid
-        from datetime import datetime, timezone
 
         if 'id' not in resource:
             resource['id'] = str(uuid.uuid4())
@@ -182,8 +177,6 @@ async def update_resource(
     Always writes to workspace overlay path (new path).
     """
     try:
-        from datetime import datetime, timezone
-
         # Check if resource exists
         existing = await overlay_service.get_resource(
             workspace_id=workspace_id,
@@ -263,9 +256,6 @@ async def get_resource_schema(
     Returns the schema definition from the playbook's resource_types configuration.
     """
     try:
-        from ....services.playbook_service import PlaybookService
-
-        playbook_service = PlaybookService(store=store)
         playbook = await playbook_service.get_playbook(playbook_code)
 
         if not playbook:
@@ -294,4 +284,3 @@ async def get_resource_schema(
     except Exception as e:
         logger.error(f"Failed to get resource schema: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
