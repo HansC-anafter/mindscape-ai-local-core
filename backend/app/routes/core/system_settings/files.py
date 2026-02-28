@@ -209,12 +209,23 @@ async def list_browser_profiles():
                     for c in cookies
                     if "instagram" in c.get("domain", "") and c.get("value")
                 )
+                csrf_token = next(
+                    (
+                        c.get("value", "")
+                        for c in cookies
+                        if c.get("name") == "csrftoken"
+                        and "instagram" in c.get("domain", "")
+                    ),
+                    "",
+                )
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     resp = await client.get(
-                        f"https://i.instagram.com/api/v1/users/{ds_user_id}/info/",
+                        f"https://www.instagram.com/api/v1/users/{ds_user_id}/info/",
                         headers={
-                            "User-Agent": "Instagram 275.0.0.27.98 Android",
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                             "Cookie": cookie_header,
+                            "X-CSRFToken": csrf_token,
+                            "X-IG-App-ID": "936619743392459",
                         },
                     )
                     if resp.status_code == 200:
