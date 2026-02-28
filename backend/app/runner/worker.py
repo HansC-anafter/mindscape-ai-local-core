@@ -205,10 +205,7 @@ def _reap_stale_runner_locks(
     except Exception:
         pass
 
-    try:
-        locks_store.ensure_table()
-    except Exception:
-        return
+    # Table is managed by Alembic; no ensure_table() needed.
 
     try:
         with locks_store.get_connection() as conn:
