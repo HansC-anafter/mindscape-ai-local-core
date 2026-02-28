@@ -135,9 +135,10 @@ async def list_directory(
 
 @router.get("/browser-profiles")
 async def list_browser_profiles():
-    """List all IG browser profiles with their login status."""
+    """List all IG browser profiles with their login status and username."""
     import json
     import time
+    import httpx
 
     profiles_root = Path("/app/data/ig-browser-profiles")
     if not profiles_root.exists() or not profiles_root.is_dir():
@@ -154,44 +155,73 @@ async def list_browser_profiles():
             "logged_in": False,
             "session_expired": False,
             "ig_username": None,
+            "ig_user_id": None,
             "ig_cookie_count": 0,
         }
 
         ss_path = entry / "storage_state.json"
-        if ss_path.exists():
+        if not ss_path.exists():
+            result.append(info)
+            continue
+
+        try:
+            with open(ss_path, "r", encoding="utf-8") as f:
+                state = json.load(f)
+        except Exception:
+            result.append(info)
+            continue
+
+        cookies = state.get("cookies", [])
+        ig_cookies = [c for c in cookies if "instagram" in c.get("domain", "")]
+        info["ig_cookie_count"] = len(ig_cookies)
+
+        sessionid_cookie = next(
+            (
+                c
+                for c in cookies
+                if c.get("name") == "sessionid" and "instagram" in c.get("domain", "")
+            ),
+            None,
+        )
+        if sessionid_cookie:
+            expires = sessionid_cookie.get("expires", 0)
+            expired = bool(expires and expires > 0 and expires < time.time())
+            info["session_expired"] = expired
+            info["logged_in"] = not expired
+
+        ds_user = next(
+            (
+                c
+                for c in cookies
+                if c.get("name") == "ds_user_id" and "instagram" in c.get("domain", "")
+            ),
+            None,
+        )
+        ds_user_id = ds_user.get("value") if ds_user else None
+        if ds_user_id:
+            info["ig_user_id"] = ds_user_id
+
+        # Resolve username from IG API if logged in
+        if info["logged_in"] and ds_user_id and sessionid_cookie:
             try:
-                with open(ss_path, "r", encoding="utf-8") as f:
-                    state = json.load(f)
-                cookies = state.get("cookies", [])
-                ig_cookies = [c for c in cookies if "instagram" in c.get("domain", "")]
-                info["ig_cookie_count"] = len(ig_cookies)
-
-                sessionid = next(
-                    (
-                        c
-                        for c in cookies
-                        if c.get("name") == "sessionid"
-                        and "instagram" in c.get("domain", "")
-                    ),
-                    None,
+                cookie_header = "; ".join(
+                    f"{c['name']}={c['value']}"
+                    for c in cookies
+                    if "instagram" in c.get("domain", "") and c.get("value")
                 )
-                if sessionid:
-                    expires = sessionid.get("expires", 0)
-                    expired = bool(expires and expires > 0 and expires < time.time())
-                    info["session_expired"] = expired
-                    info["logged_in"] = not expired
-
-                ds_user = next(
-                    (
-                        c
-                        for c in cookies
-                        if c.get("name") == "ds_user_id"
-                        and "instagram" in c.get("domain", "")
-                    ),
-                    None,
-                )
-                if ds_user:
-                    info["ig_user_id"] = ds_user.get("value")
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(
+                        f"https://i.instagram.com/api/v1/users/{ds_user_id}/info/",
+                        headers={
+                            "User-Agent": "Instagram 275.0.0.27.98 Android",
+                            "Cookie": cookie_header,
+                        },
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        username = data.get("user", {}).get("username")
+                        if username:
+                            info["ig_username"] = username
             except Exception:
                 pass
 
