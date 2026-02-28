@@ -154,12 +154,13 @@ def _reap_stale_running_tasks(tasks_store: TasksStore, runner_id: str) -> None:
                 )
                 logger.warning(f"Re-queued stale runner task task_id={t.id} ({msg})")
             else:
-                # If the task is running but heartbeat is stale, mark failed to avoid indefinite UI hang.
-                # This also covers cases where the runner process restarted but kept the same runner_id.
-                if _try_auto_resume_ig_task(tasks_store, t, ctx2, msg):
-                    ctx2["runner_reaper"]["action"] = "auto_resume"
+                # If the task is running but heartbeat is stale, mark failed.
+                # Try on_fail lifecycle hook first (declared in playbook spec).
+                hook_handled = _invoke_on_fail_hook(ctx2, msg, t.id)
+                if hook_handled:
+                    ctx2["runner_reaper"]["action"] = "lifecycle_hook_on_fail"
                     logger.warning(
-                        f"Reaped + auto-resumed stale IG task task_id={t.id} ({msg})"
+                        f"Reaped + on_fail hook handled stale task task_id={t.id} ({msg})"
                     )
                 else:
                     ctx2["status"] = "failed"
@@ -259,80 +260,99 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _extract_target_username(task_ctx: Optional[Dict[str, Any]]) -> Optional[str]:
-    if not isinstance(task_ctx, dict):
-        return None
-    inputs = task_ctx.get("inputs")
-    if not isinstance(inputs, dict):
-        return None
-    for key in ("target_username", "seed", "handle"):
-        val = inputs.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-    return None
+def _invoke_on_fail_hook(
+    execution_context: Dict[str, Any],
+    failure_reason: str,
+    task_id: str,
+) -> bool:
+    """Invoke the on_fail lifecycle hook if declared in execution_context.
 
+    This is a GENERIC mechanism -- no pack-specific logic. The playbook spec
+    declares which tool to call and how to map inputs. The runner just
+    resolves and invokes.
 
-def _get_risk_cooldown_seconds() -> int:
-    min_s = _env_int("IG_RISK_COOLDOWN_MIN_SECONDS", 3600)
-    max_s = _env_int("IG_RISK_COOLDOWN_MAX_SECONDS", 21600)
-    if max_s < min_s:
-        max_s = min_s
-    if max_s == min_s:
-        return min_s
-    return random.randint(min_s, max_s)
+    Returns True if the hook was invoked (regardless of outcome), False if
+    no on_fail hook is declared.
+    """
+    hooks = execution_context.get("lifecycle_hooks")
+    if not isinstance(hooks, dict):
+        return False
+    on_fail = hooks.get("on_fail")
+    if not isinstance(on_fail, dict):
+        return False
 
+    tool_slot = on_fail.get("tool_slot")
+    inputs_map = on_fail.get("inputs_map", {})
+    if not tool_slot:
+        return False
 
-def _recent_ig_risk_signal(
-    tasks_store: TasksStore, target_username: Optional[str]
-) -> Optional[Dict[str, Any]]:
-    if not target_username:
-        return None
+    # Resolve inputs_map templates
+    ctx_inputs = execution_context.get("inputs", {})
+    if not isinstance(ctx_inputs, dict):
+        ctx_inputs = {}
+
+    resolved = {}
+    for param_name, template in inputs_map.items():
+        if not isinstance(template, str):
+            resolved[param_name] = template
+            continue
+        if template.startswith("{{input.") and template.endswith("}}"):
+            key = template[len("{{input.") : -len("}}")].strip()
+            resolved[param_name] = ctx_inputs.get(key)
+        elif template.startswith("{{context.") and template.endswith("}}"):
+            key = template[len("{{context.") : -len("}}")].strip()
+            if key == "task_id":
+                resolved[param_name] = task_id
+            elif key == "error":
+                resolved[param_name] = failure_reason
+            else:
+                resolved[param_name] = execution_context.get(key)
+        else:
+            resolved[param_name] = template
+
+    # Pass full execution_context so the hook tool has all the info it needs
+    resolved["execution_context"] = execution_context
+
     try:
-        with tasks_store.get_connection() as conn:
-            row = conn.execute(
-                text(
-                    """
-                    SELECT updated_at,
-                           content::jsonb->'progress'->>'error_type' AS error_type,
-                           content::jsonb->'progress'->>'error_message' AS error_message,
-                           content::jsonb->'progress'->>'stage' AS stage
-                    FROM artifacts
-                    WHERE playbook_code = 'ig_analyze_following'
-                      AND content IS NOT NULL
-                      AND content::jsonb->'metadata'->>'target_username' = :target
-                      AND (
-                        (content::jsonb->'progress'->>'error_type') IN ('rate_limited','challenge_required','login_required')
-                        OR (content::jsonb->'progress'->>'stage') = 'blocked'
-                        OR (content::jsonb->'progress'->>'error_message') ILIKE '%try again later%'
-                        OR (content::jsonb->'progress'->>'error_message') ILIKE '%risk signal%'
-                        OR (content::jsonb->'progress'->>'error_message') ILIKE '%we restrict%'
-                      )
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-                    """
-                ),
-                {"target": target_username},
-            ).fetchone()
-    except Exception as e:
-        logger.debug(f"IG risk signal lookup failed: {e}")
-        return None
+        import importlib
 
-    if not row:
-        return None
-    mapping = row._mapping if hasattr(row, "_mapping") else row
-    updated_at = mapping.get("updated_at") if isinstance(mapping, dict) else row[0]
-    if not isinstance(updated_at, datetime):
-        return None
-    return {
-        "updated_at": updated_at,
-        "error_type": (
-            mapping.get("error_type") if isinstance(mapping, dict) else row[1]
-        ),
-        "error_message": (
-            mapping.get("error_message") if isinstance(mapping, dict) else row[2]
-        ),
-        "stage": mapping.get("stage") if isinstance(mapping, dict) else row[3],
-    }
+        backend_ref = None
+
+        # Strategy 1: capability registry lookup (tool_slot = "cap.tool")
+        if ":" not in tool_slot and "." in tool_slot:
+            try:
+                from backend.app.capabilities.registry import get_tool_backend
+
+                parts = tool_slot.split(".", 1)
+                if len(parts) == 2:
+                    backend_ref = get_tool_backend(parts[0], parts[1])
+            except Exception:
+                pass
+
+        # Strategy 2: direct Python import path
+        if not backend_ref and ":" in tool_slot:
+            backend_ref = tool_slot
+
+        if not backend_ref:
+            logger.warning(
+                f"on_fail hook: tool_slot '{tool_slot}' not found in registry"
+            )
+            return False
+
+        module_path, func_name = backend_ref.rsplit(":", 1)
+        mod = importlib.import_module(module_path)
+        func = getattr(mod, func_name)
+        result = func(**resolved)
+        logger.info(
+            f"on_fail hook invoked: {tool_slot} for task {task_id} " f"result={result}"
+        )
+        return True
+    except Exception as e:
+        logger.warning(f"on_fail hook failed (non-fatal): {e}")
+        return False
+
+
+# --- Deprecated IG-specific helpers (retained for external compatibility) ---
 
 
 def _runner_id() -> str:
@@ -359,7 +379,7 @@ async def _heartbeat_loop(
 
 
 def _is_ig_playbook(playbook_code: str) -> bool:
-    """Legacy IG playbook detection. Retained for auto-resume logic."""
+    """DEPRECATED: Legacy IG playbook detection. Retained for lock key fallback only."""
     code = (playbook_code or "").strip().lower()
     return code.startswith("ig_") or code.startswith("ig.")
 
@@ -408,123 +428,8 @@ def _resolve_lock_key(
     return None
 
 
-def _try_auto_resume_ig_task(
-    tasks_store: TasksStore,
-    task,
-    current_ctx: Dict[str, Any],
-    failure_reason: str,
-) -> bool:
-    """Auto-resume IG analyze_following by creating a new visit-only task.
-
-    When an IG task fails due to timeout or runner crash, instead of just
-    marking it failed, we create a follow-up task with run_mode=visit that
-    picks up from the persisted list and visits only unfinished targets.
-
-    Returns True if auto-resume was triggered, False otherwise.
-    """
-    if not _is_ig_playbook(getattr(task, "pack_id", "") or ""):
-        return False
-
-    retry_count = current_ctx.get("auto_resume_count", 0)
-    max_retries = int(os.environ.get("IG_AUTO_RESUME_MAX_RETRIES", "3"))
-    if retry_count >= max_retries:
-        logger.info(
-            f"Auto-resume skipped for task {task.id}: retry_count={retry_count} >= max={max_retries}"
-        )
-        return False
-
-    # Risk cooldown guard: if recent IG risk signal detected, suppress auto-resume.
-    target_username = _extract_target_username(current_ctx)
-    cooldown_until = _parse_utc_iso(current_ctx.get("ig_risk_cooldown_until"))
-    if cooldown_until and _utc_now() < cooldown_until:
-        current_ctx["auto_resume_suppressed"] = True
-        current_ctx["auto_resume_suppressed_reason"] = "ig_risk_cooldown_active"
-        return False
-
-    risk = _recent_ig_risk_signal(tasks_store, target_username)
-    if risk:
-        now_naive = datetime.utcnow()
-        risk_time = risk.get("updated_at")
-        if isinstance(risk_time, datetime):
-            min_s = _env_int("IG_RISK_COOLDOWN_MIN_SECONDS", 3600)
-            max_s = _env_int("IG_RISK_COOLDOWN_MAX_SECONDS", 21600)
-            if max_s < min_s:
-                max_s = min_s
-            if risk_time >= (now_naive - timedelta(seconds=max_s)):
-                cooldown_seconds = _get_risk_cooldown_seconds()
-                cooldown_until_ts = _utc_now() + timedelta(seconds=cooldown_seconds)
-                current_ctx["auto_resume_suppressed"] = True
-                current_ctx["auto_resume_suppressed_reason"] = "ig_risk_signal"
-                current_ctx["ig_risk_detected_at"] = risk_time.isoformat()
-                current_ctx["ig_risk_error_type"] = risk.get("error_type")
-                current_ctx["ig_risk_error_message"] = risk.get("error_message")
-                current_ctx["ig_risk_cooldown_until"] = cooldown_until_ts.isoformat()
-                logger.warning(
-                    f"Auto-resume suppressed for task {task.id} due to IG risk signal "
-                    f"(target={target_username}, cooldown_until={current_ctx['ig_risk_cooldown_until']})"
-                )
-                return False
-
-    # Mark CURRENT task as failed with resume note
-    current_ctx["auto_resumed"] = True
-    resume_error = f"{failure_reason} (auto-resume #{retry_count + 1} queued)"
-    tasks_store.update_task(
-        task.id,
-        execution_context=current_ctx,
-        status=TaskStatus.FAILED,
-        completed_at=_utc_now(),
-        error=resume_error,
-    )
-
-    # Build params for the follow-up visit-only task
-    original_params = task.params if isinstance(task.params, dict) else {}
-    new_params = dict(original_params)
-    new_params["run_mode"] = "visit"
-    new_params["allow_partial_resume"] = True
-
-    new_ctx = dict(current_ctx)
-    new_ctx["auto_resume_count"] = retry_count + 1
-    new_ctx["resumed_from_task_id"] = task.id
-    new_ctx["status"] = "queued"
-    new_ctx.pop("auto_resumed", None)
-    new_ctx.pop("runner_id", None)
-    new_ctx.pop("heartbeat_at", None)
-    new_ctx.pop("failed_at", None)
-    new_ctx.pop("error", None)
-
-    # _build_inputs reads from execution_context.inputs,
-    # so we must inject run_mode and allow_partial_resume there.
-    ctx_inputs = new_ctx.get("inputs", {})
-    if not isinstance(ctx_inputs, dict):
-        ctx_inputs = {}
-    ctx_inputs = dict(ctx_inputs)
-    ctx_inputs["run_mode"] = "visit"
-    ctx_inputs["allow_partial_resume"] = True
-    new_ctx["inputs"] = ctx_inputs
-
-    # Create NEW follow-up task
-    new_task = Task(
-        id=str(uuid.uuid4()),
-        workspace_id=task.workspace_id,
-        message_id=getattr(task, "message_id", "") or "",
-        execution_id=getattr(task, "execution_id", None),
-        project_id=getattr(task, "project_id", None),
-        pack_id=task.pack_id,
-        task_type=getattr(task, "task_type", "playbook_execution"),
-        status=TaskStatus.PENDING,
-        params=new_params,
-        execution_context=new_ctx,
-        created_at=_utc_now(),
-    )
-    tasks_store.create_task(new_task)
-    logger.info(
-        f"Auto-resume #{retry_count + 1} queued for IG task {task.id} -> new task {new_task.id}"
-    )
-    return True
-
-
 def _extract_user_data_dir(task_ctx: Optional[Dict[str, Any]]) -> Optional[str]:
-    """Legacy helper, retained for compatibility."""
+    """DEPRECATED: Legacy helper, retained for external compatibility."""
     if not isinstance(task_ctx, dict):
         return None
     inputs = task_ctx.get("inputs")
@@ -540,7 +445,7 @@ def _extract_user_data_dir(task_ctx: Optional[Dict[str, Any]]) -> Optional[str]:
 def _has_conflicting_ig_profile_lock(
     tasks_store: TasksStore, workspace_id: str, user_data_dir: str, self_task_id: str
 ) -> bool:
-    """Legacy helper, retained for external compatibility."""
+    """DEPRECATED: Legacy helper, retained for external compatibility."""
     if not user_data_dir:
         return False
     try:
@@ -562,7 +467,7 @@ def _has_conflicting_ig_profile_lock(
 
 
 def _lock_key_for_ig_profile(user_data_dir: str) -> str:
-    """Legacy helper, retained for external compatibility."""
+    """DEPRECATED: Legacy helper, retained for external compatibility."""
     return f"ig_profile:{user_data_dir}"
 
 
@@ -829,7 +734,7 @@ async def _run_single_task(
                     ctxf["error"] = msg
                     ctxf["runner_id"] = runner_id
                     ctxf["failed_at"] = _utc_now().isoformat()
-                    if not _try_auto_resume_ig_task(tasks_store, latest, ctxf, msg):
+                    if not _invoke_on_fail_hook(ctxf, msg, latest.id):
                         tasks_store.update_task(
                             latest.id,
                             execution_context=ctxf,
@@ -870,13 +775,14 @@ async def _run_single_task(
                         ctxf["error"] = msg
                         ctxf["runner_id"] = runner_id
                         ctxf["failed_at"] = _utc_now().isoformat()
-                        tasks_store.update_task(
-                            latest.id,
-                            execution_context=ctxf,
-                            status=TaskStatus.FAILED,
-                            completed_at=_utc_now(),
-                            error=msg,
-                        )
+                        if not _invoke_on_fail_hook(ctxf, msg, latest.id):
+                            tasks_store.update_task(
+                                latest.id,
+                                execution_context=ctxf,
+                                status=TaskStatus.FAILED,
+                                completed_at=_utc_now(),
+                                error=msg,
+                            )
                 except Exception:
                     pass
     finally:
