@@ -199,9 +199,9 @@ export function WorkspaceDataProvider({
     abortControllerRef.current = controller;
 
     const timeoutId = setTimeout(() => {
-      console.log(`[WorkspaceDataContext:${tabId}] Request timeout after 15s`);
+      console.log(`[WorkspaceDataContext:${tabId}] Request timeout after 30s`);
       controller.abort();
-    }, 15000); // 15 second timeout
+    }, 30000); // 30 second timeout (backend may be under heavy load)
 
     try {
       console.log(`[WorkspaceDataContext:${tabId}] Starting fetch for workspace ${workspaceId}`);
