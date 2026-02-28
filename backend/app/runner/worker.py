@@ -6,9 +6,11 @@ import os
 import random
 import socket
 import subprocess
+import sys
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 
 def _utc_now() -> datetime:
@@ -210,20 +212,41 @@ def _reap_stale_runner_locks(
 
     try:
         with locks_store.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT lock_key, owner_id, expires_at, updated_at FROM runner_locks"
+            from sqlalchemy import text as _sa_text
+
+            result = conn.execute(
+                _sa_text(
+                    "SELECT lock_key, owner_id, expires_at, updated_at FROM runner_locks"
+                )
             )
-            rows = cursor.fetchall()
+            rows = result.fetchall()
     except Exception:
         return
 
     for row in rows or []:
         try:
-            lock_key = row["lock_key"]
-            owner_id = row["owner_id"]
-            expires_at = _parse_utc_iso(row["expires_at"])
-            updated_at = _parse_utc_iso(row["updated_at"])
+            lock_key = (
+                row[0] if not hasattr(row, "_mapping") else row._mapping["lock_key"]
+            )
+            owner_id = (
+                row[1] if not hasattr(row, "_mapping") else row._mapping["owner_id"]
+            )
+            expires_at_raw = (
+                row[2] if not hasattr(row, "_mapping") else row._mapping["expires_at"]
+            )
+            updated_at_raw = (
+                row[3] if not hasattr(row, "_mapping") else row._mapping["updated_at"]
+            )
+            expires_at = (
+                _parse_utc_iso(expires_at_raw)
+                if isinstance(expires_at_raw, str)
+                else expires_at_raw
+            )
+            updated_at = (
+                _parse_utc_iso(updated_at_raw)
+                if isinstance(updated_at_raw, str)
+                else updated_at_raw
+            )
 
             if not lock_key or not owner_id:
                 continue
@@ -231,21 +254,28 @@ def _reap_stale_runner_locks(
                 continue
             if owner_id in active_runner_ids:
                 continue
-            if updated_at and updated_at > threshold:
+
+            # Expired locks: delete eagerly regardless of updated_at
+            expired = expires_at and expires_at < now
+            # Non-expired but stale heartbeat: also delete
+            stale = updated_at and updated_at < threshold
+
+            if not expired and not stale:
                 continue
-            if expires_at and expires_at < now:
-                # Expired locks are safe to delete eagerly.
-                pass
+
+            from sqlalchemy import text as _sa_text2
 
             with locks_store.transaction() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "DELETE FROM runner_locks WHERE lock_key = ?", (lock_key,)
+                conn.execute(
+                    _sa_text2("DELETE FROM runner_locks WHERE lock_key = :lk"),
+                    {"lk": lock_key},
                 )
             logger.warning(
-                f"Reaped stale runner lock lock_key={lock_key} owner_id={owner_id} expires_at={row['expires_at']}"
+                f"Reaped stale runner lock lock_key={lock_key} owner_id={owner_id} "
+                f"expires_at={expires_at_raw} expired={expired} stale={stale}"
             )
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to reap lock {row}: {e}")
             continue
 
 
@@ -815,6 +845,54 @@ async def _run_single_task(
                 pass
 
 
+_RESTART_SENTINEL_PATH = Path("/app/data/.restart_runner")
+_RESTART_DRAIN_TIMEOUT_SECONDS = 30
+
+
+def _check_restart_sentinel() -> bool:
+    """Check if a restart sentinel file exists and is still valid.
+
+    Returns True if the runner should exit for restart.
+    Removes the sentinel file before returning to prevent restart loops.
+    """
+    if not _RESTART_SENTINEL_PATH.exists():
+        return False
+    try:
+        raw = _RESTART_SENTINEL_PATH.read_text(encoding="utf-8")
+        sentinel = json.loads(raw)
+        requested_at = sentinel.get("requested_at", "")
+        ttl_seconds = sentinel.get("ttl_seconds", 30)
+        request_id = sentinel.get("request_id", "unknown")
+
+        # Validate TTL to prevent stale sentinels from triggering restart loops
+        req_time = datetime.fromisoformat(requested_at)
+        if req_time.tzinfo is None:
+            req_time = req_time.replace(tzinfo=timezone.utc)
+        age = (_utc_now() - req_time).total_seconds()
+        if age > ttl_seconds:
+            logger.warning(
+                "Stale restart sentinel (age=%.1fs, ttl=%ds), removing: %s",
+                age,
+                ttl_seconds,
+                request_id,
+            )
+            _RESTART_SENTINEL_PATH.unlink(missing_ok=True)
+            return False
+
+        # Valid sentinel: remove first, then signal restart
+        _RESTART_SENTINEL_PATH.unlink(missing_ok=True)
+        logger.info(
+            "Restart sentinel detected (age=%.1fs, request_id=%s), preparing to exit",
+            age,
+            request_id,
+        )
+        return True
+    except Exception as e:
+        logger.warning("Failed to parse restart sentinel, removing: %s", e)
+        _RESTART_SENTINEL_PATH.unlink(missing_ok=True)
+        return False
+
+
 async def run_forever() -> None:
     poll_interval_ms = _env_int("LOCAL_CORE_RUNNER_POLL_INTERVAL_MS", 1000)
     max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
@@ -860,6 +938,38 @@ async def run_forever() -> None:
             tasks_store.upsert_runner_heartbeat(runner_id)
         except Exception:
             pass
+
+        # Restart sentinel: backend writes this when Device Node is unreachable.
+        # Drain inflight tasks gracefully, then exit for Docker auto-restart.
+        if _check_restart_sentinel():
+            if inflight:
+                logger.info(
+                    "Restart sentinel: waiting for %d inflight tasks to drain "
+                    "(max %ds)",
+                    len(inflight),
+                    _RESTART_DRAIN_TIMEOUT_SECONDS,
+                )
+                drain_deadline = (
+                    asyncio.get_event_loop().time() + _RESTART_DRAIN_TIMEOUT_SECONDS
+                )
+                while inflight and asyncio.get_event_loop().time() < drain_deadline:
+                    done = {t for t in inflight if t.done()}
+                    for t in done:
+                        inflight.discard(t)
+                        try:
+                            _ = t.result()
+                        except Exception:
+                            pass
+                    if inflight:
+                        await asyncio.sleep(1.0)
+                if inflight:
+                    logger.warning(
+                        "Restart sentinel: %d tasks still inflight after drain timeout, "
+                        "forcing exit",
+                        len(inflight),
+                    )
+            logger.info("Runner exiting for restart (sentinel)")
+            sys.exit(1)
 
         # Cleanup finished tasks
         try:

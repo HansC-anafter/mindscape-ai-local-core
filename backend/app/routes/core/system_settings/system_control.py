@@ -5,13 +5,20 @@ System control endpoints (restart, health check, etc.)
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Dict, Any
+import json
 import os
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 import logging
 
 from app.services.restart_webhook import get_restart_webhook_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_RUNNER_SENTINEL_PATH = Path("/app/data/.restart_runner")
+_RUNNER_SENTINEL_TTL_SECONDS = 30
 
 ALLOWED_SERVICES = {"backend", "runner", "all"}
 _LOCALHOST_ADDRS = {"127.0.0.1", "localhost", "::1", "unknown"}
@@ -102,6 +109,48 @@ async def restart_service(request: Request, body: RestartRequest = RestartReques
                 "method": "device_node",
                 "targets": targets,
                 "results": results,
+            }
+
+        # Fallback: sentinel file for runner when Device Node is unreachable.
+        # Runner polls this file and performs graceful self-restart.
+        runner_sentinel_written = False
+        if service in ("runner", "all"):
+            runner_result = results.get("runner") or {}
+            reason = runner_result.get("reason", "")
+            if reason in (
+                "device_node_unreachable",
+                "timeout",
+                "http_error",
+                "error",
+            ):
+                try:
+                    sentinel = {
+                        "request_id": uuid.uuid4().hex,
+                        "requested_at": datetime.now(timezone.utc).isoformat(),
+                        "ttl_seconds": _RUNNER_SENTINEL_TTL_SECONDS,
+                    }
+                    _RUNNER_SENTINEL_PATH.write_text(
+                        json.dumps(sentinel), encoding="utf-8"
+                    )
+                    runner_sentinel_written = True
+                    logger.info(
+                        "Restart sentinel written for runner: %s",
+                        sentinel["request_id"],
+                    )
+                except Exception as sentinel_err:
+                    logger.warning(
+                        "Failed to write runner restart sentinel: %s",
+                        sentinel_err,
+                    )
+
+        if runner_sentinel_written:
+            return {
+                "success": True,
+                "message": "Runner restart requested via sentinel file",
+                "method": "runner_sentinel",
+                "targets": [t for t in targets if t == "runner"],
+                "results": results,
+                "partial": service == "all",
             }
 
         return {
