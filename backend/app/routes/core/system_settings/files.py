@@ -133,6 +133,73 @@ async def list_directory(
         return {"success": False, "error": str(e), "items": []}
 
 
+@router.get("/browser-profiles")
+async def list_browser_profiles():
+    """List all IG browser profiles with their login status."""
+    import json
+    import time
+
+    profiles_root = Path("/app/data/ig-browser-profiles")
+    if not profiles_root.exists() or not profiles_root.is_dir():
+        return {"profiles": []}
+
+    result = []
+    for entry in sorted(profiles_root.iterdir()):
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+
+        info: Dict[str, Any] = {
+            "name": entry.name,
+            "path": str(entry),
+            "logged_in": False,
+            "session_expired": False,
+            "ig_username": None,
+            "ig_cookie_count": 0,
+        }
+
+        ss_path = entry / "storage_state.json"
+        if ss_path.exists():
+            try:
+                with open(ss_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+                cookies = state.get("cookies", [])
+                ig_cookies = [c for c in cookies if "instagram" in c.get("domain", "")]
+                info["ig_cookie_count"] = len(ig_cookies)
+
+                sessionid = next(
+                    (
+                        c
+                        for c in cookies
+                        if c.get("name") == "sessionid"
+                        and "instagram" in c.get("domain", "")
+                    ),
+                    None,
+                )
+                if sessionid:
+                    expires = sessionid.get("expires", 0)
+                    expired = bool(expires and expires > 0 and expires < time.time())
+                    info["session_expired"] = expired
+                    info["logged_in"] = not expired
+
+                ds_user = next(
+                    (
+                        c
+                        for c in cookies
+                        if c.get("name") == "ds_user_id"
+                        and "instagram" in c.get("domain", "")
+                    ),
+                    None,
+                )
+                if ds_user:
+                    info["ig_user_id"] = ds_user.get("value")
+            except Exception:
+                pass
+
+        result.append(info)
+
+    return {"profiles": result}
+
+
 @router.get("/browser-profile-status")
 async def get_browser_profile_status(
     profile_name: str = Query("default", description="Profile name to check"),
