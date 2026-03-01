@@ -176,15 +176,80 @@ class PipelineCore:
                     self.workspace, "resolved_executor_runtime", None
                 ) or getattr(self.workspace, "executor_runtime", None)
 
-                # Extract uploaded file metadata for tool coverage validation
+                # Enrich uploaded file metadata (aligned with pipeline_dispatch)
                 raw_files = getattr(request, "files", None) or []
                 uploaded_files = []
                 if raw_files:
+                    import os
+                    import json as _json
+                    from pathlib import Path
+
+                    workspace_id_str = getattr(self.workspace, "id", None) or ""
+                    uploads_dir = (
+                        Path(os.getenv("UPLOADS_DIR", "data/uploads"))
+                        / workspace_id_str
+                    )
                     for f in raw_files:
                         if isinstance(f, dict):
                             uploaded_files.append(f)
                         elif isinstance(f, str):
-                            uploaded_files.append({"file_id": f})
+                            file_id = f
+                            # Read .meta.json sidecar for original filename
+                            original_name = None
+                            meta_path = uploads_dir / f"{file_id}.meta.json"
+                            if meta_path.exists():
+                                try:
+                                    with open(meta_path) as mf:
+                                        meta = _json.load(mf)
+                                    original_name = meta.get("original_name")
+                                except Exception:
+                                    pass
+
+                            # Glob for actual file, filter out sidecars
+                            matched = (
+                                list(uploads_dir.glob(f"{file_id}.*"))
+                                if uploads_dir.exists()
+                                else []
+                            )
+                            matched = [
+                                m
+                                for m in matched
+                                if not m.name.endswith(".meta.json")
+                                and not m.name.endswith(".analysis.json")
+                            ]
+                            if matched:
+                                fpath = matched[0]
+                                display_name = original_name or fpath.name
+                                file_info = {
+                                    "file_id": file_id,
+                                    "file_name": display_name,
+                                    "file_path": str(fpath),
+                                    "file_type": fpath.suffix.lstrip("."),
+                                }
+                            else:
+                                file_info = {"file_id": file_id}
+                            uploaded_files.append(file_info)
+
+                    # Step 2: FileDispatchEnricher for detected_type + analysis
+                    if uploaded_files:
+                        try:
+                            from backend.app.services.conversation.file_dispatch_enricher import (
+                                FileDispatchEnricher,
+                            )
+
+                            enricher = FileDispatchEnricher()
+                            workspace_id_for_enrich = getattr(
+                                self.workspace, "id", None
+                            )
+                            if workspace_id_for_enrich:
+                                file_ctx = await enricher.enrich(
+                                    workspace_id_for_enrich, uploaded_files
+                                )
+                                uploaded_files = file_ctx.files
+                        except Exception as e:
+                            logger.warning(
+                                "FileDispatchEnricher failed in meeting branch: %s", e
+                            )
 
                 meeting_engine = MeetingEngine(
                     session=session,
