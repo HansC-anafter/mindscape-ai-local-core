@@ -12,6 +12,7 @@ from .enums import (
     WorkspaceType,
     LaunchStatus,
     ProjectAssignmentMode,
+    WorkspaceVisibility,
 )
 from ..workspace_blueprint import WorkspaceBlueprint
 
@@ -41,6 +42,15 @@ class Workspace(BaseModel):
     workspace_type: Optional[WorkspaceType] = Field(
         default=WorkspaceType.PERSONAL,
         description="Workspace type: personal (default) | brand | team | course | research",
+    )
+
+    # Workspace group membership
+    group_id: Optional[str] = Field(
+        None, description="ID of the workspace group this workspace belongs to"
+    )
+    workspace_role: Optional[str] = Field(
+        default="cell",
+        description="Role in group: 'dispatch' (strategy hub) | 'cell' (execution worker)",
     )
 
     # Owner and primary associations
@@ -180,6 +190,27 @@ class Workspace(BaseModel):
     starter_kit_type: Optional[str] = Field(
         None,
         description="Starter kit type: content_generation / client_delivery / knowledge_base / custom",
+    )
+
+    # Ephemeral workspace lifecycle (Phase 4: cross-workspace dispatch)
+    ttl_hours: Optional[int] = Field(
+        None,
+        description="Time-to-live in hours for ephemeral workspaces. "
+        "Null = permanent workspace (default).",
+    )
+    expires_at: Optional[datetime] = Field(
+        None,
+        description="Computed expiry timestamp (created_at + ttl_hours). "
+        "Set when launch_status transitions to EPHEMERAL.",
+    )
+    parent_workspace_id: Optional[str] = Field(
+        None,
+        description="Origin workspace for ephemeral workspaces. "
+        "Asset transfer targets this workspace on teardown.",
+    )
+    visibility: WorkspaceVisibility = Field(
+        default=WorkspaceVisibility.PRIVATE,
+        description="Controls discovery and access scope for meeting asset maps.",
     )
 
     # Timestamps
