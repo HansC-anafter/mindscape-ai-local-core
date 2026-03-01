@@ -87,6 +87,7 @@ async def workspace_chat(
         logger.info(
             f"WorkspaceChat: Received message request, message={request.message[:50]}..."
         )
+        logger.info(f"WorkspaceChat: request.files={request.files}")
 
         user_event_id = str(uuid.uuid4())
         service = ChatOrchestratorService(orchestrator)
@@ -118,14 +119,18 @@ async def workspace_chat(
                 display_events = [
                     {
                         "id": e.id,
-                        "actor": e.actor.value if hasattr(e.actor, "value") else str(e.actor),
+                        "actor": (
+                            e.actor.value if hasattr(e.actor, "value") else str(e.actor)
+                        ),
                         "payload": e.payload,
                         "timestamp": e.timestamp.isoformat() if e.timestamp else None,
                     }
                     for e in (events or [])
                 ]
             except Exception as fetch_err:
-                logger.warning(f"WorkspaceChat: Failed to fetch display_events: {fetch_err}")
+                logger.warning(
+                    f"WorkspaceChat: Failed to fetch display_events: {fetch_err}"
+                )
                 display_events = []
 
             return JSONResponse(

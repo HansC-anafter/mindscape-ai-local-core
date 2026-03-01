@@ -303,8 +303,16 @@ async def get_workspace_timeline(
         )
 
         if start_time or end_time:
-            start = datetime.fromisoformat(start_time) if start_time else None
-            end = datetime.fromisoformat(end_time) if end_time else None
+            start = (
+                datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                if start_time
+                else None
+            )
+            end = (
+                datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+                if end_time
+                else None
+            )
 
             filtered_items = []
             for item in timeline_items:
@@ -435,7 +443,7 @@ async def event_stream_generator(
 
         # Poll for new events using timestamp-based filtering
         # Track the latest event timestamp we've seen
-        last_poll_time = start_time or datetime.utcnow()
+        last_poll_time = start_time or datetime.now(timezone.utc)
         seen_event_ids = set()
 
         # If resuming from last_event_id, load that event to get its timestamp
@@ -505,7 +513,7 @@ async def event_stream_generator(
                     key=lambda e: (
                         e.timestamp
                         if isinstance(e.timestamp, datetime)
-                        else datetime.min
+                        else datetime.min.replace(tzinfo=timezone.utc)
                     )
                 )
 
@@ -563,8 +571,12 @@ async def event_stream_generator(
                     # events (e.g. playbook_step with timezone anomalies) from
                     # advancing the cursor past real-time events.
                     if isinstance(event.timestamp, datetime):
-                        now_utc = datetime.utcnow()
-                        last_poll_time = min(event.timestamp, now_utc)
+                        now_utc = datetime.now(timezone.utc)
+                        # Ensure both sides are tz-aware before compare
+                        evt_ts = event.timestamp
+                        if evt_ts.tzinfo is None:
+                            evt_ts = evt_ts.replace(tzinfo=timezone.utc)
+                        last_poll_time = min(evt_ts, now_utc)
 
                 # Send heartbeat to keep connection alive
                 heartbeat_counter += 1
