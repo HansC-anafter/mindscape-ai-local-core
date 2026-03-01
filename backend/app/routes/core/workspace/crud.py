@@ -656,6 +656,24 @@ async def update_workspace(
                 f"Merged metadata for workspace {workspace_id}: keys={list(request.metadata.keys())}"
             )
 
+        # Handle workspace_blueprint update (instruction editor)
+        if (
+            hasattr(request, "workspace_blueprint")
+            and request.workspace_blueprint is not None
+        ):
+            existing_bp = workspace.workspace_blueprint
+            new_bp = request.workspace_blueprint
+            if existing_bp:
+                # Merge: update only provided fields
+                if new_bp.instruction is not None:
+                    existing_bp.instruction = new_bp.instruction
+                if new_bp.brief is not None:
+                    existing_bp.brief = new_bp.brief
+                workspace.workspace_blueprint = existing_bp
+            else:
+                workspace.workspace_blueprint = new_bp
+            logger.info(f"Updated workspace_blueprint for workspace {workspace_id}")
+
         # Handle visibility update
         if hasattr(request, "visibility") and request.visibility is not None:
             workspace.visibility = request.visibility

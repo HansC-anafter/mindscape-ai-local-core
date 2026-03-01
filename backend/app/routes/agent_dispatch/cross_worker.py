@@ -53,12 +53,15 @@ class CrossWorkerMixin:
                 "error": f"Cross-worker dispatch failed: {e}",
             }
 
-        # Poll pending_dispatch for result written by consumer worker
+        # Poll pending_dispatch for result written by consumer worker.
+        # Activity-aware: check last_progress_at to avoid killing active tasks.
         poll_interval = 0.5
-        start = time.monotonic()
-        while (time.monotonic() - start) < timeout:
+        last_activity = time.monotonic()
+        last_known_progress_at = None
+
+        while True:
             try:
-                result = await asyncio.to_thread(
+                result, status, progress_at = await asyncio.to_thread(
                     self._db_poll_pending_result, execution_id
                 )
                 if result is not None:
@@ -66,11 +69,20 @@ class CrossWorkerMixin:
                         f"[AgentWS] Cross-worker result received " f"for {execution_id}"
                     )
                     return result
+
+                # Check for progress activity
+                if progress_at and progress_at != last_known_progress_at:
+                    last_activity = time.monotonic()
+                    last_known_progress_at = progress_at
             except Exception:
                 pass
+
+            idle = time.monotonic() - last_activity
+            if idle > timeout:
+                break
             await asyncio.sleep(poll_interval)
 
-        # Timeout
+        # Timeout — no activity
         try:
             await asyncio.to_thread(
                 self._db_update_pending_status, execution_id, "timeout"
@@ -79,13 +91,13 @@ class CrossWorkerMixin:
             pass
 
         logger.error(
-            f"[AgentWS] Cross-worker dispatch timed out "
-            f"for {execution_id} after {timeout}s"
+            f"[AgentWS] Cross-worker dispatch: no activity for "
+            f"{timeout}s, exec={execution_id}"
         )
         return {
             "execution_id": execution_id,
             "status": "timeout",
-            "error": f"No result received within {timeout}s (cross-worker)",
+            "error": f"No activity for {timeout:.0f}s (cross-worker)",
         }
 
     async def consume_pending_dispatches(self) -> None:
@@ -185,30 +197,53 @@ class CrossWorkerMixin:
                         )
                         continue
 
-                    # Await the result from _handle_result
-                    try:
-                        result = await asyncio.wait_for(result_future, timeout=600.0)
+                    # Await the result with activity-aware timeout
+                    consumer_timeout = 600.0
+                    consumer_last_activity = time.monotonic()
+                    consumer_result = None
+
+                    while True:
+                        try:
+                            consumer_result = await asyncio.wait_for(
+                                asyncio.shield(result_future),
+                                timeout=30.0,
+                            )
+                            break
+                        except asyncio.TimeoutError:
+                            inflight_check = self._inflight.get(exec_id)
+                            if (
+                                inflight_check
+                                and inflight_check.last_progress_at
+                                > consumer_last_activity
+                            ):
+                                consumer_last_activity = inflight_check.last_progress_at
+
+                            idle_time = time.monotonic() - consumer_last_activity
+                            if idle_time > consumer_timeout:
+                                break
+
+                    if consumer_result is not None:
                         logger.info(
                             f"[AgentWS] Consumer got result for "
-                            f"{exec_id}: status={result.get('status')}"
+                            f"{exec_id}: status="
+                            f"{consumer_result.get('status')}"
                         )
-                        # Write result to pending_dispatch for
-                        # the originating worker to pick up
                         await asyncio.to_thread(
                             self._db_write_pending_result,
                             exec_id,
-                            result,
+                            consumer_result,
                         )
-                    except asyncio.TimeoutError:
+                    else:
                         self._inflight.pop(exec_id, None)
                         logger.error(
-                            f"[AgentWS] Consumer timed out waiting "
-                            f"for result on {exec_id}"
+                            f"[AgentWS] Consumer: no activity for "
+                            f"{consumer_timeout}s on {exec_id}"
                         )
                         timeout_result = {
                             "execution_id": exec_id,
                             "status": "timeout",
-                            "error": "Consumer-side timeout (120s)",
+                            "error": f"Consumer-side: no activity "
+                            f"for {consumer_timeout:.0f}s",
                         }
                         await asyncio.to_thread(
                             self._db_write_pending_result,
@@ -264,27 +299,32 @@ class CrossWorkerMixin:
     @staticmethod
     def _db_poll_pending_result(
         execution_id: str,
-    ) -> Optional[Dict[str, Any]]:
-        """Poll pending_dispatch.result_data for a completed result."""
+    ):
+        """Poll pending_dispatch for result and progress activity.
+
+        Returns:
+            Tuple of (result_data_or_None, status, last_progress_at)
+        """
         conn = _get_core_db_connection()
         if not conn:
-            return None
+            return None, None, None
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT result_data, status FROM pending_dispatch "
+                    "SELECT result_data, status, last_progress_at "
+                    "FROM pending_dispatch "
                     "WHERE execution_id = %s",
                     (execution_id,),
                 )
                 row = cur.fetchone()
                 if not row:
-                    return None
-                result_data, status = row
+                    return None, None, None
+                result_data, status, progress_at = row
                 if status == "done" and result_data is not None:
                     if isinstance(result_data, str):
-                        return json.loads(result_data)
-                    return result_data
-                return None
+                        return json.loads(result_data), status, progress_at
+                    return result_data, status, progress_at
+                return None, status, progress_at
         finally:
             conn.close()
 

@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS pending_dispatch (
     picked_by_pid INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     picked_at TIMESTAMP WITH TIME ZONE,
-    completed_at TIMESTAMP WITH TIME ZONE
+    completed_at TIMESTAMP WITH TIME ZONE,
+    last_progress_at TIMESTAMP WITH TIME ZONE
 );
 CREATE INDEX IF NOT EXISTS idx_pending_dispatch_status
     ON pending_dispatch(status);
@@ -75,6 +76,12 @@ def _get_core_db_connection():
             with conn.cursor() as cur:
                 cur.execute(_CREATE_WS_CONNECTIONS_SQL)
                 cur.execute(_CREATE_PENDING_DISPATCH_SQL)
+                # Migrate existing tables: add last_progress_at if missing
+                cur.execute(
+                    "ALTER TABLE pending_dispatch "
+                    "ADD COLUMN IF NOT EXISTS last_progress_at "
+                    "TIMESTAMP WITH TIME ZONE"
+                )
             conn.commit()
             _tables_ensured = True
             logger.info("[AgentWS] Cross-worker tables ensured (on-demand)")
@@ -419,6 +426,25 @@ class ConnectionMixin:
                     "UPDATE ws_connections SET last_heartbeat = NOW() "
                     "WHERE client_id = %s",
                     (client_id,),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _db_update_pending_progress(execution_id: str) -> None:
+        """Update progress timestamp in pending_dispatch for cross-worker visibility."""
+        conn = _get_core_db_connection()
+        if not conn:
+            return
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE pending_dispatch SET last_progress_at = NOW() "
+                    "WHERE execution_id = %s",
+                    (execution_id,),
                 )
             conn.commit()
         except Exception:

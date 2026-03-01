@@ -171,7 +171,10 @@ async def get_execution_debug_screenshot(
     path = os.path.join("/app/data", basename)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path)
+    return FileResponse(
+        path,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 
 class RerunExecutionRequest(BaseModel):

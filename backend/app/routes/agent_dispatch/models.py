@@ -70,6 +70,7 @@ class InflightTask:
     thread_id: Optional[str] = None  # for artifact bundle association
     last_progress_pct: int = 0
     last_progress_msg: str = ""
+    last_progress_at: float = field(default_factory=time.monotonic)
 
 
 @dataclass

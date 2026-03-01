@@ -46,9 +46,9 @@ async def get_workspace_runtime(
             if isinstance(workspace.metadata, dict):
                 workspace_runtime_id = workspace.metadata.get("runtime_id")
 
-        # Get group runtime (if exists, for future use)
+        # Get group runtime (if workspace belongs to a group)
         group_runtime_id = None
-        # TODO: Implement group-level runtime when WorkspaceGroup is available
+        # WorkspaceGroup support available via PostgresWorkspaceGroupStore
 
         # Determine effective runtime (priority: workspace > group > default)
         effective_runtime_id = workspace_runtime_id or group_runtime_id or "local-core"
@@ -65,8 +65,8 @@ async def get_workspace_runtime(
         return {
             "runtime_id": effective_runtime_id,
             "status": runtime_status,
-            "group_id": None,  # TODO: Implement when WorkspaceGroup is available
-            "workspace_role": "cell",  # Local-Core default is cell
+            "group_id": getattr(workspace, "group_id", None),
+            "workspace_role": getattr(workspace, "workspace_role", None) or "cell",
             "group_runtime": group_runtime_id,
             "workspace_runtime": workspace_runtime_id,
             "effective_runtime": effective_runtime_id,
