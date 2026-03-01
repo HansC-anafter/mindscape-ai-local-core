@@ -331,11 +331,66 @@ def main():
     # active intents, current tasks, timeline activity)
     conversation_context = context.get("conversation_context", "")
 
+    # Parse uploaded file metadata from dispatch payload (defensive schema)
+    # Resolve container-relative paths to host-accessible paths via volume mount:
+    #   Container: data/uploads/ws_id/file.mp4  (or /app/data/uploads/...)
+    #   Host:      WORKSPACE_ROOT/data/uploads/ws_id/file.mp4
+    uploaded_files = context.get("uploaded_files") or []
+    uploaded_files_section = ""
+    resolved_file_paths = []  # host-accessible file paths for CLI ingestion
+    if uploaded_files:
+        workspace_root = os.environ.get("MINDSCAPE_WORKSPACE_ROOT", "")
+        print(
+            f"[FileResolve] workspace_root={workspace_root}, uploaded_files={uploaded_files}",
+            file=sys.stderr,
+        )
+        file_lines = []
+        for f in uploaded_files:
+            if isinstance(f, str):
+                file_lines.append(f"- {f}")
+                continue
+            if not isinstance(f, dict):
+                continue
+
+            name = f.get("file_name", f.get("filename", f.get("file_id", "unknown")))
+            ftype = f.get("file_type", f.get("mime_type", "unknown"))
+            fpath = f.get("file_path", "")
+            size = f.get("file_size", f.get("size_bytes", "?"))
+
+            # Resolve container path → host path
+            host_path = ""
+            if fpath and workspace_root:
+                # Strip leading /app/ if present (container CWD)
+                rel = fpath
+                if rel.startswith("/app/"):
+                    rel = rel[5:]
+                candidate = os.path.join(workspace_root, rel)
+                if os.path.isfile(candidate):
+                    host_path = candidate
+                    file_stat = os.stat(candidate)
+                    size = file_stat.st_size
+
+            line = f"- {name} (type: {ftype}, size: {size})"
+            if host_path:
+                line += f"\n  Host path: {host_path}"
+                if os.path.getsize(host_path) > 100:
+                    resolved_file_paths.append(host_path)
+            elif fpath:
+                line += f"\n  Container path: {fpath} (not accessible from host)"
+            file_lines.append(line)
+
+        if file_lines:
+            uploaded_files_section = "\n## Uploaded Files\n" + "\n".join(file_lines)
+            if resolved_file_paths:
+                uploaded_files_section += "\n\nYou can access these files directly at the host paths listed above."
+
     prompt_parts = []
     if system_instruction:
         prompt_parts.append(system_instruction)
     if conversation_context:
         prompt_parts.append(f"\n## Conversation Context\n{conversation_context}")
+    if uploaded_files_section:
+        prompt_parts.append(uploaded_files_section)
     prompt_parts.append(task)
 
     # Require a final text summary so the CLI always produces a response
@@ -379,8 +434,25 @@ def main():
     sub_env = {**os.environ, "GEMINI_CLI_EXECUTION_ID": execution_id}
     sub_env.update(auth_env)
 
-    # Server-side tool filtering: pass task hint to MCP gateway
-    sub_env["MINDSCAPE_TASK_HINT"] = task[:500]
+    # Server-side tool filtering: enrich task hint with file context
+    file_hint = context.get("file_hint", "")
+    if file_hint:
+        sub_env["MINDSCAPE_TASK_HINT"] = f"{task} {file_hint}"[:500]
+    else:
+        # Fallback: build hint from uploaded_files metadata
+        hint_parts = [task]
+        for f in context.get("uploaded_files") or []:
+            if isinstance(f, dict):
+                fname = f.get("file_name", "")
+                ftype = f.get("detected_type") or f.get("file_type", "")
+                if fname:
+                    hint_parts.append(f"[{ftype}: {fname}]")
+        sub_env["MINDSCAPE_TASK_HINT"] = " ".join(hint_parts)[:500]
+
+    # Forward recommended packs as JSON for gateway
+    rec_packs = context.get("recommended_pack_codes", [])
+    if rec_packs:
+        sub_env["MINDSCAPE_RECOMMENDED_PACKS"] = json.dumps(rec_packs)
 
     start = time.monotonic()
     try:
