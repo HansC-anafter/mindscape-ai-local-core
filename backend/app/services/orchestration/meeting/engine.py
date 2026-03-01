@@ -66,6 +66,7 @@ class MeetingResult:
     action_items: List[Dict[str, Any]] = field(default_factory=list)
     event_ids: List[str] = field(default_factory=list)
     task_ir: Optional[Any] = None
+    dispatch_result: Optional[Dict[str, Any]] = None
 
 
 class MeetingEngine(
@@ -153,6 +154,9 @@ class MeetingEngine(
         # Fetch project data for meeting context
         self._project_context = self._build_project_context()
 
+        # Build workspace group asset map for cross-workspace dispatch
+        self._asset_map_context = self._build_asset_map_context()
+
         # A4: Build dynamic roster from workspace/project context
         workspace_id = getattr(workspace, "id", None) or session.workspace_id
         self._roster = build_meeting_roster(
@@ -215,6 +219,9 @@ class MeetingEngine(
             user_message: User message that triggered the meeting.
             handoff_in: Optional HandoffIn for governance context.
         """
+        # 5A-1: Preload workspace-installed playbooks for prompt injection
+        self._available_playbooks_cache = await self._async_load_installed_playbooks()
+
         self._start_session()
         max_rounds = max(1, int(getattr(self.session, "max_rounds", 1)))
 
@@ -303,6 +310,9 @@ class MeetingEngine(
         for item in action_items:
             self._emit_action_item(item)
 
+        # Dispatch action items to target workspaces (fan-out + fan-in)
+        dispatch_result = await self._dispatch_phases_to_workspaces(action_items)
+
         minutes_md = self._render_minutes(
             user_message=user_message,
             decision=decision,
@@ -336,6 +346,7 @@ class MeetingEngine(
             action_items=action_items,
             event_ids=[e.id for e in self._events],
             task_ir=compiled_ir,
+            dispatch_result=dispatch_result,
         )
 
     def _start_session(self) -> None:
@@ -375,6 +386,403 @@ class MeetingEngine(
                 "state_diff": self.session.state_diff,
             },
         )
+
+    async def _async_load_installed_playbooks(self) -> str:
+        """Load workspace-installed playbooks for prompt injection.
+
+        Primary: query workspace_resource_bindings for PLAYBOOK type.
+        Fallback: PlaybookService.list_playbooks() when no bindings exist.
+
+        Returns:
+            Formatted string listing available playbooks.
+        """
+        # TODO: binding_store is sync I/O; consider run_in_executor or async store
+        try:
+            from backend.app.services.stores.workspace_resource_binding_store import (
+                WorkspaceResourceBindingStore,
+            )
+            from backend.app.models.workspace_resource_binding import ResourceType
+            from backend.app.services.playbook_service import PlaybookService
+
+            binding_store = WorkspaceResourceBindingStore()
+            bindings = binding_store.list_bindings_by_workspace(
+                self.session.workspace_id, resource_type=ResourceType.PLAYBOOK
+            )
+
+            if not bindings:
+                # Fallback: PlaybookService merges capability/system/user sources
+                svc = PlaybookService(store=self.store)
+                playbooks = await svc.list_playbooks(
+                    workspace_id=self.session.workspace_id
+                )
+                # list_playbooks returns List[PlaybookMetadata] — .name is direct
+                lines = [f"- {p.playbook_code}: {p.name}" for p in playbooks]
+                return "\n".join(lines) if lines else "(no playbooks installed)"
+
+            svc = PlaybookService(store=self.store)
+            lines = []
+            for b in bindings:
+                pb = await svc.get_playbook(
+                    b.resource_id, workspace_id=self.session.workspace_id
+                )
+                # get_playbook returns Playbook — name via .metadata.name
+                name = pb.metadata.name if pb else b.resource_id
+                lines.append(f"- {b.resource_id}: {name}")
+            return "\n".join(lines)
+        except Exception as exc:
+            logger.warning("Failed to load installed playbooks: %s", exc, exc_info=True)
+            return "(playbook discovery unavailable)"
+
+    def _resolve_blocked_by_order(
+        self, action_items: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Validate blocked_by references and return topologically sorted list.
+
+        Rules:
+        1. blocked_by refs are 0-based indices within the same dispatch batch.
+        2. Cycles → all items in the cycle marked dispatch_error.
+        3. Missing refs (non-existent index) → referencing item marked dispatch_error.
+
+        Returns:
+            Topologically sorted list of action items (dependencies first).
+        """
+        n = len(action_items)
+        # Quick exit: no blocked_by at all
+        has_blocked_by = False
+        for idx, item in enumerate(action_items):
+            deps = item.get("blocked_by")
+            if not deps or not isinstance(deps, list):
+                continue
+            has_blocked_by = True
+            for ref in deps:
+                if not isinstance(ref, int) or ref < 0 or ref >= n or ref == idx:
+                    item["landing_status"] = "dispatch_error"
+                    item["landing_error"] = f"missing dependency: {ref}"
+                    break
+
+        if not has_blocked_by:
+            return list(action_items)
+
+        # Kahn's algorithm: topological sort + cycle detection
+        from collections import deque
+
+        in_degree = [0] * n
+        adj: Dict[int, List[int]] = {i: [] for i in range(n)}
+        for idx, item in enumerate(action_items):
+            if item.get("landing_status"):
+                continue
+            deps = item.get("blocked_by")
+            if not deps or not isinstance(deps, list):
+                continue
+            for ref in deps:
+                if isinstance(ref, int) and 0 <= ref < n and ref != idx:
+                    adj[ref].append(idx)
+                    in_degree[idx] += 1
+
+        queue = deque()
+        for i in range(n):
+            if not action_items[i].get("landing_status") and in_degree[i] == 0:
+                queue.append(i)
+
+        sorted_indices: List[int] = []
+        while queue:
+            node = queue.popleft()
+            sorted_indices.append(node)
+            for neighbor in adj.get(node, []):
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+
+        # Items not in sorted output and not already marked → cycle
+        visited = set(sorted_indices)
+        for idx, item in enumerate(action_items):
+            if item.get("landing_status"):
+                continue
+            deps = item.get("blocked_by")
+            if deps and isinstance(deps, list) and idx not in visited:
+                item["landing_status"] = "dispatch_error"
+                item["landing_error"] = "dependency cycle detected"
+
+        # Build final ordered list: topo-sorted items first, then items
+        # without blocked_by (preserving original order), then errored items
+        in_sorted = set(sorted_indices)
+        result: List[Dict[str, Any]] = []
+        # Add items without blocked_by in original order (interleaved with
+        # topo-sorted items at their natural positions)
+        topo_order = {idx: pos for pos, idx in enumerate(sorted_indices)}
+
+        # Assign a sort key: topo-sorted items by their topo position,
+        # items without deps by original index, errored items last
+        def sort_key(pair):
+            idx, item = pair
+            if item.get("landing_status") in ("dispatch_error", "policy_blocked"):
+                return (2, idx)  # Errored items last
+            if idx in topo_order:
+                return (0, topo_order[idx])  # Topo-sorted position
+            return (0, idx)  # No deps: original order
+
+        for idx, item in sorted(enumerate(action_items), key=sort_key):
+            result.append(item)
+
+        return result
+
+    async def _dispatch_phases_to_workspaces(
+        self, action_items: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Dispatch action items grouped by workspace with fan-in aggregation.
+
+        Groups action items by their target_workspace_id, dispatches each
+        group concurrently, and aggregates results per workspace.
+
+        Returns dict with per-workspace results and aggregate status.
+        """
+        import asyncio
+        from collections import defaultdict
+
+        # 5E: Run policy gate before any dispatch
+        try:
+            from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
+                check_dispatch_policy,
+            )
+
+            check_dispatch_policy(
+                action_items,
+                workspace_id=self.session.workspace_id,
+                available_playbooks_cache=getattr(
+                    self, "_available_playbooks_cache", ""
+                ),
+            )
+            # Emit audit event for any policy-blocked items
+            blocked_items = [
+                item
+                for item in action_items
+                if item.get("landing_status") == "policy_blocked"
+            ]
+            if blocked_items:
+                self._emit_event(
+                    EventType.DECISION_FINAL,
+                    payload={
+                        "policy_gate_blocked": True,
+                        "meeting_session_id": self.session.id,
+                        "blocked_count": len(blocked_items),
+                        "reasons": [
+                            {
+                                "title": item.get("title"),
+                                "policy_reason_code": item.get("policy_reason_code"),
+                            }
+                            for item in blocked_items
+                        ],
+                    },
+                )
+        except Exception as exc:
+            logger.warning("Policy gate check failed (non-fatal): %s", exc)
+
+        # 5B-4: Validate + topologically sort blocked_by references
+        action_items = self._resolve_blocked_by_order(action_items)
+
+        # Group action items by target workspace
+        ws_groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        default_ws = self.session.workspace_id
+        for item in action_items:
+            target = item.get("target_workspace_id") or default_ws
+            item["target_workspace_id"] = target
+            ws_groups[target].append(item)
+
+        if len(ws_groups) <= 1:
+            # Single workspace — use existing serial path
+            # Determine actual target workspace (may differ from session ws)
+            actual_ws = next(iter(ws_groups)) if ws_groups else default_ws
+            results = []
+            for item in action_items:
+                if item.get("landing_status") in ("policy_blocked", "dispatch_error"):
+                    results.append(item)
+                    continue
+                landed = await self._land_action_item(item)
+                results.append(landed)
+            succeeded = sum(
+                1
+                for r in results
+                if r.get("landing_status") in ("launched", "task_created")
+            )
+            failed = sum(
+                1
+                for r in results
+                if r.get("landing_status")
+                in (
+                    "launch_failed",
+                    "launch_error",
+                    "policy_blocked",
+                    "dispatch_error",
+                )
+            )
+            if failed == 0:
+                agg_status = "ok"
+            elif succeeded == 0:
+                agg_status = "all_failed"
+            else:
+                agg_status = "partial_failure"
+
+            return {
+                "dispatch_mode": "single",
+                "workspace_results": {actual_ws: results},
+                "aggregate_status": agg_status,
+                "total": len(results),
+                "succeeded": succeeded,
+                "failed": failed,
+            }
+
+        # Multi-workspace: run DataLocality boundary check before dispatch
+        boundary_violations = []
+        try:
+            from backend.app.services.data_locality_service import (
+                get_data_locality_service,
+            )
+            from backend.app.services.stores.workspace_resource_binding_store import (
+                WorkspaceResourceBindingStore,
+            )
+            from backend.app.models.workspace_resource_binding import ResourceType
+
+            binding_store = WorkspaceResourceBindingStore()
+            ws_asset_map: Dict[str, List[str]] = {}
+            for ws_id in ws_groups:
+                bindings = binding_store.list_bindings_by_workspace(
+                    ws_id, resource_type=ResourceType.ASSET
+                )
+                ws_asset_map[ws_id] = [b.resource_id for b in bindings]
+
+            locality_svc = get_data_locality_service()
+            boundary_result = locality_svc.check_dispatch_boundary(
+                action_items, ws_asset_map
+            )
+
+            if not boundary_result["valid"]:
+                boundary_violations = boundary_result["violations"]
+                logger.warning(
+                    "DataLocality boundary violations: %s",
+                    boundary_result["message"],
+                )
+                # Mark violating items so they are skipped during dispatch
+                violation_indices = {v["item_index"] for v in boundary_violations}
+                for idx in violation_indices:
+                    if idx < len(action_items):
+                        action_items[idx]["landing_status"] = "boundary_violation"
+                        action_items[idx]["landing_error"] = boundary_result["message"]
+
+                self._emit_event(
+                    EventType.DECISION_FINAL,
+                    payload={
+                        "dispatch_boundary_violation": True,
+                        "meeting_session_id": self.session.id,
+                        "violations": boundary_violations,
+                    },
+                )
+        except Exception as exc:
+            logger.warning("DataLocality boundary check failed: %s", exc)
+
+        # Rebuild groups excluding violated items
+        ws_groups_clean: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for item in action_items:
+            if item.get("landing_status") in (
+                "boundary_violation",
+                "policy_blocked",
+                "dispatch_error",
+            ):
+                continue
+            ws_groups_clean[item["target_workspace_id"]].append(item)
+
+        # Multi-workspace fan-out: dispatch each workspace group concurrently
+        async def _dispatch_ws_group(
+            ws_id: str, items: List[Dict[str, Any]]
+        ) -> Dict[str, Any]:
+            ws_results = []
+            for item in items:
+                try:
+                    landed = await self._land_action_item(item)
+                    ws_results.append(landed)
+                except Exception as exc:
+                    logger.warning(
+                        "Dispatch failed for item '%s' → ws '%s': %s",
+                        item.get("title"),
+                        ws_id,
+                        exc,
+                    )
+                    item["landing_status"] = "dispatch_error"
+                    item["landing_error"] = str(exc)
+                    ws_results.append(item)
+            return {"workspace_id": ws_id, "items": ws_results}
+
+        tasks = [
+            _dispatch_ws_group(ws_id, items) for ws_id, items in ws_groups_clean.items()
+        ]
+        ws_outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Fan-in: aggregate results (include all pre-blocked items)
+        workspace_results: Dict[str, List[Dict[str, Any]]] = {}
+        all_items: List[Dict[str, Any]] = []
+        # Include all pre-blocked items (boundary_violation, policy_blocked, dispatch_error)
+        pre_blocked_items = [
+            item
+            for item in action_items
+            if item.get("landing_status")
+            in ("boundary_violation", "policy_blocked", "dispatch_error")
+        ]
+        all_items.extend(pre_blocked_items)
+        for outcome in ws_outcomes:
+            if isinstance(outcome, Exception):
+                logger.error("Workspace dispatch group failed: %s", outcome)
+                continue
+            ws_id = outcome["workspace_id"]
+            workspace_results[ws_id] = outcome["items"]
+            all_items.extend(outcome["items"])
+
+        succeeded = sum(
+            1
+            for r in all_items
+            if r.get("landing_status") in ("launched", "task_created")
+        )
+        failed = sum(
+            1
+            for r in all_items
+            if r.get("landing_status")
+            in (
+                "launch_failed",
+                "launch_error",
+                "dispatch_error",
+                "boundary_violation",
+                "policy_blocked",
+            )
+        )
+
+        if failed == 0:
+            agg_status = "ok"
+        elif succeeded == 0:
+            agg_status = "all_failed"
+        else:
+            agg_status = "partial_failure"
+
+        # Emit audit event for cross-workspace dispatch
+        self._emit_event(
+            EventType.DECISION_FINAL,
+            payload={
+                "cross_workspace_dispatch": True,
+                "meeting_session_id": self.session.id,
+                "workspace_count": len(ws_groups),
+                "total_items": len(all_items),
+                "succeeded": succeeded,
+                "failed": failed,
+                "aggregate_status": agg_status,
+                "workspace_ids": list(ws_groups.keys()),
+            },
+        )
+
+        return {
+            "dispatch_mode": "multi",
+            "workspace_results": workspace_results,
+            "aggregate_status": agg_status,
+            "total": len(all_items),
+            "succeeded": succeeded,
+            "failed": failed,
+        }
 
     def _run_l2_bridge_pipeline(self) -> None:
         """Run L2 Bridge extraction pipeline after session close.
