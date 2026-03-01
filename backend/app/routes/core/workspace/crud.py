@@ -28,6 +28,7 @@ from ....models.workspace import (
     CreateWorkspaceRequest,
     UpdateWorkspaceRequest,
     LaunchStatus,
+    WorkspaceVisibility,
 )
 from ....models.mindscape import MindEvent, EventType, EventActor
 from ....services.mindscape_store import MindscapeStore
@@ -239,7 +240,11 @@ async def create_workspace(
                 "bucket_strategy": "playbook_code",
                 "naming_rule": "slug-v{version}-{timestamp}.{ext}",
             },
-            visibility=getattr(request, "visibility", None),
+            visibility=(
+                request.visibility
+                if getattr(request, "visibility", None)
+                else WorkspaceVisibility.PRIVATE
+            ),
             created_at=_utc_now(),
             updated_at=_utc_now(),
         )
