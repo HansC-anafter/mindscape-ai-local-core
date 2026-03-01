@@ -48,21 +48,21 @@ class MeetingSupervisor:
             return {
                 "session_id": session_id,
                 "total_tasks": 0,
-                "completed": 0,
+                "succeeded": 0,
                 "failed": 0,
                 "stuck": 0,
                 "score": 1.0,
             }
 
-        completed = sum(1 for t in tasks if t.status == "completed")
+        succeeded = sum(1 for t in tasks if t.status == "succeeded")
         failed = sum(1 for t in tasks if t.status == "failed")
         stuck = self._count_stuck(tasks)
-        score = self.compute_score(completed, failed, total)
+        score = self.compute_score(succeeded, failed, total)
 
         return {
             "session_id": session_id,
             "total_tasks": total,
-            "completed": completed,
+            "succeeded": succeeded,
             "failed": failed,
             "stuck": stuck,
             "score": round(score, 2),
@@ -122,9 +122,9 @@ class MeetingSupervisor:
         total = len(tasks)
         if total == 0:
             return 1.0
-        completed = sum(1 for t in tasks if t.status == "completed")
+        succeeded = sum(1 for t in tasks if t.status == "succeeded")
         failed = sum(1 for t in tasks if t.status == "failed")
-        return self.compute_score(completed, failed, total)
+        return self.compute_score(succeeded, failed, total)
 
     @staticmethod
     def compute_score(completed: int, failed: int, total: int) -> float:

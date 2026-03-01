@@ -339,6 +339,26 @@ class MeetingEngine(
         except Exception as exc:
             logger.warning("Failed to compile TaskIR from meeting: %s", exc)
 
+        # 5C: Post-session supervision (fire-and-forget)
+        try:
+            from backend.app.services.orchestration.meeting.meeting_supervisor import (
+                MeetingSupervisor,
+            )
+
+            supervisor = MeetingSupervisor(tasks_store=self.tasks_store)
+            session_summary = await supervisor.on_session_closed(self.session.id)
+            logger.info(
+                "Session %s quality score: %.2f (%d/%d succeeded)",
+                self.session.id,
+                session_summary.get("score", 0),
+                session_summary.get("succeeded", 0),
+                session_summary.get("total_tasks", 0),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Supervisor hook failed for session %s: %s", self.session.id, exc
+            )
+
         return MeetingResult(
             session_id=self.session.id,
             minutes_md=minutes_md,
@@ -544,13 +564,18 @@ class MeetingEngine(
             from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
                 check_dispatch_policy,
             )
+            from backend.app.services.stores.workspace_resource_binding_store import (
+                WorkspaceResourceBindingStore,
+            )
 
+            _binding_store = WorkspaceResourceBindingStore()
             check_dispatch_policy(
                 action_items,
                 workspace_id=self.session.workspace_id,
                 available_playbooks_cache=getattr(
                     self, "_available_playbooks_cache", ""
                 ),
+                binding_store=_binding_store,
             )
             # Emit audit event for any policy-blocked items
             blocked_items = [
