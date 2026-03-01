@@ -697,12 +697,13 @@ class TasksStore(PostgresStoreBase):
             """
             SELECT *
             FROM tasks
-            WHERE task_type = :task_type
+            WHERE task_type IN (:task_type_pb, :task_type_tool)
             AND status = :status
             """
         ]
         params: Dict[str, Any] = {
-            "task_type": "playbook_execution",
+            "task_type_pb": "playbook_execution",
+            "task_type_tool": "tool_execution",
             "status": TaskStatus.PENDING.value,
         }
 
@@ -754,12 +755,13 @@ class TasksStore(PostgresStoreBase):
             """
             SELECT *
             FROM tasks
-            WHERE task_type = :task_type
+            WHERE task_type IN (:task_type_pb, :task_type_tool)
             AND status = :status
             """
         ]
         params: Dict[str, Any] = {
-            "task_type": "playbook_execution",
+            "task_type_pb": "playbook_execution",
+            "task_type_tool": "tool_execution",
             "status": TaskStatus.RUNNING.value,
         }
 
