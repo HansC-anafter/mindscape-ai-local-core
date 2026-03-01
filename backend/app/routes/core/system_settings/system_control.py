@@ -18,7 +18,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _RUNNER_SENTINEL_PATH = Path("/app/data/.restart_runner")
-_RUNNER_SENTINEL_TTL_SECONDS = 30
+_RUNNER_SENTINEL_TTL_SECONDS = 300
 
 ALLOWED_SERVICES = {"backend", "runner", "all"}
 _LOCALHOST_ADDRS = {"127.0.0.1", "localhost", "::1", "unknown"}
