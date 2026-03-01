@@ -4,9 +4,17 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { DeviceStatusIndicator } from '../../components/DeviceStatusIndicator';
 import { TrainHeader } from '../../../../components/execution';
+import VisibilityBadge from './VisibilityBadge';
+import WorkspaceGroupIndicator from './WorkspaceGroupIndicator';
+import type { WorkspaceVisibility } from '../workspace-page.types';
 
 interface WorkspaceHeaderBarProps {
-    workspace: { title: string };
+    workspace: {
+        title: string;
+        visibility?: WorkspaceVisibility;
+        group_id?: string | null;
+        workspace_role?: string | null;
+    };
     workspaceId: string;
     apiUrl: string;
     executionState: {
@@ -30,6 +38,9 @@ export default function WorkspaceHeaderBar({
 }: WorkspaceHeaderBarProps) {
     const router = useRouter();
 
+    // Build workspace badges: visibility + group indicator rendered inline
+    const visibilityBadges: React.ReactNode[] = [];
+
     return (
         <div className="relative">
             <TrainHeader
@@ -40,6 +51,36 @@ export default function WorkspaceHeaderBar({
                 workspaceId={workspaceId}
                 onWorkspaceNameEdit={onWorkspaceNameEdit}
             />
+            {/* Visibility & Group badges — positioned right of the workspace title */}
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center gap-1.5 z-20"
+                style={{ left: 'var(--badge-left, auto)' }}
+                ref={(el) => {
+                    // Dynamically position next to the workspace title
+                    if (el) {
+                        const header = el.parentElement;
+                        const titleEl = header?.querySelector('h1');
+                        if (titleEl) {
+                            const titleRect = titleEl.getBoundingClientRect();
+                            const headerRect = header!.getBoundingClientRect();
+                            const left = titleRect.right - headerRect.left + 12;
+                            el.style.left = `${left}px`;
+                        }
+                    }
+                }}
+            >
+                <VisibilityBadge
+                    workspaceId={workspaceId}
+                    visibility={workspace.visibility || 'private'}
+                    apiUrl={apiUrl}
+                />
+                {workspace.group_id && (
+                    <WorkspaceGroupIndicator
+                        groupId={workspace.group_id}
+                        workspaceRole={workspace.workspace_role}
+                        apiUrl={apiUrl}
+                    />
+                )}
+            </div>
             {/* Action Buttons - Right side of header */}
             <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 z-20">
                 {/* Device Status Indicator */}
@@ -78,3 +119,4 @@ export default function WorkspaceHeaderBar({
         </div>
     );
 }
+
