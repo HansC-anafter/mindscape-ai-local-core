@@ -3,6 +3,7 @@
 Revision ID: 20260105000000
 Revises: 20260103000000
 Create Date: 2026-01-05 00:00:00.000000
+Capability: mindscape_cloud_integration
 
 """
 
@@ -18,13 +19,6 @@ depends_on = None
 
 
 def upgrade():
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
-
-    if "channel_bindings" in existing_tables:
-        return
-
     op.create_table(
         "channel_bindings",
         sa.Column("id", sa.String(), nullable=False),
