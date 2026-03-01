@@ -14,13 +14,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ResourceType(str, Enum):
     """Resource types supported by workspace binding"""
+
     PLAYBOOK = "playbook"
     TOOL = "tool"
     DATA_SOURCE = "data_source"
+    ASSET = "asset"  # Workspace data asset for dispatch routing
 
 
 class AccessMode(str, Enum):
     """Access mode for resource binding"""
+
     READ = "read"
     WRITE = "write"
     ADMIN = "admin"
@@ -36,21 +39,25 @@ class WorkspaceResourceBinding(BaseModel):
 
     Phase 1: Supports three resource types: playbook, tool, data_source
     """
+
     id: str = Field(..., description="Unique binding ID")
     workspace_id: str = Field(..., description="Workspace ID")
-    resource_type: ResourceType = Field(..., description="Resource type: playbook, tool, or data_source")
-    resource_id: str = Field(..., description="Resource ID (playbook_code, tool_id, or data_source_id)")
+    resource_type: ResourceType = Field(
+        ..., description="Resource type: playbook, tool, or data_source"
+    )
+    resource_id: str = Field(
+        ..., description="Resource ID (playbook_code, tool_id, or data_source_id)"
+    )
 
     # Access control
     access_mode: AccessMode = Field(
-        default=AccessMode.READ,
-        description="Access mode: read, write, or admin"
+        default=AccessMode.READ, description="Access mode: read, write, or admin"
     )
 
     # Local overrides (JSON, only local-related settings)
     overrides: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Local overrides: display_name, order, category, default_params, enabled, etc."
+        description="Local overrides: display_name, order, category, default_params, enabled, etc.",
     )
 
     # Metadata
@@ -62,6 +69,7 @@ class WorkspaceResourceBinding(BaseModel):
 
 class CreateWorkspaceResourceBindingRequest(BaseModel):
     """Request to create a workspace resource binding"""
+
     workspace_id: str
     resource_type: ResourceType
     resource_id: str
@@ -71,34 +79,52 @@ class CreateWorkspaceResourceBindingRequest(BaseModel):
 
 class UpdateWorkspaceResourceBindingRequest(BaseModel):
     """Request to update a workspace resource binding"""
+
     access_mode: Optional[AccessMode] = None
     overrides: Optional[Dict[str, Any]] = None
 
 
 # Override schemas for different resource types
 
+
 class PlaybookOverrides(BaseModel):
     """Playbook-specific overrides"""
-    local_display_name: Optional[str] = Field(None, description="Local display name (e.g., '寫書模式')")
+
+    local_display_name: Optional[str] = Field(
+        None, description="Local display name (e.g., '寫書模式')"
+    )
     local_order: Optional[int] = Field(None, description="Local sort order")
     local_category: Optional[str] = Field(None, description="Local category")
-    local_default_params: Optional[Dict[str, Any]] = Field(None, description="Default parameters for this workspace")
-    local_enabled: Optional[bool] = Field(None, description="Whether playbook is enabled in this workspace")
+    local_default_params: Optional[Dict[str, Any]] = Field(
+        None, description="Default parameters for this workspace"
+    )
+    local_enabled: Optional[bool] = Field(
+        None, description="Whether playbook is enabled in this workspace"
+    )
 
 
 class ToolOverrides(BaseModel):
     """Tool-specific overrides"""
-    local_tool_whitelist: Optional[list[str]] = Field(None, description="List of allowed tool IDs")
+
+    local_tool_whitelist: Optional[list[str]] = Field(
+        None, description="List of allowed tool IDs"
+    )
     local_danger_overrides: Optional[Dict[str, str]] = Field(
         None,
-        description="Danger level overrides (can only be more restrictive, not less)"
+        description="Danger level overrides (can only be more restrictive, not less)",
     )
-    local_enabled: Optional[bool] = Field(None, description="Whether tool is enabled in this workspace")
+    local_enabled: Optional[bool] = Field(
+        None, description="Whether tool is enabled in this workspace"
+    )
 
 
 class DataSourceOverrides(BaseModel):
     """Data source-specific overrides"""
-    local_display_name: Optional[str] = Field(None, description="Local display name")
-    local_access_mode: Optional[str] = Field(None, description="Local access mode override")
-    local_enabled: Optional[bool] = Field(None, description="Whether data source is enabled in this workspace")
 
+    local_display_name: Optional[str] = Field(None, description="Local display name")
+    local_access_mode: Optional[str] = Field(
+        None, description="Local access mode override"
+    )
+    local_enabled: Optional[bool] = Field(
+        None, description="Whether data source is enabled in this workspace"
+    )
