@@ -129,12 +129,14 @@ export class MindscapeClient {
     max_tools?: number;
     include_playbooks?: boolean;
     enabled_only?: boolean;
+    recommended_pack_codes?: string[];
   }): Promise<FilteredToolsResponse> {
     const { data } = await this.client.post("/api/v1/tools/filtered", {
       task_hint: params.task_hint || "",
       max_tools: params.max_tools || 30,
       include_playbooks: params.include_playbooks ?? true,
       enabled_only: params.enabled_only ?? true,
+      recommended_pack_codes: params.recommended_pack_codes || [],
     });
 
     const tools: Tool[] = (data.tools || []).map((t: any) => ({
