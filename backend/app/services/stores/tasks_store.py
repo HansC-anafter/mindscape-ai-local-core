@@ -748,6 +748,28 @@ class TasksStore(PostgresStoreBase):
             rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
             return [self._row_to_task(row) for row in rows]
 
+    def list_tasks_by_meeting_session(
+        self, session_id: str, limit: int = 200
+    ) -> List[Task]:
+        """List tasks spawned by a specific meeting session.
+
+        Checks both execution_context and params JSON columns for
+        meeting_session_id to maintain backward compatibility.
+        """
+        query = text(
+            """
+            SELECT *
+            FROM tasks
+            WHERE execution_context->>'meeting_session_id' = :sid
+               OR params->>'meeting_session_id' = :sid
+            ORDER BY created_at ASC
+            LIMIT :limit
+        """
+        )
+        with self.get_connection() as conn:
+            rows = conn.execute(query, {"sid": session_id, "limit": limit}).fetchall()
+            return [self._row_to_task(row) for row in rows]
+
     def list_running_playbook_execution_tasks(
         self, workspace_id: Optional[str] = None, limit: int = 200
     ) -> List[Task]:
