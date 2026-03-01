@@ -137,6 +137,7 @@ docker-compose.override.yml
 # Capability-installed model directories (auto-ignored; whitelist core subdirs)
 /backend/app/models/*/
 !/backend/app/models/workspace/
+!/backend/app/models/playbook_models/
 
 # Ignore nested backend/backend/ directory (should not exist)
 /backend/backend/
