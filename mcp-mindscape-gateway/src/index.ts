@@ -65,6 +65,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         max_tools: config.maxTools,
         include_playbooks: true,
         enabled_only: true,
+        recommended_pack_codes: config.recommendedPacks,
       }),
       mindscapeClient.listPacks(),
     ]);

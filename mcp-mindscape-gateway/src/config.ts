@@ -12,6 +12,7 @@ export interface GatewayConfig {
   defaultWorkspaceTitle: string;
   taskHint: string;
   maxTools: number;
+  recommendedPacks: string[];
 }
 
 export function loadConfig(): GatewayConfig {
@@ -29,6 +30,21 @@ export function loadConfig(): GatewayConfig {
   const taskHint = (process.env.MINDSCAPE_TASK_HINT || "").slice(0, 500);
   const maxTools = Math.min(100, Math.max(1, parseInt(process.env.MINDSCAPE_MAX_TOOLS || "30", 10)));
 
+  // Recommended packs from file dispatch enrichment (JSON array string)
+  let recommendedPacks: string[] = [];
+  const packsEnv = process.env.MINDSCAPE_RECOMMENDED_PACKS || "";
+  if (packsEnv) {
+    try {
+      const parsed = JSON.parse(packsEnv);
+      if (Array.isArray(parsed)) {
+        recommendedPacks = parsed.filter((p: unknown) => typeof p === "string");
+      }
+    } catch {
+      // Fallback: try comma-separated
+      recommendedPacks = packsEnv.split(",").filter(Boolean);
+    }
+  }
+
   return {
     mindscapeBaseUrl: baseUrl,
     apiKey,
@@ -40,6 +56,7 @@ export function loadConfig(): GatewayConfig {
     defaultWorkspaceTitle,
     taskHint,
     maxTools,
+    recommendedPacks,
   };
 }
 
