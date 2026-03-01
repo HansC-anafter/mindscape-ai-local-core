@@ -13,15 +13,13 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 # Copy shared packages (source code only, node_modules excluded by .dockerignore)
 COPY packages ./packages
 
-# Copy frontend app definition
-COPY web-console/package.json ./web-console/package.json
-
-# Install dependencies for the entire workspace
-# Using --no-frozen-lockfile because we modified package.json without updating lockfile on host
-RUN pnpm install
-
-# Copy frontend source code
+# Copy frontend app definition and source code
 COPY web-console ./web-console
+
+# Install dependencies for the entire workspace after all source is copied
+# This avoids the symlink conflict where pnpm install creates symlinks
+# in node_modules that Docker COPY cannot overwrite.
+RUN pnpm install
 
 EXPOSE 3000
 
