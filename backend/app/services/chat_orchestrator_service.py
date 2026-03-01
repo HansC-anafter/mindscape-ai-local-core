@@ -283,6 +283,61 @@ class ChatOrchestratorService:
             thread_id=session.thread_id,
         )
 
+        # Resolve file IDs to enriched metadata for agent
+        raw_files = getattr(request, "files", None) or []
+        enriched_files = []
+        if raw_files:
+            import os as _os
+            import json as _json
+            from pathlib import Path as _Path
+
+            uploads_dir = (
+                _Path(_os.getenv("UPLOADS_DIR", "data/uploads")) / workspace_id
+            )
+            for file_id in raw_files:
+                if not isinstance(file_id, str):
+                    enriched_files.append(file_id)
+                    continue
+                # Read .meta.json sidecar for original filename
+                meta_path = uploads_dir / f"{file_id}.meta.json"
+                original_name = None
+                if meta_path.exists():
+                    try:
+                        with open(meta_path) as mf:
+                            original_name = _json.load(mf).get("original_name")
+                    except Exception:
+                        pass
+                # Glob for actual file
+                matched = (
+                    list(uploads_dir.glob(f"{file_id}.*"))
+                    if uploads_dir.exists()
+                    else []
+                )
+                matched = [
+                    m
+                    for m in matched
+                    if not m.name.endswith(".meta.json")
+                    and not m.name.endswith(".analysis.json")
+                ]
+                if matched:
+                    fpath = matched[0]
+                    enriched_files.append(
+                        {
+                            "file_id": file_id,
+                            "file_name": original_name or fpath.name,
+                            "file_path": str(fpath),
+                            "file_type": fpath.suffix.lstrip("."),
+                        }
+                    )
+                    logger.info(
+                        "Enriched file %s -> %s (%s)",
+                        file_id,
+                        fpath.name,
+                        fpath.suffix,
+                    )
+                else:
+                    logger.warning("File ID %s not found in %s", file_id, uploads_dir)
+
         agent_response: AgentExecutionResponse = await executor.execute(
             task=request.message,
             agent_id=executor_runtime,
@@ -290,6 +345,7 @@ class ChatOrchestratorService:
                 "conversation_context": conversation_context or "",
                 "thread_id": session.thread_id,
                 "project_id": session.project_id,
+                "uploaded_files": enriched_files,
             },
         )
 
@@ -456,6 +512,21 @@ class ChatOrchestratorService:
             model_name=model_name,
             thread_id=session.thread_id,
         )
+
+        # Inject workspace instruction into system message
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        ws_instruction, _src = build_workspace_instruction_block(
+            workspace, caller="background"
+        )
+        if ws_instruction:
+            context_str = (
+                ws_instruction + "\n\n" + (context_str or "")
+                if context_str
+                else ws_instruction
+            )
 
         messages = []
         if context_str:

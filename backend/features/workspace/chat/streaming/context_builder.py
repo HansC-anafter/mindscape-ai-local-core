@@ -41,24 +41,7 @@ async def build_streaming_context(
     Returns:
         Context string or None
     """
-    # Resolve model_name from SystemSettingsStore if not provided
-    if not model_name or str(model_name).strip() == "":
-        try:
-            from backend.app.services.system_settings_store import SystemSettingsStore
-
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-            if chat_setting and chat_setting.value:
-                model_name = str(chat_setting.value)
-                logger.info(
-                    f"Resolved model_name from SystemSettingsStore: {model_name}"
-                )
-        except Exception as e:
-            logger.warning(
-                f"Failed to resolve model_name in build_streaming_context: {e}"
-            )
-
-    # Resolve model_name from SystemSettingsStore if not provided
+    # Resolve model_name from SystemSettingsStore if not provided (D1: deduplicated)
     if not model_name or str(model_name).strip() == "":
         try:
             from backend.app.services.system_settings_store import SystemSettingsStore
@@ -102,6 +85,19 @@ async def build_streaming_context(
         context = ""
 
     return context
+
+
+def _build_workspace_instruction_for_chat(workspace: Workspace) -> str:
+    """Extract workspace instruction for chat pipeline injection.
+
+    Delegates to shared helper for consistent precedence and logging.
+    """
+    from backend.app.services.workspace_instruction_helper import (
+        build_workspace_instruction_block,
+    )
+
+    block, _ = build_workspace_instruction_block(workspace, caller="chat")
+    return block
 
 
 async def load_available_playbooks(

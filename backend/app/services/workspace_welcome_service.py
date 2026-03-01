@@ -21,7 +21,7 @@ async def _generate_personalized_suggestions(
     active_intents: List[Dict[str, str]],
     available_playbooks: List[Dict[str, str]],
     locale: str,
-    model_name: str
+    model_name: str,
 ) -> List[str]:
     """
     Generate personalized suggestions using AI based on workspace context
@@ -39,9 +39,13 @@ async def _generate_personalized_suggestions(
         List of suggestion strings (2-4 suggestions, natural and gentle)
     """
     try:
-        from backend.app.capabilities.core_llm.services.generate import run as generate_text
+        from backend.app.capabilities.core_llm.services.generate import (
+            run as generate_text,
+        )
         from backend.app.shared.prompt_templates import get_language_name
-        from backend.app.capabilities.core_llm.services.generate import _get_language_instruction
+        from backend.app.capabilities.core_llm.services.generate import (
+            _get_language_instruction,
+        )
 
         target_language = get_language_name(locale)
         language_instruction = _get_language_instruction(locale)
@@ -53,8 +57,7 @@ async def _generate_personalized_suggestions(
             # Get recent events for context
             try:
                 recent_events = store.get_events_by_workspace(
-                    workspace_id=workspace.id,
-                    limit=10
+                    workspace_id=workspace.id, limit=10
                 )
                 if recent_events:
                     mindscape_context = f"Recent activity: {len(recent_events)} events in this workspace"
@@ -74,6 +77,17 @@ Guidelines (must follow all):
 **CRITICAL:**
 {language_instruction}
 If nothing relevant, return nothing."""
+
+        # Inject workspace instruction
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        ws_block, _src = build_workspace_instruction_block(
+            workspace, caller="welcome_suggestions"
+        )
+        if ws_block:
+            system_prompt = ws_block + "\n\n" + system_prompt
 
         user_prompt = f"""Workspace Context:
 - Title: {workspace.title}
@@ -96,28 +110,30 @@ Produce 2-4 actionable starter steps (one per line, no numbering), each <= 15 wo
             temperature=0.8,
             max_tokens=200,
             locale=locale,
-            workspace_id=workspace.id
+            workspace_id=workspace.id,
         )
 
-        suggestions_text = result.get('text', '') if isinstance(result, dict) else str(result)
+        suggestions_text = (
+            result.get("text", "") if isinstance(result, dict) else str(result)
+        )
         if not suggestions_text:
             return []
 
         # Parse suggestions from text (split by newlines, clean up)
         suggestions = []
         banned_patterns = [
-            r"^或許(也)?可以開始",          # meaningless filler zh
+            r"^或許(也)?可以開始",  # meaningless filler zh
             r"^maybe\\s*(we)?\\s*can\\s*start",  # meaningless filler en
-            r"^可以開始",                 # vague zh
-            r"^start\\s*now\\b",          # vague en
-            r"^let'?s\\s*start",          # vague en
+            r"^可以開始",  # vague zh
+            r"^start\\s*now\\b",  # vague en
+            r"^let'?s\\s*start",  # vague en
         ]
         import re
 
-        for line in suggestions_text.split('\n'):
+        for line in suggestions_text.split("\n"):
             line = line.strip()
             # Remove list markers (-, *, 1., etc.)
-            line = line.lstrip('- *•1234567890. ').strip()
+            line = line.lstrip("- *•1234567890. ").strip()
             if not line or len(line) <= 5:
                 continue
             if any(re.search(p, line, re.IGNORECASE) for p in banned_patterns):
@@ -138,12 +154,16 @@ Produce 2-4 actionable starter steps (one per line, no numbering), each <= 15 wo
 
         # If everything got filtered out, return empty to avoid showing junk in UI
         if not suggestions:
-            logger.info("Welcome suggestions filtered out (empty after sanitization); returning none.")
+            logger.info(
+                "Welcome suggestions filtered out (empty after sanitization); returning none."
+            )
             return []
 
         # If we got suggestions, return them; otherwise return empty
         if suggestions:
-            logger.info(f"Generated {len(suggestions)} personalized suggestions for workspace {workspace.id}")
+            logger.info(
+                f"Generated {len(suggestions)} personalized suggestions for workspace {workspace.id}"
+            )
             return suggestions
         else:
             logger.warning(f"Failed to parse suggestions from LLM response")
@@ -159,10 +179,7 @@ class WorkspaceWelcomeService:
 
     @staticmethod
     async def generate_welcome_message(
-        workspace: Workspace,
-        profile_id: str,
-        store: MindscapeStore,
-        locale: str = "en"
+        workspace: Workspace, profile_id: str, store: MindscapeStore, locale: str = "en"
     ) -> Tuple[str, List[str]]:
         """
         Generate welcome message and initial suggestions for a new workspace
@@ -185,24 +202,39 @@ class WorkspaceWelcomeService:
             profile = store.get_profile(profile_id)
             onboarding_complete = False
             if profile and profile.onboarding_state:
-                onboarding_complete = profile.onboarding_state.get('task3_completed', False)
+                onboarding_complete = profile.onboarding_state.get(
+                    "task3_completed", False
+                )
 
             if not onboarding_complete:
                 try:
-                    from backend.app.services.conversation.context_builder import ContextBuilder
-                    from backend.app.services.conversation.qa_response_generator import QAResponseGenerator
-                    from backend.app.services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
-                    from backend.app.capabilities.core_llm.services.generate import run as generate_text
-                    from backend.app.services.system_settings_store import SystemSettingsStore
+                    from backend.app.services.conversation.context_builder import (
+                        ContextBuilder,
+                    )
+                    from backend.app.services.conversation.qa_response_generator import (
+                        QAResponseGenerator,
+                    )
+                    from backend.app.services.stores.postgres.timeline_items_store import (
+                        PostgresTimelineItemsStore,
+                    )
+                    from backend.app.capabilities.core_llm.services.generate import (
+                        run as generate_text,
+                    )
+                    from backend.app.services.system_settings_store import (
+                        SystemSettingsStore,
+                    )
 
                     timeline_items_store = PostgresTimelineItemsStore()
                     qa_generator = QAResponseGenerator(
                         store=store,
                         timeline_items_store=timeline_items_store,
-                        default_locale=locale
+                        default_locale=locale,
                     )
 
-                    from backend.app.services.system_settings_store import SystemSettingsStore
+                    from backend.app.services.system_settings_store import (
+                        SystemSettingsStore,
+                    )
+
                     settings_store = SystemSettingsStore()
                     chat_setting = settings_store.get_setting("chat_model")
 
@@ -220,47 +252,57 @@ class WorkspaceWelcomeService:
                     context_builder = ContextBuilder(
                         store=store,
                         timeline_items_store=timeline_items_store,
-                        model_name=model_name
+                        model_name=model_name,
                     )
                     context = await context_builder.build_qa_context(
                         workspace_id=workspace.id,
                         message="",
                         profile_id=profile_id,
                         workspace=workspace,
-                        hours=0
+                        hours=0,
                     )
 
                     available_playbooks = []
                     try:
                         from backend.app.services.playbook_loader import PlaybookLoader
+
                         playbook_loader = PlaybookLoader()
                         file_playbooks = playbook_loader.load_all_playbooks()
 
                         for pb in file_playbooks:
-                            metadata = pb.metadata if hasattr(pb, 'metadata') else None
+                            metadata = pb.metadata if hasattr(pb, "metadata") else None
                             if metadata and metadata.playbook_code:
-                                available_playbooks.append({
-                                    'playbook_code': metadata.playbook_code,
-                                    'name': metadata.name,
-                                    'description': metadata.description or '',
-                                    'tags': metadata.tags or []
-                                })
+                                available_playbooks.append(
+                                    {
+                                        "playbook_code": metadata.playbook_code,
+                                        "name": metadata.name,
+                                        "description": metadata.description or "",
+                                        "tags": metadata.tags or [],
+                                    }
+                                )
                     except Exception as e:
-                        logger.debug(f"Could not load playbooks for welcome message: {e}")
+                        logger.debug(
+                            f"Could not load playbooks for welcome message: {e}"
+                        )
 
                     active_intents = []
                     try:
                         from backend.app.models.mindscape import IntentStatus
+
                         intents = store.list_intents(
-                            profile_id=profile_id,
-                            status=IntentStatus.ACTIVE
+                            profile_id=profile_id, status=IntentStatus.ACTIVE
                         )
-                        active_intents = [{'title': i.title, 'description': i.description or ''} for i in intents[:5]]
+                        active_intents = [
+                            {"title": i.title, "description": i.description or ""}
+                            for i in intents[:5]
+                        ]
                     except Exception as e:
                         logger.debug(f"Could not load intents for welcome message: {e}")
 
                     # Use existing language instruction function for consistency
-                    from backend.app.capabilities.core_llm.services.generate import _get_language_instruction
+                    from backend.app.capabilities.core_llm.services.generate import (
+                        _get_language_instruction,
+                    )
                     from backend.app.shared.prompt_templates import get_language_name
 
                     target_language = get_language_name(locale)
@@ -282,6 +324,17 @@ The workspace locale is {locale} ({target_language}), so you MUST respond in {ta
 Do NOT mix languages. Do NOT use English if the locale is not 'en'.
 
 Keep it concise but informative (2-4 paragraphs)."""
+
+                    # Inject workspace instruction
+                    from backend.app.services.workspace_instruction_helper import (
+                        build_workspace_instruction_block,
+                    )
+
+                    ws_block, _src = build_workspace_instruction_block(
+                        workspace, caller="welcome_message"
+                    )
+                    if ws_block:
+                        system_prompt = ws_block + "\n\n" + system_prompt
 
                     # Build user prompt - use English as base (following system prompt design principle)
                     # The LLM will respond in the target language based on system prompt instruction
@@ -322,60 +375,117 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                         max_tokens=2000,
                         locale=locale,
                         workspace_id=workspace.id,
-                        available_playbooks=available_playbooks
+                        available_playbooks=available_playbooks,
                     )
-                    welcome_message = result.get('text', '') if isinstance(result, dict) else str(result)
+                    welcome_message = (
+                        result.get("text", "")
+                        if isinstance(result, dict)
+                        else str(result)
+                    )
                     # Basic validity: must have some content
                     if not welcome_message or len(welcome_message.strip()) < 10:
-                        raise ValueError("LLM generated empty or invalid welcome message")
+                        raise ValueError(
+                            "LLM generated empty or invalid welcome message"
+                        )
                     # If content is too short (likely truncated), fall back to i18n baseline
                     # Reduced threshold from 40 to 20 to allow shorter but valid messages
                     if len(welcome_message.strip()) < 20:
                         logger.warning(
                             f"LLM welcome message too short ({len(welcome_message.strip())} chars); falling back to i18n baseline"
                         )
-                        welcome_message = i18n.t("workspace", "welcome.new_workspace", workspace_title=workspace.title)
+                        welcome_message = i18n.t(
+                            "workspace",
+                            "welcome.new_workspace",
+                            workspace_title=workspace.title,
+                        )
 
                     # Validate that message is in correct language (basic check)
                     # Use language detection to verify the generated message matches the locale
-                    from backend.app.capabilities.core_llm.services.generate import _detect_prompt_language
+                    from backend.app.capabilities.core_llm.services.generate import (
+                        _detect_prompt_language,
+                    )
+
                     detected_lang = _detect_prompt_language(welcome_message)
 
                     # Normalize locale for comparison (e.g., "zh-TW" -> "zh-TW", "ja-JP" -> "ja")
-                    normalized_locale = locale.split('-')[0] if '-' in locale else locale
-                    normalized_detected = detected_lang.split('-')[0] if detected_lang and '-' in detected_lang else detected_lang
+                    normalized_locale = (
+                        locale.split("-")[0] if "-" in locale else locale
+                    )
+                    normalized_detected = (
+                        detected_lang.split("-")[0]
+                        if detected_lang and "-" in detected_lang
+                        else detected_lang
+                    )
 
                     # Check if detected language matches locale
                     # Allow some flexibility: zh-TW and zh-CN are both valid for zh locales
                     if normalized_locale == "zh":
                         if normalized_detected not in ["zh", "zh-TW", "zh-CN"]:
-                            chinese_chars = len([c for c in welcome_message if '\u4e00' <= c <= '\u9fff'])
+                            chinese_chars = len(
+                                [
+                                    c
+                                    for c in welcome_message
+                                    if "\u4e00" <= c <= "\u9fff"
+                                ]
+                            )
                             if chinese_chars < max(10, len(welcome_message) * 0.1):
-                                logger.warning(f"LLM generated message appears to be in wrong language for locale {locale} (detected: {detected_lang}, only {chinese_chars} Chinese chars), falling back to i18n")
-                                raise ValueError("LLM generated message in wrong language")
+                                logger.warning(
+                                    f"LLM generated message appears to be in wrong language for locale {locale} (detected: {detected_lang}, only {chinese_chars} Chinese chars), falling back to i18n"
+                                )
+                                raise ValueError(
+                                    "LLM generated message in wrong language"
+                                )
                     elif normalized_locale == "ja":
                         if normalized_detected != "ja":
-                            japanese_chars = len([c for c in welcome_message if '\u3040' <= c <= '\u309F' or '\u30A0' <= c <= '\u30FF' or '\u4E00' <= c <= '\u9FAF'])
+                            japanese_chars = len(
+                                [
+                                    c
+                                    for c in welcome_message
+                                    if "\u3040" <= c <= "\u309f"
+                                    or "\u30a0" <= c <= "\u30ff"
+                                    or "\u4e00" <= c <= "\u9faf"
+                                ]
+                            )
                             if japanese_chars < max(10, len(welcome_message) * 0.1):
-                                logger.warning(f"LLM generated message appears to be in wrong language for locale {locale} (detected: {detected_lang}, only {japanese_chars} Japanese chars), falling back to i18n")
-                                raise ValueError("LLM generated message in wrong language")
+                                logger.warning(
+                                    f"LLM generated message appears to be in wrong language for locale {locale} (detected: {detected_lang}, only {japanese_chars} Japanese chars), falling back to i18n"
+                                )
+                                raise ValueError(
+                                    "LLM generated message in wrong language"
+                                )
                     elif normalized_locale == "ko":
                         if normalized_detected != "ko":
-                            korean_chars = len([c for c in welcome_message if '\uAC00' <= c <= '\uD7A3'])
+                            korean_chars = len(
+                                [
+                                    c
+                                    for c in welcome_message
+                                    if "\uac00" <= c <= "\ud7a3"
+                                ]
+                            )
                             if korean_chars < max(10, len(welcome_message) * 0.1):
-                                logger.warning(f"LLM generated message appears to be in wrong language for locale {locale} (detected: {detected_lang}, only {korean_chars} Korean chars), falling back to i18n")
-                                raise ValueError("LLM generated message in wrong language")
+                                logger.warning(
+                                    f"LLM generated message appears to be in wrong language for locale {locale} (detected: {detected_lang}, only {korean_chars} Korean chars), falling back to i18n"
+                                )
+                                raise ValueError(
+                                    "LLM generated message in wrong language"
+                                )
                     elif normalized_locale == "en":
                         # For English, we don't need strict validation (English is the default fallback)
                         # But log if detected language is clearly wrong
                         if detected_lang and normalized_detected not in ["en", None]:
-                            logger.debug(f"LLM generated message detected as {detected_lang} for English locale, but allowing it")
+                            logger.debug(
+                                f"LLM generated message detected as {detected_lang} for English locale, but allowing it"
+                            )
                     else:
                         # For other languages, do basic validation
                         if detected_lang and normalized_detected != normalized_locale:
-                            logger.warning(f"LLM generated message detected as {detected_lang} for locale {locale}, but allowing it (may be valid)")
+                            logger.warning(
+                                f"LLM generated message detected as {detected_lang} for locale {locale}, but allowing it (may be valid)"
+                            )
 
-                    logger.info(f"Generated LLM welcome message for workspace {workspace.id} in locale {locale}")
+                    logger.info(
+                        f"Generated LLM welcome message for workspace {workspace.id} in locale {locale}"
+                    )
 
                     # Generate personalized suggestions using AI
                     # Based on workspace context, mindscape, and active intents
@@ -386,19 +496,32 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                         active_intents=active_intents,
                         available_playbooks=available_playbooks,
                         locale=locale,
-                        model_name=model_name
+                        model_name=model_name,
                     )
 
                 except Exception as e:
-                    logger.warning(f"Failed to generate LLM welcome message, falling back to i18n: {e}")
-                    welcome_message = i18n.t("workspace", "welcome.new_workspace", workspace_title=workspace.title)
+                    logger.warning(
+                        f"Failed to generate LLM welcome message, falling back to i18n: {e}"
+                    )
+                    welcome_message = i18n.t(
+                        "workspace",
+                        "welcome.new_workspace",
+                        workspace_title=workspace.title,
+                    )
                     # Fallback to empty suggestions if LLM generation fails
                     suggestions = []
             else:
-                welcome_message = i18n.t("workspace", "welcome.returning_workspace", workspace_title=workspace.title)
+                welcome_message = i18n.t(
+                    "workspace",
+                    "welcome.returning_workspace",
+                    workspace_title=workspace.title,
+                )
                 # For returning users, also generate personalized suggestions
                 try:
-                    from backend.app.services.system_settings_store import SystemSettingsStore
+                    from backend.app.services.system_settings_store import (
+                        SystemSettingsStore,
+                    )
+
                     settings_store = SystemSettingsStore()
                     chat_setting = settings_store.get_setting("chat_model")
                     if chat_setting and chat_setting.value:
@@ -406,27 +529,37 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                         active_intents = []
                         try:
                             from backend.app.models.mindscape import IntentStatus
+
                             intents = store.list_intents(
-                                profile_id=profile_id,
-                                status=IntentStatus.ACTIVE
+                                profile_id=profile_id, status=IntentStatus.ACTIVE
                             )
-                            active_intents = [{'title': i.title, 'description': i.description or ''} for i in intents[:5]]
+                            active_intents = [
+                                {"title": i.title, "description": i.description or ""}
+                                for i in intents[:5]
+                            ]
                         except Exception:
                             pass
 
                         available_playbooks = []
                         try:
-                            from backend.app.services.playbook_loader import PlaybookLoader
+                            from backend.app.services.playbook_loader import (
+                                PlaybookLoader,
+                            )
+
                             playbook_loader = PlaybookLoader()
                             file_playbooks = playbook_loader.load_all_playbooks()
                             for pb in file_playbooks:
-                                metadata = pb.metadata if hasattr(pb, 'metadata') else None
+                                metadata = (
+                                    pb.metadata if hasattr(pb, "metadata") else None
+                                )
                                 if metadata and metadata.playbook_code:
-                                    available_playbooks.append({
-                                        'playbook_code': metadata.playbook_code,
-                                        'name': metadata.name,
-                                        'description': metadata.description or ''
-                                    })
+                                    available_playbooks.append(
+                                        {
+                                            "playbook_code": metadata.playbook_code,
+                                            "name": metadata.name,
+                                            "description": metadata.description or "",
+                                        }
+                                    )
                         except Exception:
                             pass
 
@@ -437,12 +570,14 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                             active_intents=active_intents,
                             available_playbooks=available_playbooks,
                             locale=locale,
-                            model_name=model_name
+                            model_name=model_name,
                         )
                     else:
                         suggestions = []
                 except Exception as e:
-                    logger.warning(f"Failed to generate suggestions for returning user: {e}")
+                    logger.warning(
+                        f"Failed to generate suggestions for returning user: {e}"
+                    )
                     suggestions = []
 
             return welcome_message, suggestions
@@ -450,6 +585,9 @@ Generate a personalized welcome message for this workspace. Remember to respond 
             logger.warning(f"Failed to generate personalized welcome message: {e}")
             i18n = get_i18n_service(default_locale=locale)
             # Return empty suggestions instead of hardcoded ones
-            return i18n.t("workspace", "welcome.fallback", workspace_title=workspace.title), []
-
-
+            return (
+                i18n.t(
+                    "workspace", "welcome.fallback", workspace_title=workspace.title
+                ),
+                [],
+            )

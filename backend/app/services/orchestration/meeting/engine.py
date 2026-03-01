@@ -91,6 +91,7 @@ class MeetingEngine(
         execution_launcher: Optional[ExecutionLauncher] = None,
         model_name: Optional[str] = None,
         executor_runtime: Optional[str] = None,
+        uploaded_files: Optional[List[Dict[str, Any]]] = None,
     ):
         self.session = session
         # Pre-0: store contract — never None
@@ -120,6 +121,7 @@ class MeetingEngine(
             logger.warning("MeetingEngine failed to initialize TasksStore: %s", exc)
         self._events: List[Any] = []
         self._turn_history: List[Dict[str, Any]] = []
+        self._uploaded_files: List[Dict[str, Any]] = list(uploaded_files or [])
 
         # Resolve locale from workspace settings
         self._locale = self._resolve_locale(workspace)
@@ -310,6 +312,28 @@ class MeetingEngine(
         for item in action_items:
             self._emit_action_item(item)
 
+        # Tool coverage validation: detect files without tool/playbook usage
+        if self._uploaded_files and action_items:
+            has_actuator = any(
+                item.get("playbook_code") or item.get("tool_name")
+                for item in action_items
+            )
+            if not has_actuator:
+                self.session.metadata.setdefault("tool_coverage_warnings", []).append(
+                    {
+                        "type": "FILE_WITHOUT_TOOL",
+                        "file_count": len(self._uploaded_files),
+                        "action_item_count": len(action_items),
+                    }
+                )
+                for item in action_items:
+                    item["file_coverage_gap"] = True
+                logger.warning(
+                    "FILE_WITHOUT_TOOL: %d files uploaded but no action item "
+                    "references a tool or playbook",
+                    len(self._uploaded_files),
+                )
+
         # Dispatch action items to target workspaces (fan-out + fan-in)
         dispatch_result = await self._dispatch_phases_to_workspaces(action_items)
 
@@ -345,7 +369,10 @@ class MeetingEngine(
                 MeetingSupervisor,
             )
 
-            supervisor = MeetingSupervisor(tasks_store=self.tasks_store)
+            supervisor = MeetingSupervisor(
+                tasks_store=self.tasks_store,
+                session_store=self.session_store,
+            )
 
             async def _supervisor_task():
                 try:
@@ -1051,8 +1078,13 @@ class MeetingEngine(
             planner_proposals=planner_proposals or [],
             critic_notes=critic_notes or [],
         )
+        # Prepend workspace instruction to system role (highest precedence)
+        ws_instruction = self._build_workspace_instruction_block()
+        system_content = role_def.system_prompt
+        if ws_instruction:
+            system_content = ws_instruction + "\n\n" + system_content
         messages = [
-            {"role": "system", "content": role_def.system_prompt},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},
         ]
 
