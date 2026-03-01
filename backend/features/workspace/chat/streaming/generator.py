@@ -235,6 +235,18 @@ async def generate_streaming_response(
             pass
 
         system_part, user_part = parse_prompt_parts(enhanced_prompt, request.message)
+
+        # Inject workspace instruction into system role (after split, before truncation)
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        ws_instruction, _src = build_workspace_instruction_block(
+            workspace, caller="streaming"
+        )
+        if ws_instruction:
+            system_part = ws_instruction + "\n\n" + system_part
+
         system_part, _, _ = truncate_context_if_needed(
             system_part=system_part, user_part=user_part, model_name=model_name
         )
