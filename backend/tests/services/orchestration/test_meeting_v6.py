@@ -597,3 +597,84 @@ class TestToolAllowlist:
         items = [{"title": "Any", "tool_name": "any_tool", "description": "ok"}]
         check_dispatch_policy(items, workspace_id="ws-1", binding_store=None)
         assert items[0].get("landing_status") is None  # no enforcement
+
+    def test_per_item_target_workspace_allowlist(self):
+        """5E: allowlist uses item's target_workspace_id, not session workspace."""
+        from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
+            check_dispatch_policy,
+        )
+
+        # ws-target has tool_a allowed; session ws-session has tool_b allowed
+        binding_a = MagicMock()
+        binding_a.resource_id = "tool_a"
+        binding_b = MagicMock()
+        binding_b.resource_id = "tool_b"
+        binding_store = MagicMock()
+
+        def _list(ws_id, resource_type=None):
+            if ws_id == "ws-target":
+                return [binding_a]
+            if ws_id == "ws-session":
+                return [binding_b]
+            return []
+
+        binding_store.list_bindings_by_workspace.side_effect = _list
+
+        items = [
+            {"title": "A", "tool_name": "tool_a", "target_workspace_id": "ws-target"},
+            {"title": "B", "tool_name": "tool_b"},  # falls back to session ws
+        ]
+        check_dispatch_policy(
+            items, workspace_id="ws-session", binding_store=binding_store
+        )
+        # tool_a is allowed on ws-target → pass
+        assert items[0].get("landing_status") is None
+        # tool_b is allowed on ws-session (fallback) → pass
+        assert items[1].get("landing_status") is None
+
+
+class TestVisibilityModel:
+    """Tests for WorkspaceVisibility integration in models."""
+
+    def test_workspace_defaults_to_private(self):
+        """Workspace model defaults to PRIVATE when visibility not specified."""
+        from backend.app.models.workspace import Workspace, WorkspaceVisibility
+
+        ws = Workspace(
+            id="ws-test",
+            title="Test",
+            owner_user_id="u1",
+        )
+        assert ws.visibility == WorkspaceVisibility.PRIVATE
+
+    def test_create_request_accepts_visibility(self):
+        """CreateWorkspaceRequest can carry visibility field."""
+        from backend.app.models.workspace import (
+            CreateWorkspaceRequest,
+            WorkspaceVisibility,
+        )
+
+        req = CreateWorkspaceRequest(
+            title="New WS",
+            visibility=WorkspaceVisibility.DISCOVERABLE,
+        )
+        assert req.visibility == WorkspaceVisibility.DISCOVERABLE
+
+    def test_create_request_visibility_none_is_safe(self):
+        """CreateWorkspaceRequest with visibility=None doesn't break Workspace()."""
+        from backend.app.models.workspace import (
+            Workspace,
+            CreateWorkspaceRequest,
+            WorkspaceVisibility,
+        )
+
+        req = CreateWorkspaceRequest(title="No Vis")
+        # Simulate crud.py logic
+        vis = req.visibility if req.visibility else WorkspaceVisibility.PRIVATE
+        ws = Workspace(
+            id="ws-test",
+            title=req.title,
+            owner_user_id="u1",
+            visibility=vis,
+        )
+        assert ws.visibility == WorkspaceVisibility.PRIVATE
