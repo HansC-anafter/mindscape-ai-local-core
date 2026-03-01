@@ -168,10 +168,17 @@ class MessageHandlersMixin:
         if inflight:
             inflight.last_progress_pct = percent
             inflight.last_progress_msg = message
+            inflight.last_progress_at = time.monotonic()
 
         logger.info(
             f"[AgentWS] Progress for {execution_id}: " f"{percent}% - {message}"
         )
+
+        # Update cross-worker progress timestamp in DB
+        try:
+            self._db_update_pending_progress(execution_id)
+        except Exception:
+            pass  # Non-blocking
 
         # Best-effort: update task status in DB
         try:

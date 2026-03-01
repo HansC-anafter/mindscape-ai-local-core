@@ -48,6 +48,10 @@ class FilteredToolsRequest(BaseModel):
     )
     include_playbooks: bool = Field(default=True)
     enabled_only: bool = Field(default=True)
+    recommended_pack_codes: List[str] = Field(
+        default_factory=list,
+        description="Pack codes recommended by file dispatch enrichment",
+    )
 
     @field_validator("max_tools", mode="before")
     @classmethod
@@ -292,18 +296,57 @@ async def list_filtered_tools(
                     tool_by_id[tid] for tid in combined if tid in tool_by_id
                 ]
             else:
-                # miss: fail-open to safe defaults only
+                # miss: fail-open to safe defaults + recommended pack tools
                 safe_default_used = True
-                result_tools = list(safe_defaults)
+                rec_set = set(body.recommended_pack_codes)
+                if rec_set:
+                    # Add tools from recommended packs after safe defaults
+                    rec_tools = [
+                        t
+                        for t in all_tools
+                        if t.tool_id not in safe_default_ids
+                        and (getattr(t, "origin_capability_id", "") or "").split(".")[0]
+                        in rec_set
+                    ]
+                    rec_tools.sort(key=_deterministic_sort_key)
+                    result_tools = list(safe_defaults) + rec_tools[: body.max_tools]
+                else:
+                    result_tools = list(safe_defaults)
         except Exception as e:
             logger.error(f"Filtered tools RAG failed: {e}", exc_info=True)
             rag_status = "error"
             safe_default_used = True
-            result_tools = list(safe_defaults)
+            rec_set = set(body.recommended_pack_codes)
+            if rec_set:
+                rec_tools = [
+                    t
+                    for t in all_tools
+                    if t.tool_id not in safe_default_ids
+                    and (getattr(t, "origin_capability_id", "") or "").split(".")[0]
+                    in rec_set
+                ]
+                rec_tools.sort(key=_deterministic_sort_key)
+                result_tools = list(safe_defaults) + rec_tools[: body.max_tools]
+            else:
+                result_tools = list(safe_defaults)
     else:
-        # 2b. No task hint: deterministic ordering
+        # 2b. No task hint: deterministic ordering with pack-aware boosting
         remaining = [t for t in all_tools if t.tool_id not in safe_default_ids]
-        remaining.sort(key=_deterministic_sort_key)
+        rec_set = set(body.recommended_pack_codes)
+        if rec_set:
+            # Boost tools from recommended packs to the front
+            boosted = [
+                t
+                for t in remaining
+                if (getattr(t, "origin_capability_id", "") or "").split(".")[0]
+                in rec_set
+            ]
+            others = [t for t in remaining if t not in boosted]
+            boosted.sort(key=_deterministic_sort_key)
+            others.sort(key=_deterministic_sort_key)
+            remaining = boosted + others
+        else:
+            remaining.sort(key=_deterministic_sort_key)
         result_tools = list(safe_defaults) + remaining[: body.max_tools]
 
     # 3. Hard cap
@@ -318,17 +361,27 @@ async def list_filtered_tools(
             pb_service = PlaybookService()
             all_playbooks = await pb_service.list_playbooks()
 
-            if pack_codes:
-                # RAG hit: include system playbooks + those matching RAG pack codes
-                pack_set = set(pack_codes)
+            # Effective pack filter: RAG matches + dispatch recommendations
+            effective_packs = set(pack_codes) | set(body.recommended_pack_codes)
+
+            if effective_packs:
+                # Include system playbooks + those matching effective packs
                 filtered = [
                     pb
                     for pb in all_playbooks
-                    if pb.capability_code is None or pb.capability_code in pack_set
+                    if pb.capability_code is None
+                    or pb.capability_code in effective_packs
                 ]
             else:
-                # No RAG or miss/error: only system playbooks (no capability_code)
-                filtered = [pb for pb in all_playbooks if pb.capability_code is None]
+                # Fallback: system playbooks (reserved) + cap playbooks (fill remaining)
+                system_pbs = [pb for pb in all_playbooks if pb.capability_code is None]
+                cap_pbs = sorted(
+                    [pb for pb in all_playbooks if pb.capability_code is not None],
+                    key=lambda pb: (pb.capability_code or "", pb.playbook_code or ""),
+                )
+                # Reserve slots for system playbooks, fill rest with cap playbooks
+                remaining_slots = MAX_PLAYBOOKS - len(system_pbs)
+                filtered = system_pbs + cap_pbs[: max(0, remaining_slots)]
 
             # Cap and serialize
             filtered = filtered[:MAX_PLAYBOOKS]

@@ -62,6 +62,9 @@ async def get_workspace_launchpad(
 
         return {
             "brief": blueprint.brief,
+            "instruction": (
+                blueprint.instruction.model_dump() if blueprint.instruction else None
+            ),
             "initial_intents": blueprint.initial_intents or [],
             "first_playbook": blueprint.first_playbook,
             "tool_connections": [

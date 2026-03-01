@@ -106,20 +106,38 @@ class TaskDispatchMixin:
             inflight.client_id = "pending"
             self._inflight[execution_id] = inflight
 
-        # Wait for result
-        try:
-            return await asyncio.wait_for(result_future, timeout=timeout)
-        except asyncio.TimeoutError:
-            self._inflight.pop(execution_id, None)
-            logger.error(
-                f"[AgentWS] dispatch_and_wait timed out for {execution_id} "
-                f"after {timeout}s"
-            )
-            return {
-                "execution_id": execution_id,
-                "status": "timeout",
-                "error": f"No result received within {timeout}s",
-            }
+        # Wait for result with activity-aware timeout.
+        # Instead of a hard timeout, poll every 30s and check if the
+        # inflight task has received progress updates. Only timeout
+        # when there has been no activity for `timeout` seconds.
+        max_idle = timeout
+        last_activity = time.monotonic()
+
+        while True:
+            try:
+                return await asyncio.wait_for(
+                    asyncio.shield(result_future),
+                    timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                # Check if inflight task has received progress
+                inflight = self._inflight.get(execution_id)
+                if inflight and inflight.last_progress_at > last_activity:
+                    last_activity = inflight.last_progress_at
+
+                idle = time.monotonic() - last_activity
+                if idle > max_idle:
+                    self._inflight.pop(execution_id, None)
+                    logger.error(
+                        f"[AgentWS] dispatch_and_wait: no activity for "
+                        f"{idle:.0f}s (max_idle={max_idle}s), "
+                        f"exec={execution_id}"
+                    )
+                    return {
+                        "execution_id": execution_id,
+                        "status": "timeout",
+                        "error": f"No activity for {idle:.0f}s",
+                    }
 
     def _enqueue_pending(self, task: PendingTask) -> None:
         """Add a task to the pending queue, respecting max size."""
