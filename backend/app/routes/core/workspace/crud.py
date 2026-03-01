@@ -239,6 +239,7 @@ async def create_workspace(
                 "bucket_strategy": "playbook_code",
                 "naming_rule": "slug-v{version}-{timestamp}.{ext}",
             },
+            visibility=getattr(request, "visibility", None),
             created_at=_utc_now(),
             updated_at=_utc_now(),
         )
@@ -648,6 +649,13 @@ async def update_workspace(
             workspace.metadata = existing_meta
             logger.info(
                 f"Merged metadata for workspace {workspace_id}: keys={list(request.metadata.keys())}"
+            )
+
+        # Handle visibility update
+        if hasattr(request, "visibility") and request.visibility is not None:
+            workspace.visibility = request.visibility
+            logger.info(
+                f"Updated visibility for workspace {workspace_id}: {request.visibility}"
             )
 
         # If path changed, record warning to event system
