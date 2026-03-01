@@ -83,53 +83,35 @@ export default function WorkspaceLeftSidebar({
                                     onProjectSelect={(project) => {
                                         onProjectSelect(project);
                                     }}
+                                    workspaceId={workspaceId}
+                                    apiUrl={apiUrl}
+                                    onOpenExecution={(executionId) => {
+                                        const executionUrl = `/workspaces/${workspaceId}/executions/${executionId}`;
+                                        console.log('[WorkspacePage] ProjectCard onOpenExecution, navigating to:', executionUrl);
+                                        router.push(executionUrl);
+                                    }}
                                 />
                             )}
 
-                            {/* Project Card */}
-                            <div className="flex-shrink-0 border-b dark:border-gray-700 p-3">
-                                {isLoadingProject ? (
-                                    <div className="text-xs text-secondary dark:text-gray-400">
-                                        載入中...
-                                    </div>
-                                ) : currentProject ? (
-                                    <ProjectCard
-                                        project={currentProject}
-                                        workspaceId={workspaceId}
-                                        apiUrl={apiUrl}
-                                        defaultExpanded={true}
-                                        onOpenExecution={(executionId) => {
-                                            // Navigate to dedicated execution page
-                                            const executionUrl = `/workspaces/${workspaceId}/executions/${executionId}`;
-                                            console.log('[WorkspacePage] ProjectCard onOpenExecution, navigating to:', executionUrl);
-                                            router.push(executionUrl);
-                                        }}
-                                    />
-                                ) : (
-                                    <div className="px-3 py-2">
-                                        <div className="project-placeholder text-center py-8">
-                                            <div className="text-2xl mb-2">📁</div>
-                                            <div className="text-sm font-medium text-primary dark:text-gray-300 mb-1">
-                                                尚無進行中的專案
-                                            </div>
-                                            <div className="text-xs text-secondary dark:text-gray-400">
-                                                開始對話後，系統會自動建立專案
-                                            </div>
-                                            {/* Debug info */}
-                                            {process.env.NODE_ENV === 'development' && (
-                                                <div className="mt-4 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs text-left">
-                                                    <div><strong>🔍 Debug Info:</strong></div>
-                                                    <div>workspace.primary_project_id: {workspace?.primary_project_id || '❌ null'}</div>
-                                                    <div>currentProject exists: {currentProject ? '✅ YES' : '❌ NO'}</div>
-                                                    <div>isLoadingProject: {isLoadingProject ? '⏳ true' : '✅ false'}</div>
-                                                </div>
-                                            )}
+                            {/* Empty state when no projects */}
+                            {projects.length === 0 && !isLoadingProject && (
+                                <div className="px-3 py-2">
+                                    <div className="project-placeholder text-center py-8">
+                                        <div className="text-2xl mb-2">📁</div>
+                                        <div className="text-sm font-medium text-primary dark:text-gray-300 mb-1">
+                                            尚無進行中的專案
+                                        </div>
+                                        <div className="text-xs text-secondary dark:text-gray-400">
+                                            開始對話後，系統會自動建立專案
                                         </div>
                                     </div>
-                                )}
-                            </div>
-
-                            {/* Left sidebar primarily shows project card */}
+                                </div>
+                            )}
+                            {isLoadingProject && projects.length === 0 && (
+                                <div className="text-xs text-secondary dark:text-gray-400 p-3">
+                                    載入中...
+                                </div>
+                            )}
                         </div>
                     }
                     outcomesContent={
