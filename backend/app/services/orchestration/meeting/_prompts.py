@@ -79,7 +79,8 @@ class MeetingPromptsMixin:
 
         Queries all workspaces in the group and their registered ASSET bindings,
         then formats a context block so the planner knows which workspace owns
-        which data assets.
+        which data assets. Also injects discoverable workspaces from outside the
+        group (5D-3).
 
         Returns empty string if workspace has no group_id.
         """
@@ -99,6 +100,9 @@ class MeetingPromptsMixin:
             from backend.app.services.stores.postgres.workspace_group_store import (
                 PostgresWorkspaceGroupStore,
             )
+            from backend.app.services.stores.postgres.workspaces_store import (
+                PostgresWorkspacesStore,
+            )
 
             group_store = PostgresWorkspaceGroupStore()
             group = group_store.get(group_id)
@@ -112,7 +116,9 @@ class MeetingPromptsMixin:
             workspace_role = getattr(workspace, "workspace_role", None) or "cell"
             parts.append(f"Current workspace role: {workspace_role}")
 
+            seen_ws_ids = set()
             for ws_id, role in group.role_map.items():
+                seen_ws_ids.add(ws_id)
                 bindings = binding_store.list_bindings_by_workspace(
                     ws_id, resource_type=ResourceType.ASSET
                 )
@@ -131,6 +137,31 @@ class MeetingPromptsMixin:
                     parts.extend(asset_lines)
                 else:
                     parts.append("    (no assets registered)")
+
+            # 5D-3: Inject discoverable workspaces outside this group
+            ws_store = PostgresWorkspacesStore()
+            discoverable = ws_store.list_discoverable_workspaces(
+                visibility="discoverable"
+            )
+            extra = [ws for ws in discoverable if ws.id not in seen_ws_ids]
+            if extra:
+                parts.append("")
+                parts.append("Discoverable Workspaces (outside group):")
+                for ws in extra:
+                    bindings = binding_store.list_bindings_by_workspace(
+                        ws.id, resource_type=ResourceType.ASSET
+                    )
+                    asset_lines = []
+                    for b in bindings:
+                        name = (b.overrides or {}).get("display_name", b.resource_id)
+                        asset_type = (b.overrides or {}).get("asset_type", "unknown")
+                        asset_lines.append(f"    - {name} ({asset_type})")
+
+                    parts.append(f"  [discoverable] {ws.id} — {ws.title}")
+                    if asset_lines:
+                        parts.extend(asset_lines)
+                    else:
+                        parts.append("    (no assets registered)")
 
             return "\n".join(parts)
         except Exception as exc:
