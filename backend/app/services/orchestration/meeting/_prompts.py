@@ -74,6 +74,69 @@ class MeetingPromptsMixin:
 
         return "\n".join(parts) if parts else ""
 
+    def _build_asset_map_context(self) -> str:
+        """Build workspace group asset map for cross-workspace dispatch routing.
+
+        Queries all workspaces in the group and their registered ASSET bindings,
+        then formats a context block so the planner knows which workspace owns
+        which data assets.
+
+        Returns empty string if workspace has no group_id.
+        """
+        workspace = getattr(self, "workspace", None)
+        if not workspace:
+            return ""
+
+        group_id = getattr(workspace, "group_id", None)
+        if not group_id:
+            return ""
+
+        try:
+            from backend.app.services.stores.workspace_resource_binding_store import (
+                WorkspaceResourceBindingStore,
+            )
+            from backend.app.models.workspace_resource_binding import ResourceType
+            from backend.app.services.stores.postgres.workspace_group_store import (
+                PostgresWorkspaceGroupStore,
+            )
+
+            group_store = PostgresWorkspaceGroupStore()
+            group = group_store.get(group_id)
+            if not group:
+                return ""
+
+            binding_store = WorkspaceResourceBindingStore()
+            parts: List[str] = []
+            parts.append(f"Workspace Group: {group.display_name} ({group.id})")
+
+            workspace_role = getattr(workspace, "workspace_role", None) or "cell"
+            parts.append(f"Current workspace role: {workspace_role}")
+
+            for ws_id, role in group.role_map.items():
+                bindings = binding_store.list_bindings_by_workspace(
+                    ws_id, resource_type=ResourceType.ASSET
+                )
+                asset_lines = []
+                for b in bindings:
+                    name = (b.overrides or {}).get("display_name", b.resource_id)
+                    asset_type = (b.overrides or {}).get("asset_type", "unknown")
+                    asset_lines.append(f"    - {name} ({asset_type})")
+
+                ws_label = f"  [{role}] {ws_id}"
+                if ws_id == getattr(workspace, "id", None):
+                    ws_label += " (current)"
+                parts.append(ws_label)
+
+                if asset_lines:
+                    parts.extend(asset_lines)
+                else:
+                    parts.append("    (no assets registered)")
+
+            return "\n".join(parts)
+        except Exception as exc:
+            logger.warning("Failed to build asset map context: %s", exc)
+            return ""
+
     def _build_lens_context(self) -> str:
         """Build lens context block for prompt injection.
 
@@ -225,8 +288,24 @@ class MeetingPromptsMixin:
                 f"relevant to this specific project.\n\n"
             )
 
+        # Inject workspace asset map for cross-workspace dispatch routing
+        asset_map_block = ""
+        asset_map_ctx = getattr(self, "_asset_map_context", "")
+        if asset_map_ctx:
+            asset_map_block = (
+                f"=== Workspace Asset Map ===\n"
+                f"{asset_map_ctx}\n"
+                f"=== End Asset Map ===\n\n"
+                f"When proposing action items, consider which workspace "
+                f"owns the relevant data assets. Assign target_workspace_id "
+                f"accordingly.\n\n"
+            )
+
         common = (
-            locale_directive + project_block + f"Meeting session: {self.session.id}\n"
+            locale_directive
+            + project_block
+            + asset_map_block
+            + f"Meeting session: {self.session.id}\n"
             f"Round: {round_num}/{max(1, self.session.max_rounds)}\n"
             f"Agenda:\n{agenda_text}\n\n"
             f"User request:\n{user_message}\n\n"
@@ -300,10 +379,29 @@ class MeetingPromptsMixin:
                 common
                 + "As critic, challenge assumptions, identify risks, and suggest mitigations."
             )
+        # 5A-1: Inject available playbooks for executor
+        playbooks_cache = getattr(self, "_available_playbooks_cache", "")
+        playbook_block = ""
+        if playbooks_cache and agent_id == "executor":
+            playbook_block = (
+                f"=== Available Playbooks ===\n"
+                f"{playbooks_cache}\n"
+                f"=== End Playbooks ===\n\n"
+            )
         return (
-            common + "As executor, produce only JSON array with up to 3 action items. "
+            common
+            + playbook_block
+            + "As executor, produce only JSON array with up to 3 action items. "
             'Schema: [{"title":"...","description":"...","assigned_to":"executor",'
-            '"priority":"low|medium|high","playbook_code":null}]'
+            '"priority":"low|medium|high","playbook_code":null,'
+            '"target_workspace_id":null,'
+            '"tool_name":null,"input_params":null,"blocked_by":null}] '
+            "If a workspace asset map is provided, set target_workspace_id to the "
+            "workspace that owns the relevant data assets for each action item. "
+            "playbook_code MUST be selected from Available Playbooks above, or null "
+            "if none match. "
+            "tool_name is for direct tool invocation without a playbook. "
+            "blocked_by is a list of action item indices (0-based) that must complete first."
         )
 
     def _history_snippet(self) -> str:

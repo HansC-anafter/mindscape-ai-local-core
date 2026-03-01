@@ -72,6 +72,11 @@ class MeetingIRCompilerMixin:
                 status=PhaseStatus.PENDING,
                 preferred_engine=engine,
                 depends_on=[f"action_{idx - 1}"] if idx > 0 else None,
+                target_workspace_id=item.get("target_workspace_id"),
+                asset_refs=item.get("asset_refs") or [],
+                tool_name=item.get("tool_name"),
+                input_params=item.get("input_params"),
+                blocked_by=item.get("blocked_by"),
             )
             phases.append(phase)
 
