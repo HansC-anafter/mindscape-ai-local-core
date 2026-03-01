@@ -319,6 +319,8 @@ See [Governance Decision & Risk Control Layer](./docs/core-architecture/governan
 
   External integrations (Gemini CLI, OpenClaw, LangGraph, etc.) are **executor runtimes** — they provide execution environments. The agent identity stays with the AgentSpec.
 * **Projects** – containers for related intents and playbooks (e.g., a product launch, a yearly book, a client account).
+* **Workspace Groups** – collaboration topology defining which workspaces work together and their roles (`dispatch` for coordination, `cell` for execution). Supports visibility levels (`private`, `group`, `discoverable`, `public`) for cross-workspace discovery.
+* **Mind Meeting** – five-layer meeting engine (Deliberation → Semantic Bridge → Convergence → Landing → Supervision) that governs multi-role AI sessions and dispatches action items to workspaces with dependency resolution and quality scoring.
 * **Playbooks** – human-readable + machine-executable workflows (Markdown + YAML frontmatter) that carry capabilities across workspaces. Playbooks are policy assets mountable on AgentSpecs.
 * **Governance Layer (Agent OS)** – Intent, Lens, Trust, and Asset governance that ensures every AI action is traceable and controllable. Agent OS = Governance Layer + execution contract (trace, rollback, risk gates, provenance, HITL).
 * **Port/Adapter Architecture** – clean separation between core and external integrations, enabling local-first design with optional cloud extensions.
@@ -364,6 +366,14 @@ This local core focuses on:
   * Multi-playbook orchestration with dependency resolution
   * Workspace-isolated sandbox for each project
   * Automatic artifact tracking and registration
+
+* **Mind Meeting engine**
+
+  * Five-layer unified pipeline: Deliberation, Semantic Bridge, Convergence Engine, Landing (Dispatch), and Supervision
+  * Multi-role rounds (Facilitator / Planner / Critic / Executor), convergence-driven session control
+  * Workspace discovery and cross-workspace dispatch with policy gate and topological ordering
+  * Post-session quality gate, stuck-task detection, and tool coverage scoring
+  * See [Mind Meeting — Five-Layer Architecture](./docs/core-architecture/meeting-engine-dispatch.md)
 
 * **Tool & memory layer**
 
@@ -566,6 +576,7 @@ cd mindscape-ai-local-core
   - Local/Cloud Boundary
   - Playbooks & Workflows (including identity governance and access control)
   - Project + Flow + Sandbox (v2.0)
+  - [Mind Meeting — Five-Layer Architecture](./docs/core-architecture/meeting-engine-dispatch.md) - Deliberation, convergence, dispatch, supervision
   - [MCP Gateway Architecture](./docs/core-architecture/mcp-gateway.md) - MCP Bridge, Event Hooks, Sampling Gate
   - [Cloud Connector Architecture](./docs/core-architecture/cloud-connector.md) - WebSocket bridge, transport, messaging
   - [Runtime Environments](./docs/core-architecture/runtime-environments.md) - Multi-runtime management

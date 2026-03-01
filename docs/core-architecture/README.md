@@ -107,6 +107,9 @@ Model Context Protocol Gateway architecture for exposing Mindscape capabilities 
 #### [Cloud Connector](./cloud-connector.md)
 Platform-agnostic WebSocket bridge for connecting Local-Core to any compatible cloud platform. Handles execution requests, event reporting, messaging, and heartbeat monitoring.
 
+#### [Mind Meeting — Five-Layer Architecture](./meeting-engine-dispatch.md)
+Unified five-layer meeting architecture: deliberation, semantic bridge, convergence engine, dispatch, and supervision. Inherits from the Mindscape Node Graph (Mind Canvas).
+
 #### [Runtime Environments](./runtime-environments.md)
 Multi-runtime management architecture for executing playbooks and tools across local and remote backends. Includes settings extension panels and auto-discovery.
 
