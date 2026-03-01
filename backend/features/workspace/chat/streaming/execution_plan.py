@@ -170,6 +170,44 @@ async def generate_and_execute_plan(
         except Exception as e:
             logger.warning(f"[ExecutionPlan] Failed to build planning context: {e}")
 
+        # Resolve uploaded file metadata for LLM context
+        uploaded_files_context = ""
+        if files:
+            try:
+                from pathlib import Path
+                import os
+                import mimetypes
+
+                uploads_dir = os.getenv("UPLOADS_DIR", "data/uploads")
+                uploads_path = Path(uploads_dir)
+                file_descriptions = []
+                for file_id in files:
+                    found = None
+                    for f in uploads_path.rglob(f"{file_id}.*"):
+                        found = f
+                        break
+                    if found:
+                        mime, _ = mimetypes.guess_type(str(found))
+                        size_mb = found.stat().st_size / (1024 * 1024)
+                        file_descriptions.append(
+                            f"- {found.name} (type: {mime or 'unknown'}, size: {size_mb:.1f}MB)"
+                        )
+                    else:
+                        file_descriptions.append(
+                            f"- file_id: {file_id} (file not found on disk)"
+                        )
+                if file_descriptions:
+                    uploaded_files_context = (
+                        "## Uploaded Files\n"
+                        "The user attached the following files with this message:\n"
+                        + "\n".join(file_descriptions)
+                    )
+                    logger.info(
+                        f"[ExecutionPlan] Resolved {len(file_descriptions)} uploaded file(s) for planning context"
+                    )
+            except Exception as e:
+                logger.warning(f"[ExecutionPlan] Failed to resolve file metadata: {e}")
+
         logger.info(
             f"[ExecutionPlan] Calling generate_execution_plan with model={model_name}, provider={provider_name}"
         )
@@ -193,6 +231,7 @@ async def generate_and_execute_plan(
             user_id=profile_id,
             planning_context=planning_context,
             thread_id=thread_id,
+            uploaded_files_context=uploaded_files_context,
         )
 
         if not execution_plan:
