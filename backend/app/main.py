@@ -200,6 +200,10 @@ app.add_middleware(
 def register_core_routes(app: FastAPI) -> None:
     """Register kernel routes"""
     app.include_router(workspace.router, tags=["workspace"])
+    # Workspace groups (independent resource: /api/v1/workspace-groups)
+    from .routes.core.workspace.groups import router as workspace_groups_router
+
+    app.include_router(workspace_groups_router, tags=["workspace-groups"])
     app.include_router(playbook.router, tags=["playbook"])
     app.include_router(playbook_execution.router, tags=["playbook"])
     app.include_router(config.router, tags=["config"])
@@ -395,6 +399,15 @@ def register_core_routes(app: FastAPI) -> None:
         logger.info("Agent Registry API routes registered")
     except Exception as e:
         logger.warning(f"Failed to register Agent Registry API routes: {e}")
+
+    # Workspace-scoped agent availability (per-workspace WS check)
+    try:
+        from .routes.core.workspace_agents import router as workspace_agents_router
+
+        app.include_router(workspace_agents_router, tags=["workspace-agents"])
+        logger.info("Workspace Agent Availability routes registered")
+    except Exception as e:
+        logger.warning(f"Failed to register Workspace Agent routes: {e}")
 
     # Workspace Agent Configuration routes (preferred agent, sandbox config)
     try:
