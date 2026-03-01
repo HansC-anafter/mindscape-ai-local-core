@@ -11,6 +11,7 @@ import { useScrollManagement } from '@/hooks/useScrollManagement';
 import { ChatMessage } from '@/hooks/useChatEvents';
 import { UploadedFile } from '@/hooks/useFileUpload';
 import { t } from '@/lib/i18n';
+import { parseServerTimestamp } from '@/lib/time';
 
 interface UseMessageHandlingOptions {
   projectId?: string;
@@ -126,7 +127,7 @@ export function useMessageHandling(
       setFirstChunkReceived(false);
       setIsStreaming(true);
 
-      await sendMessage({
+      const result = await sendMessage({
         message: messageText,
         files: fileIds,
         mode: 'auto',
@@ -184,6 +185,13 @@ export function useMessageHandling(
         }
       });
 
+      // 202 Accepted (async fire-and-forget): backend processes in background,
+      // onComplete will never fire — clear isStreaming immediately
+      if (result?.async) {
+        setIsStreaming(false);
+        setFirstChunkReceived(false);
+      }
+
       onFileAnalyzed?.();
     } catch (err: any) {
       setIsStreaming(false);
@@ -226,7 +234,7 @@ export function useMessageHandling(
       .map(msg => {
         const timestamp = msg.timestamp instanceof Date
           ? msg.timestamp
-          : new Date(msg.timestamp);
+          : parseServerTimestamp(msg.timestamp as any) ?? new Date();
         const formattedTime = timestamp.toLocaleTimeString(undefined, {
           hour: '2-digit',
           minute: '2-digit',

@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { getReviewSuggestion, recordReviewCompleted, type ReviewSuggestion } from '../lib/review-api';
+import { parseServerTimestamp } from '@/lib/time';
 
 interface ReviewSuggestionToastProps {
   profileId: string;
@@ -100,8 +101,8 @@ export default function ReviewSuggestionToast({
   }
 
   // 計算時間範圍（天數）
-  const sinceDate = new Date(suggestion.since);
-  const untilDate = new Date(suggestion.until);
+  const sinceDate = parseServerTimestamp(suggestion.since) ?? new Date();
+  const untilDate = parseServerTimestamp(suggestion.until) ?? new Date();
   const daysDiff = Math.ceil((untilDate.getTime() - sinceDate.getTime()) / (1000 * 60 * 60 * 24));
 
   return (

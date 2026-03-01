@@ -8,6 +8,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useGraphHistory, undoChange, HistoryEntry } from '@/lib/graph-changelog-api';
+import { parseServerTimestamp } from '@/lib/time';
 
 // ============================================================================
 // Icons
@@ -56,7 +57,8 @@ function HistoryItem({ entry, onUndo, isUndoing }: HistoryItemProps) {
     const canUndo = entry.status === 'applied';
     const formatTime = (dateStr?: string) => {
         if (!dateStr) return '';
-        const date = new Date(dateStr);
+        const date = parseServerTimestamp(dateStr);
+        if (!date) return '';
         return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
     };
 

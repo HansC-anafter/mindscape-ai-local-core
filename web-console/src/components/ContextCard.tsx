@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { t } from '@/lib/i18n';
+import { formatLocalDateTime } from '@/lib/time';
 
 interface ContextCardProps {
   context: {
@@ -46,9 +47,8 @@ export default function ContextCard({ context, showRecentFile = true, showDetect
 
         {context.recent_file && (
           <div
-            className={`transition-opacity duration-500 ease-in ${
-              showRecentFile ? 'opacity-100' : 'opacity-0'
-            }`}
+            className={`transition-opacity duration-500 ease-in ${showRecentFile ? 'opacity-100' : 'opacity-0'
+              }`}
             style={{ display: showRecentFile ? 'block' : 'none' }}
           >
             <div className="text-[10px] text-gray-500 mb-0.5">{t('recentUploadedFile' as any)}</div>
@@ -56,16 +56,15 @@ export default function ContextCard({ context, showRecentFile = true, showDetect
               {context.recent_file.name}
             </div>
             <div className="text-[10px] text-gray-400 mt-0.5">
-              {new Date(context.recent_file.uploaded_at).toLocaleString('zh-TW')}
+              {formatLocalDateTime(context.recent_file.uploaded_at)}
             </div>
           </div>
         )}
 
         {context.detected_intents && context.detected_intents.length > 0 && (
           <div
-            className={`transition-opacity duration-500 ease-in ${
-              showDetectedIntents ? 'opacity-100' : 'opacity-0'
-            }`}
+            className={`transition-opacity duration-500 ease-in ${showDetectedIntents ? 'opacity-100' : 'opacity-0'
+              }`}
             style={{ display: showDetectedIntents ? 'block' : 'none' }}
           >
             <div className="text-[10px] text-gray-500 mb-0.5">{t('detectedIntents' as any)}</div>

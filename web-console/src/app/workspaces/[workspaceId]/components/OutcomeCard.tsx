@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Artifact } from './OutcomesPanel';
+import { formatLocalDateTime } from '@/lib/time';
 
 interface OutcomeCardProps {
   artifact: Artifact;
@@ -121,7 +122,7 @@ export default function OutcomeCard({
         {fileSize && (
           <span className="text-[10px]">{fileSize}</span>
         )}
-        <span className="text-[10px]">{new Date(artifact.created_at).toLocaleDateString('zh-TW')}</span>
+        <span className="text-[10px]">{formatLocalDateTime(artifact.created_at)}</span>
         {artifact.intent_id && (
           <span className="text-[10px] text-blue-500 dark:text-blue-400">來源 Intent</span>
         )}

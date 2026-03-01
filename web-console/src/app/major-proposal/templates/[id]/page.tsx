@@ -6,6 +6,7 @@ import Link from 'next/link';
 import Header from '../../../../components/Header';
 
 import { getApiBaseUrl } from '../../../../lib/api-url';
+import { formatLocalDateTime } from '@/lib/time';
 
 const API_URL = getApiBaseUrl();
 
@@ -115,7 +116,7 @@ export default function TemplateDetailPage() {
           </Link>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">{template.name}</h1>
           <p className="text-gray-600">
-            類型: {template.template_type} | 建立於: {new Date(template.created_at).toLocaleDateString()}
+            類型: {template.template_type} | 建立於: {formatLocalDateTime(template.created_at)}
           </p>
         </div>
 

@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useThreadBundle, ThreadBundle as ThreadBundleType } from '@/hooks/useThreadBundle';
 import { getApiBaseUrl } from '@/lib/api-url';
+import { formatLocalDateTime } from '@/lib/time';
 
 function cn(...classes: (string | undefined | null | false)[]): string {
   return classes.filter(Boolean).join(' ');
@@ -191,7 +192,7 @@ function DeliverablesSection({ items }: { items: ThreadBundleType['deliverables'
             </div>
           </div>
           <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            更新於 {new Date(item.updated_at).toLocaleString('zh-TW')}
+            更新於 {formatLocalDateTime(item.updated_at)}
           </div>
         </div>
       ))}
@@ -375,7 +376,7 @@ function RunsSection({ items }: { items: ThreadBundleType['runs'] }) {
               )}
             </div>
             <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              開始於 {new Date(item.started_at).toLocaleString('zh-TW')}
+              開始於 {formatLocalDateTime(item.started_at)}
             </div>
             {isExpanded && (item as any).result_summary && (
               <div className="mt-3 pt-3 border-t dark:border-gray-700">

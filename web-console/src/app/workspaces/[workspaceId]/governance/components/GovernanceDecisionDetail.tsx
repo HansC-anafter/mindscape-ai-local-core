@@ -3,6 +3,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { t } from '@/lib/i18n';
+import { formatLocalDateTime } from '@/lib/time';
 
 interface GovernanceDecision {
   decision_id: string;
@@ -66,7 +67,7 @@ export function GovernanceDecisionDetail({
               {t('timestamp' as any) || 'Timestamp'}
             </div>
             <div className="text-sm text-gray-900 dark:text-gray-100">
-              {new Date(decision.timestamp).toLocaleString()}
+              {formatLocalDateTime(decision.timestamp)}
             </div>
           </div>
 
@@ -84,11 +85,10 @@ export function GovernanceDecisionDetail({
               {t('status' as any) || 'Status'}
             </div>
             <div
-              className={`inline-block px-2 py-1 text-xs font-medium rounded ${
-                decision.approved
+              className={`inline-block px-2 py-1 text-xs font-medium rounded ${decision.approved
                   ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
                   : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
-              }`}
+                }`}
             >
               {decision.approved ? t('approved' as any) || 'Approved' : t('rejected' as any) || 'Rejected'}
             </div>

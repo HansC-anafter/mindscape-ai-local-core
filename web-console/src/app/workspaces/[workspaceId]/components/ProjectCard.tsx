@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Project } from '@/types/project';
+import { parseServerTimestamp } from '@/lib/time';
 
 interface ProjectCardData {
   projectId: string;
@@ -67,22 +68,19 @@ interface ProjectCardProps {
 }
 
 function formatRelativeTime(timestamp: string): string {
-  try {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
+  const date = parseServerTimestamp(timestamp);
+  if (!date) return timestamp;
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return '剛剛';
-    if (diffMins < 60) return `${diffMins} 分鐘前`;
-    if (diffHours < 24) return `${diffHours} 小時前`;
-    if (diffDays < 7) return `${diffDays} 天前`;
-    return date.toLocaleDateString('zh-TW');
-  } catch {
-    return timestamp;
-  }
+  if (diffMins < 1) return '剛剛';
+  if (diffMins < 60) return `${diffMins} 分鐘前`;
+  if (diffHours < 24) return `${diffHours} 小時前`;
+  if (diffDays < 7) return `${diffDays} 天前`;
+  return date.toLocaleDateString('zh-TW');
 }
 
 function EventItem({
@@ -477,7 +475,7 @@ export default function ProjectCard({
       onClick={handleCardClick}
     >
       <div
-        className="cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
+        className={`cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors ${meetingActive ? 'meeting-laser-border' : ''}`}
         onClick={(e) => {
           e.stopPropagation();
           handleToggleExpand();
@@ -563,11 +561,11 @@ export default function ProjectCard({
             )}
             {project.created_at && (
               <span>
-                {new Date(project.created_at).toLocaleDateString('zh-TW', {
+                {parseServerTimestamp(project.created_at)?.toLocaleDateString('zh-TW', {
                   year: 'numeric',
                   month: 'short',
                   day: 'numeric'
-                })}
+                }) ?? ''}
               </span>
             )}
           </div>
@@ -698,7 +696,7 @@ export default function ProjectCard({
                     });
 
                     return filteredEvents.length > 0 ? (
-                      filteredEvents.slice(0, 5).map(event => (
+                      filteredEvents.slice(0, 1).map(event => (
                         <EventItem
                           key={event.id}
                           event={event}

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
+import { formatLocalDateTime } from '@/lib/time';
 
 import { getApiBaseUrl } from '../../../../../lib/api-url';
 
@@ -124,8 +125,8 @@ export default function StorylineOverviewPage() {
                     key={tag}
                     onClick={() => setSelectedStoryline(tag)}
                     className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedStoryline === tag
-                        ? 'bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-200'
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                      ? 'bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-200'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
                       }`}
                   >
                     <div className="font-medium">{tag}</div>
@@ -163,12 +164,12 @@ export default function StorylineOverviewPage() {
                             {execution.playbook_code}
                           </div>
                           <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                            {execution.status} • {new Date(execution.created_at).toLocaleDateString()}
+                            {execution.status} • {formatLocalDateTime(execution.created_at)}
                           </div>
                         </div>
                         <span className={`text-xs px-2 py-1 rounded ${execution.status === 'done' ? 'bg-green-100 text-green-800' :
-                            execution.status === 'running' ? 'bg-blue-100 text-blue-800' :
-                              'bg-gray-100 text-gray-800'
+                          execution.status === 'running' ? 'bg-blue-100 text-blue-800' :
+                            'bg-gray-100 text-gray-800'
                           }`}>
                           {execution.status}
                         </span>

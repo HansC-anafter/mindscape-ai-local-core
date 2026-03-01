@@ -13,6 +13,17 @@ interface Workspace {
   execution_mode?: 'qa' | 'execution' | 'hybrid' | 'meeting';
   expected_artifacts?: string[];
   execution_priority?: 'low' | 'medium' | 'high';
+  workspace_blueprint?: {
+    instruction?: {
+      persona?: string;
+      goals?: string[];
+      anti_goals?: string[];
+      style_rules?: string[];
+      domain_context?: string;
+      version?: number;
+    } | null;
+    brief?: string | null;
+  } | null;
 }
 
 interface WorkspaceSettingsModalProps {

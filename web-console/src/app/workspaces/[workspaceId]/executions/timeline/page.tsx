@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
+import { toTimestampMs, formatLocalDateTime } from '@/lib/time';
 
 import { getApiBaseUrl } from '../../../../../lib/api-url';
 
@@ -100,7 +101,7 @@ export default function ExecutionTimelinePage() {
 
   // Sort executions by created_at (newest first)
   const sortedExecutions = [...executions].sort((a, b) => {
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    return (toTimestampMs(b.created_at) ?? 0) - (toTimestampMs(a.created_at) ?? 0);
   });
 
   return (
@@ -177,10 +178,10 @@ export default function ExecutionTimelinePage() {
                           )}
 
                           <div className="text-xs text-secondary dark:text-gray-500">
-                            {new Date(execution.created_at).toLocaleString()}
+                            {formatLocalDateTime(execution.created_at)}
                             {execution.completed_at && (
                               <span className="ml-2">
-                                • Completed: {new Date(execution.completed_at).toLocaleString()}
+                                • Completed: {formatLocalDateTime(execution.completed_at)}
                               </span>
                             )}
                           </div>
@@ -278,7 +279,7 @@ export default function ExecutionTimelinePage() {
                     Created
                   </label>
                   <div className="text-sm text-primary dark:text-gray-100 mt-1">
-                    {new Date(selectedExecution.created_at).toLocaleString()}
+                    {formatLocalDateTime(selectedExecution.created_at)}
                   </div>
                 </div>
 
@@ -288,7 +289,7 @@ export default function ExecutionTimelinePage() {
                       Completed
                     </label>
                     <div className="text-sm text-primary dark:text-gray-100 mt-1">
-                      {new Date(selectedExecution.completed_at).toLocaleString()}
+                      {formatLocalDateTime(selectedExecution.completed_at)}
                     </div>
                   </div>
                 )}

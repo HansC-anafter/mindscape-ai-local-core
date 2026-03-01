@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { t } from '@/lib/i18n';
+import { formatLocalDateTime } from '@/lib/time';
 import { getApiBaseUrl } from '../../../../../lib/api-url';
 
 interface GovernanceMetricsData {
@@ -116,21 +117,19 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
         <div className="flex gap-2">
           <button
             onClick={() => setPeriod('day')}
-            className={`px-3 py-1 text-xs rounded ${
-              period === 'day'
+            className={`px-3 py-1 text-xs rounded ${period === 'day'
                 ? 'bg-blue-600 dark:bg-blue-700 text-white'
                 : 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300'
-            }`}
+              }`}
           >
             {t('day' as any) || 'Day'}
           </button>
           <button
             onClick={() => setPeriod('month')}
-            className={`px-3 py-1 text-xs rounded ${
-              period === 'month'
+            className={`px-3 py-1 text-xs rounded ${period === 'month'
                 ? 'bg-blue-600 dark:bg-blue-700 text-white'
                 : 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300'
-            }`}
+              }`}
           >
             {t('month' as any) || 'Month'}
           </button>
@@ -191,10 +190,7 @@ export function GovernanceMetrics({ workspaceId }: GovernanceMetricsProps) {
               return (
                 <div key={index} className="flex items-center gap-3">
                   <div className="text-xs text-gray-600 dark:text-gray-400 w-20">
-                    {new Date(item.date).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                    })}
+                    {formatLocalDateTime(item.date)}
                   </div>
                   <div className="flex-1 bg-surface-secondary dark:bg-gray-700 rounded-full h-2">
                     <div

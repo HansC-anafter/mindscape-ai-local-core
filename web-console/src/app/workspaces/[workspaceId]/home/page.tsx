@@ -43,6 +43,13 @@ interface ToolConnectionDisplay {
 
 interface LaunchpadData {
   brief: string | null;
+  instruction?: {
+    persona?: string;
+    goals?: string[];
+    anti_goals?: string[];
+    style_rules?: string[];
+    domain_context?: string;
+  } | null;
   initial_intents: IntentCard[];
   first_playbook: string | null;
   tool_connections: ToolConnectionDisplay[];
@@ -232,11 +239,10 @@ export default function WorkspaceHomePage() {
                       onClick={() => {
                         setWizardData({ method: 'quick' });
                       }}
-                      className={`w-full p-4 text-left border-2 rounded-lg transition-colors ${
-                        wizardData.method === 'quick'
+                      className={`w-full p-4 text-left border-2 rounded-lg transition-colors ${wizardData.method === 'quick'
                           ? 'border-blue-500 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20'
                           : 'border-default dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600'
-                      }`}
+                        }`}
                     >
                       <h3 className="font-semibold text-primary dark:text-gray-100 mb-2">{t('quickCreate' as any)}</h3>
                       <p className="text-sm text-secondary dark:text-gray-400">{t('quickCreateDescription' as any)}</p>
@@ -245,11 +251,10 @@ export default function WorkspaceHomePage() {
                       onClick={() => {
                         setWizardData({ method: 'llm-guided' });
                       }}
-                      className={`w-full p-4 text-left border-2 rounded-lg transition-colors ${
-                        wizardData.method === 'llm-guided'
+                      className={`w-full p-4 text-left border-2 rounded-lg transition-colors ${wizardData.method === 'llm-guided'
                           ? 'border-blue-500 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20'
                           : 'border-default dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-600'
-                      }`}
+                        }`}
                     >
                       <h3 className="font-semibold text-primary dark:text-gray-100 mb-2">{t('llmGuidedCreate' as any)}</h3>
                       <p className="text-sm text-secondary dark:text-gray-400">{t('llmGuidedCreateDescription' as any)}</p>
@@ -551,6 +556,62 @@ export default function WorkspaceHomePage() {
                 <p className="text-primary dark:text-gray-300 whitespace-pre-line leading-relaxed">
                   {launchpadData.brief}
                 </p>
+              </div>
+            )}
+
+            {/* Workspace Instruction */}
+            {launchpadData?.instruction && (
+              <div className="bg-white dark:bg-gray-900 rounded-lg border border-indigo-200 dark:border-indigo-800 p-6 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Target className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  <h2 className="text-lg font-semibold text-primary dark:text-gray-100">
+                    Workspace Instruction
+                  </h2>
+                </div>
+                <div className="space-y-3">
+                  {launchpadData.instruction.persona && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Persona</span>
+                      <p className="text-primary dark:text-gray-300 mt-0.5">{launchpadData.instruction.persona}</p>
+                    </div>
+                  )}
+                  {launchpadData.instruction.goals && launchpadData.instruction.goals.length > 0 && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Goals</span>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {launchpadData.instruction.goals.map((g, i) => (
+                          <span key={i} className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">{g}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {launchpadData.instruction.anti_goals && launchpadData.instruction.anti_goals.length > 0 && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Anti-Goals</span>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {launchpadData.instruction.anti_goals.map((g, i) => (
+                          <span key={i} className="px-2 py-0.5 rounded-full text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">{g}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {launchpadData.instruction.style_rules && launchpadData.instruction.style_rules.length > 0 && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Style Rules</span>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {launchpadData.instruction.style_rules.map((s, i) => (
+                          <span key={i} className="px-2 py-0.5 rounded-full text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300">{s}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {launchpadData.instruction.domain_context && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Domain Context</span>
+                      <p className="text-sm text-primary dark:text-gray-300 mt-0.5 whitespace-pre-line">{launchpadData.instruction.domain_context}</p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

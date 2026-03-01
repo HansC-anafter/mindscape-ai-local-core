@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { getApiBaseUrl } from '@/lib/api-url';
+import { parseServerTimestamp } from '@/lib/time';
 
 interface PoolAccount {
     id: string;
@@ -433,7 +434,7 @@ export default function CliApiKeysSection() {
                                 </p>
                             )}
                             {poolAccounts.map((acct) => {
-                                const isCooling = acct.cooldown_until && new Date(acct.cooldown_until) > new Date();
+                                const isCooling = acct.cooldown_until && (parseServerTimestamp(acct.cooldown_until)?.getTime() ?? 0) > Date.now();
                                 const isPending = pendingRuntimeId === acct.id;
                                 return (
                                     <div

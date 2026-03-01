@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { formatLocalDateTime } from '@/lib/time';
 import { useDashboardSummary, useDashboardInbox, useDashboardCases, useDashboardAssignments } from './hooks/useDashboard';
 import { useSavedViews } from './hooks/useSavedViews';
 import type { DashboardQuery, SavedViewDTO } from './types';
@@ -102,11 +103,10 @@ export default function WorkPage() {
                   setActiveTab(tab);
                   setSelectedItem(null);
                 }}
-                className={`px-5 py-3 text-sm font-medium ${
-                  activeTab === tab
+                className={`px-5 py-3 text-sm font-medium ${activeTab === tab
                     ? 'border-b-2 border-blue-600 text-blue-600'
                     : 'text-gray-600 hover:text-gray-900'
-                }`}
+                  }`}
               >
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
@@ -306,18 +306,17 @@ function SummaryPanel({
   if (error) {
     return (
       <div
-        className={`text-sm p-3 rounded ${
-          (error as any)?.isAuthError
+        className={`text-sm p-3 rounded ${(error as any)?.isAuthError
             ? 'bg-red-50 border border-red-200 text-red-800'
             : 'bg-yellow-50 border border-yellow-200 text-yellow-800'
-        }`}
+          }`}
       >
         <p className="font-semibold mb-1">
           {(error as any)?.status === 401
             ? 'Authentication Required'
             : (error as any)?.status === 403
-            ? 'Access Denied'
-            : 'Error'}
+              ? 'Access Denied'
+              : 'Error'}
         </p>
         <p>{error.message}</p>
       </div>
@@ -388,18 +387,17 @@ function InboxList({
   if (error) {
     return (
       <div
-        className={`p-6 m-4 rounded ${
-          (error as any)?.isAuthError
+        className={`p-6 m-4 rounded ${(error as any)?.isAuthError
             ? 'bg-red-50 border border-red-200 text-red-800'
             : 'bg-yellow-50 border border-yellow-200 text-yellow-800'
-        }`}
+          }`}
       >
         <p className="font-semibold mb-1">
           {(error as any)?.status === 401
             ? 'Authentication Required'
             : (error as any)?.status === 403
-            ? 'Access Denied'
-            : 'Error'}
+              ? 'Access Denied'
+              : 'Error'}
         </p>
         <p>{error.message}</p>
       </div>
@@ -420,16 +418,15 @@ function InboxList({
         <div
           key={item.id}
           onClick={() => onSelect(item)}
-          className={`p-4 cursor-pointer hover:bg-gray-50 ${
-            selectedId === item.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-          }`}
+          className={`p-4 cursor-pointer hover:bg-gray-50 ${selectedId === item.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+            }`}
         >
           <h3 className="font-semibold">{item.title}</h3>
           {item.summary && <p className="text-sm text-gray-600 mt-1 line-clamp-2">{item.summary}</p>}
           <div className="mt-2 text-xs text-gray-500">
             {item.workspace_name && <span>{item.workspace_name} • </span>}
             {item.due_at ? (
-              <span>Due: {new Date(item.due_at).toLocaleDateString()}</span>
+              <span>Due: {formatLocalDateTime(item.due_at)}</span>
             ) : (
               <span className="text-gray-400 italic">Due date not supported in Local-Core</span>
             )}
@@ -448,7 +445,7 @@ function InboxList({
       )}
       {data.has_more && (
         <div className="p-4 text-center border-t">
-          <button className="text-sm text-blue-600 hover:text-blue-800" onClick={() => {}}>
+          <button className="text-sm text-blue-600 hover:text-blue-800" onClick={() => { }}>
             Load more...
           </button>
         </div>
@@ -477,18 +474,17 @@ function CasesList({
   if (error) {
     return (
       <div
-        className={`p-6 m-4 rounded ${
-          (error as any)?.isAuthError
+        className={`p-6 m-4 rounded ${(error as any)?.isAuthError
             ? 'bg-red-50 border border-red-200 text-red-800'
             : 'bg-yellow-50 border border-yellow-200 text-yellow-800'
-        }`}
+          }`}
       >
         <p className="font-semibold mb-1">
           {(error as any)?.status === 401
             ? 'Authentication Required'
             : (error as any)?.status === 403
-            ? 'Access Denied'
-            : 'Error'}
+              ? 'Access Denied'
+              : 'Error'}
         </p>
         <p>{error.message}</p>
       </div>
@@ -509,21 +505,19 @@ function CasesList({
         <div
           key={caseItem.id}
           onClick={() => onSelect(caseItem)}
-          className={`p-4 cursor-pointer hover:bg-gray-50 ${
-            selectedId === caseItem.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-          }`}
+          className={`p-4 cursor-pointer hover:bg-gray-50 ${selectedId === caseItem.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+            }`}
         >
           <h3 className="font-semibold">{caseItem.title || 'Untitled Case'}</h3>
           {caseItem.summary && <p className="text-sm text-gray-600 mt-1 line-clamp-2">{caseItem.summary}</p>}
           <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
             <span
-              className={`px-2 py-1 rounded ${
-                caseItem.status === 'blocked'
+              className={`px-2 py-1 rounded ${caseItem.status === 'blocked'
                   ? 'bg-red-100 text-red-800'
                   : caseItem.status === 'completed'
-                  ? 'bg-green-100 text-green-800'
-                  : 'bg-blue-100 text-blue-800'
-              }`}
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-blue-100 text-blue-800'
+                }`}
             >
               {caseItem.status}
             </span>
@@ -556,18 +550,17 @@ function AssignmentsList({
   if (error) {
     return (
       <div
-        className={`p-6 m-4 rounded ${
-          (error as any)?.isAuthError
+        className={`p-6 m-4 rounded ${(error as any)?.isAuthError
             ? 'bg-red-50 border border-red-200 text-red-800'
             : 'bg-yellow-50 border border-yellow-200 text-yellow-800'
-        }`}
+          }`}
       >
         <p className="font-semibold mb-1">
           {(error as any)?.status === 401
             ? 'Authentication Required'
             : (error as any)?.status === 403
-            ? 'Access Denied'
-            : 'Error'}
+              ? 'Access Denied'
+              : 'Error'}
         </p>
         <p>{error.message}</p>
       </div>
@@ -588,9 +581,8 @@ function AssignmentsList({
         <div
           key={assignment.id}
           onClick={() => onSelect(assignment)}
-          className={`p-4 cursor-pointer hover:bg-gray-50 ${
-            selectedId === assignment.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-          }`}
+          className={`p-4 cursor-pointer hover:bg-gray-50 ${selectedId === assignment.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+            }`}
         >
           <h3 className="font-semibold">{assignment.title}</h3>
           {assignment.description && (
@@ -598,20 +590,19 @@ function AssignmentsList({
           )}
           <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
             <span
-              className={`px-2 py-1 rounded ${
-                assignment.status === 'pending'
+              className={`px-2 py-1 rounded ${assignment.status === 'pending'
                   ? 'bg-yellow-100 text-yellow-800'
                   : assignment.status === 'completed'
-                  ? 'bg-green-100 text-green-800'
-                  : assignment.status === 'failed'
-                  ? 'bg-red-100 text-red-800'
-                  : 'bg-blue-100 text-blue-800'
-              }`}
+                    ? 'bg-green-100 text-green-800'
+                    : assignment.status === 'failed'
+                      ? 'bg-red-100 text-red-800'
+                      : 'bg-blue-100 text-blue-800'
+                }`}
             >
               {assignment.status}
             </span>
             {assignment.due_at ? (
-              <span>Due: {new Date(assignment.due_at).toLocaleDateString()}</span>
+              <span>Due: {formatLocalDateTime(assignment.due_at)}</span>
             ) : (
               <span className="text-gray-400 italic">Due date not supported in Local-Core</span>
             )}

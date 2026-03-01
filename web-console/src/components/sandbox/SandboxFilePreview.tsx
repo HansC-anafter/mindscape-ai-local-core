@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { SandboxFileContent } from '@/lib/sandbox-api';
+import { formatLocalDateTime } from '@/lib/time';
 
 interface SandboxFilePreviewProps {
   file: SandboxFileContent;
@@ -53,7 +54,7 @@ export default function SandboxFilePreview({
           <div className="flex items-center gap-2">
             <div className="text-xs text-gray-500">
               {file.size} bytes
-              {file.modified && ` • Modified: ${new Date(file.modified * 1000).toLocaleString()}`}
+              {file.modified && ` • Modified: ${formatLocalDateTime(new Date(file.modified * 1000).toISOString())}`}
             </div>
             <button
               onClick={handleDownload}

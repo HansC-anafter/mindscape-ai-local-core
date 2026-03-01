@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Chapter } from '@/lib/story-thread-api';
+import { parseServerTimestamp } from '@/lib/time';
 
 interface ChapterCardProps {
   chapter: Chapter;
@@ -39,7 +40,8 @@ export function ChapterCard({ chapter, isCurrent, onSelect, onUpdate }: ChapterC
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return null;
-    const date = new Date(dateString);
+    const date = parseServerTimestamp(dateString);
+    if (!date) return dateString;
     return date.toLocaleString('zh-TW', {
       year: 'numeric',
       month: 'short',
@@ -49,11 +51,10 @@ export function ChapterCard({ chapter, isCurrent, onSelect, onUpdate }: ChapterC
 
   return (
     <div
-      className={`chapter-card p-4 rounded-lg border-2 transition-all ${
-        isCurrent
+      className={`chapter-card p-4 rounded-lg border-2 transition-all ${isCurrent
           ? 'border-blue-500 bg-blue-50'
           : 'border-gray-200 hover:border-gray-300'
-      } ${onSelect ? 'cursor-pointer' : ''}`}
+        } ${onSelect ? 'cursor-pointer' : ''}`}
       onClick={() => onSelect?.(chapter.chapter_id)}
     >
       <div className="chapter-header flex items-start justify-between mb-2">
