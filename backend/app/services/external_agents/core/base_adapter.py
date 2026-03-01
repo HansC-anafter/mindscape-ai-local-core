@@ -119,7 +119,7 @@ class BaseRuntimeAdapter(ABC):
         self._available_cache: Optional[bool] = None
 
     @abstractmethod
-    async def is_available(self) -> bool:
+    async def is_available(self, **kwargs) -> bool:
         """
         Check if this runtime is installed and accessible.
 

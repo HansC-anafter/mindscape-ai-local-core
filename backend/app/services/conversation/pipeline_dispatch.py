@@ -34,6 +34,7 @@ async def dispatch_to_agent(
     execution_mode: str = "qa",
     model_name: Optional[str] = None,
     profile: Any = None,
+    uploaded_files: Optional[list] = None,
 ) -> Any:
     """Dispatch to external agent runtime (e.g. Gemini CLI).
 
@@ -57,6 +58,7 @@ async def dispatch_to_agent(
         execution_mode: qa | execution | hybrid (for fallback dispatch).
         model_name: LLM model name (for fallback dispatch).
         profile: UserProfile object (for fallback dispatch).
+        uploaded_files: Optional list of uploaded file metadata.
 
     Returns:
         Updated PipelineResult.
@@ -115,13 +117,94 @@ async def dispatch_to_agent(
         user_event_id,
     )
 
+    # Step 1: Enrich bare file UUIDs with metadata (name, path, type)
+    enriched_files = []
+    file_context_lines = []
+    if uploaded_files:
+        import os
+        import json as _json
+        from pathlib import Path
+
+        uploads_dir = Path(os.getenv("UPLOADS_DIR", "data/uploads")) / workspace_id
+        for file_id in uploaded_files:
+            if not isinstance(file_id, str):
+                enriched_files.append(file_id)
+                continue
+            # Try to read .meta.json sidecar for original filename
+            meta_path = uploads_dir / f"{file_id}.meta.json"
+            original_name = None
+            if meta_path.exists():
+                try:
+                    with open(meta_path) as mf:
+                        meta = _json.load(mf)
+                    original_name = meta.get("original_name")
+                except Exception:
+                    pass
+
+            # Scan uploads dir for matching file
+            matched = (
+                list(uploads_dir.glob(f"{file_id}.*")) if uploads_dir.exists() else []
+            )
+            # Filter out .meta.json and .analysis.json from matches
+            matched = [
+                m
+                for m in matched
+                if not m.name.endswith(".meta.json")
+                and not m.name.endswith(".analysis.json")
+            ]
+            if matched:
+                fpath = matched[0]
+                display_name = original_name or fpath.name
+                file_info = {
+                    "file_id": file_id,
+                    "file_name": display_name,
+                    "file_path": str(fpath),
+                    "file_type": fpath.suffix.lstrip("."),
+                }
+                enriched_files.append(file_info)
+                file_context_lines.append(
+                    f"- {display_name} (id: {file_id}, path: {fpath})"
+                )
+            else:
+                enriched_files.append({"file_id": file_id})
+        logger.info(f"Enriched uploaded_files: {enriched_files}")
+
+    # Step 2: File dispatch enrichment (detected_type, analysis sidecar, pack recs)
+    recommended_pack_codes = []
+    file_hint = ""
+    if enriched_files:
+        try:
+            from backend.app.services.conversation.file_dispatch_enricher import (
+                FileDispatchEnricher,
+            )
+
+            enricher = FileDispatchEnricher()
+            file_ctx = await enricher.enrich(workspace_id, enriched_files)
+            enriched_files = file_ctx.files
+            recommended_pack_codes = file_ctx.recommended_pack_codes
+            file_hint = file_ctx.file_hint
+        except Exception as e:
+            logger.warning(f"FileDispatchEnricher failed (non-fatal): {e}")
+
+    # Append file context to task message so agent sees uploaded file info
+    task_message = message
+    if file_hint:
+        task_message = f"{message}\n\n[File Context] {file_hint}"
+    elif file_context_lines:
+        task_message = f"{message}\n\n[Uploaded Files]\n" + "\n".join(
+            file_context_lines
+        )
+
     agent_response: AgentExecutionResponse = await executor.execute(
-        task=message,
+        task=task_message,
         agent_id=executor_runtime,
         context_overrides={
             "conversation_context": context_str or "",
             "thread_id": thread_id,
             "project_id": project_id,
+            "uploaded_files": enriched_files or [],
+            "recommended_pack_codes": recommended_pack_codes,
+            "file_hint": file_hint,
         },
     )
 

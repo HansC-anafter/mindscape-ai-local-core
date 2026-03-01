@@ -6,7 +6,7 @@ PostgreSQL store using TEXT IDs aligned with meeting_sessions.id.
 
 import logging
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 
@@ -170,7 +170,7 @@ class StateVectorStore(PostgresStoreBase):
             meeting_session_id=data["meeting_session_id"],
             workspace_id=data["workspace_id"],
             project_id=data.get("project_id"),
-            timestamp=created or datetime.utcnow(),
+            timestamp=created or datetime.now(timezone.utc),
             progress=float(data.get("progress", 0)),
             evidence=float(data.get("evidence", 0)),
             risk=float(data.get("risk", 0)),
@@ -178,5 +178,5 @@ class StateVectorStore(PostgresStoreBase):
             lyapunov_v=float(data.get("lyapunov_v", 0)),
             mode=data.get("mode", "explore"),
             metadata=self.deserialize_json(data.get("metadata"), {}),
-            created_at=created or datetime.utcnow(),
+            created_at=created or datetime.now(timezone.utc),
         )

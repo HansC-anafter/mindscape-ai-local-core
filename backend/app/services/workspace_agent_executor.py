@@ -103,7 +103,8 @@ class WorkspaceAgentExecutor:
                 logger.debug(f"No adapter found for agent {agent_id}")
                 return False
 
-            return await adapter.is_available()
+            workspace_id = getattr(self.workspace, "id", None)
+            return await adapter.is_available(workspace_id=workspace_id)
         except Exception as e:
             logger.warning(f"Failed to check agent availability: {e}")
             return False

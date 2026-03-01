@@ -57,6 +57,9 @@ class GeminiCLIWSClient:
 
     # Heartbeat interval (should be < server's CLIENT_TIMEOUT)
     HEARTBEAT_INTERVAL: float = 25.0
+    # Pong response timeout — if server doesn't respond within this,
+    # the connection is considered dead (e.g. backend restarted).
+    PONG_TIMEOUT: float = 10.0
 
     def __init__(
         self,
@@ -77,6 +80,8 @@ class GeminiCLIWSClient:
         self._ws = None
         self._running = False
         self._reconnect_attempt = 0
+        self._pong_received = asyncio.Event()
+        self._active_tasks = 0  # suppress pong-timeout during execution
 
     @property
     def ws_url(self) -> str:
@@ -172,7 +177,14 @@ class GeminiCLIWSClient:
         """Single connection lifecycle."""
         logger.info(f"Connecting to {self.ws_url}")
 
-        async with websockets.connect(self.ws_url) as ws:
+        # Use protocol-level ping/pong as a safety net for dead TCP.
+        # If backend restarts and TCP silently dies, the protocol
+        # ping will timeout → ConnectionClosed → reconnect.
+        async with websockets.connect(
+            self.ws_url,
+            ping_interval=20,
+            ping_timeout=120,  # long timeout to survive task execution
+        ) as ws:
             self._ws = ws
             self._reconnect_attempt = 0
             logger.info("Connected!")
@@ -184,6 +196,10 @@ class GeminiCLIWSClient:
                 async for raw_msg in ws:
                     try:
                         msg = json.loads(raw_msg)
+                        # Handle server pong for app-level liveness
+                        if msg.get("type") == "pong":
+                            self._pong_received.set()
+                            continue
                         await self._handle_message(msg)
                     except json.JSONDecodeError:
                         logger.warning(f"Invalid JSON: {raw_msg[:100]}")
@@ -192,14 +208,45 @@ class GeminiCLIWSClient:
                 self._ws = None
 
     async def _heartbeat_loop(self) -> None:
-        """Send periodic pings to keep connection alive."""
+        """Send periodic pings and verify server responds.
+
+        After backend restart, TCP may stay alive but the server-side
+        WS state is gone. We send an app-level ping and wait for a
+        pong response within PONG_TIMEOUT. If no pong arrives, we
+        force-close the WebSocket to trigger reconnect.
+
+        IMPORTANT: During active task execution, we skip the pong-or-die
+        check because the server may be busy and slow to respond.
+        """
         while True:
             await asyncio.sleep(self.HEARTBEAT_INTERVAL)
-            if self._ws:
+            if not self._ws:
+                break
+            try:
+                self._pong_received.clear()
+                await self._ws.send(json.dumps({"type": "ping"}))
+                # Wait for server pong within timeout
                 try:
-                    await self._ws.send(json.dumps({"type": "ping"}))
-                except Exception:
+                    await asyncio.wait_for(
+                        self._pong_received.wait(),
+                        timeout=self.PONG_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    if self._active_tasks > 0:
+                        logger.info(
+                            f"Pong timeout but {self._active_tasks} task(s) "
+                            f"active — keeping connection alive"
+                        )
+                        continue
+                    logger.warning(
+                        f"Server did not respond to ping within "
+                        f"{self.PONG_TIMEOUT}s — connection is stale, "
+                        f"forcing reconnect"
+                    )
+                    await self._ws.close()
                     break
+            except Exception:
+                break
 
     def _backoff_delay(self) -> float:
         """Exponential backoff with jitter."""
@@ -287,7 +334,8 @@ class GeminiCLIWSClient:
             }
         )
 
-        # 2. Execute
+        # 2. Execute (guarded by _active_tasks to suppress pong timeout)
+        self._active_tasks += 1
         start_time = time.monotonic()
         try:
             result = await self.task_handler(msg)
@@ -347,6 +395,8 @@ class GeminiCLIWSClient:
                     "error": str(e),
                 }
             )
+        finally:
+            self._active_tasks = max(0, self._active_tasks - 1)
 
     # ============================================================
     #  Send helpers

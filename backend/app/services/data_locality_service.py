@@ -269,6 +269,64 @@ class DataLocalityService:
             ),
         }
 
+    def check_dispatch_boundary(
+        self,
+        action_items: List[Dict[str, Any]],
+        workspace_asset_map: Dict[str, List[str]],
+    ) -> Dict[str, Any]:
+        """Validate cross-workspace dispatch against asset ownership.
+
+        For each action item with asset_refs, check that the target workspace
+        actually owns the referenced assets. Items without asset_refs pass.
+
+        Args:
+            action_items: Action items with target_workspace_id and asset_refs.
+            workspace_asset_map: Map of workspace_id to list of asset resource_ids.
+
+        Returns:
+            Validation result with violations and per-item status.
+        """
+        violations: List[Dict[str, Any]] = []
+        checked = 0
+
+        for idx, item in enumerate(action_items):
+            asset_refs = item.get("asset_refs") or []
+            if not asset_refs:
+                continue
+
+            target_ws = item.get("target_workspace_id")
+            if not target_ws:
+                continue
+
+            checked += 1
+            ws_assets = set(workspace_asset_map.get(target_ws, []))
+
+            for ref in asset_refs:
+                if ref not in ws_assets:
+                    violations.append(
+                        {
+                            "item_index": idx,
+                            "item_title": item.get("title", ""),
+                            "target_workspace_id": target_ws,
+                            "missing_asset": ref,
+                            "reason": (
+                                f"Asset '{ref}' is not bound to "
+                                f"workspace '{target_ws}'"
+                            ),
+                        }
+                    )
+
+        return {
+            "valid": len(violations) == 0,
+            "checked": checked,
+            "violations": violations,
+            "message": (
+                f"All {checked} items pass boundary check"
+                if not violations
+                else (f"{len(violations)} dispatch boundary " "violations found")
+            ),
+        }
+
 
 # Singleton instance
 _DATA_LOCALITY_SERVICE: Optional[DataLocalityService] = None

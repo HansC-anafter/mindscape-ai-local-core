@@ -53,6 +53,9 @@ def build_dispatch_payload(
             "sandbox_path": request.sandbox_path,
             "conversation_context": agent_cfg.get("conversation_context", ""),
             "thread_id": agent_cfg.get("thread_id", ""),
+            "uploaded_files": agent_cfg.get("uploaded_files", []),
+            "recommended_pack_codes": agent_cfg.get("recommended_pack_codes", []),
+            "file_hint": agent_cfg.get("file_hint", ""),
         },
         "issued_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -100,7 +103,7 @@ class PollingRuntimeAdapter(BaseRuntimeAdapter):
         super().__init__()
         self.dispatch_store = dispatch_store
 
-    async def is_available(self) -> bool:
+    async def is_available(self, **kwargs) -> bool:
         """
         Check if this runtime's CLI is actually installed on the host.
 

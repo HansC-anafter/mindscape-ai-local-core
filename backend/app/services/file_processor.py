@@ -19,6 +19,7 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,7 +34,7 @@ class FileProcessor:
         file_data: str,
         file_name: str,
         file_type: Optional[str] = None,
-        file_size: Optional[int] = None
+        file_size: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Process uploaded file and extract basic information
@@ -52,34 +53,47 @@ class FileProcessor:
                 "name": file_name,
                 "size": file_size or 0,
                 "type": file_type or self._detect_mime_type(file_name),
-                "processed_at": _utc_now().isoformat()
+                "processed_at": _utc_now().isoformat(),
             }
 
-            if file_data.startswith('data:'):
+            if file_data.startswith("data:"):
                 file_info["format"] = "base64_data_url"
             else:
                 file_info["format"] = "file_id"
 
             file_info["language"] = self._detect_language(file_name)
-            file_info["detected_type"] = self._detect_file_type(file_name, file_info["type"])
+            file_info["detected_type"] = self._detect_file_type(
+                file_name, file_info["type"]
+            )
 
             pages = self._estimate_pages(file_name, file_size)
             if pages:
                 file_info["pages"] = pages
 
             # Extract text content from PDF files
-            if file_name.lower().endswith('.pdf') and file_data.startswith('data:'):
+            if file_name.lower().endswith(".pdf") and file_data.startswith("data:"):
                 logger.info(f"Starting PDF text extraction for: {file_name}")
                 try:
-                    text_content = await self._extract_pdf_text(file_data, max_length=20000)  # Extract more text
+                    text_content = await self._extract_pdf_text(
+                        file_data, max_length=20000
+                    )  # Extract more text
                     if text_content:
                         file_info["text_content"] = text_content
-                        logger.info(f"✅ Successfully extracted {len(text_content)} characters from PDF: {file_name}")
-                        logger.info(f"Text preview (first 200 chars): {text_content[:200]}")
+                        logger.info(
+                            f"✅ Successfully extracted {len(text_content)} characters from PDF: {file_name}"
+                        )
+                        logger.info(
+                            f"Text preview (first 200 chars): {text_content[:200]}"
+                        )
                     else:
-                        logger.warning(f"⚠️ No text content extracted from PDF: {file_name} (may be image-based PDF)")
+                        logger.warning(
+                            f"⚠️ No text content extracted from PDF: {file_name} (may be image-based PDF)"
+                        )
                 except Exception as e:
-                    logger.error(f"❌ Failed to extract PDF text from {file_name}: {e}", exc_info=True)
+                    logger.error(
+                        f"❌ Failed to extract PDF text from {file_name}: {e}",
+                        exc_info=True,
+                    )
 
             return file_info
         except Exception as e:
@@ -88,7 +102,7 @@ class FileProcessor:
                 "name": file_name,
                 "size": file_size or 0,
                 "type": file_type or "application/octet-stream",
-                "error": str(e)
+                "error": str(e),
             }
 
     def _detect_mime_type(self, file_name: str) -> str:
@@ -98,7 +112,9 @@ class FileProcessor:
 
     def _detect_language(self, file_name: str) -> str:
         """Detect language from file name (simple heuristic)"""
-        if any(char in file_name for char in ['中文', '繁體', '簡體', 'zh', 'TW', 'CN']):
+        if any(
+            char in file_name for char in ["中文", "繁體", "簡體", "zh", "TW", "CN"]
+        ):
             return "zh-TW"
         return "en"
 
@@ -106,49 +122,85 @@ class FileProcessor:
         """Detect file type category"""
         file_name_lower = file_name.lower()
 
-        if any(ext in file_name_lower for ext in ['.doc', '.docx', '.pdf']):
-            if any(word in file_name_lower for word in ['proposal', '企劃', '提案', 'proposal']):
+        if any(
+            ext in file_name_lower
+            for ext in [".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"]
+        ):
+            return "video"
+
+        if any(
+            ext in file_name_lower
+            for ext in [".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac", ".wma"]
+        ):
+            return "audio"
+
+        if any(
+            ext in file_name_lower
+            for ext in [
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".gif",
+                ".bmp",
+                ".webp",
+                ".svg",
+                ".tiff",
+                ".heic",
+                ".heif",
+            ]
+        ) or (mime_type and mime_type.startswith("image/")):
+            return "image"
+
+        if any(ext in file_name_lower for ext in [".doc", ".docx", ".pdf"]):
+            if any(
+                word in file_name_lower
+                for word in ["proposal", "企劃", "提案", "proposal"]
+            ):
                 return "proposal"
-            if any(word in file_name_lower for word in ['report', '報告', 'report']):
+            if any(word in file_name_lower for word in ["report", "報告", "report"]):
                 return "report"
             return "document"
 
-        if any(ext in file_name_lower for ext in ['.md', '.txt']):
+        if any(ext in file_name_lower for ext in [".md", ".txt"]):
             return "text"
 
-        if any(ext in file_name_lower for ext in ['.xls', '.xlsx']):
+        if any(ext in file_name_lower for ext in [".xls", ".xlsx"]):
             return "spreadsheet"
 
-        if any(ext in file_name_lower for ext in ['.ppt', '.pptx']):
+        if any(ext in file_name_lower for ext in [".ppt", ".pptx"]):
             return "presentation"
 
         return "unknown"
 
-    def _estimate_pages(self, file_name: str, file_size: Optional[int]) -> Optional[int]:
+    def _estimate_pages(
+        self, file_name: str, file_size: Optional[int]
+    ) -> Optional[int]:
         """Estimate number of pages (rough estimate)"""
         if not file_size:
             return None
 
         file_name_lower = file_name.lower()
 
-        if '.pdf' in file_name_lower:
+        if ".pdf" in file_name_lower:
             return max(1, file_size // 50000)
-        elif '.docx' in file_name_lower or '.doc' in file_name_lower:
+        elif ".docx" in file_name_lower or ".doc" in file_name_lower:
             return max(1, file_size // 30000)
-        elif '.txt' in file_name_lower or '.md' in file_name_lower:
+        elif ".txt" in file_name_lower or ".md" in file_name_lower:
             return max(1, file_size // 2000)
 
         return None
 
-    async def _extract_pdf_text(self, file_data: str, max_length: int = 10000) -> Optional[str]:
+    async def _extract_pdf_text(
+        self, file_data: str, max_length: int = 10000
+    ) -> Optional[str]:
         """Extract text content from PDF file"""
         try:
             import tempfile
             import os
 
             # Decode base64 data
-            if file_data.startswith('data:'):
-                base64_data = file_data.split(',')[1] if ',' in file_data else file_data
+            if file_data.startswith("data:"):
+                base64_data = file_data.split(",")[1] if "," in file_data else file_data
                 pdf_bytes = base64.b64decode(base64_data)
             else:
                 return None
@@ -164,7 +216,9 @@ class FileProcessor:
                 text_parts = []
                 # Extract text from more pages to get meaningful content (up to 20 pages)
                 pages_to_extract = min(20, len(pdf_reader.pages))
-                logger.info(f"Extracting text from {pages_to_extract} pages of PDF ({len(pdf_reader.pages)} total pages)")
+                logger.info(
+                    f"Extracting text from {pages_to_extract} pages of PDF ({len(pdf_reader.pages)} total pages)"
+                )
 
                 for page_num in range(pages_to_extract):
                     try:
@@ -173,12 +227,16 @@ class FileProcessor:
                         if text and text.strip():
                             text_parts.append(text.strip())
                     except Exception as e:
-                        logger.warning(f"Failed to extract text from page {page_num}: {e}")
+                        logger.warning(
+                            f"Failed to extract text from page {page_num}: {e}"
+                        )
                         continue
 
-                extracted_text = '\n\n'.join(text_parts)
+                extracted_text = "\n\n".join(text_parts)
                 if extracted_text:
-                    logger.info(f"Successfully extracted {len(extracted_text)} characters from PDF")
+                    logger.info(
+                        f"Successfully extracted {len(extracted_text)} characters from PDF"
+                    )
                     return extracted_text[:max_length]
                 else:
                     logger.warning("No text extracted from PDF pages")
