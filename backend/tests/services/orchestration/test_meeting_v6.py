@@ -542,3 +542,58 @@ class TestToolExecutionInputParams:
             "url": "https://example.com",
             "depth": 2,
         }
+
+
+# ---------------------------------------------------------------------------
+# 5E: Tool allowlist enforcement
+# ---------------------------------------------------------------------------
+
+
+class TestToolAllowlist:
+    """Tool allowlist blocks tools not in workspace bindings."""
+
+    def test_tool_not_in_allowlist(self):
+        from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
+            check_dispatch_policy,
+        )
+
+        binding = MagicMock()
+        binding.resource_id = "allowed_tool"
+        binding_store = MagicMock()
+        binding_store.list_bindings_by_workspace.return_value = [binding]
+
+        items = [
+            {"title": "A", "tool_name": "allowed_tool", "description": "ok"},
+            {"title": "B", "tool_name": "blocked_tool", "description": "bad"},
+        ]
+        check_dispatch_policy(
+            items,
+            workspace_id="ws-1",
+            binding_store=binding_store,
+        )
+        assert items[0].get("landing_status") is None  # allowed
+        assert items[1]["landing_status"] == "policy_blocked"
+        assert items[1]["policy_reason_code"] == "TOOL_NOT_ALLOWED"
+
+    def test_tool_in_allowlist_passes(self):
+        from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
+            check_dispatch_policy,
+        )
+
+        binding = MagicMock()
+        binding.resource_id = "my_tool"
+        binding_store = MagicMock()
+        binding_store.list_bindings_by_workspace.return_value = [binding]
+
+        items = [{"title": "OK", "tool_name": "my_tool", "description": "fine"}]
+        check_dispatch_policy(items, workspace_id="ws-1", binding_store=binding_store)
+        assert items[0].get("landing_status") is None
+
+    def test_no_binding_store_passes_all(self):
+        from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
+            check_dispatch_policy,
+        )
+
+        items = [{"title": "Any", "tool_name": "any_tool", "description": "ok"}]
+        check_dispatch_policy(items, workspace_id="ws-1", binding_store=None)
+        assert items[0].get("landing_status") is None  # no enforcement
