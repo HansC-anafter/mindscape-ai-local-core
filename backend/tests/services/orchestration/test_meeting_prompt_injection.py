@@ -178,3 +178,397 @@ class TestBuildTurnPromptInjection:
             critic_notes=[],
         )
         assert "=== Active Intents ===" not in prompt
+
+
+class FakeInstruction:
+    """Fake WorkspaceInstruction for testing."""
+
+    def __init__(self, **kwargs):
+        self.persona = kwargs.get("persona")
+        self.goals = kwargs.get("goals", [])
+        self.anti_goals = kwargs.get("anti_goals", [])
+        self.style_rules = kwargs.get("style_rules", [])
+        self.domain_context = kwargs.get("domain_context")
+
+
+class FakeBlueprint:
+    """Fake WorkspaceBlueprint for testing."""
+
+    def __init__(self, instruction=None, brief=None):
+        self.instruction = instruction
+        self.brief = brief
+
+
+class TestWorkspaceInstructionInjection:
+    """Tests for workspace instruction block building and injection."""
+
+    def test_full_instruction_block(self):
+        engine = StubEngine()
+        engine.workspace.workspace_blueprint = FakeBlueprint(
+            instruction=FakeInstruction(
+                persona="You are an IG community analyst",
+                goals=["Track trending topics", "Identify engagement patterns"],
+                anti_goals=["Don't post content", "Don't make purchases"],
+                style_rules=["Report in zh-TW", "Use data-driven language"],
+                domain_context="Focus on Instagram Reels and Stories.",
+            )
+        )
+        result = engine._build_workspace_instruction_block()
+        assert "=== Workspace Instruction ===" in result
+        assert "=== End Instruction ===" in result
+        assert "Persona: You are an IG community analyst" in result
+        assert "Track trending topics" in result
+        assert "Don't post content" in result
+        assert "Report in zh-TW" in result
+        assert "Focus on Instagram Reels" in result
+
+    def test_fallback_to_brief(self):
+        engine = StubEngine()
+        engine.workspace.workspace_blueprint = FakeBlueprint(
+            brief="This workspace tracks IG topics."
+        )
+        result = engine._build_workspace_instruction_block()
+        assert "=== Workspace Brief ===" in result
+        assert "=== End Brief ===" in result
+        assert "This workspace tracks IG topics." in result
+        assert "=== Workspace Instruction ===" not in result
+
+    def test_empty_when_no_blueprint(self):
+        engine = StubEngine()
+        engine.workspace.workspace_blueprint = None
+        result = engine._build_workspace_instruction_block()
+        assert result == ""
+
+    def test_empty_when_no_workspace(self):
+        engine = StubEngine()
+        engine.workspace = None
+        result = engine._build_workspace_instruction_block()
+        assert result == ""
+
+    def test_partial_fields_only_persona_and_goals(self):
+        engine = StubEngine()
+        engine.workspace.workspace_blueprint = FakeBlueprint(
+            instruction=FakeInstruction(
+                persona="You are a brand strategist",
+                goals=["Build brand awareness"],
+            )
+        )
+        result = engine._build_workspace_instruction_block()
+        assert "Persona: You are a brand strategist" in result
+        assert "Build brand awareness" in result
+        assert "Anti-goals" not in result
+        assert "Style:" not in result
+        assert "Domain context:" not in result
+
+    def test_instruction_has_priority_over_brief(self):
+        engine = StubEngine()
+        engine.workspace.workspace_blueprint = FakeBlueprint(
+            instruction=FakeInstruction(persona="I am the AI"),
+            brief="This brief should not appear",
+        )
+        result = engine._build_workspace_instruction_block()
+        assert "=== Workspace Instruction ===" in result
+        assert "This brief should not appear" not in result
+
+    def test_empty_instruction_falls_back_to_brief(self):
+        engine = StubEngine()
+        engine.workspace.workspace_blueprint = FakeBlueprint(
+            instruction=FakeInstruction(),  # All fields empty
+            brief="Fallback brief text",
+        )
+        result = engine._build_workspace_instruction_block()
+        # Empty instruction (no fields populated) → falls through to brief
+        assert "=== Workspace Brief ===" in result
+        assert "Fallback brief text" in result
+
+
+class TestWorkspaceInstructionModel:
+    """Tests for WorkspaceInstruction Pydantic model validation."""
+
+    def test_basic_creation(self):
+        from backend.app.models.workspace_blueprint import WorkspaceInstruction
+
+        instr = WorkspaceInstruction(
+            persona="You are a test AI",
+            goals=["Goal 1", "Goal 2"],
+            anti_goals=["Anti 1"],
+        )
+        assert instr.persona == "You are a test AI"
+        assert len(instr.goals) == 2
+        assert instr.version == 1
+
+    def test_persona_max_length(self):
+        from backend.app.models.workspace_blueprint import WorkspaceInstruction
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            WorkspaceInstruction(persona="x" * 501)
+
+    def test_domain_context_max_length(self):
+        from backend.app.models.workspace_blueprint import WorkspaceInstruction
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            WorkspaceInstruction(domain_context="x" * 2001)
+
+    def test_empty_instruction_valid(self):
+        from backend.app.models.workspace_blueprint import WorkspaceInstruction
+
+        instr = WorkspaceInstruction()
+        assert instr.persona is None
+        assert instr.goals == []
+        assert instr.version == 1
+
+    def test_jsonb_roundtrip(self):
+        from backend.app.models.workspace_blueprint import (
+            WorkspaceBlueprint,
+            WorkspaceInstruction,
+        )
+
+        bp = WorkspaceBlueprint(
+            instruction=WorkspaceInstruction(
+                persona="Test AI",
+                goals=["G1"],
+                anti_goals=["A1"],
+            ),
+            brief="Legacy brief",
+        )
+        dumped = bp.model_dump()
+        restored = WorkspaceBlueprint.model_validate(dumped)
+        assert restored.instruction is not None
+        assert restored.instruction.persona == "Test AI"
+        assert restored.brief == "Legacy brief"
+
+
+class TestUnifiedHelper:
+    """Tests for workspace_instruction_helper.build_workspace_instruction_block."""
+
+    def test_full_instruction_returns_block_and_source(self):
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        ws = type(
+            "W",
+            (),
+            {
+                "id": "ws-1",
+                "workspace_blueprint": FakeBlueprint(
+                    instruction=FakeInstruction(
+                        persona="IG analyst",
+                        goals=["Track topics"],
+                        anti_goals=["No posting"],
+                        style_rules=["zh-TW"],
+                        domain_context="Instagram focus",
+                    )
+                ),
+            },
+        )()
+        block, source = build_workspace_instruction_block(ws, caller="test")
+        assert source == "instruction"
+        assert "=== Workspace Instruction ===" in block
+        assert "Persona: IG analyst" in block
+        assert "Track topics" in block
+
+    def test_fallback_to_brief_returns_brief_source(self):
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        ws = type(
+            "W",
+            (),
+            {
+                "id": "ws-2",
+                "workspace_blueprint": FakeBlueprint(brief="Legacy brief text"),
+            },
+        )()
+        block, source = build_workspace_instruction_block(ws, caller="test")
+        assert source == "brief"
+        assert "=== Workspace Brief ===" in block
+        assert "Legacy brief text" in block
+
+    def test_empty_instruction_falls_back_to_brief(self):
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        ws = type(
+            "W",
+            (),
+            {
+                "id": "ws-3",
+                "workspace_blueprint": FakeBlueprint(
+                    instruction=FakeInstruction(),
+                    brief="Fallback brief",
+                ),
+            },
+        )()
+        block, source = build_workspace_instruction_block(ws, caller="test")
+        assert source == "brief"
+        assert "Fallback brief" in block
+
+    def test_no_blueprint_returns_none_source(self):
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        ws = type("W", (), {"id": "ws-4", "workspace_blueprint": None})()
+        block, source = build_workspace_instruction_block(ws, caller="test")
+        assert source == "none"
+        assert block == ""
+
+    def test_none_workspace_returns_none_source(self):
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        block, source = build_workspace_instruction_block(None, caller="test")
+        assert source == "none"
+        assert block == ""
+
+    def test_instruction_priority_over_brief(self):
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        ws = type(
+            "W",
+            (),
+            {
+                "id": "ws-5",
+                "workspace_blueprint": FakeBlueprint(
+                    instruction=FakeInstruction(persona="Expert"),
+                    brief="Should be ignored",
+                ),
+            },
+        )()
+        block, source = build_workspace_instruction_block(ws, caller="test")
+        assert source == "instruction"
+        assert "Expert" in block
+        assert "Should be ignored" not in block
+
+    def test_partial_fields_only_goals(self):
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        ws = type(
+            "W",
+            (),
+            {
+                "id": "ws-6",
+                "workspace_blueprint": FakeBlueprint(
+                    instruction=FakeInstruction(goals=["G1", "G2"]),
+                ),
+            },
+        )()
+        block, source = build_workspace_instruction_block(ws, caller="test")
+        assert source == "instruction"
+        assert "G1" in block
+        assert "Persona" not in block
+
+
+class TestFinalMessagesInjection:
+    """Verify system role in final messages across all paths."""
+
+    def _make_workspace(self, instruction=None, brief=None):
+        return type(
+            "W",
+            (),
+            {
+                "id": "ws-final",
+                "workspace_blueprint": FakeBlueprint(
+                    instruction=instruction, brief=brief
+                ),
+            },
+        )()
+
+    def test_streaming_system_part_contains_instruction(self):
+        """Simulate generator.py path: parse_prompt_parts → inject → build_prompt."""
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+        from backend.app.shared.llm_utils import build_prompt
+
+        ws = self._make_workspace(instruction=FakeInstruction(persona="Streaming AI"))
+        # Simulate parse_prompt_parts output
+        system_part = "You are a helpful assistant."
+        user_part = "Hello"
+
+        ws_block, src = build_workspace_instruction_block(ws, caller="streaming")
+        if ws_block:
+            system_part = ws_block + "\n\n" + system_part
+
+        messages = build_prompt(system_prompt=system_part, user_prompt=user_part)
+        system_msg = next(m for m in messages if m["role"] == "system")
+        assert "Streaming AI" in system_msg["content"]
+        assert "helpful assistant" in system_msg["content"]
+
+    def test_background_context_str_contains_instruction(self):
+        """Simulate chat_orchestrator_service.py path: context_str → messages."""
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        ws = self._make_workspace(instruction=FakeInstruction(persona="Background AI"))
+        context_str = "Some context data"
+
+        ws_block, src = build_workspace_instruction_block(ws, caller="background")
+        if ws_block:
+            context_str = ws_block + "\n\n" + context_str
+
+        messages = []
+        if context_str:
+            messages.append({"role": "system", "content": context_str})
+        messages.append({"role": "user", "content": "Test"})
+
+        system_msg = messages[0]
+        assert system_msg["role"] == "system"
+        assert "Background AI" in system_msg["content"]
+        assert "Some context data" in system_msg["content"]
+
+    def test_meeting_system_role_contains_instruction(self):
+        """Simulate engine.py path: ws_instruction prepend to system_prompt."""
+        engine = StubEngine()
+        engine.workspace.workspace_blueprint = FakeBlueprint(
+            instruction=FakeInstruction(
+                persona="Meeting facilitator",
+                goals=["Drive decisions"],
+            )
+        )
+        block = engine._build_workspace_instruction_block()
+        # Simulate _agent_turn system message construction
+        system_content = "You are the meeting facilitator."
+        if block:
+            system_content = block + "\n\n" + system_content
+
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": "Let's discuss"},
+        ]
+        assert "Meeting facilitator" in messages[0]["content"]
+        assert "Drive decisions" in messages[0]["content"]
+
+    def test_intent_steward_system_prompt_contains_instruction(self):
+        """Simulate intent_steward.py path: prepend to system_prompt."""
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+        from backend.app.shared.llm_utils import build_prompt
+
+        ws = self._make_workspace(
+            instruction=FakeInstruction(persona="Intent classifier")
+        )
+        system_prompt = "You are an Intent Steward AI."
+
+        ws_block, src = build_workspace_instruction_block(ws, caller="intent_steward")
+        if ws_block:
+            system_prompt = ws_block + "\n\n" + system_prompt
+
+        messages = build_prompt(
+            system_prompt=system_prompt, user_prompt="Analyze signals"
+        )
+        system_msg = next(m for m in messages if m["role"] == "system")
+        assert "Intent classifier" in system_msg["content"]
+        assert "Intent Steward AI" in system_msg["content"]
