@@ -18,6 +18,89 @@ logger = logging.getLogger(__name__)
 class MeetingPromptsMixin:
     """Mixin providing prompt construction methods for MeetingEngine."""
 
+    def _build_workspace_instruction_block(self) -> str:
+        """Build workspace instruction block for system role injection.
+
+        Delegates to shared helper for consistent precedence and logging.
+        """
+        from backend.app.services.workspace_instruction_helper import (
+            build_workspace_instruction_block,
+        )
+
+        workspace = getattr(self, "workspace", None)
+        block, _ = build_workspace_instruction_block(workspace, caller="meeting")
+        return block
+
+    def _build_tool_inventory_block(self) -> str:
+        """Build tool inventory for prompt injection.
+
+        Primary: workspace_resource_bindings (ResourceType.TOOL) — workspace-scoped.
+        Fallback: installed_packs manifest tools — global, prompt display only.
+
+        Same data source as dispatch_policy_gate._load_tool_allowlist().
+        """
+        workspace = getattr(self, "workspace", None)
+        workspace_id = (
+            getattr(workspace, "id", None)
+            or getattr(self, "session", None)
+            and self.session.workspace_id
+        )
+        if not workspace_id:
+            return ""
+
+        try:
+            from backend.app.services.stores.workspace_resource_binding_store import (
+                WorkspaceResourceBindingStore,
+            )
+            from backend.app.models.workspace_resource_binding import ResourceType
+
+            binding_store = WorkspaceResourceBindingStore()
+            bindings = binding_store.list_bindings_by_workspace(
+                workspace_id, resource_type=ResourceType.TOOL
+            )
+
+            if bindings:
+                lines = []
+                for b in bindings:
+                    display = (b.overrides or {}).get("display_name", b.resource_id)
+                    lines.append(f"- {b.resource_id}: {display}")
+                return "\n".join(lines)
+
+            # Fallback: scan installed packs' manifest.yaml for tools
+            from backend.app.services.stores.installed_packs_store import (
+                InstalledPacksStore,
+            )
+            from backend.app.services.manifest_utils import load_manifest
+
+            packs_store = InstalledPacksStore()
+            pack_ids = packs_store.list_enabled_pack_ids()
+            lines = []
+            for pack_id in pack_ids:
+                try:
+                    manifest = load_manifest(pack_id)
+                    if not manifest:
+                        continue
+                    tools = manifest.get("tools", [])
+                    for tool in tools:
+                        if isinstance(tool, dict):
+                            code = tool.get("code", tool.get("name", pack_id))
+                            display = tool.get("display_name", code)
+                            lines.append(f"- {code}: {display}")
+                except Exception:
+                    continue
+            if lines:
+                lines.append("")
+                lines.append(
+                    "Note: These are system-wide tools. Workspace policy gate "
+                    "may restrict which tools are allowed for this workspace."
+                )
+                return "\n".join(lines)
+
+            return ""
+        except Exception as exc:
+            logger.warning("Failed to build tool inventory: %s", exc)
+            return ""
+
     def _build_project_context(self) -> str:
         """Fetch project data and recent activity to provide meeting context."""
         if not self.project_id:
@@ -332,11 +415,31 @@ class MeetingPromptsMixin:
                 f"accordingly.\n\n"
             )
 
-        common = (
-            locale_directive
-            + project_block
-            + asset_map_block
-            + f"Meeting session: {self.session.id}\n"
+        common = locale_directive + project_block + asset_map_block
+
+        # Inject available tools block
+        tool_ctx = self._build_tool_inventory_block()
+        if tool_ctx:
+            common += (
+                f"=== Available Tools ===\n" f"{tool_ctx}\n" f"=== End Tools ===\n\n"
+            )
+
+        # Inject uploaded files block
+        uploaded = getattr(self, "_uploaded_files", [])
+        if uploaded:
+            file_lines = []
+            for f in uploaded[:10]:
+                name = f.get("file_name") or f.get("file_id", "unknown")
+                ftype = f.get("file_type", "")
+                file_lines.append(f"  - {name} ({ftype})" if ftype else f"  - {name}")
+            common += (
+                f"=== Uploaded Files ===\n"
+                + "\n".join(file_lines)
+                + "\n=== End Files ===\n\n"
+            )
+
+        common += (
+            f"Meeting session: {self.session.id}\n"
             f"Round: {round_num}/{max(1, self.session.max_rounds)}\n"
             f"Agenda:\n{agenda_text}\n\n"
             f"User request:\n{user_message}\n\n"
@@ -401,13 +504,30 @@ class MeetingPromptsMixin:
                 "If converged, include the marker [CONVERGED]. Keep concise."
             )
         if agent_id == "planner":
+            file_directive = ""
+            if getattr(self, "_uploaded_files", None):
+                file_directive = (
+                    "CONSTRAINT: Uploaded files are present. Your plan MUST include "
+                    "at least one step that uses a tool or playbook from Available "
+                    "Tools to process these files into structured artifacts. "
+                )
             return (
                 common
+                + file_directive
                 + "As planner, propose a concrete, executable plan with clear steps and ownership."
             )
         if agent_id == "critic":
+            file_check = ""
+            if getattr(self, "_uploaded_files", None):
+                file_check = (
+                    "MANDATORY CHECK: Verify the planner's proposal includes "
+                    "tool or playbook usage for the uploaded files. If the plan "
+                    "only produces text analysis without using available tools, "
+                    "flag this as a critical gap. "
+                )
             return (
                 common
+                + file_check
                 + "As critic, challenge assumptions, identify risks, and suggest mitigations."
             )
         # 5A-1: Inject available playbooks for executor
