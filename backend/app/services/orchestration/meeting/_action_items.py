@@ -39,11 +39,7 @@ class MeetingActionItemsMixin:
         )
         self._emit_turn(executor_turn)
 
-        items = self._parse_action_items(executor_turn.content, decision)
-        landed_items: List[Dict[str, Any]] = []
-        for item in items:
-            landed_items.append(await self._land_action_item(item))
-        return landed_items
+        return self._parse_action_items(executor_turn.content, decision)
 
     async def _land_action_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """Attempt to launch a playbook or create a task for an action item."""
@@ -53,16 +49,18 @@ class MeetingActionItemsMixin:
 
         if self.execution_launcher and item.get("playbook_code"):
             try:
+                # Use target_workspace_id from planner routing, fallback to session
+                target_ws = item.get("target_workspace_id") or self.session.workspace_id
                 ctx = LocalDomainContext(
                     actor_id=self.profile_id,
-                    workspace_id=self.session.workspace_id,
+                    workspace_id=target_ws,
                 )
                 result = await self.execution_launcher.launch(
                     playbook_code=item["playbook_code"],
                     inputs={
                         "task": item["description"],
                         "meeting_session_id": self.session.id,
-                        "workspace_id": self.session.workspace_id,
+                        "workspace_id": target_ws,
                     },
                     ctx=ctx,
                     project_id=self.project_id,
@@ -100,25 +98,43 @@ class MeetingActionItemsMixin:
             return None
         try:
             task_id = str(uuid.uuid4())
+            # Use target_workspace_id from planner routing, fallback to session
+            target_ws = item.get("target_workspace_id") or self.session.workspace_id
+
+            # 5B-2: Three-way task_type dispatch
+            if item.get("playbook_code"):
+                task_type = "playbook_execution"
+                pack_id = item["playbook_code"]
+            elif item.get("tool_name"):
+                task_type = "tool_execution"
+                pack_id = item["tool_name"]
+            else:
+                task_type = "meeting_action_item"
+                pack_id = "meeting_action_item"
+
             task = Task(
                 id=task_id,
-                workspace_id=self.session.workspace_id,
+                workspace_id=target_ws,
                 message_id=(self._events[-1].id if self._events else str(uuid.uuid4())),
                 execution_id=item.get("execution_id"),
                 project_id=self.project_id,
-                pack_id=item.get("playbook_code") or "meeting_action_item",
-                task_type="meeting_action_item",
+                pack_id=pack_id,
+                task_type=task_type,
                 status=TaskStatus.PENDING,
                 params={
                     "meeting_session_id": self.session.id,
                     "title": item.get("title"),
                     "description": item.get("description"),
                     "priority": item.get("priority"),
+                    "tool_name": item.get("tool_name"),
+                    "input_params": item.get("input_params"),
                 },
                 result=None,
                 execution_context={
                     "trigger_source": "meeting_engine",
                     "meeting_session_id": self.session.id,
+                    "tool_name": item.get("tool_name"),
+                    "inputs": item.get("input_params") or {},
                 },
                 created_at=datetime.now(timezone.utc),
             )
@@ -159,6 +175,27 @@ class MeetingActionItemsMixin:
                             if raw_item.get("playbook_code")
                             else None
                         ),
+                        "target_workspace_id": (
+                            str(raw_item.get("target_workspace_id")).strip()
+                            if raw_item.get("target_workspace_id")
+                            else None
+                        ),
+                        "tool_name": (
+                            str(raw_item.get("tool_name")).strip()
+                            if raw_item.get("tool_name")
+                            else None
+                        ),
+                        "input_params": (
+                            raw_item.get("input_params")
+                            if isinstance(raw_item.get("input_params"), dict)
+                            else None
+                        ),
+                        "blocked_by": (
+                            raw_item.get("blocked_by")
+                            if isinstance(raw_item.get("blocked_by"), list)
+                            else None
+                        ),
+                        "asset_refs": raw_item.get("asset_refs") or [],
                         "execution_id": None,
                     }
                 )
