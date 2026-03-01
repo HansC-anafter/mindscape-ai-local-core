@@ -175,6 +175,17 @@ class PipelineCore:
                 executor_runtime = getattr(
                     self.workspace, "resolved_executor_runtime", None
                 ) or getattr(self.workspace, "executor_runtime", None)
+
+                # Extract uploaded file metadata for tool coverage validation
+                raw_files = getattr(request, "files", None) or []
+                uploaded_files = []
+                if raw_files:
+                    for f in raw_files:
+                        if isinstance(f, dict):
+                            uploaded_files.append(f)
+                        elif isinstance(f, str):
+                            uploaded_files.append({"file_id": f})
+
                 meeting_engine = MeetingEngine(
                     session=session,
                     store=self.store,
@@ -186,6 +197,7 @@ class PipelineCore:
                     execution_launcher=execution_launcher,
                     model_name=model_name,
                     executor_runtime=executor_runtime,
+                    uploaded_files=uploaded_files,
                 )
 
                 handoff_in = extract_handoff_in(request)
@@ -253,12 +265,30 @@ class PipelineCore:
                 thread_id=thread_id,
             )
 
+            # Inject workspace instruction into context (feeds both agent and LLM dispatch)
+            from backend.app.services.workspace_instruction_helper import (
+                build_workspace_instruction_block,
+            )
+
+            ws_instruction, _src = build_workspace_instruction_block(
+                self.workspace, caller="pipeline"
+            )
+            if ws_instruction:
+                context_str = (
+                    ws_instruction + "\n\n" + (context_str or "")
+                    if context_str
+                    else ws_instruction
+                )
+
             # --- Stage 3: Dispatch ---
             executor_runtime = getattr(
                 self.workspace, "resolved_executor_runtime", None
             ) or getattr(self.workspace, "executor_runtime", None)
 
             if executor_runtime:
+                # Extract uploaded file metadata from original request
+                _uploaded_files = getattr(request, "files", None) or []
+
                 result = await dispatch_to_agent(
                     workspace_id=workspace_id,
                     profile_id=profile_id,
@@ -275,6 +305,7 @@ class PipelineCore:
                     execution_mode=execution_mode,
                     model_name=model_name,
                     profile=self.profile,
+                    uploaded_files=_uploaded_files,
                 )
             else:
                 result = await dispatch_to_llm(

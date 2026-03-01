@@ -30,7 +30,9 @@ from ...models.mindscape import (
 )
 from ...services.mindscape_store import MindscapeStore
 from ...services.stores.intent_tags_store import IntentTagsStore
-from backend.app.services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
+from backend.app.services.stores.postgres.timeline_items_store import (
+    PostgresTimelineItemsStore,
+)
 from ...services.stores.postgres.events_store import PostgresEventsStore
 
 logger = logging.getLogger(__name__)
@@ -87,6 +89,8 @@ class IntentStewardService:
                 f"IntentSteward: Starting analysis for turn {turn_id}, "
                 f"workspace={workspace_id}, profile={profile_id}"
             )
+
+            self._current_workspace_id = workspace_id
 
             steward_input = await self._collect_input_data(
                 workspace_id=workspace_id, profile_id=profile_id, turn_id=turn_id
@@ -521,6 +525,27 @@ Current IntentCards:
 
 Determine which signals should become IntentCards (CREATE or UPDATE) and which are ephemeral tasks.
 Return only valid JSON, no additional text."""
+
+            # Inject workspace instruction into system prompt
+            workspace_id = getattr(self, "_current_workspace_id", None)
+            if workspace_id:
+                try:
+                    from backend.app.services.stores.postgres.workspaces_store import (
+                        PostgresWorkspacesStore,
+                    )
+                    from backend.app.services.workspace_instruction_helper import (
+                        build_workspace_instruction_block,
+                    )
+
+                    ws_store = PostgresWorkspacesStore()
+                    workspace = ws_store.get_workspace_sync(workspace_id)
+                    ws_block, _src = build_workspace_instruction_block(
+                        workspace, caller="intent_steward"
+                    )
+                    if ws_block:
+                        system_prompt = ws_block + "\n\n" + system_prompt
+                except Exception as e:
+                    logger.debug("IntentSteward: workspace instruction skipped: %s", e)
 
             messages = build_prompt(
                 system_prompt=system_prompt, user_prompt=user_prompt

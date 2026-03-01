@@ -201,7 +201,7 @@ Do not infer webpage content from URLs, can only generate digest based on user-p
         else:
             prompt_rule = ""
 
-        # Build schema description
+        # Build schema description (includes WorkspaceInstruction for cold-start)
         schema_description = """A workspace blueprint digest with the following structure:
 - brief: string - 1-2 paragraph workspace brief (what to do / what not to do / success criteria)
 - facts: array of strings - List of known facts (5-10 items)
@@ -213,6 +213,12 @@ Do not infer webpage content from URLs, can only generate digest based on user-p
   - priority: string (one of: "high", "medium", "low")
 - starter_kit_type: string - Recommended starter kit type (content_generation / client_delivery / knowledge_base / custom)
 - first_playbook: string - Recommended first playbook to run (e.g., "daily_planning", "content_drafting", "client_delivery_kickoff")
+- instruction: object - Workspace AI instruction (skill-inspired system prompt), with:
+  - persona: string - One sentence describing who the AI is in this workspace (max 500 chars)
+  - goals: array of strings - What this workspace aims to achieve (3-5 items)
+  - anti_goals: array of strings - What this workspace must NOT do (2-4 items)
+  - style_rules: array of strings - Tone, language, formatting preferences (2-4 items)
+  - domain_context: string - Key domain knowledge the AI should know (max 2000 chars)
 """
 
         # Build text content with prompt rule
@@ -270,6 +276,13 @@ Please generate a structured digest according to the schema description.
             ],
             "starter_kit_type": "custom",
             "first_playbook": "daily_planning",
+            "instruction": {
+                "persona": None,
+                "goals": [],
+                "anti_goals": [],
+                "style_rules": [],
+                "domain_context": text_content[:500] if text_content else None,
+            },
         }
 
     async def _apply_to_blueprint(
@@ -305,13 +318,35 @@ Please generate a structured digest according to the schema description.
                 success_criteria=digest.get("next_actions", [])[:3],
             )
 
+        # Build WorkspaceInstruction from digest
+        instruction = None
+        instr_data = digest.get("instruction")
+        if instr_data and isinstance(instr_data, dict):
+            from backend.app.models.workspace_blueprint import WorkspaceInstruction
+
+            try:
+                instruction = WorkspaceInstruction(
+                    persona=instr_data.get("persona"),
+                    goals=instr_data.get("goals", [])[:10],
+                    anti_goals=instr_data.get("anti_goals", [])[:10],
+                    style_rules=instr_data.get("style_rules", [])[:10],
+                    domain_context=(
+                        instr_data.get("domain_context", "")[:2000]
+                        if instr_data.get("domain_context")
+                        else None
+                    ),
+                )
+            except Exception as exc:
+                logger.warning("Failed to build WorkspaceInstruction: %s", exc)
+
         blueprint = WorkspaceBlueprint(
+            instruction=instruction,
             brief=digest.get("brief"),
             goals=goals,
             initial_intents=digest.get("intents", []),
-            ai_team=[],  # Will be populated later
-            playbooks=[],  # Will be populated later
-            tool_connections=[],  # Will be populated later
+            ai_team=[],
+            playbooks=[],
+            tool_connections=[],
             first_playbook=digest.get("first_playbook"),
             seed_digest={
                 "facts": digest.get("facts", []),
