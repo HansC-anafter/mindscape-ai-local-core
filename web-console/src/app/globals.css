@@ -348,6 +348,30 @@ html.theme-warm *[class*="hover:bg-surface-secondary"]:hover,
     animation: shimmer 2s linear infinite;
   }
 
+  /* Laser scan border for active meetings */
+  .meeting-laser-border {
+    position: relative;
+    overflow: hidden;
+  }
+  .meeting-laser-border::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(56, 189, 248, 0.3) 20%,
+      rgba(14, 165, 233, 0.8) 50%,
+      rgba(56, 189, 248, 0.3) 80%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+
   .laser-text {
     position: relative;
     color: rgba(255, 255, 255, 0.65);
