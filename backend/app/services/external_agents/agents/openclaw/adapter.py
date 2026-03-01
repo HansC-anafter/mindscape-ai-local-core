@@ -67,7 +67,7 @@ class OpenClawAdapter(BaseRuntimeAdapter):
         self.default_model = default_model
         self._detected_cli = None
 
-    async def is_available(self) -> bool:
+    async def is_available(self, **kwargs) -> bool:
         """Check if any supported CLI is installed and accessible."""
         if self._available_cache is not None:
             return self._available_cache

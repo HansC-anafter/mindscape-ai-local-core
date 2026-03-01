@@ -8,7 +8,7 @@ for integration with Mindscape's Asset Provenance system.
 import json
 import logging
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -405,7 +405,7 @@ class ExecutionTraceHandle:
         self.workspace_id = workspace_id
         self.agent_id = agent_id
         self.task = task
-        self.started_at = datetime.utcnow().isoformat()
+        self.started_at = datetime.now(timezone.utc).isoformat()
         self.status = "running"
         self.output: Optional[str] = None
         self.error: Optional[str] = None

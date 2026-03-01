@@ -25,6 +25,7 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
+
 from backend.app.models.workspace import ExecutionPlan, ExecutionStep, TaskPlan
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,8 @@ and create a structured execution plan BEFORE taking any action.
 
 ## User Request
 {user_request}
+
+{uploaded_files_context}
 
 ## Workspace Context
 - Execution Mode: {execution_mode}
@@ -102,6 +105,7 @@ async def generate_execution_plan(
     user_id: Optional[str] = None,
     planning_context: Optional[str] = None,
     thread_id: Optional[str] = None,
+    uploaded_files_context: Optional[str] = None,
 ) -> Optional[ExecutionPlan]:
     """
     Generate a structured ExecutionPlan from user request using LLM
@@ -276,6 +280,7 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
                 project_context=project_context_str,
                 context_section=context_section,
                 user_request=user_request,
+                uploaded_files_context=uploaded_files_context or "",
                 execution_mode=execution_mode,
                 expected_artifacts=expected_artifacts or ["various"],
                 available_playbooks=playbooks_str,

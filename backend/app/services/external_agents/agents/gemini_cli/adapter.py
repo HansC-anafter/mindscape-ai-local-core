@@ -128,7 +128,7 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
         self.sampling_gate = sampling_gate
         self.mcp_server = mcp_server
 
-    async def is_available(self) -> bool:
+    async def is_available(self, workspace_id: str = None) -> bool:
         """
         Check if Gemini CLI runtime is actually connected.
 
@@ -139,12 +139,15 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
         - polling: True only if runners have active heartbeat.
         - sampling: True only if mcp_server is injected.
         """
-        detail = self.get_availability_detail()
+        detail = self.get_availability_detail(workspace_id=workspace_id)
         return detail["available"]
 
-    def get_availability_detail(self) -> dict:
+    def get_availability_detail(self, workspace_id: str = None) -> dict:
         """
         Return structured availability info for API responses.
+
+        Args:
+            workspace_id: Optional workspace ID for per-workspace check.
 
         Returns:
             dict with keys: available (bool), transport (str|None),
@@ -153,13 +156,15 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
         import time
 
         now = time.monotonic()
-        if (
-            self._available_cache is not None
-            and hasattr(self, "_available_cache_time")
-            and (now - self._available_cache_time) < 30.0
-            and hasattr(self, "_available_detail_cache")
-        ):
-            return self._available_detail_cache
+        cache_key = workspace_id  # None for global check
+
+        # Per-workspace cache bucket
+        if not hasattr(self, "_ws_avail_cache"):
+            self._ws_avail_cache = {}  # Dict[Optional[str], Tuple[dict, float]]
+
+        cached = self._ws_avail_cache.get(cache_key)
+        if cached and (now - cached[1]) < 30.0:
+            return cached[0]
 
         # Lazy-resolve ws_manager from global singleton
         self._resolve_ws_manager()
@@ -171,7 +176,9 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
         if self.strategy == "ws":
             ws_connected = self.ws_manager is not None and (
                 hasattr(self.ws_manager, "has_connections")
-                and self.ws_manager.has_connections()
+                and self.ws_manager.has_connections(
+                    workspace_id=workspace_id,
+                )
             )
             if ws_connected:
                 available = True
@@ -199,6 +206,10 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
             "reason": reason,
         }
 
+        # Store in per-workspace cache bucket
+        self._ws_avail_cache[cache_key] = (detail, now)
+
+        # Also update legacy single-slot cache for backward compat
         self._available_cache = available
         self._available_cache_time = now
         self._available_detail_cache = detail
@@ -361,15 +372,33 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
             # ws_manager.dispatch_and_wait handles:
             #   - sending the dispatch message
             #   - waiting for ack
-            #   - waiting for result (or timeout)
-            raw_result = await asyncio.wait_for(
-                self.ws_manager.dispatch_and_wait(
-                    workspace_id=request.workspace_id or "",
-                    message=ws_message,
-                    execution_id=execution_id,
-                ),
+            #   - waiting for result with activity-aware timeout
+            raw_result = await self.ws_manager.dispatch_and_wait(
+                workspace_id=request.workspace_id or "",
+                message=ws_message,
+                execution_id=execution_id,
                 timeout=request.max_duration_seconds or self.RESULT_TIMEOUT,
             )
+
+            # Check if dispatch_and_wait returned a timeout status
+            if raw_result.get("status") == "timeout":
+                elapsed = time.monotonic() - start_time
+                logger.warning(
+                    f"WS dispatch: no activity timeout after {elapsed:.1f}s "
+                    f"(exec={execution_id})"
+                )
+                return RuntimeExecResponse(
+                    success=False,
+                    output="",
+                    duration_seconds=elapsed,
+                    error=raw_result.get("error", f"No activity for {elapsed:.0f}s"),
+                    exit_code=-1,
+                    agent_metadata={
+                        "transport": "ws_push",
+                        "execution_id": execution_id,
+                        "status": "timeout",
+                    },
+                )
 
             raw_result.setdefault("metadata", {})["transport"] = "ws_push"
             response = parse_dispatch_response(raw_result, start_time)
@@ -385,23 +414,19 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
                 )
             return response
 
-        except asyncio.TimeoutError:
+        except Exception as e:
             elapsed = time.monotonic() - start_time
-            logger.warning(
-                f"WS dispatch timed out after {elapsed:.1f}s " f"(exec={execution_id})"
-            )
-            # Return running status -- IDE may still complete and call /agent/result
+            logger.exception(f"WS dispatch failed for exec={execution_id}: {e}")
             return RuntimeExecResponse(
                 success=False,
                 output="",
                 duration_seconds=elapsed,
-                error=f"Task dispatched but timed out after {elapsed:.0f}s. "
-                f"IDE may still be executing (execution_id={execution_id}).",
+                error=str(e),
                 exit_code=-1,
                 agent_metadata={
                     "transport": "ws_push",
                     "execution_id": execution_id,
-                    "status": "running",
+                    "status": "error",
                 },
             )
 

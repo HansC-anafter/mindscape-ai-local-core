@@ -83,6 +83,60 @@ class MultiAICollaborationService:
                         file_type=file_type,
                         file_size=file_size,
                     )
+            elif file_path and any(
+                file_name.lower().endswith(ext)
+                for ext in (
+                    ".mp4",
+                    ".mov",
+                    ".avi",
+                    ".mkv",
+                    ".webm",
+                    ".m4v",
+                    ".mp3",
+                    ".wav",
+                    ".m4a",
+                    ".flac",
+                    ".ogg",
+                    ".aac",
+                )
+            ):
+                # Transcribe audio/video with Whisper STT
+                logger.info(
+                    f"Using Whisper STT for audio/video transcription: {file_path}"
+                )
+                file_info = await self.file_processor.process_file(
+                    file_data=file_data,
+                    file_name=file_name,
+                    file_type=file_type,
+                    file_size=file_size,
+                )
+                try:
+                    from backend.app.shared.audio.stt.factory import get_stt_provider
+
+                    stt = get_stt_provider()
+                    transcription = await stt.transcribe(file_path)
+                    transcribed_text = transcription.get("text", "")
+                    if transcribed_text and len(transcribed_text.strip()) > 20:
+                        file_info["text_content"] = transcribed_text
+                        file_info["transcription_language"] = transcription.get(
+                            "language", "unknown"
+                        )
+                        file_info["transcription_segments"] = transcription.get(
+                            "segments", []
+                        )
+                        file_info["file_path"] = file_path
+                        logger.info(
+                            f"Whisper transcription: {len(transcribed_text)} chars, "
+                            f"lang={transcription.get('language')}"
+                        )
+                    else:
+                        logger.warning(
+                            f"Whisper returned insufficient text for {file_name}"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Whisper STT failed for {file_name}: {e}, continuing without transcription"
+                    )
             else:
                 file_info = await self.file_processor.process_file(
                     file_data=file_data,
@@ -147,8 +201,10 @@ class MultiAICollaborationService:
                 "proposal",
                 "document",
                 "text",
+                "video",
+                "audio",
             ] or file_name.lower().endswith(".pdf"):
-                # Try to get text content from file_info first (FileProcessor should have extracted it)
+                # Try to get text content from file_info first (FileProcessor or Whisper should have extracted it)
                 content_preview = None
                 if file_info.get("text_content"):
                     content_preview = file_info.get("text_content", "")[

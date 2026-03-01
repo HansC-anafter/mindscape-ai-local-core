@@ -354,12 +354,12 @@ class MindscapeGraphService:
             return [scope_id]
         else:
             # For workspace groups, get all member workspaces
-            from app.services.stores.postgres.workspaces_store import (
-                PostgresWorkspacesStore,
+            from app.services.stores.postgres.workspace_group_store import (
+                PostgresWorkspaceGroupStore,
             )
 
-            store = PostgresWorkspacesStore()
-            group = store.get_workspace_group(scope_id)
+            store = PostgresWorkspaceGroupStore()
+            group = store.get(scope_id)
             return group.workspace_ids if group else []
 
     async def _derive_from_timeline(

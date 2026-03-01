@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 import uuid
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -119,6 +121,22 @@ class FileAnalysisService:
         file_path = workspace_uploads_dir / f"{file_id}{file_ext}"
         with open(file_path, "wb") as f:
             f.write(file_content)
+
+        # Save metadata sidecar for later retrieval (original filename etc.)
+        meta_path = workspace_uploads_dir / f"{file_id}.meta.json"
+        import json as _json
+
+        with open(meta_path, "w") as mf:
+            _json.dump(
+                {
+                    "file_id": file_id,
+                    "original_name": file_name,
+                    "file_type": file_type,
+                    "file_size": file_size or len(file_content),
+                    "file_hash": file_hash,
+                },
+                mf,
+            )
 
         logger.info(f"Uploaded file: {file_name} -> {file_path} (file_id: {file_id})")
 
@@ -300,6 +318,29 @@ class FileAnalysisService:
 
         if file_path:
             analysis_result["file_path"] = file_path
+
+            # Write .analysis.json sidecar for downstream dispatch enrichment
+            try:
+                from pathlib import Path as _Path
+                import json as _json
+
+                sidecar_path = _Path(file_path).with_suffix(".analysis.json")
+                sidecar_data = {
+                    "file_info": analysis_result.get("file_info", {}),
+                    "event_id": file_event.id,
+                    "file_hash": file_hash,
+                    "file_name": file_name,
+                    "file_type": file_type,
+                    "workspace_id": workspace_id,
+                }
+                sidecar_path.write_text(
+                    _json.dumps(sidecar_data, ensure_ascii=False, default=str),
+                    encoding="utf-8",
+                )
+                logger.info(f"Wrote analysis sidecar: {sidecar_path}")
+            except Exception as e:
+                logger.warning(f"Failed to write analysis sidecar: {e}")
+
         analysis_result["event_id"] = file_event.id
         analysis_result["file_id"] = file_id or file_event.id
 

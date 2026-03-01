@@ -55,6 +55,9 @@ class ExecutionContext:
     issued_at: str = ""
     conversation_context: str = ""
     thread_id: str = ""
+    uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
+    recommended_pack_codes: List[str] = field(default_factory=list)
+    file_hint: str = ""
 
     @classmethod
     def from_dispatch(cls, msg: Dict[str, Any]) -> "ExecutionContext":
@@ -73,6 +76,9 @@ class ExecutionContext:
             issued_at=msg.get("issued_at", ""),
             conversation_context=ctx.get("conversation_context", ""),
             thread_id=ctx.get("thread_id", ""),
+            uploaded_files=ctx.get("uploaded_files", []),
+            recommended_pack_codes=ctx.get("recommended_pack_codes", []),
+            file_hint=ctx.get("file_hint", ""),
         )
 
 
@@ -296,6 +302,9 @@ class TaskExecutor:
                 "issued_at": ctx.issued_at,
                 "conversation_context": ctx.conversation_context,
                 "thread_id": ctx.thread_id,
+                "uploaded_files": ctx.uploaded_files,
+                "recommended_pack_codes": ctx.recommended_pack_codes,
+                "file_hint": ctx.file_hint,
             },
         }
 
@@ -305,8 +314,16 @@ class TaskExecutor:
         # Inject per-task env vars so the MCP gateway can RAG-filter tools
         # for this specific task (not the parent process's stale env).
         sub_env = os.environ.copy()
-        sub_env["MINDSCAPE_TASK_HINT"] = ctx.task[:500]
+        # Enrich task hint with file context for RAG matching
+        if ctx.file_hint:
+            sub_env["MINDSCAPE_TASK_HINT"] = f"{ctx.task} {ctx.file_hint}"[:500]
+        else:
+            sub_env["MINDSCAPE_TASK_HINT"] = ctx.task[:500]
         sub_env["MINDSCAPE_WORKSPACE_ID"] = ctx.workspace_id
+        if ctx.recommended_pack_codes:
+            sub_env["MINDSCAPE_RECOMMENDED_PACKS"] = json.dumps(
+                ctx.recommended_pack_codes
+            )
 
         proc = await asyncio.create_subprocess_exec(
             *argv,
