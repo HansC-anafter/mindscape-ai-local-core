@@ -152,6 +152,30 @@ class PhaseIR(BaseModel):
         None, description="Rollback strategy (revert/retry/skip)"
     )
 
+    # Cross-workspace dispatch routing
+    target_workspace_id: Optional[str] = Field(
+        None,
+        description="Target workspace for execution (from planner asset-boundary routing)",
+    )
+    asset_refs: List[str] = Field(
+        default_factory=list,
+        description="Asset URNs this phase depends on (for DataLocality validation)",
+    )
+
+    # Tool execution fields (5B-1)
+    tool_name: Optional[str] = Field(
+        None,
+        description="Direct tool name for tool_execution task type",
+    )
+    input_params: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Input parameters for tool invocation",
+    )
+    blocked_by: Optional[List[int]] = Field(
+        None,
+        description="Indices of action items that must complete before this phase",
+    )
+
     # Timing
     started_at: Optional[datetime] = Field(None, description="Phase start timestamp")
     completed_at: Optional[datetime] = Field(

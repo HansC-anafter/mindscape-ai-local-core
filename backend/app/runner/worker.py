@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 def _child_execute_playbook(payload: Dict[str, Any]) -> None:
     """
-    Run a single playbook execution inside a dedicated process.
+    Run a single playbook or tool execution inside a dedicated process.
     This isolates Playwright/driver hangs that may hold the GIL and would otherwise
     freeze runner heartbeats/lock renew threads.
     """
@@ -45,6 +45,7 @@ def _child_execute_playbook(payload: Dict[str, Any]) -> None:
     except Exception:
         pass
 
+    task_type = payload.get("task_type", "playbook_execution")
     playbook_code = payload.get("playbook_code")
     profile_id = payload.get("profile_id")
     inputs = payload.get("inputs")
@@ -52,14 +53,32 @@ def _child_execute_playbook(payload: Dict[str, Any]) -> None:
     project_id = payload.get("project_id")
 
     async def _run() -> None:
-        executor = PlaybookRunExecutor()
-        await executor.execute_playbook_run(
-            playbook_code=playbook_code,
-            profile_id=profile_id,
-            inputs=inputs,
-            workspace_id=workspace_id,
-            project_id=project_id,
-        )
+        if task_type == "tool_execution":
+            # Direct tool invocation via UnifiedToolExecutor
+            tool_name = payload.get("tool_name") or playbook_code
+            from backend.app.services.unified_tool_executor import (
+                UnifiedToolExecutor,
+            )
+
+            executor = UnifiedToolExecutor()
+            result = await executor.execute_tool(
+                tool_name=tool_name,
+                arguments=inputs or {},
+            )
+            if not result.success:
+                raise RuntimeError(
+                    f"Tool execution failed for '{tool_name}': {result.error}"
+                )
+        else:
+            # Standard playbook execution path
+            executor = PlaybookRunExecutor()
+            await executor.execute_playbook_run(
+                playbook_code=playbook_code,
+                profile_id=profile_id,
+                inputs=inputs,
+                workspace_id=workspace_id,
+                project_id=project_id,
+            )
 
     asyncio.run(_run())
 
@@ -647,6 +666,8 @@ async def _run_single_task(
 
         payload = {
             "playbook_code": task.pack_id,
+            "task_type": task.task_type or "playbook_execution",
+            "tool_name": (ctx.get("tool_name") if isinstance(ctx, dict) else None),
             "profile_id": (
                 getattr(task, "profile_id", None)
                 or (ctx.get("profile_id") if isinstance(ctx, dict) else None)
