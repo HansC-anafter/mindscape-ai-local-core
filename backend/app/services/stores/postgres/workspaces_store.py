@@ -18,6 +18,7 @@ from app.models.workspace import (
     LaunchStatus,
     WorkspaceType,
     ProjectAssignmentMode,
+    WorkspaceVisibility,
 )
 from app.models.workspace_blueprint import WorkspaceBlueprint
 
@@ -33,7 +34,9 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             query = text(
                 """
                 INSERT INTO workspaces (
-                    id, owner_user_id, title, description, workspace_type, primary_project_id,
+                    id, owner_user_id, title, description, workspace_type,
+                    group_id, workspace_role,
+                    primary_project_id,
                     default_playbook_id, default_locale, mode, data_sources,
                     playbook_auto_execution_config, suggestion_history,
                     storage_base_path, artifacts_dir, uploads_dir, storage_config,
@@ -41,9 +44,12 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     execution_mode, expected_artifacts, execution_priority,
                     project_assignment_mode, metadata, workspace_blueprint, launch_status, starter_kit_type,
                     executor_runtime, executor_specs, sandbox_config, fallback_model,
+                    ttl_hours, expires_at, parent_workspace_id, visibility,
                     created_at, updated_at
                 ) VALUES (
-                    :id, :owner_user_id, :title, :description, :workspace_type, :primary_project_id,
+                    :id, :owner_user_id, :title, :description, :workspace_type,
+                    :group_id, :workspace_role,
+                    :primary_project_id,
                     :default_playbook_id, :default_locale, :mode, :data_sources,
                     :playbook_auto_execution_config, :suggestion_history,
                     :storage_base_path, :artifacts_dir, :uploads_dir, :storage_config,
@@ -51,6 +57,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     :execution_mode, :expected_artifacts, :execution_priority,
                     :project_assignment_mode, :metadata, :workspace_blueprint, :launch_status, :starter_kit_type,
                     :executor_runtime, :executor_specs, :sandbox_config, :fallback_model,
+                    :ttl_hours, :expires_at, :parent_workspace_id, :visibility,
                     :created_at, :updated_at
                 )
             """
@@ -65,6 +72,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     if workspace.workspace_type
                     else "personal"
                 ),
+                "group_id": getattr(workspace, "group_id", None),
+                "workspace_role": getattr(workspace, "workspace_role", None) or "cell",
                 "primary_project_id": workspace.primary_project_id,
                 "default_playbook_id": workspace.default_playbook_id,
                 "default_locale": workspace.default_locale,
@@ -144,6 +153,14 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     else None
                 ),
                 "fallback_model": getattr(workspace, "fallback_model", None),
+                "ttl_hours": getattr(workspace, "ttl_hours", None),
+                "expires_at": getattr(workspace, "expires_at", None),
+                "parent_workspace_id": getattr(workspace, "parent_workspace_id", None),
+                "visibility": (
+                    workspace.visibility.value
+                    if getattr(workspace, "visibility", None)
+                    else "private"
+                ),
                 "created_at": workspace.created_at,
                 "updated_at": workspace.updated_at,
             }
@@ -151,8 +168,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             logger.info(f"Created workspace: {workspace.id}")
             return workspace
 
-    async def get_workspace(self, workspace_id: str) -> Optional[Workspace]:
-        """Get workspace by ID."""
+    def get_workspace_sync(self, workspace_id: str) -> Optional[Workspace]:
+        """Get workspace by ID (synchronous)."""
         with self.get_connection() as conn:
             query = text("SELECT * FROM workspaces WHERE id = :id")
             result = conn.execute(query, {"id": workspace_id})
@@ -160,6 +177,10 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             if not row:
                 return None
             return self._row_to_workspace(row)
+
+    async def get_workspace(self, workspace_id: str) -> Optional[Workspace]:
+        """Get workspace by ID (async wrapper for compatibility)."""
+        return self.get_workspace_sync(workspace_id)
 
     def list_workspaces(
         self,
@@ -192,6 +213,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     title = :title,
                     description = :description,
                     workspace_type = :workspace_type,
+                    group_id = :group_id,
+                    workspace_role = :workspace_role,
                     primary_project_id = :primary_project_id,
                     default_playbook_id = :default_playbook_id,
                     default_locale = :default_locale,
@@ -217,6 +240,10 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     executor_specs = :executor_specs,
                     sandbox_config = :sandbox_config,
                     fallback_model = :fallback_model,
+                    ttl_hours = :ttl_hours,
+                    expires_at = :expires_at,
+                    parent_workspace_id = :parent_workspace_id,
+                    visibility = :visibility,
                     updated_at = :updated_at
                 WHERE id = :id
             """
@@ -229,6 +256,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     if workspace.workspace_type
                     else "personal"
                 ),
+                "group_id": getattr(workspace, "group_id", None),
+                "workspace_role": getattr(workspace, "workspace_role", None) or "cell",
                 "primary_project_id": workspace.primary_project_id,
                 "default_playbook_id": workspace.default_playbook_id,
                 "default_locale": workspace.default_locale,
@@ -308,6 +337,14 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     else None
                 ),
                 "fallback_model": getattr(workspace, "fallback_model", None),
+                "ttl_hours": getattr(workspace, "ttl_hours", None),
+                "expires_at": getattr(workspace, "expires_at", None),
+                "parent_workspace_id": getattr(workspace, "parent_workspace_id", None),
+                "visibility": (
+                    workspace.visibility.value
+                    if getattr(workspace, "visibility", None)
+                    else "private"
+                ),
                 "updated_at": workspace.updated_at,
                 "id": workspace.id,
             }
@@ -381,6 +418,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             title=row.title,
             description=row.description,
             workspace_type=workspace_type,
+            group_id=getattr(row, "group_id", None),
+            workspace_role=getattr(row, "workspace_role", None) or "cell",
             primary_project_id=row.primary_project_id,
             default_playbook_id=row.default_playbook_id,
             default_locale=row.default_locale,
@@ -413,7 +452,33 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             ),
             sandbox_config=self.deserialize_json(getattr(row, "sandbox_config", None)),
             fallback_model=getattr(row, "fallback_model", None),
+            ttl_hours=getattr(row, "ttl_hours", None),
+            expires_at=getattr(row, "expires_at", None),
+            parent_workspace_id=getattr(row, "parent_workspace_id", None),
+            visibility=WorkspaceVisibility(
+                getattr(row, "visibility", None) or "private"
+            ),
             created_at=row.created_at,
             updated_at=row.updated_at,
             # cloud_remote_tools_config is ignored as per reference implementation
         )
+
+    def list_discoverable_workspaces(
+        self,
+        visibility: str = "discoverable",
+        limit: int = 50,
+    ) -> List[Workspace]:
+        """List workspaces with the given visibility scope.
+
+        Used by meeting engine discovery to build asset maps.
+        """
+        with self.get_connection() as conn:
+            query = text(
+                "SELECT * FROM workspaces "
+                "WHERE visibility = :visibility "
+                "ORDER BY updated_at DESC LIMIT :limit"
+            )
+            rows = conn.execute(
+                query, {"visibility": visibility, "limit": limit}
+            ).fetchall()
+            return [self._row_to_workspace(row) for row in rows]
