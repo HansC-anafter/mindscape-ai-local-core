@@ -315,6 +315,7 @@ class HandoffBundleService:
             thread_id=thread_id,
             project_id=project_id,
             model_name=model_name,
+            uploaded_files=None,  # Handoff bundles don't carry uploaded files
         )
 
         intake_message = (
