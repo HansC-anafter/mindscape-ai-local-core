@@ -16,6 +16,7 @@ def check_dispatch_policy(
     action_items: List[Dict[str, Any]],
     workspace_id: str,
     available_playbooks_cache: str = "",
+    binding_store=None,
 ) -> None:
     """Run policy checks on action items before dispatch.
 
@@ -26,9 +27,13 @@ def check_dispatch_policy(
         action_items: Items to validate (mutated in-place).
         workspace_id: Current workspace ID.
         available_playbooks_cache: Formatted playbook list from engine preload.
+        binding_store: Optional workspace resource binding store for tool allowlist.
     """
     # Build set of known playbook codes from the cache string
     known_playbook_codes = _parse_playbook_codes(available_playbooks_cache)
+
+    # Build tool allowlist from workspace bindings
+    allowed_tools = _load_tool_allowlist(workspace_id, binding_store)
 
     for item in action_items:
         # Skip items already marked by a previous gate
@@ -48,11 +53,15 @@ def check_dispatch_policy(
                 )
                 continue
 
-        # Check 2: Tool allowlist (extensible — currently logs only)
-        if tool_name:
-            # TODO: Load tool allowlist from workspace config
-            # For now, tools pass through; allowlist enforcement is a future gate
-            pass
+        # Check 2: Tool allowlist
+        if tool_name and allowed_tools is not None:
+            if tool_name not in allowed_tools:
+                _mark_blocked(
+                    item,
+                    reason_code="TOOL_NOT_ALLOWED",
+                    message=f"Tool '{tool_name}' not in workspace allowlist",
+                )
+                continue
 
 
 def _mark_blocked(
@@ -88,3 +97,27 @@ def _parse_playbook_codes(cache_str: str) -> set:
             if code_part:
                 codes.add(code_part)
     return codes
+
+
+def _load_tool_allowlist(
+    workspace_id: str,
+    binding_store=None,
+) -> Optional[set]:
+    """Load allowed tool names from workspace resource bindings.
+
+    Returns:
+        Set of allowed tool names, or None if no binding_store
+        (which means tool allowlist is not enforced).
+    """
+    if binding_store is None:
+        return None
+    try:
+        from backend.app.models.workspace_resource_binding import ResourceType
+
+        bindings = binding_store.list_bindings_by_workspace(
+            workspace_id, resource_type=ResourceType.TOOL
+        )
+        return {b.resource_id for b in bindings}
+    except Exception as exc:
+        logger.warning("Failed to load tool allowlist for %s: %s", workspace_id, exc)
+        return None
