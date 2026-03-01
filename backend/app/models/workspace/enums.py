@@ -124,11 +124,31 @@ class LaunchStatus(str, Enum):
     - pending: Only title/description, nothing assembled
     - ready: Blueprint + intents + first_playbook written
     - active: At least one execution / recent work point
+    - ephemeral: Temporary workspace with TTL (auto-teardown)
+    - teardown: Being cleaned up (asset transfer + deletion)
     """
 
     PENDING = "pending"
     READY = "ready"
     ACTIVE = "active"
+    EPHEMERAL = "ephemeral"
+    TEARDOWN = "teardown"
+
+
+class WorkspaceVisibility(str, Enum):
+    """Workspace visibility scope for meeting discovery.
+
+    Controls which workspaces appear in meeting asset maps:
+    - private: Only visible to owner (default)
+    - group: Visible to workspace group members
+    - discoverable: Visible in meeting asset maps
+    - public: Open to all users in the workspace
+    """
+
+    PRIVATE = "private"
+    GROUP = "group"
+    DISCOVERABLE = "discoverable"
+    PUBLIC = "public"
 
 
 # ==================== Content Enums ====================
