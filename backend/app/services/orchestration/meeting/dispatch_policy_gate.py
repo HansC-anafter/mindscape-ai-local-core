@@ -128,6 +128,8 @@ def _load_tool_allowlist(
         bindings = binding_store.list_bindings_by_workspace(
             workspace_id, resource_type=ResourceType.TOOL
         )
+        if not bindings:
+            return None  # fail-open: no TOOL bindings = no restriction
         return {b.resource_id for b in bindings}
     except Exception as exc:
         logger.warning("Failed to load tool allowlist for %s: %s", workspace_id, exc)

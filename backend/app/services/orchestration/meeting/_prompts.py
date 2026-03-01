@@ -70,24 +70,45 @@ class MeetingPromptsMixin:
             from backend.app.services.stores.installed_packs_store import (
                 InstalledPacksStore,
             )
-            from backend.app.services.manifest_utils import load_manifest
+            from pathlib import Path
+
+            try:
+                import yaml as _yaml
+            except ImportError:
+                _yaml = None
+
+            if _yaml is None:
+                return ""
 
             packs_store = InstalledPacksStore()
             pack_ids = packs_store.list_enabled_pack_ids()
+            # Align with pack_capability_index.py path resolution
+            import os
+
+            app_dir = os.getenv("APP_DIR", "/app")
+            cap_dirs = [
+                Path(app_dir) / "backend" / "app" / "capabilities",
+                Path("backend/app/capabilities"),
+                Path(os.getenv("DATA_DIR", "data")) / "capabilities",
+            ]
             lines = []
             for pack_id in pack_ids:
-                try:
-                    manifest = load_manifest(pack_id)
-                    if not manifest:
+                for cap_base in cap_dirs:
+                    manifest_path = cap_base / pack_id / "manifest.yaml"
+                    if not manifest_path.exists():
                         continue
-                    tools = manifest.get("tools", [])
-                    for tool in tools:
-                        if isinstance(tool, dict):
-                            code = tool.get("code", tool.get("name", pack_id))
-                            display = tool.get("display_name", code)
-                            lines.append(f"- {code}: {display}")
-                except Exception:
-                    continue
+                    try:
+                        with manifest_path.open("r", encoding="utf-8") as mf:
+                            manifest = _yaml.safe_load(mf) or {}
+                        tools = manifest.get("tools", [])
+                        for tool in tools:
+                            if isinstance(tool, dict):
+                                code = tool.get("code", tool.get("name", pack_id))
+                                display = tool.get("display_name", code)
+                                lines.append(f"- {code}: {display}")
+                    except Exception:
+                        pass
+                    break  # found manifest, skip other cap_dirs
             if lines:
                 lines.append("")
                 lines.append(
