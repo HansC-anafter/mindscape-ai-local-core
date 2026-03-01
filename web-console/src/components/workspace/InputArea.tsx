@@ -31,6 +31,7 @@ interface InputAreaProps {
   onCopyAll?: () => void;
   isLoading: boolean;
   canSend: boolean;
+  onFilesChanged?: (files: any[], analyzingFiles: Set<string>, analyzeFile: (file: any) => Promise<any>, clearFiles: () => void) => void;
 }
 
 /**
@@ -52,6 +53,7 @@ export function InputArea({
   onCopyAll,
   isLoading,
   canSend,
+  onFilesChanged,
 }: InputAreaProps) {
   const { input, setInput, llmConfigured, duplicateFileToast, copiedAll } = useUIState();
   const { showToast, ToastComponent } = useToast();
@@ -73,7 +75,8 @@ export function InputArea({
   useEffect(() => {
     const fetchAgents = async () => {
       try {
-        const response = await fetch(`${apiUrl}/api/v1/agents`);
+        // Use workspace-scoped endpoint for accurate per-workspace status
+        const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/agents`);
         if (response.ok) {
           const data = await response.json();
           setAvailableAgents(data.agents || []);
@@ -86,7 +89,7 @@ export function InputArea({
     // Poll every 30s to detect agent connection changes
     const interval = setInterval(fetchAgents, 30_000);
     return () => clearInterval(interval);
-  }, [apiUrl]);
+  }, [apiUrl, workspaceId]);
 
   const handleAgentChange = async (agentId: string | null) => {
     const previousAgent = executorRuntime;
@@ -158,6 +161,9 @@ export function InputArea({
 
   const {
     uploadedFiles,
+    analyzingFiles,
+    handleAnalyzeFile,
+    clearFiles,
     isDragging,
     handleFileInputChange,
     handleDragOver,
@@ -165,6 +171,11 @@ export function InputArea({
     handleDrop,
     removeFile,
   } = fileHandling;
+
+  // Expose file state to parent so it can include file IDs in sendMessage
+  useEffect(() => {
+    onFilesChanged?.(uploadedFiles, analyzingFiles, handleAnalyzeFile, clearFiles);
+  }, [uploadedFiles, analyzingFiles, handleAnalyzeFile, clearFiles, onFilesChanged]);
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {

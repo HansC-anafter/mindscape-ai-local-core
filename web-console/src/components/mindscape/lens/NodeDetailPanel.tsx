@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import useSWR from 'swr';
 import { getApiBaseUrl } from '@/lib/api-url';
 import type { LensNode } from '@/lib/lens-api';
+import { formatLocalDateTime } from '@/lib/time';
 
 interface NodeDetailPanelProps {
   node: LensNode | null;
@@ -69,31 +70,28 @@ export function NodeDetailPanel({
           <div className="flex">
             <button
               onClick={() => setActiveTab('info')}
-              className={`flex-1 px-4 py-2 text-sm font-medium ${
-                activeTab === 'info'
+              className={`flex-1 px-4 py-2 text-sm font-medium ${activeTab === 'info'
                   ? 'border-b-2 border-blue-600 text-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
-              }`}
+                }`}
             >
               資訊
             </button>
             <button
               onClick={() => setActiveTab('evidence')}
-              className={`flex-1 px-4 py-2 text-sm font-medium ${
-                activeTab === 'evidence'
+              className={`flex-1 px-4 py-2 text-sm font-medium ${activeTab === 'evidence'
                   ? 'border-b-2 border-blue-600 text-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
-              }`}
+                }`}
             >
               證據 ({evidenceData?.evidence?.length || 0})
             </button>
             <button
               onClick={() => setActiveTab('playbooks')}
-              className={`flex-1 px-4 py-2 text-sm font-medium ${
-                activeTab === 'playbooks'
+              className={`flex-1 px-4 py-2 text-sm font-medium ${activeTab === 'playbooks'
                   ? 'border-b-2 border-blue-600 text-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
-              }`}
+                }`}
             >
               Playbooks
             </button>
@@ -122,13 +120,12 @@ export function NodeDetailPanel({
               <div>
                 <h3 className="text-sm font-semibold text-gray-900 mb-1">狀態</h3>
                 <span
-                  className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-                    node.state === 'emphasize'
+                  className={`inline-block px-2 py-1 rounded text-xs font-medium ${node.state === 'emphasize'
                       ? 'bg-green-100 text-green-700'
                       : node.state === 'keep'
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'bg-gray-100 text-gray-700'
-                  }`}
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-gray-100 text-gray-700'
+                    }`}
                 >
                   {node.state === 'emphasize' ? '強調' : node.state === 'keep' ? '保持' : '關閉'}
                 </span>
@@ -155,7 +152,7 @@ export function NodeDetailPanel({
                     className="p-3 bg-gray-50 rounded-lg border border-gray-200"
                   >
                     <div className="text-xs text-gray-500 mb-1">
-                      {new Date(evidence.triggered_at).toLocaleString('zh-TW')}
+                      {formatLocalDateTime(evidence.triggered_at)}
                     </div>
                     {evidence.contribution && (
                       <div className="text-sm text-gray-700">{evidence.contribution}</div>

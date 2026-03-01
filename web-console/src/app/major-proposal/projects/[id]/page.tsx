@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Header from '../../../../components/Header';
 import { t } from '@/lib/i18n';
+import { formatLocalDateTime } from '@/lib/time';
 
 import { getApiBaseUrl } from '../../../../lib/api-url';
 
@@ -229,7 +230,7 @@ export default function ProjectDetailPage() {
           <h1 className="text-3xl font-bold text-gray-900 mb-2">{project.name}</h1>
           <p className="text-gray-600">
             狀態: <span className="capitalize">{project.status}</span> | 建立於:{' '}
-            {new Date(project.created_at).toLocaleDateString()}
+            {formatLocalDateTime(project.created_at)}
           </p>
         </div>
 
@@ -256,11 +257,10 @@ export default function ProjectDetailPage() {
                       <button
                         key={section.id}
                         onClick={() => setSelectedSectionId(section.id)}
-                        className={`w-full text-left p-3 rounded border transition ${
-                          selectedSectionId === section.id
+                        className={`w-full text-left p-3 rounded border transition ${selectedSectionId === section.id
                             ? 'border-blue-500 bg-blue-50'
                             : 'border-gray-200 hover:border-gray-300'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex-1">

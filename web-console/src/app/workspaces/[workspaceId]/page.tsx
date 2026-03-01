@@ -53,6 +53,7 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showSystemTools, setShowSystemTools] = useState(false);
   const [showRuntimeModal, setShowRuntimeModal] = useState(false);
+  const [showInstructionModal, setShowInstructionModal] = useState(false);
   const [showDataSourcesModal, setShowDataSourcesModal] = useState(false);
   const [showFullSettings, setShowFullSettings] = useState(false);
   const [showSandboxModal, setShowSandboxModal] = useState(false);
@@ -177,6 +178,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
             setShowDataSourcesModal={setShowDataSourcesModal}
             showRuntimeModal={showRuntimeModal}
             setShowRuntimeModal={setShowRuntimeModal}
+            showInstructionModal={showInstructionModal}
+            setShowInstructionModal={setShowInstructionModal}
             onRefreshAll={() => contextData.refreshAll()}
           />
 

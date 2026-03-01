@@ -11,6 +11,7 @@ import { MindProfileCard } from '../../components/mindscape/MindProfileCard';
 import { t } from '../../lib/i18n';
 
 import { getApiBaseUrl } from '../../lib/api-url';
+import { formatLocalDateTime } from '@/lib/time';
 
 const API_URL = getApiBaseUrl();
 
@@ -426,7 +427,7 @@ export default function MindscapePage() {
                         className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded border border-gray-200 transition-colors"
                       >
                         <div className="font-medium text-gray-900">{intent.title}</div>
-                        <div className="text-xs text-gray-500 mt-1">上次更新：{new Date(intent.updated_at).toLocaleDateString('zh-TW')}</div>
+                        <div className="text-xs text-gray-500 mt-1">上次更新：{formatLocalDateTime(intent.updated_at)}</div>
                       </button>
                     ))}
                   </div>
@@ -517,7 +518,7 @@ export default function MindscapePage() {
                         <span className="mr-2">📋</span>
                         <div>
                           <p className="font-medium">{intent.title}</p>
-                          <p className="text-xs text-gray-500">{t('lastUpdated' as any)}{new Date(intent.updated_at).toLocaleDateString('zh-TW')}</p>
+                          <p className="text-xs text-gray-500">{t('lastUpdated' as any)}{formatLocalDateTime(intent.updated_at)}</p>
                         </div>
                       </div>
                     ))}
@@ -638,8 +639,8 @@ export default function MindscapePage() {
                       <div className="flex items-center mb-2 flex-wrap gap-2">
                         <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded flex-shrink-0">
                           {suggestion.type === 'project' ? t('longTermProject' as any) :
-                           suggestion.type === 'principle' ? t('designPrinciple' as any) :
-                           suggestion.type === 'preference' ? t('preferences' as any) : t('intents' as any)}
+                            suggestion.type === 'principle' ? t('designPrinciple' as any) :
+                              suggestion.type === 'preference' ? t('preferences' as any) : t('intents' as any)}
                         </span>
                         <span className="text-xs text-gray-500 flex-shrink-0">{suggestion.source}</span>
                         <span className="text-xs text-gray-400 flex-shrink-0">

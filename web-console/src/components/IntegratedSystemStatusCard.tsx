@@ -67,7 +67,8 @@ export default function IntegratedSystemStatusCard({
   const fetchAgents = useCallback(async () => {
     try {
       const apiUrl = getApiBaseUrl();
-      const res = await fetch(`${apiUrl}/api/v1/agents`);
+      // Use workspace-scoped endpoint for accurate per-workspace status
+      const res = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/agents`);
       if (res.ok) {
         const data = await res.json();
         setAgents(data.agents || []);
@@ -78,7 +79,7 @@ export default function IntegratedSystemStatusCard({
     } catch {
       // Silently ignore fetch errors
     }
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => {
     fetchAgents();
@@ -313,7 +314,7 @@ export default function IntegratedSystemStatusCard({
                     {copied ? 'Copied ✓' : 'Copy'}
                   </button>
                 </div>
-                <div className="ml-7 mt-2 text-[10px] text-gray-500 dark:text-gray-400 font-medium">Or connect all active workspaces at once:</div>
+                <div className="ml-7 mt-2 text-[10px] text-gray-500 dark:text-gray-400 font-medium">Or connect all workspaces at once:</div>
                 <div className="ml-7 mt-1 relative">
                   <pre className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
                     {bridgeScriptPath
@@ -342,7 +343,7 @@ export default function IntegratedSystemStatusCard({
                   </button>
                 </div>
                 <p className="ml-7 text-[10px] text-gray-500 dark:text-gray-400 mt-1.5">
-                  <code>--all</code> only connects workspaces with open projects. Single workspace mode connects to this workspace only.
+                  <code>--all</code> connects all workspaces. Single workspace mode connects to this workspace only.
                 </p>
               </div>
 

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Header from '../../components/Header';
 import { t } from '../../lib/i18n';
 import { getApiBaseUrl } from '../../lib/api-url';
+import { formatLocalDateTime } from '@/lib/time';
 
 const API_URL = getApiBaseUrl();
 
@@ -55,7 +56,7 @@ export default function HistoryPage() {
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return '-';
-    return new Date(dateString).toLocaleString('zh-TW');
+    return formatLocalDateTime(dateString);
   };
 
   const formatDuration = (seconds?: number) => {

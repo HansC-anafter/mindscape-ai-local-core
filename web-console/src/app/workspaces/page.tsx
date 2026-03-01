@@ -8,6 +8,7 @@ import ConfirmDialog from '../../components/ConfirmDialog';
 import { t } from '@/lib/i18n';
 
 import { getApiBaseUrl } from '../../lib/api-url';
+import { formatLocalDateTime } from '@/lib/time';
 
 const API_URL = getApiBaseUrl();
 
@@ -307,7 +308,7 @@ export default function WorkspacesPage() {
                       </p>
                     )}
                     <div className="flex items-center justify-between text-xs text-secondary dark:text-gray-400">
-                      <span>Updated: {new Date(workspace.updated_at).toLocaleDateString()}</span>
+                      <span>Updated: {formatLocalDateTime(workspace.updated_at)}</span>
                       {workspace.starter_kit_type && (
                         <span className="px-2 py-0.5 bg-surface-secondary dark:bg-gray-700 rounded text-xs">
                           {workspace.starter_kit_type}

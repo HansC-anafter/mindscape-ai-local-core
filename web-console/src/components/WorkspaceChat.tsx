@@ -9,7 +9,6 @@ import { MessageWithSuggestions } from './workspace/MessageWithSuggestions';
 import type { Suggestion } from './workspace/SuggestionChip';
 import { useChatEvents, ChatMessage } from '@/hooks/useChatEvents';
 import { useSendMessage } from '@/hooks/useSendMessage';
-import { useFileHandling } from '@/hooks/useFileHandling';
 import { UploadedFile } from '@/hooks/useFileUpload';
 import { useExecutionState } from '@/hooks/useExecutionState';
 import IntentChips from '../app/workspaces/components/IntentChips';
@@ -187,20 +186,25 @@ function WorkspaceChatContent({
   const { scrollToBottom, showScrollToBottom } = useScrollManagement();
   const { setIsInitialLoad } = useScrollState();
 
-  const fileHandling = useFileHandling(workspaceId, apiUrl, {
-    onFileAnalyzed,
-    onAnalysisError: (error, file) => {
-      // Error handling is done in handleAnalyzeFileWithError wrapper
-      console.error(`[useFileHandling] Failed to analyze file ${file.name}:`, error);
-    },
-  });
-  const {
-    uploadedFiles,
-    analyzingFiles,
-    handleAnalyzeFile,
-    clearFiles,
-    setUploadedFiles,
-  } = fileHandling;
+  // File state from InputArea (single source of truth via onFilesChanged callback)
+  const [uploadedFiles, setUploadedFilesState] = useState<UploadedFile[]>([]);
+  const [analyzingFiles, setAnalyzingFiles] = useState<Set<string>>(new Set());
+  const handleAnalyzeFileRef = useRef<(file: UploadedFile) => Promise<any>>(
+    async () => { }
+  );
+  const clearFilesRef = useRef<() => void>(() => { });
+
+  const handleFilesChanged = useCallback((
+    files: UploadedFile[],
+    analyzing: Set<string>,
+    analyzeFile: (file: UploadedFile) => Promise<any>,
+    clearFiles: () => void
+  ) => {
+    setUploadedFilesState(files);
+    setAnalyzingFiles(analyzing);
+    handleAnalyzeFileRef.current = analyzeFile;
+    clearFilesRef.current = clearFiles;
+  }, []);
 
   const isLoading = messageHandlingLoading || messagesLoading;
   const error = messageHandlingError || messagesError;
@@ -279,14 +283,7 @@ function WorkspaceChatContent({
   // Cleanup file preview URLs and toast timeout on unmount
   useEffect(() => {
     return () => {
-      setUploadedFiles(prev => {
-        prev.forEach(file => {
-          if (file.preview) {
-            URL.revokeObjectURL(file.preview);
-          }
-        });
-        return [];
-      });
+      // Cleanup is handled by InputArea's useFileHandling instance
     };
   }, []);
 
@@ -306,7 +303,7 @@ function WorkspaceChatContent({
   // Wrapper for handleAnalyzeFile to add error message handling
   const handleAnalyzeFileWithError = async (file: UploadedFile) => {
     try {
-      const result = await handleAnalyzeFile(file);
+      const result = await handleAnalyzeFileRef.current(file);
       setFileAnalysisResult(result);
       setTimeout(() => {
         scrollToBottom();
@@ -400,7 +397,7 @@ function WorkspaceChatContent({
 
   const handleSend = async (e: React.FormEvent) => {
     await handleSendMessage(e, uploadedFiles, analyzingFiles, handleAnalyzeFileWithError);
-    clearFiles();
+    clearFilesRef.current();
   };
 
 
@@ -581,6 +578,7 @@ function WorkspaceChatContent({
         onCopyAll={handleCopyAllMessages}
         isLoading={isLoading}
         canSend={(!input.trim() && uploadedFiles.length === 0) ? false : true}
+        onFilesChanged={handleFilesChanged}
       />
     </div>
   );

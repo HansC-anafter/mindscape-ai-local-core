@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { subscribeEventStream, eventToTimelineItem, UnifiedEvent, TimelineItem } from './eventProjector';
 import { AlertCircle, CheckCircle, Clock, Play, FileText, GitBranch, Wrench } from 'lucide-react';
+import { toTimestampMs, formatLocalDateTime } from '@/lib/time';
 
 interface EventTimelineProps {
   workspaceId: string;
@@ -73,7 +74,7 @@ export function EventTimeline({
     const items = events
       .map(event => eventToTimelineItem(event))
       .filter((item): item is TimelineItem => item !== null)
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      .sort((a, b) => (toTimestampMs(b.timestamp) ?? 0) - (toTimestampMs(a.timestamp) ?? 0));
 
     setTimelineItems(items);
   }, [events]);
@@ -140,12 +141,7 @@ export function EventTimeline({
                   {item.summary}
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                  {new Date(item.timestamp).toLocaleString('zh-TW', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  {formatLocalDateTime(item.timestamp)}
                 </div>
               </div>
               {item.clickable && (

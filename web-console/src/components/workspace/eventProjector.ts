@@ -567,7 +567,171 @@ export function eventToTimelineItem(event: UnifiedEvent): TimelineItem | null {
 }
 
 /**
+ * Shared SSE connection per workspace.
+ * All subscribers fan-out from a single EventSource to avoid exhausting
+ * the browser's 6-connection-per-origin limit.
+ */
+interface StreamSubscriber {
+  eventTypes?: Set<string>;
+  onEvent: (event: UnifiedEvent) => void;
+  onError?: (error: Error) => void;
+}
+
+interface SharedStream {
+  eventSource: EventSource;
+  subscribers: Set<StreamSubscriber>;
+  url: string;
+}
+
+const sharedStreams = new Map<string, SharedStream>();
+
+function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
+  const key = `${apiUrl}::${workspaceId}`;
+  const existing = sharedStreams.get(key);
+  if (existing && existing.eventSource.readyState !== EventSource.CLOSED) {
+    return existing;
+  }
+
+  // Close stale stream if exists
+  if (existing) {
+    existing.eventSource.close();
+  }
+
+  const baseUrl = apiUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+  // Subscribe to ALL event types; client-side filtering per subscriber
+  const url = `${baseUrl}/api/v1/workspaces/${workspaceId}/events/stream`;
+
+  console.log('[EventStream] Opening shared connection:', url);
+
+  const eventSource = new EventSource(url);
+  const stream: SharedStream = { eventSource, subscribers: new Set(), url };
+
+  const dispatch = (data: any) => {
+    if (data.type === 'connected' || data.type === 'error') {
+      if (data.type === 'error') {
+        stream.subscribers.forEach(sub => {
+          sub.onError?.(new Error(data.message));
+        });
+      }
+      return;
+    }
+
+    const event: UnifiedEvent = {
+      id: data.id,
+      type: data.type,
+      timestamp: data.timestamp,
+      actor: data.actor,
+      workspace_id: data.workspace_id,
+      project_id: data.project_id,
+      profile_id: data.profile_id,
+      payload: data.payload,
+      entity_ids: data.entity_ids,
+      metadata: data.metadata,
+    };
+
+    stream.subscribers.forEach(sub => {
+      // Client-side event type filter
+      if (sub.eventTypes && sub.eventTypes.size > 0 && !sub.eventTypes.has(event.type)) {
+        return;
+      }
+      try {
+        sub.onEvent(event);
+      } catch (err) {
+        console.error('[EventStream] Subscriber handler error:', err);
+      }
+    });
+  };
+
+  const handleEvent = (e: MessageEvent) => {
+    try {
+      dispatch(JSON.parse(e.data));
+    } catch (err) {
+      console.error('[EventStream] Failed to parse event:', err, e.data);
+    }
+  };
+
+  eventSource.onmessage = handleEvent;
+
+  // Register ALL known backend event types so no named SSE event is missed.
+  // Source: backend/app/models/mindscape.py EventType enum + useMessageStream subscriptions.
+  const allEventTypes = [
+    // Core events ('message' is handled by onmessage, not listed here to avoid double dispatch)
+    'tool_call',
+    'tool_result',
+    'playbook_step',
+    'insight',
+    'habit_observation',
+    'project_created',
+    'project_updated',
+    'intent_created',
+    'intent_updated',
+    'agent_execution',
+    'execution_chat',
+    'obsidian_note_updated',
+    'execution_plan',
+    'phase_summary',
+    'pipeline_stage',
+    // Decision & ReAct events
+    'decision_required',
+    'branch_proposed',
+    'artifact_created',
+    'artifact_updated',
+    'run_state_changed',
+    // Runtime profile events
+    'policy_check',
+    'loop_budget_exhausted',
+    'quality_gate_check',
+    'agent_turn',
+    'decision_proposal',
+    'decision_final',
+    'action_item',
+    'meeting_round',
+    // Governance events
+    'meeting_start',
+    'meeting_end',
+    'decision_made',
+    'reasoning_committed',
+    'intent_patched',
+    'state_vector_computed',
+    'mode_transition',
+    // Execution lifecycle (useMessageStream subscriptions)
+    'run_started',
+    'run_completed',
+    'run_failed',
+    'step_start',
+    'step_progress',
+    'step_complete',
+    'step_error',
+  ];
+
+  for (const eventType of allEventTypes) {
+    eventSource.addEventListener(eventType, handleEvent);
+  }
+
+  eventSource.onerror = (err) => {
+    const target = err.target as EventSource;
+    if (target?.readyState === EventSource.CLOSED) {
+      console.warn('[EventStream] Shared connection closed, will reconnect:', url);
+    } else if (target?.readyState === EventSource.CONNECTING) {
+      // Reconnecting automatically
+    } else {
+      console.error('[EventStream] Shared connection error:', err);
+    }
+  };
+
+  eventSource.onopen = () => {
+    console.log('[EventStream] Shared connection opened:', url);
+  };
+
+  sharedStreams.set(key, stream);
+  return stream;
+}
+
+/**
  * Subscribe to event stream (SSE)
+ *
+ * Uses a shared EventSource per workspace — multiple subscribers fan-out
+ * from a single connection. Event type filtering is done client-side.
  */
 export function subscribeEventStream(
   workspaceId: string,
@@ -581,103 +745,32 @@ export function subscribeEventStream(
 ): () => void {
   const { apiUrl = '', eventTypes, projectId, onEvent, onError } = options;
 
-  const params = new URLSearchParams();
-  if (eventTypes && eventTypes.length > 0) {
-    params.append('event_types', eventTypes.join(','));
-  }
-  if (projectId) {
-    params.append('project_id', projectId);
-  }
+  const stream = getOrCreateStream(workspaceId, apiUrl);
 
-  const baseUrl = apiUrl || (typeof window !== 'undefined' ? window.location.origin : '');
-  const url = `${baseUrl}/api/v1/workspaces/${workspaceId}/events/stream?${params.toString()}`;
-
-  console.log('[EventStream] Connecting to:', url);
-
-  const eventSource = new EventSource(url);
-
-  let hasLoggedConnection = false;
-  const handleEvent = (e: MessageEvent) => {
-    try {
-      const data = JSON.parse(e.data);
-
-      if (data.type === 'connected') {
-        if (!hasLoggedConnection) {
-          console.log('[EventStream] Connected to workspace:', data.workspace_id);
-          hasLoggedConnection = true;
-        }
+  const subscriber: StreamSubscriber = {
+    eventTypes: eventTypes ? new Set(eventTypes) : undefined,
+    onEvent: (event) => {
+      // Additional project_id filter if specified
+      if (projectId && event.project_id && event.project_id !== projectId) {
         return;
       }
-
-      if (data.type === 'error') {
-        console.error('[EventStream] Error:', data.message);
-        if (onError) {
-          onError(new Error(data.message));
-        }
-        return;
-      }
-
-      const event: UnifiedEvent = {
-        id: data.id,
-        type: data.type,
-        timestamp: data.timestamp,
-        actor: data.actor,
-        workspace_id: data.workspace_id,
-        project_id: data.project_id,
-        profile_id: data.profile_id,
-        payload: data.payload,
-        entity_ids: data.entity_ids,
-        metadata: data.metadata,
-      };
-
       onEvent(event);
-    } catch (err) {
-      console.error('[EventStream] Failed to parse event:', err, e.data);
-      if (onError) {
-        onError(err as Error);
-      }
-    }
+    },
+    onError,
   };
 
-  eventSource.onmessage = handleEvent;
+  stream.subscribers.add(subscriber);
 
-  const importantTypes = [
-    'message',
-    'pipeline_stage',
-    'tool_call',
-    'tool_result',
-    'playbook_step',
-    'decision_required',
-    'branch_proposed',
-    'run_state_changed',
-    'artifact_created',
-    'artifact_updated',
-  ];
-
-  for (const eventType of importantTypes) {
-    eventSource.addEventListener(eventType, handleEvent);
-  }
-
-  eventSource.onerror = (err) => {
-    const target = err.target as EventSource;
-    if (target?.readyState === EventSource.CLOSED) {
-      console.warn('[EventStream] Connection closed, will reconnect automatically:', url);
-    } else if (target?.readyState === EventSource.CONNECTING) {
-      console.log('[EventStream] Reconnecting...');
-    } else {
-      console.error('[EventStream] Connection error:', err);
-      if (onError && target?.readyState !== EventSource.CONNECTING) {
-        onError(new Error('Event stream connection error'));
-      }
-    }
-  };
-
-  eventSource.onopen = () => {
-    console.log('[EventStream] Connection opened:', url);
-  };
-
+  // Return unsubscribe function
   return () => {
-    eventSource.close();
+    stream.subscribers.delete(subscriber);
+
+    // If no subscribers remain, close the shared connection
+    if (stream.subscribers.size === 0) {
+      const key = `${apiUrl}::${workspaceId}`;
+      stream.eventSource.close();
+      sharedStreams.delete(key);
+      console.log('[EventStream] Closed shared connection (no subscribers):', stream.url);
+    }
   };
 }
-

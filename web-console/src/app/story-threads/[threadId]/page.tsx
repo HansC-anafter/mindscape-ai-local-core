@@ -7,6 +7,7 @@ import Header from '@/components/Header';
 import { storyThreadAPI, StoryThread, Chapter, TimelineEvent } from '@/lib/story-thread-api';
 import Timeline from '@/components/story-thread/Timeline';
 import ChapterCard from '@/components/story-thread/ChapterCard';
+import { formatLocalDateTime } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 export const dynamicParams = true;
@@ -111,37 +112,34 @@ export default function StoryThreadPage() {
           <div className="mt-4 flex gap-4 text-sm text-secondary">
             <span>Mind Lens: {thread.mind_lens_id}</span>
             <span>版本: {thread.version}</span>
-            <span>創建: {new Date(thread.created_at).toLocaleDateString('zh-TW')}</span>
+            <span>創建: {formatLocalDateTime(thread.created_at)}</span>
           </div>
         </div>
 
         <div className="tabs mb-6 border-b border-default">
           <button
-            className={`px-4 py-2 font-medium ${
-              activeTab === 'chapters'
+            className={`px-4 py-2 font-medium ${activeTab === 'chapters'
                 ? 'text-blue-600 border-b-2 border-blue-600'
                 : 'text-secondary hover:text-primary'
-            }`}
+              }`}
             onClick={() => setActiveTab('chapters')}
           >
             章節 ({chapters.length})
           </button>
           <button
-            className={`px-4 py-2 font-medium ${
-              activeTab === 'timeline'
+            className={`px-4 py-2 font-medium ${activeTab === 'timeline'
                 ? 'text-blue-600 border-b-2 border-blue-600'
                 : 'text-secondary hover:text-primary'
-            }`}
+              }`}
             onClick={() => setActiveTab('timeline')}
           >
             時間線 ({timeline.length})
           </button>
           <button
-            className={`px-4 py-2 font-medium ${
-              activeTab === 'context'
+            className={`px-4 py-2 font-medium ${activeTab === 'context'
                 ? 'text-blue-600 border-b-2 border-blue-600'
                 : 'text-secondary hover:text-primary'
-            }`}
+              }`}
             onClick={() => setActiveTab('context')}
           >
             共享上下文

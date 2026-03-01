@@ -10,6 +10,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatMessage } from './useChatEvents';
 import { subscribeEventStream, UnifiedEvent } from '@/components/workspace/eventProjector';
+import { parseServerTimestamp } from '@/lib/time';
 
 export interface UseMessageStreamOptions {
     threadId?: string | null;
@@ -47,7 +48,7 @@ function eventToMessage(event: UnifiedEvent): ChatMessage | null {
         id: event.id,
         role,
         content,
-        timestamp: new Date(event.timestamp),
+        timestamp: parseServerTimestamp(event.timestamp) ?? new Date(),
         event_type: event.type,
         is_welcome: payload.is_welcome,
         suggestions: payload.suggestions,

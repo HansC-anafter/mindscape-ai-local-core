@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { getPendingChanges, type PendingChange } from '@/lib/sync-api';
 import { t } from '@/lib/i18n';
+import { formatLocalDateTime } from '@/lib/time';
 
 interface PendingChangesListProps {
   onSync?: () => void;
@@ -91,7 +92,7 @@ export default function PendingChangesList({ onSync }: PendingChangesListProps) 
               {group.changes.slice(0, 3).map((change) => (
                 <div key={change.change_id} className="text-xs text-gray-600 dark:text-gray-400">
                   <span className="text-gray-400 dark:text-gray-500">
-                    {new Date(change.created_at).toLocaleString()}
+                    {formatLocalDateTime(change.created_at)}
                   </span>
                   {' - '}
                   <span>{change.type}</span>

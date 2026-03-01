@@ -3,6 +3,7 @@
 import React from 'react';
 import { t } from '@/lib/i18n';
 import HelpIcon from './HelpIcon';
+import { formatLocalDateTime } from '@/lib/time';
 
 interface NextStep {
   type?: string;
@@ -267,7 +268,7 @@ export default function SuggestedNextStepsCard({
           {suggestionHistory.map((round, roundIdx) => (
             <div key={round.round_id} className="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded p-1.5">
               <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-1">
-                {new Date(round.timestamp).toLocaleTimeString()}
+                {formatLocalDateTime(round.timestamp)}
               </div>
               <div className="space-y-1">
                 {round.suggestions
@@ -363,8 +364,8 @@ export default function SuggestedNextStepsCard({
                     onClick={() => handleAction(step.action, step, originalIndex)}
                     disabled={isExecuting}
                     className={`flex-shrink-0 px-2 py-1 text-[10px] font-medium rounded transition-all ${isExecuting
-                        ? 'opacity-50 cursor-not-allowed'
-                        : 'cursor-pointer'
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'cursor-pointer'
                       } ${step.priority === 'high'
                         ? 'bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600'
                         : step.priority === 'medium'

@@ -40,6 +40,18 @@ interface Workspace {
   storage_config?: any;
   playbook_storage_config?: Record<string, any>;
   playbook_auto_execution_config?: Record<string, any>;
+  workspace_blueprint?: {
+    instruction?: {
+      persona?: string;
+      goals?: string[];
+      anti_goals?: string[];
+      style_rules?: string[];
+      domain_context?: string;
+      version?: number;
+    };
+    brief?: string;
+    [key: string]: any;
+  };
 }
 
 interface Task {

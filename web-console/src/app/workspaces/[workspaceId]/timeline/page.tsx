@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Header from '../../../../components/Header';
 import { t } from '../../../../lib/i18n';
+import { formatLocalDateTime } from '@/lib/time';
 
 import { getApiBaseUrl } from '../../../../lib/api-url';
 
@@ -144,14 +145,7 @@ export default function WorkspaceTimelinePage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <div className="text-sm text-gray-500">
-                          {new Date(event.timestamp).toLocaleString('zh-TW', {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit'
-                          })}
+                          {formatLocalDateTime(event.timestamp)}
                         </div>
                         <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded">
                           {event.actor}

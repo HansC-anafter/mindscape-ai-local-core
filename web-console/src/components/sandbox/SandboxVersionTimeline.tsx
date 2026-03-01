@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { VersionMetadata, getVersionMetadata } from '@/lib/sandbox-api';
+import { formatLocalDateTime } from '@/lib/time';
 
 interface SandboxVersionTimelineProps {
   versions: string[];
@@ -54,9 +55,8 @@ export default function SandboxVersionTimeline({
               <div
                 key={version}
                 onClick={() => onVersionSelect(version)}
-                className={`p-3 border rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                  isCurrent ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : 'border-gray-200 dark:border-gray-700'
-                }`}
+                className={`p-3 border rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${isCurrent ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : 'border-gray-200 dark:border-gray-700'
+                  }`}
               >
                 <div className="flex items-center justify-between">
                   <div className="font-medium">{version}</div>
@@ -68,7 +68,7 @@ export default function SandboxVersionTimeline({
                   <div className="text-xs text-gray-500 mt-1">
                     {metadata.file_count} files • {metadata.total_size} bytes
                     {metadata.created_at && (
-                      <span> • {new Date(metadata.created_at).toLocaleString()}</span>
+                      <span> • {formatLocalDateTime(metadata.created_at)}</span>
                     )}
                   </div>
                 )}

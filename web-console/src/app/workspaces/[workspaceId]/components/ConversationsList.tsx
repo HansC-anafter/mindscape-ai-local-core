@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { t } from '@/lib/i18n';
+import { parseServerTimestamp } from '@/lib/time';
 
 export interface ConversationThread {
   id: string;
@@ -135,17 +136,9 @@ export default function ConversationsList({
     }
   }, [workspaceId, apiUrl, isCreating, loadThreads, onThreadSelect, onCreateThread]);
 
-  const parseApiDate = (dateString: string) => {
-    // If the backend returns a naive ISO string (no timezone), treat it as UTC.
-    // If it already includes timezone ("Z" or "+hh:mm"), let Date parse it as-is.
-    const s = (dateString || '').trim();
-    if (!s) return new Date(NaN);
-    const hasTimezone = /([zZ]|[+\-]\d{2}:\d{2})$/.test(s);
-    return new Date(hasTimezone ? s : `${s}Z`);
-  };
-
   const formatDate = (dateString: string) => {
-    const date = parseApiDate(dateString);
+    const date = parseServerTimestamp(dateString);
+    if (!date) return dateString;
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
@@ -223,8 +216,8 @@ export default function ConversationsList({
                 key={thread.id}
                 onClick={() => onThreadSelect(thread.id)}
                 className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${selectedThreadId === thread.id
-                    ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
+                  ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
                   }`}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -234,14 +227,14 @@ export default function ConversationsList({
                         <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">[預設]</span>
                       )}
                       {thread.title === '新對話'
-                        ? `新對話 ${parseApiDate(thread.created_at).toLocaleString('zh-TW', {
+                        ? `新對話 ${parseServerTimestamp(thread.created_at)?.toLocaleString('zh-TW', {
                           year: 'numeric',
                           month: '2-digit',
                           day: '2-digit',
                           hour: '2-digit',
                           minute: '2-digit',
                           hour12: false,
-                        })}`
+                        }) ?? ''}`
                         : thread.title}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">

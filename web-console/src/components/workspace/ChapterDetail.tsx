@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { EmptyState } from '../ui/EmptyState';
+import { formatLocalDateTime } from '@/lib/time';
 import './ChapterDetail.css';
 
 interface ExecutionRecord {
@@ -105,7 +106,7 @@ function ExecutionRecordItem({ execution }: ExecutionRecordItemProps) {
         <span className="run-number">Run #{execution.runNumber}</span>
         <span className="progress">{execution.progress}%</span>
         <span className="started-at">
-          {new Date(execution.startedAt).toLocaleDateString()}
+          {formatLocalDateTime(execution.startedAt)}
         </span>
       </div>
       {execution.artifacts && execution.artifacts.length > 0 && (

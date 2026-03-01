@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { getApiBaseUrl } from '../../lib/api-url';
 import { t } from '../../lib/i18n';
+import { parseServerTimestamp } from '@/lib/time';
 
 const API_URL = getApiBaseUrl();
 
@@ -73,18 +74,15 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return t('neverExecuted' as any);
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleString('en-US', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch {
-      return dateString;
-    }
+    const date = parseServerTimestamp(dateString);
+    if (!date) return dateString;
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   if (loading) {
@@ -178,8 +176,8 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
                       {wsStat.execution_count > 0 && (
                         <div className="text-xs text-secondary dark:text-gray-400">
                           <span className={`font-medium ${successRate >= 80 ? 'text-green-600 dark:text-green-400' :
-                              successRate >= 50 ? 'text-yellow-600 dark:text-yellow-400' :
-                                'text-red-600 dark:text-red-400'
+                            successRate >= 50 ? 'text-yellow-600 dark:text-yellow-400' :
+                              'text-red-600 dark:text-red-400'
                             }`}>
                             {successRate}%
                           </span>

@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ChatMessage } from '@/hooks/useChatEvents';
 import { t } from '@/lib/i18n';
+import { parseServerTimestamp } from '@/lib/time';
 
 interface MessageItemProps {
   message: ChatMessage;
@@ -79,7 +80,7 @@ function MessageItemComponent({ message, onCopy, onRetry }: MessageItemProps) {
 
   const timestamp = message.timestamp instanceof Date
     ? message.timestamp
-    : new Date(message.timestamp);
+    : parseServerTimestamp(message.timestamp as any) ?? new Date();
 
   const formattedTime = timestamp.toLocaleTimeString('zh-TW', {
     hour: '2-digit',
@@ -119,12 +120,12 @@ function MessageItemComponent({ message, onCopy, onRetry }: MessageItemProps) {
         <div
           ref={messageContainerRef}
           className={`relative max-w-[80%] min-w-[200px] rounded-lg px-6 py-3 ${message.event_type === 'error'
-              ? 'bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-700 text-red-900 dark:text-red-200'
-              : message.role === 'user'
-                ? 'bg-accent dark:bg-blue-700 text-white'
-                : message.is_welcome
-                  ? 'bg-blue-50 dark:bg-blue-950/50 border-2 border-blue-200 dark:border-blue-800 text-gray-900 dark:text-gray-100'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+            ? 'bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-700 text-red-900 dark:text-red-200'
+            : message.role === 'user'
+              ? 'bg-accent dark:bg-blue-700 text-white'
+              : message.is_welcome
+                ? 'bg-blue-50 dark:bg-blue-950/50 border-2 border-blue-200 dark:border-blue-800 text-gray-900 dark:text-gray-100'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
             }`}
           style={{
             wordBreak: 'break-word',
@@ -253,8 +254,8 @@ function MessageItemComponent({ message, onCopy, onRetry }: MessageItemProps) {
               <button
                 onClick={handleCopy}
                 className={`flex-shrink-0 p-1 rounded-md transition-all ${message.role === 'user'
-                    ? 'bg-accent/80 hover:bg-accent dark:bg-blue-700 dark:hover:bg-blue-800 text-white'
-                    : 'bg-surface-secondary hover:bg-surface-accent text-primary'
+                  ? 'bg-accent/80 hover:bg-accent dark:bg-blue-700 dark:hover:bg-blue-800 text-white'
+                  : 'bg-surface-secondary hover:bg-surface-accent text-primary'
                   }`}
                 style={{ flexShrink: 0 }}
                 title={copied ? t('copied' as any) : t('copyMessage' as any)}

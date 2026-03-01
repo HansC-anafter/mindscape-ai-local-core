@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { TimelineEvent } from '@/lib/story-thread-api';
+import { toTimestampMs, parseServerTimestamp } from '@/lib/time';
 
 interface TimelineProps {
   threadId: string;
@@ -11,7 +12,7 @@ interface TimelineProps {
 
 export function Timeline({ threadId, events, onEventClick }: TimelineProps) {
   const sortedEvents = [...events].sort((a, b) =>
-    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    (toTimestampMs(b.timestamp) ?? 0) - (toTimestampMs(a.timestamp) ?? 0)
   );
 
   const getEventIcon = (eventType: string) => {
@@ -32,7 +33,8 @@ export function Timeline({ threadId, events, onEventClick }: TimelineProps) {
   };
 
   const formatTimestamp = (timestamp: string) => {
-    const date = new Date(timestamp);
+    const date = parseServerTimestamp(timestamp);
+    if (!date) return timestamp;
     return date.toLocaleString('zh-TW', {
       year: 'numeric',
       month: 'short',

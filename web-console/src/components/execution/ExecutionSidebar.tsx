@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useT } from '@/lib/i18n';
 import { getPlaybookMetadata } from '@/lib/i18n/locales/playbooks';
+import { toTimestampMs, parseServerTimestamp } from '@/lib/time';
 
 interface ExecutionSummary {
   executionId: string;
@@ -97,8 +98,8 @@ export default function ExecutionSidebar({
 
               // Sort by global execution time (earliest first)
               allExecutions.sort((a, b) => {
-                const timeA = new Date(a.exec.started_at || a.exec.created_at || 0).getTime();
-                const timeB = new Date(b.exec.started_at || b.exec.created_at || 0).getTime();
+                const timeA = toTimestampMs(a.exec.started_at || a.exec.created_at) ?? 0;
+                const timeB = toTimestampMs(b.exec.started_at || b.exec.created_at) ?? 0;
                 return timeA - timeB;
               });
 
@@ -148,7 +149,7 @@ export default function ExecutionSidebar({
 
                   // Sort by execution time (earliest first), keeping global runNumber
                   executionSummaries.sort((a, b) => {
-                    return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
+                    return (toTimestampMs(a.startedAt) ?? 0) - (toTimestampMs(b.startedAt) ?? 0);
                   });
                 }
 
@@ -199,7 +200,7 @@ export default function ExecutionSidebar({
 
               // Sort all executions by global time (earliest first)
               allExecutionsWithData.sort((a: { exec: any; playbookCode: string; startedAt: string }, b: { exec: any; playbookCode: string; startedAt: string }) => {
-                return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
+                return (toTimestampMs(a.startedAt) ?? 0) - (toTimestampMs(b.startedAt) ?? 0);
               });
 
               // Assign global continuous runNumber (1, 2, 3...)
@@ -256,7 +257,7 @@ export default function ExecutionSidebar({
               // For each playbook group, sort executions by time (to maintain order within group)
               groupMap.forEach((group) => {
                 group.executions.sort((a, b) => {
-                  return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
+                  return (toTimestampMs(a.startedAt) ?? 0) - (toTimestampMs(b.startedAt) ?? 0);
                 });
               });
 
@@ -476,7 +477,7 @@ function PlaybookExecutionGroup({
             .sort((a, b) => {
               // For executions of the same playbook, sort by start time (earliest first)
               // This shows the execution sequence in chronological order
-              return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
+              return (toTimestampMs(a.startedAt) ?? 0) - (toTimestampMs(b.startedAt) ?? 0);
             })
             .map((execution, index) => (
               <ExecutionItem
@@ -511,15 +512,11 @@ function ExecutionItem({ execution, isSelected, onClick }: ExecutionItemProps) {
     if (!timeStr) {
       return 'N/A';
     }
-    try {
-      const date = new Date(timeStr);
-      if (isNaN(date.getTime())) {
-        return 'N/A';
-      }
-      return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    } catch {
+    const date = parseServerTimestamp(timeStr);
+    if (!date) {
       return 'N/A';
     }
+    return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   };
 
   return (

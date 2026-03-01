@@ -5,6 +5,7 @@ import { useConflictHandler } from '@/hooks/useConflictHandler';
 import ConflictDialog from '@/components/ConflictDialog';
 import { useToast } from '@/components/Toast';
 import { t } from '@/lib/i18n';
+import { parseServerTimestamp } from '@/lib/time';
 import SandboxModalWrapper from '../../components/execution-inspector/SandboxModalWrapper';
 import { loadCapabilityUIComponent, artifactsMatchComponent, createLazyCapabilityComponent } from '@/lib/capability-ui-loader';
 
@@ -468,13 +469,13 @@ export default function OutcomesPanel({
           const fileName = (artifact.content && typeof artifact.content === 'object' && artifact.content.file_name) ? artifact.content.file_name : artifact.title;
           // Extract execution_id from metadata if not directly available
           const executionId = (artifact as any).execution_id || (artifact.metadata && (artifact.metadata as any).execution_id) || (artifact.metadata && (artifact.metadata as any).navigate_to) || null;
-          const createdDate = new Date(artifact.created_at);
-          const formattedDate = createdDate.toLocaleString('zh-TW', {
+          const createdDate = parseServerTimestamp(artifact.created_at);
+          const formattedDate = createdDate ? createdDate.toLocaleString('zh-TW', {
             month: 'short',
             day: 'numeric',
             hour: '2-digit',
             minute: '2-digit'
-          });
+          }) : '';
 
 
           const handleFileClick = (e: React.MouseEvent) => {
@@ -546,63 +547,63 @@ export default function OutcomesPanel({
           };
 
           return (
-          <div
-            key={artifact.id}
-            className={`
+            <div
+              key={artifact.id}
+              className={`
               bg-surface-secondary dark:bg-gray-800 border rounded-lg p-2.5 hover:border-accent dark:hover:border-blue-600 hover:shadow-md transition-all
               ${isHighlighted
-                ? 'border-accent dark:border-blue-500 shadow-lg bg-accent-10 dark:bg-blue-900/20 animate-pulse'
-                : 'border-default dark:border-gray-700'
-              }
+                  ? 'border-accent dark:border-blue-500 shadow-lg bg-accent-10 dark:bg-blue-900/20 animate-pulse'
+                  : 'border-default dark:border-gray-700'
+                }
             `}
-            style={isHighlighted ? {
-              animation: 'fadeInHighlight 0.5s ease-in-out'
-            } : undefined}
-          >
-          {/* First Row: File Name (Clickable) */}
-          <div
-            onClick={handleFileClick}
-            className="flex items-center gap-2 mb-1 cursor-pointer group"
-          >
-            <span className="text-base flex-shrink-0">{getArtifactIcon(artifact.artifact_type)}</span>
-            <div className="flex-1 min-w-0">
-              <div className="font-medium text-sm text-primary dark:text-gray-100 truncate group-hover:text-accent dark:group-hover:text-blue-400 transition-colors">
-                {fileName}
+              style={isHighlighted ? {
+                animation: 'fadeInHighlight 0.5s ease-in-out'
+              } : undefined}
+            >
+              {/* First Row: File Name (Clickable) */}
+              <div
+                onClick={handleFileClick}
+                className="flex items-center gap-2 mb-1 cursor-pointer group"
+              >
+                <span className="text-base flex-shrink-0">{getArtifactIcon(artifact.artifact_type)}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm text-primary dark:text-gray-100 truncate group-hover:text-accent dark:group-hover:text-blue-400 transition-colors">
+                    {fileName}
+                  </div>
+                </div>
+                {artifact.primary_action_type === 'download' && filePath && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenExternal(artifact, e);
+                    }}
+                    className="px-2 py-0.5 text-[10px] bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-400 rounded hover:opacity-80 dark:hover:bg-blue-900/40 transition-colors flex-shrink-0"
+                    title="下載檔案"
+                  >
+                    <span>⬇</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Second Row: Playbook & Time (Secondary Info) */}
+              <div className="flex items-center justify-between text-[10px] text-gray-400 dark:text-gray-500">
+                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                  <span className="truncate">{artifact.playbook_code}</span>
+                  <span>•</span>
+                  <span className="flex-shrink-0">{formattedDate}</span>
+                </div>
+                {(filePath || executionId) && (
+                  <button
+                    onClick={handleSandboxClick}
+                    className="text-[10px] text-accent dark:text-blue-400 hover:opacity-80 dark:hover:text-blue-300 hover:underline flex-shrink-0 ml-2 px-1 py-0.5 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 transition-colors"
+                    title="在 Sandbox 中查看"
+                  >
+                    <span className="mr-0.5">📁</span> Sandbox
+                  </button>
+                )}
               </div>
             </div>
-            {artifact.primary_action_type === 'download' && filePath && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenExternal(artifact, e);
-                }}
-                className="px-2 py-0.5 text-[10px] bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-400 rounded hover:opacity-80 dark:hover:bg-blue-900/40 transition-colors flex-shrink-0"
-                title="下載檔案"
-              >
-                <span>⬇</span>
-              </button>
-            )}
-          </div>
-
-          {/* Second Row: Playbook & Time (Secondary Info) */}
-          <div className="flex items-center justify-between text-[10px] text-gray-400 dark:text-gray-500">
-            <div className="flex items-center gap-1.5 flex-1 min-w-0">
-              <span className="truncate">{artifact.playbook_code}</span>
-              <span>•</span>
-              <span className="flex-shrink-0">{formattedDate}</span>
-            </div>
-            {(filePath || executionId) && (
-              <button
-                onClick={handleSandboxClick}
-                className="text-[10px] text-accent dark:text-blue-400 hover:opacity-80 dark:hover:text-blue-300 hover:underline flex-shrink-0 ml-2 px-1 py-0.5 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 transition-colors"
-                title="在 Sandbox 中查看"
-              >
-                <span className="mr-0.5">📁</span> Sandbox
-              </button>
-            )}
-          </div>
-        </div>
-        );
+          );
         })}
       </div>
 

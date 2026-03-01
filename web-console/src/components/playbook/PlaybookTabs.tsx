@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { t, useLocale } from '../../lib/i18n';
+import { formatLocalDateTime } from '@/lib/time';
 import PlaybookUsageStats from './PlaybookUsageStats';
 
 interface PlaybookTabsProps {
@@ -74,8 +75,8 @@ export default function PlaybookTabs({
               key={tab.id}
               onClick={() => onTabChange(tab.id as any)}
               className={`px-6 py-3 text-sm font-medium border-b-2 ${activeTab === tab.id
-                  ? 'border-blue-500 dark:border-blue-400 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                ? 'border-blue-500 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
                 }`}
             >
               {tab.label}
@@ -113,8 +114,8 @@ export default function PlaybookTabs({
                       {intent.status && (
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                           <span className={`inline-block px-2 py-0.5 rounded ${intent.status === 'active' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' :
-                              intent.status === 'completed' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' :
-                                'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                            intent.status === 'completed' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' :
+                              'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                             }`}>
                             {intent.status === 'active' ? t('playbookIntentStatusActive' as any) :
                               intent.status === 'completed' ? t('playbookIntentStatusCompleted' as any) :
@@ -122,8 +123,8 @@ export default function PlaybookTabs({
                           </span>
                           {intent.priority && (
                             <span className={`ml-2 inline-block px-2 py-0.5 rounded ${intent.priority === 'high' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' :
-                                intent.priority === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300' :
-                                  'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                              intent.priority === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300' :
+                                'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                               }`}>
                               {intent.priority === 'high' ? t('playbookIntentPriorityHigh' as any) :
                                 intent.priority === 'medium' ? t('playbookIntentPriorityMedium' as any) :
@@ -234,7 +235,7 @@ export default function PlaybookTabs({
                             </div>
                             {exec.started_at && (
                               <div className="text-xs text-green-600 dark:text-green-400">
-                                {t('startedAt' as any)}: {new Date(exec.started_at).toLocaleString(locale === 'en' ? 'en-US' : locale === 'ja' ? 'ja-JP' : 'zh-TW')}
+                                {t('startedAt' as any)}: {formatLocalDateTime(exec.started_at)}
                               </div>
                             )}
                           </div>
@@ -258,8 +259,8 @@ export default function PlaybookTabs({
                             </div>
                             <div className="flex items-center gap-2 mb-1">
                               <span className={`text-xs px-2 py-0.5 rounded font-medium ${exec.status === 'completed' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' :
-                                  exec.status === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' :
-                                    'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                exec.status === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' :
+                                  'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                                 }`}>
                                 {exec.status === 'completed' ? t('completed' as any) :
                                   exec.status === 'failed' ? t('failed' as any) :
@@ -268,10 +269,10 @@ export default function PlaybookTabs({
                             </div>
                             {exec.started_at && (
                               <div className="text-xs text-gray-500 dark:text-gray-400">
-                                {t('started' as any)}: {new Date(exec.started_at).toLocaleString(locale === 'en' ? 'en-US' : locale === 'ja' ? 'ja-JP' : 'zh-TW')}
+                                {t('started' as any)}: {formatLocalDateTime(exec.started_at)}
                                 {exec.completed_at && (
                                   <span className="ml-2">
-                                    | {t('completedLabel' as any)}: {new Date(exec.completed_at).toLocaleString(locale === 'en' ? 'en-US' : locale === 'ja' ? 'ja-JP' : 'zh-TW')}
+                                    | {t('completedLabel' as any)}: {formatLocalDateTime(exec.completed_at)}
                                   </span>
                                 )}
                               </div>
