@@ -11,6 +11,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from backend.app.models.task_ir import PhaseIR
 
 
+@pytest.fixture(autouse=True)
+def _mock_data_locality(monkeypatch):
+    """Prevent real DataLocalityService from interfering in tests."""
+    monkeypatch.setattr(
+        "backend.app.services.data_locality_service.get_data_locality_service",
+        lambda: None,
+    )
+
+
 class TestPhaseIRCrossWorkspaceFields:
     """Tests for target_workspace_id and asset_refs on PhaseIR."""
 
