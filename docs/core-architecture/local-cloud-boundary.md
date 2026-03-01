@@ -4,7 +4,9 @@ This document explains the architectural boundary between the local-only open-so
 
 ## Core Principle
 
-> **The core domain must never contain tenant/group concepts directly. These concepts only exist in adapters and external layers.**
+> **The core domain must never contain cloud tenant concepts directly. Cloud-specific concepts (tenant_id, billing, ACL) only exist in adapters and external layers.**
+>
+> **Exception**: Workspace grouping for local dispatch routing (`group_id` as workspace collection membership) is a core primitive — it enables asset-boundary dispatch without requiring cloud infrastructure.
 
 ## Why This Separation?
 
@@ -20,18 +22,20 @@ The core domain includes:
 - ✅ `ExecutionContext` - Abstract execution context (`actor_id`, `workspace_id`, `tags`)
 - ✅ `Port Interfaces` - `IdentityPort`, `IntentRegistryPort`
 - ✅ `Services` - Intent extraction, playbook execution, conversation orchestration
-- ✅ `Models` - Workspace, tasks, timeline items (no tenant/group fields)
+- ✅ `Models` - Workspace (with `group_id` for dispatch collection), WorkspaceGroup, tasks, timeline items
 - ✅ `Local Adapters` - `LocalIdentityAdapter`, `LocalIntentRegistryAdapter`
+- ✅ `Dispatch Primitives` - WorkspaceGroup (local workspace collection), asset-boundary routing
 
 ## What's NOT in Core?
 
 The core domain explicitly excludes:
 
-- ❌ `Tenant` or `Group` types/classes
-- ❌ Direct references to `tenant_id` or `group_id` in core code
+- ❌ `Tenant` types/classes or `tenant_id` references
 - ❌ Cloud-specific clients (`SiteHubClient`, `CrsClient`)
-- ❌ Multi-tenant business logic
+- ❌ Multi-tenant business logic (ACL, billing, cross-tenant routing)
 - ❌ Cloud deployment configurations
+
+> **Note**: `group_id` in core refers to **local workspace collection** for dispatch routing, not cloud tenant groups. The cloud `WorkspaceGroup` (with `tenant_id`, ACL, cross-group transfer) is a superset that lives in `site-hub-registry-api` and maps to the local model via adapter.
 
 ## How Cloud Extensions Work
 
@@ -133,5 +137,15 @@ To maintain this boundary:
 
 ---
 
-**Last updated:** 2025-12-01
+## Architecture Evolution: Workspace Collection (2026-03)
 
+The asset-boundary dispatch upgrade introduced `WorkspaceGroup` as a core primitive for local workspace collection. This represents a **design evolution** from the original boundary:
+
+- **Before**: All group concepts were cloud-only, passed via `ExecutionContext.tags`
+- **After**: Local workspace grouping (`group_id`, `workspace_role`) is a core dispatch primitive for asset-boundary routing
+- **Cloud tenant group** (`tenant_id`, ACL, cross-group transfer) remains cloud-only in `site-hub-registry-api`
+- The local `WorkspaceGroup` is the **local-first subset** of the cloud version; cloud adapter maps between them
+
+---
+
+**Last updated:** 2026-03-01
