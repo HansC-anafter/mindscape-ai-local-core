@@ -191,8 +191,37 @@ async def stream_execution_events(
                 yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
                 return
 
-            # Emit a progress-style heartbeat that the UI can display
-            yield f"data: {json.dumps({'type': 'progress', 'status': task.status, 'current': 0, 'total': 0})}\n\n"
+            # Read progress from the latest artifact for this execution.
+            # page_visitor writes progress to artifacts via upsert_progress,
+            # so we read from there instead of task.execution_context.
+            progress = ctx.get("progress") if isinstance(ctx, dict) else None
+            if not progress:
+                try:
+                    from sqlalchemy import text as _text
+
+                    with tasks_store.get_connection() as _conn:
+                        _row = _conn.execute(
+                            _text(
+                                "SELECT content::jsonb->'progress' AS p "
+                                "FROM artifacts "
+                                "WHERE execution_id = :eid "
+                                "AND content::jsonb ? 'progress' "
+                                "ORDER BY updated_at DESC LIMIT 1"
+                            ),
+                            {"eid": execution_id},
+                        ).fetchone()
+                        if _row and _row[0]:
+                            import json as _json
+
+                            progress = (
+                                _row[0]
+                                if isinstance(_row[0], dict)
+                                else _json.loads(_row[0])
+                            )
+                except Exception:
+                    pass
+
+            yield f"data: {json.dumps({'type': 'progress', 'status': task.status, 'current': 0, 'total': 0, 'progress': progress})}\n\n"
 
             await asyncio.sleep(3)
 
