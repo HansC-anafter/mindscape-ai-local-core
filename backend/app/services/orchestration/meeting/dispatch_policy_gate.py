@@ -23,17 +23,26 @@ def check_dispatch_policy(
     Mutates items in-place: sets landing_status='policy_blocked',
     landing_error, and policy_reason_code on failing items.
 
+    Tool allowlist is resolved per-item using target_workspace_id
+    (falls back to session workspace_id). Allowlists are cached
+    per-workspace to avoid redundant store queries.
+
     Args:
         action_items: Items to validate (mutated in-place).
-        workspace_id: Current workspace ID.
+        workspace_id: Session (fallback) workspace ID.
         available_playbooks_cache: Formatted playbook list from engine preload.
         binding_store: Optional workspace resource binding store for tool allowlist.
     """
     # Build set of known playbook codes from the cache string
     known_playbook_codes = _parse_playbook_codes(available_playbooks_cache)
 
-    # Build tool allowlist from workspace bindings
-    allowed_tools = _load_tool_allowlist(workspace_id, binding_store)
+    # Per-workspace allowlist cache (lazy-loaded)
+    _allowlist_cache: Dict[str, Optional[set]] = {}
+
+    def _get_allowlist(ws_id: str) -> Optional[set]:
+        if ws_id not in _allowlist_cache:
+            _allowlist_cache[ws_id] = _load_tool_allowlist(ws_id, binding_store)
+        return _allowlist_cache[ws_id]
 
     for item in action_items:
         # Skip items already marked by a previous gate
@@ -53,13 +62,15 @@ def check_dispatch_policy(
                 )
                 continue
 
-        # Check 2: Tool allowlist
-        if tool_name and allowed_tools is not None:
-            if tool_name not in allowed_tools:
+        # Check 2: Tool allowlist (per target workspace)
+        if tool_name and binding_store is not None:
+            target_ws = item.get("target_workspace_id") or workspace_id
+            allowed_tools = _get_allowlist(target_ws)
+            if allowed_tools is not None and tool_name not in allowed_tools:
                 _mark_blocked(
                     item,
                     reason_code="TOOL_NOT_ALLOWED",
-                    message=f"Tool '{tool_name}' not in workspace allowlist",
+                    message=f"Tool '{tool_name}' not in workspace '{target_ws}' allowlist",
                 )
                 continue
 

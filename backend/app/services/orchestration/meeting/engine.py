@@ -339,21 +339,32 @@ class MeetingEngine(
         except Exception as exc:
             logger.warning("Failed to compile TaskIR from meeting: %s", exc)
 
-        # 5C: Post-session supervision (fire-and-forget)
+        # 5C: Post-session supervision (true fire-and-forget)
         try:
             from backend.app.services.orchestration.meeting.meeting_supervisor import (
                 MeetingSupervisor,
             )
 
             supervisor = MeetingSupervisor(tasks_store=self.tasks_store)
-            session_summary = await supervisor.on_session_closed(self.session.id)
-            logger.info(
-                "Session %s quality score: %.2f (%d/%d succeeded)",
-                self.session.id,
-                session_summary.get("score", 0),
-                session_summary.get("succeeded", 0),
-                session_summary.get("total_tasks", 0),
-            )
+
+            async def _supervisor_task():
+                try:
+                    summary = await supervisor.on_session_closed(self.session.id)
+                    logger.info(
+                        "Session %s quality score: %.2f (%d/%d succeeded)",
+                        self.session.id,
+                        summary.get("score", 0),
+                        summary.get("succeeded", 0),
+                        summary.get("total_tasks", 0),
+                    )
+                except Exception as inner_exc:
+                    logger.warning(
+                        "Supervisor scoring failed for session %s: %s",
+                        self.session.id,
+                        inner_exc,
+                    )
+
+            asyncio.create_task(_supervisor_task())
         except Exception as exc:
             logger.warning(
                 "Supervisor hook failed for session %s: %s", self.session.id, exc
