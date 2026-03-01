@@ -146,7 +146,7 @@ bootstrap:
 
 ```yaml
 name: Site-Hub Integration
-code: site_hub_integration
+code: mindscape_cloud_integration
 version: 1.0.0
 
 # ... 其他配置 ...

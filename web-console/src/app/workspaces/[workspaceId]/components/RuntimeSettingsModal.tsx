@@ -42,7 +42,7 @@ export default function RuntimeSettingsModal({
     if (!isOpen) return null;
 
     const tabs: { id: ModalTab; label: string; icon: string }[] = [
-        { id: 'channel', label: 'Site-Hub Channel', icon: '🔗' },
+        { id: 'channel', label: 'Mindscape Cloud Channel', icon: '🔗' },
         { id: 'cli-keys', label: 'CLI Agent Keys', icon: '🔑' },
     ];
 
@@ -68,7 +68,7 @@ export default function RuntimeSettingsModal({
                             ☁️ 雲端 Runtime 設定
                         </h2>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                            管理 Site-Hub Channel 綁定與外部服務設定
+                            管理 Mindscape Cloud Channel 綁定與外部服務設定
                         </p>
                     </div>
                     <button
