@@ -3,6 +3,7 @@
 Revision ID: 20260216000002
 Revises: 20260216000001
 Create Date: 2026-02-16 05:40:00.000000
+Capability: mindscape_cloud_integration
 
 """
 
