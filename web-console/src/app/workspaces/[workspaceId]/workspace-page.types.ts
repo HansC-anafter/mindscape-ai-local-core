@@ -17,6 +17,7 @@ export interface AssociatedIntent {
 
 export type ExecutionMode = 'qa' | 'execution' | 'hybrid' | 'meeting' | null;
 export type ExecutionPriority = 'low' | 'medium' | 'high' | null;
+export type WorkspaceVisibility = 'private' | 'group' | 'discoverable' | 'public';
 
 export interface Workspace {
     id: string;
@@ -35,4 +36,18 @@ export interface Workspace {
     artifacts_dir?: string;
     storage_config?: any;
     playbook_storage_config?: Record<string, { base_path?: string; artifacts_dir?: string }>;
+    visibility?: WorkspaceVisibility;
+    group_id?: string | null;
+    workspace_role?: string | null;
+    workspace_blueprint?: {
+        instruction?: {
+            persona?: string;
+            goals?: string[];
+            anti_goals?: string[];
+            style_rules?: string[];
+            domain_context?: string;
+            version?: number;
+        } | null;
+        brief?: string | null;
+    } | null;
 }
