@@ -276,6 +276,10 @@ class CreateWorkspaceRequest(BaseModel):
         None, description="Workspace blueprint configuration"
     )
     starter_kit_type: Optional[str] = Field(None, description="Starter kit type")
+    visibility: Optional[WorkspaceVisibility] = Field(
+        None,
+        description="Workspace visibility: private | group | discoverable | public",
+    )
 
 
 class UpdateWorkspaceRequest(BaseModel):
@@ -345,6 +349,10 @@ class UpdateWorkspaceRequest(BaseModel):
         None,
         description="Extensible metadata (merge-update, not replace). "
         "Used for SGR settings, governance config, and other feature flags.",
+    )
+    visibility: Optional[WorkspaceVisibility] = Field(
+        None,
+        description="Workspace visibility: private | group | discoverable | public",
     )
 
 

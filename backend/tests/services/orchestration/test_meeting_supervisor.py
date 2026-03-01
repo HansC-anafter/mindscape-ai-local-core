@@ -25,7 +25,7 @@ class TestCheckStuckTasks:
     async def test_finds_stuck_pending_task(self):
         old_pending = _make_task("t1", "pending", updated_minutes_ago=60)
         recent_running = _make_task("t2", "running", updated_minutes_ago=5)
-        completed = _make_task("t3", "completed", updated_minutes_ago=120)
+        completed = _make_task("t3", "succeeded", updated_minutes_ago=120)
 
         store = MagicMock()
         store.list_tasks_by_meeting_session.return_value = [
@@ -44,7 +44,7 @@ class TestCheckStuckTasks:
     async def test_no_stuck_when_all_completed(self):
         store = MagicMock()
         store.list_tasks_by_meeting_session.return_value = [
-            _make_task("t1", "completed"),
+            _make_task("t1", "succeeded"),
             _make_task("t2", "failed"),
         ]
         sup = MeetingSupervisor(tasks_store=store)
@@ -58,8 +58,8 @@ class TestScoreSession:
     async def test_score_partial(self):
         store = MagicMock()
         store.list_tasks_by_meeting_session.return_value = [
-            _make_task("t1", "completed"),
-            _make_task("t2", "completed"),
+            _make_task("t1", "succeeded"),
+            _make_task("t2", "succeeded"),
             _make_task("t3", "failed"),
         ]
         sup = MeetingSupervisor(tasks_store=store)
@@ -92,7 +92,7 @@ class TestOnSessionClosed:
     async def test_full_lifecycle(self):
         store = MagicMock()
         store.list_tasks_by_meeting_session.return_value = [
-            _make_task("t1", "completed", updated_minutes_ago=5),
+            _make_task("t1", "succeeded", updated_minutes_ago=5),
             _make_task("t2", "pending", updated_minutes_ago=60, title="Stuck task"),
             _make_task("t3", "failed", updated_minutes_ago=10),
         ]
@@ -101,7 +101,7 @@ class TestOnSessionClosed:
 
         assert result["session_id"] == "sess-1"
         assert result["total_tasks"] == 3
-        assert result["completed"] == 1
+        assert result["succeeded"] == 1
         assert result["failed"] == 1
         assert result["stuck"] == 1
         assert abs(result["score"] - 1 / 3) < 0.01
