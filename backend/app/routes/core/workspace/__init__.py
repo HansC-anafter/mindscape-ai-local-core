@@ -4,6 +4,7 @@ from . import (
     launchpad,
     files,
     intents,
+    instruction,
     tasks,
     workbench,
     health,
@@ -23,6 +24,7 @@ router.include_router(crud.router)
 router.include_router(launchpad.router)
 router.include_router(files.router)
 router.include_router(intents.router)
+router.include_router(instruction.router)
 router.include_router(tasks.router)
 router.include_router(workbench.router)
 router.include_router(health.router)

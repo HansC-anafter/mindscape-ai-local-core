@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { t } from '@/lib/i18n';
 
 interface InstructionPreviewProps {
     persona?: string;
@@ -29,8 +30,8 @@ export default function InstructionPreview({
             <div className="h-full flex items-center justify-center text-gray-400 dark:text-gray-500">
                 <div className="text-center">
                     <div className="text-4xl mb-3">📝</div>
-                    <div className="text-sm font-medium mb-1">指令預覽</div>
-                    <div className="text-xs">在左側填入欄位後，此處會即時顯示 LLM 注入格式</div>
+                    <div className="text-sm font-medium mb-1">{t('instructionPreviewEmptyTitle' as any)}</div>
+                    <div className="text-xs">{t('instructionPreviewEmptyDescription' as any)}</div>
                 </div>
             </div>
         );
@@ -63,8 +64,8 @@ export default function InstructionPreview({
         <div className="h-full flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b dark:border-gray-700 flex-shrink-0">
                 <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">LLM Injection Preview</span>
-                    <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded">read-only</span>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('instructionPreviewTitle' as any)}</span>
+                    <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded">{t('instructionReadOnly' as any)}</span>
                 </div>
             </div>
             <div className="flex-1 overflow-y-auto p-4">

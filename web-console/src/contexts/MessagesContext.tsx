@@ -7,6 +7,103 @@ import { useExecutionState, ExecutionUIState, PipelineStage, TreeStep } from '@/
 import { useCurrentExecution } from '@/hooks/useCurrentExecution';
 import type { CurrentExecution } from '@/components/workspace/CurrentExecutionBar';
 
+const OPTIMISTIC_WINDOW_MS = 30_000;
+
+function getTimestampMs(message: ChatMessage): number {
+  if (message.timestamp instanceof Date) {
+    return message.timestamp.getTime();
+  }
+  const parsed = new Date(message.timestamp as any).getTime();
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function isOptimisticMessage(message: ChatMessage, nowMs: number): boolean {
+  if (!(message.id.startsWith('user-') || message.id.startsWith('assistant-'))) {
+    return false;
+  }
+  return nowMs - getTimestampMs(message) < OPTIMISTIC_WINDOW_MS;
+}
+
+function normalizeContent(content: string): string {
+  return (content || '').trim().replace(/\s+/g, ' ');
+}
+
+function isLikelyOptimisticDuplicate(optimistic: ChatMessage, incoming: ChatMessage): boolean {
+  if (optimistic.role !== incoming.role) {
+    return false;
+  }
+
+  const a = normalizeContent(optimistic.content);
+  const b = normalizeContent(incoming.content);
+  if (!a || !b) {
+    return false;
+  }
+
+  if (optimistic.role === 'user') {
+    return a === b;
+  }
+
+  if (a === b) {
+    return true;
+  }
+
+  // Assistant optimistic text is often streamed and may be truncated
+  // when SSE final message arrives; allow prefix/contain matching.
+  const minLen = 20;
+  if (a.length >= minLen && b.length >= minLen) {
+    return a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
+  }
+  return false;
+}
+
+export function mergeInitialAndStreamedMessages(
+  initialMessages: ChatMessage[],
+  streamedMessages: ChatMessage[],
+  nowMs: number = Date.now()
+): ChatMessage[] {
+  if (streamedMessages.length === 0) {
+    return initialMessages;
+  }
+
+  const existingIds = new Set(initialMessages.map(m => m.id));
+  const optimisticPool = initialMessages.filter(m => isOptimisticMessage(m, nowMs));
+  const replacedOptimisticIds = new Set<string>();
+  const acceptedStreamed: ChatMessage[] = [];
+  const acceptedIds = new Set<string>();
+
+  for (const incoming of streamedMessages) {
+    if (existingIds.has(incoming.id) || acceptedIds.has(incoming.id)) {
+      continue;
+    }
+
+    const matchIndex = optimisticPool.findIndex(
+      msg =>
+        !replacedOptimisticIds.has(msg.id) &&
+        isLikelyOptimisticDuplicate(msg, incoming)
+    );
+
+    if (matchIndex >= 0) {
+      replacedOptimisticIds.add(optimisticPool[matchIndex].id);
+      optimisticPool.splice(matchIndex, 1);
+    }
+
+    acceptedIds.add(incoming.id);
+    acceptedStreamed.push(incoming);
+  }
+
+  if (acceptedStreamed.length === 0 && replacedOptimisticIds.size === 0) {
+    return initialMessages;
+  }
+
+  const baseMessages = replacedOptimisticIds.size > 0
+    ? initialMessages.filter(m => !replacedOptimisticIds.has(m.id))
+    : initialMessages;
+
+  return [...baseMessages, ...acceptedStreamed].sort(
+    (a, b) => getTimestampMs(a) - getTimestampMs(b)
+  );
+}
+
 export interface MessagesState {
   messages: ChatMessage[];
   setMessages: (messages: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
@@ -92,26 +189,12 @@ export function MessagesProvider({
 
   // 🆕 Merge initial messages with SSE streamed messages
   const messages = useMemo(() => {
-    if (streamedMessages.length === 0) {
-      return initialMessages;
+    const merged = mergeInitialAndStreamedMessages(initialMessages, streamedMessages);
+    const newCount = merged.length - initialMessages.length;
+    if (newCount > 0) {
+      console.log(`[MessagesContext] Merging ${newCount} new SSE messages`);
     }
-
-    // Create a Set of existing message IDs for deduplication
-    const existingIds = new Set(initialMessages.map(m => m.id));
-
-    // Add only new messages from SSE stream
-    const newMessages = streamedMessages.filter(m => !existingIds.has(m.id));
-
-    if (newMessages.length === 0) {
-      return initialMessages;
-    }
-
-    console.log(`[MessagesContext] Merging ${newMessages.length} new SSE messages`);
-
-    // Combine and sort by timestamp
-    return [...initialMessages, ...newMessages].sort(
-      (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
-    );
+    return merged;
   }, [initialMessages, streamedMessages]);
 
   const executionStateHookResult = executionStateHook || {} as ExecutionUIState;
@@ -191,5 +274,4 @@ export function useMessages() {
   }
   return context;
 }
-
 

@@ -4,7 +4,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
 import { getApiBaseUrl } from '@/lib/api-url';
+import { t } from '@/lib/i18n';
 import InstructionPreview from '../components/InstructionPreview';
+import InstructionChat from '../components/InstructionChat';
 
 const API_URL = getApiBaseUrl();
 
@@ -14,6 +16,14 @@ interface InstructionFields {
     anti_goals: string[];
     style_rules: string[];
     domain_context: string;
+}
+
+interface InstructionPatch {
+    persona?: string | null;
+    goals?: string[] | null;
+    anti_goals?: string[] | null;
+    style_rules?: string[] | null;
+    domain_context?: string | null;
 }
 
 const EMPTY_FIELDS: InstructionFields = {
@@ -53,6 +63,9 @@ export default function WorkspaceInstructionPage() {
             };
             setFields(loaded);
             setSavedFields(loaded);
+        } else {
+            setFields(EMPTY_FIELDS);
+            setSavedFields(EMPTY_FIELDS);
         }
     }, [workspace]);
 
@@ -121,6 +134,29 @@ export default function WorkspaceInstructionPage() {
         }
     };
 
+    const handleApplyPatch = useCallback((patch: InstructionPatch) => {
+        setFields(prev => {
+            const next = { ...prev };
+            if (Object.prototype.hasOwnProperty.call(patch, 'persona')) {
+                next.persona = patch.persona ?? '';
+            }
+            if (Object.prototype.hasOwnProperty.call(patch, 'goals')) {
+                next.goals = patch.goals ?? [];
+            }
+            if (Object.prototype.hasOwnProperty.call(patch, 'anti_goals')) {
+                next.anti_goals = patch.anti_goals ?? [];
+            }
+            if (Object.prototype.hasOwnProperty.call(patch, 'style_rules')) {
+                next.style_rules = patch.style_rules ?? [];
+            }
+            if (Object.prototype.hasOwnProperty.call(patch, 'domain_context')) {
+                next.domain_context = patch.domain_context ?? '';
+            }
+            return next;
+        });
+        setSaveStatus('idle');
+    }, []);
+
     return (
         <div className="h-full flex flex-col bg-white dark:bg-gray-950">
             {/* Top bar */}
@@ -135,7 +171,7 @@ export default function WorkspaceInstructionPage() {
                         </svg>
                     </button>
                     <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                        Workspace Instruction
+                        {t('workspaceInstructionTitle' as any)}
                     </h1>
                     <span className="text-xs text-gray-500 dark:text-gray-400">
                         {workspace?.title}
@@ -143,20 +179,21 @@ export default function WorkspaceInstructionPage() {
                 </div>
                 <div className="flex items-center gap-3">
                     {isDirty && (
-                        <span className="text-xs text-amber-600 dark:text-amber-400">● 未儲存的變更</span>
+                        <span className="text-xs text-amber-600 dark:text-amber-400">{t('workspaceInstructionUnsavedChanges' as any)}</span>
                     )}
                     {saveStatus === 'saved' && (
-                        <span className="text-xs text-green-600 dark:text-green-400">✓ 已儲存</span>
+                        <span className="text-xs text-green-600 dark:text-green-400">{t('workspaceInstructionSaved' as any)}</span>
                     )}
                     {saveStatus === 'error' && (
-                        <span className="text-xs text-red-600 dark:text-red-400">✗ 儲存失敗</span>
+                        <span className="text-xs text-red-600 dark:text-red-400">{t('workspaceInstructionSaveFailed' as any)}</span>
                     )}
                     <button
+                        data-testid="instruction-save-button"
                         onClick={handleSave}
                         disabled={!isDirty || saving}
                         className="px-4 py-1.5 text-sm bg-blue-600 dark:bg-blue-700 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                        {saving ? '儲存中...' : '儲存'}
+                        {saving ? t('workspaceInstructionSaving' as any) : t('workspaceInstructionSave' as any)}
                     </button>
                 </div>
             </div>
@@ -169,12 +206,13 @@ export default function WorkspaceInstructionPage() {
                         {/* Persona */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                Persona
+                                {t('instructionPersona' as any)}
                             </label>
                             <textarea
+                                data-testid="instruction-persona-textarea"
                                 value={fields.persona}
                                 onChange={e => setFields(prev => ({ ...prev, persona: e.target.value }))}
-                                placeholder="You are a brand strategist for a yoga studio..."
+                                placeholder={t('instructionPersonaPlaceholder' as any)}
                                 rows={3}
                                 maxLength={500}
                                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
@@ -187,7 +225,7 @@ export default function WorkspaceInstructionPage() {
                         {/* Goals */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                Goals
+                                {t('instructionGoals' as any)}
                             </label>
                             <div className="flex flex-wrap gap-1.5 mb-2">
                                 {fields.goals.map((goal, i) => (
@@ -201,7 +239,7 @@ export default function WorkspaceInstructionPage() {
                                 value={goalInput}
                                 onChange={e => setGoalInput(e.target.value)}
                                 onKeyDown={e => handleTagKeyDown(e, 'goals', goalInput, setGoalInput)}
-                                placeholder="輸入目標後按 Enter..."
+                                placeholder={t('instructionGoalsPlaceholder' as any)}
                                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                             />
                         </div>
@@ -209,7 +247,7 @@ export default function WorkspaceInstructionPage() {
                         {/* Anti-goals */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                Anti-goals (DO NOT)
+                                {t('instructionAntiGoals' as any)}
                             </label>
                             <div className="flex flex-wrap gap-1.5 mb-2">
                                 {fields.anti_goals.map((ag, i) => (
@@ -223,7 +261,7 @@ export default function WorkspaceInstructionPage() {
                                 value={antiGoalInput}
                                 onChange={e => setAntiGoalInput(e.target.value)}
                                 onKeyDown={e => handleTagKeyDown(e, 'anti_goals', antiGoalInput, setAntiGoalInput)}
-                                placeholder="輸入禁止事項後按 Enter..."
+                                placeholder={t('instructionAntiGoalsPlaceholder' as any)}
                                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                             />
                         </div>
@@ -231,7 +269,7 @@ export default function WorkspaceInstructionPage() {
                         {/* Style Rules */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                Style Rules
+                                {t('instructionStyleRules' as any)}
                             </label>
                             <div className="flex flex-wrap gap-1.5 mb-2">
                                 {fields.style_rules.map((rule, i) => (
@@ -245,7 +283,7 @@ export default function WorkspaceInstructionPage() {
                                 value={styleInput}
                                 onChange={e => setStyleInput(e.target.value)}
                                 onKeyDown={e => handleTagKeyDown(e, 'style_rules', styleInput, setStyleInput)}
-                                placeholder="輸入風格規則後按 Enter..."
+                                placeholder={t('instructionStyleRulesPlaceholder' as any)}
                                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                             />
                         </div>
@@ -253,12 +291,12 @@ export default function WorkspaceInstructionPage() {
                         {/* Domain Context */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                Domain Context
+                                {t('instructionDomainContext' as any)}
                             </label>
                             <textarea
                                 value={fields.domain_context}
                                 onChange={e => setFields(prev => ({ ...prev, domain_context: e.target.value }))}
-                                placeholder="背景知識、專業術語、品牌定位..."
+                                placeholder={t('instructionDomainContextPlaceholder' as any)}
                                 rows={6}
                                 maxLength={2000}
                                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
@@ -281,55 +319,14 @@ export default function WorkspaceInstructionPage() {
                     />
                 </div>
 
-                {/* Right: Placeholder for LLM Chat (Phase 2) */}
-                <div className="col-span-3 bg-gray-50 dark:bg-gray-900 flex flex-col">
-                    <div className="flex items-center px-4 py-3 border-b dark:border-gray-700 flex-shrink-0">
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">AI 指令助手</span>
-                        <span className="ml-2 text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded">
-                            Coming Soon
-                        </span>
-                    </div>
-                    <div className="flex-1 flex items-center justify-center p-6">
-                        <div className="text-center max-w-xs">
-                            <div className="text-4xl mb-4">🤖</div>
-                            <div className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">
-                                AI Instruction Assistant
-                            </div>
-                            <div className="text-xs text-gray-400 dark:text-gray-500 mb-4">
-                                即將支援：透過對話讓 AI 協助你撰寫、優化 Workspace 指令
-                            </div>
-                            <div className="space-y-2">
-                                {[
-                                    '幫我寫一個品牌顧問的 persona',
-                                    '優化目前的 anti-goals',
-                                    '根據我的產業補充 domain context',
-                                ].map((suggestion, i) => (
-                                    <div
-                                        key={i}
-                                        className="text-xs px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-500 dark:text-gray-400 cursor-not-allowed opacity-60"
-                                    >
-                                        {suggestion}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="p-4 border-t dark:border-gray-700 flex-shrink-0">
-                        <div className="flex gap-2">
-                            <input
-                                type="text"
-                                placeholder="Phase 2: AI-assisted editing..."
-                                disabled
-                                className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed"
-                            />
-                            <button
-                                disabled
-                                className="px-4 py-2 text-sm bg-gray-300 dark:bg-gray-700 text-gray-500 rounded-lg cursor-not-allowed"
-                            >
-                                送出
-                            </button>
-                        </div>
-                    </div>
+                {/* Right: LLM Chat (Phase 2) */}
+                <div className="col-span-3 border-l dark:border-gray-700">
+                    <InstructionChat
+                        workspaceId={workspaceId}
+                        apiUrl={API_URL}
+                        currentInstruction={fields}
+                        onApplyPatch={handleApplyPatch}
+                    />
                 </div>
             </div>
         </div>
