@@ -6,11 +6,9 @@ import IntegratedSystemStatusCard from '../../../../components/IntegratedSystemS
 import StoragePathConfigModal from '@/components/StoragePathConfigModal';
 import TimelinePanel from '../../components/TimelinePanel';
 import LeftSidebarTabs from './LeftSidebarTabs';
-import ProjectCard from './ProjectCard';
 import ProjectSubTabs from './ProjectSubTabs';
 import { PackPanel } from './PackPanel';
 import RuntimeSettingsModal from './RuntimeSettingsModal';
-import WorkspaceInstructionModal from './WorkspaceInstructionModal';
 import { Project } from '@/types/project';
 import { Workspace } from '../workspace-page.types';
 
@@ -34,8 +32,6 @@ interface WorkspaceLeftSidebarProps {
     setShowDataSourcesModal: (show: boolean) => void;
     showRuntimeModal: boolean;
     setShowRuntimeModal: (show: boolean) => void;
-    showInstructionModal: boolean;
-    setShowInstructionModal: (show: boolean) => void;
     onRefreshAll: () => void;
 }
 
@@ -59,8 +55,6 @@ export default function WorkspaceLeftSidebar({
     setShowDataSourcesModal,
     showRuntimeModal,
     setShowRuntimeModal,
-    showInstructionModal,
-    setShowInstructionModal,
     onRefreshAll,
 }: WorkspaceLeftSidebarProps) {
     const router = useRouter();
@@ -176,7 +170,7 @@ export default function WorkspaceLeftSidebar({
                                             ☁️ Runtime
                                         </button>
                                         <button
-                                            onClick={() => setShowInstructionModal(true)}
+                                            onClick={() => router.push(`/workspaces/${workspaceId}/instruction`)}
                                             className="flex-1 px-3 py-2 text-xs font-medium text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
                                         >
                                             🎯 指令
@@ -221,16 +215,6 @@ export default function WorkspaceLeftSidebar({
                         isOpen={showRuntimeModal}
                         onClose={() => setShowRuntimeModal(false)}
                         workspaceId={workspaceId}
-                    />
-                    <WorkspaceInstructionModal
-                        isOpen={showInstructionModal}
-                        onClose={() => setShowInstructionModal(false)}
-                        workspaceId={workspaceId}
-                        apiUrl={apiUrl}
-                        initialInstruction={workspace?.workspace_blueprint?.instruction}
-                        onUpdate={() => {
-                            onRefreshAll();
-                        }}
                     />
                 </>
             )}

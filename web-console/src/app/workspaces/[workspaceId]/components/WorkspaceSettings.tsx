@@ -6,7 +6,6 @@ import ResourceBindingPanel from './ResourceBindingPanel';
 import ToolOverlayPanel from './ToolOverlayPanel';
 import DataSourceOverlayPanel from './DataSourceOverlayPanel';
 import CapabilityExtensionSlot from './CapabilityExtensionSlot';
-import WorkspaceInstructionEditor from './WorkspaceInstructionEditor';
 
 type ExecutionMode = 'qa' | 'execution' | 'hybrid' | 'meeting';
 type ExecutionPriority = 'low' | 'medium' | 'high';
@@ -690,17 +689,6 @@ export default function WorkspaceSettings({
             </button>
           </div>
         </div>
-
-        {/* Divider */}
-        <hr className="border-gray-200 dark:border-gray-700" />
-
-        {/* Workspace Instruction */}
-        <WorkspaceInstructionEditor
-          workspaceId={workspaceId}
-          apiUrl={apiUrl}
-          initialInstruction={workspace.workspace_blueprint?.instruction}
-          onUpdate={onUpdate}
-        />
 
         {/* Divider */}
         <hr className="border-gray-200 dark:border-gray-700" />

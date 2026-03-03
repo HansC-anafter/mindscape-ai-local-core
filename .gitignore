@@ -75,6 +75,9 @@ test_*.yaml
 !backend/tests/test_system_control_restart_api.py
 !backend/tests/test_runner_time_tzinfo.py
 !web-console/src/lib/__tests__/time.test.ts
+!backend/tests/test_workspace_instruction_chat_merge.py
+!web-console/src/app/workspaces/**/instruction/page.test.tsx
+!web-console/src/contexts/__tests__/MessagesContext.merge.test.ts
 
 # PDF test files
 *.pdf
