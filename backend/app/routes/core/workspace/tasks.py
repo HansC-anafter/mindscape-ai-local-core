@@ -1,6 +1,6 @@
 import logging
 import uuid
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import (
     APIRouter,
@@ -61,6 +61,13 @@ async def get_workspace_executions(
     ),
     order_by: str = Query("created_at", description="Field to order by"),
     order: str = Query("desc", description="Sort order: asc or desc"),
+    include_execution_context: bool = Query(
+        False,
+        description=(
+            "Include full execution_context payload. "
+            "Default false returns a trimmed context to avoid oversized list payloads."
+        ),
+    ),
 ):
     """List executions (tasks) for a workspace with optional playbook filters."""
     try:
@@ -68,8 +75,43 @@ async def get_workspace_executions(
 
         tasks_store = TasksStore()
 
-        query_parts = ["SELECT * FROM tasks WHERE workspace_id = :workspace_id"]
-        params: dict = {"workspace_id": workspace_id}
+        query_parts = [
+            """
+            SELECT
+                id,
+                workspace_id,
+                message_id,
+                execution_id,
+                project_id,
+                pack_id,
+                task_type,
+                status,
+                params,
+                result,
+                CASE
+                    WHEN :include_execution_context THEN execution_context
+                    WHEN execution_context IS NULL THEN NULL
+                    ELSE (
+                        execution_context::jsonb
+                        - 'result'
+                        - 'workflow_result'
+                        - 'step_outputs'
+                        - 'outputs'
+                    )::json
+                END AS execution_context,
+                storyline_tags,
+                created_at,
+                started_at,
+                completed_at,
+                error
+            FROM tasks
+            WHERE workspace_id = :workspace_id
+            """
+        ]
+        params: dict = {
+            "workspace_id": workspace_id,
+            "include_execution_context": include_execution_context,
+        }
 
         if playbook_code:
             query_parts.append("AND pack_id = :pack_id")
@@ -104,6 +146,124 @@ async def get_workspace_executions(
         return {"executions": executions}
     except Exception as e:
         logger.error(f"Failed to get workspace executions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{workspace_id}/executions/{execution_id}/progress-snapshot")
+async def get_execution_progress_snapshot(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    execution_id: str = PathParam(..., description="Execution ID"),
+):
+    """
+    Return a lightweight progress snapshot for one execution.
+
+    This endpoint avoids returning full artifact `content` payloads while still exposing
+    the latest `progress` object and metadata needed by UI status/debug cards.
+    """
+    import json
+    from sqlalchemy import text
+
+    def _to_json(value: Any, default: Any = None):
+        if value is None:
+            return default
+        if isinstance(value, (dict, list, int, float, bool)):
+            return value
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return default
+        return default
+
+    try:
+        tasks_store = TasksStore()
+        task = tasks_store.get_task_by_execution_id(execution_id)
+        if not task:
+            task = tasks_store.get_task(execution_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Execution not found")
+        if task.workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=403, detail="Execution does not belong to this workspace"
+            )
+
+        artifact_id = None
+        artifact_updated_at = None
+        progress = None
+        artifact_metadata = {}
+        content_metadata = {}
+
+        # Fast path (Postgres JSON extraction): read only progress + metadata, not full content blob.
+        try:
+            with tasks_store.get_connection() as conn:
+                row = conn.execute(
+                    text(
+                        """
+                        SELECT
+                            id,
+                            updated_at,
+                            created_at,
+                            metadata,
+                            content::jsonb->'progress' AS progress,
+                            content::jsonb->'metadata' AS content_metadata
+                        FROM artifacts
+                        WHERE workspace_id = :workspace_id
+                          AND execution_id = :execution_id
+                          AND content IS NOT NULL
+                          AND content::jsonb ? 'progress'
+                        ORDER BY updated_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"workspace_id": workspace_id, "execution_id": execution_id},
+                ).fetchone()
+            if row:
+                artifact_id = str(row.id)
+                ts = row.updated_at or row.created_at
+                artifact_updated_at = ts.isoformat() if ts else None
+                progress = _to_json(row.progress, {})
+                artifact_metadata = _to_json(row.metadata, {}) or {}
+                content_metadata = _to_json(row.content_metadata, {}) or {}
+        except Exception:
+            # Fallback: use store-level artifact read if DB JSON operators aren't available.
+            artifact = store.artifacts.get_by_execution_id(execution_id)
+            if artifact and artifact.workspace_id == workspace_id:
+                content = artifact.content or {}
+                artifact_id = artifact.id
+                ts = artifact.updated_at or artifact.created_at
+                artifact_updated_at = ts.isoformat() if ts else None
+                artifact_metadata = artifact.metadata or {}
+                if isinstance(content, dict):
+                    p = content.get("progress")
+                    progress = p if isinstance(p, dict) else {}
+                    cm = content.get("metadata")
+                    content_metadata = cm if isinstance(cm, dict) else {}
+
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+
+        return {
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "task_status": task.status,
+            "artifact_id": artifact_id,
+            "artifact_updated_at": artifact_updated_at,
+            "progress": progress if isinstance(progress, dict) else None,
+            "artifact_metadata": artifact_metadata,
+            "content_metadata": content_metadata,
+            "execution_context": {
+                "heartbeat_at": ctx.get("heartbeat_at"),
+                "runner_id": ctx.get("runner_id"),
+                "execution_backend_hint": ctx.get("execution_backend_hint"),
+                "inputs": ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {},
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to get execution progress snapshot for {execution_id}: {e}",
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
