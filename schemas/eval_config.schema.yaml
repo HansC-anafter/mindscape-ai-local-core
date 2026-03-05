@@ -1,0 +1,223 @@
+# Eval Config Schema for Capability Packs
+#
+# Defines the structure of evals/eval_config.yaml within each capability pack.
+# Evaluation scenarios validate tool behavior, playbook trigger accuracy,
+# and output quality.
+#
+# Usage within a capability:
+#   capabilities/{code}/evals/eval_config.yaml
+
+$schema: "http://json-schema.org/draft-07/schema#"
+title: Capability Eval Config
+description: |
+  Evaluation configuration for a capability pack.
+  Defines test scenarios that validate tool and playbook quality.
+type: object
+required:
+  - version
+  - capability_code
+  - scenarios
+
+properties:
+  version:
+    type: string
+    pattern: "^\\d+\\.\\d+\\.\\d+$"
+    description: "Eval config version"
+    examples:
+      - "1.0.0"
+
+  capability_code:
+    type: string
+    pattern: "^[a-z0-9_]+$"
+    description: "Must match the parent capability code"
+
+  description:
+    type: string
+    description: "What this eval suite covers"
+
+  # ============================================================================
+  # Eval Scenarios
+  # ============================================================================
+
+  scenarios:
+    type: array
+    minItems: 1
+    description: "List of evaluation scenarios"
+    items:
+      type: object
+      required:
+        - name
+        - type
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+          description: "Scenario identifier"
+
+        type:
+          type: string
+          enum: [tool_trigger, tool_output, playbook_flow, integration]
+          description: |
+            Scenario type:
+            - tool_trigger: Does the LLM select the correct tool for a given prompt?
+            - tool_output: Does the tool produce expected output for given input?
+            - playbook_flow: Does the playbook execute the expected sequence of steps?
+            - integration: End-to-end test with multiple tools/playbooks
+
+        description:
+          type: string
+          description: "What this scenario validates"
+
+        # Target tool or playbook
+        target_tool:
+          type: string
+          description: "Tool name to evaluate (for tool_trigger/tool_output)"
+
+        target_playbook:
+          type: string
+          description: "Playbook code to evaluate (for playbook_flow)"
+
+        # Trigger test: prompt -> expected tool selection
+        trigger:
+          type: object
+          description: "Trigger evaluation config (type: tool_trigger)"
+          properties:
+            prompts:
+              type: array
+              items:
+                type: object
+                required: [input]
+                properties:
+                  input:
+                    type: string
+                    description: "User prompt to test"
+                  expected_tool:
+                    type: string
+                    description: "Expected tool to be selected"
+                  expected_not_tools:
+                    type: array
+                    items:
+                      type: string
+                    description: "Tools that should NOT be selected"
+                  locale:
+                    type: string
+                    description: "Prompt locale"
+                    default: "zh-TW"
+
+        # Output test: input -> expected output shape/content
+        output:
+          type: object
+          description: "Output evaluation config (type: tool_output)"
+          properties:
+            cases:
+              type: array
+              items:
+                type: object
+                required: [input]
+                properties:
+                  input:
+                    type: object
+                    description: "Tool input parameters"
+                  expected_status:
+                    type: string
+                    enum: [success, error]
+                    default: success
+                  expected_fields:
+                    type: array
+                    items:
+                      type: string
+                    description: "Fields that must exist in output"
+                  assertions:
+                    type: array
+                    items:
+                      type: object
+                      required: [field, operator, value]
+                      properties:
+                        field:
+                          type: string
+                          description: "JSONPath to field in output"
+                        operator:
+                          type: string
+                          enum:
+                            [
+                              eq,
+                              neq,
+                              contains,
+                              not_contains,
+                              gt,
+                              lt,
+                              gte,
+                              lte,
+                              matches,
+                              type_is,
+                            ]
+                        value:
+                          description: "Expected value"
+                    description: "Output assertions"
+
+        # Flow test: playbook step sequence
+        flow:
+          type: object
+          description: "Flow evaluation config (type: playbook_flow)"
+          properties:
+            expected_steps:
+              type: array
+              items:
+                type: string
+              description: "Expected tool call sequence"
+            max_steps:
+              type: integer
+              minimum: 1
+              description: "Maximum number of steps before timeout"
+            expected_output_fields:
+              type: array
+              items:
+                type: string
+              description: "Fields in final playbook output"
+
+        # Tags for filtering
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Tags for filtering scenarios (e.g., smoke, regression, slow)"
+
+        # Timeout
+        timeout_sec:
+          type: number
+          minimum: 1
+          default: 30
+          description: "Timeout in seconds for this scenario"
+
+        # Skip
+        skip:
+          type: boolean
+          default: false
+          description: "Skip this scenario"
+
+        skip_reason:
+          type: string
+          description: "Why this scenario is skipped"
+
+  # ============================================================================
+  # Global Config
+  # ============================================================================
+
+  defaults:
+    type: object
+    description: "Default values for all scenarios"
+    properties:
+      timeout_sec:
+        type: number
+        default: 30
+      locale:
+        type: string
+        default: "zh-TW"
+      llm_model:
+        type: string
+        description: "Default LLM model for trigger tests"
+      retry_count:
+        type: integer
+        minimum: 0
+        default: 0
+        description: "Number of retries on failure"

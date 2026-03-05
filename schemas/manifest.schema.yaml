@@ -52,13 +52,18 @@ properties:
 
   type:
     type: string
-    enum: [feature, core, extension]
+    enum: [feature, core, extension, connector, system, agent, infrastructure, system_runtime]
     default: feature
     description: |
       能力類型：
       - feature: 功能型能力包
       - core: 核心能力（系統必需）
       - extension: 擴展能力
+      - connector: 外部服務連接器
+      - system: 系統級能力
+      - agent: AI Agent 能力
+      - infrastructure: 基礎設施能力
+      - system_runtime: 系統運行時能力
 
   # ============================================================================
   # 可移植性宣告（必需）
@@ -106,72 +111,77 @@ properties:
   # ============================================================================
 
   dependencies:
-    type: object
-    description: "依賴宣告"
-    properties:
-      required:
-        type: array
-        items:
-          type: string
-        description: "必要依賴 - 缺少時 capability 無法啟動"
-        examples:
-          - [core_llm]
-          - [core_llm, database]
+    oneOf:
+      - type: object
+        description: "依賴宣告（推薦格式）"
+        properties:
+          required:
+            type: array
+            items:
+              type: string
+            description: "必要依賴 - 缺少時 capability 無法啟動"
+            examples:
+              - [core_llm]
+              - [core_llm, database]
 
-      optional:
-        type: array
-        items:
-          oneOf:
-            - type: string
-            - type: object
+          optional:
+            type: array
+            items:
+              oneOf:
+                - type: string
+                - type: object
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                      description: "依賴名稱"
+                    fallback:
+                      type: string
+                      nullable: true
+                      description: "替代模組路徑，null 表示無替代"
+                    degraded_features:
+                      type: array
+                      items:
+                        type: string
+                      description: "缺少此依賴時降級的功能列表"
+            description: |
+              可選依賴 - 缺少時 capability 可以啟動但部分功能不可用。
+              建議使用物件格式宣告 fallback 和 degraded_features。
+            examples:
+              - name: contracts.execution_context
+                fallback: mindscape.shims.execution_context
+                degraded_features:
+                  - pipeline_orchestration
+                  - async_job_dispatch
+
+          external_services:
+            type: array
+            items:
+              type: object
               required: [name]
               properties:
                 name:
                   type: string
-                  description: "依賴名稱"
-                fallback:
+                  description: "外部服務名稱"
+                env_var:
                   type: string
-                  nullable: true
-                  description: "替代模組路徑，null 表示無替代"
+                  description: "配置此服務所需的環境變量"
                 degraded_features:
                   type: array
                   items:
                     type: string
-                  description: "缺少此依賴時降級的功能列表"
-        description: |
-          可選依賴 - 缺少時 capability 可以啟動但部分功能不可用。
-          建議使用物件格式宣告 fallback 和 degraded_features。
-        examples:
-          - name: contracts.execution_context
-            fallback: mindscape.shims.execution_context
-            degraded_features:
-              - pipeline_orchestration
-              - async_job_dispatch
-
-      external_services:
-        type: array
+                  description: "缺少此服務時降級的功能列表"
+            description: "外部服務依賴（需要配置 API keys 等）"
+            examples:
+              - name: gcs_storage
+                env_var: GCS_CREDENTIALS
+                degraded_features:
+                  - video_upload
+                  - asset_storage
+      - type: array
+        description: "依賴宣告（舊格式，接受但建議遷移至 object 格式）"
         items:
-          type: object
-          required: [name]
-          properties:
-            name:
-              type: string
-              description: "外部服務名稱"
-            env_var:
-              type: string
-              description: "配置此服務所需的環境變量"
-            degraded_features:
-              type: array
-              items:
-                type: string
-              description: "缺少此服務時降級的功能列表"
-        description: "外部服務依賴（需要配置 API keys 等）"
-        examples:
-          - name: gcs_storage
-            env_var: GCS_CREDENTIALS
-            degraded_features:
-              - video_upload
-              - asset_storage
+          type: string
 
   # ============================================================================
   # Playbook 定義
