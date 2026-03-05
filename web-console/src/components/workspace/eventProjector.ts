@@ -8,6 +8,7 @@
  */
 
 import { DecisionCardData } from './DecisionCard';
+import { getApiBaseUrl } from '@/lib/api-url';
 
 /**
  * Unified event type (maps to backend EventType)
@@ -597,7 +598,8 @@ function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
     existing.eventSource.close();
   }
 
-  const baseUrl = apiUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+  // SSE requires direct backend connection; Next.js rewrites buffer chunked responses.
+  const baseUrl = apiUrl || getApiBaseUrl();
   // Subscribe to ALL event types; client-side filtering per subscriber
   const url = `${baseUrl}/api/v1/workspaces/${workspaceId}/events/stream`;
 

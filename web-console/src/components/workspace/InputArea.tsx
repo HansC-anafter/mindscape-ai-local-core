@@ -291,7 +291,7 @@ export function InputArea({
           contextTokenCount={contextTokenCount}
           onModelChange={handleModelChange}
           onFileUpload={() => fileInputRef.current?.click()}
-          onSend={() => onSend({} as React.FormEvent)}
+          onSend={() => onSend({ preventDefault: () => { } } as React.FormEvent)}
           isLoading={isLoading}
           canSend={canSend}
           llmConfigured={llmConfigured}
