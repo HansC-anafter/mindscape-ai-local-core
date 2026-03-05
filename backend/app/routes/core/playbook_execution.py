@@ -405,6 +405,14 @@ async def start_playbook_execution(
                     resolved_backend,
                 )
             final_execution_backend = resolved_backend
+            # Acquire slot so quota counter reflects active work.
+            # Release happens in execution completion callbacks.
+            if not pool.acquire(final_execution_backend):
+                logger.warning(
+                    "Pool capacity exhausted for %s, falling back to in_process",
+                    final_execution_backend,
+                )
+                final_execution_backend = "in_process"
 
         # Remote backend: dispatch to cloud control plane via CloudConnector
         if final_execution_backend == "remote":
@@ -1101,6 +1109,24 @@ async def rerun_playbook_execution(
         if final_execution_backend not in {"auto", "runner", "in_process", "remote"}:
             final_execution_backend = "auto"
 
+        # Pool-aware backend selection (same logic as start path)
+        pool = _get_execution_pool()
+        if pool and final_execution_backend in {"auto", "remote", "runner"}:
+            resolved_backend = pool.select_backend(hint=final_execution_backend)
+            if resolved_backend != final_execution_backend:
+                logger.info(
+                    "Pool dispatcher resolved rerun backend: %s -> %s",
+                    final_execution_backend,
+                    resolved_backend,
+                )
+            final_execution_backend = resolved_backend
+            if not pool.acquire(final_execution_backend):
+                logger.warning(
+                    "Pool capacity exhausted for rerun %s, falling back to in_process",
+                    final_execution_backend,
+                )
+                final_execution_backend = "in_process"
+
         if merged_inputs is None:
             merged_inputs = {}
         if isinstance(merged_inputs, dict):
@@ -1112,6 +1138,15 @@ async def rerun_playbook_execution(
         profile_id = (
             ctx.get("profile_id") or getattr(task, "profile_id", None) or "default-user"
         )
+
+        # Remote backend: dispatch rerun to cloud
+        if final_execution_backend == "remote":
+            return await _dispatch_remote_execution(
+                playbook_code=playbook_code,
+                inputs=merged_inputs,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+            )
 
         # If backend is configured for runner (or caller explicitly prefers runner), enqueue workflow-json playbooks.
         exec_mode = _get_execution_mode()
