@@ -261,14 +261,19 @@ class MeetingSessionStore(PostgresStoreBase):
         """Get the currently active (un-ended) session for a workspace/thread.
 
         Uses the idx_meeting_sessions_active index (workspace_id, ended_at).
+        Only considers sessions with actionable statuses (planned/active/closing).
         """
+        # Common status filter to exclude failed/aborted/closed sessions
+        status_clause = "AND status IN ('planned', 'active', 'closing')"
+
         if project_id and thread_id:
-            query = """
+            query = f"""
                 SELECT * FROM meeting_sessions
                 WHERE workspace_id = :workspace_id
                   AND project_id = :project_id
                   AND thread_id = :thread_id
                   AND ended_at IS NULL
+                  {status_clause}
                 ORDER BY started_at DESC LIMIT 1
             """
             params = {
@@ -277,28 +282,31 @@ class MeetingSessionStore(PostgresStoreBase):
                 "thread_id": thread_id,
             }
         elif project_id:
-            query = """
+            query = f"""
                 SELECT * FROM meeting_sessions
                 WHERE workspace_id = :workspace_id
                   AND project_id = :project_id
                   AND ended_at IS NULL
+                  {status_clause}
                 ORDER BY started_at DESC LIMIT 1
             """
             params = {"workspace_id": workspace_id, "project_id": project_id}
         elif thread_id:
-            query = """
+            query = f"""
                 SELECT * FROM meeting_sessions
                 WHERE workspace_id = :workspace_id
                   AND thread_id = :thread_id
                   AND ended_at IS NULL
+                  {status_clause}
                 ORDER BY started_at DESC LIMIT 1
             """
             params = {"workspace_id": workspace_id, "thread_id": thread_id}
         else:
-            query = """
+            query = f"""
                 SELECT * FROM meeting_sessions
                 WHERE workspace_id = :workspace_id
                   AND ended_at IS NULL
+                  {status_clause}
                 ORDER BY started_at DESC LIMIT 1
             """
             params = {"workspace_id": workspace_id}
