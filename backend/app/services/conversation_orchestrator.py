@@ -42,7 +42,9 @@ from backend.app.services.intent_analyzer import IntentPipeline
 from backend.app.services.playbook_runner import PlaybookRunner
 from backend.app.services.i18n_service import get_i18n_service
 from backend.app.services.stores.tasks_store import TasksStore
-from backend.app.services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
+from backend.app.services.stores.postgres.timeline_items_store import (
+    PostgresTimelineItemsStore,
+)
 from backend.app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
 from backend.app.services.conversation.plan_builder import PlanBuilder
 from backend.app.services.conversation.task_manager import TaskManager
@@ -150,8 +152,8 @@ class ConversationOrchestrator:
 
         playbook_service = PlaybookService(store=store)
 
-        # Use shared PlaybookRunner instance from API routes
-        from backend.app.routes.core.playbook_execution import (
+        # Use shared PlaybookRunner instance from execution_shared module
+        from backend.app.routes.core.execution_shared import (
             playbook_runner as shared_playbook_runner,
         )
 
