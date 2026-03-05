@@ -610,6 +610,11 @@ class PlaybookRegistry:
                                 f"Failed to load playbook {playbook_code} ({locale}) from {capability_code}: {e}"
                             )
 
+                    # Parse variants for this playbook (shared helper)
+                    self._parse_variants(
+                        playbook_config, capability_code, playbook_code
+                    )
+
                 logger.info(
                     f"Loaded {len(self.capability_playbooks[capability_code])} playbooks from {capability_code}"
                 )
