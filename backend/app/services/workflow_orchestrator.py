@@ -740,6 +740,35 @@ class WorkflowOrchestrator:
                     logger.debug(
                         f"WorkflowOrchestrator._execute_playbook_steps: Executing step {step.id}, playbook_inputs keys: {list(playbook_inputs.keys())}"
                     )
+
+                    # P3-4c: pre_step hook (failure prevents step execution)
+                    if hasattr(step, "hooks") and step.hooks and step.hooks.pre_step:
+                        try:
+                            from backend.app.routes.core.execution_hooks import (
+                                async_invoke_lifecycle_hook,
+                            )
+
+                            _hook_context = {
+                                "execution_id": execution_id or "",
+                                "workspace_id": workspace_id or "",
+                                "profile_id": profile_id or "",
+                                "step_id": step.id,
+                            }
+                            await async_invoke_lifecycle_hook(
+                                hook_name=f"pre_step:{step.id}",
+                                hook_spec=step.hooks.pre_step.model_dump(),
+                                normalized_inputs=playbook_inputs,
+                                execution_context=_hook_context,
+                                step_outputs=step_outputs,
+                            )
+                        except Exception as hook_err:
+                            logger.error(
+                                f"Step {step.id} pre_step hook failed, skipping step: {hook_err}"
+                            )
+                            raise ValueError(
+                                f"pre_step hook failed for step '{step.id}': {hook_err}"
+                            ) from hook_err
+
                     step_result = await self._execute_single_step(
                         step,
                         playbook_inputs,
@@ -771,6 +800,31 @@ class WorkflowOrchestrator:
                     logger.info(
                         f"Step {step.id} completed successfully. Output keys: {step_result_keys}, Preview: {step_result_preview}"
                     )
+
+                    # P3-4c: post_step hook (non-fatal)
+                    if hasattr(step, "hooks") and step.hooks and step.hooks.post_step:
+                        try:
+                            from backend.app.routes.core.execution_hooks import (
+                                async_invoke_lifecycle_hook,
+                            )
+
+                            _hook_context = {
+                                "execution_id": execution_id or "",
+                                "workspace_id": workspace_id or "",
+                                "profile_id": profile_id or "",
+                                "step_id": step.id,
+                            }
+                            await async_invoke_lifecycle_hook(
+                                hook_name=f"post_step:{step.id}",
+                                hook_spec=step.hooks.post_step.model_dump(),
+                                normalized_inputs=playbook_inputs,
+                                execution_context=_hook_context,
+                                step_outputs=step_outputs,
+                            )
+                        except Exception as hook_err:
+                            logger.warning(
+                                f"Step {step.id} post_step hook failed (non-fatal): {hook_err}"
+                            )
 
                     # Gate pause: stop after completing the step, wait for external approval.
                     gate = getattr(step, "gate", None)
@@ -847,6 +901,33 @@ class WorkflowOrchestrator:
                             status="failed",
                             error=str(e),
                         )
+
+                    # P3-4c: on_error hook (non-fatal)
+                    if hasattr(step, "hooks") and step.hooks and step.hooks.on_error:
+                        try:
+                            from backend.app.routes.core.execution_hooks import (
+                                async_invoke_lifecycle_hook,
+                            )
+
+                            _hook_context = {
+                                "execution_id": execution_id or "",
+                                "workspace_id": workspace_id or "",
+                                "profile_id": profile_id or "",
+                                "step_id": step.id,
+                                "error": error_msg,
+                            }
+                            await async_invoke_lifecycle_hook(
+                                hook_name=f"on_error:{step.id}",
+                                hook_spec=step.hooks.on_error.model_dump(),
+                                normalized_inputs=playbook_inputs,
+                                execution_context=_hook_context,
+                                step_outputs=step_outputs,
+                            )
+                        except Exception as hook_err:
+                            logger.warning(
+                                f"Step {step.id} on_error hook failed (non-fatal): {hook_err}"
+                            )
+
                     raise
 
         final_outputs = self._collect_final_outputs(playbook_json.outputs, step_outputs)
@@ -1185,9 +1266,26 @@ class WorkflowOrchestrator:
                 # Legacy mode: use tool field directly
                 tool_id = step.tool
                 logger.debug(f"Using legacy tool field: '{tool_id}'")
+            elif hasattr(step, "playbook_slot") and step.playbook_slot:
+                # Composition slot: sub-playbook invocation (P3-4d)
+                import os as _os
+
+                if (
+                    _os.getenv("ENABLE_PLAYBOOK_SLOT_RUNTIME", "false").lower()
+                    != "true"
+                ):
+                    raise ValueError(
+                        f"Step '{step.id}' uses playbook_slot '{step.playbook_slot}' "
+                        f"but runtime dispatch is not enabled. "
+                        f"Set ENABLE_PLAYBOOK_SLOT_RUNTIME=true to enable."
+                    )
+                # P3-4d will implement actual dispatch here
+                raise NotImplementedError(
+                    f"playbook_slot dispatch not yet implemented for '{step.playbook_slot}'"
+                )
             else:
                 raise ValueError(
-                    "PlaybookStep must have either 'tool' (legacy) or 'tool_slot' (recommended) field"
+                    "PlaybookStep must have 'tool', 'tool_slot', or 'playbook_slot'"
                 )
 
             # Check policy constraints if tool_policy is specified
