@@ -82,18 +82,25 @@ class PlaybookRegistry:
         self._loaded_capabilities: set = set()
         # Capabilities directory path (resolved once, reused for per-cap loading)
         self._capabilities_dir: Optional[Path] = None
+        # Concurrency protection: global load lock and per-capability locks
+        self._load_lock = asyncio.Lock()
+        self._capability_locks: Dict[str, asyncio.Lock] = {}
 
     async def _ensure_loaded(self):
         """Ensure system and user playbooks are loaded (lazy loading)"""
-        if not self._loaded:
-            await self._load_all_playbooks()
-            self._loaded = True
+        if self._loaded:
+            return
+        async with self._load_lock:
+            if not self._loaded:
+                await self._load_all_playbooks()
+                self._loaded = True
 
     async def _ensure_capability_loaded(self, capability_code: str):
         """
         Ensure a specific capability's playbooks are loaded.
         Only loads the requested capability, not all capabilities.
         Falls back to full load if capability directory cannot be resolved.
+        Uses per-capability lock to prevent concurrent duplicate loads.
         """
         if capability_code in self._loaded_capabilities:
             return
@@ -102,32 +109,41 @@ class PlaybookRegistry:
             self._loaded_capabilities.add(capability_code)
             return
 
-        # Ensure system playbooks are loaded first (needed for fallback lookups)
-        if not self._loaded:
-            # Load system + user playbooks but skip full capability scan
-            self._load_system_playbooks()
-            if self.store:
-                self._load_user_playbooks()
+        # Acquire per-capability lock to prevent concurrent duplicate loads
+        if capability_code not in self._capability_locks:
+            self._capability_locks[capability_code] = asyncio.Lock()
 
-        # Resolve capabilities directory if not yet known
-        if self._capabilities_dir is None:
-            app_dir = Path(__file__).parent.parent
-            self._capabilities_dir = app_dir / "capabilities"
-
-        if self._capabilities_dir.exists():
-            cap_dir = self._capabilities_dir / capability_code
-            if cap_dir.is_dir():
-                self._load_single_capability(cap_dir)
-                self._loaded_capabilities.add(capability_code)
-                logger.info(f"Lazy-loaded capability playbooks: {capability_code}")
+        async with self._capability_locks[capability_code]:
+            # Double-check after acquiring lock (another coroutine may have loaded it)
+            if capability_code in self._loaded_capabilities:
                 return
 
-        # Capability not found locally; fall back to full load so cloud
-        # extension paths and system playbooks are all available
-        if not self._loaded:
-            await self._load_all_playbooks()
-            self._loaded = True
-        self._loaded_capabilities.add(capability_code)
+            # Ensure system playbooks are loaded first (needed for fallback lookups)
+            if not self._loaded:
+                # Load system + user playbooks but skip full capability scan
+                self._load_system_playbooks()
+                if self.store:
+                    self._load_user_playbooks()
+
+            # Resolve capabilities directory if not yet known
+            if self._capabilities_dir is None:
+                app_dir = Path(__file__).parent.parent
+                self._capabilities_dir = app_dir / "capabilities"
+
+            if self._capabilities_dir.exists():
+                cap_dir = self._capabilities_dir / capability_code
+                if cap_dir.is_dir():
+                    self._load_single_capability(cap_dir)
+                    self._loaded_capabilities.add(capability_code)
+                    logger.info(f"Lazy-loaded capability playbooks: {capability_code}")
+                    return
+
+            # Capability not found locally; fall back to full load so cloud
+            # extension paths and system playbooks are all available
+            if not self._loaded:
+                await self._load_all_playbooks()
+                self._loaded = True
+            self._loaded_capabilities.add(capability_code)
 
     async def _load_all_playbooks(self):
         """Load all playbooks from different sources"""
@@ -957,6 +973,7 @@ class PlaybookRegistry:
             # Invalidate all caches
             self._loaded = False
             self._loaded_capabilities.clear()
+            self._capability_locks.clear()
             self.system_playbooks.clear()
             self.capability_playbooks.clear()
             self.user_playbooks.clear()
