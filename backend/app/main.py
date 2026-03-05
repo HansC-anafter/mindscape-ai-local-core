@@ -576,6 +576,15 @@ async def startup_event():
         except Exception as e:
             logger.warning(f"Failed to initialize Cloud Connector: {e}", exc_info=True)
 
+    # Initialize Execution Pool Dispatcher (always available)
+    try:
+        from backend.app.services.execution_pool import ExecutionPoolDispatcher
+
+        app.state.execution_pool = ExecutionPoolDispatcher()
+        logger.info("Execution Pool Dispatcher initialized")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Execution Pool: {e}", exc_info=True)
+
     # Ensure required databases exist (handles case where postgres volume
     # was created without running init scripts, e.g. on Windows)
     try:
