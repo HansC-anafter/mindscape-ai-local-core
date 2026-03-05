@@ -18,128 +18,21 @@ def _utc_now():
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Body
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from typing import Literal
 
-from ...services.playbook_run_executor import PlaybookRunExecutor
-from ...services.playbook_runner import PlaybookRunner
+from .execution_schemas import (
+    ContinueExecutionRequest,
+    StartExecutionRequest,
+    CancelExecutionRequest,
+    RerunExecutionRequest,
+    ResumeExecutionRequest,
+)
+
+from .execution_shared import playbook_executor, playbook_runner
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbook-execution"])
 
-
-def _invoke_lifecycle_hook(
-    hook_name: str,
-    hook_spec: Dict[str, Any],
-    normalized_inputs: Dict[str, Any],
-    execution_context: Dict[str, Any],
-) -> None:
-    """Invoke a lifecycle hook declared in a playbook spec.
-
-    This is a GENERIC mechanism -- no pack-specific logic.
-    The playbook spec declares which tool to call and how to map inputs.
-
-    Hook spec format:
-        {
-            "tool_slot": "ig.register_seed_immediately",
-            "inputs_map": {
-                "seed": "{{input.target_username}}",
-                "workspace_id": "{{input.workspace_id}}"
-            }
-        }
-    """
-    tool_slot = hook_spec.get("tool_slot")
-    inputs_map = hook_spec.get("inputs_map", {})
-    if not tool_slot:
-        return
-
-    # Resolve inputs_map: replace {{input.xxx}} and {{context.xxx}} templates
-    resolved = {}
-    for param_name, template in inputs_map.items():
-        if not isinstance(template, str):
-            resolved[param_name] = template
-            continue
-        if template.startswith("{{input.") and template.endswith("}}"):
-            key = template[len("{{input.") : -len("}}")].strip()
-            resolved[param_name] = normalized_inputs.get(key)
-        elif template.startswith("{{context.") and template.endswith("}}"):
-            key = template[len("{{context.") : -len("}}")].strip()
-            resolved[param_name] = execution_context.get(key)
-        else:
-            resolved[param_name] = template
-
-    # Dynamic import: tool_slot format is "capability.tool_name"
-    # e.g. "ig.register_seed_immediately" -> capability="ig", tool="register_seed_immediately"
-    # or direct Python path: "capabilities.ig.tools.module:function_name"
-    try:
-        import importlib
-
-        backend_ref = None
-
-        # Strategy 1: capability registry lookup (tool_slot = "cap.tool")
-        if ":" not in tool_slot and "." in tool_slot:
-            try:
-                from backend.app.capabilities.registry import get_tool_backend
-
-                parts = tool_slot.split(".", 1)
-                if len(parts) == 2:
-                    backend_ref = get_tool_backend(parts[0], parts[1])
-            except Exception:
-                pass
-
-        # Strategy 2: direct Python import path (tool_slot = "module:func")
-        if not backend_ref and ":" in tool_slot:
-            backend_ref = tool_slot
-
-        if not backend_ref:
-            logger.warning(
-                f"Lifecycle hook '{hook_name}': tool_slot '{tool_slot}' not found "
-                f"in capability registry"
-            )
-            return
-
-        module_path, func_name = backend_ref.rsplit(":", 1)
-        mod = importlib.import_module(module_path)
-        func = getattr(mod, func_name)
-        func(**resolved)
-        logger.info(
-            f"Lifecycle hook '{hook_name}' invoked: {tool_slot} "
-            f"with {list(resolved.keys())}"
-        )
-    except Exception as e:
-        logger.warning(f"Lifecycle hook '{hook_name}' failed (non-fatal): {e}")
-
-
-# Initialize unified executor (automatically selects PlaybookRunner or WorkflowOrchestrator)
-playbook_executor = PlaybookRunExecutor()
-# Keep PlaybookRunner for continue operations (conversation mode)
-playbook_runner = PlaybookRunner()
-
-
-class ContinueExecutionRequest(BaseModel):
-    """Request to continue playbook execution"""
-
-    user_message: str
-
-
-class StartExecutionRequest(BaseModel):
-    """Request to start playbook execution"""
-
-    inputs: Optional[dict] = None
-    target_language: Optional[str] = None
-    variant_id: Optional[str] = None
-    auto_execute: Optional[bool] = (
-        None  # If True, skip confirmations and execute tools directly
-    )
-    execution_backend: Optional[Literal["auto", "runner", "in_process", "remote"]] = (
-        None
-    )
-
-
-class CancelExecutionRequest(BaseModel):
-    """Request to cancel playbook execution"""
-
-    reason: Optional[str] = None
+from .execution_hooks import invoke_lifecycle_hook
 
 
 def _safe_screenshot_basename(value: str) -> str:
@@ -179,129 +72,12 @@ async def get_execution_debug_screenshot(
     )
 
 
-class RerunExecutionRequest(BaseModel):
-    """Request to rerun playbook execution with original inputs"""
-
-    override_inputs: Optional[dict] = None
-
-
-class ResumeExecutionRequest(BaseModel):
-    """Request to resume a paused workflow execution"""
-
-    action: Literal["approve", "reject"]
-    step_id: Optional[str] = None
-    comment: Optional[str] = None
-
-
-def _get_execution_mode() -> str:
-    return (
-        (os.getenv("LOCAL_CORE_EXECUTION_MODE", "in_process") or "in_process")
-        .strip()
-        .lower()
-    )
-
-
-async def _dispatch_remote_execution(
-    playbook_code: str,
-    inputs: Optional[Dict[str, Any]],
-    workspace_id: Optional[str],
-    profile_id: str,
-) -> Dict[str, Any]:
-    """Dispatch execution to cloud control plane via CloudConnector.
-
-    This is the adapter boundary between local-core and cloud.
-    Local-core does not handle tenant routing, quota, or cloud-
-    specific logic -- those are resolved by the cloud control plane.
-
-    Args:
-        playbook_code: Playbook to execute remotely
-        inputs: Execution input data
-        workspace_id: Workspace context for state persistence
-        profile_id: User profile identifier
-
-    Returns:
-        Execution response with cloud execution_id and status
-
-    Raises:
-        HTTPException: 503 if CloudConnector unavailable
-    """
-    try:
-        # Use module-level import fallback for connector access
-        connector = _get_cloud_connector()
-        if not connector or not connector.is_connected:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "Cloud Connector not available. "
-                    "Set CLOUD_CONNECTOR_ENABLED=true and "
-                    "configure CLOUD_API_URL."
-                ),
-            )
-
-        # Resolve tenant_id from environment (local-core is single-tenant)
-        tenant_id = os.getenv("CLOUD_TENANT_ID", "default")
-
-        result = await connector.start_remote_execution(
-            tenant_id=tenant_id,
-            playbook_code=playbook_code,
-            request_payload={
-                "inputs": inputs or {},
-                "profile_id": profile_id,
-            },
-            workspace_id=workspace_id,
-        )
-
-        return {
-            "execution_mode": "remote",
-            "playbook_code": playbook_code,
-            "execution_id": result.get("id"),
-            "status": result.get("state", "pending"),
-            "cloud_execution_id": result.get("id"),
-            "result": {
-                "status": result.get("state", "pending"),
-                "execution_id": result.get("id"),
-                "note": "Execution dispatched to cloud control plane",
-            },
-        }
-    except HTTPException:
-        raise
-    except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="CloudConnector module not available",
-        )
-    except Exception as e:
-        logger.error("Remote execution dispatch failed: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=502,
-            detail=f"Cloud dispatch failed: {e}",
-        )
-
-
-def _get_cloud_connector():
-    """Retrieve CloudConnector from global app state.
-
-    Returns None if connector is not initialized.
-    """
-    try:
-        from backend.app.main import app
-
-        return getattr(app.state, "cloud_connector", None)
-    except Exception:
-        return None
-
-
-def _get_execution_pool():
-    """Retrieve ExecutionPoolDispatcher from global app state.
-
-    Returns None if pool is not initialized.
-    """
-    try:
-        from backend.app.main import app
-
-        return getattr(app.state, "execution_pool", None)
-    except Exception:
-        return None
+from .execution_dispatch import (
+    get_execution_mode,
+    dispatch_remote_execution,
+    resolve_and_acquire_backend,
+    release_backend,
+)
 
 
 @router.post("/execute/start")
@@ -393,42 +169,22 @@ async def start_playbook_execution(
             except Exception as e:
                 logger.warning(f"Failed to get workspace.primary_project_id: {e}")
 
-        # Pool-aware backend selection: let ExecutionPoolDispatcher
-        # decide the actual backend based on capacity and quotas.
-        pool = _get_execution_pool()
-        pool_acquired_backend = None  # track what we acquired for release
-        if pool and final_execution_backend in {"auto", "remote", "runner"}:
-            resolved_backend = pool.select_backend(hint=final_execution_backend)
-            if resolved_backend != final_execution_backend:
-                logger.info(
-                    "Pool dispatcher resolved backend: %s -> %s",
-                    final_execution_backend,
-                    resolved_backend,
-                )
-            final_execution_backend = resolved_backend
-            # Acquire slot so quota counter reflects active work.
-            if not pool.acquire(final_execution_backend):
-                logger.warning(
-                    "Pool capacity exhausted for %s, falling back to in_process",
-                    final_execution_backend,
-                )
-                final_execution_backend = "in_process"
-            else:
-                pool_acquired_backend = final_execution_backend
+        # Pool-aware backend selection
+        final_execution_backend, pool_acquired_backend = resolve_and_acquire_backend(
+            final_execution_backend
+        )
 
         # Remote backend: dispatch to cloud control plane via CloudConnector
         if final_execution_backend == "remote":
             try:
-                return await _dispatch_remote_execution(
+                return await dispatch_remote_execution(
                     playbook_code=playbook_code,
                     inputs=inputs,
                     workspace_id=final_workspace_id,
                     profile_id=profile_id,
                 )
             finally:
-                # Release slot after dispatch — cloud tracks its own capacity
-                if pool and pool_acquired_backend:
-                    pool.release(pool_acquired_backend)
+                release_backend(pool_acquired_backend)
 
         # Inject auto_execute into inputs for downstream processing
         if final_auto_execute and inputs:
@@ -461,7 +217,7 @@ async def start_playbook_execution(
                 f"Failed to update user_meta for playbook {playbook_code}: {e}"
             )
 
-        exec_mode = _get_execution_mode()
+        exec_mode = get_execution_mode()
         prefer_runner = final_execution_backend == "runner" or (
             final_execution_backend == "auto" and exec_mode == "runner"
         )
@@ -601,7 +357,7 @@ async def start_playbook_execution(
                     )
                     if on_queue and isinstance(on_queue, dict):
                         try:
-                            _invoke_lifecycle_hook(
+                            invoke_lifecycle_hook(
                                 hook_name="on_queue",
                                 hook_spec=on_queue,
                                 normalized_inputs=normalized_inputs,
@@ -1014,246 +770,10 @@ async def cancel_playbook_execution(
         )
 
 
-@router.post("/execute/{execution_id}/rerun")
-async def rerun_playbook_execution(
-    execution_id: str,
-    request: Optional[RerunExecutionRequest] = Body(None),
-    execution_backend: Optional[str] = Query(
-        None,
-        description="Neutral execution backend hint: auto|runner|in_process. Routing is always decided by backend.",
-    ),
-):
-    try:
-        from backend.app.services.stores.tasks_store import TasksStore
-        from backend.app.services.mindscape_store import MindscapeStore
-        from backend.app.services.stores.postgres.artifacts_store import (
-            PostgresArtifactsStore,
-        )
+# Mount rerun handler from extracted module (main.py zero-change)
+from .playbook_rerun import rerun_playbook_execution
 
-        store = MindscapeStore()
-        tasks_store = TasksStore()
-        task = await asyncio.to_thread(
-            tasks_store.get_task_by_execution_id, execution_id
-        )
-        if not task:
-            raise HTTPException(status_code=404, detail="Execution not found")
-
-        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
-        playbook_code = ctx.get("playbook_code") or task.pack_id
-        if not playbook_code:
-            raise HTTPException(
-                status_code=409, detail="Missing playbook_code for rerun"
-            )
-
-        original_inputs = ctx.get("inputs") or task.params or None
-        if not isinstance(original_inputs, dict) and original_inputs is not None:
-            original_inputs = None
-
-        merged_inputs: Optional[dict] = None
-        if isinstance(original_inputs, dict):
-            merged_inputs = dict(original_inputs)
-        if request and isinstance(request.override_inputs, dict):
-            merged_inputs = merged_inputs or {}
-            merged_inputs.update(request.override_inputs)
-
-        def _infer_target_username_from_artifacts(
-            workspace_id: str, exec_id: str
-        ) -> Optional[str]:
-            try:
-                artifacts_store = PostgresArtifactsStore()
-                arts = artifacts_store.list_artifacts_by_workspace(
-                    workspace_id=workspace_id, limit=300
-                )
-                for a in arts:
-                    if getattr(a, "execution_id", None) != exec_id:
-                        continue
-                    if getattr(a, "playbook_code", None) != "ig_analyze_following":
-                        continue
-                    meta = a.metadata if isinstance(a.metadata, dict) else {}
-                    val = (
-                        meta.get("target_username") or meta.get("target_seed") or ""
-                    ).strip()
-                    if val:
-                        return val
-                    content = a.content if isinstance(a.content, dict) else {}
-                    cm = (
-                        content.get("metadata")
-                        if isinstance(content.get("metadata"), dict)
-                        else {}
-                    )
-                    val2 = (
-                        cm.get("target_username") or cm.get("target_seed") or ""
-                    ).strip()
-                    if val2:
-                        return val2
-            except Exception:
-                return None
-            return None
-
-        if playbook_code == "ig_analyze_following":
-            if not merged_inputs:
-                merged_inputs = {}
-            if not str(merged_inputs.get("target_username") or "").strip():
-                workspace_id_for_infer = (
-                    ctx.get("workspace_id") or task.workspace_id or ""
-                ).strip()
-                inferred = (
-                    _infer_target_username_from_artifacts(
-                        workspace_id_for_infer, execution_id
-                    )
-                    if workspace_id_for_infer
-                    else None
-                )
-                if inferred:
-                    merged_inputs["target_username"] = inferred
-            if not str(merged_inputs.get("target_username") or "").strip():
-                raise HTTPException(
-                    status_code=409,
-                    detail="Cannot rerun ig_analyze_following: missing target_username. Provide override_inputs.target_username.",
-                )
-
-        final_execution_backend = (execution_backend or "auto").strip().lower()
-        if final_execution_backend not in {"auto", "runner", "in_process", "remote"}:
-            final_execution_backend = "auto"
-
-        # Pool-aware backend selection (same logic as start path)
-        pool = _get_execution_pool()
-        pool_acquired_backend = None
-        if pool and final_execution_backend in {"auto", "remote", "runner"}:
-            resolved_backend = pool.select_backend(hint=final_execution_backend)
-            if resolved_backend != final_execution_backend:
-                logger.info(
-                    "Pool dispatcher resolved rerun backend: %s -> %s",
-                    final_execution_backend,
-                    resolved_backend,
-                )
-            final_execution_backend = resolved_backend
-            if not pool.acquire(final_execution_backend):
-                logger.warning(
-                    "Pool capacity exhausted for rerun %s, falling back to in_process",
-                    final_execution_backend,
-                )
-                final_execution_backend = "in_process"
-            else:
-                pool_acquired_backend = final_execution_backend
-
-        if merged_inputs is None:
-            merged_inputs = {}
-        if isinstance(merged_inputs, dict):
-            merged_inputs["execution_backend"] = final_execution_backend
-
-        # Ensure workspace_id and project_id are passed (executor expects them).
-        workspace_id = ctx.get("workspace_id") or task.workspace_id
-        project_id = ctx.get("project_id") or getattr(task, "project_id", None)
-        profile_id = (
-            ctx.get("profile_id") or getattr(task, "profile_id", None) or "default-user"
-        )
-
-        # Remote backend: dispatch rerun to cloud
-        if final_execution_backend == "remote":
-            try:
-                return await _dispatch_remote_execution(
-                    playbook_code=playbook_code,
-                    inputs=merged_inputs,
-                    workspace_id=workspace_id,
-                    profile_id=profile_id,
-                )
-            finally:
-                if pool and pool_acquired_backend:
-                    pool.release(pool_acquired_backend)
-        # If backend is configured for runner (or caller explicitly prefers runner), enqueue workflow-json playbooks.
-        exec_mode = _get_execution_mode()
-        prefer_runner = final_execution_backend == "runner" or (
-            final_execution_backend == "auto" and exec_mode == "runner"
-        )
-        force_in_process = final_execution_backend == "in_process"
-        if prefer_runner and not force_in_process:
-            playbook_run = await playbook_executor.playbook_service.load_playbook_run(
-                playbook_code=playbook_code,
-                locale="zh-TW",
-                workspace_id=workspace_id,
-            )
-            if (
-                playbook_run
-                and playbook_run.get_execution_mode() == "workflow"
-                and playbook_run.has_json()
-            ):
-                new_execution_id = str(uuid.uuid4())
-                normalized_inputs = (
-                    merged_inputs.copy() if isinstance(merged_inputs, dict) else {}
-                )
-                normalized_inputs["execution_id"] = new_execution_id
-                normalized_inputs["execution_backend"] = final_execution_backend
-                if workspace_id and "workspace_id" not in normalized_inputs:
-                    normalized_inputs["workspace_id"] = workspace_id
-                if project_id and "project_id" not in normalized_inputs:
-                    normalized_inputs["project_id"] = project_id
-                if profile_id and "profile_id" not in normalized_inputs:
-                    normalized_inputs["profile_id"] = profile_id
-
-                from backend.app.models.workspace import Task, TaskStatus
-
-                await asyncio.to_thread(
-                    tasks_store.create_task,
-                    Task(
-                        id=new_execution_id,
-                        workspace_id=workspace_id,
-                        message_id=str(uuid.uuid4()),
-                        execution_id=new_execution_id,
-                        project_id=project_id,
-                        profile_id=profile_id,
-                        pack_id=playbook_code,
-                        task_type="playbook_execution",
-                        status=TaskStatus.PENDING,
-                        execution_context={
-                            "playbook_code": playbook_code,
-                            "execution_id": new_execution_id,
-                            "status": "queued",
-                            "execution_mode": "runner",
-                            "execution_backend_hint": final_execution_backend,
-                            "inputs": normalized_inputs,
-                            "workspace_id": workspace_id,
-                            "project_id": project_id,
-                            "profile_id": profile_id,
-                        },
-                        created_at=_utc_now(),
-                        started_at=None,
-                    ),
-                )
-
-                return {
-                    "status": "rerun_queued",
-                    "original_execution_id": execution_id,
-                    "execution_id": new_execution_id,
-                    "playbook_code": playbook_code,
-                    "execution_backend_hint": final_execution_backend,
-                    "note": "Execution queued",
-                }
-
-        result = await playbook_executor.execute_playbook_run(
-            playbook_code=playbook_code,
-            profile_id=profile_id,
-            inputs=merged_inputs,
-            workspace_id=workspace_id,
-            project_id=project_id,
-        )
-
-        if result.get("execution_mode") == "conversation":
-            return result.get("result", result)
-
-        return {
-            "status": "rerun_started",
-            "original_execution_id": execution_id,
-            "execution_id": result.get("execution_id"),
-            "playbook_code": playbook_code,
-            **(result.get("result", {}) or {}),
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to rerun execution: {str(e)}"
-        )
+router.post("/execute/{execution_id}/rerun")(rerun_playbook_execution)
 
 
 @router.delete("/execute/{execution_id}")
