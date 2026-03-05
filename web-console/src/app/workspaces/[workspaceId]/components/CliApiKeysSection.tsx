@@ -177,8 +177,10 @@ export default function CliApiKeysSection() {
         try {
             const base = getApiBaseUrl();
             // Save the API key
-            const resp = await fetch(`${base}/api/v1/system-settings/${key}?value=${encodeURIComponent(val)}`, {
+            const resp = await fetch(`${base}/api/v1/system-settings/${key}`, {
                 method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: val }),
             });
 
             if (!resp.ok) {
@@ -191,8 +193,12 @@ export default function CliApiKeysSection() {
             // If Gemini, also set auth_mode
             if (agent.authModeValue) {
                 await fetch(
-                    `${base}/api/v1/system-settings/gemini_cli_auth_mode?value=${encodeURIComponent(agent.authModeValue)}`,
-                    { method: 'PUT' }
+                    `${base}/api/v1/system-settings/gemini_cli_auth_mode`,
+                    {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ value: agent.authModeValue }),
+                    }
                 );
                 setCurrentAuthMode(agent.authModeValue);
             }
@@ -212,8 +218,12 @@ export default function CliApiKeysSection() {
         const base = getApiBaseUrl();
         try {
             await fetch(
-                `${base}/api/v1/system-settings/gemini_cli_auth_mode?value=gca`,
-                { method: 'PUT' }
+                `${base}/api/v1/system-settings/gemini_cli_auth_mode`,
+                {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value: 'gca' }),
+                }
             );
             setCurrentAuthMode('gca');
 
@@ -382,8 +392,12 @@ export default function CliApiKeysSection() {
                                 try {
                                     const base = getApiBaseUrl();
                                     const resp = await fetch(
-                                        `${base}/api/v1/system-settings/agent_cli_model?value=${encodeURIComponent(newModel)}`,
-                                        { method: 'PUT' }
+                                        `${base}/api/v1/system-settings/agent_cli_model`,
+                                        {
+                                            method: 'PUT',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ value: newModel }),
+                                        }
                                     );
                                     if (resp.ok) {
                                         setSavedModel(true);
