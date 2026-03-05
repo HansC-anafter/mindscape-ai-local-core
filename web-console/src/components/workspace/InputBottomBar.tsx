@@ -170,7 +170,7 @@ export function InputBottomBar({
           </svg>
         </button>
         <button
-          type="submit"
+          type="button"
           onClick={onSend}
           disabled={!canSend || llmConfigured === false}
           className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${!canSend || llmConfigured === false

@@ -19,6 +19,7 @@ class ExecutionStreamManager {
   private connectionCallbacks: Map<string, Set<(connected: boolean) => void>> = new Map();
   private watchdogTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private watchdogFiredKeys: Set<string> = new Set();
+  private terminalEventHints: Set<string> = new Set();
   private static WATCHDOG_TIMEOUT_MS = 45_000;
 
   connect(executionId: string, streamUrl: string): () => void {
@@ -59,9 +60,20 @@ class ExecutionStreamManager {
       try {
         const data = JSON.parse(event.data) as SSEEventData;
 
+        if (data.type === 'execution_complete' || data.type === 'execution_completed' || data.type === 'execution_error') {
+          this.terminalEventHints.add(key);
+        }
+
         // Handle stream_end event
         if (data.type === 'stream_end') {
-          this.fullDisconnect(key);
+          if (this.shouldReconnectAfterStreamEnd(key, data)) {
+            this.notifyConnectionChange(key, false);
+            this.clearWatchdog(key);
+            this.closeStreamOnly(key);
+            this.scheduleReconnect(key);
+          } else {
+            this.fullDisconnect(key);
+          }
           return;
         }
 
@@ -138,6 +150,7 @@ class ExecutionStreamManager {
 
   private fullDisconnect(executionId: string): void {
     const key = executionId;
+    this.notifyConnectionChange(key, false);
 
     const timer = this.reconnectTimers.get(key);
     if (timer) {
@@ -150,6 +163,7 @@ class ExecutionStreamManager {
     this.closeStreamOnly(key);
     this.handlers.delete(key);
     this.refCounts.delete(key);
+    this.terminalEventHints.delete(key);
     this.connectionCallbacks.delete(key);
     this.clearWatchdog(key);
   }
@@ -206,8 +220,18 @@ class ExecutionStreamManager {
         es.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data) as SSEEventData;
+            if (data.type === 'execution_complete' || data.type === 'execution_completed' || data.type === 'execution_error') {
+              this.terminalEventHints.add(key);
+            }
             if (data.type === 'stream_end') {
-              this.fullDisconnect(key);
+              if (this.shouldReconnectAfterStreamEnd(key, data)) {
+                this.notifyConnectionChange(key, false);
+                this.clearWatchdog(key);
+                this.closeStreamOnly(key);
+                this.scheduleReconnect(key);
+              } else {
+                this.fullDisconnect(key);
+              }
               return;
             }
             const handlers = this.handlers.get(key);
@@ -256,6 +280,22 @@ class ExecutionStreamManager {
     }
     this.connectionCallbacks.get(executionId)!.add(cb);
     return () => { this.connectionCallbacks.get(executionId)?.delete(cb); };
+  }
+
+  private shouldReconnectAfterStreamEnd(executionId: string, data: SSEEventData): boolean {
+    if (data?.reconnect === true) return true;
+    if (data?.terminal === true) return false;
+
+    const reason = typeof data?.reason === 'string' ? data.reason.toLowerCase() : '';
+    if (reason === 'terminal' || reason === 'not_found' || reason === 'completed' || reason === 'failed') {
+      return false;
+    }
+
+    if (this.terminalEventHints.has(executionId)) {
+      return false;
+    }
+
+    return true;
   }
 
   private notifyConnectionChange(executionId: string, connected: boolean): void {
@@ -349,4 +389,3 @@ export function useExecutionStream(
 
   return { isConnected };
 }
-
