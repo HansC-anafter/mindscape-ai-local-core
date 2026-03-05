@@ -291,6 +291,19 @@ def _get_cloud_connector():
         return None
 
 
+def _get_execution_pool():
+    """Retrieve ExecutionPoolDispatcher from global app state.
+
+    Returns None if pool is not initialized.
+    """
+    try:
+        from backend.app.main import app
+
+        return getattr(app.state, "execution_pool", None)
+    except Exception:
+        return None
+
+
 @router.post("/execute/start")
 async def start_playbook_execution(
     playbook_code: str = Query(..., description="Playbook code to execute"),
@@ -354,16 +367,8 @@ async def start_playbook_execution(
         if final_execution_backend not in {"auto", "runner", "in_process", "remote"}:
             final_execution_backend = "auto"
 
-        # Remote backend: dispatch to cloud control plane via CloudConnector
-        if final_execution_backend == "remote":
-            return await _dispatch_remote_execution(
-                playbook_code=playbook_code,
-                inputs=inputs,
-                workspace_id=final_workspace_id,
-                profile_id=profile_id,
-            )
-
         # Extract workspace_id and project_id from inputs if not provided as query params
+        # (must happen before any backend branch that needs workspace_id)
         final_workspace_id = workspace_id or (
             inputs.get("workspace_id") if inputs else None
         )
@@ -387,6 +392,28 @@ async def start_playbook_execution(
                     )
             except Exception as e:
                 logger.warning(f"Failed to get workspace.primary_project_id: {e}")
+
+        # Pool-aware backend selection: let ExecutionPoolDispatcher
+        # decide the actual backend based on capacity and quotas.
+        pool = _get_execution_pool()
+        if pool and final_execution_backend in {"auto", "remote", "runner"}:
+            resolved_backend = pool.select_backend(hint=final_execution_backend)
+            if resolved_backend != final_execution_backend:
+                logger.info(
+                    "Pool dispatcher resolved backend: %s -> %s",
+                    final_execution_backend,
+                    resolved_backend,
+                )
+            final_execution_backend = resolved_backend
+
+        # Remote backend: dispatch to cloud control plane via CloudConnector
+        if final_execution_backend == "remote":
+            return await _dispatch_remote_execution(
+                playbook_code=playbook_code,
+                inputs=inputs,
+                workspace_id=final_workspace_id,
+                profile_id=profile_id,
+            )
 
         # Inject auto_execute into inputs for downstream processing
         if final_auto_execute and inputs:
