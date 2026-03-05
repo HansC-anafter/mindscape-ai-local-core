@@ -48,10 +48,66 @@ class TestBuildAssetMapContext:
         engine.workspace = None
         assert engine._build_asset_map_context() == ""
 
-    def test_returns_empty_when_no_group_id(self):
+    @patch(
+        "backend.app.services.stores.postgres.workspaces_store"
+        ".PostgresWorkspacesStore"
+    )
+    @patch(
+        "backend.app.services.stores.workspace_resource_binding_store"
+        ".WorkspaceResourceBindingStore"
+    )
+    def test_returns_empty_when_no_group_and_no_discoverable(
+        self, mock_binding_cls, mock_ws_cls
+    ):
+        """No group_id and no discoverable workspaces -> empty string."""
         engine = StubEngine()
         engine.workspace.group_id = None
+        mock_ws_cls.return_value.list_discoverable_workspaces.return_value = []
         assert engine._build_asset_map_context() == ""
+
+    def test_discoverable_runs_without_group_id(self):
+        """5D-3: Discoverable workspaces found even when group_id is None."""
+        engine = StubEngine()
+        engine.workspace.group_id = None
+        engine.workspace.id = "ws-dispatch"
+
+        disco_ws = MagicMock()
+        disco_ws.id = "ws-shared-db"
+        disco_ws.title = "Shared Database"
+
+        disco_binding = MagicMock()
+        disco_binding.resource_id = "shared-pg"
+        disco_binding.overrides = {
+            "display_name": "Shared PostgreSQL",
+            "asset_type": "database",
+        }
+
+        with patch(
+            "backend.app.services.stores.postgres.workspaces_store"
+            ".PostgresWorkspacesStore"
+        ) as ws_cls, patch(
+            "backend.app.services.stores.workspace_resource_binding_store"
+            ".WorkspaceResourceBindingStore"
+        ) as bs_cls:
+            ws_cls.return_value.list_discoverable_workspaces.return_value = [disco_ws]
+
+            def list_bindings(ws_id, resource_type=None):
+                if ws_id == "ws-shared-db":
+                    return [disco_binding]
+                return []
+
+            bs_cls.return_value.list_bindings_by_workspace.side_effect = list_bindings
+
+            result = engine._build_asset_map_context()
+
+        # No group header (no group_id)
+        assert "Workspace Group:" not in result
+        # But discoverable workspace IS present
+        assert "Discoverable Workspaces (outside group):" in result
+        assert "ws-shared-db" in result
+        assert "Shared Database" in result
+        assert "Shared PostgreSQL" in result
+        assert "[discoverable]" in result
 
     @patch(
         "backend.app.services.stores.postgres.workspace_group_store"
