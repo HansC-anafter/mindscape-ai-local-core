@@ -1,5 +1,9 @@
 import logging
+import asyncio
+import json
+import time
 import uuid
+from dataclasses import dataclass, field
 from typing import Optional, Any
 
 from fastapi import (
@@ -8,6 +12,7 @@ from fastapi import (
     Path as PathParam,
     Query,
     Body,
+    Request,
 )
 from pydantic import BaseModel, Field
 
@@ -24,6 +29,267 @@ from ....services.task_status_fix import TaskStatusFixService
 router = APIRouter()
 logger = logging.getLogger(__name__)
 store = MindscapeStore()
+
+
+@dataclass
+class _ExecutionStreamState:
+    subscribers: set = field(default_factory=set)  # set[asyncio.Queue[str]]
+    poller_task: Optional[asyncio.Task] = None
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    stop_requested: bool = False
+    last_progress_signature: Optional[str] = None
+    last_payload: Optional[str] = None
+    last_emit_monotonic: float = 0.0
+
+
+_STREAM_STATES: dict[str, _ExecutionStreamState] = {}
+_STREAM_STATES_LOCK = asyncio.Lock()
+
+
+async def _get_or_create_stream_state(execution_id: str) -> _ExecutionStreamState:
+    async with _STREAM_STATES_LOCK:
+        state = _STREAM_STATES.get(execution_id)
+        if state is None:
+            state = _ExecutionStreamState()
+            _STREAM_STATES[execution_id] = state
+        return state
+
+
+def _enqueue_event(queue: asyncio.Queue, payload: str) -> None:
+    try:
+        queue.put_nowait(payload)
+    except asyncio.QueueFull:
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+        try:
+            queue.put_nowait(payload)
+        except asyncio.QueueFull:
+            # If queue remains full, skip this event for that subscriber.
+            pass
+
+
+async def _broadcast_to_subscribers(state: _ExecutionStreamState, payload: str) -> None:
+    async with state.lock:
+        subscribers = list(state.subscribers)
+    for q in subscribers:
+        _enqueue_event(q, payload)
+
+
+async def _cleanup_stream_state_if_idle(execution_id: str, state: _ExecutionStreamState) -> None:
+    async with state.lock:
+        should_cleanup = not state.subscribers and state.poller_task is None
+    if not should_cleanup:
+        return
+    async with _STREAM_STATES_LOCK:
+        if _STREAM_STATES.get(execution_id) is state:
+            _STREAM_STATES.pop(execution_id, None)
+
+
+def _build_terminal_payload(task_obj: Any) -> str:
+    failed_statuses = {"failed", "cancelled", "cancelled_by_user", "expired", "FAILED"}
+    ctx = task_obj.execution_context if isinstance(task_obj.execution_context, dict) else {}
+    raw = (task_obj.status or "").lower().replace(" ", "_")
+    if raw in failed_statuses or task_obj.status in failed_statuses:
+        return json.dumps(
+            {
+                "type": "execution_error",
+                "error": ctx.get("error") or f"Execution {raw}",
+                "status": task_obj.status,
+                "execution_context": ctx,
+            }
+        )
+    return json.dumps(
+        {
+            "type": "execution_complete",
+            "status": task_obj.status,
+            "execution_context": ctx,
+        }
+    )
+
+
+async def _execution_stream_poller(
+    workspace_id: str, execution_id: str, state: _ExecutionStreamState
+) -> None:
+    tasks_store = TasksStore()
+    failed_statuses = {"failed", "cancelled", "cancelled_by_user", "expired", "FAILED"}
+    completed_statuses = {"completed", "succeeded", "SUCCEEDED"}
+    terminal_statuses = failed_statuses | completed_statuses
+
+    artifact_progress_poll_stride = 3  # 3 loops * 3s = ~9s
+    loops_since_artifact_poll = artifact_progress_poll_stride
+    last_known_progress = None
+    heartbeat_interval_s = 15.0
+
+    try:
+        while True:
+            async with state.lock:
+                if state.stop_requested or not state.subscribers:
+                    break
+
+            task = tasks_store.get_task_by_execution_id(execution_id)
+            if not task:
+                task = tasks_store.get_task(execution_id)
+            if not task or task.workspace_id != workspace_id:
+                await _broadcast_to_subscribers(
+                    state,
+                    json.dumps({"type": "execution_error", "error": "Execution not found"}),
+                )
+                await _broadcast_to_subscribers(
+                    state,
+                    json.dumps(
+                        {
+                            "type": "stream_end",
+                            "reason": "not_found",
+                            "terminal": True,
+                        }
+                    ),
+                )
+                break
+
+            status = (task.status or "").lower().replace(" ", "_")
+            if status in terminal_statuses or task.status in terminal_statuses:
+                await _broadcast_to_subscribers(state, _build_terminal_payload(task))
+                await _broadcast_to_subscribers(
+                    state,
+                    json.dumps(
+                        {
+                            "type": "stream_end",
+                            "reason": "terminal",
+                            "terminal": True,
+                        }
+                    ),
+                )
+                break
+
+            ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+            progress = ctx.get("progress") if isinstance(ctx, dict) else None
+
+            if isinstance(progress, dict):
+                last_known_progress = progress
+                loops_since_artifact_poll = 0
+            else:
+                loops_since_artifact_poll += 1
+
+            if not progress and loops_since_artifact_poll >= artifact_progress_poll_stride:
+                try:
+                    from sqlalchemy import text as _text
+
+                    with tasks_store.get_connection() as _conn:
+                        _row = _conn.execute(
+                            _text(
+                                "SELECT content::jsonb->'progress' AS p "
+                                "FROM artifacts "
+                                "WHERE execution_id = :eid "
+                                "AND content::jsonb ? 'progress' "
+                                "ORDER BY updated_at DESC LIMIT 1"
+                            ),
+                            {"eid": execution_id},
+                        ).fetchone()
+                        if _row and _row[0]:
+                            progress = (
+                                _row[0]
+                                if isinstance(_row[0], dict)
+                                else json.loads(_row[0])
+                            )
+                            if isinstance(progress, dict):
+                                last_known_progress = progress
+                            loops_since_artifact_poll = 0
+                except Exception:
+                    pass
+
+            if not progress:
+                progress = last_known_progress
+
+            payload_obj = {
+                "type": "progress",
+                "status": task.status,
+                "current": 0,
+                "total": 0,
+                "progress": progress,
+            }
+            payload = json.dumps(payload_obj)
+            signature = json.dumps(payload_obj, sort_keys=True, default=str)
+            now = time.monotonic()
+
+            should_emit = False
+            async with state.lock:
+                if signature != state.last_progress_signature:
+                    should_emit = True
+                    state.last_progress_signature = signature
+                elif (now - state.last_emit_monotonic) >= heartbeat_interval_s:
+                    should_emit = True
+                if should_emit:
+                    state.last_payload = payload
+                    state.last_emit_monotonic = now
+
+            if should_emit:
+                await _broadcast_to_subscribers(state, payload)
+
+            await asyncio.sleep(3)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Execution stream poller crashed for {execution_id}: {e}",
+            exc_info=True,
+        )
+        await _broadcast_to_subscribers(
+            state,
+            json.dumps(
+                {
+                    "type": "execution_error",
+                    "error": "Stream poller crashed",
+                    "status": "failed",
+                }
+            ),
+        )
+        await _broadcast_to_subscribers(
+            state,
+            json.dumps(
+                {"type": "stream_end", "reason": "poller_error", "terminal": False}
+            ),
+        )
+    finally:
+        async with state.lock:
+            state.poller_task = None
+            state.stop_requested = False
+        await _cleanup_stream_state_if_idle(execution_id, state)
+
+
+async def _subscribe_execution_stream(
+    workspace_id: str, execution_id: str
+) -> tuple[_ExecutionStreamState, asyncio.Queue]:
+    state = await _get_or_create_stream_state(execution_id)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+
+    async with state.lock:
+        state.subscribers.add(queue)
+        if state.last_payload:
+            _enqueue_event(queue, state.last_payload)
+        if state.poller_task is None or state.poller_task.done():
+            state.stop_requested = False
+            state.poller_task = asyncio.create_task(
+                _execution_stream_poller(workspace_id, execution_id, state)
+            )
+
+    return state, queue
+
+
+async def _unsubscribe_execution_stream(
+    execution_id: str, state: _ExecutionStreamState, queue: asyncio.Queue
+) -> None:
+    task_to_cancel: Optional[asyncio.Task] = None
+    async with state.lock:
+        state.subscribers.discard(queue)
+        if not state.subscribers:
+            state.stop_requested = True
+            if state.poller_task and not state.poller_task.done():
+                task_to_cancel = state.poller_task
+    if task_to_cancel:
+        task_to_cancel.cancel()
+    await _cleanup_stream_state_if_idle(execution_id, state)
 
 
 @router.get("/{workspace_id}/tasks")
@@ -271,122 +537,39 @@ async def get_execution_progress_snapshot(
 async def stream_execution_events(
     workspace_id: str = PathParam(..., description="Workspace ID"),
     execution_id: str = PathParam(..., description="Execution ID"),
+    request: Request = None,
 ):
     """SSE stream for execution progress events.
 
     For completed/failed/cancelled tasks: sends stream_end immediately.
     For running tasks: sends heartbeat events until completion.
     """
-    import asyncio
-    import json
     from starlette.responses import StreamingResponse
 
-    tasks_store = TasksStore()
-
-    FAILED_STATUSES = {"failed", "cancelled", "cancelled_by_user", "expired", "FAILED"}
-    COMPLETED_STATUSES = {"completed", "succeeded", "SUCCEEDED"}
-    TERMINAL_STATUSES = FAILED_STATUSES | COMPLETED_STATUSES
-
-    def _make_terminal_event(task_obj):
-        """Build the correct terminal event type for the UI hook."""
-        ctx = (
-            task_obj.execution_context
-            if isinstance(task_obj.execution_context, dict)
-            else {}
-        )
-        raw = (task_obj.status or "").lower().replace(" ", "_")
-        if raw in FAILED_STATUSES or task_obj.status in FAILED_STATUSES:
-            return json.dumps(
-                {
-                    "type": "execution_error",
-                    "error": ctx.get("error") or f"Execution {raw}",
-                    "status": task_obj.status,
-                    "execution_context": ctx,
-                }
-            )
-        else:
-            return json.dumps(
-                {
-                    "type": "execution_complete",
-                    "status": task_obj.status,
-                    "execution_context": ctx,
-                }
-            )
+    state, queue = await _subscribe_execution_stream(workspace_id, execution_id)
 
     async def event_generator():
-        # Check initial task status
-        task = tasks_store.get_task_by_execution_id(execution_id)
-        if not task:
-            task = tasks_store.get_task(execution_id)
-
-        if not task:
-            yield f"data: {json.dumps({'type': 'execution_error', 'error': 'Execution not found'})}\n\n"
-            yield f"data: {json.dumps({'type': 'stream_end', 'reason': 'not_found', 'terminal': True})}\n\n"
-            return
-
-        status = (task.status or "").lower().replace(" ", "_")
-        if status in TERMINAL_STATUSES or task.status in TERMINAL_STATUSES:
-            yield f"data: {_make_terminal_event(task)}\n\n"
-            yield f"data: {json.dumps({'type': 'stream_end', 'reason': 'terminal', 'terminal': True})}\n\n"
-            return
-
-        # For running tasks: poll and emit progress heartbeats
-        for _ in range(600):  # max ~30 min (600 * 3s)
-            task = tasks_store.get_task_by_execution_id(execution_id)
-            if not task:
-                task = tasks_store.get_task(execution_id)
-            if not task:
-                yield f"data: {json.dumps({'type': 'execution_error', 'error': 'Execution not found'})}\n\n"
-                yield f"data: {json.dumps({'type': 'stream_end', 'reason': 'not_found', 'terminal': True})}\n\n"
-                return
-
-            ctx = (
-                task.execution_context
-                if isinstance(task.execution_context, dict)
-                else {}
-            )
-            status = (task.status or "").lower().replace(" ", "_")
-
-            if status in TERMINAL_STATUSES or task.status in TERMINAL_STATUSES:
-                yield f"data: {_make_terminal_event(task)}\n\n"
-                yield f"data: {json.dumps({'type': 'stream_end', 'reason': 'terminal', 'terminal': True})}\n\n"
-                return
-
-            # Read progress from the latest artifact for this execution.
-            # page_visitor writes progress to artifacts via upsert_progress,
-            # so we read from there instead of task.execution_context.
-            progress = ctx.get("progress") if isinstance(ctx, dict) else None
-            if not progress:
+        try:
+            while True:
+                if request and await request.is_disconnected():
+                    return
                 try:
-                    from sqlalchemy import text as _text
+                    payload = await asyncio.wait_for(queue.get(), timeout=5)
+                except asyncio.TimeoutError:
+                    continue
+                except asyncio.CancelledError:
+                    return
 
-                    with tasks_store.get_connection() as _conn:
-                        _row = _conn.execute(
-                            _text(
-                                "SELECT content::jsonb->'progress' AS p "
-                                "FROM artifacts "
-                                "WHERE execution_id = :eid "
-                                "AND content::jsonb ? 'progress' "
-                                "ORDER BY updated_at DESC LIMIT 1"
-                            ),
-                            {"eid": execution_id},
-                        ).fetchone()
-                        if _row and _row[0]:
-                            import json as _json
+                yield f"data: {payload}\n\n"
 
-                            progress = (
-                                _row[0]
-                                if isinstance(_row[0], dict)
-                                else _json.loads(_row[0])
-                            )
+                try:
+                    parsed = json.loads(payload)
                 except Exception:
-                    pass
-
-            yield f"data: {json.dumps({'type': 'progress', 'status': task.status, 'current': 0, 'total': 0, 'progress': progress})}\n\n"
-
-            await asyncio.sleep(3)
-
-        yield f"data: {json.dumps({'type': 'stream_end', 'reason': 'timeout', 'reconnect': True})}\n\n"
+                    parsed = {}
+                if parsed.get("type") == "stream_end":
+                    return
+        finally:
+            await _unsubscribe_execution_stream(execution_id, state, queue)
 
     return StreamingResponse(
         event_generator(),
