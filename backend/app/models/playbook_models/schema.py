@@ -70,6 +70,31 @@ class GateSpec(BaseModel):
     )
 
 
+class HookSpec(BaseModel):
+    """Hook specification for step-level lifecycle hooks."""
+
+    tool_slot: str = Field(..., description="Tool slot to invoke for this hook.")
+    inputs_map: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Input mapping with {{input.*}}, {{step.*}}, {{context.*}} templates.",
+    )
+
+
+class StepHooks(BaseModel):
+    """Step-level lifecycle hooks."""
+
+    pre_step: Optional[HookSpec] = Field(
+        None,
+        description="Run before step execution. Failure prevents step from running.",
+    )
+    post_step: Optional[HookSpec] = Field(
+        None, description="Run after step completes. Failure is non-fatal."
+    )
+    on_error: Optional[HookSpec] = Field(
+        None, description="Run when step fails. Failure is non-fatal."
+    )
+
+
 class PlaybookStep(BaseModel):
     """Step definition in playbook.json."""
 
@@ -81,6 +106,11 @@ class PlaybookStep(BaseModel):
     tool_slot: Optional[str] = Field(
         None,
         description="Logical tool slot identifier resolved to tool_id at runtime.",
+    )
+    playbook_slot: Optional[str] = Field(
+        None,
+        description="Sub-playbook code to invoke as nested workflow. "
+        "Mutually exclusive with tool/tool_slot.",
     )
     tool_policy: Optional[ToolPolicy] = Field(
         None,
@@ -109,21 +139,27 @@ class PlaybookStep(BaseModel):
         default=None,
         description="Optional gate configuration for human approval (pause/resume)",
     )
+    hooks: Optional[StepHooks] = Field(
+        None,
+        description="Step-level lifecycle hooks (pre_step/post_step/on_error).",
+    )
 
     @model_validator(mode="before")
     @classmethod
     def validate_tool_or_slot(cls, values: Any) -> Any:
-        """Ensure either tool (legacy) or tool_slot is provided, but not both."""
+        """Ensure exactly one binding: tool, tool_slot, or playbook_slot."""
         if isinstance(values, dict):
             tool = values.get("tool")
             tool_slot = values.get("tool_slot")
-            if not tool and not tool_slot:
+            playbook_slot = values.get("playbook_slot")
+            bindings = sum(1 for v in [tool, tool_slot, playbook_slot] if v)
+            if bindings == 0:
                 raise ValueError(
-                    "Either 'tool' (legacy) or 'tool_slot' must be provided"
+                    "One of 'tool', 'tool_slot', or 'playbook_slot' must be provided"
                 )
-            if tool and tool_slot:
+            if bindings > 1:
                 raise ValueError(
-                    "Cannot specify both 'tool' and 'tool_slot'. Use 'tool_slot'."
+                    "Only one of 'tool', 'tool_slot', 'playbook_slot' is allowed"
                 )
         return values
 
@@ -174,4 +210,3 @@ class PlaybookJson(BaseModel):
     )
 
     model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
-
