@@ -57,6 +57,8 @@ class AgentExecutionResponse:
     trace_id: Optional[str] = None
     execution_time_seconds: float = 0.0
     risk_level: str = "low"
+    needs_clarification: bool = False
+    clarification_questions: List[str] = field(default_factory=list)
 
 
 class WorkspaceAgentExecutor:
@@ -151,6 +153,9 @@ class WorkspaceAgentExecutor:
                     return AgentExecutionResponse(
                         success=False,
                         output="",
+                        needs_clarification=True,
+                        clarification_questions=preflight_result.clarification_questions
+                        or [],
                         error=f"Requires clarification: {preflight_result.clarification_questions}",
                     )
                 else:
