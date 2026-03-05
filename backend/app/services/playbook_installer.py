@@ -217,8 +217,12 @@ class PlaybookInstaller:
                 if not isinstance(step, dict):
                     continue
 
-                # 檢查是否使用 legacy 'tool' 字段
-                if "tool" in step:
+                # TODO(P3-4d): Validate playbook_slot references exist.
+                # Rules: local/system playbook = error if missing,
+                #        cloud/uninstalled capability = warning only.
+
+                # Check for legacy 'tool' field (skip for playbook_slot steps)
+                if "tool" in step and "playbook_slot" not in step:
                     step_id = step.get("id", f"step_{step_idx}")
                     errors.append(
                         f"Step '{step_id}' uses legacy 'tool' field: '{step['tool']}'. "
@@ -252,22 +256,31 @@ class PlaybookInstaller:
 
         # 讀取 manifest 以獲取可選 Python 依賴
         optional_python_packages = []
-        possible_dir_names = [capability_code, capability_code.replace("_", "-"), capability_code.replace("-", "_")]
+        possible_dir_names = [
+            capability_code,
+            capability_code.replace("_", "-"),
+            capability_code.replace("-", "_"),
+        ]
         for dir_name in possible_dir_names:
             manifest_path = self.capabilities_dir / dir_name / "manifest.yaml"
             if manifest_path.exists():
                 try:
                     import yaml
+
                     with open(manifest_path, "r", encoding="utf-8") as f:
                         manifest = yaml.safe_load(f) or {}
                         deps = manifest.get("dependencies", {})
                         python_packages = deps.get("python_packages", {})
                         optional_python_packages = python_packages.get("optional", [])
                         if optional_python_packages:
-                            logger.debug(f"Found optional Python packages in manifest: {optional_python_packages}")
+                            logger.debug(
+                                f"Found optional Python packages in manifest: {optional_python_packages}"
+                            )
                         break
                 except Exception as e:
-                    logger.debug(f"Failed to read manifest for optional Python packages: {e}")
+                    logger.debug(
+                        f"Failed to read manifest for optional Python packages: {e}"
+                    )
                 break
 
         # 讀取 playbook spec 以獲取 required_capabilities
@@ -279,7 +292,9 @@ class PlaybookInstaller:
                     spec = json.load(f)
                     required_capabilities = spec.get("required_capabilities", [])
             except Exception as e:
-                logger.warning(f"Failed to read playbook spec for required_capabilities: {e}")
+                logger.warning(
+                    f"Failed to read playbook spec for required_capabilities: {e}"
+                )
 
         manifest_tool_backends: Dict[str, Dict[str, str]] = {}
 
@@ -315,13 +330,20 @@ class PlaybookInstaller:
                             backend_path = tool_cfg.get("backend")
                             if code and backend_path:
                                 manifest_tool_backends[cap][code] = backend_path
-                                logger.debug(f"Found tool backend from manifest: {cap}.{code} -> {backend_path}")
+                                logger.debug(
+                                    f"Found tool backend from manifest: {cap}.{code} -> {backend_path}"
+                                )
                 except Exception as e:
-                    logger.warning(f"Failed to read manifest for capability {cap} from {manifest_path}: {e}")
+                    logger.warning(
+                        f"Failed to read manifest for capability {cap} from {manifest_path}: {e}"
+                    )
             else:
-                logger.debug(f"Manifest not found for capability {cap}, tried paths: {[str(self.capabilities_dir / d / 'manifest.yaml') for d in possible_dirs]}")
+                logger.debug(
+                    f"Manifest not found for capability {cap}, tried paths: {[str(self.capabilities_dir / d / 'manifest.yaml') for d in possible_dirs]}"
+                )
 
             return manifest_tool_backends[cap].get(tool)
+
         try:
             # 一次性設置 capabilities 模組結構（在驗證開始前）
             from pathlib import Path
@@ -330,7 +352,11 @@ class PlaybookInstaller:
 
             # 直接使用安裝目錄，不依賴 registry（驗證時可能還沒註冊）
             # 處理目錄名稱變體（下劃線 vs 連字符）
-            possible_dir_names = [capability_code, capability_code.replace("_", "-"), capability_code.replace("-", "_")]
+            possible_dir_names = [
+                capability_code,
+                capability_code.replace("_", "-"),
+                capability_code.replace("-", "_"),
+            ]
             capability_dir = None
             actual_dir_name = None
 
@@ -379,6 +405,7 @@ class PlaybookInstaller:
                     if "app" not in sys.modules:
                         try:
                             import importlib
+
                             importlib.import_module("app")
                         except Exception:
                             app_module = types.ModuleType("app")
@@ -386,6 +413,7 @@ class PlaybookInstaller:
                             init_file = cloud_root / "__init__.py"
                             if init_file.exists():
                                 import importlib.util
+
                                 spec = importlib.util.spec_from_file_location(
                                     "app",
                                     init_file,
@@ -398,7 +426,9 @@ class PlaybookInstaller:
                     # 創建 app.capabilities 模組（如果不存在）
                     app_capabilities_path = "app.capabilities"
                     if app_capabilities_path not in sys.modules:
-                        app_capabilities_module = types.ModuleType(app_capabilities_path)
+                        app_capabilities_module = types.ModuleType(
+                            app_capabilities_path
+                        )
                         app_capabilities_module.__path__ = [str(capabilities_parent)]
 
                         # 設置 __spec__ 以避免 __spec__ is None 錯誤
@@ -410,18 +440,25 @@ class PlaybookInstaller:
 
                         if capabilities_init.exists():
                             import importlib.util
+
                             spec = importlib.util.spec_from_file_location(
                                 app_capabilities_path,
                                 capabilities_init,
-                                submodule_search_locations=[str(capabilities_parent)]
+                                submodule_search_locations=[str(capabilities_parent)],
                             )
                             if spec:
                                 app_capabilities_module.__spec__ = spec
-                                logger.debug(f"Set __spec__ for {app_capabilities_path} from {capabilities_init}")
+                                logger.debug(
+                                    f"Set __spec__ for {app_capabilities_path} from {capabilities_init}"
+                                )
 
                         sys.modules[app_capabilities_path] = app_capabilities_module
                         if not hasattr(sys.modules["app"], "capabilities"):
-                            setattr(sys.modules["app"], "capabilities", app_capabilities_module)
+                            setattr(
+                                sys.modules["app"],
+                                "capabilities",
+                                app_capabilities_module,
+                            )
 
                     # 創建 app.capabilities.{capability_code} 模組
                     app_cap_module = types.ModuleType(app_cap_module_path)
@@ -431,19 +468,28 @@ class PlaybookInstaller:
                     init_file = capability_dir / "__init__.py"
                     if init_file.exists():
                         import importlib.util
+
                         spec = importlib.util.spec_from_file_location(
                             app_cap_module_path,
                             init_file,
-                            submodule_search_locations=[str(capability_dir)]
+                            submodule_search_locations=[str(capability_dir)],
                         )
                         if spec:
                             app_cap_module.__spec__ = spec
-                            logger.debug(f"Set __spec__ for app.capabilities.{capability_code} from {init_file}")
+                            logger.debug(
+                                f"Set __spec__ for app.capabilities.{capability_code} from {init_file}"
+                            )
 
                     sys.modules[app_cap_module_path] = app_cap_module
-                    setattr(sys.modules[app_capabilities_path], capability_code, app_cap_module)
+                    setattr(
+                        sys.modules[app_capabilities_path],
+                        capability_code,
+                        app_cap_module,
+                    )
 
-                    logger.debug(f"Created app.capabilities.{capability_code} module pointing to {capability_dir}")
+                    logger.debug(
+                        f"Created app.capabilities.{capability_code} module pointing to {capability_dir}"
+                    )
 
                 # 預載入 models（支援 models.py 檔案或 models/ 目錄）
                 models_module_path = f"capabilities.{capability_code}.models"
@@ -570,7 +616,7 @@ class PlaybookInstaller:
                 step_condition = step.get("condition")  # 檢查是否有條件
 
                 if not tool_slot:
-                    # 沒有 tool_slot 的 step（可能是條件判斷等），跳過
+                    # Steps without tool_slot (playbook_slot or condition-only steps), skip
                     continue
 
                 # 跳過 core slots（它們由系統處理，不需要驗證）
@@ -578,8 +624,14 @@ class PlaybookInstaller:
                     continue
 
                 # 檢查工具是否來自 required_capabilities
-                tool_capability = tool_slot.split(".", 1)[0] if "." in tool_slot else None
-                is_required = tool_capability in required_capabilities if tool_capability else False
+                tool_capability = (
+                    tool_slot.split(".", 1)[0] if "." in tool_slot else None
+                )
+                is_required = (
+                    tool_capability in required_capabilities
+                    if tool_capability
+                    else False
+                )
 
                 # 如果工具不在 required_capabilities 中，且有 condition，則跳過驗證（視為 optional）
                 if not is_required and step_condition:
@@ -602,20 +654,31 @@ class PlaybookInstaller:
                             # 優先從 manifest 讀取 backend，避開 registry 時序問題
                             backend_path = get_backend_from_manifest(cap, tool_name)
                             if backend_path:
-                                logger.debug(f"Step '{step_id}': Found backend from manifest: {cap}.{tool_name} -> {backend_path}")
+                                logger.debug(
+                                    f"Step '{step_id}': Found backend from manifest: {cap}.{tool_name} -> {backend_path}"
+                                )
                             else:
                                 # 回退到 registry（工具已註冊時使用）
-                                logger.debug(f"Step '{step_id}': Backend not found in manifest for {cap}.{tool_name}, trying registry...")
+                                logger.debug(
+                                    f"Step '{step_id}': Backend not found in manifest for {cap}.{tool_name}, trying registry..."
+                                )
                                 from backend.app.capabilities.registry import (
                                     get_tool_backend,
                                 )
+
                                 backend_path = get_tool_backend(cap, tool_name)
                                 if backend_path:
-                                    logger.debug(f"Step '{step_id}': Found backend from registry: {cap}.{tool_name} -> {backend_path}")
+                                    logger.debug(
+                                        f"Step '{step_id}': Found backend from registry: {cap}.{tool_name} -> {backend_path}"
+                                    )
 
                             # 為當前工具對應的 capability 設置模組路徑（如果尚未設置）
                             # 處理目錄名稱變體
-                            possible_dir_names = [cap, cap.replace("_", "-"), cap.replace("-", "_")]
+                            possible_dir_names = [
+                                cap,
+                                cap.replace("_", "-"),
+                                cap.replace("-", "_"),
+                            ]
                             tool_capability_dir = None
                             for dir_name in possible_dir_names:
                                 candidate_dir = self.capabilities_dir / dir_name
@@ -633,6 +696,7 @@ class PlaybookInstaller:
                                     if "app" not in sys.modules:
                                         try:
                                             import importlib
+
                                             importlib.import_module("app")
                                         except Exception:
                                             app_module = types.ModuleType("app")
@@ -641,10 +705,13 @@ class PlaybookInstaller:
                                             init_file = cloud_root / "__init__.py"
                                             if init_file.exists():
                                                 import importlib.util
+
                                                 spec = importlib.util.spec_from_file_location(
                                                     "app",
                                                     init_file,
-                                                    submodule_search_locations=[str(cloud_root)],
+                                                    submodule_search_locations=[
+                                                        str(cloud_root)
+                                                    ],
                                                 )
                                                 if spec:
                                                     app_module.__spec__ = spec
@@ -653,51 +720,85 @@ class PlaybookInstaller:
                                     # 創建 app.capabilities 模組（如果不存在）
                                     app_capabilities_path = "app.capabilities"
                                     if app_capabilities_path not in sys.modules:
-                                        app_capabilities_module = types.ModuleType(app_capabilities_path)
-                                        app_capabilities_module.__path__ = [str(tool_capability_dir.parent)]
+                                        app_capabilities_module = types.ModuleType(
+                                            app_capabilities_path
+                                        )
+                                        app_capabilities_module.__path__ = [
+                                            str(tool_capability_dir.parent)
+                                        ]
 
                                         # 設置 __spec__ 以避免 __spec__ is None 錯誤
                                         capabilities_parent = tool_capability_dir.parent
-                                        capabilities_init = capabilities_parent / "__init__.py"
+                                        capabilities_init = (
+                                            capabilities_parent / "__init__.py"
+                                        )
                                         if not capabilities_init.exists():
                                             capabilities_init.touch()
 
                                         if capabilities_init.exists():
                                             import importlib.util
-                                            spec = importlib.util.spec_from_file_location(
-                                                app_capabilities_path,
-                                                capabilities_init,
-                                                submodule_search_locations=[str(capabilities_parent)]
+
+                                            spec = (
+                                                importlib.util.spec_from_file_location(
+                                                    app_capabilities_path,
+                                                    capabilities_init,
+                                                    submodule_search_locations=[
+                                                        str(capabilities_parent)
+                                                    ],
+                                                )
                                             )
                                             if spec:
                                                 app_capabilities_module.__spec__ = spec
-                                                logger.debug(f"Set __spec__ for {app_capabilities_path} from {capabilities_init}")
+                                                logger.debug(
+                                                    f"Set __spec__ for {app_capabilities_path} from {capabilities_init}"
+                                                )
 
-                                        sys.modules[app_capabilities_path] = app_capabilities_module
-                                        if not hasattr(sys.modules["app"], "capabilities"):
-                                            setattr(sys.modules["app"], "capabilities", app_capabilities_module)
+                                        sys.modules[app_capabilities_path] = (
+                                            app_capabilities_module
+                                        )
+                                        if not hasattr(
+                                            sys.modules["app"], "capabilities"
+                                        ):
+                                            setattr(
+                                                sys.modules["app"],
+                                                "capabilities",
+                                                app_capabilities_module,
+                                            )
 
                                     # 創建 app.capabilities.{cap} 模組
-                                    app_cap_module = types.ModuleType(app_cap_module_path)
+                                    app_cap_module = types.ModuleType(
+                                        app_cap_module_path
+                                    )
                                     app_cap_module.__path__ = [str(tool_capability_dir)]
 
                                     # 設置 __spec__ 以避免 __spec__ is None 錯誤
                                     init_file = tool_capability_dir / "__init__.py"
                                     if init_file.exists():
                                         import importlib.util
+
                                         spec = importlib.util.spec_from_file_location(
                                             app_cap_module_path,
                                             init_file,
-                                            submodule_search_locations=[str(tool_capability_dir)]
+                                            submodule_search_locations=[
+                                                str(tool_capability_dir)
+                                            ],
                                         )
                                         if spec:
                                             app_cap_module.__spec__ = spec
-                                            logger.debug(f"Set __spec__ for app.capabilities.{cap} from {init_file}")
+                                            logger.debug(
+                                                f"Set __spec__ for app.capabilities.{cap} from {init_file}"
+                                            )
 
                                     sys.modules[app_cap_module_path] = app_cap_module
-                                    setattr(sys.modules[app_capabilities_path], cap, app_cap_module)
+                                    setattr(
+                                        sys.modules[app_capabilities_path],
+                                        cap,
+                                        app_cap_module,
+                                    )
 
-                                    logger.debug(f"Created app.capabilities.{cap} module for tool validation, pointing to {tool_capability_dir}")
+                                    logger.debug(
+                                        f"Created app.capabilities.{cap} module for tool validation, pointing to {tool_capability_dir}"
+                                    )
 
                             if backend_path is None:
                                 # 如果工具不在 required_capabilities 中，只給警告，不視為錯誤
@@ -735,27 +836,57 @@ class PlaybookInstaller:
                                                 app_module = types.ModuleType("app")
                                                 sys.modules["app"] = app_module
                                             if "app.capabilities" not in sys.modules:
-                                                app_capabilities_module = types.ModuleType("app.capabilities")
-                                                app_capabilities_module.__path__ = [str(tool_capability_dir.parent)]
-                                                sys.modules["app.capabilities"] = app_capabilities_module
-                                                setattr(sys.modules["app"], "capabilities", app_capabilities_module)
-                                            app_cap_module = types.ModuleType(parent_module_path)
-                                            app_cap_module.__path__ = [str(tool_capability_dir)]
-                                            sys.modules[parent_module_path] = app_cap_module
-                                            setattr(sys.modules["app.capabilities"], cap, app_cap_module)
+                                                app_capabilities_module = (
+                                                    types.ModuleType("app.capabilities")
+                                                )
+                                                app_capabilities_module.__path__ = [
+                                                    str(tool_capability_dir.parent)
+                                                ]
+                                                sys.modules["app.capabilities"] = (
+                                                    app_capabilities_module
+                                                )
+                                                setattr(
+                                                    sys.modules["app"],
+                                                    "capabilities",
+                                                    app_capabilities_module,
+                                                )
+                                            app_cap_module = types.ModuleType(
+                                                parent_module_path
+                                            )
+                                            app_cap_module.__path__ = [
+                                                str(tool_capability_dir)
+                                            ]
+                                            sys.modules[parent_module_path] = (
+                                                app_cap_module
+                                            )
+                                            setattr(
+                                                sys.modules["app.capabilities"],
+                                                cap,
+                                                app_cap_module,
+                                            )
 
                                         # 確保 __spec__ 已設置
                                         parent_module = sys.modules[parent_module_path]
-                                        if not hasattr(parent_module, "__spec__") or parent_module.__spec__ is None:
+                                        if (
+                                            not hasattr(parent_module, "__spec__")
+                                            or parent_module.__spec__ is None
+                                        ):
                                             import importlib.util
-                                            spec = importlib.util.spec_from_file_location(
-                                                parent_module_path,
-                                                init_file,
-                                                submodule_search_locations=[str(tool_capability_dir)]
+
+                                            spec = (
+                                                importlib.util.spec_from_file_location(
+                                                    parent_module_path,
+                                                    init_file,
+                                                    submodule_search_locations=[
+                                                        str(tool_capability_dir)
+                                                    ],
+                                                )
                                             )
                                             if spec:
                                                 parent_module.__spec__ = spec
-                                                logger.debug(f"Set __spec__ for {parent_module_path} before importing tool module")
+                                                logger.debug(
+                                                    f"Set __spec__ for {parent_module_path} before importing tool module"
+                                                )
                                 pass
                             elif module_path.startswith("app."):
                                 # Other app.* paths need backend. prefix
@@ -879,16 +1010,24 @@ class PlaybookInstaller:
                             try:
                                 # 在導入前確保 app.capabilities.* 模組的 __spec__ 已設置
                                 # 處理兩種路徑格式：capabilities.* 和 app.capabilities.*
-                                if module_path.startswith("capabilities.") or module_path.startswith("app.capabilities."):
+                                if module_path.startswith(
+                                    "capabilities."
+                                ) or module_path.startswith("app.capabilities."):
                                     # 確定 capability 名稱
                                     if module_path.startswith("app.capabilities."):
                                         # app.capabilities.video_chapter_studio.tools.video_ingest -> video_chapter_studio
-                                        cap_parts = module_path.replace("app.capabilities.", "").split(".")
+                                        cap_parts = module_path.replace(
+                                            "app.capabilities.", ""
+                                        ).split(".")
                                         cap_name = cap_parts[0] if cap_parts else None
                                     else:
                                         # capabilities.video_chapter_studio.tools.video_ingest -> video_chapter_studio
                                         cap_parts = module_path.split(".")
-                                        cap_name = cap_parts[1] if len(cap_parts) >= 2 else None
+                                        cap_name = (
+                                            cap_parts[1]
+                                            if len(cap_parts) >= 2
+                                            else None
+                                        )
 
                                     if cap_name:
                                         # 確保 app.capabilities 模組存在且有 __spec__
@@ -898,27 +1037,53 @@ class PlaybookInstaller:
                                             if "app" not in sys.modules:
                                                 app_module = types.ModuleType("app")
                                                 sys.modules["app"] = app_module
-                                            app_capabilities_module = types.ModuleType(app_capabilities_path)
-                                            app_capabilities_module.__path__ = [str(self.capabilities_dir)]
-                                            sys.modules[app_capabilities_path] = app_capabilities_module
-                                            setattr(sys.modules["app"], "capabilities", app_capabilities_module)
+                                            app_capabilities_module = types.ModuleType(
+                                                app_capabilities_path
+                                            )
+                                            app_capabilities_module.__path__ = [
+                                                str(self.capabilities_dir)
+                                            ]
+                                            sys.modules[app_capabilities_path] = (
+                                                app_capabilities_module
+                                            )
+                                            setattr(
+                                                sys.modules["app"],
+                                                "capabilities",
+                                                app_capabilities_module,
+                                            )
 
                                         # 設置 app.capabilities 的 __spec__
-                                        app_capabilities_module = sys.modules[app_capabilities_path]
-                                        if not hasattr(app_capabilities_module, "__spec__") or app_capabilities_module.__spec__ is None:
-                                            capabilities_init = self.capabilities_dir / "__init__.py"
+                                        app_capabilities_module = sys.modules[
+                                            app_capabilities_path
+                                        ]
+                                        if (
+                                            not hasattr(
+                                                app_capabilities_module, "__spec__"
+                                            )
+                                            or app_capabilities_module.__spec__ is None
+                                        ):
+                                            capabilities_init = (
+                                                self.capabilities_dir / "__init__.py"
+                                            )
                                             if not capabilities_init.exists():
                                                 capabilities_init.touch()
                                             if capabilities_init.exists():
                                                 import importlib.util
+
                                                 spec = importlib.util.spec_from_file_location(
                                                     app_capabilities_path,
                                                     capabilities_init,
-                                                    submodule_search_locations=[str(self.capabilities_dir)]
+                                                    submodule_search_locations=[
+                                                        str(self.capabilities_dir)
+                                                    ],
                                                 )
                                                 if spec:
-                                                    app_capabilities_module.__spec__ = spec
-                                                    logger.debug(f"Set __spec__ for {app_capabilities_path} before importing {module_path}")
+                                                    app_capabilities_module.__spec__ = (
+                                                        spec
+                                                    )
+                                                    logger.debug(
+                                                        f"Set __spec__ for {app_capabilities_path} before importing {module_path}"
+                                                    )
 
                                         # 確保 app.capabilities.{cap_name} 模組存在且有 __spec__
                                         app_cap_path = f"app.capabilities.{cap_name}"
@@ -926,31 +1091,55 @@ class PlaybookInstaller:
                                             # 創建 app.capabilities.{cap_name} 模組
                                             cap_dir = self.capabilities_dir / cap_name
                                             if cap_dir.exists():
-                                                app_cap_module = types.ModuleType(app_cap_path)
+                                                app_cap_module = types.ModuleType(
+                                                    app_cap_path
+                                                )
                                                 app_cap_module.__path__ = [str(cap_dir)]
-                                                sys.modules[app_cap_path] = app_cap_module
-                                                setattr(sys.modules[app_capabilities_path], cap_name, app_cap_module)
+                                                sys.modules[app_cap_path] = (
+                                                    app_cap_module
+                                                )
+                                                setattr(
+                                                    sys.modules[app_capabilities_path],
+                                                    cap_name,
+                                                    app_cap_module,
+                                                )
 
                                         # 設置 app.capabilities.{cap_name} 的 __spec__
                                         if app_cap_path in sys.modules:
                                             app_cap_module = sys.modules[app_cap_path]
-                                            if not hasattr(app_cap_module, "__spec__") or app_cap_module.__spec__ is None:
-                                                cap_dir = self.capabilities_dir / cap_name
+                                            if (
+                                                not hasattr(app_cap_module, "__spec__")
+                                                or app_cap_module.__spec__ is None
+                                            ):
+                                                cap_dir = (
+                                                    self.capabilities_dir / cap_name
+                                                )
                                                 if cap_dir.exists():
                                                     init_file = cap_dir / "__init__.py"
                                                     if init_file.exists():
                                                         import importlib.util
+
                                                         spec = importlib.util.spec_from_file_location(
                                                             app_cap_path,
                                                             init_file,
-                                                            submodule_search_locations=[str(cap_dir)]
+                                                            submodule_search_locations=[
+                                                                str(cap_dir)
+                                                            ],
                                                         )
                                                         if spec:
-                                                            app_cap_module.__spec__ = spec
-                                                            logger.debug(f"Set __spec__ for {app_cap_path} before importing {module_path}")
+                                                            app_cap_module.__spec__ = (
+                                                                spec
+                                                            )
+                                                            logger.debug(
+                                                                f"Set __spec__ for {app_cap_path} before importing {module_path}"
+                                                            )
 
                                 module = importlib.import_module(module_path)
-                            except (ImportError, ModuleNotFoundError, ValueError) as import_error:
+                            except (
+                                ImportError,
+                                ModuleNotFoundError,
+                                ValueError,
+                            ) as import_error:
                                 # For import errors (missing dependencies), check if it's an optional dependency
                                 # This allows installation to proceed when optional dependencies are missing
                                 error_msg = str(import_error)
