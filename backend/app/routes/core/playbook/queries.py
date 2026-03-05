@@ -241,7 +241,7 @@ async def get_playbook(
             import sys
 
             try:
-                from ...playbook_execution import playbook_runner
+                from ...execution_shared import playbook_runner
             except (ImportError, AttributeError):
                 from ....services.playbook_runner import PlaybookRunner
 
