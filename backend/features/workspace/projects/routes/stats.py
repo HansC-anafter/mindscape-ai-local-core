@@ -858,10 +858,31 @@ async def get_project_card(
         latest_sessions = meeting_store.list_by_workspace(
             workspace_id=workspace_id,
             project_id=project_id,
-            limit=1,
+            limit=5,
             offset=0,
         )
-        latest_meeting = active_meeting or (latest_sessions[0] if latest_sessions else None)
+        # Prefer active session; fallback to most recent session with
+        # actual progress (round_count > 0) to avoid stale round=0 rows.
+        # Extra guard: discard stale active sessions (round_count=0, age > 6h).
+        latest_meeting = active_meeting
+        if latest_meeting and latest_meeting.round_count == 0:
+            from datetime import datetime, timezone, timedelta
+
+            age = (
+                datetime.now(timezone.utc)
+                - latest_meeting.started_at.replace(tzinfo=timezone.utc)
+                if latest_meeting.started_at.tzinfo is None
+                else datetime.now(timezone.utc) - latest_meeting.started_at
+            )
+            if age > timedelta(hours=6):
+                latest_meeting = None  # stale; fall through to fallback
+        if not latest_meeting and latest_sessions:
+            for s in latest_sessions:
+                if s.round_count > 0:
+                    latest_meeting = s
+                    break
+            if not latest_meeting:
+                latest_meeting = latest_sessions[0]
         meeting_summary = {
             "enabled": meeting_enabled,
             "active": bool(active_meeting and active_meeting.is_active),
