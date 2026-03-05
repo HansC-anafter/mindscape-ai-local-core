@@ -131,7 +131,7 @@ export default function ProjectCard({
   onOpenExecution,
   apiUrl = ''
 }: ProjectCardProps) {
-  /* const router = useRouter(); (Removed unused hook) */
+  const router = useRouter();
   const params = useParams();
   const effectiveWorkspaceId = workspaceId || (params?.workspaceId as string);
 
@@ -372,55 +372,13 @@ export default function ProjectCard({
     }
   };
 
-  const handleOpenMeeting = async () => {
-    if (!apiUrl || !effectiveWorkspaceId) return;
-    if (!meetingEnabled) {
-      try {
-        await handleToggleMeeting(true);
-      } catch {
-        console.error('[ProjectCard] Meeting toggle failed, aborting open');
-        return;
-      }
-      // Verify toggle actually succeeded (API may have returned non-ok)
-      // handleToggleMeeting swallows errors into console, so double-check state
+  const handleOpenMeeting = () => {
+    console.log('[ProjectCard] Meeting button clicked', { effectiveWorkspaceId, projectId: project.id });
+    if (!effectiveWorkspaceId) {
+      console.warn('[ProjectCard] No effectiveWorkspaceId, cannot open meeting');
+      return;
     }
-    try {
-      let sessionId = cardData?.meeting?.session_id || '';
-      if (!sessionId) {
-        const activeResp = await fetch(
-          `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/meeting-sessions/active?project_id=${project.id}`,
-          { method: 'GET' }
-        );
-        if (activeResp.ok) {
-          const active = await activeResp.json();
-          sessionId = active.id;
-        } else if (activeResp.status === 404) {
-          const startResp = await fetch(
-            `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/meeting-sessions/start`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                project_id: project.id,
-                thread_id: cardData?.storyThreadId || null,
-              }),
-            }
-          );
-          if (startResp.ok) {
-            const started = await startResp.json();
-            sessionId = started.id;
-          }
-        }
-      }
-
-      const params = new URLSearchParams();
-      params.set('project_id', project.id);
-      params.set('meeting', '1');
-      if (sessionId) params.set('meeting_session_id', sessionId);
-      window.open(`/workspaces/${effectiveWorkspaceId}?${params.toString()}`, '_blank');
-    } catch (err) {
-      console.error('[ProjectCard] Failed to open meeting:', err);
-    }
+    router.push(`/workspaces/${effectiveWorkspaceId}/meetings?project_id=${project.id}`);
   };
 
   const handleOpenExecution = (executionId: string) => {
@@ -727,8 +685,8 @@ export default function ProjectCard({
             console.log('[ProjectCard] View button clicked', { project, effectiveWorkspaceId });
 
             if (effectiveWorkspaceId) {
-              console.log('[ProjectCard] Opening workspace page in new tab');
-              window.open(`/workspaces/${effectiveWorkspaceId}?project_id=${project.id}`, '_blank');
+              console.log('[ProjectCard] Navigating to execution timeline');
+              router.push(`/workspaces/${effectiveWorkspaceId}/executions/timeline?project_id=${project.id}`);
             } else if (onFocus) {
               // Fallback
               onFocus();
