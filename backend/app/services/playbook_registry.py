@@ -76,14 +76,58 @@ class PlaybookRegistry:
         # Cache: cloud playbooks (provider_id:capability_code:playbook_code:locale -> playbook)
         self.cloud_playbooks: Dict[str, Playbook] = {}
 
-        # Lazy loading flag
+        # Lazy loading flags
         self._loaded = False
+        # Per-capability lazy loading: tracks which capabilities have been loaded
+        self._loaded_capabilities: set = set()
+        # Capabilities directory path (resolved once, reused for per-cap loading)
+        self._capabilities_dir: Optional[Path] = None
 
     async def _ensure_loaded(self):
-        """Ensure playbooks are loaded (lazy loading)"""
+        """Ensure system and user playbooks are loaded (lazy loading)"""
         if not self._loaded:
             await self._load_all_playbooks()
             self._loaded = True
+
+    async def _ensure_capability_loaded(self, capability_code: str):
+        """
+        Ensure a specific capability's playbooks are loaded.
+        Only loads the requested capability, not all capabilities.
+        Falls back to full load if capability directory cannot be resolved.
+        """
+        if capability_code in self._loaded_capabilities:
+            return
+        if capability_code in self.capability_playbooks:
+            # Already loaded (e.g. via _load_all_playbooks)
+            self._loaded_capabilities.add(capability_code)
+            return
+
+        # Ensure system playbooks are loaded first (needed for fallback lookups)
+        if not self._loaded:
+            # Load system + user playbooks but skip full capability scan
+            self._load_system_playbooks()
+            if self.store:
+                self._load_user_playbooks()
+
+        # Resolve capabilities directory if not yet known
+        if self._capabilities_dir is None:
+            app_dir = Path(__file__).parent.parent
+            self._capabilities_dir = app_dir / "capabilities"
+
+        if self._capabilities_dir.exists():
+            cap_dir = self._capabilities_dir / capability_code
+            if cap_dir.is_dir():
+                self._load_single_capability(cap_dir)
+                self._loaded_capabilities.add(capability_code)
+                logger.info(f"Lazy-loaded capability playbooks: {capability_code}")
+                return
+
+        # Capability not found locally; fall back to full load so cloud
+        # extension paths and system playbooks are all available
+        if not self._loaded:
+            await self._load_all_playbooks()
+            self._loaded = True
+        self._loaded_capabilities.add(capability_code)
 
     async def _load_all_playbooks(self):
         """Load all playbooks from different sources"""
@@ -263,6 +307,10 @@ class PlaybookRegistry:
         # parent = services/, parent.parent = app/, so app/capabilities
         app_dir = Path(__file__).parent.parent  # app/
         local_capabilities_dir = app_dir / "capabilities"  # app/capabilities
+
+        # Cache the resolved path for per-capability lazy loading
+        self._capabilities_dir = local_capabilities_dir
+
         logger.info(
             f"Checking capabilities directory: {local_capabilities_dir} (exists: {local_capabilities_dir.exists()})"
         )
@@ -271,10 +319,116 @@ class PlaybookRegistry:
                 f"Loading local capability playbooks from {local_capabilities_dir}"
             )
             self._load_playbooks_from_directory(local_capabilities_dir)
+            # Mark all loaded capabilities as tracked
+            for cap_code in list(self.capability_playbooks.keys()):
+                self._loaded_capabilities.add(cap_code)
         else:
             logger.warning(
                 f"Local capabilities directory does not exist: {local_capabilities_dir}"
             )
+
+    def _load_single_capability(self, capability_dir: Path):
+        """
+        Load playbooks from a single capability directory.
+        Used by per-capability lazy loading to avoid scanning all capabilities.
+        """
+        import yaml
+
+        manifest_path = capability_dir / "manifest.yaml"
+        if not manifest_path.exists():
+            logger.debug(f"No manifest.yaml found in {capability_dir.name}, skipping")
+            return
+
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = yaml.safe_load(f)
+
+            capability_code = manifest.get("code")
+            if not capability_code:
+                logger.warning(
+                    f"Manifest in {capability_dir.name} missing 'code' field, skipping"
+                )
+                return
+
+            logger.info(f"Lazy-loading capability pack: {capability_code}")
+
+            if capability_code not in self.capability_playbooks:
+                self.capability_playbooks[capability_code] = {}
+
+            playbooks_config = manifest.get("playbooks", [])
+            for playbook_config in playbooks_config:
+                playbook_code = playbook_config.get("code")
+                if not playbook_code:
+                    continue
+
+                locales = playbook_config.get("locales", ["zh-TW", "en"])
+                path_template = playbook_config.get(
+                    "path", "playbooks/{locale}/{code}.md"
+                )
+
+                for locale in locales:
+                    playbook_path = capability_dir / path_template.format(
+                        locale=locale, code=playbook_code
+                    )
+
+                    if not playbook_path.exists():
+                        logger.debug(f"Playbook file not found: {playbook_path}")
+                        continue
+
+                    try:
+                        playbook = PlaybookFileLoader.load_playbook_from_file(
+                            playbook_path
+                        )
+                        if playbook:
+                            playbook.metadata.locale = locale
+                            playbook.metadata.capability_code = capability_code
+                            playbook.metadata.owner_type = PlaybookOwnerType.SYSTEM
+                            playbook.metadata.owner_id = "system"
+                            playbook.metadata.visibility = (
+                                PlaybookVisibility.WORKSPACE_SHARED
+                            )
+
+                            self._enrich_playbook_metadata(
+                                playbook, capability_dir, playbook_code, locale
+                            )
+
+                            full_code = f"{capability_code}.{playbook_code}"
+                            locale_key = f"{playbook_code}:{locale}"
+                            self.capability_playbooks[capability_code][
+                                full_code
+                            ] = playbook
+                            self.capability_playbooks[capability_code][
+                                locale_key
+                            ] = playbook
+                            if (
+                                playbook_code
+                                not in self.capability_playbooks[capability_code]
+                            ):
+                                self.capability_playbooks[capability_code][
+                                    playbook_code
+                                ] = playbook
+                            else:
+                                existing = self.capability_playbooks[capability_code][
+                                    playbook_code
+                                ]
+                                existing_locale = existing.metadata.locale
+                                locale_priority = {"zh-TW": 3, "en": 2, "ja": 1}
+                                if locale_priority.get(locale, 0) > locale_priority.get(
+                                    existing_locale, 0
+                                ):
+                                    self.capability_playbooks[capability_code][
+                                        playbook_code
+                                    ] = playbook
+                            logger.debug(
+                                f"Loaded capability playbook: {full_code} ({locale}) from {capability_code}"
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to load playbook {playbook_code} ({locale}) from {capability_code}: {e}"
+                        )
+
+        except Exception as e:
+            logger.error(f"Failed to load capability {capability_dir.name}: {e}")
 
     def _load_playbooks_from_directory(self, capabilities_dir: Path):
         """Load playbooks from a capabilities directory"""
@@ -507,7 +661,16 @@ class PlaybookRegistry:
             capability_code: Capability pack code (optional, for cloud playbooks)
                             If not provided and playbook_code contains ".", will be extracted from playbook_code
         """
-        await self._ensure_loaded()
+        # Progressive Disclosure: if capability_code is known (directly or
+        # from dotted format), load only that capability instead of everything.
+        resolved_capability = capability_code
+        if not resolved_capability and "." in playbook_code:
+            resolved_capability = playbook_code.split(".", 1)[0]
+
+        if resolved_capability:
+            await self._ensure_capability_loaded(resolved_capability)
+        else:
+            await self._ensure_loaded()
 
         # Support capability_code.playbook_code format
         # If playbook_code contains ".", try to extract capability_code
@@ -752,7 +915,10 @@ class PlaybookRegistry:
         return True
 
     def invalidate_cache(
-        self, playbook_code: Optional[str] = None, locale: Optional[str] = None
+        self,
+        playbook_code: Optional[str] = None,
+        locale: Optional[str] = None,
+        capability_code: Optional[str] = None,
     ):
         """
         Invalidate playbook cache
@@ -760,8 +926,15 @@ class PlaybookRegistry:
         Args:
             playbook_code: Specific playbook code to invalidate (optional, if None invalidates all)
             locale: Specific locale to invalidate (optional, if None invalidates all locales)
+            capability_code: Specific capability to invalidate (optional, granular cache clear)
         """
-        if playbook_code:
+        if capability_code:
+            # Granular: invalidate a single capability's cache
+            if capability_code in self.capability_playbooks:
+                del self.capability_playbooks[capability_code]
+            self._loaded_capabilities.discard(capability_code)
+            logger.info(f"Invalidated cache for capability {capability_code}")
+        elif playbook_code:
             # Invalidate specific playbook
             if locale:
                 if (
@@ -783,6 +956,7 @@ class PlaybookRegistry:
         else:
             # Invalidate all caches
             self._loaded = False
+            self._loaded_capabilities.clear()
             self.system_playbooks.clear()
             self.capability_playbooks.clear()
             self.user_playbooks.clear()
