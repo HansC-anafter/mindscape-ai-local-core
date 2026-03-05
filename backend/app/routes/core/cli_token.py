@@ -25,14 +25,14 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
 def _get_gca_token() -> dict:
-    """Retrieve Google IDP access token from the first connected runtime.
+    """Retrieve Google IDP access token from connected GCA runtimes.
 
-    Looks up the first runtime with auth_status='connected' and
-    decrypts idp_access_token from the encrypted token blob.
-    Refreshes the token if expired using idp_refresh_token.
+    Queries all GCA runtimes (id LIKE 'gca-%') with auth_status='connected',
+    ordered by 'gca-local' first. Iterates through the pool: if one runtime's
+    token is expired and refresh fails, falls through to the next runtime.
 
     Returns:
-        dict with env vars or error details.
+        dict with env vars and selected_runtime_id, or error details.
     """
     try:
         from ...database.session import get_db_postgres as get_db
@@ -47,16 +47,19 @@ def _get_gca_token() -> dict:
 
     db = next(get_db())
     try:
-        # Use the dedicated gca-local runtime for GCA token storage
-        runtime = (
+        # Query all connected GCA runtimes, prefer gca-local first
+        runtimes = (
             db.query(RuntimeEnvironment)
             .filter(
-                RuntimeEnvironment.id == "gca-local",
+                RuntimeEnvironment.id.like("gca-%"),
                 RuntimeEnvironment.auth_status == "connected",
             )
-            .first()
+            .all()
         )
-        if not runtime:
+        # Sort: gca-local first, then alphabetical
+        runtimes.sort(key=lambda r: (0 if r.id == "gca-local" else 1, r.id))
+
+        if not runtimes:
             return {
                 "error": "GCA not connected. "
                 "Connect via Web Console > Settings > CLI Agent Keys > "
@@ -64,49 +67,63 @@ def _get_gca_token() -> dict:
             }
 
         auth_service = RuntimeAuthService()
-        token_data = auth_service.decrypt_token_blob(runtime.auth_config or {})
-        if not token_data:
-            return {"error": "Failed to decrypt token blob from runtime"}
+        errors = []
 
-        idp_access_token = token_data.get("idp_access_token")
-        idp_refresh_token = token_data.get("idp_refresh_token")
-        idp_expiry = token_data.get("idp_token_expiry", 0)
+        for runtime in runtimes:
+            token_data = auth_service.decrypt_token_blob(runtime.auth_config or {})
+            if not token_data:
+                errors.append(f"{runtime.id}: decrypt failed")
+                continue
 
-        if not idp_access_token:
-            return {"error": "No IDP access token stored in runtime auth_config"}
+            idp_access_token = token_data.get("idp_access_token")
+            idp_refresh_token = token_data.get("idp_refresh_token")
+            idp_expiry = token_data.get("idp_token_expiry", 0)
 
-        # Refresh if expired (with 60s buffer)
-        if idp_expiry and time.time() > (idp_expiry - 60):
-            logger.info("IDP token expired, refreshing via Google OAuth")
-            refreshed = _refresh_google_token(
-                idp_refresh_token, runtime, auth_service, token_data, db
-            )
-            if refreshed:
-                idp_access_token = refreshed
-            else:
-                return {"error": "IDP token expired and refresh failed"}
+            if not idp_access_token:
+                errors.append(f"{runtime.id}: no IDP access token")
+                continue
 
-        # Resolve GCP project ID (required by cloudcode-pa)
-        gcp_project = token_data.get("gcp_project") or ""
-        if not gcp_project:
-            try:
-                from ...services.system_settings_store import SystemSettingsStore
+            # Refresh if expired (with 60s buffer)
+            if idp_expiry and time.time() > (idp_expiry - 60):
+                logger.info("IDP token expired for runtime %s, refreshing", runtime.id)
+                refreshed = _refresh_google_token(
+                    idp_refresh_token, runtime, auth_service, token_data, db
+                )
+                if refreshed:
+                    idp_access_token = refreshed
+                else:
+                    logger.warning(
+                        "Token refresh failed for runtime %s, trying next",
+                        runtime.id,
+                    )
+                    errors.append(f"{runtime.id}: refresh failed")
+                    continue
 
-                s = SystemSettingsStore()
-                gcp_project = s.get("google_cloud_project", "")
-            except Exception:
-                pass
-        if not gcp_project:
-            gcp_project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+            # Resolve GCP project ID (required by cloudcode-pa)
+            gcp_project = token_data.get("gcp_project") or ""
+            if not gcp_project:
+                try:
+                    from ...services.system_settings_store import SystemSettingsStore
 
-        env = {
-            "GOOGLE_GENAI_USE_GCA": "true",
-            "GOOGLE_CLOUD_ACCESS_TOKEN": idp_access_token,
-        }
-        if gcp_project:
-            env["GOOGLE_CLOUD_PROJECT"] = gcp_project
+                    s = SystemSettingsStore()
+                    gcp_project = s.get("google_cloud_project", "")
+                except Exception:
+                    pass
+            if not gcp_project:
+                gcp_project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
 
-        return {"env": env, "selected_runtime_id": runtime.id}
+            env = {
+                "GOOGLE_GENAI_USE_GCA": "true",
+                "GOOGLE_CLOUD_ACCESS_TOKEN": idp_access_token,
+            }
+            if gcp_project:
+                env["GOOGLE_CLOUD_PROJECT"] = gcp_project
+
+            logger.info("GCA token resolved from runtime %s", runtime.id)
+            return {"env": env, "selected_runtime_id": runtime.id}
+
+        # All runtimes failed
+        return {"error": f"All GCA runtimes failed: {'; '.join(errors)}"}
     finally:
         db.close()
 
