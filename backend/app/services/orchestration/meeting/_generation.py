@@ -63,7 +63,9 @@ class MeetingGenerationMixin:
         if not self.executor_runtime:
             raise RuntimeError("executor_runtime is not configured for meeting mode")
         if not self.workspace:
-            raise RuntimeError("workspace is required for executor_runtime meeting mode")
+            raise RuntimeError(
+                "workspace is required for executor_runtime meeting mode"
+            )
 
         if not self._agent_executor:
             from backend.app.services.workspace_agent_executor import (
@@ -119,6 +121,13 @@ class MeetingGenerationMixin:
             },
         )
         if not result.success:
+            # Surface clarification requests as decision events, not fatal errors
+            if result.needs_clarification:
+                await self._emit_clarification_event(result.clarification_questions)
+                return (
+                    f"[Meeting paused] Awaiting user confirmation: "
+                    f"{'; '.join(result.clarification_questions)}"
+                )
             raise RuntimeError(
                 f"Preferred agent '{self.executor_runtime}' failed: "
                 f"{result.error or 'unknown error'}"
@@ -128,6 +137,36 @@ class MeetingGenerationMixin:
                 f"Preferred agent '{self.executor_runtime}' returned empty output"
             )
         return result.output.strip()
+
+    async def _emit_clarification_event(self, questions: list[str]) -> None:
+        """Emit a decision_required event so the UI shows a confirmation card."""
+        try:
+            import uuid
+            from datetime import datetime, timezone
+            from backend.app.models.mindscape import MindEvent, EventType, EventActor
+
+            event = MindEvent(
+                id=str(uuid.uuid4()),
+                timestamp=datetime.now(timezone.utc),
+                actor=EventActor.AGENT,
+                channel="meeting",
+                profile_id=getattr(self, "profile_id", "") or "",
+                project_id=getattr(self, "project_id", None),
+                workspace_id=self.workspace.id,
+                event_type=EventType.DECISION_REQUIRED,
+                payload={
+                    "card_type": "decision",
+                    "priority": "high",
+                    "requires_user_approval": True,
+                    "clarification_questions": questions,
+                    "selected_playbook_code": f"agent:{self.executor_runtime}",
+                    "rationale": "Task risk assessment requires user confirmation before proceeding.",
+                },
+            )
+            self.store.create_event(event)
+            logger.info("Emitted DECISION_REQUIRED event for meeting clarification")
+        except Exception as exc:
+            logger.warning("Failed to emit clarification event: %s", exc)
 
     async def _ensure_provider(self) -> None:
         """Initialize the LLM provider if not already set."""
