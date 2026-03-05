@@ -131,7 +131,9 @@ class StartExecutionRequest(BaseModel):
     auto_execute: Optional[bool] = (
         None  # If True, skip confirmations and execute tools directly
     )
-    execution_backend: Optional[Literal["auto", "runner", "in_process"]] = None
+    execution_backend: Optional[Literal["auto", "runner", "in_process", "remote"]] = (
+        None
+    )
 
 
 class CancelExecutionRequest(BaseModel):
@@ -199,6 +201,96 @@ def _get_execution_mode() -> str:
     )
 
 
+async def _dispatch_remote_execution(
+    playbook_code: str,
+    inputs: Optional[Dict[str, Any]],
+    workspace_id: Optional[str],
+    profile_id: str,
+) -> Dict[str, Any]:
+    """Dispatch execution to cloud control plane via CloudConnector.
+
+    This is the adapter boundary between local-core and cloud.
+    Local-core does not handle tenant routing, quota, or cloud-
+    specific logic -- those are resolved by the cloud control plane.
+
+    Args:
+        playbook_code: Playbook to execute remotely
+        inputs: Execution input data
+        workspace_id: Workspace context for state persistence
+        profile_id: User profile identifier
+
+    Returns:
+        Execution response with cloud execution_id and status
+
+    Raises:
+        HTTPException: 503 if CloudConnector unavailable
+    """
+    try:
+        # Use module-level import fallback for connector access
+        connector = _get_cloud_connector()
+        if not connector or not connector.is_connected:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Cloud Connector not available. "
+                    "Set CLOUD_CONNECTOR_ENABLED=true and "
+                    "configure CLOUD_API_URL."
+                ),
+            )
+
+        # Resolve tenant_id from environment (local-core is single-tenant)
+        tenant_id = os.getenv("CLOUD_TENANT_ID", "default")
+
+        result = await connector.start_remote_execution(
+            tenant_id=tenant_id,
+            playbook_code=playbook_code,
+            request_payload={
+                "inputs": inputs or {},
+                "profile_id": profile_id,
+            },
+            workspace_id=workspace_id,
+        )
+
+        return {
+            "execution_mode": "remote",
+            "playbook_code": playbook_code,
+            "execution_id": result.get("id"),
+            "status": result.get("state", "pending"),
+            "cloud_execution_id": result.get("id"),
+            "result": {
+                "status": result.get("state", "pending"),
+                "execution_id": result.get("id"),
+                "note": "Execution dispatched to cloud control plane",
+            },
+        }
+    except HTTPException:
+        raise
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="CloudConnector module not available",
+        )
+    except Exception as e:
+        logger.error("Remote execution dispatch failed: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Cloud dispatch failed: {e}",
+        )
+
+
+def _get_cloud_connector():
+    """Retrieve CloudConnector from global app state.
+
+    Returns None if connector is not initialized.
+    """
+    try:
+        from backend.app.main import app
+
+        return getattr(app.state, "cloud_connector", None)
+    except Exception:
+        return None
+
+
 @router.post("/execute/start")
 async def start_playbook_execution(
     playbook_code: str = Query(..., description="Playbook code to execute"),
@@ -259,8 +351,17 @@ async def start_playbook_execution(
             else "auto"
         )
         final_execution_backend = (final_execution_backend or "auto").strip().lower()
-        if final_execution_backend not in {"auto", "runner", "in_process"}:
+        if final_execution_backend not in {"auto", "runner", "in_process", "remote"}:
             final_execution_backend = "auto"
+
+        # Remote backend: dispatch to cloud control plane via CloudConnector
+        if final_execution_backend == "remote":
+            return await _dispatch_remote_execution(
+                playbook_code=playbook_code,
+                inputs=inputs,
+                workspace_id=final_workspace_id,
+                profile_id=profile_id,
+            )
 
         # Extract workspace_id and project_id from inputs if not provided as query params
         final_workspace_id = workspace_id or (
@@ -970,7 +1071,7 @@ async def rerun_playbook_execution(
                 )
 
         final_execution_backend = (execution_backend or "auto").strip().lower()
-        if final_execution_backend not in {"auto", "runner", "in_process"}:
+        if final_execution_backend not in {"auto", "runner", "in_process", "remote"}:
             final_execution_backend = "auto"
 
         if merged_inputs is None:
