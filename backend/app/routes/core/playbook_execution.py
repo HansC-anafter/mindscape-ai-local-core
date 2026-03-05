@@ -396,6 +396,7 @@ async def start_playbook_execution(
         # Pool-aware backend selection: let ExecutionPoolDispatcher
         # decide the actual backend based on capacity and quotas.
         pool = _get_execution_pool()
+        pool_acquired_backend = None  # track what we acquired for release
         if pool and final_execution_backend in {"auto", "remote", "runner"}:
             resolved_backend = pool.select_backend(hint=final_execution_backend)
             if resolved_backend != final_execution_backend:
@@ -406,22 +407,28 @@ async def start_playbook_execution(
                 )
             final_execution_backend = resolved_backend
             # Acquire slot so quota counter reflects active work.
-            # Release happens in execution completion callbacks.
             if not pool.acquire(final_execution_backend):
                 logger.warning(
                     "Pool capacity exhausted for %s, falling back to in_process",
                     final_execution_backend,
                 )
                 final_execution_backend = "in_process"
+            else:
+                pool_acquired_backend = final_execution_backend
 
         # Remote backend: dispatch to cloud control plane via CloudConnector
         if final_execution_backend == "remote":
-            return await _dispatch_remote_execution(
-                playbook_code=playbook_code,
-                inputs=inputs,
-                workspace_id=final_workspace_id,
-                profile_id=profile_id,
-            )
+            try:
+                return await _dispatch_remote_execution(
+                    playbook_code=playbook_code,
+                    inputs=inputs,
+                    workspace_id=final_workspace_id,
+                    profile_id=profile_id,
+                )
+            finally:
+                # Release slot after dispatch — cloud tracks its own capacity
+                if pool and pool_acquired_backend:
+                    pool.release(pool_acquired_backend)
 
         # Inject auto_execute into inputs for downstream processing
         if final_auto_execute and inputs:
@@ -1111,6 +1118,7 @@ async def rerun_playbook_execution(
 
         # Pool-aware backend selection (same logic as start path)
         pool = _get_execution_pool()
+        pool_acquired_backend = None
         if pool and final_execution_backend in {"auto", "remote", "runner"}:
             resolved_backend = pool.select_backend(hint=final_execution_backend)
             if resolved_backend != final_execution_backend:
@@ -1126,6 +1134,8 @@ async def rerun_playbook_execution(
                     final_execution_backend,
                 )
                 final_execution_backend = "in_process"
+            else:
+                pool_acquired_backend = final_execution_backend
 
         if merged_inputs is None:
             merged_inputs = {}
@@ -1141,13 +1151,16 @@ async def rerun_playbook_execution(
 
         # Remote backend: dispatch rerun to cloud
         if final_execution_backend == "remote":
-            return await _dispatch_remote_execution(
-                playbook_code=playbook_code,
-                inputs=merged_inputs,
-                workspace_id=workspace_id,
-                profile_id=profile_id,
-            )
-
+            try:
+                return await _dispatch_remote_execution(
+                    playbook_code=playbook_code,
+                    inputs=merged_inputs,
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                )
+            finally:
+                if pool and pool_acquired_backend:
+                    pool.release(pool_acquired_backend)
         # If backend is configured for runner (or caller explicitly prefers runner), enqueue workflow-json playbooks.
         exec_mode = _get_execution_mode()
         prefer_runner = final_execution_backend == "runner" or (
