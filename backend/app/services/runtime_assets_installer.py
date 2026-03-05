@@ -92,6 +92,9 @@ class RuntimeAssetsInstaller:
         # 12. Install docs directory (agent_guide, etc.)
         self.install_docs(cap_dir, capability_code, result)
 
+        # 13. Install evals directory (evaluation scenarios and validators)
+        self.install_evals(cap_dir, capability_code, result)
+
     def install_tools(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install capability tools"""
         tools_dir = cap_dir / "tools"
@@ -1210,6 +1213,14 @@ class RuntimeAssetsInstaller:
                 logger.debug(f"Installed root YAML file: {yaml_file.name}")
                 result.add_installed("root_files", yaml_file.name)
 
+        # Install all .md files in capability root directory (e.g., SKILL.md)
+        for md_file in cap_dir.glob("*.md"):
+            if md_file.is_file():
+                target_file = cap_install_dir / md_file.name
+                shutil.copy2(md_file, target_file)
+                logger.debug(f"Installed root MD file: {md_file.name}")
+                result.add_installed("root_files", md_file.name)
+
     def install_docs(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install docs directory (contains agent_guide.md etc.)"""
         docs_dir = cap_dir / "docs"
@@ -1229,3 +1240,23 @@ class RuntimeAssetsInstaller:
                 shutil.copy2(doc_file, target)
                 result.add_installed("docs", str(rel))
                 logger.debug(f"Installed doc: {rel}")
+
+    def install_evals(self, cap_dir: Path, capability_code: str, result: InstallResult):
+        """Install evals directory (evaluation scenarios and validators)"""
+        evals_dir = cap_dir / "evals"
+        if not evals_dir.exists():
+            return
+
+        target_evals_dir = self.capabilities_dir / capability_code / "evals"
+        if target_evals_dir.exists():
+            shutil.rmtree(target_evals_dir)
+        target_evals_dir.mkdir(parents=True, exist_ok=True)
+
+        for eval_file in evals_dir.rglob("*"):
+            if eval_file.is_file():
+                rel = eval_file.relative_to(evals_dir)
+                target = target_evals_dir / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(eval_file, target)
+                result.add_installed("evals", str(rel))
+                logger.debug(f"Installed eval: {rel}")
