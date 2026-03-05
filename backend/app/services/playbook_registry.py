@@ -5,8 +5,9 @@ Supports lazy loading to avoid startup overhead
 """
 
 import os
+import asyncio
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 from enum import Enum
 
@@ -85,6 +86,10 @@ class PlaybookRegistry:
         # Concurrency protection: global load lock and per-capability locks
         self._load_lock = asyncio.Lock()
         self._capability_locks: Dict[str, asyncio.Lock] = {}
+
+        # Playbook-level variants (separate from Graph IR variants)
+        # Key: playbook_code (e.g. "yogacoach.intake_flow"), Value: list of variants
+        self._playbook_variants: Dict[str, List[Dict[str, Any]]] = {}
 
     async def _ensure_loaded(self):
         """Ensure system and user playbooks are loaded (lazy loading)"""
@@ -343,6 +348,55 @@ class PlaybookRegistry:
                 f"Local capabilities directory does not exist: {local_capabilities_dir}"
             )
 
+    def _parse_variants(
+        self, playbook_config: dict, capability_code: str, playbook_code: str
+    ) -> None:
+        """Parse variants from a manifest playbook entry.
+
+        Called by both _load_playbooks_from_directory (full-load) and
+        _load_single_capability (lazy-load) to ensure consistent behavior.
+
+        Stores parsed variants in self._playbook_variants keyed by
+        full playbook code (capability_code.playbook_code).
+        """
+        variants_raw = playbook_config.get("variants", [])
+        if not variants_raw or not isinstance(variants_raw, list):
+            return
+
+        from backend.app.models.playbook_models.playbook_variant import (
+            PlaybookVariant,
+        )
+
+        full_code = f"{capability_code}.{playbook_code}"
+        parsed = []
+        for v in variants_raw:
+            if not isinstance(v, dict) or "variant_id" not in v:
+                continue
+            try:
+                variant = PlaybookVariant(
+                    variant_id=v["variant_id"],
+                    playbook_code=full_code,
+                    name=v.get("name", v["variant_id"]),
+                    description=v.get("description"),
+                    skip_steps=v.get("skip_steps", []),
+                    custom_checklist=v.get("custom_checklist", []),
+                    execution_params=v.get("execution_params", {}),
+                    conditions=v.get("conditions"),
+                )
+                parsed.append(variant.to_runner_dict())
+                # Also store variant_id for lookup
+                parsed[-1]["variant_id"] = variant.variant_id
+                parsed[-1]["name"] = variant.name
+            except Exception as e:
+                logger.warning(
+                    f"Failed to parse variant '{v.get('variant_id')}' "
+                    f"for {full_code}: {e}"
+                )
+
+        if parsed:
+            self._playbook_variants[full_code] = parsed
+            logger.info(f"Loaded {len(parsed)} variant(s) for playbook {full_code}")
+
     def _load_single_capability(self, capability_dir: Path):
         """
         Load playbooks from a single capability directory.
@@ -442,6 +496,9 @@ class PlaybookRegistry:
                         logger.warning(
                             f"Failed to load playbook {playbook_code} ({locale}) from {capability_code}: {e}"
                         )
+
+                # Parse variants for this playbook (shared helper)
+                self._parse_variants(playbook_config, capability_code, playbook_code)
 
         except Exception as e:
             logger.error(f"Failed to load capability {capability_dir.name}: {e}")
@@ -1016,6 +1073,29 @@ class PlaybookRegistry:
 
         logger.warning(f"Failed to reload playbook {playbook_code} (locale: {locale})")
         return False
+
+    def get_variant(
+        self, playbook_code: str, variant_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Lookup a specific playbook variant by ID.
+
+        Returns a runner-compatible dict (skip_steps, custom_checklist,
+        execution_params) or None if not found.
+
+        This is a playbook-level API, separate from GraphVariantRegistry.
+        """
+        variants = self._playbook_variants.get(playbook_code, [])
+        for v in variants:
+            if v.get("variant_id") == variant_id:
+                return v
+        return None
+
+    def list_variants(self, playbook_code: str) -> List[Dict[str, Any]]:
+        """List all variants for a playbook.
+
+        Returns list of runner-compatible dicts.
+        """
+        return list(self._playbook_variants.get(playbook_code, []))
 
 
 # Global singleton instance

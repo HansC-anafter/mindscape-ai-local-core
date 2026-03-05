@@ -7,6 +7,7 @@ action items, and text generation into a single MeetingEngine class.
 The run() method drives a bounded multi-round governance meeting.
 """
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -286,6 +287,36 @@ class MeetingEngine(
                 exc,
             )
             self.session.status = MeetingStatus.FAILED
+            self.session.end()  # Set ended_at so session is not stale
+
+            # Generate partial minutes from completed rounds so content
+            # is not silently discarded when later rounds fail.
+            if self.session.round_count > 0 and planner_proposals:
+                self.session.metadata["partial_rounds"] = self.session.round_count
+                try:
+                    partial_decision = planner_proposals[-1]
+                    self._emit_decision_final(
+                        decision=partial_decision,
+                        round_number=self.session.round_count,
+                    )
+                    minutes_md = self._render_minutes(
+                        user_message=user_message,
+                        decision=partial_decision,
+                        critic_notes=critic_notes,
+                        action_items=[],
+                        converged=False,
+                    )
+                    self.session.minutes_md = minutes_md
+                    self._emit_minutes_message(minutes_md)
+                    logger.info(
+                        "Partial minutes generated for %d completed rounds",
+                        self.session.round_count,
+                    )
+                except Exception as minutes_err:
+                    logger.warning(
+                        "Failed to generate partial minutes: %s", minutes_err
+                    )
+
             try:
                 self.session_store.update(self.session)
             except Exception:
@@ -1078,11 +1109,7 @@ class MeetingEngine(
             planner_proposals=planner_proposals or [],
             critic_notes=critic_notes or [],
         )
-        # Prepend workspace instruction to system role (highest precedence)
-        ws_instruction = self._build_workspace_instruction_block()
         system_content = role_def.system_prompt
-        if ws_instruction:
-            system_content = ws_instruction + "\n\n" + system_content
         messages = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},

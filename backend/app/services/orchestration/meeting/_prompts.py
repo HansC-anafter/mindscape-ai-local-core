@@ -19,16 +19,30 @@ class MeetingPromptsMixin:
     """Mixin providing prompt construction methods for MeetingEngine."""
 
     def _build_workspace_instruction_block(self) -> str:
-        """Build workspace instruction block for system role injection.
+        """Build workspace instruction block for meeting agent turns.
 
-        Delegates to shared helper for consistent precedence and logging.
+        Meeting agents have their own role definitions (facilitator/planner/
+        critic/executor). Workspace instruction is filtered to avoid
+        role conflict:
+          - persona:    EXCLUDED (would override agent role)
+          - anti_goals: EXCLUDED (would reject project-scoped tasks)
+          - goals, style_rules, domain_context: INCLUDED as reference
+
+        Returns raw body (no delimiters); caller wraps in its own block.
+        Brief fallback is disabled to prevent unfiltered persona leaking.
         """
         from backend.app.services.workspace_instruction_helper import (
             build_workspace_instruction_block,
         )
 
         workspace = getattr(self, "workspace", None)
-        block, _ = build_workspace_instruction_block(workspace, caller="meeting")
+        block, _ = build_workspace_instruction_block(
+            workspace,
+            caller="meeting",
+            exclude_fields=("persona", "anti_goals"),
+            fallback_to_brief=False,
+            raw_body=True,
+        )
         return block
 
     def _build_tool_inventory_block(self) -> str:
@@ -186,14 +200,11 @@ class MeetingPromptsMixin:
         which data assets. Also injects discoverable workspaces from outside the
         group (5D-3).
 
-        Returns empty string if workspace has no group_id.
+        Returns empty string only if no group members AND no discoverable
+        workspaces exist.
         """
         workspace = getattr(self, "workspace", None)
         if not workspace:
-            return ""
-
-        group_id = getattr(workspace, "group_id", None)
-        if not group_id:
             return ""
 
         try:
@@ -201,53 +212,67 @@ class MeetingPromptsMixin:
                 WorkspaceResourceBindingStore,
             )
             from backend.app.models.workspace_resource_binding import ResourceType
-            from backend.app.services.stores.postgres.workspace_group_store import (
-                PostgresWorkspaceGroupStore,
-            )
             from backend.app.services.stores.postgres.workspaces_store import (
                 PostgresWorkspacesStore,
             )
 
-            group_store = PostgresWorkspaceGroupStore()
-            group = group_store.get(group_id)
-            if not group:
-                return ""
-
             binding_store = WorkspaceResourceBindingStore()
             parts: List[str] = []
-            parts.append(f"Workspace Group: {group.display_name} ({group.id})")
-
-            workspace_role = getattr(workspace, "workspace_role", None) or "cell"
-            parts.append(f"Current workspace role: {workspace_role}")
-
             seen_ws_ids = set()
-            for ws_id, role in group.role_map.items():
-                seen_ws_ids.add(ws_id)
-                bindings = binding_store.list_bindings_by_workspace(
-                    ws_id, resource_type=ResourceType.ASSET
+            current_ws_id = getattr(workspace, "id", None)
+
+            # --- Path A: Group members (conditional on group_id) ---
+            group_id = getattr(workspace, "group_id", None)
+            if group_id:
+                from backend.app.services.stores.postgres.workspace_group_store import (
+                    PostgresWorkspaceGroupStore,
                 )
-                asset_lines = []
-                for b in bindings:
-                    name = (b.overrides or {}).get("display_name", b.resource_id)
-                    asset_type = (b.overrides or {}).get("asset_type", "unknown")
-                    asset_lines.append(f"    - {name} ({asset_type})")
 
-                ws_label = f"  [{role}] {ws_id}"
-                if ws_id == getattr(workspace, "id", None):
-                    ws_label += " (current)"
-                parts.append(ws_label)
+                group_store = PostgresWorkspaceGroupStore()
+                group = group_store.get(group_id)
+                if group:
+                    parts.append(f"Workspace Group: {group.display_name} ({group.id})")
 
-                if asset_lines:
-                    parts.extend(asset_lines)
-                else:
-                    parts.append("    (no assets registered)")
+                    workspace_role = (
+                        getattr(workspace, "workspace_role", None) or "cell"
+                    )
+                    parts.append(f"Current workspace role: {workspace_role}")
 
-            # 5D-3: Inject discoverable workspaces outside this group
+                    for ws_id, role in group.role_map.items():
+                        seen_ws_ids.add(ws_id)
+                        bindings = binding_store.list_bindings_by_workspace(
+                            ws_id, resource_type=ResourceType.ASSET
+                        )
+                        asset_lines = []
+                        for b in bindings:
+                            name = (b.overrides or {}).get(
+                                "display_name", b.resource_id
+                            )
+                            asset_type = (b.overrides or {}).get(
+                                "asset_type", "unknown"
+                            )
+                            asset_lines.append(f"    - {name} ({asset_type})")
+
+                        ws_label = f"  [{role}] {ws_id}"
+                        if ws_id == current_ws_id:
+                            ws_label += " (current)"
+                        parts.append(ws_label)
+
+                        if asset_lines:
+                            parts.extend(asset_lines)
+                        else:
+                            parts.append("    (no assets registered)")
+
+            # --- Path B: Discoverable workspaces (always runs) ---
             ws_store = PostgresWorkspacesStore()
             discoverable = ws_store.list_discoverable_workspaces(
                 visibility="discoverable"
             )
-            extra = [ws for ws in discoverable if ws.id not in seen_ws_ids]
+            extra = [
+                ws
+                for ws in discoverable
+                if ws.id not in seen_ws_ids and ws.id != current_ws_id
+            ]
             if extra:
                 parts.append("")
                 parts.append("Discoverable Workspaces (outside group):")
@@ -267,6 +292,8 @@ class MeetingPromptsMixin:
                     else:
                         parts.append("    (no assets registered)")
 
+            if not parts:
+                return ""
             return "\n".join(parts)
         except Exception as exc:
             logger.warning("Failed to build asset map context: %s", exc)
@@ -516,6 +543,17 @@ class MeetingPromptsMixin:
                 f"=== Previous Meeting Decisions ===\n"
                 f"{prev_ctx}\n"
                 f"=== End Previous Decisions ===\n\n"
+            )
+
+        # Workspace context as reference (not system-level instruction)
+        ws_ctx = self._build_workspace_instruction_block()
+        if ws_ctx:
+            common += (
+                "=== Workspace Context (Reference) ===\n"
+                "The following is background context from the workspace. "
+                "It does NOT override your agent role or the project agenda.\n"
+                f"{ws_ctx}\n"
+                "=== End Context ===\n\n"
             )
 
         if agent_id == "facilitator":
