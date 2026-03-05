@@ -3,6 +3,7 @@ Security components for My Agent Console
 Implements local-first security with encryption and authentication
 """
 
+import logging
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,8 @@ from datetime import datetime, timedelta, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import Optional, Dict, Any
 from jose import jwt
 from jose.exceptions import JWTError
@@ -19,16 +22,29 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 
+logger = logging.getLogger(__name__)
+
 
 class LocalAuthManager:
     """Local authentication manager for single-user setup"""
 
     def __init__(self):
-        self.secret_key = os.getenv("LOCAL_AUTH_SECRET", "dev-secret-key-change-in-production")
+        secret = os.getenv("LOCAL_AUTH_SECRET", "").strip()
+        if not secret:
+            secret = secrets.token_hex(32)
+            logger.warning(
+                "LOCAL_AUTH_SECRET not set — generated ephemeral secret. "
+                "Tokens will NOT survive restarts. Set LOCAL_AUTH_SECRET in .env."
+            )
+        self.secret_key = secret
         self.algorithm = "HS256"
-        self.access_token_expire_minutes = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+        self.access_token_expire_minutes = int(
+            os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
+        )
 
-    def create_access_token(self, data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+    def create_access_token(
+        self, data: Dict[str, Any], expires_delta: Optional[timedelta] = None
+    ) -> str:
         """Create JWT access token"""
         to_encode = data.copy()
         if expires_delta:
