@@ -217,9 +217,37 @@ class PlaybookInstaller:
                 if not isinstance(step, dict):
                     continue
 
-                # TODO(P3-4d): Validate playbook_slot references exist.
-                # Rules: local/system playbook = error if missing,
-                #        cloud/uninstalled capability = warning only.
+                # Validate playbook_slot references exist at install time
+                if "playbook_slot" in step:
+                    slot_ref = step["playbook_slot"]
+                    step_id = step.get("id", f"step_{step_idx}")
+                    try:
+                        from backend.app.services.playbook_loaders.json_loader import (
+                            PlaybookJsonLoader,
+                        )
+
+                        sub_pb = PlaybookJsonLoader.load_playbook_json(slot_ref)
+                        if not sub_pb:
+                            # Check if the reference looks like a cross-capability
+                            # playbook (e.g. "other_cap.some_playbook") that may
+                            # not be installed yet. Warn instead of error.
+                            if "." in slot_ref:
+                                logger.warning(
+                                    f"Step '{step_id}': playbook_slot '{slot_ref}' "
+                                    f"not found locally (cross-capability ref, may "
+                                    f"be installed later)"
+                                )
+                            else:
+                                errors.append(
+                                    f"Step '{step_id}': playbook_slot '{slot_ref}' "
+                                    f"not found. Local/system playbooks must exist "
+                                    f"at install time."
+                                )
+                    except Exception as e:
+                        logger.warning(
+                            f"Step '{step_id}': could not validate playbook_slot "
+                            f"'{slot_ref}': {e}"
+                        )
 
                 # Check for legacy 'tool' field (skip for playbook_slot steps)
                 if "tool" in step and "playbook_slot" not in step:

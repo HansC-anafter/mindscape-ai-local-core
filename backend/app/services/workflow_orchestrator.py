@@ -744,21 +744,18 @@ class WorkflowOrchestrator:
                     # P3-4c: pre_step hook (failure prevents step execution)
                     if hasattr(step, "hooks") and step.hooks and step.hooks.pre_step:
                         try:
-                            from backend.app.routes.core.execution_hooks import (
-                                async_invoke_lifecycle_hook,
+                            from backend.app.services.step_hook_invoker import (
+                                invoke_step_hook,
                             )
 
-                            _hook_context = {
-                                "execution_id": execution_id or "",
-                                "workspace_id": workspace_id or "",
-                                "profile_id": profile_id or "",
-                                "step_id": step.id,
-                            }
-                            await async_invoke_lifecycle_hook(
+                            await invoke_step_hook(
                                 hook_name=f"pre_step:{step.id}",
-                                hook_spec=step.hooks.pre_step.model_dump(),
-                                normalized_inputs=playbook_inputs,
-                                execution_context=_hook_context,
+                                hook_spec_model=step.hooks.pre_step,
+                                playbook_inputs=playbook_inputs,
+                                execution_id=execution_id,
+                                workspace_id=workspace_id,
+                                profile_id=profile_id,
+                                step_id=step.id,
                                 step_outputs=step_outputs,
                             )
                         except Exception as hook_err:
@@ -804,21 +801,18 @@ class WorkflowOrchestrator:
                     # P3-4c: post_step hook (non-fatal)
                     if hasattr(step, "hooks") and step.hooks and step.hooks.post_step:
                         try:
-                            from backend.app.routes.core.execution_hooks import (
-                                async_invoke_lifecycle_hook,
+                            from backend.app.services.step_hook_invoker import (
+                                invoke_step_hook,
                             )
 
-                            _hook_context = {
-                                "execution_id": execution_id or "",
-                                "workspace_id": workspace_id or "",
-                                "profile_id": profile_id or "",
-                                "step_id": step.id,
-                            }
-                            await async_invoke_lifecycle_hook(
+                            await invoke_step_hook(
                                 hook_name=f"post_step:{step.id}",
-                                hook_spec=step.hooks.post_step.model_dump(),
-                                normalized_inputs=playbook_inputs,
-                                execution_context=_hook_context,
+                                hook_spec_model=step.hooks.post_step,
+                                playbook_inputs=playbook_inputs,
+                                execution_id=execution_id,
+                                workspace_id=workspace_id,
+                                profile_id=profile_id,
+                                step_id=step.id,
                                 step_outputs=step_outputs,
                             )
                         except Exception as hook_err:
@@ -905,23 +899,20 @@ class WorkflowOrchestrator:
                     # P3-4c: on_error hook (non-fatal)
                     if hasattr(step, "hooks") and step.hooks and step.hooks.on_error:
                         try:
-                            from backend.app.routes.core.execution_hooks import (
-                                async_invoke_lifecycle_hook,
+                            from backend.app.services.step_hook_invoker import (
+                                invoke_step_hook,
                             )
 
-                            _hook_context = {
-                                "execution_id": execution_id or "",
-                                "workspace_id": workspace_id or "",
-                                "profile_id": profile_id or "",
-                                "step_id": step.id,
-                                "error": error_msg,
-                            }
-                            await async_invoke_lifecycle_hook(
+                            await invoke_step_hook(
                                 hook_name=f"on_error:{step.id}",
-                                hook_spec=step.hooks.on_error.model_dump(),
-                                normalized_inputs=playbook_inputs,
-                                execution_context=_hook_context,
+                                hook_spec_model=step.hooks.on_error,
+                                playbook_inputs=playbook_inputs,
+                                execution_id=execution_id,
+                                workspace_id=workspace_id,
+                                profile_id=profile_id,
+                                step_id=step.id,
                                 step_outputs=step_outputs,
+                                error=error_msg,
                             )
                         except Exception as hook_err:
                             logger.warning(
@@ -1279,10 +1270,52 @@ class WorkflowOrchestrator:
                         f"but runtime dispatch is not enabled. "
                         f"Set ENABLE_PLAYBOOK_SLOT_RUNTIME=true to enable."
                     )
-                # P3-4d will implement actual dispatch here
-                raise NotImplementedError(
-                    f"playbook_slot dispatch not yet implemented for '{step.playbook_slot}'"
+
+                # Depth guard: prevent unbounded recursion (max 3 levels)
+                _MAX_PLAYBOOK_SLOT_DEPTH = 3
+                _current_depth = getattr(self, "_playbook_slot_depth", 0)
+                if _current_depth >= _MAX_PLAYBOOK_SLOT_DEPTH:
+                    raise ValueError(
+                        f"playbook_slot nesting depth exceeded max={_MAX_PLAYBOOK_SLOT_DEPTH} "
+                        f"at step '{step.id}' -> '{step.playbook_slot}'"
+                    )
+
+                # Load sub-playbook spec
+                sub_playbook_json = self.load_playbook_json(step.playbook_slot)
+                if not sub_playbook_json:
+                    raise ValueError(
+                        f"Sub-playbook '{step.playbook_slot}' not found for "
+                        f"playbook_slot step '{step.id}'"
+                    )
+
+                logger.info(
+                    f"playbook_slot dispatch: step '{step.id}' -> "
+                    f"sub-playbook '{step.playbook_slot}' (depth={_current_depth + 1})"
                 )
+
+                # Execute sub-playbook recursively with incremented depth
+                _prev_depth = getattr(self, "_playbook_slot_depth", 0)
+                self._playbook_slot_depth = _prev_depth + 1
+                try:
+                    sub_result = await self._execute_playbook_steps(
+                        sub_playbook_json,
+                        resolved_inputs,
+                        execution_id=execution_id,
+                        workspace_id=workspace_id,
+                        profile_id=profile_id,
+                        project_id=project_id,
+                    )
+                finally:
+                    self._playbook_slot_depth = _prev_depth
+
+                # Map sub-playbook final outputs through step.outputs
+                # step.outputs = {"summary": "report", "grade": "score"}
+                # sub_result = {"report": "...", "score": 42}
+                step_output = {}
+                for output_name, source_field in step.outputs.items():
+                    step_output[output_name] = sub_result.get(source_field)
+                return step_output
+
             else:
                 raise ValueError(
                     "PlaybookStep must have 'tool', 'tool_slot', or 'playbook_slot'"
