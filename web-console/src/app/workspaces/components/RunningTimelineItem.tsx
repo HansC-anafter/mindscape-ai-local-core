@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useExecutionPolling } from '@/hooks/useExecutionPolling';
 
 interface ExecutionSession {
   execution_id: string;
@@ -50,9 +51,7 @@ export default function RunningTimelineItem({
 }: RunningTimelineItemProps) {
   const [currentExecution, setCurrentExecution] = useState<ExecutionSession>(execution);
   const [latestStep, setLatestStep] = useState<ExecutionStep | null>(currentStep || null);
-  const [isConnecting, setIsConnecting] = useState(true);
   const [intentStatus, setIntentStatus] = useState<'confirmed' | 'candidate' | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
 
   // Sync execution prop changes to internal state
   useEffect(() => {
@@ -115,64 +114,6 @@ export default function RunningTimelineItem({
     fetchIntentStatus();
   }, [currentExecution.origin_intent_id, currentExecution.origin_intent_label, apiUrl, workspaceId]);
 
-  useEffect(() => {
-    // Connect to SSE stream
-    const streamUrl = `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${execution.execution_id}/stream`;
-    const eventSource = new EventSource(streamUrl);
-    eventSourceRef.current = eventSource;
-
-    eventSource.onopen = () => {
-      setIsConnecting(false);
-    };
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        // Handle stream_end event to close connection gracefully
-        if (data.type === 'stream_end') {
-          if (eventSourceRef.current) {
-            eventSourceRef.current.close();
-            eventSourceRef.current = null;
-          }
-          return;
-        }
-        handleSSEEvent(data);
-      } catch (err) {
-        console.error('Failed to parse SSE event:', err);
-      }
-    };
-
-    eventSource.onerror = (error) => {
-      // Only log error if connection was not intentionally closed
-      if (eventSourceRef.current?.readyState === EventSource.CLOSED) {
-        // Connection was closed, this is normal
-        return;
-      }
-      // Check if it's a network error (ERR_INCOMPLETE_CHUNKED_ENCODING is expected when stream ends)
-      const target = error.target as EventSource;
-      if (target?.readyState === EventSource.CLOSED) {
-        // Stream ended normally, don't treat as error
-        return;
-      }
-      // SSE connection closed (normal when execution completes)
-      setIsConnecting(true);
-      // Try to reconnect after delay only if connection is not closed
-      setTimeout(() => {
-        if (eventSourceRef.current && eventSourceRef.current.readyState !== EventSource.CLOSED) {
-          eventSourceRef.current.close();
-        }
-        // Will reconnect on next render
-      }, 5000);
-    };
-
-    return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-    };
-  }, [execution.execution_id, apiUrl, workspaceId]);
-
   const handleSSEEvent = (data: any) => {
     switch (data.type) {
       case 'execution_update':
@@ -217,9 +158,6 @@ export default function RunningTimelineItem({
         }
         break;
       case 'execution_completed':
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-        }
         // Trigger task update event to refresh task list
         window.dispatchEvent(new CustomEvent('workspace-task-updated', {
           detail: {
@@ -233,6 +171,17 @@ export default function RunningTimelineItem({
         break;
     }
   };
+
+  const { sseConnected } = useExecutionPolling({
+    executionId: execution.execution_id,
+    workspaceId,
+    apiUrl,
+    onUpdate: handleSSEEvent,
+    enableSSE: true,
+    enablePollingFallback: false,
+  });
+
+  const isConnecting = !sseConnected;
 
   // Generate Agent/Tool narrative
   const getNarrative = (): string => {
@@ -360,4 +309,3 @@ export default function RunningTimelineItem({
     </div>
   );
 }
-

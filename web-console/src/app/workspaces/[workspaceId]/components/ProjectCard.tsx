@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Project } from '@/types/project';
 import { parseServerTimestamp } from '@/lib/time';
+import { subscribeEventStream } from '@/components/workspace/eventProjector';
 
 interface ProjectCardData {
   projectId: string;
@@ -263,6 +264,31 @@ export default function ProjectCard({
       loadingRef.current = false;
     };
   }, [cardData, apiUrl, project.id, effectiveWorkspaceId]);
+
+  // Subscribe to meeting SSE events to refresh card data on state changes.
+  useEffect(() => {
+    const meetingOn = Boolean(
+      cardData?.meeting?.enabled ?? project.metadata?.meeting_enabled
+    );
+    if (!meetingOn || !apiUrl || !effectiveWorkspaceId) return;
+
+
+    const unsubscribe = subscribeEventStream(effectiveWorkspaceId, {
+      apiUrl,
+      eventTypes: ['meeting_round', 'meeting_start', 'meeting_end', 'decision_proposal', 'decision_final'],
+      projectId: project.id,
+      onEvent: () => {
+        // Re-fetch card data when any meeting event arrives
+        const url = `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/projects/${project.id}/card`;
+        fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'include' })
+          .then(res => res.ok ? res.json() : null)
+          .then(data => { if (data) setCardData(data); })
+          .catch(() => { });
+      },
+    });
+
+    return unsubscribe;
+  }, [cardData?.meeting?.enabled, project.metadata?.meeting_enabled, apiUrl, effectiveWorkspaceId, project.id]);
 
   const meetingEnabled = Boolean(
     cardData?.meeting?.enabled ?? project.metadata?.meeting_enabled

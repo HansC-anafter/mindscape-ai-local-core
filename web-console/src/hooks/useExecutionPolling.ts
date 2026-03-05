@@ -1,17 +1,17 @@
 'use client';
 
 /**
- * useExecutionPolling — unified SSE-first + polling fallback hook
+ * useExecutionPolling — unified SSE-first hook with optional polling fallback
  *
  * State machine:
  *   [*] → SSE_Active (hook mount + SSE enabled)
- *   SSE_Active → Polling_Fallback (onerror(CLOSED) or 45s watchdog timeout)
+ *   SSE_Active → Polling_Fallback (only if enablePollingFallback=true, onerror(CLOSED) or watchdog timeout)
  *   Polling_Fallback → SSE_Active (SSE reconnect succeeds, onopen)
  *   SSE_Active → [*] (hook unmount)
  *   Polling_Fallback → [*] (hook unmount)
  *
  * When SSE is connected, polling is disabled — only SSE-driven refreshes fire.
- * When SSE is disconnected, a setInterval fallback runs at `pollIntervalMs`.
+ * Polling fallback is opt-in (`enablePollingFallback`) and disabled by default.
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -48,10 +48,12 @@ export interface UseExecutionPollingOptions {
     pollIntervalMs?: number;
     /** Enable SSE streaming. Default: true */
     enableSSE?: boolean;
+    /** Enable setInterval polling fallback when SSE disconnects. Default: false */
+    enablePollingFallback?: boolean;
     /** Minimum gap between SSE-triggered refreshes (debounce). Default: 1_200 */
     sseDebounceMs?: number;
-    /** Custom poll function. If not provided, polling is skipped. */
-    pollFn?: () => Promise<void>;
+    /** Custom refresh function. If not provided, polling/refresh is skipped. */
+    pollFn?: () => Promise<void> | void;
 }
 
 export interface UseExecutionPollingReturn {
@@ -69,6 +71,7 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         onUpdate,
         pollIntervalMs = 10_000,
         enableSSE = true,
+        enablePollingFallback = false,
         sseDebounceMs = 1_200,
         pollFn,
     } = options;
@@ -155,6 +158,7 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
     // Polling fallback — only active when SSE is NOT connected
     useEffect(() => {
         if (!executionId) return;
+        if (!enablePollingFallback) return;
         if (sseConnected && enableSSE) return; // SSE active, no polling needed
 
         if (!pollFnRef.current) return;
@@ -167,7 +171,7 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         }, pollIntervalMs);
 
         return () => clearInterval(t);
-    }, [executionId, sseConnected, enableSSE, pollIntervalMs]);
+    }, [executionId, sseConnected, enableSSE, enablePollingFallback, pollIntervalMs]);
 
     return { sseConnected, refresh };
 }

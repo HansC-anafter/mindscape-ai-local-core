@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n';
+import { useExecutionPolling } from '@/hooks/useExecutionPolling';
 import WorkflowStepCard from './WorkflowStepCard';
 
 interface ExecutionSession {
@@ -166,49 +167,33 @@ export default function ExecutionConsole({
     }
   }, [executionId, workspaceId, apiUrl]);
 
-  // Connect to SSE stream for real-time updates
-  useEffect(() => {
-    if (!executionId) return;
-
-    const streamUrl = `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/stream`;
-    const eventSource = new EventSource(streamUrl);
-
-    eventSource.onmessage = (event) => {
-      try {
-        const update = JSON.parse(event.data);
-
-        if (update.type === 'execution_update') {
-          setExecution(update.execution);
-          setCurrentStepIndex(update.execution?.current_step_index || 0);
-        } else if (update.type === 'step_update') {
-          setSteps(prev => {
-            const index = prev.findIndex(s => s.id === update.step.id);
-            if (index >= 0) {
-              const updated = [...prev];
-              updated[index] = update.step;
-              return updated;
-            } else {
-              return [...prev, update.step];
-            }
-          });
-        } else if (update.type === 'execution_completed') {
-          // Reload execution and steps
-          window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+  const handleExecutionEvent = (update: any) => {
+    if (update.type === 'execution_update') {
+      setExecution(update.execution);
+      setCurrentStepIndex(update.execution?.current_step_index || 0);
+    } else if (update.type === 'step_update') {
+      setSteps(prev => {
+        const index = prev.findIndex(s => s.id === update.step.id);
+        if (index >= 0) {
+          const updated = [...prev];
+          updated[index] = update.step;
+          return updated;
         }
-      } catch (err) {
-        console.error('Failed to parse SSE message:', err);
-      }
-    };
+        return [...prev, update.step];
+      });
+    } else if (update.type === 'execution_completed') {
+      window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+    }
+  };
 
-    eventSource.onerror = (err) => {
-      console.error('SSE connection error:', err);
-      eventSource.close();
-    };
-
-    return () => {
-      eventSource.close();
-    };
-  }, [executionId, workspaceId, apiUrl]);
+  useExecutionPolling({
+    executionId: executionId || null,
+    workspaceId,
+    apiUrl,
+    onUpdate: handleExecutionEvent,
+    enableSSE: true,
+    enablePollingFallback: false,
+  });
 
   const currentStep = steps.find(s => s.step_index === currentStepIndex);
 
@@ -400,4 +385,3 @@ export default function ExecutionConsole({
     </div>
   );
 }
-
