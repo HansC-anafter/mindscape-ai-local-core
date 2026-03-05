@@ -133,7 +133,9 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
                 continue
             _sp = _tool.get("schema_path")
             if _sp and "input_schema" not in _tool:
-                _sf, _guard_error = _resolve_schema_path_guard(manifest_path.parent, _sp)
+                _sf, _guard_error = _resolve_schema_path_guard(
+                    manifest_path.parent, _sp
+                )
                 if _guard_error:
                     continue
                 if _sf and _sf.exists():
@@ -556,25 +558,42 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
     # Dependencies Validation
     # ========================================================================
 
-    dependencies = manifest.get("dependencies", {})
+    dependencies = manifest.get("dependencies")
 
-    # Check if optional dependencies have fallback or degraded_features
-    optional_deps = dependencies.get("optional", [])
-    for dep in optional_deps:
-        if isinstance(dep, dict):
-            dep_name = dep.get("name", "unknown")
-            if "fallback" not in dep and "degraded_features" not in dep:
-                warnings.append(
-                    ValidationError(
-                        capability=capability_code,
-                        field=f"dependencies.optional[{dep_name}]",
-                        message=(
-                            f"Optional dependency '{dep_name}' should have 'fallback' or "
-                            "'degraded_features' to handle unavailability."
-                        ),
-                        severity="warning",
+    # Guard: dependencies can be dict (standard), list (legacy), or None
+    if isinstance(dependencies, dict):
+        # Check if optional dependencies have fallback or degraded_features
+        optional_deps = dependencies.get("optional", [])
+        for dep in optional_deps:
+            if isinstance(dep, dict):
+                dep_name = dep.get("name", "unknown")
+                if "fallback" not in dep and "degraded_features" not in dep:
+                    warnings.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=f"dependencies.optional[{dep_name}]",
+                            message=(
+                                f"Optional dependency '{dep_name}' should have 'fallback' or "
+                                "'degraded_features' to handle unavailability."
+                            ),
+                            severity="warning",
+                        )
                     )
+    elif isinstance(dependencies, list):
+        # Legacy format: dependencies as a flat list of strings
+        # Accepted but warn about migration to dict format
+        if dependencies:  # non-empty list
+            warnings.append(
+                ValidationError(
+                    capability=capability_code,
+                    field="dependencies",
+                    message=(
+                        "dependencies is a list. Consider migrating to dict format "
+                        "with 'required'/'optional' keys for richer validation."
+                    ),
+                    severity="warning",
                 )
+            )
 
     # ========================================================================
     # Return Results
