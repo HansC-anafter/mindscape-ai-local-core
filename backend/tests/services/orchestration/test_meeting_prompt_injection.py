@@ -203,6 +203,7 @@ class TestWorkspaceInstructionInjection:
     """Tests for workspace instruction block building and injection."""
 
     def test_full_instruction_block(self):
+        """Meeting block excludes persona and anti_goals."""
         engine = StubEngine()
         engine.workspace.workspace_blueprint = FakeBlueprint(
             instruction=FakeInstruction(
@@ -214,24 +215,26 @@ class TestWorkspaceInstructionInjection:
             )
         )
         result = engine._build_workspace_instruction_block()
-        assert "=== Workspace Instruction ===" in result
-        assert "=== End Instruction ===" in result
-        assert "Persona: You are an IG community analyst" in result
+        # Meeting-specific filtering: no persona, no anti_goals, raw body
+        assert "Persona:" not in result
+        assert "Don't post content" not in result
+        assert "Anti-goals" not in result
+        # Preserved fields
         assert "Track trending topics" in result
-        assert "Don't post content" in result
         assert "Report in zh-TW" in result
         assert "Focus on Instagram Reels" in result
+        # Raw body: no === delimiters (caller wraps its own)
+        assert "=== Workspace Instruction ===" not in result
+        assert "=== End Instruction ===" not in result
 
-    def test_fallback_to_brief(self):
+    def test_fallback_to_brief_disabled_for_meeting(self):
+        """Meeting caller never uses brief fallback."""
         engine = StubEngine()
         engine.workspace.workspace_blueprint = FakeBlueprint(
             brief="This workspace tracks IG topics."
         )
         result = engine._build_workspace_instruction_block()
-        assert "=== Workspace Brief ===" in result
-        assert "=== End Brief ===" in result
-        assert "This workspace tracks IG topics." in result
-        assert "=== Workspace Instruction ===" not in result
+        assert result == ""
 
     def test_empty_when_no_blueprint(self):
         engine = StubEngine()
@@ -246,6 +249,7 @@ class TestWorkspaceInstructionInjection:
         assert result == ""
 
     def test_partial_fields_only_persona_and_goals(self):
+        """When only persona + goals set, meeting block shows only goals."""
         engine = StubEngine()
         engine.workspace.workspace_blueprint = FakeBlueprint(
             instruction=FakeInstruction(
@@ -254,32 +258,65 @@ class TestWorkspaceInstructionInjection:
             )
         )
         result = engine._build_workspace_instruction_block()
-        assert "Persona: You are a brand strategist" in result
+        # Persona is excluded for meeting
+        assert "Persona:" not in result
+        assert "brand strategist" not in result
+        # Goals preserved
         assert "Build brand awareness" in result
         assert "Anti-goals" not in result
         assert "Style:" not in result
         assert "Domain context:" not in result
 
     def test_instruction_has_priority_over_brief(self):
+        """Instruction fields used; brief ignored for meeting."""
         engine = StubEngine()
         engine.workspace.workspace_blueprint = FakeBlueprint(
-            instruction=FakeInstruction(persona="I am the AI"),
+            instruction=FakeInstruction(
+                persona="I am the AI",
+                goals=["Do great things"],
+            ),
             brief="This brief should not appear",
         )
         result = engine._build_workspace_instruction_block()
-        assert "=== Workspace Instruction ===" in result
+        # Has content from instruction goals (persona excluded)
+        assert "Do great things" in result
         assert "This brief should not appear" not in result
 
-    def test_empty_instruction_falls_back_to_brief(self):
+    def test_empty_instruction_no_brief_fallback(self):
+        """Empty instruction with brief does NOT fallback for meeting."""
         engine = StubEngine()
         engine.workspace.workspace_blueprint = FakeBlueprint(
             instruction=FakeInstruction(),  # All fields empty
             brief="Fallback brief text",
         )
         result = engine._build_workspace_instruction_block()
-        # Empty instruction (no fields populated) → falls through to brief
-        assert "=== Workspace Brief ===" in result
-        assert "Fallback brief text" in result
+        # Meeting caller: fallback_to_brief=False, so empty result
+        assert result == ""
+
+    def test_meeting_workspace_context_in_user_prompt(self):
+        """Workspace context appears in _build_turn_prompt output."""
+        engine = StubEngine()
+        engine.workspace.workspace_blueprint = FakeBlueprint(
+            instruction=FakeInstruction(
+                domain_context="Yoga studio in Taipei",
+                style_rules=["Use formal Chinese"],
+            )
+        )
+        prompt = engine._build_turn_prompt(
+            agent_id="facilitator",
+            round_num=1,
+            user_message="Analyze IG account",
+            decision=None,
+            planner_proposals=[],
+            critic_notes=[],
+        )
+        assert "=== Workspace Context (Reference) ===" in prompt
+        assert "=== End Context ===" in prompt
+        assert "does NOT override your agent role" in prompt
+        assert "Yoga studio in Taipei" in prompt
+        assert "Use formal Chinese" in prompt
+        # Delimiters from helper are NOT present (raw_body=True)
+        assert "=== Workspace Instruction ===" not in prompt
 
 
 class TestWorkspaceInstructionModel:
@@ -528,8 +565,8 @@ class TestFinalMessagesInjection:
         assert "Background AI" in system_msg["content"]
         assert "Some context data" in system_msg["content"]
 
-    def test_meeting_system_role_contains_instruction(self):
-        """Simulate engine.py path: ws_instruction prepend to system_prompt."""
+    def test_meeting_workspace_context_not_in_system(self):
+        """Meeting path: workspace context is NOT in system role."""
         engine = StubEngine()
         engine.workspace.workspace_blueprint = FakeBlueprint(
             instruction=FakeInstruction(
@@ -538,17 +575,24 @@ class TestFinalMessagesInjection:
             )
         )
         block = engine._build_workspace_instruction_block()
-        # Simulate _agent_turn system message construction
+        # Persona is excluded for meeting
+        assert "Meeting facilitator" not in block
+        # Goals preserved
+        assert "Drive decisions" in block
+
+        # Simulate _agent_turn: system_content no longer includes ws_instruction
         system_content = "You are the meeting facilitator."
-        if block:
-            system_content = block + "\n\n" + system_content
+        # No prepend — workspace context goes in user prompt now
 
         messages = [
             {"role": "system", "content": system_content},
-            {"role": "user", "content": "Let's discuss"},
+            {"role": "user", "content": f"Let's discuss\n{block}"},
         ]
-        assert "Meeting facilitator" in messages[0]["content"]
-        assert "Drive decisions" in messages[0]["content"]
+        # System message should NOT contain workspace instruction
+        assert "Drive decisions" not in messages[0]["content"]
+        assert "Meeting facilitator" not in messages[0]["content"]
+        # User message has the context
+        assert "Drive decisions" in messages[1]["content"]
 
     def test_intent_steward_system_prompt_contains_instruction(self):
         """Simulate intent_steward.py path: prepend to system_prompt."""
