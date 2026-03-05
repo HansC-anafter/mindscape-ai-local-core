@@ -321,13 +321,13 @@ async def stream_execution_events(
 
         if not task:
             yield f"data: {json.dumps({'type': 'execution_error', 'error': 'Execution not found'})}\n\n"
-            yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+            yield f"data: {json.dumps({'type': 'stream_end', 'reason': 'not_found', 'terminal': True})}\n\n"
             return
 
         status = (task.status or "").lower().replace(" ", "_")
         if status in TERMINAL_STATUSES or task.status in TERMINAL_STATUSES:
             yield f"data: {_make_terminal_event(task)}\n\n"
-            yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+            yield f"data: {json.dumps({'type': 'stream_end', 'reason': 'terminal', 'terminal': True})}\n\n"
             return
 
         # For running tasks: poll and emit progress heartbeats
@@ -336,7 +336,8 @@ async def stream_execution_events(
             if not task:
                 task = tasks_store.get_task(execution_id)
             if not task:
-                yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+                yield f"data: {json.dumps({'type': 'execution_error', 'error': 'Execution not found'})}\n\n"
+                yield f"data: {json.dumps({'type': 'stream_end', 'reason': 'not_found', 'terminal': True})}\n\n"
                 return
 
             ctx = (
@@ -348,7 +349,7 @@ async def stream_execution_events(
 
             if status in TERMINAL_STATUSES or task.status in TERMINAL_STATUSES:
                 yield f"data: {_make_terminal_event(task)}\n\n"
-                yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+                yield f"data: {json.dumps({'type': 'stream_end', 'reason': 'terminal', 'terminal': True})}\n\n"
                 return
 
             # Read progress from the latest artifact for this execution.
@@ -385,7 +386,7 @@ async def stream_execution_events(
 
             await asyncio.sleep(3)
 
-        yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+        yield f"data: {json.dumps({'type': 'stream_end', 'reason': 'timeout', 'reconnect': True})}\n\n"
 
     return StreamingResponse(
         event_generator(),

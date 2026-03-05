@@ -229,11 +229,33 @@ def _generate_content_preview(content: Dict[str, Any], max_length: int = 200) ->
     elif "content" in content:
         text = str(content["content"])
 
-    # Case 4: Other formats, serialize JSON
+    # Case 4: Other formats, avoid serializing the full JSON payload.
+    # Large artifacts (e.g., account arrays) can be very expensive to dump
+    # just to build a short preview.
     else:
-        import json
+        if isinstance(content, dict):
+            preferred_keys = [
+                "summary",
+                "title",
+                "message",
+                "status",
+                "result",
+                "output",
+            ]
+            for key in preferred_keys:
+                value = content.get(key)
+                if isinstance(value, str) and value.strip():
+                    text = value
+                    break
 
-        text = json.dumps(content, ensure_ascii=False)
+            if not text:
+                keys = list(content.keys())
+                preview_keys = ", ".join(str(k) for k in keys[:5])
+                if len(keys) > 5:
+                    preview_keys += ", ..."
+                text = f"{{{preview_keys}}}"
+        else:
+            text = str(content)
 
     # Truncate and add ellipsis
     if len(text) > max_length:
@@ -352,29 +374,10 @@ async def list_artifacts(
 
     **Performance**: Response time typically < 200ms for up to 1000 artifacts.
     """
-    import asyncio
-
     try:
-        # Use asyncio.to_thread to avoid blocking the event loop with
-        # synchronous DB calls.  This prevents the backend from hanging
-        # when the frontend polls this endpoint frequently.
-        if playbook_code:
-            artifacts = await asyncio.to_thread(
-                store.artifacts.list_artifacts_by_playbook,
-                workspace_id,
-                playbook_code,
-            )
-        else:
-            artifacts = await asyncio.to_thread(
-                store.artifacts.list_artifacts_by_workspace, workspace_id
-            )
-
-        # Apply filters
-        filtered_artifacts = artifacts
-
-        # Existing filters (backward compatible)
+        # Map API type to internal artifact_type values for DB-side filtering.
+        artifact_type_filters = None
         if type:
-            # Map API type to ArtifactType for filtering
             type_filter_map = {
                 "illustration": [
                     ArtifactType.IMAGE,
@@ -392,37 +395,79 @@ async def list_artifacts(
                 ],
             }
             allowed_types = type_filter_map.get(type.lower(), [])
-            filtered_artifacts = [
-                a for a in filtered_artifacts if a.artifact_type in allowed_types
-            ]
+            artifact_type_filters = [t.value for t in allowed_types]
 
-        if intent_id:
-            filtered_artifacts = [
-                a for a in filtered_artifacts if a.intent_id == intent_id
-            ]
+            # Preserve current behavior: unknown type filter returns empty.
+            if not artifact_type_filters:
+                return ListArtifactsResponse(
+                    artifacts=[], total=0, limit=limit, offset=offset
+                )
 
-        if kind:
-            # Filter by kind from metadata
-            filtered_artifacts = [
-                a
-                for a in filtered_artifacts
-                if a.metadata and a.metadata.get("kind") == kind
-            ]
+        needs_content_load = include_content or include_preview
 
-        # playbook_code filter already applied at DB level when provided
-        if playbook_code and not artifacts:
-            pass  # Already filtered
+        # Prefer DB-side filtering/pagination to avoid full-table materialization.
+        if hasattr(store.artifacts, "list_artifacts_page") and hasattr(
+            store.artifacts, "count_artifacts"
+        ):
+            total_count = await asyncio.to_thread(
+                store.artifacts.count_artifacts,
+                workspace_id,
+                playbook_code,
+                intent_id,
+                platform,
+                kind,
+                artifact_type_filters,
+            )
+            paginated_artifacts = await asyncio.to_thread(
+                store.artifacts.list_artifacts_page,
+                workspace_id,
+                limit,
+                offset,
+                playbook_code,
+                intent_id,
+                platform,
+                kind,
+                artifact_type_filters,
+                needs_content_load,
+            )
+        else:
+            # Backward-compatible fallback for non-Postgres implementations.
+            if playbook_code:
+                artifacts = await asyncio.to_thread(
+                    store.artifacts.list_artifacts_by_playbook,
+                    workspace_id,
+                    playbook_code,
+                )
+            else:
+                artifacts = await asyncio.to_thread(
+                    store.artifacts.list_artifacts_by_workspace, workspace_id
+                )
 
-        if platform:
-            filtered_artifacts = [
-                a
-                for a in filtered_artifacts
-                if a.metadata and a.metadata.get("platform") == platform
-            ]
+            filtered_artifacts = artifacts
+            if artifact_type_filters is not None:
+                allowed = set(artifact_type_filters)
+                filtered_artifacts = [
+                    a for a in filtered_artifacts if a.artifact_type.value in allowed
+                ]
+            if intent_id:
+                filtered_artifacts = [
+                    a for a in filtered_artifacts if a.intent_id == intent_id
+                ]
+            if kind:
+                filtered_artifacts = [
+                    a
+                    for a in filtered_artifacts
+                    if a.metadata and a.metadata.get("kind") == kind
+                ]
+            if platform:
+                filtered_artifacts = [
+                    a
+                    for a in filtered_artifacts
+                    if a.metadata and a.metadata.get("platform") == platform
+                ]
 
-        total_count = len(filtered_artifacts)
-
-        paginated_artifacts = filtered_artifacts[offset : offset + limit]
+            total_count = len(filtered_artifacts)
+            paginated_artifacts = filtered_artifacts[offset : offset + limit]
 
         artifact_responses = [
             artifact_to_response(
