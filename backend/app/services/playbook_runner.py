@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
 from typing import Dict, List, Optional, Any
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -163,14 +165,16 @@ class PlaybookRunner:
                     f"PlaybookRunner: Playbook {playbook_code} using conversation mode (no JSON)"
                 )
 
-            # Check for personalized variant
-            # TODO: Re-implement variant support using PlaybookService or PlaybookRegistry
-            # PlaybookStore has been removed, variant functionality is temporarily disabled
+            # Look up personalized variant via PlaybookRegistry
             variant = None
             if variant_id:
-                logger.warning(
-                    f"Variant support is temporarily disabled. variant_id={variant_id} will be ignored."
+                variant = self.playbook_service.registry.get_variant(
+                    playbook_code, variant_id
                 )
+                if not variant:
+                    logger.warning(
+                        f"Variant '{variant_id}' not found for {playbook_code}"
+                    )
             # Note: skip_steps and custom_checklist will be handled during execution
 
             profile = self.store.get_profile(profile_id)
