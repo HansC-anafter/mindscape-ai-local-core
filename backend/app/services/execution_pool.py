@@ -138,7 +138,7 @@ class ExecutionPoolDispatcher:
         return True
 
     def release(self, backend: str) -> None:
-        """Release a slot after execution completes.
+        """Release a slot after dispatch completes.
 
         Args:
             backend: Backend type to release
