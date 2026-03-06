@@ -336,6 +336,66 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
                     )
 
     # ========================================================================
+    # Playbook Variant Validation
+    # ========================================================================
+
+    playbooks_config = manifest.get("playbooks", [])
+    for i, pb in enumerate(playbooks_config):
+        if not isinstance(pb, dict):
+            continue
+
+        pb_code = pb.get("code", f"playbook_{i}")
+        variants = pb.get("variants", [])
+        if not isinstance(variants, list):
+            continue
+
+        seen_variant_ids = set()
+        for j, variant in enumerate(variants):
+            if not isinstance(variant, dict):
+                continue
+
+            vid = variant.get("variant_id")
+            if not vid:
+                errors.append(
+                    ValidationError(
+                        capability=capability_code,
+                        field=f"playbooks[{pb_code}].variants[{j}]",
+                        message="Variant missing required 'variant_id' field",
+                        severity="error",
+                    )
+                )
+                continue
+
+            # Check variant_id uniqueness within this playbook
+            if vid in seen_variant_ids:
+                errors.append(
+                    ValidationError(
+                        capability=capability_code,
+                        field=f"playbooks[{pb_code}].variants[{j}].variant_id",
+                        message=f"Duplicate variant_id '{vid}' in playbook '{pb_code}'",
+                        severity="error",
+                    )
+                )
+            seen_variant_ids.add(vid)
+
+            # Validate skip_steps items are integers
+            skip_steps = variant.get("skip_steps", [])
+            if isinstance(skip_steps, list):
+                for k, step in enumerate(skip_steps):
+                    if not isinstance(step, int):
+                        errors.append(
+                            ValidationError(
+                                capability=capability_code,
+                                field=f"playbooks[{pb_code}].variants[{vid}].skip_steps[{k}]",
+                                message=(
+                                    f"skip_steps items must be integers, "
+                                    f"got {type(step).__name__}: {step}"
+                                ),
+                                severity="error",
+                            )
+                        )
+
+    # ========================================================================
     # Tool Backend Path Validation + schema_path File Existence
     # ========================================================================
 
