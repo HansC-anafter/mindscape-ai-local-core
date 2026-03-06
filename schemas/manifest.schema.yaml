@@ -52,7 +52,17 @@ properties:
 
   type:
     type: string
-    enum: [feature, core, extension, connector, system, agent, infrastructure, system_runtime]
+    enum:
+      [
+        feature,
+        core,
+        extension,
+        connector,
+        system,
+        agent,
+        infrastructure,
+        system_runtime,
+      ]
     default: feature
     description: |
       能力類型：
@@ -238,6 +248,40 @@ properties:
           items:
             type: string
           description: "此 playbook 依賴的 service 列表"
+        variants:
+          type: array
+          description: "Playbook 變體定義（跳步、自訂檢查清單、執行參數覆寫）"
+          items:
+            type: object
+            required:
+              - variant_id
+              - name
+            properties:
+              variant_id:
+                type: string
+                pattern: "^[a-z0-9_]+$"
+                description: "變體唯一識別碼"
+              name:
+                type: string
+                description: "變體顯示名稱"
+              description:
+                type: string
+              skip_steps:
+                type: array
+                items:
+                  type: integer
+                description: "要跳過的步驟索引"
+              custom_checklist:
+                type: array
+                items:
+                  type: string
+                description: "自訂檢查清單項目"
+              execution_params:
+                type: object
+                description: "執行參數覆寫"
+              conditions:
+                type: object
+                description: "自動選擇條件（risk_level、locale 等）"
 
   # ============================================================================
   # Tool 定義
