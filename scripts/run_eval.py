@@ -14,7 +14,9 @@ Usage:
 """
 
 import argparse
+import asyncio
 import importlib
+import inspect
 import json
 import re
 import sys
@@ -279,11 +281,17 @@ def run_tool_output_scenario(
 
         start = time.monotonic()
         try:
-            output = (
-                tool_func(**tool_input)
-                if isinstance(tool_input, dict)
-                else tool_func(tool_input)
-            )
+            # Handle both sync and async tool functions
+            if isinstance(tool_input, dict):
+                raw = tool_func(**tool_input)
+            else:
+                raw = tool_func(tool_input)
+
+            # Await coroutine if the tool is async
+            if inspect.iscoroutine(raw):
+                output = asyncio.run(raw)
+            else:
+                output = raw
             case_result.duration_ms = (time.monotonic() - start) * 1000
 
             # Check expected_status
