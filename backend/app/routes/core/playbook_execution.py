@@ -32,7 +32,7 @@ from .execution_shared import playbook_executor, playbook_runner
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbook-execution"])
 
-from .execution_hooks import invoke_lifecycle_hook
+from .execution_hooks import invoke_lifecycle_hook, async_invoke_lifecycle_hook
 
 
 def _safe_screenshot_basename(value: str) -> str:
@@ -124,6 +124,21 @@ async def start_playbook_execution(
             request.target_language if request else None
         )
         final_variant_id = variant_id or (request.variant_id if request else None)
+
+        # Auto-assign variant if not explicitly provided
+        if not final_variant_id:
+            try:
+                from backend.app.services.variant_assigner import assign_variant
+
+                final_variant_id = assign_variant(
+                    playbook_code=playbook_code,
+                    variant_id=final_variant_id,
+                    registry=playbook_runner.playbook_service.registry,
+                    workspace_id=workspace_id,
+                    target_language=final_target_language,
+                )
+            except Exception as e:
+                logger.warning(f"Variant auto-assignment failed (non-fatal): {e}")
         final_auto_execute = auto_execute or (request.auto_execute if request else None)
         final_execution_backend = (
             (
@@ -357,7 +372,7 @@ async def start_playbook_execution(
                     )
                     if on_queue and isinstance(on_queue, dict):
                         try:
-                            invoke_lifecycle_hook(
+                            await async_invoke_lifecycle_hook(
                                 hook_name="on_queue",
                                 hook_spec=on_queue,
                                 normalized_inputs=normalized_inputs,
