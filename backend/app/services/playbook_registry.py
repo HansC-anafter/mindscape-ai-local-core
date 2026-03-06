@@ -359,15 +359,19 @@ class PlaybookRegistry:
         Stores parsed variants in self._playbook_variants keyed by
         full playbook code (capability_code.playbook_code).
         """
+        full_code = f"{capability_code}.{playbook_code}"
         variants_raw = playbook_config.get("variants", [])
         if not variants_raw or not isinstance(variants_raw, list):
+            # Clear any previously cached variants for this playbook
+            self._playbook_variants.pop(full_code, None)
+            self._playbook_variants.pop(playbook_code, None)
             return
 
         from backend.app.models.playbook_models.playbook_variant import (
             PlaybookVariant,
         )
 
-        full_code = f"{capability_code}.{playbook_code}"
+        # full_code already computed above
         parsed = []
         for v in variants_raw:
             if not isinstance(v, dict) or "variant_id" not in v:
@@ -394,8 +398,15 @@ class PlaybookRegistry:
                 )
 
         if parsed:
+            # Store under both dotted and plain keys so lookups work
+            # regardless of whether caller uses "cap.playbook" or "playbook"
             self._playbook_variants[full_code] = parsed
+            self._playbook_variants[playbook_code] = parsed
             logger.info(f"Loaded {len(parsed)} variant(s) for playbook {full_code}")
+        else:
+            # All entries were invalid; clear stale cache
+            self._playbook_variants.pop(full_code, None)
+            self._playbook_variants.pop(playbook_code, None)
 
     def _load_single_capability(self, capability_dir: Path):
         """
@@ -1010,6 +1021,19 @@ class PlaybookRegistry:
             # Granular: invalidate a single capability's cache
             if capability_code in self.capability_playbooks:
                 del self.capability_playbooks[capability_code]
+            # Clear variants belonging to this capability.
+            # Dotted key format: "capability.playbook".
+            # Plain key format: "playbook" (alias).
+            prefix = f"{capability_code}."
+            stale_keys = [k for k in self._playbook_variants if k.startswith(prefix)]
+            for k in stale_keys:
+                variant_payload = self._playbook_variants.get(k)
+                plain_key = k[len(prefix) :]
+                # Only clear plain alias if it points to this dotted payload.
+                # This avoids removing aliases from other capabilities.
+                if self._playbook_variants.get(plain_key) is variant_payload:
+                    self._playbook_variants.pop(plain_key, None)
+                self._playbook_variants.pop(k, None)
             self._loaded_capabilities.discard(capability_code)
             logger.info(f"Invalidated cache for capability {capability_code}")
         elif playbook_code:
@@ -1031,6 +1055,23 @@ class PlaybookRegistry:
                 logger.info(
                     f"Invalidated cache for playbook {playbook_code} (all locales)"
                 )
+            # Clear variant cache for this playbook (both plain and dotted forms).
+            if "." in playbook_code:
+                # Input is dotted format: "capability.playbook"
+                variant_payload = self._playbook_variants.get(playbook_code)
+                plain_key = playbook_code.split(".", 1)[1]
+                if self._playbook_variants.get(plain_key) is variant_payload:
+                    self._playbook_variants.pop(plain_key, None)
+                self._playbook_variants.pop(playbook_code, None)
+            else:
+                # Input is plain format: "playbook"
+                self._playbook_variants.pop(playbook_code, None)
+                suffix = f".{playbook_code}"
+                dotted_keys = [
+                    key for key in self._playbook_variants if key.endswith(suffix)
+                ]
+                for key in dotted_keys:
+                    self._playbook_variants.pop(key, None)
         else:
             # Invalidate all caches
             self._loaded = False
@@ -1039,6 +1080,7 @@ class PlaybookRegistry:
             self.system_playbooks.clear()
             self.capability_playbooks.clear()
             self.user_playbooks.clear()
+            self._playbook_variants.clear()
             logger.info("Invalidated all playbook caches")
 
     async def reload_playbook(self, playbook_code: str, locale: str = "zh-TW"):
