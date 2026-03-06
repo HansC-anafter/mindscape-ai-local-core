@@ -64,6 +64,22 @@ def _ensure_sys_path():
         sys.path.insert(0, backend_dir)
 
 
+def _supports_file_touch_reload() -> bool:
+    """
+    Detect whether touching a watched file can actually restart backend.
+
+    We only auto-report restart_triggered=true when uvicorn is running with --reload.
+    """
+    for proc_cmdline in ("/proc/1/cmdline", "/proc/self/cmdline"):
+        try:
+            raw = Path(proc_cmdline).read_bytes()
+            if b"--reload" in raw:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 # ------------------------------------------------------------------
 # Shared install pipeline
 # ------------------------------------------------------------------
@@ -302,15 +318,24 @@ async def run_install_pipeline(
         if hot_reload_performed:
             pipeline.restart_required = False
         elif env in ("development", "dev"):
-            try:
-                trigger = Path("/app/backend/app/capabilities/.reload_trigger")
-                trigger.touch()
-                pipeline.restart_triggered = True
-                pipeline.restart_required = False
-                logger.info(f"Reload triggered for {capability_code} via file touch")
-            except Exception as exc:
-                logger.warning(f"Failed to trigger reload: {exc}")
-                result.add_warning(f"Restart required - auto-trigger failed: {exc}")
+            if _supports_file_touch_reload():
+                try:
+                    trigger = Path("/app/backend/app/capabilities/.reload_trigger")
+                    trigger.touch()
+                    pipeline.restart_triggered = True
+                    pipeline.restart_required = False
+                    logger.info(f"Reload triggered for {capability_code} via file touch")
+                except Exception as exc:
+                    logger.warning(f"Failed to trigger reload: {exc}")
+                    result.add_warning(f"Restart required - auto-trigger failed: {exc}")
+            else:
+                result.add_warning(
+                    "Backend is not running with --reload; auto file-touch restart skipped."
+                )
+                logger.info(
+                    "Auto file-touch restart skipped for %s: --reload not detected",
+                    capability_code,
+                )
 
         # Check for errors
         if result.has_errors():

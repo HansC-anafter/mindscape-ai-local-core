@@ -151,14 +151,22 @@ class CapabilityRegistry:
 _registry = CapabilityRegistry()
 
 
-def load_capabilities(capabilities_dir: Optional[Path] = None):
-    """Load all capability packs (typically called on application startup)"""
+def load_capabilities(capabilities_dir: Optional[Path] = None, reset: bool = False):
+    """Load all capability packs (typically called on application startup)."""
     if capabilities_dir is None:
         # Default to loading from app/capabilities directory
         app_dir = Path(__file__).parent.parent
         capabilities_dir = app_dir / "capabilities"
 
+    if reset:
+        _registry.capabilities.clear()
+        _registry.tools.clear()
+        CAPABILITY_REGISTRY.clear()
+        TOOL_REGISTRY.clear()
+
     _registry.load_from_directory(capabilities_dir)
+    CAPABILITY_REGISTRY.update(_registry.capabilities)
+    TOOL_REGISTRY.update(_registry.tools)
     logger.info(f"Loaded {len(_registry.capabilities)} capabilities, {len(_registry.tools)} tools")
 
 
