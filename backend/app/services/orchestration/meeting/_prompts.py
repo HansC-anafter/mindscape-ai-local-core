@@ -707,8 +707,9 @@ class MeetingPromptsMixin:
         # sessions where the LLM legitimately has nothing to invoke.
         tool_ctx = self._build_tool_inventory_block()
         has_explicit_bindings = self._has_workspace_tool_bindings()
+        has_rag_tools = bool(getattr(self, "_rag_tool_cache", []))
         tool_constraint = ""
-        if has_explicit_bindings or playbooks_cache:
+        if has_explicit_bindings or has_rag_tools or playbooks_cache:
             tool_constraint = (
                 "MANDATORY: The workspace has been configured with specific tools / "
                 "playbooks (see Available Tools / Available Playbooks above). "
