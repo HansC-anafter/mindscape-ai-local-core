@@ -236,11 +236,64 @@ Session: `2694671f-8401-4a20-a16d-bfbeb105b43f`
 | S3 | 完整 lifecycle events | 有 | 有 | ✅ PASS |
 | S4 | Minutes 已生成 | 非空 | 1330 chars | ✅ PASS |
 
-### 5.3 差距分析
+### 5.3 差距分析（追查修正 2026-03-08 08:00）
 
-#### Gap 1（P0）: RAG Cache 為空
+> **修正**: 初始分析中 Gap 1 的結論有誤。經過深入追查，RAG pre-fetch **正常運作**（20 tools cached），
+> 但 E2E 腳本在 `run()` 呼叫前取樣 `_rag_tool_cache`，才導致看到 0。
 
-**現象**: `RAG_CACHE_LEN=0` — engine 初始化時 RAG pre-fetch 未填充 cache。
+#### 追查證據鏈
+
+| 步驟 | 驗證命令 | 結果 |
+|------|----------|------|
+| 1 | `BEFORE_RUN RAG_CACHE` | 0（`run()` 尚未執行） |
+| 2 | `AFTER_RUN RAG_CACHE` | **20**（`run()` 內 pre-fetch 成功） |
+| 3 | TOOL bindings for workspace | 0（無 allowlist filter 介入） |
+| 4 | `search_rrf('research academic papers')` | **`frontier_research.fetch_academic` ✅** |
+| 5 | `search_rrf('調研自律神經前沿研究')` | **只回傳 `ig.*` ❌** |
+| 6 | `sonic_embeddings` 中 tool\_id | 0 rows（tools embedded 在 pgvector 中） |
+| 7 | Indexed models | `bge-m3` + `nomic-embed-text` |
+
+#### 真正根因: 跨語言 Embedding 語意鴻溝
+
+**`frontier_research.fetch_academic` 已 indexed**（英文 description），但中文 query「調研自律神經前沿研究」的 embedding 和英文 `fetch_academic` 語意距離太遠，排名掉出 top-20。
+
+**`ig.*` 工具排名靠前**是因為安裝時（deploy-pack）其 manifest description 可能含有中文關鍵字，或工具名稱本身（「ig\_fetch\_posts」、「ig\_publish\_post」）和 query 中的「ig post」語意匹配。
+
+#### Gap 1（P0）: 跨語言 RAG 召回失敗
+
+**工具存在但召回不到** — `frontier_research.*` 在英文 query 下 top-1 命中，但在中文 query 下完全消失。
+
+修復方向：
+- **(a)** `_build_tool_query_from_context` 加入英文 query augmentation（translate key terms）
+- **(b)** Tool index 時為 description 加入多語關鍵字（`fetch_academic → 學術研究調研`）
+- **(c)** 增大 `top_k`（20 → 40）提高 recall
+
+#### Gap 2（P1）: action item tool\_name 偏差
+
+因為 RAG 只回傳 `ig.*`，LLM 被限制在 IG 工具裡選擇。選了 `ig.ig_post_style_analyzer`（風格分析）和 `ig.ig_fetch_posts`（抓取既有貼文）而不是 `frontier_research` / `content_drafting`。
+
+**這是 Gap 1 的下游效應** — 修復 RAG 召回即可連帶修復。
+
+#### Gap 3（P1）: item[0] 沒有 tool\_name
+
+「確保專家資源」是抽象規劃步驟。如果 RAG 有回傳 `frontier_research.*`，LLM 應該會映射到具體工具。
+
+#### Gap 4（P2）: finish\_reason=2
+
+2 個 turn 被非 max\_tokens 原因截斷（可能 safety filter / thinking budget），暫不阻塞核心路徑。
+
+### 5.4 修正後修復項
+
+| 優先序 | 修復 | 說明 |
+|--------|------|------|
+| **P0** | **跨語言 query augmentation** | `_build_tool_query_from_context` 對中文 query 加入英文關鍵字翻譯；或拆分為多 query 聯合檢索 |
+| **P0-alt** | **Tool description 多語化** | `index_tool()` 時在 description 中加入中文同義詞 |
+| P1 | **增大 RAG top\_k** | 從 20 → 40 提高 recall，減少跨語言遺漏 |
+| P2 | **finish\_reason 監控** | 加入 `finish_reason != STOP` 的 warning log |
+
+
+
+
 
 **影響**: LLM 完全靠自身知識選擇 tool\_name，沒有 RAG 提供的工具候選清單。這導致：
 - LLM 選了 `ig.ig_post_style_analyzer` 和 `ig.ig_fetch_posts`（它熟悉的 IG 工具）
