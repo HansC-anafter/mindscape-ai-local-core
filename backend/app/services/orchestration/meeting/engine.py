@@ -755,7 +755,7 @@ class MeetingEngine(
             ]
 
             try:
-                raw = (await self._generate_text(messages)).strip()
+                raw = (await self._generate_text(messages, max_tokens=1200)).strip()
             except Exception as exc:
                 logger.warning("Tool self-heal generation failed: %s", exc)
                 return 0

@@ -16,8 +16,20 @@ logger = logging.getLogger(__name__)
 class MeetingGenerationMixin:
     """Mixin providing LLM text generation methods for MeetingEngine."""
 
-    async def _generate_text(self, messages: List[Dict[str, str]]) -> str:
-        """Generate text with retry logic, via preferred agent or LLM provider."""
+    async def _generate_text(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 4096,
+    ) -> str:
+        """Generate text with retry logic, via preferred agent or LLM provider.
+
+        Args:
+            messages: Chat messages to send to the LLM.
+            max_tokens: Maximum output tokens. Default 4096 — meeting rounds
+                are multi-turn conversations that need generous output budgets.
+                Callers doing constrained tasks (e.g. self-heal repair) can
+                pass a lower value.
+        """
         attempts = max(0, self.max_retries)
 
         last_error: Optional[Exception] = None
@@ -26,7 +38,9 @@ class MeetingGenerationMixin:
                 if self.executor_runtime:
                     return await self._generate_text_via_executor_runtime(messages)
                 await self._ensure_provider()
-                return await self._generate_text_via_llm(messages)
+                return await self._generate_text_via_llm(
+                    messages, max_tokens=max_tokens
+                )
             except Exception as exc:
                 last_error = exc
                 if attempt >= attempts:
@@ -38,13 +52,17 @@ class MeetingGenerationMixin:
             f"Meeting turn generation failed: {last_error}"
         ) from last_error
 
-    async def _generate_text_via_llm(self, messages: List[Dict[str, str]]) -> str:
+    async def _generate_text_via_llm(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 4096,
+    ) -> str:
         """Generate text directly via the configured LLM provider."""
         call_kwargs = {
             "messages": messages,
             "model": self.model_name,
             "temperature": 0.3,
-            "max_tokens": 1200,
+            "max_tokens": max_tokens,
         }
         sig = inspect.signature(self.provider.chat_completion)
         allowed = set(sig.parameters.keys())

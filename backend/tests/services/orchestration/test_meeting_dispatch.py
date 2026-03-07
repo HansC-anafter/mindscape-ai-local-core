@@ -72,6 +72,7 @@ class StubDispatchEngine:
         self.tasks_store = None
         self._events = []
         self._available_playbooks_cache = ""
+        self._repair_output = "[]"
 
     def _emit_event(self, event_type, payload=None):
         self._events.append({"type": event_type, "payload": payload})
@@ -82,6 +83,9 @@ class StubDispatchEngine:
         item["task_id"] = f"task-{item.get('title', 'x')}"
         return item
 
+    async def _generate_text(self, messages, **kwargs):
+        return self._repair_output
+
 
 # Attach the actual methods to the stub
 from backend.app.services.orchestration.meeting.engine import MeetingEngine
@@ -90,6 +94,9 @@ StubDispatchEngine._dispatch_phases_to_workspaces = (
     MeetingEngine._dispatch_phases_to_workspaces
 )
 StubDispatchEngine._resolve_blocked_by_order = MeetingEngine._resolve_blocked_by_order
+StubDispatchEngine._attempt_tool_name_self_heal = (
+    MeetingEngine._attempt_tool_name_self_heal
+)
 
 
 class TestDispatchPhasesToWorkspaces:
@@ -203,6 +210,71 @@ class TestDispatchPhasesToWorkspaces:
         assert result["aggregate_status"] == "all_failed"
         assert result["succeeded"] == 0
         assert result["failed"] == 2
+
+
+class TestToolNameSelfHeal:
+    """Self-heal priority: attempt one LLM repair before final blocking."""
+
+    @pytest.mark.asyncio
+    async def test_repairs_tool_not_allowed_then_dispatches(self):
+        engine = StubDispatchEngine()
+        engine._repair_output = json.dumps(
+            [{"index": 0, "tool_name": "ig.ig_fetch_posts"}]
+        )
+
+        binding = MagicMock()
+        binding.resource_id = "ig.ig_fetch_posts"
+        binding_store = MagicMock()
+        binding_store.list_bindings_by_workspace.return_value = [binding]
+
+        with patch(
+            "backend.app.services.stores.workspace_resource_binding_store.WorkspaceResourceBindingStore",
+            return_value=binding_store,
+        ):
+            items = [
+                {
+                    "title": "Sync posts",
+                    "description": "Sync IG posts",
+                    "tool_name": "ig_fetch_post",  # typo: deterministic normalize fails
+                }
+            ]
+            result = await engine._dispatch_phases_to_workspaces(items)
+
+        assert result["succeeded"] == 1
+        assert result["failed"] == 0
+        assert items[0]["tool_name"] == "ig.ig_fetch_posts"
+        assert items[0]["tool_name_self_healed"] is True
+        assert items[0]["landing_status"] == "task_created"
+
+    @pytest.mark.asyncio
+    async def test_invalid_repair_keeps_policy_block(self):
+        engine = StubDispatchEngine()
+        engine._repair_output = json.dumps(
+            [{"index": 0, "tool_name": "ig.nonexistent_tool"}]
+        )
+
+        binding = MagicMock()
+        binding.resource_id = "ig.ig_fetch_posts"
+        binding_store = MagicMock()
+        binding_store.list_bindings_by_workspace.return_value = [binding]
+
+        with patch(
+            "backend.app.services.stores.workspace_resource_binding_store.WorkspaceResourceBindingStore",
+            return_value=binding_store,
+        ):
+            items = [
+                {
+                    "title": "Sync posts",
+                    "description": "Sync IG posts",
+                    "tool_name": "ig_fetch_post",
+                }
+            ]
+            result = await engine._dispatch_phases_to_workspaces(items)
+
+        assert result["succeeded"] == 0
+        assert result["failed"] == 1
+        assert items[0]["landing_status"] == "policy_blocked"
+        assert items[0]["policy_reason_code"] == "TOOL_NOT_ALLOWED"
 
 
 class TestParseActionItemsPreservation:
