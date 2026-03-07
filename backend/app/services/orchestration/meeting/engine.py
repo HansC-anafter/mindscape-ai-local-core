@@ -370,13 +370,17 @@ class MeetingEngine(
         # ------------------------------------------------------------------ #
         # Pre-dispatch null-tool gate (Fix: emit AFTER gate to keep events    #
         # consistent with session.action_items)                               #
-        # Gate only fires when the workspace has EXPLICIT TOOL bindings —     #
-        # NOT on manifest fallback, which is reference-only.                  #
+        # Gate fires when the workspace has EXPLICIT TOOL bindings OR the     #
+        # RAG cache returned relevant tools — either signal means the LLM    #
+        # was given a tool list and should have used it.                      #
         # ------------------------------------------------------------------ #
         all_null = action_items and not any(
             item.get("tool_name") or item.get("playbook_code") for item in action_items
         )
-        if all_null and self._has_workspace_tool_bindings():
+        has_tool_context = self._has_workspace_tool_bindings() or bool(
+            getattr(self, "_rag_tool_cache", [])
+        )
+        if all_null and has_tool_context:
             pb_cache = getattr(self, "_available_playbooks_cache", "")
             logger.info(
                 "Pre-dispatch null-tool gate triggered for session %s: "
