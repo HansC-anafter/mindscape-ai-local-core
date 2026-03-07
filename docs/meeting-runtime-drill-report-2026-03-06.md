@@ -440,11 +440,34 @@ _build_action_items()
 - 中文 JSON 每字元約 2-3 tokens，3 個 action item 的完整 JSON 約 2500+ tokens
 - `max_tokens=1200` 不足以容納完整結構化輸出
 
-### 11.4 修復建議（下一步）
+### 11.4 修復已套用（commit `0109035b`）
 
-| 優先序 | 修復 | 說明 |
-|--------|------|------|
-| P0 | **調高 executor max_tokens** | `_generation.py:47` 改為 `max_tokens: 2400` 或更高；或抽成 config |
+結構修：`_generate_text` 接受 per-call `max_tokens` 參數，default 4096。
+Self-heal 明確傳 `max_tokens=1200`。92 tests passed, 0 failed.
+
+### 11.5 修復後 E2E 驗證 ✅
+
+Session `0d4238cb`，`max_output_tokens=4096`，LLM `finish_reason: STOP`（無截斷）
+
+| 欄位 | 值 |
+|------|-----|
+| Status | CLOSED |
+| Rounds | 3 |
+| Action items | **3** |
+| HAS\_TOOL\_ACTION | **True** ✅ |
+
+Action Items：
+
+| # | tool\_name | title | input\_params |
+|---|-----------|-------|--------------|
+| 0 | `ig.ig_capture_account_snapshot` | 獲取帳號即時快照以驗證狀態 | `{"username":"jai_tcmyoga"}` |
+| 1 | `ig.ig_metrics_backfill_tool` | 分析歷史成長趨勢 | `{"period":"1y","username":"jai_tcmyoga"}` |
+| 2 | `ig.ig_network_analyzer` | 分析粉絲群網絡特徵 | `{"username":"jai_tcmyoga","analyze_target":"followers"}` |
+
+**斷鏈完整修復確認** — 從 RAG pre-fetch → null-tool gate → MANDATORY constraint → executor JSON 產出 → action\_items 解析，全鏈路通過。
+
+
+ `_generation.py:47` 改為 `max_tokens: 2400` 或更高；或抽成 config |
 | P1 | **JSON 截斷容錯** | `_extract_json_payload` 加入 truncated JSON repair（嘗試補 `]}`） |
 | P2 | **event content 欄位** | DB column 可能也有截斷，應確認 `payload->>content` 不受 column size 限制 |
 ```
