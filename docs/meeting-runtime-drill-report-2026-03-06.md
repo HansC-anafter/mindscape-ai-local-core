@@ -387,3 +387,64 @@ asyncio.run(probe())
 
 每個 query 回傳 5 個候選，top-1 語意匹配正確。**確認 RAG pre-fetch 在 runtime 可正常工作**，不再靜默 fallback 到 manifest。
 
+## 11. E2E Meeting Session 全流程驗證（2026-03-07）
+
+### 11.1 演練設定
+
+- Workspace: `39b9af54-8c47-4a74-8f49-1d6d4450a100`（瑜意 x 冥想）
+- Project: `ig_account_analysis_20260228_143932_92704362`
+- User message: `分析 jai_tcmyoga 的帳號數據，抓取最新 followers/following 統計`
+- Max rounds: 3
+
+### 11.2 結果
+
+| 欄位 | 值 |
+|------|-----|
+| Session ID | `6fae1045-9159-41b8-b68f-b30c4269da30` |
+| Status | `CLOSED`（正常收斂） |
+| Rounds | 3 |
+| Events | 26 (meeting_start → 3×{round,turns,decision} → decision_final → action_item → meeting_end → minutes) |
+| Action items | 1 |
+| `tool_name` | **null** ❌ |
+| `playbook_code` | **null** ❌ |
+| Title | `"Implement finalized decision"` (fallback) |
+
+### 11.3 根因分析
+
+**斷鏈最後一環：`max_tokens=1200` 截斷 executor JSON**
+
+```
+_generation.py:47  →  max_tokens: 1200
+```
+
+執行路徑：
+
+```
+_build_action_items()
+  → _agent_turn("executor")
+    → _generate_text()
+      → _generate_text_via_llm(max_tokens=1200)  ← LLM 回傳被截斷
+  → _parse_action_items(executor_turn.content)
+    → _extract_json_payload(truncated_json)       ← JSON 不完整
+      → regex ```json...``` → json.loads() → FAIL
+      → regex [...]  → json.loads() → FAIL
+      → return None
+    → bullet fallback → 也不符合
+    → 最終 fallback: "Implement finalized decision"  ← tool_name = null
+```
+
+**證據**：
+
+- Executor agent_turn event `content` 長度只有 93 字元
+- 內容開頭: ` ```json\n[\n  {\n    "title": "第一階段...` — 明顯還有後續但被截斷
+- 中文 JSON 每字元約 2-3 tokens，3 個 action item 的完整 JSON 約 2500+ tokens
+- `max_tokens=1200` 不足以容納完整結構化輸出
+
+### 11.4 修復建議（下一步）
+
+| 優先序 | 修復 | 說明 |
+|--------|------|------|
+| P0 | **調高 executor max_tokens** | `_generation.py:47` 改為 `max_tokens: 2400` 或更高；或抽成 config |
+| P1 | **JSON 截斷容錯** | `_extract_json_payload` 加入 truncated JSON repair（嘗試補 `]}`） |
+| P2 | **event content 欄位** | DB column 可能也有截斷，應確認 `payload->>content` 不受 column size 限制 |
+```
