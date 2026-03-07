@@ -761,6 +761,34 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Meeting session table bootstrap failed (non-blocking): {e}")
 
+    # Tool RAG: ensure table schema (BM25 tsvector) + multi-model index
+    try:
+        from backend.app.services.tool_embedding_service import ToolEmbeddingService
+        import asyncio
+
+        async def _tool_rag_bootstrap():
+            # Tool RAG V2 Bootstrap
+            try:
+                tes = ToolEmbeddingService()
+                await tes.ensure_table()
+                try:
+                    n = await tes.ensure_indexed()
+                    logger.info(
+                        "Tool RAG multi-model bootstrap completed: %d tools indexed.", n
+                    )
+                except RuntimeError:
+                    n = await tes.index_all_tools()
+                    logger.info(
+                        "Tool RAG single-model fallback bootstrap completed: %d tools indexed.",
+                        n,
+                    )
+            except Exception as e:
+                logger.warning("Tool RAG bootstrap failed: %s", e)
+
+        asyncio.create_task(_tool_rag_bootstrap())
+    except Exception as e:
+        logger.warning(f"Tool RAG bootstrap setup failed (non-blocking): {e}")
+
     # Verify critical tables exist (last safety net)
     try:
         from sqlalchemy import text, create_engine
@@ -901,6 +929,38 @@ async def health_check():
         "ocr_service": ocr_status,
         "issues": [issue.to_dict() for issue in issues] if issues else [],
     }
+
+
+# Service URLs reachable from inside Docker (backend proxies these for the frontend)
+_HOST_SERVICE_URLS: dict = {
+    "xtts": os.getenv("XTTS_SERVICE_URL", "http://xtts-service:8020") + "/health",
+    "mcp-gateway": os.getenv(
+        "MCP_GATEWAY_HEALTH_URL", "http://host.docker.internal:8180/health"
+    ),
+}
+
+
+@app.get("/api/v1/host/services/{service}/health")
+async def host_service_health(service: str):
+    """
+    Proxy health checks for host/sidecar services that the frontend cannot reach directly.
+
+    Supported services:
+      - xtts         → xtts-service:8020/health  (Docker sidecar)
+      - mcp-gateway  → host.docker.internal:8180/health (Node process on host)
+    """
+    import httpx as _httpx
+
+    url = _HOST_SERVICE_URLS.get(service)
+    if not url:
+        raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
+
+    try:
+        async with _httpx.AsyncClient(timeout=3.0) as client:
+            r = await client.get(url)
+            return r.json()
+    except Exception as e:
+        return {"status": "unreachable", "error": str(e)}
 
 
 @app.middleware("http")
