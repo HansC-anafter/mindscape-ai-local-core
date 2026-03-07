@@ -278,6 +278,38 @@ async def enable_pack(pack_id: str):
                 metadata=pack_meta,
             )
 
+        # Rebuild tool embeddings for re-enabled pack (background, non-fatal)
+        import asyncio as _asyncio
+
+        try:
+            from backend.app.services.tool_embedding_service import (
+                ToolEmbeddingService as _TES,
+            )
+
+            async def _bg_reindex():
+                try:
+                    n = await _TES().ensure_indexed()
+                    if n <= 0:
+                        n = await _TES().index_all_tools()
+                    logger.info(
+                        "Tool RAG re-indexed after enable %s: %d tools", pack_id, n
+                    )
+                    # Invalidate process-level cache so next turn gets fresh results
+                    try:
+                        from backend.app.services.tool_rag import (
+                            invalidate_tool_rag_cache,
+                        )
+
+                        invalidate_tool_rag_cache()
+                    except Exception:
+                        pass
+                except Exception as _exc:
+                    logger.warning("Tool RAG re-indexing failed (non-fatal): %s", _exc)
+
+            _asyncio.create_task(_bg_reindex())
+        except Exception as exc:
+            logger.warning("Tool RAG background task setup failed: %s", exc)
+
         return {
             "success": True,
             "pack_id": pack_id,
@@ -304,6 +336,38 @@ async def disable_pack(pack_id: str):
             raise HTTPException(
                 status_code=404, detail=f"Pack '{pack_id}' is not installed"
             )
+
+        # Remove tool embeddings for disabled pack (background, non-fatal)
+        import asyncio as _asyncio
+
+        try:
+            from backend.app.services.tool_embedding_service import (
+                ToolEmbeddingService as _TES,
+            )
+
+            async def _bg_remove():
+                try:
+                    n = await _TES().remove_tools_by_capability(pack_id)
+                    logger.info(
+                        "Tool RAG: removed %d embeddings for disabled pack %s",
+                        n,
+                        pack_id,
+                    )
+                    # Invalidate process-level cache so next turn gets fresh results
+                    try:
+                        from backend.app.services.tool_rag import (
+                            invalidate_tool_rag_cache,
+                        )
+
+                        invalidate_tool_rag_cache()
+                    except Exception:
+                        pass
+                except Exception as _exc:
+                    logger.warning("Tool RAG cleanup failed (non-fatal): %s", _exc)
+
+            _asyncio.create_task(_bg_remove())
+        except Exception as exc:
+            logger.warning("Tool RAG background task setup failed: %s", exc)
 
         return {
             "success": True,
