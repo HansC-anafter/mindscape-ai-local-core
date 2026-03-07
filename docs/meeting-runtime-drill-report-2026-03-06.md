@@ -346,11 +346,44 @@ python -m py_compile backend/app/services/orchestration/meeting/_prompts.py
 
 結果：✅ 全過
 
-### 10.4 待補測試（下一步）
+### 10.4 進度追蹤
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| RAG gate unit test | 新增 `test_gate_fires_when_rag_cache_and_all_null`：有 RAG cache + all null → gate 應觸發 | ⬜ |
-| MANDATORY + RAG test | 新增 `test_mandatory_present_when_rag_cache`：無 binding 但有 RAG cache → MANDATORY 應注入 | ⬜ |
-| Runtime probe | Docker 容器中呼叫 `retrieve_relevant_tools()` + 真實 agenda，確認 RAG 回傳非空 | ⬜ |
+| RAG gate unit test | `test_gate_fires_when_rag_cache_and_all_null` + `test_gate_does_not_fire_when_no_bindings_no_rag` | ✅ |
+| MANDATORY + RAG test | `test_mandatory_present_when_rag_cache`：無 binding 但有 RAG cache → MANDATORY 應注入 | ✅ |
+| Runtime probe | Docker 容器中呼叫 `retrieve_relevant_tools()` + meeting-like agenda query | ✅ |
 | E2E meeting session | 觸發真實 meeting，觀察 action_items 是否產出 `tool_name != null` | ⬜ |
+
+### 10.5 Runtime Probe 結果（2026-03-07）
+
+```bash
+docker exec mindscape-ai-local-core-backend python3 -c "
+import asyncio
+from backend.app.services.tool_rag import retrieve_relevant_tools
+async def probe():
+    queries = [
+        'IG account analysis and follower tracking',
+        'schedule social media post for next week',
+        'analyze target account following list',
+    ]
+    for q in queries:
+        results = await retrieve_relevant_tools(q, top_k=5)
+        print(f'Query: {q}')
+        print(f'  Results: {len(results)} tools')
+        for r in results[:3]:
+            print(f'    - {r[\"tool_id\"]}: {r.get(\"display_name\",\"?\")}')
+asyncio.run(probe())
+"
+```
+
+**結果**：
+
+| Query | Top-1 Tool | 語意匹配 |
+|-------|-----------|---------|
+| IG account analysis and follower tracking | `ig.ig_analyze_following` | ✅ 正確 |
+| schedule social media post for next week | `content_scheduler.cs_calendar_view` | ✅ 正確 |
+| analyze target account following list | `ig.ig_analyze_following` | ✅ 正確 |
+
+每個 query 回傳 5 個候選，top-1 語意匹配正確。**確認 RAG pre-fetch 在 runtime 可正常工作**，不再靜默 fallback 到 manifest。
+
