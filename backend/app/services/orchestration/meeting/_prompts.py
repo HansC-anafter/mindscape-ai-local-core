@@ -48,10 +48,13 @@ class MeetingPromptsMixin:
     def _build_tool_inventory_block(self) -> str:
         """Build tool inventory for prompt injection.
 
-        Primary: workspace_resource_bindings (ResourceType.TOOL) — workspace-scoped.
-        Fallback: installed_packs manifest tools — global, prompt display only.
-
-        Same data source as dispatch_policy_gate._load_tool_allowlist().
+        Lookup order:
+          1. Explicit TOOL bindings (workspace allowlist) — highest priority.
+             If RAG cache is available, RAG hits within the allowlist are
+             shown first (similarity order), remaining allowlist tools follow.
+          2. RAG cache unfiltered — when no explicit bindings exist,
+             replaces the 215-line manifest dump with top-K relevant tools.
+          3. Installed-pack manifest fallback — unchanged, last resort.
         """
         workspace = getattr(self, "workspace", None)
         workspace_id = (
@@ -74,13 +77,43 @@ class MeetingPromptsMixin:
             )
 
             if bindings:
-                lines = []
-                for b in bindings:
-                    display = (b.overrides or {}).get("display_name", b.resource_id)
-                    lines.append(f"- {b.resource_id}: {display}")
+                # --- Tier 1: explicit allowlist — RAG reranking within it ---
+                allowed_ids = {b.resource_id for b in bindings}
+                rag_cache = getattr(self, "_rag_tool_cache", [])
+                if rag_cache:
+                    hits = [t for t in rag_cache if t["tool_id"] in allowed_ids]
+                    rag_ids = {t["tool_id"] for t in hits}
+                    rest = [b for b in bindings if b.resource_id not in rag_ids]
+                    lines = [f"- {t['tool_id']}: {t['display_name']}" for t in hits]
+                    lines += [
+                        f"- {b.resource_id}: {(b.overrides or {}).get('display_name', b.resource_id)}"
+                        for b in rest
+                    ]
+                else:
+                    lines = [
+                        f"- {b.resource_id}: {(b.overrides or {}).get('display_name', b.resource_id)}"
+                        for b in bindings
+                    ]
+                tool_line_count = len(lines)
+                logger.debug(
+                    "meeting_tool_inventory workspace=%s source=bindings+rag tool_lines=%d",
+                    workspace_id,
+                    tool_line_count,
+                )
                 return "\n".join(lines)
 
-            # Fallback: scan installed packs' manifest.yaml for tools
+            # --- Tier 2: RAG cache (no explicit bindings) ---
+            rag_cache = getattr(self, "_rag_tool_cache", [])
+            if rag_cache:
+                lines = [f"- {t['tool_id']}: {t['display_name']}" for t in rag_cache]
+                logger.debug(
+                    "meeting_tool_inventory workspace=%s source=rag tool_lines=%d",
+                    workspace_id,
+                    len(lines),
+                )
+                return "\n".join(lines)
+
+            # --- Tier 3: manifest fallback (unchanged) ---
             from backend.app.services.stores.installed_packs_store import (
                 InstalledPacksStore,
             )
@@ -96,7 +129,6 @@ class MeetingPromptsMixin:
 
             packs_store = InstalledPacksStore()
             pack_ids = packs_store.list_enabled_pack_ids()
-            # Align with pack_capability_index.py path resolution
             import os
 
             app_dir = os.getenv("APP_DIR", "/app")
@@ -118,8 +150,16 @@ class MeetingPromptsMixin:
                         for tool in tools:
                             if isinstance(tool, dict):
                                 code = tool.get("code", tool.get("name", pack_id))
+                                if not code:
+                                    continue
                                 display = tool.get("display_name", code)
-                                lines.append(f"- {code}: {display}")
+                                code_str = str(code).strip()
+                                tool_id = (
+                                    code_str
+                                    if "." in code_str
+                                    else f"{pack_id}.{code_str}"
+                                )
+                                lines.append(f"- {tool_id}: {display}")
                     except Exception:
                         pass
                     break  # found manifest, skip other cap_dirs
@@ -129,12 +169,65 @@ class MeetingPromptsMixin:
                     "Note: These are system-wide tools. Workspace policy gate "
                     "may restrict which tools are allowed for this workspace."
                 )
+                logger.debug(
+                    "meeting_tool_inventory workspace=%s source=manifest tool_lines=%d",
+                    workspace_id,
+                    len(lines),
+                )
                 return "\n".join(lines)
 
             return ""
         except Exception as exc:
             logger.warning("Failed to build tool inventory: %s", exc)
             return ""
+
+    def _has_workspace_tool_bindings(self) -> bool:
+        """Return True iff this workspace has explicit TOOL resource bindings.
+
+        Explicit bindings = admin-configured allowlist.  Manifest fallback
+        (the 215-line global dump) does NOT count as explicit — it is
+        reference-only and should not trigger mandatory-constraint or
+        null-tool retry gates.
+        """
+        workspace = getattr(self, "workspace", None)
+        workspace_id = getattr(workspace, "id", None) or getattr(
+            getattr(self, "session", None), "workspace_id", None
+        )
+        if not workspace_id:
+            return False
+        try:
+            from backend.app.services.stores.workspace_resource_binding_store import (
+                WorkspaceResourceBindingStore,
+            )
+            from backend.app.models.workspace_resource_binding import ResourceType
+
+            store = WorkspaceResourceBindingStore()
+            bindings = store.list_bindings_by_workspace(
+                workspace_id, resource_type=ResourceType.TOOL
+            )
+            return bool(bindings)
+        except Exception as exc:
+            logger.debug("_has_workspace_tool_bindings check failed: %s", exc)
+            return False
+
+    def _build_tool_query_from_context(self) -> str:
+        """Build a text query for RAG tool pre-fetch from meeting context.
+
+        Combines session agenda with the last user message to produce a
+        semantically rich query.  Falls back to a generic string.
+        """
+        parts: List[str] = []
+        agenda = getattr(getattr(self, "session", None), "agenda", None)
+        if agenda:
+            parts.append(str(agenda)[:300])
+        msg = getattr(self, "_last_user_message", None)
+        if msg:
+            parts.append(str(msg)[:200])
+        # Enrich with project context if available
+        project = getattr(getattr(self, "session", None), "project_id", None)
+        if project:
+            parts.append(f"project:{project}")
+        return " ".join(parts) or "general task execution"
 
     def _build_project_context(self) -> str:
         """Fetch project data and recent activity to provide meeting context."""
@@ -471,6 +564,15 @@ class MeetingPromptsMixin:
             common += (
                 f"=== Available Tools ===\n" f"{tool_ctx}\n" f"=== End Tools ===\n\n"
             )
+        # P2 observability: log tool inventory size so session traces are self-contained
+        _tool_line_count = len(tool_ctx.strip().splitlines()) if tool_ctx else 0
+        logger.debug(
+            "meeting_tool_inventory agent=%s workspace=%s tool_lines=%d session=%s",
+            agent_id,
+            getattr(getattr(self, "session", None), "workspace_id", "?"),
+            _tool_line_count,
+            getattr(getattr(self, "session", None), "id", "?"),
+        )
 
         # Inject uploaded files block
         uploaded = getattr(self, "_uploaded_files", [])
@@ -598,6 +700,25 @@ class MeetingPromptsMixin:
                 f"{playbooks_cache}\n"
                 f"=== End Playbooks ===\n\n"
             )
+
+        # Hard constraint: only enforce when the workspace has EXPLICIT TOOL
+        # bindings (admin-configured allowlist).  The manifest fallback is
+        # reference-only — we must not force tool usage in pure-discussion
+        # sessions where the LLM legitimately has nothing to invoke.
+        tool_ctx = self._build_tool_inventory_block()
+        has_explicit_bindings = self._has_workspace_tool_bindings()
+        tool_constraint = ""
+        if has_explicit_bindings or playbooks_cache:
+            tool_constraint = (
+                "MANDATORY: The workspace has been configured with specific tools / "
+                "playbooks (see Available Tools / Available Playbooks above). "
+                "At least one action item in your JSON array MUST have a non-null "
+                "tool_name (chosen exactly from Available Tools) OR a non-null "
+                "playbook_code (chosen exactly from Available Playbooks). "
+                "Action items with both tool_name=null AND playbook_code=null are "
+                "only allowed when no configured tool is relevant to that specific step. "
+            )
+
         return (
             common
             + playbook_block
@@ -611,7 +732,10 @@ class MeetingPromptsMixin:
             "playbook_code MUST be selected from Available Playbooks above, or null "
             "if none match. "
             "tool_name is for direct tool invocation without a playbook. "
-            "blocked_by is a list of action item indices (0-based) that must complete first."
+            "Use tool_name exactly as listed in Available Tools, including the "
+            "namespace prefix (e.g., pack.tool). "
+            "blocked_by is a list of action item indices (0-based) that must complete first. "
+            + tool_constraint
         )
 
     def _history_snippet(self) -> str:

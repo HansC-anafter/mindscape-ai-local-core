@@ -8,6 +8,7 @@ The run() method drives a bounded multi-round governance meeting.
 """
 
 import asyncio
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -222,7 +223,33 @@ class MeetingEngine(
             user_message: User message that triggered the meeting.
             handoff_in: Optional HandoffIn for governance context.
         """
+        # Cache user_message for _build_tool_query_from_context()
+        # MUST be set before _rag_tool_cache pre-fetch below.
+        self._last_user_message = user_message
+
+        # Pre-fetch RAG tool results once per session (non-fatal, non-blocking for
+        # prompt construction — _build_tool_inventory_block() reads cache synchronously).
+        self._rag_tool_cache: list = []
+        try:
+            from backend.app.services.tool_rag import retrieve_relevant_tools
+
+            self._rag_tool_cache = await retrieve_relevant_tools(
+                self._build_tool_query_from_context(),
+                top_k=20,
+                workspace_id=self.session.workspace_id,
+            )
+            logger.debug(
+                "Meeting RAG pre-fetch: %d tools cached for session %s",
+                len(self._rag_tool_cache),
+                self.session.id if hasattr(self, "session") and self.session else "?",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Meeting RAG pre-fetch failed (manifest fallback active): %s", exc
+            )
+
         # 5A-1: Preload workspace-installed playbooks for prompt injection
+
         self._available_playbooks_cache = await self._async_load_installed_playbooks()
 
         self._start_session()
@@ -340,30 +367,67 @@ class MeetingEngine(
             critic_notes=critic_notes,
             planner_proposals=planner_proposals,
         )
+        # ------------------------------------------------------------------ #
+        # Pre-dispatch null-tool gate (Fix: emit AFTER gate to keep events    #
+        # consistent with session.action_items)                               #
+        # Gate only fires when the workspace has EXPLICIT TOOL bindings —     #
+        # NOT on manifest fallback, which is reference-only.                  #
+        # ------------------------------------------------------------------ #
+        all_null = action_items and not any(
+            item.get("tool_name") or item.get("playbook_code") for item in action_items
+        )
+        if all_null and self._has_workspace_tool_bindings():
+            pb_cache = getattr(self, "_available_playbooks_cache", "")
+            logger.info(
+                "Pre-dispatch null-tool gate triggered for session %s: "
+                "workspace has explicit TOOL bindings but all action_items "
+                "have tool_name=null and playbook_code=null.  Retrying executor turn.",
+                self.session.id,
+            )
+            try:
+                retry_items = await self._build_action_items(
+                    decision=decision,
+                    user_message=user_message,
+                    critic_notes=critic_notes,
+                    planner_proposals=planner_proposals,
+                )
+                has_actuator_retry = any(
+                    item.get("tool_name") or item.get("playbook_code")
+                    for item in retry_items
+                )
+                if has_actuator_retry:
+                    action_items = retry_items
+                    logger.info(
+                        "Null-tool gate retry produced %d actuator-linked items",
+                        sum(
+                            1
+                            for i in action_items
+                            if i.get("tool_name") or i.get("playbook_code")
+                        ),
+                    )
+                    self._emit_event(
+                        "tool_name_self_heal",
+                        payload={
+                            "session_id": self.session.id,
+                            "trigger": "null_tool_gate_retry",
+                            "actuator_count": sum(
+                                1
+                                for i in action_items
+                                if i.get("tool_name") or i.get("playbook_code")
+                            ),
+                        },
+                    )
+                else:
+                    logger.warning(
+                        "Null-tool gate retry did not produce actuator items; "
+                        "keeping original action_items."
+                    )
+            except Exception as exc:
+                logger.warning("Null-tool gate retry failed (non-fatal): %s", exc)
+
+        # Emit final action_items AFTER gate (so SSE events match session.action_items)
         for item in action_items:
             self._emit_action_item(item)
-
-        # Tool coverage validation: detect files without tool/playbook usage
-        if self._uploaded_files and action_items:
-            has_actuator = any(
-                item.get("playbook_code") or item.get("tool_name")
-                for item in action_items
-            )
-            if not has_actuator:
-                self.session.metadata.setdefault("tool_coverage_warnings", []).append(
-                    {
-                        "type": "FILE_WITHOUT_TOOL",
-                        "file_count": len(self._uploaded_files),
-                        "action_item_count": len(action_items),
-                    }
-                )
-                for item in action_items:
-                    item["file_coverage_gap"] = True
-                logger.warning(
-                    "FILE_WITHOUT_TOOL: %d files uploaded but no action item "
-                    "references a tool or playbook",
-                    len(self._uploaded_files),
-                )
 
         # Dispatch action items to target workspaces (fan-out + fan-in)
         dispatch_result = await self._dispatch_phases_to_workspaces(action_items)
@@ -615,6 +679,137 @@ class MeetingEngine(
 
         return result
 
+    async def _attempt_tool_name_self_heal(
+        self,
+        action_items: List[Dict[str, Any]],
+        binding_store: Any,
+    ) -> int:
+        """Attempt one bounded LLM repair pass for TOOL_NOT_ALLOWED items.
+
+        Repair path is only used after deterministic normalization in
+        dispatch_policy_gate has already run. This method only clears
+        policy blocks for items that can be mapped to an allowlisted tool.
+        """
+        try:
+            from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
+                _canonicalize_tool_name,
+                _load_tool_allowlist,
+            )
+
+            blocked_rows: List[Dict[str, Any]] = []
+            for idx, item in enumerate(action_items):
+                if item.get("landing_status") != "policy_blocked":
+                    continue
+                if item.get("policy_reason_code") != "TOOL_NOT_ALLOWED":
+                    continue
+                current_tool = item.get("tool_name")
+                if not isinstance(current_tool, str) or not current_tool.strip():
+                    continue
+                target_ws = item.get("target_workspace_id") or self.session.workspace_id
+                allowlist = _load_tool_allowlist(target_ws, binding_store)
+                if not allowlist:
+                    continue
+                blocked_rows.append(
+                    {
+                        "index": idx,
+                        "item": item,
+                        "target_workspace_id": target_ws,
+                        "allowed_tools": set(allowlist),
+                    }
+                )
+
+            if not blocked_rows:
+                return 0
+
+            prompt_rows = [
+                {
+                    "index": row["index"],
+                    "title": row["item"].get("title"),
+                    "tool_name": row["item"].get("tool_name"),
+                    "target_workspace_id": row["target_workspace_id"],
+                    "allowed_tools": sorted(list(row["allowed_tools"]))[:80],
+                }
+                for row in blocked_rows
+            ]
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You repair tool_name fields for action items. "
+                        "Only use tool names from each item's allowed_tools."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Return JSON array only. Schema: "
+                        '[{"index":<int>,"tool_name":"<allowed_tool_or_null>"}]. '
+                        "Use null when no valid repair exists.\n\n"
+                        f"Items:\n{json.dumps(prompt_rows, ensure_ascii=False)}"
+                    ),
+                },
+            ]
+
+            try:
+                raw = (await self._generate_text(messages)).strip()
+            except Exception as exc:
+                logger.warning("Tool self-heal generation failed: %s", exc)
+                return 0
+
+            payload = None
+            extract_fn = getattr(self, "_extract_json_payload", None)
+            if callable(extract_fn):
+                try:
+                    payload = extract_fn(raw)
+                except Exception:
+                    payload = None
+            if payload is None:
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    payload = None
+            if not isinstance(payload, list):
+                logger.warning("Tool self-heal returned non-list payload")
+                return 0
+
+            row_by_index = {row["index"]: row for row in blocked_rows}
+            repaired = 0
+            for rec in payload:
+                if not isinstance(rec, dict):
+                    continue
+                idx_raw = rec.get("index")
+                try:
+                    idx = int(idx_raw)
+                except (TypeError, ValueError):
+                    continue
+                if idx not in row_by_index:
+                    continue
+
+                candidate_tool = rec.get("tool_name")
+                if not isinstance(candidate_tool, str) or not candidate_tool.strip():
+                    continue
+                row = row_by_index[idx]
+                canonical, _ = _canonicalize_tool_name(
+                    candidate_tool, row["allowed_tools"]
+                )
+                if canonical is None:
+                    continue
+
+                item = row["item"]
+                original = item.get("tool_name")
+                item["tool_name"] = canonical
+                item.setdefault("tool_name_original", original)
+                item["tool_name_self_healed"] = True
+                item.pop("landing_status", None)
+                item.pop("landing_error", None)
+                item.pop("policy_reason_code", None)
+                repaired += 1
+
+            return repaired
+        except Exception as exc:
+            logger.warning("Tool self-heal pipeline failed (non-fatal): %s", exc)
+            return 0
+
     async def _dispatch_phases_to_workspaces(
         self, action_items: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
@@ -646,6 +841,34 @@ class MeetingEngine(
                 ),
                 binding_store=_binding_store,
             )
+
+            # Self-heal priority: one bounded LLM repair for TOOL_NOT_ALLOWED.
+            repaired_count = 0
+            repair_fn = getattr(self, "_attempt_tool_name_self_heal", None)
+            if callable(repair_fn):
+                repaired_count = await repair_fn(
+                    action_items=action_items,
+                    binding_store=_binding_store,
+                )
+            if repaired_count > 0:
+                # Re-run policy gate after repair with same allowlist policy.
+                check_dispatch_policy(
+                    action_items,
+                    workspace_id=self.session.workspace_id,
+                    available_playbooks_cache=getattr(
+                        self, "_available_playbooks_cache", ""
+                    ),
+                    binding_store=_binding_store,
+                )
+                self._emit_event(
+                    EventType.DECISION_FINAL,
+                    payload={
+                        "tool_name_self_heal": True,
+                        "meeting_session_id": self.session.id,
+                        "repaired_count": repaired_count,
+                    },
+                )
+
             # Emit audit event for any policy-blocked items
             blocked_items = [
                 item
