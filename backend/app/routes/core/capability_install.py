@@ -324,7 +324,9 @@ async def run_install_pipeline(
                     trigger.touch()
                     pipeline.restart_triggered = True
                     pipeline.restart_required = False
-                    logger.info(f"Reload triggered for {capability_code} via file touch")
+                    logger.info(
+                        f"Reload triggered for {capability_code} via file touch"
+                    )
                 except Exception as exc:
                     logger.warning(f"Failed to trigger reload: {exc}")
                     result.add_warning(f"Restart required - auto-trigger failed: {exc}")
@@ -375,6 +377,36 @@ async def run_install_pipeline(
             )
         except Exception as exc:
             logger.warning(f"Failed to register pack in database: {exc}")
+
+        # Step 6.5 — re-index tool embeddings in background (non-fatal, non-blocking)
+        import asyncio as _asyncio
+
+        try:
+            from backend.app.services.tool_embedding_service import (
+                ToolEmbeddingService as _TES,
+            )
+
+            async def _bg_reindex():
+                try:
+                    n = await _TES().ensure_indexed()
+                    if n <= 0:
+                        n = await _TES().index_all_tools()
+                    logger.info("Tool RAG re-indexed after install: %d tools", n)
+                    # Invalidate process-level cache so next turn gets fresh results
+                    try:
+                        from backend.app.services.tool_rag import (
+                            invalidate_tool_rag_cache,
+                        )
+
+                        invalidate_tool_rag_cache()
+                    except Exception:
+                        pass
+                except Exception as _exc:
+                    logger.warning("Tool RAG indexing failed (non-fatal): %s", _exc)
+
+            _asyncio.create_task(_bg_reindex())
+        except Exception as exc:
+            logger.warning("Tool RAG background task setup failed: %s", exc)
 
         pipeline.pack_metadata = pack_metadata
 
