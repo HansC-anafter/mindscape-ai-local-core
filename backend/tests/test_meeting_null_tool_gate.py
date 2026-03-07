@@ -160,6 +160,42 @@ class TestMandatoryConstraintInjection:
             )
         assert "MANDATORY" in prompt
 
+    def test_mandatory_present_when_rag_cache(self):
+        """No bindings but RAG cache non-empty → MANDATORY present.
+
+        This is the critical test for RAG-only workspaces: even without
+        explicit TOOL bindings, if Tool RAG returned results the LLM
+        must be told to use them.
+        """
+        obj = _make_mixin(has_bindings=False)
+        obj._rag_tool_cache = [
+            {"tool_id": "ig.ig_analyze_following", "display_name": "Analyze Following"},
+        ]
+        with patch.object(
+            obj,
+            "_build_tool_inventory_block",
+            return_value="- ig.ig_analyze_following: Analyze Following",
+        ), patch.object(
+            obj, "_build_previous_decisions_context", return_value=""
+        ), patch.object(
+            obj, "_build_workspace_instruction_block", return_value=""
+        ), patch.object(
+            obj, "_build_lens_context", return_value=""
+        ), patch.object(
+            obj, "_history_snippet", return_value=""
+        ):
+            prompt = obj._build_turn_prompt(
+                "executor",
+                round_num=1,
+                user_message="test",
+                decision=None,
+                planner_proposals=[],
+                critic_notes=[],
+            )
+        assert (
+            "MANDATORY" in prompt
+        ), "MANDATORY must be injected when RAG cache has tools, even without bindings"
+
 
 # ---------------------------------------------------------------------------
 # Test: null-tool gate condition
