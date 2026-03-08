@@ -25,30 +25,40 @@ def _sanitize_agenda_item(msg: str) -> str:
     return clean
 
 
-async def _decompose_agenda(user_message: str) -> list[str]:
+async def _decompose_agenda(
+    user_message: str,
+    model_name: str | None = None,
+) -> list[str]:
     """Use LLM to decompose a user message into 2-5 agenda items.
 
     Falls back to [user_message] on any error.  Respects existing
     _AGENDA_MAX_ITEMS cap and _sanitize_agenda_item rules.
+
+    Args:
+        user_message: Raw user message to decompose.
+        model_name: Optional model override.  Falls back to system
+            setting ``chat_model`` if not provided.
     """
     if not user_message or len(user_message.strip()) < 10:
         return [_sanitize_agenda_item(user_message)]
 
     try:
+        import inspect as _inspect
         import json as _json
         from backend.features.workspace.chat.utils.llm_provider import (
             get_llm_provider,
             get_llm_provider_manager,
         )
-        from backend.app.services.system_settings_store import SystemSettingsStore
 
-        model_name = None
-        try:
-            setting = SystemSettingsStore().get_setting("chat_model")
-            if setting and setting.value:
-                model_name = str(setting.value)
-        except Exception:
-            pass
+        if not model_name:
+            from backend.app.services.system_settings_store import SystemSettingsStore
+
+            try:
+                setting = SystemSettingsStore().get_setting("chat_model")
+                if setting and setting.value:
+                    model_name = str(setting.value)
+            except Exception:
+                pass
         if not model_name:
             return [_sanitize_agenda_item(user_message)]
 
@@ -69,13 +79,22 @@ async def _decompose_agenda(user_message: str) -> list[str]:
             },
             {"role": "user", "content": user_message[:500]},
         ]
-        raw = await provider.chat_completion(
-            messages,
-            model=model_name,
-            temperature=0.3,
-            max_tokens=1024,
-            max_completion_tokens=1024,
-        )
+        # Provider-safe kwargs: filter by signature (Anthropic only
+        # accepts messages+model, Vertex accepts temperature etc.)
+        call_kwargs = {
+            "messages": messages,
+            "model": model_name,
+            "temperature": 0.3,
+            "max_tokens": 1024,
+            "max_completion_tokens": 1024,
+        }
+        sig = _inspect.signature(provider.chat_completion)
+        allowed = set(sig.parameters.keys())
+        kwargs = {k: v for k, v in call_kwargs.items() if k in allowed}
+        if "messages" not in kwargs:
+            kwargs["messages"] = messages
+
+        raw = await provider.chat_completion(**kwargs)
         # Parse JSON array from response
         text = raw.strip()
         if text.startswith("```"):
