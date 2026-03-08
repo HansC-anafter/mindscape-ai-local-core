@@ -251,6 +251,56 @@ class ToolEmbeddingService:
             logger.error(f"Failed to create tool_embeddings table: {e}")
             raise
 
+    # Process-level cache for capability manifest metadata
+    _manifest_cache: dict[str, Optional[str]] = {}
+
+    def _get_capability_manifest_context(self, capability_code: str) -> Optional[str]:
+        """Read multilingual metadata from a capability's manifest.yaml.
+
+        Returns a string with display_name_zh + Chinese description (if present)
+        for embedding enrichment.  Results are cached per-process.
+        """
+        if capability_code in self._manifest_cache:
+            return self._manifest_cache[capability_code]
+
+        import os
+        import yaml
+
+        manifest_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "capabilities",
+            capability_code,
+            "manifest.yaml",
+        )
+        if not os.path.isfile(manifest_path):
+            self._manifest_cache[capability_code] = None
+            return None
+
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            self._manifest_cache[capability_code] = None
+            return None
+
+        parts: list[str] = []
+        zh_name = data.get("display_name_zh")
+        if zh_name:
+            parts.append(str(zh_name))
+        desc = data.get("description", "")
+        if desc and not desc.isascii():
+            # Only append if description contains non-ASCII (likely CJK)
+            parts.append(str(desc)[:200])
+        elif zh_name:
+            # If no CJK description but has zh_name, append English desc too
+            eng_desc = data.get("description", "")
+            if eng_desc:
+                parts.append(str(eng_desc)[:120])
+
+        result = " ".join(parts) if parts else None
+        self._manifest_cache[capability_code] = result
+        return result
+
     async def index_tool(
         self,
         tool_id: str,
@@ -264,6 +314,17 @@ class ToolEmbeddingService:
         Returns True on success, False on failure.
         """
         embed_text = f"{display_name}: {description}"
+        # Enrich with capability-level metadata for cross-lingual RAG recall.
+        # Reads display_name_zh / description from the capability's manifest.yaml
+        # so that Chinese queries can match English tool descriptions.
+        if capability_code:
+            try:
+                cap_meta = self._get_capability_manifest_context(capability_code)
+                if cap_meta:
+                    embed_text = f"{embed_text}. {cap_meta}"
+            except Exception:
+                pass  # non-fatal: proceed with English-only embed_text
+
         embedding, model_name = await self._generate_embedding(
             embed_text, is_query=False
         )

@@ -235,7 +235,7 @@ class MeetingEngine(
 
             self._rag_tool_cache = await retrieve_relevant_tools(
                 self._build_tool_query_from_context(),
-                top_k=20,
+                top_k=40,
                 workspace_id=self.session.workspace_id,
             )
             logger.debug(
