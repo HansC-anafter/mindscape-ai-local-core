@@ -210,11 +210,46 @@ class MeetingPromptsMixin:
             logger.debug("_has_workspace_tool_bindings check failed: %s", exc)
             return False
 
+    # Chinese action-verb → English RAG keywords for cross-lingual recall.
+    # These are matched against the user message and appended to the RAG
+    # query so that domain-specific Chinese queries still surface the right
+    # tool families.
+    _VERB_RAG_KEYWORDS: dict[str, str] = {
+        "調研": "research academic papers",
+        "研究": "research academic frontier",
+        "論文": "academic papers fetch",
+        "搜尋": "search fetch query",
+        "搜索": "search fetch query",
+        "製作": "create generate draft content",
+        "撰寫": "write draft generate",
+        "生成": "generate create build",
+        "草稿": "draft content writing",
+        "貼文": "post publish content social media",
+        "發佈": "publish post schedule",
+        "發布": "publish post schedule",
+        "排程": "schedule calendar plan",
+        "配圖": "image photo visual unsplash",
+        "圖片": "image photo visual",
+        "分析": "analyze assessment report",
+        "規劃": "planning strategy decomposition",
+        "品牌": "brand identity CIS",
+        "影片": "video chapter ingest render",
+        "音頻": "audio sonic embedding",
+        "瑜伽": "yoga coach pose asana",
+        "網頁": "web generation divi wordpress",
+        "SEO": "SEO optimization search engine",
+        "補助": "grant scout funding",
+        "電子報": "newsletter email campaign",
+    }
+
     def _build_tool_query_from_context(self) -> str:
         """Build a text query for RAG tool pre-fetch from meeting context.
 
         Combines session agenda with the last user message to produce a
         semantically rich query.  Falls back to a generic string.
+
+        When the user message is non-English, matched action-verb keywords
+        are appended to improve cross-lingual RAG recall.
         """
         parts: List[str] = []
         agenda = getattr(getattr(self, "session", None), "agenda", None)
@@ -227,6 +262,18 @@ class MeetingPromptsMixin:
         project = getattr(getattr(self, "session", None), "project_id", None)
         if project:
             parts.append(f"project:{project}")
+
+        # Cross-lingual augmentation: append English keywords matched from
+        # Chinese action verbs so that domain-specific queries still find
+        # the right tool families via embedding similarity.
+        if msg:
+            matched_kw: list[str] = []
+            for verb, eng in self._VERB_RAG_KEYWORDS.items():
+                if verb in str(msg):
+                    matched_kw.append(eng)
+            if matched_kw:
+                parts.append(" ".join(matched_kw))
+
         return " ".join(parts) or "general task execution"
 
     def _build_project_context(self) -> str:
