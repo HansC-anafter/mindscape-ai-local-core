@@ -237,12 +237,19 @@ class MeetingEngine(
                     _decompose_agenda,
                 )
 
-                decomposed = await _decompose_agenda(user_message)
+                decomposed = await _decompose_agenda(
+                    user_message,
+                    model_name=self.model_name,
+                )
                 if len(decomposed) > 1:
                     self.session.agenda = decomposed
                     # Persist to store so reuse path also benefits
                     try:
-                        self.session_store.update(self.session)
+                        loop = asyncio.get_running_loop()
+                        await loop.run_in_executor(
+                            None,
+                            lambda: self.session_store.update(self.session),
+                        )
                     except Exception:
                         pass  # non-fatal
                     logger.info(
