@@ -328,19 +328,19 @@ class HandoffAdapter:
         handoff_id: str,
     ) -> Dict[str, Any]:
         """
-        Bridge to existing dispatch_task_ir().
+        Bridge to DispatchOrchestrator for handoff dispatch.
 
         Fetches the TaskIR associated with the handoff (via commitment
-        payload stored in registry) and dispatches it through HandoffHandler.
+        payload stored in registry) and dispatches it through the
+        DispatchOrchestrator (sole dispatch authority after Phase 2).
         """
         try:
-            from backend.app.services.conversation.pipeline_meeting import (
-                dispatch_task_ir,
+            from backend.app.services.orchestration.dispatch_orchestrator import (
+                DispatchOrchestrator,
             )
             from backend.app.services.stores.postgres.task_ir_store import (
                 PostgresTaskIRStore,
             )
-            from backend.app.services.mindscape_store import MindscapeStore
 
             # Fetch handoff to get commitment payload with task_ir_id
             handoff_data = await self.client._get(f"/handoffs/{handoff_id}")
@@ -364,24 +364,39 @@ class HandoffAdapter:
                     "error": f"TaskIR {task_ir_id} not found",
                 }
 
-            store = MindscapeStore()
-            result = await dispatch_task_ir(task_ir, store)
+            # Build action_items from TaskIR phases for orchestrator
+            action_items = []
+            for phase in task_ir.phases or []:
+                action_items.append(
+                    {
+                        "title": phase.name,
+                        "description": phase.description or "",
+                        "playbook_code": (
+                            phase.preferred_engine.split(":", 1)[-1]
+                            if phase.preferred_engine and ":" in phase.preferred_engine
+                            else None
+                        ),
+                        "target_workspace_id": phase.target_workspace_id or "",
+                    }
+                )
 
-            if result is not None:
-                return {
-                    "success": True,
-                    "handoff_id": handoff_id,
-                    "task_ir_id": task_ir_id,
-                    "dispatch_result": result,
-                }
-            else:
-                return {
-                    "success": False,
-                    "handoff_id": handoff_id,
-                    "error": "dispatch_task_ir returned None",
-                }
+            orchestrator = DispatchOrchestrator(
+                project_id=payload_json.get("project_id"),
+            )
+            result = await orchestrator.execute(
+                task_ir=task_ir,
+                action_items=action_items,
+            )
+
+            success = result.get("status") != "all_failed"
+            return {
+                "success": success,
+                "handoff_id": handoff_id,
+                "task_ir_id": task_ir_id,
+                "dispatch_result": result,
+            }
         except ImportError as exc:
-            logger.warning("dispatch_task_ir not available: %s", exc)
+            logger.warning("DispatchOrchestrator not available: %s", exc)
             return {
                 "success": False,
                 "handoff_id": handoff_id,

@@ -42,53 +42,17 @@ class MeetingActionItemsMixin:
         return self._parse_action_items(executor_turn.content, decision)
 
     async def _land_action_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """Attempt to launch a playbook or create a task for an action item."""
+        """Create a task projection for an action item.
+
+        Actual dispatch is handled by DispatchOrchestrator via engine.run().
+        This method only creates the task record (projection).
+        """
         item.setdefault("meeting_session_id", self.session.id)
         item.setdefault("execution_id", None)
         item.setdefault("task_id", None)
 
-        if self.execution_launcher and item.get("playbook_code"):
-            try:
-                # Use target_workspace_id from planner routing, fallback to session
-                target_ws = item.get("target_workspace_id") or self.session.workspace_id
-                ctx = LocalDomainContext(
-                    actor_id=self.profile_id,
-                    workspace_id=target_ws,
-                )
-                result = await self.execution_launcher.launch(
-                    playbook_code=item["playbook_code"],
-                    inputs={
-                        "task": item["description"],
-                        "meeting_session_id": self.session.id,
-                        "workspace_id": target_ws,
-                    },
-                    ctx=ctx,
-                    project_id=self.project_id,
-                    trace_id=str(uuid.uuid4()),
-                )
-                item["execution_id"] = result.get("execution_id")
-                if item["execution_id"]:
-                    exec_ids = self.session.metadata.setdefault("execution_ids", [])
-                    if item["execution_id"] not in exec_ids:
-                        exec_ids.append(item["execution_id"])
-                item["landing_status"] = (
-                    "launched" if item.get("execution_id") else "launch_failed"
-                )
-            except Exception as exc:
-                logger.warning(
-                    "MeetingEngine failed to launch playbook '%s': %s",
-                    item.get("playbook_code"),
-                    exc,
-                    exc_info=True,
-                )
-                item["landing_status"] = "launch_error"
-                item["landing_error"] = str(exc)
-
-        if not item.get("execution_id"):
-            item["task_id"] = self._create_action_task(item)
-            item["landing_status"] = (
-                "task_created" if item.get("task_id") else "planned"
-            )
+        item["task_id"] = self._create_action_task(item)
+        item["landing_status"] = "task_created" if item.get("task_id") else "planned"
 
         return item
 
@@ -123,6 +87,7 @@ class MeetingActionItemsMixin:
                 status=TaskStatus.PENDING,
                 params={
                     "meeting_session_id": self.session.id,
+                    "thread_id": getattr(self.session, "thread_id", None),
                     "title": item.get("title"),
                     "description": item.get("description"),
                     "priority": item.get("priority"),
@@ -133,6 +98,7 @@ class MeetingActionItemsMixin:
                 execution_context={
                     "trigger_source": "meeting_engine",
                     "meeting_session_id": self.session.id,
+                    "thread_id": getattr(self.session, "thread_id", None),
                     "tool_name": item.get("tool_name"),
                     "inputs": item.get("input_params") or {},
                 },

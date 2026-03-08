@@ -73,47 +73,42 @@ class ChatOrchestratorService:
                 user_event_id=user_event_id,
             )
 
-            # 2. PipelineCore routing (feature flag)
-            from backend.app.services.conversation.pipeline_core import (
-                PipelineCore,
-                should_use_pipeline_core,
+            # 2. PipelineCore routing (sole path after hard cutover)
+            from backend.app.services.conversation.pipeline_core import PipelineCore
+
+            pipeline = PipelineCore(
+                orchestrator_store=self.orchestrator.store,
+                workspace=workspace,
+                profile=session.profile,
+                runtime_profile=session.runtime_profile,
             )
+            pipeline_result = await pipeline.process(
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                thread_id=session.thread_id,
+                project_id=session.project_id,
+                message=request.message,
+                user_event_id=session.user_event.id,
+                execution_mode=session.execution_mode,
+                model_name=request.model_name,
+                request=request,
+            )
+            if not pipeline_result.success:
+                await self._create_error_event(
+                    workspace_id,
+                    profile_id,
+                    session.thread_id,
+                    pipeline_result.error or "Pipeline processing failed",
+                    retry_data={"message": request.message},
+                )
+            # Final thread stats update
+            await update_thread_stats(
+                self.orchestrator.store, workspace_id, session.thread_id
+            )
+            logger.info("PipelineCore completed for %s", session.user_event.id)
+            return
 
-            if should_use_pipeline_core(workspace):
-                logger.info("PipelineCore enabled for workspace %s", workspace_id)
-                pipeline = PipelineCore(
-                    orchestrator_store=self.orchestrator.store,
-                    workspace=workspace,
-                    profile=session.profile,
-                    runtime_profile=session.runtime_profile,
-                )
-                pipeline_result = await pipeline.process(
-                    workspace_id=workspace_id,
-                    profile_id=profile_id,
-                    thread_id=session.thread_id,
-                    project_id=session.project_id,
-                    message=request.message,
-                    user_event_id=session.user_event.id,
-                    execution_mode=session.execution_mode,
-                    model_name=request.model_name,
-                    request=request,
-                )
-                if not pipeline_result.success:
-                    await self._create_error_event(
-                        workspace_id,
-                        profile_id,
-                        session.thread_id,
-                        pipeline_result.error or "Pipeline processing failed",
-                        retry_data={"message": request.message},
-                    )
-                # Final thread stats update
-                await update_thread_stats(
-                    self.orchestrator.store, workspace_id, session.thread_id
-                )
-                logger.info("PipelineCore completed for %s", session.user_event.id)
-                return
-
-            # 3. Legacy path (feature flag off)
+            # 3. Below: retained legacy LLM streaming path (non-PipelineCore features)
 
             # Intent extraction stage (execution/hybrid modes)
             if session.execution_mode in ("execution", "hybrid"):

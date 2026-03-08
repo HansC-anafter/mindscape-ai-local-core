@@ -1,9 +1,11 @@
 """
-Pipeline Meeting -- Meeting session lifecycle and TaskIR dispatch.
+Pipeline Meeting -- Meeting session lifecycle and TaskIR persistence.
 
 Handles meeting session creation, project meeting flag checking,
-ExecutionLauncher setup, HandoffIn extraction, TaskIR persistence
-and dispatch, and session finalization.
+ExecutionLauncher setup, HandoffIn extraction, TaskIR persistence,
+and session finalization.
+
+Note: TaskIR dispatch has moved to DispatchOrchestrator.
 """
 
 import asyncio
@@ -191,64 +193,6 @@ async def persist_meeting_task_ir(task_ir: Any) -> None:
             e,
             exc_info=True,
         )
-
-
-async def dispatch_task_ir(
-    task_ir: Any,
-    store: Any,
-) -> Optional[Dict[str, Any]]:
-    """Dispatch persisted TaskIR via HandoffHandler.
-
-    Performs actuation plan lowering, then dispatches the first
-    executable phase via HandoffHandler.
-
-    Args:
-        task_ir: Compiled and persisted TaskIR.
-        store: MindscapeStore instance.
-
-    Returns:
-        Dispatch result dict or None on failure.
-    """
-    try:
-        from backend.app.services.stores.postgres.task_ir_store import (
-            PostgresTaskIRStore,
-        )
-        from backend.app.services.handoff_handler import HandoffHandler
-        from backend.app.services.artifact_registry import ArtifactRegistry
-
-        ir_store = PostgresTaskIRStore()
-        artifact_registry = ArtifactRegistry()
-        handler = HandoffHandler(
-            task_ir_store=ir_store,
-            artifact_registry=artifact_registry,
-        )
-
-        # Lower phases to actuation plan
-        task_ir.lower_to_actuation_plan()
-        ir_store.replace_task_ir(task_ir)
-
-        # Dispatch first executable phase
-        first_phases = task_ir.get_next_executable_phases()
-        if not first_phases:
-            logger.info("[PipelineCore] No executable phases for %s", task_ir.task_id)
-            return None
-
-        engine = first_phases[0].preferred_engine or "playbook:generic"
-        result = await handler.initiate_task_execution(task_ir, engine)
-        logger.info(
-            "[PipelineCore] Dispatched TaskIR %s via %s",
-            task_ir.task_id,
-            engine,
-        )
-        return result
-    except Exception as e:
-        logger.warning(
-            "[PipelineCore] Dispatch failed for %s: %s",
-            task_ir.task_id,
-            e,
-            exc_info=True,
-        )
-        return None
 
 
 async def ensure_meeting_session(

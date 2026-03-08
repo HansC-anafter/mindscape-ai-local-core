@@ -81,7 +81,6 @@ class AgentConfigResponse(BaseModel):
     agent_status: Optional[dict] = None
     sandbox_config: Optional[DoerWorkspaceConfig] = None
     available_presets: List[str] = ["conservative", "balanced", "permissive"]
-    agent_fallback_enabled: bool = True  # Deprecated, kept for backward compat
     fallback_model: Optional[str] = None
 
 
@@ -137,8 +136,6 @@ async def get_agent_config(
             executor_runtime=active_runtime,
             agent_status=agent_status,
             sandbox_config=sandbox_config,
-            agent_fallback_enabled=getattr(workspace, "fallback_model", None)
-            is not None,
             fallback_model=getattr(workspace, "fallback_model", None),
         )
 
