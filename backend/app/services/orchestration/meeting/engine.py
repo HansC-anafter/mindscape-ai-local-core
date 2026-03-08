@@ -227,21 +227,88 @@ class MeetingEngine(
         # MUST be set before _rag_tool_cache pre-fetch below.
         self._last_user_message = user_message
 
-        # Pre-fetch RAG tool results once per session (non-fatal, non-blocking for
-        # prompt construction — _build_tool_inventory_block() reads cache synchronously).
+        # Layer 0c: Engine-side agenda decomposition fallback.
+        # If agenda has ≤1 items (session created without decomposition),
+        # split user_message into sub-tasks so per-agenda multi-query activates.
+        _l0_agenda = getattr(self.session, "agenda", None) or []
+        if len(_l0_agenda) <= 1 and user_message and len(user_message.strip()) >= 10:
+            try:
+                from backend.app.services.conversation.pipeline_meeting import (
+                    _decompose_agenda,
+                )
+
+                decomposed = await _decompose_agenda(user_message)
+                if len(decomposed) > 1:
+                    self.session.agenda = decomposed
+                    # Persist to store so reuse path also benefits
+                    try:
+                        self.session_store.update(self.session)
+                    except Exception:
+                        pass  # non-fatal
+                    logger.info(
+                        "Layer-0c: decomposed agenda into %d items for session %s",
+                        len(decomposed),
+                        self.session.id,
+                    )
+            except Exception as exc:
+                logger.debug("Layer-0c fallback failed (non-fatal): %s", exc)
+
+        # Pre-fetch RAG tool results using per-agenda multi-query strategy.
+        # Each agenda item gets its own focused query so that mixed requests
+        # (e.g. "research + content + images") don't let one dominant capability
+        # crowd out the others.
         self._rag_tool_cache: list = []
         try:
             from backend.app.services.tool_rag import retrieve_relevant_tools
 
-            self._rag_tool_cache = await retrieve_relevant_tools(
-                self._build_tool_query_from_context(),
-                top_k=40,
-                workspace_id=self.session.workspace_id,
-            )
+            agenda = getattr(self.session, "agenda", None) or []
+            ws_id = self.session.workspace_id
+
+            if agenda and len(agenda) > 1:
+                # Layer A: per-agenda-item multi-query RAG
+                per_k = max(5, 40 // len(agenda))
+                seen_ids: set = set()
+                combined: list = []
+                for item in agenda:
+                    aug = self._verb_augment(str(item))
+                    q = f"{item} {aug}".strip() if aug else str(item)
+                    hits = await retrieve_relevant_tools(
+                        q,
+                        top_k=per_k,
+                        workspace_id=ws_id,
+                    )
+                    for h in hits:
+                        if h["tool_id"] not in seen_ids:
+                            seen_ids.add(h["tool_id"])
+                            combined.append(h)
+
+                # Also query the user message for any tools not covered by agenda
+                msg_aug = self._verb_augment(str(user_message))
+                msg_q = f"{user_message} {msg_aug}".strip()
+                msg_hits = await retrieve_relevant_tools(
+                    msg_q,
+                    top_k=per_k,
+                    workspace_id=ws_id,
+                )
+                for h in msg_hits:
+                    if h["tool_id"] not in seen_ids:
+                        seen_ids.add(h["tool_id"])
+                        combined.append(h)
+
+                self._rag_tool_cache = combined
+            else:
+                # Fallback: single query (original path)
+                self._rag_tool_cache = await retrieve_relevant_tools(
+                    self._build_tool_query_from_context(),
+                    top_k=40,
+                    workspace_id=ws_id,
+                )
+
             logger.debug(
-                "Meeting RAG pre-fetch: %d tools cached for session %s",
+                "Meeting RAG pre-fetch: %d tools cached for session %s (queries=%d)",
                 len(self._rag_tool_cache),
                 self.session.id if hasattr(self, "session") and self.session else "?",
+                max(len(agenda), 1),
             )
         except Exception as exc:
             logger.warning(
@@ -368,11 +435,78 @@ class MeetingEngine(
             planner_proposals=planner_proposals,
         )
         # ------------------------------------------------------------------ #
-        # Pre-dispatch null-tool gate (Fix: emit AFTER gate to keep events    #
-        # consistent with session.action_items)                               #
-        # Gate fires when the workspace has EXPLICIT TOOL bindings OR the     #
-        # RAG cache returned relevant tools — either signal means the LLM    #
-        # was given a tool list and should have used it.                      #
+        # Layer C: Independent gap re-fetch for ANY null-actuator items.      #
+        # Unlike the all_null gate below, this fires for partial gaps too —   #
+        # e.g. when 1 item has a tool but 2 others don't.                     #
+        # ------------------------------------------------------------------ #
+        has_tool_context = self._has_workspace_tool_bindings() or bool(
+            getattr(self, "_rag_tool_cache", [])
+        )
+        null_actuator = [
+            i
+            for i in action_items
+            if not i.get("tool_name") and not i.get("playbook_code")
+        ]
+        if null_actuator and has_tool_context:
+            try:
+                from backend.app.services.tool_rag import retrieve_relevant_tools
+
+                cache_ids = {t["tool_id"] for t in self._rag_tool_cache}
+                enriched = 0
+                for item in null_actuator:
+                    title = item.get("title", "")
+                    if not title:
+                        continue
+                    aug = self._verb_augment(title)
+                    q = f"{title} {aug}".strip() if aug else title
+                    hits = await retrieve_relevant_tools(
+                        q,
+                        top_k=3,
+                        workspace_id=self.session.workspace_id,
+                    )
+                    for h in hits:
+                        if h["tool_id"] not in cache_ids:
+                            cache_ids.add(h["tool_id"])
+                            self._rag_tool_cache.append(h)
+                            enriched += 1
+                if enriched:
+                    logger.info(
+                        "Layer-C gap-fill: +%d tools for %d null-actuator items",
+                        enriched,
+                        len(null_actuator),
+                    )
+                    # Retry executor with enriched cache
+                    try:
+                        retry = await self._build_action_items(
+                            decision=decision,
+                            user_message=user_message,
+                            critic_notes=critic_notes,
+                            planner_proposals=planner_proposals,
+                        )
+                        new_bound = sum(
+                            1
+                            for i in retry
+                            if i.get("tool_name") or i.get("playbook_code")
+                        )
+                        old_bound = sum(
+                            1
+                            for i in action_items
+                            if i.get("tool_name") or i.get("playbook_code")
+                        )
+                        if new_bound > old_bound:
+                            action_items = retry
+                            logger.info(
+                                "Layer-C retry improved binding: %d -> %d actuators",
+                                old_bound,
+                                new_bound,
+                            )
+                    except Exception:
+                        pass  # keep original
+            except Exception as exc:
+                logger.debug("Layer-C gap-fill failed (non-fatal): %s", exc)
+
+        # ------------------------------------------------------------------ #
+        # Pre-dispatch null-tool gate (original — fires only when ALL null)   #
         # ------------------------------------------------------------------ #
         all_null = action_items and not any(
             item.get("tool_name") or item.get("playbook_code") for item in action_items

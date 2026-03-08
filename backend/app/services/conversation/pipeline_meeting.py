@@ -25,6 +25,75 @@ def _sanitize_agenda_item(msg: str) -> str:
     return clean
 
 
+async def _decompose_agenda(user_message: str) -> list[str]:
+    """Use LLM to decompose a user message into 2-5 agenda items.
+
+    Falls back to [user_message] on any error.  Respects existing
+    _AGENDA_MAX_ITEMS cap and _sanitize_agenda_item rules.
+    """
+    if not user_message or len(user_message.strip()) < 10:
+        return [_sanitize_agenda_item(user_message)]
+
+    try:
+        import json as _json
+        from backend.features.workspace.chat.utils.llm_provider import (
+            get_llm_provider,
+            get_llm_provider_manager,
+        )
+        from backend.app.services.system_settings_store import SystemSettingsStore
+
+        model_name = None
+        try:
+            setting = SystemSettingsStore().get_setting("chat_model")
+            if setting and setting.value:
+                model_name = str(setting.value)
+        except Exception:
+            pass
+        if not model_name:
+            return [_sanitize_agenda_item(user_message)]
+
+        manager = get_llm_provider_manager()
+        provider, _ = get_llm_provider(
+            model_name=model_name,
+            llm_provider_manager=manager,
+        )
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Split the request into 2-5 short task labels (≤10 words each). "
+                    "Return ONLY a JSON array of strings. Example: "
+                    '["research X","create Y posts","find images"]'
+                ),
+            },
+            {"role": "user", "content": user_message[:500]},
+        ]
+        raw = await provider.chat_completion(
+            messages,
+            model=model_name,
+            temperature=0.3,
+            max_tokens=1024,
+            max_completion_tokens=1024,
+        )
+        # Parse JSON array from response
+        text = raw.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        # Handle incomplete JSON: find outermost [ ... ]
+        start = text.find("[")
+        end = text.rfind("]")
+        if start >= 0 and end > start:
+            text = text[start : end + 1]
+        items = _json.loads(text)
+        if isinstance(items, list) and 2 <= len(items) <= _AGENDA_MAX_ITEMS:
+            return [_sanitize_agenda_item(str(i)) for i in items if str(i).strip()]
+    except Exception as exc:
+        logger.debug("Agenda decomposition failed (fallback): %s", exc)
+
+    return [_sanitize_agenda_item(user_message)]
+
+
 def build_execution_launcher(store: Any) -> Optional[Any]:
     """Build ExecutionLauncher for meeting action landing.
 
@@ -199,19 +268,24 @@ async def ensure_meeting_session(
             logger.info(f"[PipelineCore] Reusing active session {session.id}")
             # Append user_message to agenda (dedup + cap)
             if user_message:
-                sanitized = _sanitize_agenda_item(user_message)
-                if sanitized:
-                    current = list(session.agenda or [])
-                    if sanitized not in current and len(current) < _AGENDA_MAX_ITEMS:
-                        current.append(sanitized)
-                        session.agenda = current
-                        try:
-                            await loop.run_in_executor(
-                                None,
-                                lambda: session_store.update(session),
-                            )
-                        except Exception as exc:
-                            logger.debug("Non-fatal agenda update: %s", exc)
+                decomposed = await _decompose_agenda(user_message)
+                current = list(session.agenda or [])
+                for item in decomposed:
+                    if (
+                        item
+                        and item not in current
+                        and len(current) < _AGENDA_MAX_ITEMS
+                    ):
+                        current.append(item)
+                if current != list(session.agenda or []):
+                    session.agenda = current
+                    try:
+                        await loop.run_in_executor(
+                            None,
+                            lambda: session_store.update(session),
+                        )
+                    except Exception as exc:
+                        logger.debug("Non-fatal agenda update: %s", exc)
             return session
 
         # Create new session with lens_id resolved from active preset
@@ -240,9 +314,7 @@ async def ensure_meeting_session(
 
         initial_agenda = None
         if user_message:
-            sanitized = _sanitize_agenda_item(user_message)
-            if sanitized:
-                initial_agenda = [sanitized]
+            initial_agenda = await _decompose_agenda(user_message)
         new_session = MeetingSession.new(
             workspace_id=workspace_id,
             project_id=project_id,
