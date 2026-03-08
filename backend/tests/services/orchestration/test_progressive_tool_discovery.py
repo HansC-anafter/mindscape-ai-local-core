@@ -1,15 +1,13 @@
 """Tests for progressive tool discovery pipeline (Layer 0 + Layer C).
 
-UNIT TESTS (run locally, no DB):
+UNIT TESTS (run locally AND in container):
   - TestDecomposeAgenda: LLM decomposition, provider compat, fallback
-  - TestLayerCGapRefetch: null-actuator gap detection, re-fetch logic
-  - TestLayer0cPersistence: engine fallback + store persist
   - TestModelNamePlumbing: model_name travels from caller to decompose
+  - TestLayer0cProduction: calls MeetingEngine._ensure_agenda_decomposed()
+  - TestLayerCProduction: calls MeetingEngine._gap_refetch_for_null_actuators()
 
 Run with:
   python3 -m pytest backend/tests/services/orchestration/test_progressive_tool_discovery.py -v
-  docker exec mindscape-ai-local-core-backend python3 -m pytest \
-    /app/backend/tests/services/orchestration/test_progressive_tool_discovery.py -v
 """
 
 import sys
@@ -20,7 +18,11 @@ import inspect
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+# 4 levels up: orchestration/ -> services/ -> tests/ -> backend/ -> repo root
+_REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
+sys.path.insert(0, os.path.abspath(_REPO_ROOT))
+# Also add backend/ so `from app.*` imports work (mirrors Docker PYTHONPATH)
+sys.path.insert(0, os.path.abspath(os.path.join(_REPO_ROOT, "backend")))
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +73,38 @@ def _patch_provider(provider):
                 sys.modules.pop(mod_name, None)
 
     return _ctx()
+
+
+def _make_engine_stub(**overrides):
+    """Build a minimal MeetingEngine-shaped object for method testing.
+
+    Returns an object with the right attributes for _ensure_agenda_decomposed()
+    and _gap_refetch_for_null_actuators() to work.
+    """
+    from backend.app.services.orchestration.meeting.engine import MeetingEngine
+
+    session = MagicMock()
+    session.id = overrides.get("session_id", "test-session")
+    session.workspace_id = overrides.get("workspace_id", "ws-test")
+    session.agenda = overrides.get("agenda", ["single item"])
+
+    store = MagicMock()
+    store.update = MagicMock()
+
+    engine = object.__new__(MeetingEngine)
+    engine.session = session
+    engine.session_store = store
+    engine.model_name = overrides.get("model_name", "test-model")
+    engine._rag_tool_cache = overrides.get("rag_cache", [])
+    engine._has_workspace_tool_bindings = MagicMock(
+        return_value=overrides.get("has_bindings", False)
+    )
+    # Stub _verb_augment and _build_action_items
+    engine._verb_augment = MagicMock(return_value="search find")
+    engine._build_action_items = AsyncMock(
+        return_value=overrides.get("retry_items", [])
+    )
+    return engine
 
 
 # ---------------------------------------------------------------------------
@@ -174,11 +208,10 @@ class TestDecomposeAgenda:
 
 
 class TestModelNamePlumbing:
-    """Verify model_name flows from ensure_meeting_session to _decompose_agenda."""
+    """Verify model_name flows through ensure_meeting_session."""
 
     @pytest.mark.asyncio
     async def test_model_name_forwarded_on_new_session(self):
-        """New session creation should pass model_name to _decompose_agenda."""
         with (
             patch(
                 "backend.app.services.conversation.pipeline_meeting._decompose_agenda",
@@ -213,7 +246,6 @@ class TestModelNamePlumbing:
 
     @pytest.mark.asyncio
     async def test_model_name_forwarded_on_reuse(self):
-        """Session reuse should pass model_name to _decompose_agenda."""
         existing = MagicMock()
         existing.id = "s-existing"
         existing.agenda = ["old item"]
@@ -246,171 +278,243 @@ class TestModelNamePlumbing:
 
 
 # ---------------------------------------------------------------------------
-# TestLayerCGapRefetch
+# TestLayer0cProduction — calls real MeetingEngine._ensure_agenda_decomposed()
 # ---------------------------------------------------------------------------
 
 
-class TestLayerCGapRefetch:
-    """Test Layer C gap detection and re-fetch logic."""
-
-    def _make_action_items(self, specs):
-        return [
-            {"title": t, "tool_name": tn, "playbook_code": pb} for t, tn, pb in specs
-        ]
-
-    def test_partial_gap_detected(self):
-        items = self._make_action_items(
-            [
-                ("Research papers", "frontier_research.fetch", None),
-                ("Create posts", None, None),
-                ("Find images", None, None),
-            ]
-        )
-        null_actuator = [
-            i for i in items if not i.get("tool_name") and not i.get("playbook_code")
-        ]
-        assert len(null_actuator) == 2
-
-    def test_no_gap_when_all_bound(self):
-        items = self._make_action_items(
-            [
-                ("Research papers", "frontier_research.fetch", None),
-                ("Create posts", "content_drafting.gen", None),
-                ("Schedule", None, "scheduler"),
-            ]
-        )
-        null_actuator = [
-            i for i in items if not i.get("tool_name") and not i.get("playbook_code")
-        ]
-        assert len(null_actuator) == 0
-
-    def test_playbook_counts_as_bound(self):
-        items = self._make_action_items(
-            [
-                ("Run analysis", None, "ig_analyze"),
-                ("Draft content", None, None),
-            ]
-        )
-        null_actuator = [
-            i for i in items if not i.get("tool_name") and not i.get("playbook_code")
-        ]
-        assert len(null_actuator) == 1
-        assert null_actuator[0]["title"] == "Draft content"
-
-    def test_all_null_triggers_gate(self):
-        items = self._make_action_items(
-            [
-                ("Task A", None, None),
-                ("Task B", None, None),
-            ]
-        )
-        all_null = items and not any(
-            i.get("tool_name") or i.get("playbook_code") for i in items
-        )
-        assert all_null is True
-
-    def test_enrichment_deduplicates_by_tool_id(self):
-        """Layer C should skip tools already in _rag_tool_cache."""
-        existing_cache = [{"tool_id": "t1"}, {"tool_id": "t2"}]
-        new_hits = [
-            {"tool_id": "t2"},  # duplicate
-            {"tool_id": "t3"},  # new
-        ]
-        cache_ids = {t["tool_id"] for t in existing_cache}
-        enriched = 0
-        for h in new_hits:
-            if h["tool_id"] not in cache_ids:
-                cache_ids.add(h["tool_id"])
-                existing_cache.append(h)
-                enriched += 1
-        assert enriched == 1
-        assert len(existing_cache) == 3
-
-    def test_retry_improvement_check(self):
-        """Layer C only accepts retry if new_bound > old_bound."""
-        first_pass = self._make_action_items(
-            [
-                ("A", "tool.x", None),
-                ("B", None, None),
-                ("C", None, None),
-            ]
-        )
-        retry_pass = self._make_action_items(
-            [
-                ("A", "tool.x", None),
-                ("B", "tool.y", None),
-                ("C", None, None),
-            ]
-        )
-        old_bound = sum(
-            1 for i in first_pass if i.get("tool_name") or i.get("playbook_code")
-        )
-        new_bound = sum(
-            1 for i in retry_pass if i.get("tool_name") or i.get("playbook_code")
-        )
-        assert old_bound == 1
-        assert new_bound == 2
-        assert new_bound > old_bound, "Retry should improve binding count"
-
-
-# ---------------------------------------------------------------------------
-# TestLayer0cPersistence
-# ---------------------------------------------------------------------------
-
-
-class TestLayer0cPersistence:
-    """Verify Layer 0c decomposes and persists agenda in engine.run()."""
+class TestLayer0cProduction:
+    """Test Layer 0c by calling the real engine method."""
 
     @pytest.mark.asyncio
-    async def test_layer0c_calls_decompose_with_model_name(self):
-        """Engine fallback should pass self.model_name to _decompose_agenda."""
-        mock_decompose = AsyncMock(return_value=["sub A", "sub B", "sub C"])
-        mock_session = MagicMock()
-        mock_session.agenda = ["single item"]
-        mock_session.id = "session-0c"
-        mock_session.workspace_id = "ws-1"
+    async def test_decomposes_single_item_agenda(self):
+        """Single-item agenda should be decomposed and persisted."""
+        engine = _make_engine_stub(agenda=["single item"])
 
-        mock_store = MagicMock()
-        mock_store.update = MagicMock()
-
-        engine = MagicMock()
-        engine.session = mock_session
-        engine.session_store = mock_store
-        engine.model_name = "gemini-2.5-pro"
-
-        # Simulate the Layer 0c block from engine.run()
-        _l0_agenda = getattr(engine.session, "agenda", None) or []
-        user_message = "A long enough message for testing decomposition"
-        if len(_l0_agenda) <= 1 and user_message and len(user_message.strip()) >= 10:
-            decomposed = await mock_decompose(
-                user_message,
-                model_name=engine.model_name,
+        with patch(
+            "backend.app.services.conversation.pipeline_meeting._decompose_agenda",
+            new_callable=AsyncMock,
+            return_value=["sub A", "sub B", "sub C"],
+        ) as mock_decompose:
+            result = await engine._ensure_agenda_decomposed(
+                "A message long enough to decompose into sub-tasks"
             )
-            if len(decomposed) > 1:
-                engine.session.agenda = decomposed
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(
-                    None,
-                    lambda: engine.session_store.update(engine.session),
-                )
 
+        assert result is True
+        assert engine.session.agenda == ["sub A", "sub B", "sub C"]
+        engine.session_store.update.assert_called_once_with(engine.session)
         mock_decompose.assert_awaited_once_with(
-            user_message,
+            "A message long enough to decompose into sub-tasks",
+            model_name="test-model",
+        )
+
+    @pytest.mark.asyncio
+    async def test_skips_multi_item_agenda(self):
+        """Already-decomposed agenda (>1 items) should be left alone."""
+        engine = _make_engine_stub(agenda=["item 1", "item 2", "item 3"])
+
+        result = await engine._ensure_agenda_decomposed(
+            "Some long message that would normally trigger decomposition"
+        )
+
+        assert result is False
+        assert engine.session.agenda == ["item 1", "item 2", "item 3"]
+        engine.session_store.update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_short_message(self):
+        """Short messages should not trigger decomposition."""
+        engine = _make_engine_stub(agenda=["single"])
+
+        result = await engine._ensure_agenda_decomposed("hi")
+
+        assert result is False
+        engine.session_store.update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_passes_model_name(self):
+        """Should forward engine.model_name to _decompose_agenda."""
+        engine = _make_engine_stub(
+            agenda=["single"],
             model_name="gemini-2.5-pro",
         )
-        assert engine.session.agenda == ["sub A", "sub B", "sub C"]
-        mock_store.update.assert_called_once_with(engine.session)
+
+        with patch(
+            "backend.app.services.conversation.pipeline_meeting._decompose_agenda",
+            new_callable=AsyncMock,
+            return_value=["x", "y"],
+        ) as mock_decompose:
+            await engine._ensure_agenda_decomposed(
+                "A sufficiently long message for decomposition"
+            )
+
+        mock_decompose.assert_awaited_once()
+        _, kwargs = mock_decompose.call_args
+        assert kwargs["model_name"] == "gemini-2.5-pro"
 
     @pytest.mark.asyncio
-    async def test_layer0c_skips_when_agenda_already_decomposed(self):
-        """Engine fallback should NOT fire when agenda already has >1 items."""
-        mock_decompose = AsyncMock(return_value=["x", "y"])
-        mock_session = MagicMock()
-        mock_session.agenda = ["item 1", "item 2", "item 3"]
+    async def test_fallback_single_item_returns_false(self):
+        """If decomposition returns <=1 items, nothing should change."""
+        engine = _make_engine_stub(agenda=["single item"])
 
-        _l0_agenda = getattr(mock_session, "agenda", None) or []
-        user_message = "Some long message for testing skip"
-        if len(_l0_agenda) <= 1 and user_message and len(user_message.strip()) >= 10:
-            await mock_decompose(user_message)
+        with patch(
+            "backend.app.services.conversation.pipeline_meeting._decompose_agenda",
+            new_callable=AsyncMock,
+            return_value=["single item"],
+        ):
+            result = await engine._ensure_agenda_decomposed(
+                "A message that decompose fails to split"
+            )
 
-        mock_decompose.assert_not_awaited()
+        assert result is False
+        engine.session_store.update.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TestLayerCProduction — calls real MeetingEngine._gap_refetch_for_null_actuators()
+# ---------------------------------------------------------------------------
+
+
+class TestLayerCProduction:
+    """Test Layer C by calling the real engine method."""
+
+    @pytest.mark.asyncio
+    async def test_enriches_cache_and_retries(self):
+        """Null-actuator items should trigger RAG re-fetch and retry."""
+        items = [
+            {
+                "title": "Research papers",
+                "tool_name": "frontier.fetch",
+                "playbook_code": None,
+            },
+            {"title": "Create posts", "tool_name": None, "playbook_code": None},
+        ]
+        # Retry returns improved items
+        retry_items = [
+            {
+                "title": "Research papers",
+                "tool_name": "frontier.fetch",
+                "playbook_code": None,
+            },
+            {
+                "title": "Create posts",
+                "tool_name": "content.gen",
+                "playbook_code": None,
+            },
+        ]
+        engine = _make_engine_stub(
+            rag_cache=[{"tool_id": "t-existing"}],
+            has_bindings=True,
+            retry_items=retry_items,
+        )
+
+        mock_hits = AsyncMock(
+            return_value=[
+                {"tool_id": "t-new1"},
+                {"tool_id": "t-existing"},  # duplicate, should be skipped
+            ]
+        )
+
+        with patch(
+            "backend.app.services.tool_rag.retrieve_relevant_tools",
+            mock_hits,
+        ):
+            result = await engine._gap_refetch_for_null_actuators(items)
+
+        # Should have enriched cache with 1 new tool (deduped)
+        assert len(engine._rag_tool_cache) == 2  # existing + t-new1
+        # Result should be the improved retry list
+        assert result[1]["tool_name"] == "content.gen"
+        # _build_action_items (retry) should have been called
+        engine._build_action_items.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_skips_when_no_gaps(self):
+        """All-bound items should skip re-fetch entirely."""
+        items = [
+            {"title": "A", "tool_name": "t1", "playbook_code": None},
+            {"title": "B", "tool_name": None, "playbook_code": "pb1"},
+        ]
+        engine = _make_engine_stub(
+            rag_cache=[{"tool_id": "t1"}],
+            has_bindings=True,
+        )
+
+        result = await engine._gap_refetch_for_null_actuators(items)
+
+        assert result is items  # unchanged, same object
+        engine._build_action_items.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_skips_when_no_tool_context(self):
+        """Without RAG cache or bindings, should skip even with gaps."""
+        items = [
+            {"title": "A", "tool_name": None, "playbook_code": None},
+        ]
+        engine = _make_engine_stub(
+            rag_cache=[],
+            has_bindings=False,
+        )
+
+        result = await engine._gap_refetch_for_null_actuators(items)
+
+        assert result is items
+        engine._build_action_items.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_keeps_original_if_retry_not_better(self):
+        """If retry doesn't improve binding, keep original items."""
+        items = [
+            {"title": "A", "tool_name": "t1", "playbook_code": None},
+            {"title": "B", "tool_name": None, "playbook_code": None},
+        ]
+        # Retry returns same quality (no improvement)
+        retry_items = [
+            {"title": "A", "tool_name": "t1", "playbook_code": None},
+            {"title": "B", "tool_name": None, "playbook_code": None},
+        ]
+        engine = _make_engine_stub(
+            rag_cache=[{"tool_id": "t1"}],
+            has_bindings=True,
+            retry_items=retry_items,
+        )
+
+        mock_hits = AsyncMock(return_value=[{"tool_id": "t-new"}])
+
+        with patch(
+            "backend.app.services.tool_rag.retrieve_relevant_tools",
+            mock_hits,
+        ):
+            result = await engine._gap_refetch_for_null_actuators(items)
+
+        # Result should be original items since retry didn't improve
+        assert result is items
+
+    @pytest.mark.asyncio
+    async def test_deduplicates_rag_cache(self):
+        """New hits with existing tool_ids should not be added to cache."""
+        items = [
+            {"title": "Draft content", "tool_name": None, "playbook_code": None},
+        ]
+        engine = _make_engine_stub(
+            rag_cache=[{"tool_id": "t1"}, {"tool_id": "t2"}],
+            has_bindings=True,
+            retry_items=[],
+        )
+
+        mock_hits = AsyncMock(
+            return_value=[
+                {"tool_id": "t2"},  # already in cache
+                {"tool_id": "t3"},  # new
+            ]
+        )
+
+        with patch(
+            "backend.app.services.tool_rag.retrieve_relevant_tools",
+            mock_hits,
+        ):
+            await engine._gap_refetch_for_null_actuators(items)
+
+        cache_ids = [t["tool_id"] for t in engine._rag_tool_cache]
+        assert cache_ids.count("t2") == 1  # not duplicated
+        assert "t3" in cache_ids
+        assert len(engine._rag_tool_cache) == 3
