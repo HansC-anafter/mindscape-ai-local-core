@@ -136,19 +136,34 @@ class PipelineCore:
             build_execution_launcher,
             extract_handoff_in,
             persist_meeting_task_ir,
-            dispatch_task_ir,
             finalize_meeting_session,
+        )
+        from backend.app.services.conversation.ingress_router import IngressRouter
+        from backend.app.models.route_decision import (
+            RouteKind,
+            TransitionKind,
         )
 
         result = PipelineResult()
 
         try:
-            # --- Stage 0: MeetingSession lifecycle ---
-            meeting_enabled = execution_mode == "meeting"
-            if not meeting_enabled:
-                meeting_enabled = await is_project_meeting_enabled(
-                    project_id, self.store
-                )
+            # --- Stage 0: Routing Decision (ADR-R1) ---
+            executor_runtime = getattr(
+                self.workspace, "resolved_executor_runtime", None
+            ) or getattr(self.workspace, "executor_runtime", None)
+
+            router = IngressRouter()
+            route_decision = await router.decide(
+                execution_mode=execution_mode,
+                meeting_enabled=(execution_mode == "meeting"),
+                executor_runtime=executor_runtime,
+                entry_point="chat",
+                store=self.store,
+                project_id=project_id,
+            )
+
+            # RouteDecision is authoritative (hard cutover complete)
+            meeting_enabled = route_decision.route_kind == RouteKind.MEETING
 
             session = None
             if meeting_enabled:
@@ -279,11 +294,9 @@ class PipelineCore:
                 if meeting_result.task_ir:
                     await persist_meeting_task_ir(meeting_result.task_ir)
                     result.task_ir_id = meeting_result.task_ir.task_id
-                    dispatch = await dispatch_task_ir(
-                        meeting_result.task_ir, self.store
-                    )
-                    if dispatch:
-                        result.dispatch_result = dispatch
+                    # Dispatch is handled inside engine.run() via DispatchOrchestrator
+                    if meeting_result.dispatch_result:
+                        result.dispatch_result = meeting_result.dispatch_result
 
                 # Early return path must still finalize session metadata.
                 await finalize_meeting_session(result, self.session_store)
@@ -346,12 +359,10 @@ class PipelineCore:
                     else ws_instruction
                 )
 
-            # --- Stage 3: Dispatch ---
-            executor_runtime = getattr(
-                self.workspace, "resolved_executor_runtime", None
-            ) or getattr(self.workspace, "executor_runtime", None)
+            # --- Stage 3: Dispatch (uses RouteDecision) ---
+            use_agent = route_decision.route_kind == RouteKind.GOVERNED
 
-            if executor_runtime:
+            if use_agent:
                 # Extract uploaded file metadata from original request
                 _uploaded_files = getattr(request, "files", None) or []
 
@@ -392,6 +403,12 @@ class PipelineCore:
 
             # --- Stage 4: Post-response (playbook trigger) ---
             if result.success and execution_mode in ("execution", "hybrid"):
+                # Record explicit RouteTransition
+                router.record_transition(
+                    route_decision,
+                    TransitionKind.POST_RESPONSE_PLAYBOOK,
+                    reason=f"post_response: execution_mode={execution_mode}",
+                )
                 result = await handle_post_response_playbook(
                     execution_mode=execution_mode,
                     message=message,
@@ -453,37 +470,3 @@ class PipelineCore:
             lambda: self.store.create_event(event),
         )
         logger.info(f"[PipelineCore] Pipeline stage: {stage}")
-
-
-# ============================================================
-# Feature Flag Helper (ADR-002)
-# ============================================================
-
-
-def should_use_pipeline_core(workspace) -> bool:
-    """
-    ADR-002: Feature flag priority order.
-
-    Global PIPELINE_CORE_ENABLED (kill switch) > workspace-level flag.
-    """
-    try:
-        from backend.app.services.system_settings_store import SystemSettingsStore
-
-        settings_store = SystemSettingsStore()
-        global_setting = settings_store.get_setting("PIPELINE_CORE_ENABLED")
-        global_flag = global_setting and str(global_setting.value).lower() == "true"
-    except Exception:
-        global_flag = False
-
-    if not global_flag:
-        return False  # Kill switch overrides everything
-
-    # Workspace-level check
-    try:
-        ws_metadata = workspace.metadata or {}
-        ws_flag = ws_metadata.get("pipeline_core_enabled")
-        if ws_flag is None:
-            return True  # Not set = follow global (full rollout stage)
-        return bool(ws_flag)
-    except Exception:
-        return True

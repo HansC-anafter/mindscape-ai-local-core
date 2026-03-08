@@ -176,6 +176,12 @@ class PhaseIR(BaseModel):
         description="Indices of action items that must complete before this phase",
     )
 
+    # Phase 2: DispatchOrchestrator attempt tracking
+    latest_attempt_id: Optional[str] = Field(
+        None,
+        description="ID of the latest PhaseAttempt for this phase",
+    )
+
     # Timing
     started_at: Optional[datetime] = Field(None, description="Phase start timestamp")
     completed_at: Optional[datetime] = Field(

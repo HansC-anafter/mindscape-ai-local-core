@@ -18,8 +18,6 @@ Module Responsibilities:
 - PlanBuilder: Execution plan generation
 - ContextBuilder: Context building for LLM prompts
 - IntentExtractor: LLM-based intent extraction and timeline item creation
-- LegacyMessageRouter: Legacy routing path orchestration
-- PipelineCoreShim: PipelineCore feature-flag routing
 - ProjectDetectorHandler: Project detection and creation
 - ResponseAssembler: Event serialization and response building
 - ThreadStatsUpdater: Thread statistics update helper
@@ -216,58 +214,26 @@ class ConversationOrchestrator:
             if not workspace:
                 workspace = await self.store.get_workspace(workspace_id)
 
-            # Check PipelineCore feature flag
-            from backend.app.services.conversation.pipeline_core import (
-                should_use_pipeline_core,
+            # Route through PipelineCore (sole path after hard cutover)
+            from backend.app.services.conversation.pipeline_core import PipelineCore
+
+            pipeline = PipelineCore(
+                orchestrator_store=self.store,
+                workspace=workspace,
+                profile=None,
+                runtime_profile=None,
             )
-
-            if should_use_pipeline_core(workspace):
-                from backend.app.services.conversation.pipeline_core_shim import (
-                    route_via_pipeline_core,
-                )
-
-                return await route_via_pipeline_core(
-                    store=self.store,
-                    workspace=workspace,
-                    workspace_id=workspace_id,
-                    profile_id=profile_id,
-                    message=message,
-                    files=files,
-                    mode=mode,
-                    project_id=project_id,
-                    thread_id=thread_id,
-                    tasks_store=self.tasks_store,
-                    request=request,
-                )
-
-            # Legacy routing path
-            from backend.app.services.conversation.legacy_message_router import (
-                LegacyMessageRouter,
-            )
-
-            router = LegacyMessageRouter(
-                store=self.store,
-                identity_port=self.identity_port,
-                intent_extractor=self.intent_extractor,
-                intent_pipeline=self.intent_pipeline,
-                plan_builder=self.plan_builder,
-                execution_coordinator=self.execution_coordinator,
-                qa_response_generator=self.qa_response_generator,
-                file_processor=self.file_processor,
-                tasks_store=self.tasks_store,
-                task_manager=self.task_manager,
-                default_locale=self.default_locale,
-            )
-            return await router.route(
+            pipeline_result = await pipeline.process(
                 workspace_id=workspace_id,
                 profile_id=profile_id,
+                thread_id=thread_id or "",
+                project_id=project_id or "",
                 message=message,
-                files=files,
-                mode=mode,
-                project_id=project_id,
-                workspace=workspace,
-                thread_id=thread_id,
+                user_event_id="",
+                execution_mode=mode,
+                request=request,
             )
+            return pipeline_result.__dict__
 
         except Exception as e:
             logger.error(
