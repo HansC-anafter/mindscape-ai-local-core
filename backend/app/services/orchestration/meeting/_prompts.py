@@ -242,6 +242,16 @@ class MeetingPromptsMixin:
         "電子報": "newsletter email campaign",
     }
 
+    def _verb_augment(self, text: str) -> str:
+        """Return English RAG keywords matched from Chinese verbs in *text*."""
+        if not text:
+            return ""
+        matched: list[str] = []
+        for verb, eng in self._VERB_RAG_KEYWORDS.items():
+            if verb in text:
+                matched.append(eng)
+        return " ".join(matched)
+
     def _build_tool_query_from_context(self) -> str:
         """Build a text query for RAG tool pre-fetch from meeting context.
 
@@ -263,16 +273,11 @@ class MeetingPromptsMixin:
         if project:
             parts.append(f"project:{project}")
 
-        # Cross-lingual augmentation: append English keywords matched from
-        # Chinese action verbs so that domain-specific queries still find
-        # the right tool families via embedding similarity.
+        # Cross-lingual augmentation
         if msg:
-            matched_kw: list[str] = []
-            for verb, eng in self._VERB_RAG_KEYWORDS.items():
-                if verb in str(msg):
-                    matched_kw.append(eng)
-            if matched_kw:
-                parts.append(" ".join(matched_kw))
+            aug = self._verb_augment(str(msg))
+            if aug:
+                parts.append(aug)
 
         return " ".join(parts) or "general task execution"
 

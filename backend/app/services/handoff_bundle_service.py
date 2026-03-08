@@ -301,6 +301,15 @@ class HandoffBundleService:
                 project_id=project_id,
                 thread_id=thread_id,
                 lens_id=lens_id,
+                agenda=(
+                    [g[:200].strip() for g in (handoff_in.goals or []) if g.strip()][
+                        :10
+                    ]
+                    or [handoff_in.intent_summary[:200].strip()]
+                    if hasattr(handoff_in, "intent_summary")
+                    and handoff_in.intent_summary
+                    else None
+                ),
             )
             session_store.create(session)
 
