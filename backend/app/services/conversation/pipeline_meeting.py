@@ -257,6 +257,7 @@ async def ensure_meeting_session(
     session_store: Any,
     project_id: Optional[str] = None,
     user_message: Optional[str] = None,
+    model_name: Optional[str] = None,
 ) -> Optional[Any]:
     """Get or create the active MeetingSession for this workspace/thread.
 
@@ -269,6 +270,7 @@ async def ensure_meeting_session(
         session_store: MeetingSessionStore instance.
         project_id: Optional project ID.
         user_message: Optional user message to include in agenda.
+        model_name: Optional LLM model name for agenda decomposition.
 
     Returns:
         MeetingSession or None on error.
@@ -287,7 +289,9 @@ async def ensure_meeting_session(
             logger.info(f"[PipelineCore] Reusing active session {session.id}")
             # Append user_message to agenda (dedup + cap)
             if user_message:
-                decomposed = await _decompose_agenda(user_message)
+                decomposed = await _decompose_agenda(
+                    user_message, model_name=model_name
+                )
                 current = list(session.agenda or [])
                 for item in decomposed:
                     if (
@@ -333,7 +337,9 @@ async def ensure_meeting_session(
 
         initial_agenda = None
         if user_message:
-            initial_agenda = await _decompose_agenda(user_message)
+            initial_agenda = await _decompose_agenda(
+                user_message, model_name=model_name
+            )
         new_session = MeetingSession.new(
             workspace_id=workspace_id,
             project_id=project_id,

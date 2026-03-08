@@ -158,6 +158,7 @@ class PipelineCore:
                     self.session_store,
                     project_id,
                     user_message=message,
+                    model_name=model_name,
                 )
                 if session:
                     result.meeting_session_id = session.id

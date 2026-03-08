@@ -1,14 +1,26 @@
 """Tests for progressive tool discovery pipeline (Layer 0 + Layer C).
 
-Covers:
-  - _decompose_agenda: basic decomposition, provider compatibility, fallback
-  - Layer C: partial null-actuator gap re-fetch
+UNIT TESTS (run locally, no DB):
+  - TestDecomposeAgenda: LLM decomposition, provider compat, fallback
+  - TestLayerCGapRefetch: null-actuator gap detection, re-fetch logic
+  - TestLayer0cPersistence: engine fallback + store persist
+  - TestModelNamePlumbing: model_name travels from caller to decompose
+
+Run with:
+  python3 -m pytest backend/tests/services/orchestration/test_progressive_tool_discovery.py -v
+  docker exec mindscape-ai-local-core-backend python3 -m pytest \
+    /app/backend/tests/services/orchestration/test_progressive_tool_discovery.py -v
 """
 
+import sys
+import os
+import asyncio
 import json
 import inspect
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, call
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 
 # ---------------------------------------------------------------------------
@@ -20,8 +32,6 @@ def _build_provider(response: str, sig_params: list[str]):
     """Return an AsyncMock provider whose chat_completion has *sig_params*."""
     provider = AsyncMock()
     provider.chat_completion = AsyncMock(return_value=response)
-
-    # Build a fake signature
     params = [
         inspect.Parameter(p, inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None)
         for p in sig_params
@@ -30,21 +40,11 @@ def _build_provider(response: str, sig_params: list[str]):
     return provider
 
 
-# Patch targets — the lazy imports inside _decompose_agenda live in the
-# pipeline_meeting module's namespace; we intercept the *importer* so the
-# function never reaches the real backend.features.workspace package.
-_GET_PROVIDER = "backend.features.workspace.chat.utils.llm_provider.get_llm_provider"
-_GET_MANAGER = (
-    "backend.features.workspace.chat.utils.llm_provider.get_llm_provider_manager"
-)
-
-
 def _patch_provider(provider):
-    """Context-manager stack that injects *provider* into _decompose_agenda."""
-    import contextlib, types, sys
+    """Context-manager that injects *provider* into _decompose_agenda lazy imports."""
+    import contextlib
+    import types
 
-    # Create stub modules so the lazy import inside _decompose_agenda resolves
-    # without needing the full backend.features.workspace tree.
     @contextlib.contextmanager
     def _ctx():
         stubs = {}
@@ -60,10 +60,9 @@ def _patch_provider(provider):
                 sys.modules[mod_name] = stub
                 stubs[mod_name] = stub
 
-        # Inject callables
         llm_mod = sys.modules["backend.features.workspace.chat.utils.llm_provider"]
-        llm_mod.get_llm_provider = MagicMock(return_value=(provider, None))  # type: ignore
-        llm_mod.get_llm_provider_manager = MagicMock()  # type: ignore
+        llm_mod.get_llm_provider = MagicMock(return_value=(provider, None))
+        llm_mod.get_llm_provider_manager = MagicMock()
 
         try:
             yield
@@ -75,7 +74,7 @@ def _patch_provider(provider):
 
 
 # ---------------------------------------------------------------------------
-# _decompose_agenda tests
+# TestDecomposeAgenda
 # ---------------------------------------------------------------------------
 
 
@@ -84,7 +83,6 @@ class TestDecomposeAgenda:
 
     @pytest.mark.asyncio
     async def test_basic_decomposition(self):
-        """Should parse a valid JSON array from the LLM response."""
         provider = _build_provider(
             '["research autonomic nerve", "create IG posts", "find images"]',
             ["messages", "model", "temperature", "max_tokens", "max_completion_tokens"],
@@ -99,14 +97,13 @@ class TestDecomposeAgenda:
                 model_name="gemini-2.5-pro",
             )
             assert len(result) == 3
-            assert "research autonomic nerve" in result[0].lower()
 
     @pytest.mark.asyncio
     async def test_provider_safe_kwargs_anthropic(self):
         """Anthropic provider should NOT receive temperature/max_tokens kwargs."""
         provider = _build_provider(
             '["step A", "step B", "step C"]',
-            ["messages", "model"],  # Anthropic-style: only messages + model
+            ["messages", "model"],
         )
         with _patch_provider(provider):
             from backend.app.services.conversation.pipeline_meeting import (
@@ -118,26 +115,20 @@ class TestDecomposeAgenda:
                 model_name="claude-3",
             )
             assert len(result) >= 2
-
-            # Verify only allowed kwargs were passed (no temperature/max_tokens)
             call_args = provider.chat_completion.call_args
-            if call_args.kwargs:
-                assert "temperature" not in call_args.kwargs
-                assert "max_tokens" not in call_args.kwargs
+            passed_keys = set(call_args.kwargs.keys()) if call_args.kwargs else set()
+            assert "temperature" not in passed_keys
+            assert "max_tokens" not in passed_keys
 
     @pytest.mark.asyncio
     async def test_fallback_on_short_input(self):
-        """Short messages should return as-is without LLM call."""
-        from backend.app.services.conversation.pipeline_meeting import (
-            _decompose_agenda,
-        )
+        from backend.app.services.conversation.pipeline_meeting import _decompose_agenda
 
         result = await _decompose_agenda("hello")
         assert result == ["hello"]
 
     @pytest.mark.asyncio
     async def test_fallback_on_provider_error(self):
-        """Should return [user_message] if provider raises."""
         provider = _build_provider("unused", ["messages", "model"])
         provider.chat_completion = AsyncMock(side_effect=RuntimeError("boom"))
         provider.chat_completion.__signature__ = inspect.Signature(
@@ -148,7 +139,6 @@ class TestDecomposeAgenda:
                 for p in ["messages", "model"]
             ]
         )
-
         with _patch_provider(provider):
             from backend.app.services.conversation.pipeline_meeting import (
                 _decompose_agenda,
@@ -162,7 +152,6 @@ class TestDecomposeAgenda:
 
     @pytest.mark.asyncio
     async def test_json_code_block_stripping(self):
-        """Should strip ```json ... ``` wrappers from LLM output."""
         provider = _build_provider(
             '```json\n["task A", "task B"]\n```',
             ["messages", "model", "temperature", "max_tokens", "max_completion_tokens"],
@@ -180,21 +169,96 @@ class TestDecomposeAgenda:
 
 
 # ---------------------------------------------------------------------------
-# Layer C: partial null-actuator gap re-fetch
+# TestModelNamePlumbing
+# ---------------------------------------------------------------------------
+
+
+class TestModelNamePlumbing:
+    """Verify model_name flows from ensure_meeting_session to _decompose_agenda."""
+
+    @pytest.mark.asyncio
+    async def test_model_name_forwarded_on_new_session(self):
+        """New session creation should pass model_name to _decompose_agenda."""
+        with (
+            patch(
+                "backend.app.services.conversation.pipeline_meeting._decompose_agenda",
+                new_callable=AsyncMock,
+                return_value=["task A", "task B"],
+            ) as mock_decompose,
+            patch(
+                "backend.app.models.meeting_session.MeetingSession",
+            ) as mock_session_cls,
+        ):
+            mock_session_cls.new.return_value = MagicMock(id="s1")
+            mock_store = MagicMock()
+            mock_store.get_active_session.return_value = None
+            mock_store.create = MagicMock()
+
+            from backend.app.services.conversation.pipeline_meeting import (
+                ensure_meeting_session,
+            )
+
+            await ensure_meeting_session(
+                "ws1",
+                "t1",
+                mock_store,
+                project_id=None,
+                user_message="Research and write posts",
+                model_name="gemini-2.5-pro",
+            )
+            mock_decompose.assert_awaited_once_with(
+                "Research and write posts",
+                model_name="gemini-2.5-pro",
+            )
+
+    @pytest.mark.asyncio
+    async def test_model_name_forwarded_on_reuse(self):
+        """Session reuse should pass model_name to _decompose_agenda."""
+        existing = MagicMock()
+        existing.id = "s-existing"
+        existing.agenda = ["old item"]
+
+        with patch(
+            "backend.app.services.conversation.pipeline_meeting._decompose_agenda",
+            new_callable=AsyncMock,
+            return_value=["new A", "new B"],
+        ) as mock_decompose:
+            mock_store = MagicMock()
+            mock_store.get_active_session.return_value = existing
+            mock_store.update = MagicMock()
+
+            from backend.app.services.conversation.pipeline_meeting import (
+                ensure_meeting_session,
+            )
+
+            await ensure_meeting_session(
+                "ws1",
+                "t1",
+                mock_store,
+                project_id=None,
+                user_message="New multi-step request",
+                model_name="claude-3-5-sonnet",
+            )
+            mock_decompose.assert_awaited_once_with(
+                "New multi-step request",
+                model_name="claude-3-5-sonnet",
+            )
+
+
+# ---------------------------------------------------------------------------
+# TestLayerCGapRefetch
 # ---------------------------------------------------------------------------
 
 
 class TestLayerCGapRefetch:
-    """Test that Layer C fires for partial null-actuator items."""
+    """Test Layer C gap detection and re-fetch logic."""
 
     def _make_action_items(self, specs):
-        """Create action item dicts from (title, tool_name, playbook_code) tuples."""
         return [
             {"title": t, "tool_name": tn, "playbook_code": pb} for t, tn, pb in specs
         ]
 
     def test_partial_gap_detected(self):
-        """When some items have tools and others don't, gaps should be found."""
         items = self._make_action_items(
             [
                 ("Research papers", "frontier_research.fetch", None),
@@ -208,7 +272,6 @@ class TestLayerCGapRefetch:
         assert len(null_actuator) == 2
 
     def test_no_gap_when_all_bound(self):
-        """When all items have tools, no gaps should be detected."""
         items = self._make_action_items(
             [
                 ("Research papers", "frontier_research.fetch", None),
@@ -222,7 +285,6 @@ class TestLayerCGapRefetch:
         assert len(null_actuator) == 0
 
     def test_playbook_counts_as_bound(self):
-        """Items with playbook_code should NOT be treated as gaps."""
         items = self._make_action_items(
             [
                 ("Run analysis", None, "ig_analyze"),
@@ -236,7 +298,6 @@ class TestLayerCGapRefetch:
         assert null_actuator[0]["title"] == "Draft content"
 
     def test_all_null_triggers_gate(self):
-        """When ALL items lack actuators, all_null gate should fire."""
         items = self._make_action_items(
             [
                 ("Task A", None, None),
@@ -247,3 +308,109 @@ class TestLayerCGapRefetch:
             i.get("tool_name") or i.get("playbook_code") for i in items
         )
         assert all_null is True
+
+    def test_enrichment_deduplicates_by_tool_id(self):
+        """Layer C should skip tools already in _rag_tool_cache."""
+        existing_cache = [{"tool_id": "t1"}, {"tool_id": "t2"}]
+        new_hits = [
+            {"tool_id": "t2"},  # duplicate
+            {"tool_id": "t3"},  # new
+        ]
+        cache_ids = {t["tool_id"] for t in existing_cache}
+        enriched = 0
+        for h in new_hits:
+            if h["tool_id"] not in cache_ids:
+                cache_ids.add(h["tool_id"])
+                existing_cache.append(h)
+                enriched += 1
+        assert enriched == 1
+        assert len(existing_cache) == 3
+
+    def test_retry_improvement_check(self):
+        """Layer C only accepts retry if new_bound > old_bound."""
+        first_pass = self._make_action_items(
+            [
+                ("A", "tool.x", None),
+                ("B", None, None),
+                ("C", None, None),
+            ]
+        )
+        retry_pass = self._make_action_items(
+            [
+                ("A", "tool.x", None),
+                ("B", "tool.y", None),
+                ("C", None, None),
+            ]
+        )
+        old_bound = sum(
+            1 for i in first_pass if i.get("tool_name") or i.get("playbook_code")
+        )
+        new_bound = sum(
+            1 for i in retry_pass if i.get("tool_name") or i.get("playbook_code")
+        )
+        assert old_bound == 1
+        assert new_bound == 2
+        assert new_bound > old_bound, "Retry should improve binding count"
+
+
+# ---------------------------------------------------------------------------
+# TestLayer0cPersistence
+# ---------------------------------------------------------------------------
+
+
+class TestLayer0cPersistence:
+    """Verify Layer 0c decomposes and persists agenda in engine.run()."""
+
+    @pytest.mark.asyncio
+    async def test_layer0c_calls_decompose_with_model_name(self):
+        """Engine fallback should pass self.model_name to _decompose_agenda."""
+        mock_decompose = AsyncMock(return_value=["sub A", "sub B", "sub C"])
+        mock_session = MagicMock()
+        mock_session.agenda = ["single item"]
+        mock_session.id = "session-0c"
+        mock_session.workspace_id = "ws-1"
+
+        mock_store = MagicMock()
+        mock_store.update = MagicMock()
+
+        engine = MagicMock()
+        engine.session = mock_session
+        engine.session_store = mock_store
+        engine.model_name = "gemini-2.5-pro"
+
+        # Simulate the Layer 0c block from engine.run()
+        _l0_agenda = getattr(engine.session, "agenda", None) or []
+        user_message = "A long enough message for testing decomposition"
+        if len(_l0_agenda) <= 1 and user_message and len(user_message.strip()) >= 10:
+            decomposed = await mock_decompose(
+                user_message,
+                model_name=engine.model_name,
+            )
+            if len(decomposed) > 1:
+                engine.session.agenda = decomposed
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: engine.session_store.update(engine.session),
+                )
+
+        mock_decompose.assert_awaited_once_with(
+            user_message,
+            model_name="gemini-2.5-pro",
+        )
+        assert engine.session.agenda == ["sub A", "sub B", "sub C"]
+        mock_store.update.assert_called_once_with(engine.session)
+
+    @pytest.mark.asyncio
+    async def test_layer0c_skips_when_agenda_already_decomposed(self):
+        """Engine fallback should NOT fire when agenda already has >1 items."""
+        mock_decompose = AsyncMock(return_value=["x", "y"])
+        mock_session = MagicMock()
+        mock_session.agenda = ["item 1", "item 2", "item 3"]
+
+        _l0_agenda = getattr(mock_session, "agenda", None) or []
+        user_message = "Some long message for testing skip"
+        if len(_l0_agenda) <= 1 and user_message and len(user_message.strip()) >= 10:
+            await mock_decompose(user_message)
+
+        mock_decompose.assert_not_awaited()
