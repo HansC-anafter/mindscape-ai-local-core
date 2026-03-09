@@ -98,6 +98,9 @@ Segment-level provenance architecture for AI-generated content - Asset/Revision/
 #### [Prompt Compilation](./prompt-compilation.md)
 Three-layer prompt compilation architecture (Raw → Compiled → Semantic) showing how user intent, Mind-Lens styling, and memory injection combine before reaching the LLM.
 
+#### [Tool RAG Search](./tool-rag-search.md)
+Semantic tool discovery architecture — how the meeting engine and context builder retrieve relevant tools for a user query using pgvector embeddings. Covers multi-model Reciprocal Rank Fusion (RRF), TTL caching, cold-start auto-indexing, and the embedding model priority chain.
+
 #### [Long-chain Execution](./long-chain-execution/local/long-chain-execution-local-core.md)
 Long-chain execution patterns for complex workflows.
 

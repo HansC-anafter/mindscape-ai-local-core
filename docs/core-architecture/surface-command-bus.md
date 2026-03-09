@@ -8,6 +8,9 @@ Surface represents input/output channels (UI, LINE, IG, WordPress, etc.). Comman
 
 ## Overview
 
+> [!NOTE]
+> This document describes the **Surface CommandBus** — the user-facing command dispatch system for cross-channel operations (UI, LINE, IG, etc.). The meeting engine has a separate internal `DispatchCommandBus` for meeting dispatch queue operations. See [Mind Meeting Architecture](./meeting-engine-dispatch.md) for details.
+
 Surface & Command Bus architecture provides a unified way to handle commands and events from different input/output channels. It separates the concept of "Control Surface" (for builders/operators) from "Delivery Surface" (for end users/audience).
 
 **Key Characteristics**:

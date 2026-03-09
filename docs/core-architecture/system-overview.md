@@ -121,6 +121,14 @@ The **AI-driven visible thinking workflow** can be expressed as:
 - **Decision History**: Project memory stores key decisions and rationale
 - **Export**: Artifacts can be exported or synced via Portable Configuration
 
+#### 11. Mind Meeting Engine
+- **Ingress Router**: Single `IngressRouter` produces a `RouteDecision` for all entry points (chat, handoff-bundle compile, API intake)
+- **Five-Layer Pipeline**: L1 Deliberation → L2 Semantic Bridge → L3 Convergence + Dispatch Gate → L4 Transport → L5 Runtime Supervision
+- **Plane Separation**: Control State (TaskIR, PhaseAttempt), Projection State (tasks, playbook_executions), Transport State (pending_dispatch)
+- **DispatchOrchestrator**: Single dispatch authority with DAG gating and PhaseAttempt tracking
+- **External Runtimes**: Agent identity (AgentSpec) is separate from executor runtimes (Gemini CLI, LangGraph, IDE WS)
+- See [Mind Meeting — Five-Layer Architecture](./meeting-engine-dispatch.md) for details
+
 ## Project / Playbook Flow: The Mental Model
 
 The **Project / Playbook flow** is the default mental model for organizing work:
@@ -234,6 +242,7 @@ Project: "OpenSEO MVP"
 | **Sandbox** | ProjectSandboxManager + artifact registry | [Sandbox System Architecture](./sandbox/sandbox-system-architecture.md) |
 | **Memory** | WorkspaceCoreMemory + ProjectMemory + MemberProfileMemory | [Memory & Intent Architecture](./memory-intent-architecture.md) |
 | **Artifacts** | ArtifactRegistry + artifact tracking | [Project + Flow Architecture](./project-flow/project-flow-architecture.md) |
+| **Mind Meeting Engine** | IngressRouter + Five-Layer Pipeline + DispatchOrchestrator | [Mind Meeting Architecture](./meeting-engine-dispatch.md) |
 
 ## Key Design Principles
 
