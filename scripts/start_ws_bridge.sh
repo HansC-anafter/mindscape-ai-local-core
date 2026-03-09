@@ -43,7 +43,7 @@ export MINDSCAPE_WS_HOST="${MINDSCAPE_WS_HOST:-${_RESOLVED_HOST:-localhost:8200}
 export MINDSCAPE_WORKSPACE_ID="${MINDSCAPE_WORKSPACE_ID:-bac7ce63-e768-454d-96f3-3a00e8e1df69}"
 export MINDSCAPE_WORKSPACE_ROOT="${MINDSCAPE_WORKSPACE_ROOT:-/Users/shock/Projects_local/workspace}"
 
-# IDE runtime bridge for NL tasks
+# Gemini CLI bridge for NL tasks
 export GEMINI_CLI_RUNTIME_CMD="python3 ${PROJECT_ROOT}/scripts/gemini_cli_runtime_bridge.py"
 
 # Ensure Python path covers backend modules

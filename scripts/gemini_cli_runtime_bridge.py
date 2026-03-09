@@ -19,6 +19,7 @@ import sys
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 
 # Path to the Gemini CLI
 GEMINI_CLI = os.environ.get(
@@ -36,22 +37,37 @@ MAX_OUTPUT = 100_000
 _bridge_backend_url = ""
 
 
-def _fetch_auth_env():
+def _fetch_auth_env(
+    workspace_id: str = "",
+    auth_workspace_id: str = "",
+    source_workspace_id: str = "",
+):
     """Fetch auth env vars, model, and runtime ID from backend.
 
-    Returns a tuple of (env_vars, model, runtime_id):
+    Returns a tuple of (env_vars, model, runtime_id, auth_trace):
       env_vars: dict of env vars to inject into subprocess
       model: agent CLI model from system settings (or None for default)
       runtime_id: selected runtime ID for quota attribution (or None)
+      auth_trace: backend selection trace metadata
 
     Falls back to host env vars if the backend is unreachable.
     Raises SystemExit with clear message if auth is configured but broken.
     """
     api_url = _bridge_backend_url or os.environ.get("MINDSCAPE_BACKEND_API_URL", "")
     if not api_url:
-        return _env_fallback(), None, None
+        return _env_fallback(), None, None, {}
+
+    params = {}
+    if workspace_id:
+        params["workspace_id"] = workspace_id
+    if auth_workspace_id:
+        params["auth_workspace_id"] = auth_workspace_id
+    if source_workspace_id:
+        params["source_workspace_id"] = source_workspace_id
 
     url = f"{api_url.rstrip('/')}/api/v1/auth/cli-token"
+    if params:
+        url = f"{url}?{urllib.parse.urlencode(params)}"
     try:
         req = urllib.request.Request(url, method="GET")
         req.add_header("Accept", "application/json")
@@ -62,24 +78,26 @@ def _fetch_auth_env():
             runtime_id = data.get("selected_runtime_id") or None
             if env_vars:
                 mode = data.get("auth_mode", "unknown")
+                selection_reason = data.get("selection_reason")
                 log(
                     f"Auth env injected (mode={mode}, model={api_model}, "
-                    f"runtime_id={runtime_id}, keys={list(env_vars.keys())})"
+                    f"runtime_id={runtime_id}, selection_reason={selection_reason}, "
+                    f"keys={list(env_vars.keys())})"
                 )
-                return env_vars, api_model, runtime_id
+                return env_vars, api_model, runtime_id, data
             auth_mode = data.get("auth_mode", "unknown")
             error = data.get("error", "no env vars returned")
             log(f"Backend auth returned empty: mode={auth_mode}, error={error}")
             fallback = _env_fallback()
             if fallback:
-                return fallback, api_model, runtime_id
+                return fallback, api_model, runtime_id, data
             _fail_auth(auth_mode, error)
     except urllib.error.URLError as e:
         log(f"Failed to fetch auth env: {e}")
-        return _env_fallback(), None, None
+        return _env_fallback(), None, None, {}
     except Exception as e:
         log(f"Auth env fetch error: {e}")
-        return _env_fallback(), None, None
+        return _env_fallback(), None, None, {}
 
 
 def _env_fallback():
@@ -281,6 +299,8 @@ def main():
     workspace_id = payload.get("workspace_id", "")
     max_duration = payload.get("max_duration", 600)
     context = payload.get("context", {})
+    auth_workspace_id = context.get("auth_workspace_id", "") or ""
+    source_workspace_id = context.get("source_workspace_id", "") or ""
     sandbox_path = context.get("sandbox_path", "")
 
     # Store backend URL from payload for token fetching
@@ -412,7 +432,11 @@ def main():
     cwd = sandbox_path if sandbox_path and os.path.isdir(sandbox_path) else os.getcwd()
 
     # Fetch auth env vars, model, and runtime ID from system settings
-    auth_env, api_model, selected_runtime_id = _fetch_auth_env()
+    auth_env, api_model, selected_runtime_id, auth_trace = _fetch_auth_env(
+        workspace_id=workspace_id,
+        auth_workspace_id=auth_workspace_id,
+        source_workspace_id=source_workspace_id,
+    )
 
     effective_model = api_model or GEMINI_CLI_MODEL
 
@@ -485,7 +509,11 @@ def main():
             log(f"{error_kind} error detected, retrying with fresh auth env")
             if is_quota:
                 _report_quota_exhausted(selected_runtime_id)
-            fresh_env, _, selected_runtime_id = _fetch_auth_env()
+            fresh_env, _, selected_runtime_id, auth_trace = _fetch_auth_env(
+                workspace_id=workspace_id,
+                auth_workspace_id=auth_workspace_id,
+                source_workspace_id=source_workspace_id,
+            )
             if fresh_env:
                 sub_env.update(fresh_env)
                 remaining = max_duration - duration
@@ -515,6 +543,7 @@ def main():
                     "completed",
                     output=stdout or json_error,
                     runtime_id=selected_runtime_id,
+                    auth_scope=_extract_auth_scope(auth_trace),
                 )
             else:
                 if not stdout:
@@ -529,6 +558,7 @@ def main():
                     "completed",
                     output=output,
                     runtime_id=selected_runtime_id,
+                    auth_scope=_extract_auth_scope(auth_trace),
                 )
         else:
             error_parts = []
@@ -546,6 +576,7 @@ def main():
                 output=stdout,
                 error=f"Exit code {result.returncode}: {error_msg}",
                 runtime_id=selected_runtime_id,
+                auth_scope=_extract_auth_scope(auth_trace),
             )
 
     except subprocess.TimeoutExpired:
@@ -559,8 +590,28 @@ def main():
         emit_result("failed", error=str(e))
 
 
+def _extract_auth_scope(auth_trace: dict | None) -> dict | None:
+    """Return a compact auth-scope trace for backend persistence."""
+    if not isinstance(auth_trace, dict):
+        return None
+    keys = (
+        "requested_workspace_id",
+        "effective_workspace_id",
+        "auth_workspace_id",
+        "source_workspace_id",
+        "selection_reason",
+        "selection_trace",
+    )
+    scope = {key: auth_trace.get(key) for key in keys if auth_trace.get(key) is not None}
+    return scope or None
+
+
 def emit_result(
-    status: str, output: str = "", error: str = None, runtime_id: str = None
+    status: str,
+    output: str = "",
+    error: str = None,
+    runtime_id: str = None,
+    auth_scope: dict | None = None,
 ):
     """Write JSON result to stdout."""
     result = {"status": status, "output": output}
@@ -568,6 +619,8 @@ def emit_result(
         result["error"] = error
     if runtime_id:
         result["runtime_id"] = runtime_id
+    if auth_scope:
+        result["auth_scope"] = auth_scope
     json.dump(result, sys.stdout)
     sys.stdout.write("\n")
     sys.stdout.flush()

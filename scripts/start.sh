@@ -139,6 +139,61 @@ if [ -d "$PROJECT_ROOT/device-node" ] && command -v node &> /dev/null; then
     echo ""
 fi
 
+# Start CLI Bridge
+echo "Starting CLI Bridge..."
+BRIDGE_PID=$(pgrep -f "start_cli_bridge.sh" 2>/dev/null || true)
+if [ -n "$BRIDGE_PID" ]; then
+    echo "  ✓ CLI Bridge already running (PID: $BRIDGE_PID)"
+else
+    if [ -f "scripts/start_cli_bridge.sh" ]; then
+        mkdir -p logs
+        nohup bash scripts/start_cli_bridge.sh --all > logs/cli-bridge.log 2>&1 &
+        BRIDGE_PID=$!
+        sleep 2
+        if ps -p $BRIDGE_PID > /dev/null 2>&1; then
+            echo "  ✓ CLI Bridge started (PID: $BRIDGE_PID)"
+        else
+            echo "  ⚠️  CLI Bridge failed to start. See logs/cli-bridge.log"
+        fi
+    else
+        echo "  ⚠️  scripts/start_cli_bridge.sh not found"
+    fi
+fi
+echo ""
+
+# Start MCP Gateway
+echo "Starting MCP Gateway..."
+MCP_PID=$(pgrep -f "mcp-mindscape-gateway" 2>/dev/null || true)
+if [ -n "$MCP_PID" ]; then
+    echo "  ✓ MCP Gateway already running (PID: $MCP_PID)"
+else
+    if [ -d "mcp-mindscape-gateway" ] && command -v node &> /dev/null; then
+        cd mcp-mindscape-gateway
+
+        # Build if needed
+        if [ ! -d "dist" ]; then
+            echo "  Building MCP Gateway..."
+            npm run build --silent 2>/dev/null || true
+        fi
+
+        mkdir -p ../logs
+        nohup node dist/index.js > ../logs/mcp-gateway.log 2>&1 &
+        MCP_PID=$!
+
+        sleep 2
+        if ps -p $MCP_PID > /dev/null 2>&1; then
+            echo "  ✓ MCP Gateway started (PID: $MCP_PID)"
+        else
+            echo "  ⚠️  MCP Gateway failed to start. See logs/mcp-gateway.log"
+        fi
+
+        cd "$PROJECT_ROOT"
+    else
+        echo "  ⚠️  MCP Gateway directory not found or node not installed"
+    fi
+fi
+echo ""
+
 # Start Docker services
 echo "Building and starting containers..."
 docker compose up -d
