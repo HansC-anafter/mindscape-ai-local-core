@@ -1,20 +1,24 @@
 """
 Dashboard authentication
-Pluggable design: Local mode uses default_user, Cloud mode uses site-hub token
+Pluggable design: Local mode uses default_user, Cloud mode uses cloud-integration token
 """
 
-import os
 import logging
 from typing import Optional, List
 from dataclasses import dataclass, field
 from fastapi import Request, HTTPException
+
+from ..utils.cloud_integration import (
+    get_cloud_integration_api_base,
+    is_cloud_mode_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class AuthContext:
-    """Authentication context (aligned with site-hub contract)"""
+    """Authentication context (aligned with cloud-integration contract)"""
     user_id: str
     tenant_id: str
     workspace_ids: List[str] = field(default_factory=list)
@@ -26,9 +30,9 @@ def is_cloud_mode() -> bool:
     """
     Detect if running in Cloud mode
 
-    Condition: SITE_HUB_API_BASE is configured (token validation happens at request time)
+    Condition: cloud-integration API base is configured
     """
-    return bool(os.getenv("SITE_HUB_API_BASE"))
+    return is_cloud_mode_enabled()
 
 
 def get_default_user_id() -> str:
@@ -55,22 +59,22 @@ def get_default_user_id() -> str:
     return "default_user"
 
 
-async def get_auth_from_site_hub_token(token: str) -> Optional[AuthContext]:
+async def get_auth_from_cloud_integration_token(token: str) -> Optional[AuthContext]:
     """
-    Parse identity from site-hub token (Cloud mode)
+    Parse identity from cloud-integration token (Cloud mode)
 
-    Calls site-hub /api/v1/auth/me to validate token and get user info
+    Calls cloud-integration /api/v1/auth/me to validate token and get user info
     """
     try:
         import httpx
 
-        site_hub_base = os.getenv("SITE_HUB_API_BASE")
-        if not site_hub_base:
+        api_base = get_cloud_integration_api_base()
+        if not api_base:
             return None
 
         async with httpx.AsyncClient() as client:
             resp = await client.get(
-                f"{site_hub_base}/api/v1/auth/me",
+                f"{api_base}/api/v1/auth/me",
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=5.0
             )
@@ -84,11 +88,24 @@ async def get_auth_from_site_hub_token(token: str) -> Optional[AuthContext]:
                     is_cloud_mode=True,
                 )
             else:
-                logger.warning(f"site-hub auth failed: {resp.status_code}")
+                logger.warning(f"cloud-integration auth failed: {resp.status_code}")
                 return None
     except Exception as e:
-        logger.error(f"Failed to get auth from site-hub token: {e}")
+        logger.error(f"Failed to get auth from cloud-integration token: {e}")
         return None
+
+
+async def get_auth_from_cloud_generation_token(token: str) -> Optional[AuthContext]:
+    """Backward-compatible alias."""
+    return await get_auth_from_cloud_integration_token(token)
+
+
+async def get_auth_from_site_hub_token(token: str) -> Optional[AuthContext]:
+    """
+    Backward-compatible alias.
+    Prefer get_auth_from_cloud_integration_token().
+    """
+    return await get_auth_from_cloud_integration_token(token)
 
 
 async def get_current_user(request: Request) -> AuthContext:
@@ -110,7 +127,7 @@ async def get_current_user(request: Request) -> AuthContext:
             )
 
         token = auth_header[7:]
-        auth = await get_auth_from_site_hub_token(token)
+        auth = await get_auth_from_cloud_integration_token(token)
         if not auth:
             # R2: token validation failed -> 401
             raise HTTPException(
@@ -139,4 +156,3 @@ async def get_current_user(request: Request) -> AuthContext:
         group_ids=[],
         is_cloud_mode=False,
     )
-

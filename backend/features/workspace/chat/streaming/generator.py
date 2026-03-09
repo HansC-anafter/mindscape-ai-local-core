@@ -320,7 +320,10 @@ async def generate_streaming_response(
 
         # 17. Background thread summarization
         _trigger_thread_summarization(
-            orchestrator.store, workspace_id, session.thread_id
+            orchestrator.store,
+            workspace_id,
+            session.thread_id,
+            model_name=model_name,
         )
 
     except Exception as e:
@@ -349,7 +352,9 @@ def _resolve_model_name(request) -> Optional[str]:
     return model_name
 
 
-def _trigger_thread_summarization(store, workspace_id: str, thread_id: str):
+def _trigger_thread_summarization(
+    store, workspace_id: str, thread_id: str, model_name: str = None
+):
     """Trigger background thread summarization if thread needs it."""
     try:
         thread = store.conversation_threads.get_thread(thread_id)
@@ -364,7 +369,7 @@ def _trigger_thread_summarization(store, workspace_id: str, thread_id: str):
                     workspace_id=workspace_id,
                     thread_id=thread_id,
                     store=store,
-                    model_name="gemini-2.5-flash-lite",
+                    model_name=model_name or "gemini-2.5-flash-lite",
                 )
             )
     except Exception as e:

@@ -3,10 +3,11 @@ Scope parsing and validation
 Pluggable design: Local mode fully open, Cloud mode strict validation
 """
 
-import os
 import logging
 from typing import Optional, Literal, List
 from dataclasses import dataclass, field
+
+from .cloud_integration import is_cloud_mode_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class ScopeValidationResult:
 
 def is_cloud_mode() -> bool:
     """Detect if running in Cloud mode"""
-    return bool(os.getenv("SITE_HUB_API_BASE"))
+    return is_cloud_mode_enabled()
 
 
 def parse_scope(scope: Optional[str]) -> ParsedScope:

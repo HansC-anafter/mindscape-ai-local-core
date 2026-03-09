@@ -839,6 +839,19 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Critical table verification failed (non-blocking): {e}")
 
+    # Start agent dispatch background services on every worker so that
+    # WS-owning workers can receive remote dispatches via Redis pub/sub.
+    try:
+        from backend.app.routes.agent_dispatch import get_agent_dispatch_manager
+
+        get_agent_dispatch_manager().start_background_services()
+        logger.info("Agent dispatch background services started")
+    except Exception as e:
+        logger.warning(
+            f"Failed to start agent dispatch background services: {e}",
+            exc_info=True,
+        )
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -852,6 +865,17 @@ async def shutdown_event():
                 logger.info("Cloud Connector disconnected")
             except Exception as e:
                 logger.warning(f"Error disconnecting Cloud Connector: {e}")
+
+    try:
+        from backend.app.routes.agent_dispatch import get_agent_dispatch_manager
+
+        get_agent_dispatch_manager().stop_background_services()
+        logger.info("Agent dispatch background services stopped")
+    except Exception as e:
+        logger.warning(
+            f"Error stopping agent dispatch background services: {e}",
+            exc_info=True,
+        )
 
 
 @app.get("/")
