@@ -19,6 +19,11 @@ services:
       - HOST=0.0.0.0
       - PORT=8200
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_ENABLED=${REDIS_ENABLED:-true}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-0}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       # Database
       - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
@@ -42,12 +47,13 @@ services:
       - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
       - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
       # Security
-      - LOCAL_AUTH_SECRET=${LOCAL_AUTH_SECRET:-dev-secret-key-change-in-production}
+      - LOCAL_AUTH_SECRET=${LOCAL_AUTH_SECRET:-}
       # LLM Providers (configure these in .env file)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # Ollama (Host) - Use host.docker.internal to access Ollama running on Mac/Windows host
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       # LLM Intent Extractor
       - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-true}
       # D2: Legacy Cleanup - Disable legacy fallback
@@ -57,6 +63,7 @@ services:
       # to keep Local-Core configuration clean (architecture compliance)
       - CLOUD_API_URL=${CLOUD_API_URL:-}
       - CLOUD_LICENSE_KEY=${CLOUD_LICENSE_KEY:-}
+      - XTTS_SERVICE_URL=${XTTS_SERVICE_URL:-http://xtts-service:8020}
       # Timezone
       - TZ=${TZ:-UTC}
       # Host project path for bridge script reference
@@ -84,6 +91,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -110,6 +119,11 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_ENABLED=${REDIS_ENABLED:-true}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-0}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
@@ -130,6 +144,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
       - PYTHONPATH=/app:/app/backend:/app/backend/app
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - TZ=${TZ:-UTC}
       - LOCAL_CORE_RUNNER_PROCESS=1
       - LOCAL_CORE_RUNNER_POLL_INTERVAL_MS=${LOCAL_CORE_RUNNER_POLL_INTERVAL_MS:-1000}
@@ -151,6 +166,8 @@ services:
       - mindscape-network
     depends_on:
       backend:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     entrypoint: ["python", "-m", "backend.app.runner.worker"]
     # Runner doesn't expose HTTP on :8200; it inherits Dockerfile.backend healthcheck which would fail.
@@ -232,6 +249,27 @@ services:
       retries: 10
       start_period: 60s
 
+  redis:
+    image: redis:7-alpine
+    container_name: mindscape-ai-local-core-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    networks:
+      - mindscape-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   # OCR Service (Local PaddleOCR)
   ocr-service:
     build:
@@ -289,8 +327,68 @@ services:
       retries: 3
       start_period: 20s
 
+  # XTTS-v2 Local TTS Service (G4 Audio Course)
+  xtts-service:
+    build:
+      context: ./xtts-service
+      dockerfile: Dockerfile
+    container_name: mindscape-ai-local-core-xtts
+    restart: unless-stopped
+    ports:
+      - "8020:8020"
+    environment:
+      - COQUI_TOS_AGREED=1
+      - XTTS_VOICES_DIR=/app/voices
+      - XTTS_DEFAULT_LANGUAGE=${XTTS_DEFAULT_LANGUAGE:-zh-cn}
+      - XTTS_USE_GPU=${XTTS_USE_GPU:-auto}
+      - TZ=${TZ:-UTC}
+    volumes:
+      - ./xtts-service/main.py:/app/main.py:ro
+      - ./data/tts/voices:/app/voices:rw
+      - ./data/tts/output:/app/data/tts/output:rw
+      - xtts_model_cache:/root/.local/share/tts
+    networks:
+      - mindscape-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8020/health')",
+        ]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+
+  whisper-service:
+    build:
+      context: ./services/whisper
+      dockerfile: Dockerfile
+    container_name: mindscape-ai-local-core-whisper
+    restart: unless-stopped
+    ports:
+      - "8006:8006"
+    networks:
+      - mindscape-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8006/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
 volumes:
   postgres_data:
+    driver: local
+  xtts_model_cache:
     driver: local
 
 networks:

@@ -74,6 +74,7 @@ test_*.yaml
 !backend/tests/
 !backend/tests/test_system_control_restart_api.py
 !backend/tests/test_runner_time_tzinfo.py
+!backend/tests/routes/test_agent_dispatch_pubsub.py
 !web-console/src/lib/__tests__/time.test.ts
 !backend/tests/test_workspace_instruction_chat_merge.py
 !web-console/src/app/workspaces/**/instruction/page.test.tsx
