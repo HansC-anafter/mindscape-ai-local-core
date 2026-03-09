@@ -51,7 +51,7 @@ docker compose ps
 docker compose logs -f
 ```
 
-> **Note**: The start scripts automatically check if Docker Desktop is running and provide clear instructions if it's not available.
+> **Note**: The start scripts automatically check if Docker Desktop is running and provide clear instructions if it's not available. They also automatically start the necessary local background services (Device Node, CLI Bridge, and MCP Gateway) if their dependencies are met.
 
 ### Access the Application
 
