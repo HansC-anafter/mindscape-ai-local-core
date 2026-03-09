@@ -265,6 +265,8 @@ class LeaseManagerMixin:
 
         # Persist result to DB (source of truth)
         workspace_id = None
+        thread_id = None
+        project_id = None
         db_written = False
         try:
             from backend.app.services.stores.tasks_store import TasksStore
@@ -288,6 +290,9 @@ class LeaseManagerMixin:
                     completed_at=datetime.now(timezone.utc),
                 )
                 workspace_id = db_task.workspace_id
+                exec_ctx = db_task.execution_context or {}
+                thread_id = exec_ctx.get("thread_id")
+                project_id = db_task.project_id or exec_ctx.get("project_id")
                 db_written = True
                 logger.info(
                     f"[AgentWS] DB primary: result persisted for {execution_id} "
@@ -313,16 +318,35 @@ class LeaseManagerMixin:
             inflight.result_future.set_result(result_data)
             if not workspace_id:
                 workspace_id = inflight.workspace_id
+            if not thread_id:
+                thread_id = inflight.thread_id or (
+                    (inflight.payload or {}).get("context") or {}
+                ).get("thread_id")
+            if not project_id:
+                project_id = inflight.project_id or (
+                    (inflight.payload or {}).get("context") or {}
+                ).get("project_id")
             logger.info(f"[AgentWS] Future notified for {execution_id}")
 
         # Clean up in-memory structures
-        self._reserved.pop(execution_id, None)
+        reserved = self._reserved.pop(execution_id, None)
+        if reserved:
+            payload_context = (reserved.task.payload or {}).get("context") or {}
+            if not thread_id:
+                thread_id = payload_context.get("thread_id")
+            if not project_id:
+                project_id = payload_context.get("project_id")
 
         for ws_id, queue in self._pending_queue.items():
             for i, task in enumerate(queue):
                 if task.execution_id == execution_id:
                     if not workspace_id:
                         workspace_id = task.workspace_id
+                    payload_context = (task.payload or {}).get("context") or {}
+                    if not thread_id:
+                        thread_id = payload_context.get("thread_id")
+                    if not project_id:
+                        project_id = payload_context.get("project_id")
                     queue.pop(i)
                     break
 
@@ -335,6 +359,8 @@ class LeaseManagerMixin:
                 "accepted": True,
                 "workspace_id": workspace_id or "",
                 "task_id": execution_id,
+                "thread_id": thread_id,
+                "project_id": project_id,
             }
 
         logger.warning(

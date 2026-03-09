@@ -175,6 +175,9 @@ async def compile_bundle(request: CompileRequest) -> Dict[str, Any]:
     This is the primary intake entry point for cross-boundary handoffs.
     It verifies the bundle, extracts the HandoffIn, runs the meeting
     engine to produce a compiled TaskIR, and persists it.
+
+    ADR-R1: Routes through IngressRouter to share the same routing
+    contract as the chat entry point.
     """
     try:
         bundle = SignedHandoffBundle(**request.bundle)
@@ -208,6 +211,16 @@ async def compile_bundle(request: CompileRequest) -> Dict[str, Any]:
             detail="Workspace store not available",
         )
 
+    # --- ADR-R1: Produce RouteDecision via IngressRouter ---
+    from backend.app.services.conversation.ingress_router import IngressRouter
+
+    router_instance = IngressRouter()
+    route_decision = await router_instance.decide(
+        execution_mode="meeting",
+        meeting_enabled=True,
+        entry_point="compile",
+    )
+
     svc = HandoffBundleService()
     try:
         result = await svc.intake_and_compile(
@@ -219,6 +232,7 @@ async def compile_bundle(request: CompileRequest) -> Dict[str, Any]:
             project_id=request.project_id,
             secret_key=request.secret_key,
             model_name=request.model_name,
+            route_decision=route_decision,
         )
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc))

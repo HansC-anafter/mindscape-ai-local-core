@@ -7,7 +7,7 @@ The AgentDispatchManager composes seven focused mixins:
   - AuthMixin: token + HMAC nonce authentication
   - TaskDispatchMixin: core task dispatch + pending queue
   - MessageHandlersMixin: WS message routing and result handling
-  - CrossWorkerMixin: cross-worker dispatch via PostgreSQL
+  - CrossWorkerMixin: cross-worker dispatch (pub/sub + DB fallback)
   - LeaseManagerMixin: REST polling lease management
 """
 
@@ -122,6 +122,11 @@ class AgentDispatchManager(
 
         # Background consumer task for cross-worker dispatch
         self._consumer_task: Optional[asyncio.Task] = None
+        self._pubsub_task: Optional[asyncio.Task] = None
+        self._pubsub_client = None
+        self._pubsub_listener = None
+        self._worker_instance_id: Optional[str] = None
+        self._pubsub_available: bool = False
 
     # ============================================================
     #  Status / diagnostics
@@ -130,7 +135,12 @@ class AgentDispatchManager(
     def get_status(self) -> Dict[str, Any]:
         """Get current dispatch manager status."""
         return {
+            "worker_pid": os.getpid(),
+            "worker_instance_id": self._worker_instance_id,
             "device_id": os.environ.get("DEVICE_ID", "local"),
+            "cross_worker_transport": (
+                "redis_pubsub" if self._pubsub_available else "db_polling"
+            ),
             "connected_workspaces": len(self._clients),
             "total_clients": sum(len(clients) for clients in self._clients.values()),
             "authenticated_clients": sum(
@@ -164,6 +174,11 @@ class AgentDispatchManager(
             ],
         }
 
+    def start_background_services(self) -> None:
+        """Start all cross-worker background services for this worker."""
+        self.start_pubsub_listener()
+        self.start_dispatch_consumer()
+
     def start_dispatch_consumer(self) -> None:
         """Start the pending dispatch consumer if not already running."""
         if self._consumer_task and not self._consumer_task.done():
@@ -174,6 +189,11 @@ class AgentDispatchManager(
             logger.info("[AgentWS] Dispatch consumer background task started")
         except Exception:
             logger.exception("[AgentWS] Failed to start dispatch consumer task")
+
+    def stop_background_services(self) -> None:
+        """Stop all background services for this worker."""
+        self.stop_dispatch_consumer()
+        self.stop_pubsub_listener()
 
     def stop_dispatch_consumer(self) -> None:
         """Stop the pending dispatch consumer."""

@@ -69,7 +69,11 @@ class TaskDispatchMixin:
                 f"dispatching cross-worker for {execution_id}"
             )
             return await self._cross_worker_dispatch(
-                workspace_id, message, execution_id, timeout
+                workspace_id,
+                message,
+                execution_id,
+                timeout,
+                target_client_id=target_client_id,
             )
 
         # Create future for result
@@ -82,6 +86,8 @@ class TaskDispatchMixin:
             client_id=client.client_id,
             result_future=result_future,
             payload=message,
+            thread_id=(message.get("context") or {}).get("thread_id"),
+            project_id=(message.get("context") or {}).get("project_id"),
         )
         self._inflight[execution_id] = inflight
 

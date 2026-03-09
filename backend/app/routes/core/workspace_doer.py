@@ -84,6 +84,13 @@ class AgentConfigResponse(BaseModel):
     fallback_model: Optional[str] = None
 
 
+class UpdateExecutorSpecConfigRequest(BaseModel):
+    """Patch config for a bound executor spec."""
+
+    config: dict = Field(default_factory=dict)
+    merge: bool = True
+
+
 # ==================== API Endpoints ====================
 
 
@@ -633,6 +640,55 @@ async def set_primary_executor_spec(
         "success": True,
         "workspace_id": workspace_id,
         "primary": runtime_id,
+    }
+
+
+@router.patch("/{workspace_id}/executor-specs/{runtime_id}/config")
+async def update_executor_spec_config(
+    workspace_id: str = Path(..., description="Workspace ID"),
+    runtime_id: str = Path(..., description="Runtime ID to patch"),
+    request: UpdateExecutorSpecConfigRequest = Body(...),
+) -> dict:
+    """Patch config for a bound executor spec."""
+    store = MindscapeStore()
+    workspace = await store.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    specs = [
+        ExecutorSpec.from_dict(s)
+        for s in (workspace.executor_specs or [])
+        if isinstance(s, dict)
+    ]
+    target = next((spec for spec in specs if spec.runtime_id == runtime_id), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"Runtime '{runtime_id}' not bound")
+
+    new_config = dict(target.config or {})
+    if request.merge:
+        for key, value in (request.config or {}).items():
+            if value is None:
+                new_config.pop(key, None)
+            else:
+                new_config[key] = value
+    else:
+        new_config = {
+            key: value
+            for key, value in dict(request.config or {}).items()
+            if value is not None
+        }
+    target.config = new_config
+
+    workspace.executor_specs = [spec.to_dict() for spec in specs]
+    workspace.executor_runtime = workspace.resolved_executor_runtime
+    workspace.updated_at = _utc_now()
+    await store.update_workspace(workspace)
+
+    return {
+        "success": True,
+        "workspace_id": workspace_id,
+        "runtime_id": runtime_id,
+        "config": target.config,
     }
 
 

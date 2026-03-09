@@ -145,6 +145,14 @@ class MessageHandlersMixin:
             f"[AgentWS] Task {execution_id} acknowledged by "
             f"client {client.client_id}"
         )
+        if inflight.origin_worker_id:
+            asyncio.create_task(
+                self._relay_to_origin_worker(
+                    inflight,
+                    "dispatch_ack",
+                    client_id=client.client_id,
+                )
+            )
         return None
 
     def _handle_progress(
@@ -169,6 +177,16 @@ class MessageHandlersMixin:
             inflight.last_progress_pct = percent
             inflight.last_progress_msg = message
             inflight.last_progress_at = time.monotonic()
+            if inflight.origin_worker_id:
+                asyncio.create_task(
+                    self._relay_to_origin_worker(
+                        inflight,
+                        "dispatch_progress",
+                        client_id=client.client_id,
+                        progress_pct=percent,
+                        message=message,
+                    )
+                )
 
         logger.info(
             f"[AgentWS] Progress for {execution_id}: " f"{percent}% - {message}"
@@ -291,9 +309,6 @@ class MessageHandlersMixin:
 
             if workspace_id:
                 ws_store = PostgresWorkspacesStore()
-                # Use sync wrapper since this handler is sync
-                import asyncio
-
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
                     # Schedule as a background task
@@ -303,6 +318,7 @@ class MessageHandlersMixin:
                             execution_id,
                             result,
                             thread_id=inflight.thread_id,
+                            project_id=inflight.project_id,
                         )
                     )
                 else:
@@ -319,6 +335,16 @@ class MessageHandlersMixin:
         # Resolve the future
         if inflight.result_future and not inflight.result_future.done():
             inflight.result_future.set_result(result)
+
+        if inflight.origin_worker_id:
+            asyncio.create_task(
+                self._relay_to_origin_worker(
+                    inflight,
+                    "dispatch_result",
+                    client_id=client.client_id,
+                    result=result,
+                )
+            )
 
         # Track completion for idempotency (prevents duplicate re-queue)
         self._completed[execution_id] = time.monotonic()
@@ -349,6 +375,7 @@ class MessageHandlersMixin:
         execution_id: str,
         result: Dict[str, Any],
         thread_id: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> None:
         """Land WS result to workspace filesystem (async helper)."""
         try:
@@ -370,11 +397,13 @@ class MessageHandlersMixin:
                 storage_base_path=storage_base,
                 artifacts_dirname=artifacts_dir,
                 thread_id=thread_id,
+                project_id=project_id,
             )
             logger.info(
                 f"[AgentWS] WS result landed for {execution_id} "
                 f"(storage={storage_base or 'DB-only'}, "
-                f"thread_id={thread_id or 'none'})"
+                f"thread_id={thread_id or 'none'}, "
+                f"project_id={project_id or 'none'})"
             )
         except Exception:
             logger.exception(
