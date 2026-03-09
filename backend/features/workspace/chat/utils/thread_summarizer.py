@@ -93,19 +93,22 @@ Language: Detect the language of the conversation and output the title in the sa
             profile_id=profile_id, db_path=store.db_path, use_default_user=True
         )
 
-        # Fallback to standard provider if flash-lite not available is handled by manager/provider logic usually,
-        # but here we request a specific model. If it fails, maybe fallback to standard chat model?
-        # For now let's try the specified model.
+        # Resolve provider from model config — respects enabled/disabled settings.
+        # Do NOT hardcode "vertex-ai"; let the model config store decide.
+        from .llm_provider import get_provider_name_from_model_config
 
-        provider = llm_provider_manager.get_provider(
-            "vertex-ai"
-        )  # Prefer vertex for gemini
+        provider_name, _ = get_provider_name_from_model_config(model_name)
+        provider = (
+            llm_provider_manager.get_provider(provider_name) if provider_name else None
+        )
         if not provider:
-            # Fallback to openai if configured?
-            provider = llm_provider_manager.get_provider("openai")
-
-        if not provider:
-            logger.warning("No LLM provider available for summarization")
+            # All models disabled or provider unavailable → skip summarization
+            logger.info(
+                "No LLM provider available for summarization (model=%s, "
+                "provider=%s), skipping.",
+                model_name,
+                provider_name,
+            )
             return None
 
         messages = build_prompt(system_prompt=system_prompt, user_prompt=user_prompt)

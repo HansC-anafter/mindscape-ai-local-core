@@ -51,6 +51,7 @@ def _child_execute_playbook(payload: Dict[str, Any]) -> None:
     inputs = payload.get("inputs")
     workspace_id = payload.get("workspace_id")
     project_id = payload.get("project_id")
+    result_file = payload.get("_result_file")
 
     async def _run() -> None:
         if task_type == "tool_execution":
@@ -69,6 +70,15 @@ def _child_execute_playbook(payload: Dict[str, Any]) -> None:
                 raise RuntimeError(
                     f"Tool execution failed for '{tool_name}': {result.error}"
                 )
+            # Write result to temp file for parent process to read
+            if result_file:
+                import json as _json
+
+                try:
+                    with open(result_file, "w") as f:
+                        _json.dump(result.to_dict(), f)
+                except Exception:
+                    pass
         else:
             # Standard playbook execution path
             executor = PlaybookRunExecutor()
@@ -664,6 +674,13 @@ async def _run_single_task(
                     pass
                 await asyncio.sleep(cancel_poll_ms / 1000)
 
+        import tempfile
+
+        result_fd, result_file = tempfile.mkstemp(
+            prefix=f"runner_result_{task.id}_", suffix=".json"
+        )
+        os.close(result_fd)
+
         payload = {
             "playbook_code": task.pack_id,
             "task_type": task.task_type or "playbook_execution",
@@ -676,6 +693,7 @@ async def _run_single_task(
             "inputs": inputs,
             "workspace_id": task.workspace_id,
             "project_id": task.project_id,
+            "_result_file": result_file,
         }
 
         proc = ctx_mp.Process(
@@ -833,7 +851,52 @@ async def _run_single_task(
                             )
                 except Exception:
                     pass
+            else:
+                # ── SUCCESS: mark task completed ──
+                try:
+                    # Read tool result from temp file IPC
+                    tool_result = None
+                    if result_file and os.path.exists(result_file):
+                        try:
+                            with open(result_file, "r") as f:
+                                tool_result = json.load(f)
+                        except Exception:
+                            pass
+
+                    latest = tasks_store.get_task(task.id)
+                    if latest and latest.status not in (
+                        TaskStatus.CANCELLED_BY_USER,
+                        TaskStatus.FAILED,
+                    ):
+                        ctxs = (
+                            latest.execution_context
+                            if isinstance(latest.execution_context, dict)
+                            else {}
+                        )
+                        ctxs = dict(ctxs)
+                        ctxs["status"] = "succeeded"
+                        ctxs["runner_id"] = runner_id
+                        ctxs["completed_at"] = _utc_now().isoformat()
+                        update_kwargs = dict(
+                            execution_context=ctxs,
+                            status=TaskStatus.SUCCEEDED,
+                            completed_at=_utc_now(),
+                        )
+                        if tool_result is not None:
+                            update_kwargs["result"] = tool_result
+                        tasks_store.update_task(
+                            latest.id,
+                            **update_kwargs,
+                        )
+                except Exception:
+                    pass
     finally:
+        # Clean up result temp file regardless of outcome
+        try:
+            if result_file and os.path.exists(result_file):
+                os.unlink(result_file)
+        except Exception:
+            pass
         stop_event.set()
         # Explicitly join subprocess to prevent zombie accumulation
         try:

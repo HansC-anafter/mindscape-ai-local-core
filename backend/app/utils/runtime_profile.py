@@ -14,7 +14,12 @@ def get_resolved_mode(
     runtime_profile: Optional[WorkspaceRuntimeProfile] = None
 ) -> ExecutionMode:
     """
-    Get resolved execution mode with priority: runtime_profile.default_mode > workspace.execution_mode
+    Get resolved execution mode.
+
+    Explicit workspace meeting mode is treated as authoritative and must not be
+    silently downgraded by runtime_profile defaults. This keeps ingress routing
+    aligned with the workspace's declared control-plane mode during meeting E2E
+    flows.
 
     Args:
         workspace: Workspace object
@@ -23,6 +28,10 @@ def get_resolved_mode(
     Returns:
         Resolved ExecutionMode
     """
+    # Explicit workspace meeting mode must win over runtime_profile defaults.
+    if workspace.execution_mode == ExecutionMode.MEETING.value:
+        return ExecutionMode.MEETING
+
     # Priority 1: Runtime Profile default_mode
     if runtime_profile:
         return runtime_profile.resolved_mode
@@ -46,4 +55,3 @@ def get_resolved_mode(
 
     # Default: QA mode
     return ExecutionMode.QA
-

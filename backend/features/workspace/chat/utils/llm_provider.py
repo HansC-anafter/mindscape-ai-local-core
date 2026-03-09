@@ -31,11 +31,6 @@ def determine_provider_from_model(model_name: str) -> Optional[str]:
     if "gemini" in model_lower:
         return "vertex-ai"
     elif "gpt" in model_lower or "o1" in model_lower or "o3" in model_lower:
-        # Check if we should fallback to Vertex AI for specific models often used as default
-        if "gpt-4o-mini" in model_lower:
-            # If OpenAI key checks fail later, this gives us a chance, but ideally we check availablity
-            # For this specific user case: "Never used OpenAI", so map it to Vertex.
-            return "vertex-ai"
         return "openai"
     elif "claude" in model_lower:
         return "anthropic"
@@ -67,18 +62,44 @@ def get_provider_name_from_model_config(
             if model.model_name == model_name:
                 return model.provider_name, model
 
-        # If not found, try to determine from model name
-        if "gemini" in model_name.lower():
-            logger.info(
-                f"Model {model_name} not found in config, but detected as Gemini model, using vertex-ai provider"
-            )
-            return "vertex-ai", None
-    except Exception as e:
-        logger.warning(f"Failed to get model config for {model_name}: {e}")
+        # -- Disabled model guard --
+        # Check if model exists but is DISABLED → refuse to route
+        all_disabled = model_store.get_all_models(
+            model_type=ModelType.CHAT, enabled=False
+        )
+        for model in all_disabled:
+            if model.model_name == model_name:
+                logger.warning(
+                    "Model '%s' is DISABLED in model config (provider=%s). "
+                    "Returning None to prevent unintended API costs.",
+                    model_name,
+                    model.provider_name,
+                )
+                return None, None
 
-    # Fallback: determine from model name
-    provider_name = determine_provider_from_model(model_name)
-    return provider_name, None
+        # Infer provider from model name, but only if that provider
+        # has at least one enabled model — prevents bypassing the
+        # "all models disabled" setting.
+        provider_name = determine_provider_from_model(model_name)
+        if provider_name:
+            has_enabled = any(m.provider_name == provider_name for m in all_models)
+            if not has_enabled:
+                logger.warning(
+                    "Provider '%s' (inferred from '%s') has no enabled "
+                    "models. Returning None to prevent unintended API costs.",
+                    provider_name,
+                    model_name,
+                )
+                return None, None
+        return provider_name, None
+    except Exception as e:
+        logger.warning(
+            "Failed to get model config for %s: %s — fail-closed, "
+            "returning None to prevent unintended API costs.",
+            model_name,
+            e,
+        )
+        return None, None
 
 
 def get_vertex_ai_config(
