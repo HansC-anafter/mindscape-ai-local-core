@@ -400,6 +400,7 @@ class PlaybookOutputArtifactCreator:
             intent_id=execution_context.get("intent_id") if execution_context else None,
             task_id=execution_context.get("task_id") if execution_context else None,
             execution_id=execution_id,
+            thread_id=execution_context.get("thread_id") if execution_context else None,
             playbook_code=playbook_code,
             artifact_type=artifact_type,
             primary_action_type=primary_action_type,

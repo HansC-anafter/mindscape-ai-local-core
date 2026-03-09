@@ -1,7 +1,7 @@
 """
-IDE-side WebSocket Client for Gemini CLI Agent
+Host-side WebSocket Client for Gemini CLI Agent
 
-This script runs inside the IDE environment to:
+This script runs in the host environment to:
   1. Connect to the Mindscape backend via WebSocket
   2. Authenticate using HMAC challenge-response
   3. Receive dispatched coding tasks
@@ -46,7 +46,7 @@ logger = logging.getLogger("ide_ws_client")
 
 class GeminiCLIWSClient:
     """
-    IDE-side WebSocket client for receiving and executing tasks
+    Host-side WebSocket client for receiving and executing tasks
     from the Mindscape backend.
     """
 
@@ -455,7 +455,7 @@ class GeminiCLIWSClient:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="IDE-side WebSocket client for Gemini CLI Agent"
+        description="Host-side WebSocket client for Gemini CLI Agent"
     )
     parser.add_argument(
         "--workspace-id",

@@ -330,16 +330,19 @@ class MessagingHandler:
                 user_event_id=user_event_id,
             )
 
-            # 3. Query DB for the latest assistant reply
+            # 3. Query DB for the assistant reply correlated to this request
             reply_text = ""
             try:
                 events = await asyncio.get_running_loop().run_in_executor(
                     None,
                     lambda: store.events.get_events_by_workspace(
                         workspace_id=workspace_id,
-                        limit=5,
+                        limit=10,
                     ),
                 )
+
+                # First pass: find correlated reply (response_to == user_event_id)
+                fallback_reply = ""
                 for evt in reversed(events or []):
                     actor_val = (
                         evt.actor.value
@@ -351,8 +354,21 @@ class MessagingHandler:
                         and evt.payload
                         and evt.payload.get("message")
                     ):
-                        reply_text = evt.payload["message"]
-                        break
+                        if evt.payload.get("response_to") == user_event_id:
+                            reply_text = evt.payload["message"]
+                            break
+                        # Keep first assistant event as fallback
+                        if not fallback_reply:
+                            fallback_reply = evt.payload["message"]
+
+                # Fallback: use first assistant event if no correlated reply found
+                if not reply_text and fallback_reply:
+                    logger.warning(
+                        f"[MessagingHandler] No correlated reply found for "
+                        f"user_event_id={user_event_id}, using fallback"
+                    )
+                    reply_text = fallback_reply
+
             except Exception as db_err:
                 logger.warning(
                     f"[MessagingHandler] Failed to fetch reply from DB: {db_err}"

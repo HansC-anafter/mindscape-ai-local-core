@@ -185,7 +185,11 @@ class GCAPoolService:
         finally:
             db.close()
 
-    def get_active_token(self) -> Dict[str, Any]:
+    def get_active_token(
+        self,
+        preferred_runtime_id: Optional[str] = None,
+        allow_fallback: bool = True,
+    ) -> Dict[str, Any]:
         """Select the best available token from the pool.
 
         Uses priority ordering with cooldown awareness.
@@ -202,7 +206,7 @@ class GCAPoolService:
                 .filter(
                     RuntimeEnvironment.pool_group == "gca-pool",
                     RuntimeEnvironment.pool_enabled.is_(True),
-                    RuntimeEnvironment.auth_status == "connected",
+                    RuntimeEnvironment.auth_status.in_(("connected", "expired")),
                     or_(
                         RuntimeEnvironment.cooldown_until.is_(None),
                         RuntimeEnvironment.cooldown_until < now,
@@ -217,6 +221,26 @@ class GCAPoolService:
             )
 
             auth_service = RuntimeAuthService()
+            if preferred_runtime_id:
+                preferred = next(
+                    (runtime for runtime in runtimes if runtime.id == preferred_runtime_id),
+                    None,
+                )
+                if not preferred and not allow_fallback:
+                    return {
+                        "error": f"Preferred GCA runtime unavailable: {preferred_runtime_id}",
+                    }
+                if preferred:
+                    runtimes = (
+                        [preferred]
+                        + [runtime for runtime in runtimes if runtime.id != preferred_runtime_id]
+                    )
+                elif not preferred and allow_fallback:
+                    logger.warning(
+                        "Preferred GCA runtime %s unavailable, falling back to pool ordering",
+                        preferred_runtime_id,
+                    )
+
             for runtime in runtimes:
                 token_data = auth_service.decrypt_token_blob(runtime.auth_config or {})
                 if not token_data or not token_data.get("idp_access_token"):
@@ -231,6 +255,8 @@ class GCAPoolService:
                         continue
                     idp_access_token = refreshed
 
+                if runtime.auth_status != "connected":
+                    runtime.auth_status = "connected"
                 runtime.last_used_at = func.now()
                 runtime.last_error_code = None
                 db.commit()
@@ -253,9 +279,109 @@ class GCAPoolService:
                     "selected_runtime_id": runtime.id,
                 }
 
+            if preferred_runtime_id and not allow_fallback:
+                return {
+                    "error": f"Preferred GCA runtime unavailable: {preferred_runtime_id}",
+                }
             return {"error": "No available GCA accounts in pool"}
         finally:
             db.close()
+
+    def preview_active_runtime(
+        self,
+        preferred_runtime_id: Optional[str] = None,
+        allow_fallback: bool = True,
+    ) -> Dict[str, Any]:
+        """Return a safe, non-secret preview of current pool selection.
+
+        This is intended for UI/status rendering. It does not emit auth env vars
+        and does not mutate pool state.
+        """
+        accounts = self.list_pool()
+        now = datetime.now(timezone.utc)
+
+        available_accounts = sorted(
+            [account for account in accounts if self._is_account_available(account, now)],
+            key=self._pool_sort_key,
+        )
+        cooling_accounts = sorted(
+            [account for account in accounts if self._is_account_cooling(account, now)],
+            key=lambda account: self._parse_iso_timestamp(account.get("cooldown_until"))
+            or datetime.max.replace(tzinfo=timezone.utc),
+        )
+
+        preferred_account = None
+        if preferred_runtime_id:
+            preferred_account = next(
+                (account for account in accounts if account["id"] == preferred_runtime_id),
+                None,
+            )
+            if preferred_account and self._is_account_available(preferred_account, now):
+                return {
+                    "selected_runtime_id": preferred_account["id"],
+                    "account": preferred_account,
+                    "status": "available",
+                    "available_count": len(available_accounts),
+                    "cooling_count": len(cooling_accounts),
+                    "pool_count": len(accounts),
+                    "next_reset_at": (
+                        cooling_accounts[0]["cooldown_until"] if cooling_accounts else None
+                    ),
+                }
+            if preferred_runtime_id and not allow_fallback:
+                cooldown_until = (
+                    preferred_account.get("cooldown_until") if preferred_account else None
+                )
+                return {
+                    "error": f"Preferred GCA runtime unavailable: {preferred_runtime_id}",
+                    "selected_runtime_id": None,
+                    "account": preferred_account,
+                    "status": (
+                        "cooldown"
+                        if preferred_account
+                        and self._is_account_cooling(preferred_account, now)
+                        else "unavailable"
+                    ),
+                    "cooldown_until": cooldown_until,
+                    "available_count": len(available_accounts),
+                    "cooling_count": len(cooling_accounts),
+                    "pool_count": len(accounts),
+                    "next_reset_at": cooldown_until
+                    or (cooling_accounts[0]["cooldown_until"] if cooling_accounts else None),
+                }
+
+        if available_accounts:
+            selected = available_accounts[0]
+            result: Dict[str, Any] = {
+                "selected_runtime_id": selected["id"],
+                "account": selected,
+                "status": "available",
+                "available_count": len(available_accounts),
+                "cooling_count": len(cooling_accounts),
+                "pool_count": len(accounts),
+                "next_reset_at": (
+                    cooling_accounts[0]["cooldown_until"] if cooling_accounts else None
+                ),
+            }
+            if preferred_account and preferred_runtime_id and preferred_account["id"] != selected["id"]:
+                result["preferred_runtime_id"] = preferred_runtime_id
+                result["preferred_status"] = (
+                    "cooldown"
+                    if self._is_account_cooling(preferred_account, now)
+                    else "unavailable"
+                )
+            return result
+
+        return {
+            "error": "No enabled GCA pool account is currently available",
+            "selected_runtime_id": None,
+            "account": None,
+            "status": "unavailable",
+            "available_count": 0,
+            "cooling_count": len(cooling_accounts),
+            "pool_count": len(accounts),
+            "next_reset_at": cooling_accounts[0]["cooldown_until"] if cooling_accounts else None,
+        }
 
     def _try_refresh(self, runtime, auth_service, token_data, db):
         """Attempt token refresh. Returns new access_token or None."""
@@ -306,6 +432,7 @@ class GCAPoolService:
             token_data.pop("google_client_secret", None)
 
             runtime.auth_config = auth_service.encrypt_token_blob(token_data)
+            runtime.auth_status = "connected"
             db.commit()
             return new_token
         except Exception as e:
@@ -341,3 +468,43 @@ class GCAPoolService:
             ),
             "last_error_code": runtime.last_error_code,
         }
+
+    @staticmethod
+    def _parse_iso_timestamp(value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    @classmethod
+    def _is_account_cooling(
+        cls,
+        account: Dict[str, Any],
+        now: datetime,
+    ) -> bool:
+        cooldown_until = cls._parse_iso_timestamp(account.get("cooldown_until"))
+        return bool(cooldown_until and cooldown_until > now)
+
+    @classmethod
+    def _is_account_available(
+        cls,
+        account: Dict[str, Any],
+        now: datetime,
+    ) -> bool:
+        return (
+            account.get("pool_enabled") is True
+            and account.get("auth_status") in ("connected", "expired")
+            and not cls._is_account_cooling(account, now)
+        )
+
+    @classmethod
+    def _pool_sort_key(cls, account: Dict[str, Any]) -> tuple[Any, datetime]:
+        last_used_at = cls._parse_iso_timestamp(account.get("last_used_at"))
+        if last_used_at is None:
+            last_used_at = datetime.fromtimestamp(0, tz=timezone.utc)
+        return (account.get("pool_priority", 0), last_used_at)

@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.utils.cloud_integration import get_cloud_integration_api_base
+
 try:
     import httpx
 except ImportError:
@@ -70,8 +72,8 @@ class HandoffRegistryClient:
         max_retries: int = 3,
         base_delay: float = 1.0,
     ):
-        # Reuse the same site-hub base URL as auth.py (no separate env var)
-        self.registry_url = registry_url or os.getenv("SITE_HUB_API_BASE")
+        # Reuse the same cloud-integration base URL as auth.py (no separate env var)
+        self.registry_url = registry_url or get_cloud_integration_api_base()
         self.device_id = device_id or os.getenv("DEVICE_ID", "unknown")
         self.tenant_id = tenant_id or os.getenv("TENANT_ID")
         self.max_retries = max_retries
@@ -274,7 +276,7 @@ class HandoffRegistryClient:
         if not httpx:
             raise RegistryUnavailable("httpx not installed")
         if not self.registry_url:
-            raise RegistryUnavailable("SITE_HUB_API_BASE not configured")
+            raise RegistryUnavailable("Cloud-integration API base not configured")
 
         url = f"{self.registry_url.rstrip('/')}/api/v1/registry{path}"
         last_error = None

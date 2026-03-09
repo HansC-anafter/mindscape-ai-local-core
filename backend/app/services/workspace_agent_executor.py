@@ -211,6 +211,13 @@ class WorkspaceAgentExecutor:
                 sandbox_path=sandbox_path,
                 workspace_id=self.workspace.id,
                 max_duration_seconds=request.timeout_seconds,
+                project_id=context.get("project_id"),
+                intent_id=context.get("intent_id"),
+                lens_id=context.get("lens_id"),
+                auth_workspace_id=context.get("auth_workspace_id") or self.workspace.id,
+                source_workspace_id=context.get("source_workspace_id")
+                or context.get("origin_workspace_id")
+                or self.workspace.id,
                 agent_config=context,
             )
 

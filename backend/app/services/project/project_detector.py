@@ -11,11 +11,9 @@ from typing import Optional, List, Dict, Any
 from backend.app.models.project import ProjectSuggestion
 from backend.app.models.workspace import Workspace
 
-# from backend.app.services.agent_runner import LLMProviderManager  # Moved to inside detect to avoid circular import
 from backend.app.shared.llm_provider_helper import (
-    get_llm_provider_from_settings,
-    create_llm_provider_manager,
-    get_model_name_from_chat_model,
+    ManagedLLMDisabledForRuntime,
+    build_managed_llm_provider,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,16 +35,6 @@ class ProjectDetector:
             llm_provider: Optional LLM provider (will be created from settings if None)
         """
         self.llm_provider = llm_provider
-        if llm_provider is None:
-            # Import here to avoid circular dependencies
-            from backend.app.services.agent_runner import LLMProviderManager
-            from backend.app.shared.llm_provider_helper import (
-                get_llm_provider_from_settings,
-                create_llm_provider_manager,
-            )
-
-            llm_manager = create_llm_provider_manager()
-            self.llm_provider = get_llm_provider_from_settings(llm_manager)
 
     async def detect(
         self,
@@ -67,6 +55,10 @@ class ProjectDetector:
             ProjectSuggestion if project should be created, None otherwise
         """
         try:
+            provider, model_name = self._resolve_generation_backend(workspace)
+            if provider is None:
+                return None
+
             # Format conversation context
             context_str = self._format_conversation_context(conversation_context)
 
@@ -145,9 +137,6 @@ Respond in JSON format:
                 {"role": "user", "content": prompt},
             ]
 
-            # Get model name from system settings
-            model_name = get_model_name_from_chat_model() or "gemini-pro"
-
             # Evidence Logging
             try:
                 from datetime import datetime, timezone
@@ -160,9 +149,7 @@ Respond in JSON format:
             except Exception:
                 pass
 
-            response = await self.llm_provider.chat_completion(
-                messages, model=model_name
-            )
+            response = await provider.chat_completion(messages, model=model_name)
 
             # Evidence Logging
             try:
@@ -254,6 +241,10 @@ Respond in JSON format:
             return None
 
         try:
+            provider, model_name = self._resolve_generation_backend(workspace)
+            if provider is None:
+                return None
+
             # Format existing projects for LLM
             existing_projects_str = "\n".join(
                 [
@@ -295,10 +286,7 @@ Respond in JSON format:
                 {"role": "user", "content": prompt},
             ]
 
-            model_name = get_model_name_from_chat_model() or "gemini-pro"
-            response = await self.llm_provider.chat_completion(
-                messages, model=model_name
-            )
+            response = await provider.chat_completion(messages, model=model_name)
             result_text = (
                 response.content if hasattr(response, "content") else str(response)
             )
@@ -334,6 +322,27 @@ Respond in JSON format:
         except Exception as e:
             logger.warning(f"Failed to check duplicate using LLM: {e}")
             return None
+
+    def _resolve_generation_backend(
+        self,
+        workspace: Workspace,
+    ) -> tuple[Optional[Any], Optional[str]]:
+        """Resolve managed LLM provider/model, respecting executor runtime bindings."""
+        try:
+            provider, selection = build_managed_llm_provider(
+                workspace=workspace,
+                purpose="project_detector",
+                default_model="gpt-4o-mini",
+            )
+        except ManagedLLMDisabledForRuntime as exc:
+            logger.info("ProjectDetector bypassing managed LLM: %s", exc)
+            return None, None
+        except ValueError as exc:
+            logger.warning("ProjectDetector failed to resolve LLM selection: %s", exc)
+            return None, None
+
+        self.llm_provider = provider
+        return provider, selection.model_name
 
     def _parse_response(self, response_text: str) -> Optional[ProjectSuggestion]:
         """Parse LLM response into ProjectSuggestion"""

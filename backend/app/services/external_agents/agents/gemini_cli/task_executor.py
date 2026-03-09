@@ -1,5 +1,5 @@
 """
-TaskExecutor — IDE-side task execution engine for Gemini CLI Agent
+TaskExecutor — host-side task execution engine for Gemini CLI Agent
 
 Receives dispatch payloads from the WebSocket client and executes coding
 tasks. Supports progress reporting via a callback function.
@@ -115,7 +115,7 @@ ProgressCallback = Callable[[str, int, str], Coroutine[Any, Any, None]]
 
 class TaskExecutor:
     """
-    IDE-side task executor for Gemini CLI dispatch payloads.
+    Host-side task executor for Gemini CLI dispatch payloads.
 
     Executes coding tasks by running shell commands in the workspace.
     Reports progress via a callback function provided by the WS client.
@@ -213,8 +213,8 @@ class TaskExecutor:
         # Build the command
         cmd = self.command_builder(ctx)
         if not cmd:
-            # Natural-language task path: delegate to IDE runtime bridge.
-            return await self._execute_via_ide_runtime(ctx, timeout=timeout)
+            # Natural-language task path: delegate to the Gemini CLI bridge.
+            return await self._execute_via_gemini_cli_bridge(ctx, timeout=timeout)
 
         logger.info(
             f"[TaskExecutor] Running command for {ctx.execution_id}: "
@@ -237,13 +237,13 @@ class TaskExecutor:
         await self._report_progress(ctx.execution_id, 95, "Finalizing")
         return result
 
-    async def _execute_via_ide_runtime(
+    async def _execute_via_gemini_cli_bridge(
         self,
         ctx: ExecutionContext,
         timeout: int,
     ) -> ExecutionResult:
         """
-        Execute NL task via IDE runtime bridge command.
+        Execute an NL task via the Gemini CLI bridge command.
 
         The bridge command must be provided by env `GEMINI_CLI_RUNTIME_CMD`.
         It receives one JSON payload from stdin and should return JSON on stdout.
@@ -308,7 +308,7 @@ class TaskExecutor:
             },
         }
 
-        await self._report_progress(ctx.execution_id, 15, "Calling IDE runtime")
+        await self._report_progress(ctx.execution_id, 15, "Calling Gemini CLI bridge")
         cwd = self.workspace_root if os.path.isdir(self.workspace_root) else os.getcwd()
 
         # Inject per-task env vars so the MCP gateway can RAG-filter tools
@@ -345,7 +345,7 @@ class TaskExecutor:
             await proc.communicate()
             return ExecutionResult(
                 status="timeout",
-                error=f"IDE runtime command timed out after {timeout}s",
+                error=f"Gemini CLI bridge timed out after {timeout}s",
             )
 
         stdout = stdout_b.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
@@ -354,7 +354,7 @@ class TaskExecutor:
             return ExecutionResult(
                 status="failed",
                 output=stdout,
-                error=f"IDE runtime exit code {proc.returncode}: {stderr[:500]}",
+                error=f"Gemini CLI bridge exit code {proc.returncode}: {stderr[:500]}",
             )
 
         # Prefer structured JSON output from runtime, but allow plain text.
@@ -370,6 +370,7 @@ class TaskExecutor:
         files_modified = runtime_data.get("files_modified") or []
         files_created = runtime_data.get("files_created") or []
         runtime_id = runtime_data.get("runtime_id")
+        auth_scope = runtime_data.get("auth_scope")
         result = ExecutionResult(
             status=status,
             output=output,
@@ -381,6 +382,8 @@ class TaskExecutor:
         result_dict = result.to_dict()
         if runtime_id:
             result_dict["runtime_id"] = runtime_id
+        if isinstance(auth_scope, dict) and auth_scope:
+            result_dict["auth_scope"] = auth_scope
         return result_dict
 
     async def _run_subprocess(
@@ -466,10 +469,10 @@ class TaskExecutor:
     @staticmethod
     def _default_command_builder(ctx: ExecutionContext) -> List[str]:
         """
-        Default command builder: always delegates to IDE runtime bridge.
+        Default command builder: always delegates to the Gemini CLI bridge.
 
         All tasks (shell commands and NL prompts alike) are routed through
-        _execute_via_ide_runtime() which invokes GEMINI_CLI_RUNTIME_CMD.
+        _execute_via_gemini_cli_bridge() which invokes GEMINI_CLI_RUNTIME_CMD.
         The runtime bridge handles prompt construction and subprocess
         management safely.
 

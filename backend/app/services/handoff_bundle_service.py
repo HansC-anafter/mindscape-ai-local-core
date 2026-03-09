@@ -188,6 +188,7 @@ class HandoffBundleService:
         project_id: str,
         secret_key: Optional[str] = None,
         model_name: Optional[str] = None,
+        route_decision: Any = None,
     ) -> Dict[str, Any]:
         """Verify bundle, extract HandoffIn, and compile via MeetingEngine.
 
@@ -204,6 +205,7 @@ class HandoffBundleService:
             project_id: Project ID for meeting session scope.
             secret_key: Signing secret (falls back to env var).
             model_name: LLM model override.
+            route_decision: RouteDecision from IngressRouter (ADR-R1).
 
         Returns:
             Dict with task_ir_id, session_id, persisted status.
@@ -232,6 +234,7 @@ class HandoffBundleService:
             project_id=project_id,
             model_name=model_name,
             source_device_id=bundle.source_device_id,
+            route_decision=route_decision,
         )
 
     @staticmethod
@@ -244,6 +247,7 @@ class HandoffBundleService:
         project_id: str,
         model_name: Optional[str] = None,
         source_device_id: Optional[str] = None,
+        route_decision: Any = None,
     ) -> Dict[str, Any]:
         """Compile a HandoffIn via MeetingEngine (no bundle verification).
 

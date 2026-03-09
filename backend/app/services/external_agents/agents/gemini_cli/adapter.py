@@ -6,7 +6,7 @@ Dispatch Contract. Supports WebSocket Push (primary), REST Polling (inherited
 from PollingRuntimeAdapter), and MCP Sampling (experimental).
 
 Unlike CLI-based adapters (e.g. OpenClawAdapter), this adapter communicates
-over the network to an IDE instance rather than spawning a subprocess.
+over the network to a host-side Gemini CLI client rather than spawning a subprocess.
 """
 
 import asyncio
@@ -74,8 +74,8 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
     """
     Gemini CLI Runtime Adapter.
 
-    Dispatches coding tasks to Gemini CLI running inside
-    the user's IDE via a transport-agnostic Dispatch Contract.
+    Dispatches coding tasks to a host-side Gemini CLI client via a
+    transport-agnostic Dispatch Contract.
 
     Transport strategies (configurable via agent_config):
       - 'ws': WebSocket Push (default, lowest latency)
@@ -290,7 +290,9 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
                 # immediate error instead of queuing and timing out.
                 ws_connected = self.ws_manager is not None and (
                     hasattr(self.ws_manager, "has_connections")
-                    and self.ws_manager.has_connections()
+                    and self.ws_manager.has_connections(
+                        workspace_id=request.workspace_id or None,
+                    )
                 )
                 if not ws_connected:
                     logger.warning(

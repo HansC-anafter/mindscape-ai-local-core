@@ -117,15 +117,44 @@ class TaskResultLandingService:
         project_id: Optional[str],
         task_id: Optional[str],
     ) -> LandingResult:
-        # --- Resolve task from DB if task_id not provided ---
-        if not task_id:
+        # --- Recover lineage from result payload / task record ---
+        result_context = (result_data.get("context") or {}) if result_data else {}
+        result_metadata = (result_data.get("metadata") or {}) if result_data else {}
+
+        if not thread_id:
+            thread_id = result_context.get("thread_id") or result_metadata.get(
+                "thread_id"
+            )
+        if not project_id:
+            project_id = result_context.get("project_id") or result_metadata.get(
+                "project_id"
+            )
+
+        task = None
+        if task_id:
+            task = self._tasks_store.get_task(task_id)
+        if not task:
             task = self._tasks_store.get_task_by_execution_id(execution_id)
-            if task:
-                task_id = task.id
-                if not thread_id:
-                    thread_id = getattr(task, "thread_id", None)
-                if not project_id:
-                    project_id = getattr(task, "project_id", None)
+
+        if task:
+            task_id = task.id
+            execution_context = getattr(task, "execution_context", None) or {}
+            task_params = getattr(task, "params", None) or {}
+            task_context = (task_params.get("context") or {}) if task_params else {}
+
+            if not thread_id:
+                thread_id = (
+                    execution_context.get("thread_id")
+                    or task_params.get("thread_id")
+                    or task_context.get("thread_id")
+                )
+            if not project_id:
+                project_id = (
+                    getattr(task, "project_id", None)
+                    or execution_context.get("project_id")
+                    or task_params.get("project_id")
+                    or task_context.get("project_id")
+                )
 
         # --- Normalize payload ---
         summary = (result_data.get("output") or "").strip()

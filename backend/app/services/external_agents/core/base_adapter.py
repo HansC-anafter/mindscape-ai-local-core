@@ -48,6 +48,8 @@ class RuntimeExecRequest:
     workspace_id: Optional[str] = None
     intent_id: Optional[str] = None
     lens_id: Optional[str] = None
+    auth_workspace_id: Optional[str] = None
+    source_workspace_id: Optional[str] = None
 
     # Agent-specific configuration
     agent_config: Dict[str, Any] = field(default_factory=dict)
