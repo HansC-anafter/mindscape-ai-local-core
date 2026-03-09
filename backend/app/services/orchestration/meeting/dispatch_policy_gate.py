@@ -7,7 +7,7 @@ a machine-readable policy_reason_code.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +66,40 @@ def check_dispatch_policy(
         if tool_name and binding_store is not None:
             target_ws = item.get("target_workspace_id") or workspace_id
             allowed_tools = _get_allowlist(target_ws)
-            if allowed_tools is not None and tool_name not in allowed_tools:
+            if allowed_tools is not None:
+                canonical_tool, candidates = _canonicalize_tool_name(
+                    tool_name, allowed_tools
+                )
+                if canonical_tool is None:
+                    suffix = ""
+                    if candidates:
+                        preview = ", ".join(sorted(candidates)[:5])
+                        suffix = f" (ambiguous candidates: {preview})"
+                    _mark_blocked(
+                        item,
+                        reason_code="TOOL_NOT_ALLOWED",
+                        message=(
+                            f"Tool '{tool_name}' not in workspace '{target_ws}' "
+                            f"allowlist{suffix}"
+                        ),
+                    )
+                    continue
+
+                # Deterministic self-heal: normalize bare names to canonical
+                # allowlist IDs before any LLM-based repair path.
+                if canonical_tool != tool_name:
+                    item["tool_name_original"] = tool_name
+                    item["tool_name"] = canonical_tool
+                    item["tool_name_normalized"] = True
+
+            if allowed_tools is not None and item.get("tool_name") not in allowed_tools:
                 _mark_blocked(
                     item,
                     reason_code="TOOL_NOT_ALLOWED",
-                    message=f"Tool '{tool_name}' not in workspace '{target_ws}' allowlist",
+                    message=(
+                        f"Tool '{item.get('tool_name')}' not in workspace "
+                        f"'{target_ws}' allowlist"
+                    ),
                 )
                 continue
 
@@ -134,3 +163,35 @@ def _load_tool_allowlist(
     except Exception as exc:
         logger.warning("Failed to load tool allowlist for %s: %s", workspace_id, exc)
         return None
+
+
+def _canonicalize_tool_name(
+    tool_name: Any,
+    allowed_tools: Set[str],
+) -> Tuple[Optional[str], List[str]]:
+    """Return canonical tool name from allowlist, if resolvable.
+
+    Resolution order:
+    1. Exact match
+    2. Unique suffix match (e.g., ig_fetch_posts -> ig.ig_fetch_posts)
+
+    Returns:
+        (canonical_name, candidates)
+        - canonical_name: resolved allowlist entry, or None if not resolvable.
+        - candidates: suffix candidates (for ambiguity diagnostics).
+    """
+    if not isinstance(tool_name, str):
+        return None, []
+    name = tool_name.strip()
+    if not name:
+        return None, []
+    if name in allowed_tools:
+        return name, []
+
+    suffix = name.rsplit(".", 1)[-1]
+    candidates = [
+        allowed for allowed in allowed_tools if allowed.rsplit(".", 1)[-1] == suffix
+    ]
+    if len(candidates) == 1:
+        return candidates[0], candidates
+    return None, candidates

@@ -27,8 +27,18 @@ class MeetingActionItemsMixin:
         user_message: str,
         critic_notes: List[str],
         planner_proposals: List[str],
-    ) -> List[Dict[str, Any]]:
-        """Generate action items by running an executor turn and parsing output."""
+    ) -> List["ActionIntent"]:
+        """Generate action items by running an executor turn and normalizing output.
+
+        Returns List[ActionIntent] via SemanticNormalizer (sole normalization
+        authority per v3 OP-2).  Legacy dict-based parsing is retained as a
+        fallback inside SemanticNormalizer itself.
+        """
+        from backend.app.models.action_intent import ActionIntent
+        from backend.app.services.orchestration.meeting.semantic_normalizer import (
+            SemanticNormalizer,
+        )
+
         executor_turn = await self._agent_turn(
             "executor",
             round_num=max(1, self.session.round_count),
@@ -39,13 +49,36 @@ class MeetingActionItemsMixin:
         )
         self._emit_turn(executor_turn)
 
-        return self._parse_action_items(executor_turn.content, decision)
+        # L2: SemanticNormalizer is the sole normalization authority
+        normalizer = SemanticNormalizer()
+        workspace_id = getattr(self.session, "workspace_id", None)
+
+        intents = normalizer.normalize(
+            executor_output=executor_turn.content,
+            decision=decision,
+            workspace_id=workspace_id,
+        )
+
+        # Stamp meeting_session_id onto each intent for session correlation
+        for intent in intents:
+            if not intent.target_workspace_id:
+                intent.target_workspace_id = workspace_id
+
+        return intents
 
     async def _land_action_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """Create a task projection for an action item.
 
         Actual dispatch is handled by DispatchOrchestrator via engine.run().
         This method only creates the task record (projection).
+
+        EXIT CRITERIA — safe to delete when ALL of the following hold:
+        1. DispatchOrchestrator._launch_playbook() has been verified in
+           production (inputs/ctx/trace_id/session-metadata parity with
+           the old direct-launch path).
+        2. _project_to_task() in DispatchOrchestrator covers the
+           task-creation fallback that _create_action_task() provides.
+        3. No callers remain in engine.py or _dispatch.py.
         """
         item.setdefault("meeting_session_id", self.session.id)
         item.setdefault("execution_id", None)
@@ -57,7 +90,10 @@ class MeetingActionItemsMixin:
         return item
 
     def _create_action_task(self, item: Dict[str, Any]) -> Optional[str]:
-        """Create a Task record for an action item that was not launched as a playbook."""
+        """Create a Task record for an action item that was not launched as a playbook.
+
+        Coupled to _land_action_item — same exit criteria apply.
+        """
         if not self.tasks_store:
             return None
         try:

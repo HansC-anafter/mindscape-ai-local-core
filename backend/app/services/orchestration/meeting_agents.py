@@ -117,3 +117,84 @@ def _apply_agent_overrides(
                 responsibility_boundary=agent.responsibility_boundary,
             )
     return roster
+
+
+# ────────────────────────────────────────────────────────────────────
+# OP-4: Deliberation Depth — internal effort control, NOT routing.
+# ────────────────────────────────────────────────────────────────────
+
+from enum import Enum
+
+
+class DeliberationDepth(str, Enum):
+    """Internal deliberation effort control for MeetingEngine (OP-4).
+
+    NOT a routing decision — IngressRouter remains the sole routing
+    authority.  This only controls how many rounds and which agents
+    participate within an already-routed meeting.
+    """
+
+    SHALLOW = "shallow"  # 1 round, minimal roster (no critic)
+    STANDARD = "standard"  # default, 2-3 rounds, full roster
+    DEEP = "deep"  # more rounds, critic reinforced
+
+
+# Depth → max_rounds override
+DEPTH_ROUND_CAPS: Dict[str, int] = {
+    "shallow": 1,
+    "standard": 3,
+    "deep": 5,
+}
+
+# Depth → agent roster filter
+DEPTH_ROSTER_KEYS: Dict[str, list] = {
+    "shallow": ["facilitator", "planner", "executor"],
+    "standard": ["facilitator", "planner", "critic", "executor"],
+    "deep": ["facilitator", "planner", "critic", "executor"],
+}
+
+
+def get_round_roster(
+    depth: DeliberationDepth,
+    full_roster: Optional[Dict[str, AgentDefinition]] = None,
+) -> Dict[str, AgentDefinition]:
+    """Return depth-aware agent roster for a given round.
+
+    SHALLOW skips the critic to reduce latency on trivial requests.
+    STANDARD and DEEP use the full roster.
+    """
+    roster = full_roster or dict(MEETING_AGENT_ROSTER)
+    keys = DEPTH_ROSTER_KEYS.get(depth.value, list(roster.keys()))
+    return {k: v for k, v in roster.items() if k in keys}
+
+
+def select_deliberation_depth(
+    agenda_items: int = 1,
+    estimated_action_count: int = 1,
+    has_tool_ambiguity: bool = False,
+    budget_headroom_pct: float = 1.0,
+) -> DeliberationDepth:
+    """Select deliberation depth from meeting-internal factors.
+
+    Conservative first release:
+    - Only obvious single-playbook requests go SHALLOW
+    - Default everything else to STANDARD
+    - DEEP requires explicit multi-step or high-risk signals
+
+    Does NOT use routing information — that would violate C1
+    (IngressRouter as sole routing authority).
+    """
+    # SHALLOW: single agenda item, single action, no ambiguity, plenty of budget
+    if (
+        agenda_items <= 1
+        and estimated_action_count <= 1
+        and not has_tool_ambiguity
+        and budget_headroom_pct > 0.7
+    ):
+        return DeliberationDepth.SHALLOW
+
+    # DEEP: many agenda items or actions, or tight budget needs careful planning
+    if agenda_items >= 4 or estimated_action_count >= 4 or budget_headroom_pct < 0.3:
+        return DeliberationDepth.DEEP
+
+    return DeliberationDepth.STANDARD

@@ -828,11 +828,28 @@ class MeetingPromptsMixin:
     def _is_converged(
         self, round_num: int, max_rounds: int, facilitator_text: str
     ) -> bool:
-        """Check whether the meeting has converged."""
+        """Check whether the meeting has converged.
+
+        Uses RoundVerdict.try_parse() for structured convergence checking.
+        Stores the parsed verdict on self._last_round_verdict for downstream
+        consumers (L2/L3) to inspect confidence and remaining concerns.
+        """
+        from backend.app.models.layer_artifacts import RoundVerdict
+
         if round_num >= max_rounds:
+            self._last_round_verdict = RoundVerdict(
+                converged=True,
+                confidence=1.0,
+                reason="max_rounds_reached",
+            )
             return True
-        if round_num >= 2 and "[converged]" in facilitator_text.lower():
+
+        verdict = RoundVerdict.try_parse(facilitator_text)
+        self._last_round_verdict = verdict
+
+        if round_num >= 2 and verdict.converged:
             return True
+
         return False
 
     def _render_minutes(
