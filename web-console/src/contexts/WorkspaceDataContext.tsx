@@ -635,6 +635,15 @@ export function WorkspaceDataProvider({
     };
   }, [debouncedRefresh]);
 
+  // Poll system status every 60s for live monitoring
+  useEffect(() => {
+    if (!workspaceId || workspaceId === 'new') return;
+    const interval = setInterval(() => {
+      if (mountedRef.current) loadSystemStatus();
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [workspaceId, loadSystemStatus]);
+
   const isLoading = isLoadingWorkspace || isLoadingTasks || isLoadingExecutions;
 
   const value: WorkspaceDataContextType = {

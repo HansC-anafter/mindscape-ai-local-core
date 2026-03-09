@@ -73,6 +73,165 @@ interface EmbeddingMigration {
   completed_at?: string;
 }
 
+// ---------------------------------------------------------------------------
+// OllamaToolEmbeddingSection — manages the ollama_embed_model system setting
+// distinct from the knowledge-base embedding model above.
+// ---------------------------------------------------------------------------
+export function OllamaToolEmbeddingSection() {
+  const [currentModel, setCurrentModel] = useState<string>('');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadState();
+  }, []);
+
+  const loadState = async () => {
+    setLoading(true);
+    try {
+      // Load saved setting (key: ollama_embed_model)
+      const setting = await settingsApi
+        .get<{ value?: string }>('/api/v1/system-settings/ollama_embed_model')
+        .catch(() => ({ value: '' }));
+      setCurrentModel((setting as any)?.value ?? '');
+
+      // Probe Ollama tag list via backend proxy if available, otherwise use known models
+      const ollamaData = await settingsApi
+        .get<{ models?: Array<{ name?: string }> }>('/api/v1/tools/rag-models')
+        .catch(() => null);
+      if (ollamaData && Array.isArray((ollamaData as any).models)) {
+        setAvailableModels((ollamaData as any).models.map((m: any) => m.name ?? '').filter(Boolean));
+      } else {
+        // Fallback to known embed models
+        setAvailableModels(['bge-m3', 'nomic-embed-text', 'mxbai-embed-large']);
+      }
+    } catch (e) {
+      setError('Failed to load Ollama embed model settings');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const save = async (value: string) => {
+    setSaving(true);
+    setError(null);
+    setTestResult(null);
+    try {
+      await settingsApi.put('/api/v1/system-settings/ollama_embed_model', {
+        value,
+        type: 'string',
+      });
+      setCurrentModel(value);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const testSearch = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await settingsApi.post<{ status: string; match_count: number; model?: string }>(
+        '/api/v1/tools/rag-search/',
+        { query: 'test connection ping', top_k: 1, min_score: 0 }
+      );
+      const model = (res as any).model ?? '(auto)';
+      const ok = (res as any).status === 'hit' || typeof (res as any).match_count === 'number';
+      setTestResult({
+        ok,
+        message: ok
+          ? `✓ Tool RAG 搜尋正常 · 模型: ${model} · ${(res as any).match_count} 筆結果`
+          : `搜尋返回異常 status=${(res as any).status}`,
+      });
+    } catch (e) {
+      setTestResult({ ok: false, message: e instanceof Error ? e.message : 'Test failed' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+      <div className="mb-3">
+        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
+          工具 RAG Embedding 模型
+        </h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          用於工具能力索引（Tool RAG）的本地 Ollama embed 模型，與知識庫 embedding 獨立設定。
+          留空則啟動時自動選擇（優先 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">bge-m3</code>）。
+        </p>
+      </div>
+
+      {error && <InlineAlert type="error" message={error} onDismiss={() => setError(null)} />}
+
+      {loading ? (
+        <div className="text-xs text-gray-400 py-2">載入中...</div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <select
+              value={currentModel}
+              onChange={(e) => save(e.target.value)}
+              disabled={saving}
+              className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm
+                         focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-gray-500
+                         bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 disabled:opacity-50"
+            >
+              <option value="">自動選擇（推薦）</option>
+              {availableModels.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            {saving && <span className="text-xs text-gray-400">儲存中...</span>}
+          </div>
+
+          {currentModel ? (
+            <div className="text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-2 py-1 rounded border border-green-200 dark:border-green-800">
+              已固定模型：<strong>{currentModel}</strong>
+            </div>
+          ) : (
+            <div className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">
+              自動選擇模式 — 啟動時從 Ollama 選 bge-m3 &gt; nomic-embed-text
+            </div>
+          )}
+
+          <div>
+            <button
+              onClick={testSearch}
+              disabled={testing}
+              className="px-3 py-1.5 text-sm bg-accent dark:bg-blue-700 text-white rounded-md
+                         hover:bg-accent/90 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed
+                         transition-colors"
+            >
+              {testing ? '搜尋測試中...' : '測試 Tool RAG 搜尋'}
+            </button>
+          </div>
+
+          {testResult && (
+            <div
+              className={`p-2 rounded text-xs border ${testResult.ok
+                ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 border-green-200 dark:border-green-800'
+                : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800'
+                }`}
+            >
+              {testResult.message}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main EmbeddingSettings
+// ---------------------------------------------------------------------------
 export function EmbeddingSettings() {
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<EmbeddingSettingsResponse | null>(null);
@@ -97,10 +256,7 @@ export function EmbeddingSettings() {
       const data = await settingsApi.get<EmbeddingSettingsResponse>('/api/v1/system-settings/llm-models?include_embedding_status=true');
       setSettings(data);
 
-      // Load migration info if available
       if (data.migration_info) {
-        console.log('[EmbeddingSettings] Loaded migration_info from settings:', data.migration_info);
-        // Use new_model if previous_model is not available
         const modelInfo = data.migration_info.previous_model || data.migration_info.new_model;
         const previousModelData = {
           model_name: modelInfo?.model_name || data.embedding_model?.model_name || '',
@@ -108,7 +264,6 @@ export function EmbeddingSettings() {
           model_type: 'embedding',
           metadata: data.migration_info
         } as LLMModelConfig;
-        console.log('[EmbeddingSettings] Setting previousModel from loadSettings:', previousModelData);
         setPreviousModel(previousModelData);
 
         if (data.migration_info.needs_migration && !data.migration_info.has_active_migration) {
@@ -117,7 +272,6 @@ export function EmbeddingSettings() {
           setShowMigrationPrompt(false);
         }
       } else {
-        console.log('[EmbeddingSettings] No migration_info in loaded settings:', data);
         setPreviousModel(null);
         setShowMigrationPrompt(false);
       }
@@ -139,12 +293,7 @@ export function EmbeddingSettings() {
         provider: string;
         dimensions?: number;
       }>('/api/v1/system-settings/llm-models/test-embedding');
-
-      if (result.success) {
-        setTestResult(result.message);
-      } else {
-        setTestResult(result.message);
-      }
+      setTestResult(result.message);
     } catch (err) {
       setTestResult(`${t('testFailedWithError' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -155,40 +304,14 @@ export function EmbeddingSettings() {
   const updateEmbeddingModel = async (modelName: string, provider: string) => {
     try {
       setError(null);
-
       const response = await settingsApi.put<{
         model: LLMModelConfig;
         migration_info?: {
           needs_migration: boolean;
-          previous_model: {
-            model_name: string;
-            provider: string;
-            total_embeddings: number | null;
-            first_used?: string;
-            last_used?: string;
-            last_updated?: string;
-          };
-          new_model: {
-            model_name: string;
-            provider: string;
-            existing_embeddings: number;
-            first_used?: string;
-            last_used?: string;
-          };
-          historical_models: Array<{
-            model_name: string;
-            provider: string;
-            count: number;
-            first_used?: string;
-            last_used?: string;
-            last_updated?: string;
-          }>;
-          missing_periods: Array<{
-            from: string;
-            to: string;
-            model: string;
-            count: number;
-          }>;
+          previous_model: { model_name: string; provider: string; total_embeddings: number | null; first_used?: string; last_used?: string; last_updated?: string; };
+          new_model: { model_name: string; provider: string; existing_embeddings: number; first_used?: string; last_used?: string; };
+          historical_models: Array<{ model_name: string; provider: string; count: number; first_used?: string; last_used?: string; last_updated?: string; }>;
+          missing_periods: Array<{ from: string; to: string; model: string; count: number; }>;
           has_active_migration?: boolean;
           migration_recommendation?: string;
           error?: string;
@@ -197,10 +320,7 @@ export function EmbeddingSettings() {
 
       await loadSettings();
 
-      // Always save migration_info if available (for health status display)
       if (response.migration_info) {
-        console.log('[EmbeddingSettings] Received migration_info:', response.migration_info);
-        // Use new_model if previous_model is not available (e.g., model didn't change)
         const modelInfo = response.migration_info.previous_model || response.migration_info.new_model;
         const previousModelData = {
           model_name: modelInfo?.model_name || modelName,
@@ -208,17 +328,9 @@ export function EmbeddingSettings() {
           model_type: 'embedding',
           metadata: response.migration_info
         } as LLMModelConfig;
-        console.log('[EmbeddingSettings] Setting previousModel:', previousModelData);
         setPreviousModel(previousModelData);
-
-        // Show migration prompt only if migration is needed
-        if (response.migration_info.needs_migration) {
-          setShowMigrationPrompt(true);
-        } else {
-          setShowMigrationPrompt(false);
-        }
+        setShowMigrationPrompt(response.migration_info.needs_migration);
       } else {
-        console.log('[EmbeddingSettings] No migration_info in response:', response);
         setShowMigrationPrompt(false);
         setPreviousModel(null);
       }
@@ -229,27 +341,23 @@ export function EmbeddingSettings() {
 
   const createMigration = async () => {
     if (!previousModel || !settings?.embedding_model) return;
-
     try {
       setMigrating(true);
       setError(null);
-      const result = await settingsApi.post<{
-        success: boolean;
-        migration: EmbeddingMigration;
-        message: string;
-      }>('/api/v1/system-settings/embedding-migrations', {
-        source_model: previousModel.model_name,
-        target_model: settings.embedding_model.model_name,
-        source_provider: previousModel.provider,
-        target_provider: settings.embedding_model.provider,
-        strategy: 'replace',
-        scope: 'all' // Migrate all embeddings
-      });
-
+      const result = await settingsApi.post<{ success: boolean; migration: EmbeddingMigration; message: string }>(
+        '/api/v1/system-settings/embedding-migrations',
+        {
+          source_model: previousModel.model_name,
+          target_model: settings.embedding_model.model_name,
+          source_provider: previousModel.provider,
+          target_provider: settings.embedding_model.provider,
+          strategy: 'replace',
+          scope: 'all',
+        }
+      );
       if (result.success && result.migration) {
         setMigration(result.migration);
         setShowMigrationPrompt(false);
-        // Start the migration
         await startMigration(result.migration.id);
       }
     } catch (err) {
@@ -262,40 +370,34 @@ export function EmbeddingSettings() {
   const startMigration = async (migrationId: string) => {
     try {
       await settingsApi.post(`/api/v1/system-settings/embedding-migrations/${migrationId}/start`, {});
-      // Poll for progress
       pollMigrationProgress(migrationId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start migration');
     }
   };
 
-  const pollMigrationProgress = async (migrationId: string) => {
+  const pollMigrationProgress = (migrationId: string) => {
     const interval = setInterval(async () => {
       try {
-        const result = await settingsApi.get<{
-          success: boolean;
-          migration: EmbeddingMigration;
-        }>(`/api/v1/system-settings/embedding-migrations/${migrationId}`);
-
+        const result = await settingsApi.get<{ success: boolean; migration: EmbeddingMigration }>(
+          `/api/v1/system-settings/embedding-migrations/${migrationId}`
+        );
         if (result.success && result.migration) {
           setMigration(result.migration);
-          const progress = result.migration.total_count > 0
-            ? Math.round((result.migration.completed_count / result.migration.total_count) * 100)
-            : 0;
-          setMigrationProgress(progress);
-
-          if (result.migration.status === 'completed' || result.migration.status === 'failed' || result.migration.status === 'cancelled') {
+          setMigrationProgress(
+            result.migration.total_count > 0
+              ? Math.round((result.migration.completed_count / result.migration.total_count) * 100)
+              : 0
+          );
+          if (['completed', 'failed', 'cancelled'].includes(result.migration.status)) {
             clearInterval(interval);
             setMigrating(false);
           }
         }
-      } catch (err) {
-        console.error('Failed to poll migration progress:', err);
+      } catch {
         clearInterval(interval);
       }
-    }, 2000); // Poll every 2 seconds
-
-    // Cleanup after 5 minutes
+    }, 2000);
     setTimeout(() => clearInterval(interval), 5 * 60 * 1000);
   };
 
@@ -316,6 +418,7 @@ export function EmbeddingSettings() {
     <div className="space-y-4">
       {error && <InlineAlert type="error" message={error} onDismiss={() => setError(null)} />}
 
+      {/* ── Knowledge-base embedding header ──────────────────────────────── */}
       <div>
         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">{t('embeddingModel' as any)}</h3>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
@@ -350,24 +453,14 @@ export function EmbeddingSettings() {
           <div className="flex items-start gap-3">
             <div className="flex-shrink-0 text-green-600 dark:text-green-400 text-xl">✓</div>
             <div className="flex-1">
-              <h4 className="text-sm font-semibold text-green-900 dark:text-green-200 mb-2">
-                Embedding Status
-              </h4>
-
-              {/* Current Model Info */}
+              <h4 className="text-sm font-semibold text-green-900 dark:text-green-200 mb-2">Embedding Status</h4>
               {previousModel.metadata.new_model && (
                 <div className="mb-3 p-2 bg-white dark:bg-gray-800 rounded border border-green-200 dark:border-green-800">
-                  <div className="text-xs font-medium text-green-900 dark:text-green-200 mb-1">
-                    Current Model:
-                  </div>
+                  <div className="text-xs font-medium text-green-900 dark:text-green-200 mb-1">Current Model:</div>
                   <div className="text-xs text-green-800 dark:text-green-300 space-y-1">
-                    <div>
-                      <strong>{previousModel.metadata.new_model.model_name}</strong> ({previousModel.metadata.new_model.provider})
-                    </div>
+                    <div><strong>{previousModel.metadata.new_model.model_name}</strong> ({previousModel.metadata.new_model.provider})</div>
                     {previousModel.metadata.new_model.existing_embeddings > 0 && (
-                      <div>
-                        Total Embeddings: <strong>{previousModel.metadata.new_model.existing_embeddings.toLocaleString()}</strong>
-                      </div>
+                      <div>Total Embeddings: <strong>{previousModel.metadata.new_model.existing_embeddings.toLocaleString()}</strong></div>
                     )}
                     {previousModel.metadata.new_model.existing_embeddings === 0 && (
                       <div className="space-y-2">
@@ -379,75 +472,49 @@ export function EmbeddingSettings() {
                           <li>{t('embeddingGenerationMethod2' as any) || 'Use AI features that require document search'}</li>
                           <li>{t('embeddingGenerationMethod3' as any) || 'Process files through playbooks'}</li>
                         </ul>
-                        {/* Check if there are embeddings from previous model or other historical models that need migration */}
                         {(() => {
-                          const previousModelEmbeddings = previousModel.metadata?.previous_model?.total_embeddings || 0;
-                          const historicalModelsWithEmbeddings = (previousModel.metadata?.historical_models || []).filter(
+                          const prevEmbeds = previousModel.metadata?.previous_model?.total_embeddings || 0;
+                          const historical = (previousModel.metadata?.historical_models || []).filter(
                             (m: any) => m.model_name !== previousModel.metadata?.new_model?.model_name && m.count > 0
                           );
-                          const totalHistoricalEmbeddings = historicalModelsWithEmbeddings.reduce((sum: number, m: any) => sum + m.count, 0);
-
-                          if (previousModelEmbeddings > 0 || totalHistoricalEmbeddings > 0) {
-                            const sourceModel = previousModelEmbeddings > 0
-                              ? previousModel.metadata.previous_model
-                              : historicalModelsWithEmbeddings[0];
-                            const totalCount = previousModelEmbeddings > 0
-                              ? previousModelEmbeddings
-                              : totalHistoricalEmbeddings;
-
+                          const totalHist = historical.reduce((s: number, m: any) => s + m.count, 0);
+                          if (prevEmbeds > 0 || totalHist > 0) {
+                            const src = prevEmbeds > 0 ? previousModel.metadata.previous_model : historical[0];
                             return (
                               <div className="mt-2 pt-2 border-t border-amber-300 dark:border-amber-700">
                                 <div className="text-xs text-amber-700 dark:text-amber-300 mb-2">
-                                  {t('foundPreviousEmbeddings' as any) || 'Found'} {totalCount.toLocaleString()} {t('embeddingsFromPreviousModel' as any) || 'embeddings from'} {sourceModel?.model_name || 'previous model'}:
+                                  Found {(prevEmbeds > 0 ? prevEmbeds : totalHist).toLocaleString()} embeddings from {src?.model_name || 'previous model'}:
                                 </div>
-                                <button
-                                  onClick={() => {
-                                    setShowMigrationPrompt(true);
-                                  }}
-                                  className="px-3 py-1.5 text-xs bg-amber-600 dark:bg-amber-700 text-white rounded-md hover:bg-amber-700 dark:hover:bg-amber-600 transition-colors"
-                                >
+                                <button onClick={() => setShowMigrationPrompt(true)}
+                                  className="px-3 py-1.5 text-xs bg-amber-600 dark:bg-amber-700 text-white rounded-md hover:bg-amber-700 dark:hover:bg-amber-600 transition-colors">
                                   {t('reembedAllDocuments' as any) || 'Re-embed All Documents'}
                                 </button>
                               </div>
                             );
-                          } else {
-                            // Even if no historical embeddings, show option to manually trigger embedding for historical data
-                            return (
-                              <div className="mt-2 pt-2 border-t border-amber-300 dark:border-amber-700">
-                                <div className="text-xs text-amber-700 dark:text-amber-300 mb-2">
-                                  {t('hasHistoricalDataButNoEmbeddings' as any) || 'If you have historical documents, files, or conversations that need embedding, you can manually trigger embedding generation:'}
-                                </div>
-                                <button
-                                  onClick={() => {
-                                    // Show migration prompt even without previous embeddings
-                                    // This allows manual re-embedding of historical data
-                                    setShowMigrationPrompt(true);
-                                  }}
-                                  className="px-3 py-1.5 text-xs bg-amber-600 dark:bg-amber-700 text-white rounded-md hover:bg-amber-700 dark:hover:bg-amber-600 transition-colors"
-                                >
-                                  {t('generateEmbeddingsForHistoricalData' as any) || 'Generate Embeddings for Historical Data'}
-                                </button>
-                              </div>
-                            );
                           }
+                          return (
+                            <div className="mt-2 pt-2 border-t border-amber-300 dark:border-amber-700">
+                              <div className="text-xs text-amber-700 dark:text-amber-300 mb-2">
+                                {t('hasHistoricalDataButNoEmbeddings' as any) || 'If you have historical documents, files, or conversations that need embedding, you can manually trigger embedding generation:'}
+                              </div>
+                              <button onClick={() => setShowMigrationPrompt(true)}
+                                className="px-3 py-1.5 text-xs bg-amber-600 dark:bg-amber-700 text-white rounded-md hover:bg-amber-700 dark:hover:bg-amber-600 transition-colors">
+                                {t('generateEmbeddingsForHistoricalData' as any) || 'Generate Embeddings for Historical Data'}
+                              </button>
+                            </div>
+                          );
                         })()}
                       </div>
                     )}
                     {previousModel.metadata.new_model.first_used && (
-                      <div>
-                        First Used: {new Date(previousModel.metadata.new_model.first_used).toLocaleString()}
-                      </div>
+                      <div>First Used: {new Date(previousModel.metadata.new_model.first_used).toLocaleString()}</div>
                     )}
                     {previousModel.metadata.new_model.last_used && (
-                      <div>
-                        Last Used: {new Date(previousModel.metadata.new_model.last_used).toLocaleString()}
-                      </div>
+                      <div>Last Used: {new Date(previousModel.metadata.new_model.last_used).toLocaleString()}</div>
                     )}
                   </div>
                 </div>
               )}
-
-              {/* Historical Models Summary */}
               {previousModel.metadata.historical_models && previousModel.metadata.historical_models.length > 0 && (
                 <details className="mb-3">
                   <summary className="text-xs font-medium text-green-900 dark:text-green-200 cursor-pointer hover:text-green-700 dark:hover:text-green-300">
@@ -456,27 +523,17 @@ export function EmbeddingSettings() {
                   <div className="mt-2 p-2 bg-white dark:bg-gray-800 rounded border border-green-200 dark:border-green-800 text-xs space-y-1">
                     {previousModel.metadata.historical_models.map((model: any, idx: number) => (
                       <div key={idx} className="flex justify-between items-center">
-                        <span>
-                          <strong>{model.model_name}</strong> ({model.provider})
-                        </span>
-                        <span className="text-gray-600 dark:text-gray-400">
-                          {model.count.toLocaleString()} embeddings
-                        </span>
+                        <span><strong>{model.model_name}</strong> ({model.provider})</span>
+                        <span className="text-gray-600 dark:text-gray-400">{model.count.toLocaleString()} embeddings</span>
                       </div>
                     ))}
                   </div>
                 </details>
               )}
-
-              {/* Status Message */}
               {previousModel.metadata.migration_recommendation && (
                 <div className="mb-3 p-2 bg-accent-10 dark:bg-blue-900/20 rounded border border-accent/30 dark:border-blue-800">
-                  <div className="text-xs font-medium text-accent dark:text-blue-200 mb-1">
-                    Status:
-                  </div>
-                  <div className="text-xs text-accent dark:text-blue-300">
-                    {previousModel.metadata.migration_recommendation}
-                  </div>
+                  <div className="text-xs font-medium text-accent dark:text-blue-200 mb-1">Status:</div>
+                  <div className="text-xs text-accent dark:text-blue-300">{previousModel.metadata.migration_recommendation}</div>
                 </div>
               )}
             </div>
@@ -493,111 +550,28 @@ export function EmbeddingSettings() {
               <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-2">
                 Model Switch Detected - Re-embedding Recommended
               </h4>
-
-              {/* Previous Model Info */}
               {previousModel.metadata.previous_model && (
                 <div className="mb-3 p-2 bg-white dark:bg-gray-800 rounded border border-amber-200 dark:border-amber-800">
-                  <div className="text-xs font-medium text-amber-900 dark:text-amber-200 mb-1">
-                    Previous Model:
-                  </div>
+                  <div className="text-xs font-medium text-amber-900 dark:text-amber-200 mb-1">Previous Model:</div>
                   <div className="text-xs text-amber-800 dark:text-amber-300 space-y-1">
-                    <div>
-                      <strong>{previousModel.metadata.previous_model.model_name}</strong> ({previousModel.metadata.previous_model.provider})
-                    </div>
+                    <div><strong>{previousModel.metadata.previous_model.model_name}</strong> ({previousModel.metadata.previous_model.provider})</div>
                     {previousModel.metadata.previous_model.total_embeddings !== null && (
-                      <div>
-                        Total Embeddings: <strong>{previousModel.metadata.previous_model.total_embeddings.toLocaleString()}</strong>
-                      </div>
-                    )}
-                    {previousModel.metadata.previous_model.first_used && (
-                      <div>
-                        First Used: {new Date(previousModel.metadata.previous_model.first_used).toLocaleString()}
-                      </div>
-                    )}
-                    {previousModel.metadata.previous_model.last_used && (
-                      <div>
-                        Last Used: {new Date(previousModel.metadata.previous_model.last_used).toLocaleString()}
-                      </div>
+                      <div>Total Embeddings: <strong>{previousModel.metadata.previous_model.total_embeddings.toLocaleString()}</strong></div>
                     )}
                   </div>
                 </div>
               )}
-
-              {/* New Model Info */}
               {previousModel.metadata.new_model && (
                 <div className="mb-3 p-2 bg-surface-accent dark:bg-gray-800 rounded border border-accent/30 dark:border-blue-800">
-                  <div className="text-xs font-medium text-accent dark:text-blue-200 mb-1">
-                    New Model:
-                  </div>
+                  <div className="text-xs font-medium text-accent dark:text-blue-200 mb-1">New Model:</div>
                   <div className="text-xs text-accent dark:text-blue-300 space-y-1">
-                    <div>
-                      <strong>{previousModel.metadata.new_model.model_name}</strong> ({previousModel.metadata.new_model.provider})
-                    </div>
-                    {previousModel.metadata.new_model.existing_embeddings > 0 && (
-                      <div>
-                        Existing Embeddings: <strong>{previousModel.metadata.new_model.existing_embeddings.toLocaleString()}</strong>
-                      </div>
-                    )}
+                    <div><strong>{previousModel.metadata.new_model.model_name}</strong> ({previousModel.metadata.new_model.provider})</div>
                     {previousModel.metadata.new_model.existing_embeddings === 0 && (
-                      <div className="text-amber-600 dark:text-amber-400">
-                        New model has no embeddings yet
-                      </div>
+                      <div className="text-amber-600 dark:text-amber-400">New model has no embeddings yet</div>
                     )}
                   </div>
                 </div>
               )}
-
-              {/* Missing Periods */}
-              {previousModel.metadata.missing_periods && previousModel.metadata.missing_periods.length > 0 && (
-                <div className="mb-3 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
-                  <div className="text-xs font-medium text-red-900 dark:text-red-200 mb-1">
-                    Missing Time Periods:
-                  </div>
-                  <div className="text-xs text-red-800 dark:text-red-300 space-y-1">
-                    {previousModel.metadata.missing_periods.map((period: any, idx: number) => (
-                      <div key={idx}>
-                        {new Date(period.from).toLocaleDateString()} to {new Date(period.to).toLocaleDateString()}
-                        {' '}({period.count.toLocaleString()} embeddings)
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Historical Models */}
-              {previousModel.metadata.historical_models && previousModel.metadata.historical_models.length > 0 && (
-                <details className="mb-3">
-                  <summary className="text-xs font-medium text-amber-900 dark:text-amber-200 cursor-pointer hover:text-amber-700 dark:hover:text-amber-300">
-                    View All Historical Models ({previousModel.metadata.historical_models.length})
-                  </summary>
-                  <div className="mt-2 p-2 bg-white dark:bg-gray-800 rounded border border-amber-200 dark:border-amber-800 text-xs space-y-1">
-                    {previousModel.metadata.historical_models.map((model: any, idx: number) => (
-                      <div key={idx} className="flex justify-between items-center">
-                        <span>
-                          <strong>{model.model_name}</strong> ({model.provider})
-                        </span>
-                        <span className="text-gray-600 dark:text-gray-400">
-                          {model.count.toLocaleString()} embeddings
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              )}
-
-              {/* Migration Recommendation */}
-              {previousModel.metadata.migration_recommendation && (
-                <div className="mb-3 p-2 bg-accent-10 dark:bg-blue-900/20 rounded border border-accent/30 dark:border-blue-800">
-                  <div className="text-xs font-medium text-accent dark:text-blue-200 mb-1">
-                    Recommendation:
-                  </div>
-                  <div className="text-xs text-accent dark:text-blue-300">
-                    {previousModel.metadata.migration_recommendation}
-                  </div>
-                </div>
-              )}
-
-              {/* Active Migration Warning */}
               {previousModel.metadata.has_active_migration && (
                 <div className="mb-3 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-200 dark:border-yellow-800">
                   <div className="text-xs text-yellow-800 dark:text-yellow-300">
@@ -605,24 +579,16 @@ export function EmbeddingSettings() {
                   </div>
                 </div>
               )}
-
               <p className="text-sm text-amber-800 dark:text-amber-300 mb-3">
                 Re-embedding existing documents is recommended to ensure accurate vector search.
               </p>
-
               <div className="flex items-center gap-2">
-                <button
-                  onClick={createMigration}
-                  disabled={migrating}
-                  className="px-3 py-1.5 text-sm bg-amber-600 dark:bg-amber-700 text-white rounded-md hover:bg-amber-700 dark:hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button onClick={createMigration} disabled={migrating}
+                  className="px-3 py-1.5 text-sm bg-amber-600 dark:bg-amber-700 text-white rounded-md hover:bg-amber-700 dark:hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
                   {migrating ? 'Preparing...' : 'Start Re-embedding'}
                 </button>
-                <button
-                  onClick={skipMigration}
-                  disabled={migrating}
-                  className="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button onClick={skipMigration} disabled={migrating}
+                  className="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed">
                   Later
                 </button>
               </div>
@@ -636,12 +602,10 @@ export function EmbeddingSettings() {
         <div className="mb-4 p-4 border border-accent/30 dark:border-blue-700 rounded-lg bg-accent-10 dark:bg-blue-900/20">
           <div className="flex items-start gap-3">
             <div className="flex-shrink-0 text-accent dark:text-blue-400 text-xl">
-              {migration.status === 'running' ? '...' : migration.status === 'completed' ? '✓' : migration.status === 'failed' ? '✗' : '○'}
+              {migration.status === 'running' ? '…' : migration.status === 'completed' ? '✓' : migration.status === 'failed' ? '✗' : '○'}
             </div>
             <div className="flex-1">
-              <h4 className="text-sm font-semibold text-accent dark:text-blue-200 mb-2">
-                Re-embedding in Progress
-              </h4>
+              <h4 className="text-sm font-semibold text-accent dark:text-blue-200 mb-2">Re-embedding in Progress</h4>
               {migration.status === 'running' && (
                 <>
                   <div className="mb-2">
@@ -650,35 +614,27 @@ export function EmbeddingSettings() {
                       <span>{migrationProgress}%</span>
                     </div>
                     <div className="w-full bg-accent-10 dark:bg-blue-800 rounded-full h-2">
-                      <div
-                        className="bg-accent dark:bg-blue-500 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${migrationProgress}%` }}
-                      />
+                      <div className="bg-accent dark:bg-blue-500 h-2 rounded-full transition-all duration-300" style={{ width: `${migrationProgress}%` }} />
                     </div>
                   </div>
-                  <p className="text-xs text-accent dark:text-blue-400">
-                    Re-embedding document vectors. Please do not close this page...
-                  </p>
+                  <p className="text-xs text-accent dark:text-blue-400">Re-embedding document vectors. Please do not close this page...</p>
                 </>
               )}
               {migration.status === 'completed' && (
-                <p className="text-sm text-accent dark:text-blue-300">
-                  Re-embedding completed! Processed {migration.total_count} embeddings.
-                </p>
+                <p className="text-sm text-accent dark:text-blue-300">Re-embedding completed! Processed {migration.total_count} embeddings.</p>
               )}
               {migration.status === 'failed' && (
-                <p className="text-sm text-red-800 dark:text-red-300">
-                  Re-embedding failed. Please check backend logs or retry.
-                </p>
+                <p className="text-sm text-red-800 dark:text-red-300">Re-embedding failed. Please check backend logs or retry.</p>
               )}
             </div>
           </div>
         </div>
       )}
 
+      {/* Knowledge-base model selector */}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          {t('selectEmbeddingModel' as any) || '選擇 Embedding 模型'}
+          {t('selectEmbeddingModel' as any) || '選擇知識庫 Embedding 模型'}
         </label>
         {enabledEmbeddingModels.length === 0 ? (
           <div className="p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-sm text-gray-500 dark:text-gray-400">
@@ -689,9 +645,7 @@ export function EmbeddingSettings() {
             value={settings.embedding_model?.model_name || ''}
             onChange={(e) => {
               const selected = enabledEmbeddingModels.find(m => m.model_name === e.target.value);
-              if (selected) {
-                updateEmbeddingModel(selected.model_name, selected.provider);
-              }
+              if (selected) updateEmbeddingModel(selected.model_name, selected.provider);
             }}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           >
@@ -703,7 +657,9 @@ export function EmbeddingSettings() {
           </select>
         )}
       </div>
+
+      {/* ── Tool RAG Embedding — separate from knowledge-base embedding ───── */}
+      <OllamaToolEmbeddingSection />
     </div>
   );
 }
-

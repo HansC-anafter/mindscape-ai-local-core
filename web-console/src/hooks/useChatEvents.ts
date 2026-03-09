@@ -284,6 +284,9 @@ export function useChatEvents(
   // Added debounce to prevent rapid-fire requests during thread switches
   useEffect(() => {
     if (enabled && threadId !== undefined) {
+      // Clear stale messages immediately to avoid showing old thread's content
+      setMessages([]);
+      setQuickStartSuggestions([]);
       // Debounce to avoid race conditions during rapid thread switches
       const timer = setTimeout(() => {
         loadEvents();

@@ -15,6 +15,34 @@ interface PoolAccount {
     last_error_code: string | null;
 }
 
+interface ExecutorSpec {
+    runtime_id: string;
+    display_name: string;
+    is_primary: boolean;
+    config?: Record<string, any>;
+    priority: number;
+}
+
+interface WorkspaceGcaStatus {
+    requested_workspace_id: string;
+    effective_workspace_id: string;
+    auth_workspace_id: string | null;
+    source_workspace_id: string | null;
+    selection_reason: string;
+    selection_trace: Array<Record<string, any>>;
+    policy_mode: 'pinned_runtime' | 'pool_rotation';
+    preferred_runtime_id: string | null;
+    resolved_runtime_id: string | null;
+    resolved_email: string | null;
+    resolved_status: 'available' | 'cooldown' | 'unavailable';
+    cooldown_until: string | null;
+    next_reset_at: string | null;
+    available_count: number;
+    cooling_count: number;
+    pool_count: number;
+    error: string | null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
 /* ------------------------------------------------------------------ */
@@ -32,6 +60,31 @@ interface CliAgent {
 
 /** Auth tab type — either an API-key agent or the GCA OAuth flow */
 type AuthTab = 'gca' | 'gemini' | 'claude' | 'codex';
+
+function formatServerDateTime(value: string | null): string {
+    const parsed = parseServerTimestamp(value);
+    if (!parsed) return 'Unknown';
+    return parsed.toLocaleString([], {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+function formatTimeRemaining(value: string | null): string | null {
+    const parsed = parseServerTimestamp(value);
+    if (!parsed) return null;
+    const diffMs = parsed.getTime() - Date.now();
+    if (diffMs <= 0) return 'ready now';
+    const totalMinutes = Math.ceil(diffMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0 && minutes > 0) return `in ${hours}h ${minutes}m`;
+    if (hours > 0) return `in ${hours}h`;
+    return `in ${minutes}m`;
+}
 
 /* ------------------------------------------------------------------ */
 /* Agent definitions                                                   */
@@ -87,7 +140,11 @@ const CLI_AGENTS: CliAgent[] = [
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export default function CliApiKeysSection() {
+interface CliApiKeysSectionProps {
+    workspaceId?: string;
+}
+
+export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProps) {
     const [activeTab, setActiveTab] = useState<AuthTab>('gemini');
     const [values, setValues] = useState<Record<string, string>>({});
     const [saving, setSaving] = useState<string | null>(null);
@@ -105,6 +162,11 @@ export default function CliApiKeysSection() {
     const [addingAccount, setAddingAccount] = useState(false);
     const [pendingRuntimeId, setPendingRuntimeId] = useState<string | null>(null);
     const [currentAuthMode, setCurrentAuthMode] = useState<string>('gemini_api_key');
+    const [executorRuntimeId, setExecutorRuntimeId] = useState<string | null>(null);
+    const [boundGcaRuntimeId, setBoundGcaRuntimeId] = useState<string>('');
+    const [workspaceGcaStatus, setWorkspaceGcaStatus] = useState<WorkspaceGcaStatus | null>(null);
+    const [savingBinding, setSavingBinding] = useState(false);
+    const [savedBinding, setSavedBinding] = useState(false);
 
     const loadSettings = useCallback(async () => {
         try {
@@ -144,9 +206,57 @@ export default function CliApiKeysSection() {
         }
     }, []);
 
+    const loadWorkspaceBinding = useCallback(async () => {
+        if (!workspaceId) return;
+        try {
+            const base = getApiBaseUrl();
+            const resp = await fetch(`${base}/api/v1/workspaces/${workspaceId}/executor-specs`);
+            if (!resp.ok) return;
+            const data: {
+                resolved_executor_runtime?: string;
+                executor_specs?: ExecutorSpec[];
+            } = await resp.json();
+            const specs = data.executor_specs || [];
+            const targetRuntimeId = data.resolved_executor_runtime
+                || specs.find((spec) => spec.is_primary)?.runtime_id
+                || null;
+            setExecutorRuntimeId(targetRuntimeId);
+            const targetSpec = specs.find((spec) => spec.runtime_id === targetRuntimeId);
+            const preferred = targetSpec?.config?.preferred_gca_runtime_id
+                || targetSpec?.config?.gca_runtime_id
+                || '';
+            setBoundGcaRuntimeId(preferred);
+        } catch {
+            // Binding UI remains empty if the workspace config is unavailable.
+        }
+    }, [workspaceId]);
+
+    const loadWorkspaceGcaStatus = useCallback(async () => {
+        if (!workspaceId) {
+            setWorkspaceGcaStatus(null);
+            return;
+        }
+        try {
+            const base = getApiBaseUrl();
+            const resp = await fetch(
+                `${base}/api/v1/gca-pool/workspace-status?workspace_id=${encodeURIComponent(workspaceId)}`
+            );
+            if (!resp.ok) {
+                setWorkspaceGcaStatus(null);
+                return;
+            }
+            const data: WorkspaceGcaStatus = await resp.json();
+            setWorkspaceGcaStatus(data);
+        } catch {
+            setWorkspaceGcaStatus(null);
+        }
+    }, [workspaceId]);
+
     useEffect(() => {
         loadSettings();
         loadPoolAccounts();
+        loadWorkspaceBinding();
+        loadWorkspaceGcaStatus();
 
         const handleOAuthMessage = (event: MessageEvent) => {
             if (event.data?.type === 'RUNTIME_OAUTH_RESULT') {
@@ -154,6 +264,7 @@ export default function CliApiKeysSection() {
                 if (event.data.success) {
                     loadPoolAccounts();
                     loadSettings();
+                    loadWorkspaceGcaStatus();
                 } else {
                     setError(event.data.error || 'Google authentication failed');
                 }
@@ -161,7 +272,7 @@ export default function CliApiKeysSection() {
         };
         window.addEventListener('message', handleOAuthMessage);
         return () => window.removeEventListener('message', handleOAuthMessage);
-    }, [loadSettings, loadPoolAccounts]);
+    }, [loadSettings, loadPoolAccounts, loadWorkspaceBinding, loadWorkspaceGcaStatus]);
 
     const handleSave = async (agent: CliAgent) => {
         const key = agent.settingsKey;
@@ -251,6 +362,7 @@ export default function CliApiKeysSection() {
                 if (acct && acct.auth_status === 'connected') {
                     clearInterval(pollInterval);
                     setPendingRuntimeId(null);
+                    loadWorkspaceGcaStatus();
                 }
             }, 2000);
             setTimeout(() => {
@@ -276,6 +388,7 @@ export default function CliApiKeysSection() {
                 method: 'DELETE',
             });
             loadPoolAccounts();
+            loadWorkspaceGcaStatus();
         } catch {
             setError('Failed to remove account');
         }
@@ -290,6 +403,7 @@ export default function CliApiKeysSection() {
                 body: JSON.stringify({ enabled }),
             });
             loadPoolAccounts();
+            loadWorkspaceGcaStatus();
         } catch {
             setError('Failed to update account');
         }
@@ -309,9 +423,53 @@ export default function CliApiKeysSection() {
         );
     };
 
+    const handleSaveWorkspaceBinding = useCallback(async (nextRuntimeId: string) => {
+        if (!workspaceId || !executorRuntimeId) {
+            setError('No executor runtime is bound to this workspace.');
+            return false;
+        }
+
+        setSavingBinding(true);
+        setSavedBinding(false);
+        setError(null);
+        try {
+            const base = getApiBaseUrl();
+            const resp = await fetch(
+                `${base}/api/v1/workspaces/${workspaceId}/executor-specs/${executorRuntimeId}/config`,
+                {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        merge: true,
+                        config: {
+                            preferred_gca_runtime_id: nextRuntimeId || null,
+                        },
+                    }),
+                }
+            );
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error((err as Record<string, string>).detail || 'Failed to save binding');
+            }
+            await loadWorkspaceBinding();
+            await loadWorkspaceGcaStatus();
+            setSavedBinding(true);
+            setTimeout(() => setSavedBinding(false), 2000);
+            return true;
+        } catch (e: unknown) {
+            setError(e instanceof Error ? e.message : 'Failed to save workspace binding');
+            return false;
+        } finally {
+            setSavingBinding(false);
+        }
+    }, [executorRuntimeId, loadWorkspaceBinding, loadWorkspaceGcaStatus, workspaceId]);
+
     const activeAgent = CLI_AGENTS.find((a) => a.id === activeTab);
 
     const connectedCount = poolAccounts.filter(a => a.auth_status === 'connected').length;
+    const savedBoundRuntimeId = workspaceGcaStatus?.policy_mode === 'pinned_runtime'
+        ? (workspaceGcaStatus.preferred_runtime_id || '')
+        : '';
 
     const allTabs: { id: AuthTab; label: string; icon: string; hasValue: boolean }[] = [
         {
@@ -436,9 +594,107 @@ export default function CliApiKeysSection() {
                                 GCA Multi-Account Pool
                             </p>
                             <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                                Add multiple Google accounts for automatic rotation. When one account hits quota limits (429), the system switches to the next available account.
+                                Add multiple Google accounts for automatic rotation. Workspace status below reflects backend pool selection and cooldown resets after observed 429s; it does not read the external IDE quota dashboard directly.
                             </p>
                         </div>
+
+                        {workspaceId && (
+                            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 space-y-2">
+                                <p className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                                    Workspace GCA policy
+                                </p>
+                                <p className="text-xs text-blue-600 dark:text-blue-400">
+                                    By default, this workspace uses the enabled GCA pool with automatic rotation. Only pick a specific account if you want to pin this workspace to one runtime for debugging or cost isolation. Discoverable workspaces without their own override can fall back to the initiating or dispatch workspace, with trace metadata recorded per task.
+                                </p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <select
+                                        value={boundGcaRuntimeId}
+                                        onChange={async (e) => {
+                                            const nextValue = e.target.value;
+                                            const previousValue = boundGcaRuntimeId;
+                                            setBoundGcaRuntimeId(nextValue);
+                                            const ok = await handleSaveWorkspaceBinding(nextValue);
+                                            if (!ok) {
+                                                setBoundGcaRuntimeId(previousValue);
+                                            }
+                                        }}
+                                        disabled={!executorRuntimeId || savingBinding}
+                                        className="min-w-[220px] px-2 py-1.5 text-xs rounded-md border
+                                            border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700
+                                            text-gray-900 dark:text-gray-100"
+                                    >
+                                        <option value="">Use enabled pool rotation</option>
+                                        {poolAccounts.map((acct) => (
+                                            <option key={acct.id} value={acct.id}>
+                                                Pin to {acct.email || acct.id} ({acct.id})
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                        Executor: {executorRuntimeId || 'not bound'}
+                                        {workspaceGcaStatus?.policy_mode === 'pinned_runtime'
+                                            ? ` · saved: pinned ${workspaceGcaStatus.preferred_runtime_id || 'unknown'}`
+                                            : workspaceGcaStatus
+                                                ? ' · saved: rotation enabled'
+                                                : ''}
+                                    </span>
+                                    {savingBinding && (
+                                        <span className="text-[11px] px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                                            Saving...
+                                        </span>
+                                    )}
+                                    {!savingBinding && savedBinding && (
+                                        <span className="text-[11px] px-2 py-1 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                                            Saved
+                                        </span>
+                                    )}
+                                </div>
+                                {workspaceGcaStatus && (
+                                    <div className={`rounded-md border p-2 text-[11px] ${
+                                        workspaceGcaStatus.error
+                                            ? 'border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/10 text-amber-700 dark:text-amber-300'
+                                            : 'border-blue-200 dark:border-blue-800 bg-white/70 dark:bg-gray-900/20 text-blue-700 dark:text-blue-300'
+                                    }`}>
+                                        <div className="font-medium">
+                                            Backend pool resolution
+                                        </div>
+                                        <div className="mt-1">
+                                            Policy: {workspaceGcaStatus.policy_mode === 'pinned_runtime'
+                                                ? `Pinned to ${workspaceGcaStatus.preferred_runtime_id || 'unknown'}`
+                                                : 'Enabled pool rotation'}
+                                        </div>
+                                        <div>
+                                            Selected now: {workspaceGcaStatus.resolved_runtime_id
+                                                ? `${workspaceGcaStatus.resolved_email || workspaceGcaStatus.resolved_runtime_id} (${workspaceGcaStatus.resolved_runtime_id})`
+                                                : 'No eligible account'}
+                                        </div>
+                                        <div>
+                                            Status: {workspaceGcaStatus.resolved_status}
+                                            {workspaceGcaStatus.cooldown_until
+                                                ? ` · resets ${formatServerDateTime(workspaceGcaStatus.cooldown_until)} (${formatTimeRemaining(workspaceGcaStatus.cooldown_until)})`
+                                                : ''}
+                                        </div>
+                                        <div>
+                                            Pool health: {workspaceGcaStatus.available_count} available / {workspaceGcaStatus.cooling_count} cooling / {workspaceGcaStatus.pool_count} total
+                                            {workspaceGcaStatus.next_reset_at
+                                                ? ` · next reset ${formatServerDateTime(workspaceGcaStatus.next_reset_at)} (${formatTimeRemaining(workspaceGcaStatus.next_reset_at)})`
+                                                : ''}
+                                        </div>
+                                        <div>
+                                            Resolution: {workspaceGcaStatus.selection_reason}
+                                            {workspaceGcaStatus.effective_workspace_id && workspaceGcaStatus.effective_workspace_id !== workspaceId
+                                                ? ` · effective workspace ${workspaceGcaStatus.effective_workspace_id}`
+                                                : ''}
+                                        </div>
+                                        {workspaceGcaStatus.error && (
+                                            <div className="mt-1">
+                                                {workspaceGcaStatus.error}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* Account list */}
                         <div className="space-y-2">
@@ -480,15 +736,24 @@ export default function CliApiKeysSection() {
                                                         Cooldown
                                                     </span>
                                                 )}
-                                                {acct.last_error_code === '429' && !isCooling && (
-                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
-                                                        Quota hit
+                                                {acct.last_error_code === '429' && !isCooling && acct.auth_status === 'connected' && (
+                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                                                        Recovered
                                                     </span>
                                                 )}
                                             </div>
                                             <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
                                                 {acct.id}
                                             </span>
+                                            <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                                                {isCooling
+                                                    ? `Backend cooldown resets ${formatServerDateTime(acct.cooldown_until)} (${formatTimeRemaining(acct.cooldown_until)})`
+                                                    : acct.last_error_code === '429'
+                                                        ? 'Previous 429 cleared; backend cooldown is inactive.'
+                                                        : acct.auth_status === 'connected'
+                                                            ? 'Available now for pool rotation.'
+                                                            : 'Authenticate this account before it can join the pool.'}
+                                            </div>
                                         </div>
 
                                         {/* Actions */}

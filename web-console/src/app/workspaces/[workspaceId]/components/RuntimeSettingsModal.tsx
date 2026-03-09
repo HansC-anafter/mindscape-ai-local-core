@@ -112,7 +112,7 @@ export default function RuntimeSettingsModal({
                         />
                     )}
                     {activeTab === 'cli-keys' && (
-                        <CliApiKeysSection />
+                        <CliApiKeysSection workspaceId={workspaceId} />
                     )}
                 </div>
 

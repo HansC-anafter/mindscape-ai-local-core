@@ -5,6 +5,11 @@
 import { getApiBaseUrl } from '@/lib/api-url';
 
 const API_BASE = getApiBaseUrl();
+const CLOUD_MODE_API_BASE =
+  process.env.NEXT_PUBLIC_MINDSCAPE_CLOUD_INTEGRATION_API_BASE ||
+  process.env.NEXT_PUBLIC_MINDSCAPE_CLOUD_GENERATION_API_BASE ||
+  process.env.NEXT_PUBLIC_CLOUD_PROVIDER_API_BASE ||
+  process.env.NEXT_PUBLIC_SITE_HUB_API_BASE;
 
 /**
  * Error log throttling to prevent console spam
@@ -49,7 +54,7 @@ function getAuthToken(): string | null {
     return null;
   }
 
-  // Check if we're in Cloud mode (SITE_HUB_API_BASE is set)
+  // Check if we're in Cloud mode (cloud-integration API base is set)
   // In Cloud mode, token should be stored in localStorage or sessionStorage
   const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
   return token;
@@ -64,7 +69,7 @@ function isCloudMode(): boolean {
   }
   // Check environment variable or localStorage flag
   return !!(
-    process.env.NEXT_PUBLIC_SITE_HUB_API_BASE ||
+    CLOUD_MODE_API_BASE ||
     localStorage.getItem('cloud_mode') === 'true'
   );
 }
@@ -209,5 +214,3 @@ export async function apiDelete<T>(endpoint: string, options?: RequestInit): Pro
     method: 'DELETE',
   });
 }
-
-
