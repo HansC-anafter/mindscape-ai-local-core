@@ -43,7 +43,7 @@ User Input + System Prompt → LLM → Response
 
 ---
 
-## 2. Layer 1: Raw Prompt / 原始層
+## 2. Layer 1: Raw Prompt
 
 ### What It Contains
 
@@ -94,7 +94,7 @@ The **Raw Prompt** is the user's original expression of intent:
 
 ---
 
-## 3. Layer 2: Compiled Prompt / 編譯層
+## 3. Layer 2: Compiled Prompt
 
 ### What Happens at Compilation
 
@@ -155,7 +155,7 @@ Merge strategy:
 
 ---
 
-## 4. Layer 3: Semantic Prompt / 語意層
+## 4. Layer 3: Semantic Prompt
 
 ### What Gets Injected
 
