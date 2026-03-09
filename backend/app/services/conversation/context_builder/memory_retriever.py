@@ -167,7 +167,7 @@ class MemoryRetriever:
             try:
                 external_results = await search_service.search_external_docs(
                     query=query,
-                    source_apps=["local_folder"],
+                    source_apps=["local_folder", "content-vault"],
                     user_id="system",  # LocalFolderIndexer uses 'system' as user_id
                     top_k=5,
                 )

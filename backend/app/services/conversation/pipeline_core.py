@@ -36,6 +36,7 @@ class PipelineResult:
     meeting_session_id: Optional[str] = None
     task_ir_id: Optional[str] = None
     dispatch_result: Optional[Dict[str, Any]] = None
+    completion_status: Optional[str] = None  # OP-5: ExecutionCompletionStatus value
     success: bool = True
     error: Optional[str] = None
 
@@ -174,6 +175,7 @@ class PipelineCore:
                     project_id,
                     user_message=message,
                     model_name=model_name,
+                    executor_runtime=executor_runtime,
                 )
                 if session:
                     result.meeting_session_id = session.id
@@ -267,6 +269,46 @@ class PipelineCore:
                                 "FileDispatchEnricher failed in meeting branch: %s", e
                             )
 
+                # OP-1 + Q0: Assemble MeetingExecutionContext with runtime snapshot
+                from backend.app.models.meeting_execution_context import (
+                    MeetingExecutionContext,
+                )
+
+                # Q0: Build RuntimeObservabilitySnapshot from selected runtime
+                runtime_snapshot = None
+                try:
+                    from backend.app.models.runtime_observability_snapshot import (
+                        RuntimeObservabilitySnapshot,
+                    )
+                    from backend.app.models.runtime_environment import (
+                        RuntimeEnvironment,
+                    )
+                    from backend.app.database.engine import SessionLocalCore
+
+                    if executor_runtime:
+                        db = SessionLocalCore()
+                        try:
+                            runtime_env = (
+                                db.query(RuntimeEnvironment)
+                                .filter(RuntimeEnvironment.id == executor_runtime)
+                                .first()
+                            )
+                            if runtime_env:
+                                runtime_snapshot = RuntimeObservabilitySnapshot.from_runtime_environment(
+                                    runtime_env, selection_reason="primary"
+                                )
+                        finally:
+                            db.close()
+                except Exception as rt_exc:
+                    logger.warning("Q0 runtime snapshot failed (non-fatal): %s", rt_exc)
+
+                execution_context = MeetingExecutionContext.assemble(
+                    workspace=self.workspace,
+                    runtime_profile=self.runtime_profile,
+                    route_decision=route_decision,
+                    runtime_snapshot=runtime_snapshot,
+                )
+
                 meeting_engine = MeetingEngine(
                     session=session,
                     store=self.store,
@@ -279,6 +321,7 @@ class PipelineCore:
                     model_name=model_name,
                     executor_runtime=executor_runtime,
                     uploaded_files=uploaded_files,
+                    execution_context=execution_context,
                 )
 
                 handoff_in = extract_handoff_in(request)
@@ -289,6 +332,7 @@ class PipelineCore:
                 result.response_text = meeting_result.minutes_md
                 result.events = [{"id": eid} for eid in meeting_result.event_ids]
                 result.meeting_session_id = meeting_result.session_id
+                result.completion_status = meeting_result.completion_status  # OP-5
 
                 # Persist compiled TaskIR if present
                 if meeting_result.task_ir:
