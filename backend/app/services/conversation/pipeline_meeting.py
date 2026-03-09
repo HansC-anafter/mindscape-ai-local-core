@@ -395,7 +395,7 @@ async def finalize_meeting_session(
         )
         session.metadata["runs"] = run_meta
 
-        # OP-5: Surface completion_status into session metadata
+        # Surface completion_status into session metadata
         if hasattr(result, "completion_status") and result.completion_status:
             session.metadata["completion_status"] = result.completion_status
 

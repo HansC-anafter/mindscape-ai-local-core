@@ -36,7 +36,7 @@ class PipelineResult:
     meeting_session_id: Optional[str] = None
     task_ir_id: Optional[str] = None
     dispatch_result: Optional[Dict[str, Any]] = None
-    completion_status: Optional[str] = None  # OP-5: ExecutionCompletionStatus value
+    completion_status: Optional[str] = None  # ExecutionCompletionStatus value
     success: bool = True
     error: Optional[str] = None
 
@@ -269,12 +269,12 @@ class PipelineCore:
                                 "FileDispatchEnricher failed in meeting branch: %s", e
                             )
 
-                # OP-1 + Q0: Assemble MeetingExecutionContext with runtime snapshot
+                # Assemble MeetingExecutionContext with runtime snapshot
                 from backend.app.models.meeting_execution_context import (
                     MeetingExecutionContext,
                 )
 
-                # Q0: Build RuntimeObservabilitySnapshot from selected runtime
+                # Build RuntimeObservabilitySnapshot from selected runtime
                 runtime_snapshot = None
                 try:
                     from backend.app.models.runtime_observability_snapshot import (
@@ -332,7 +332,7 @@ class PipelineCore:
                 result.response_text = meeting_result.minutes_md
                 result.events = [{"id": eid} for eid in meeting_result.event_ids]
                 result.meeting_session_id = meeting_result.session_id
-                result.completion_status = meeting_result.completion_status  # OP-5
+                result.completion_status = meeting_result.completion_status
 
                 # Persist compiled TaskIR if present
                 if meeting_result.task_ir:

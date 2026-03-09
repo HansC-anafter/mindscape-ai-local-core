@@ -1,10 +1,8 @@
 """
-Q0: RuntimeObservabilitySnapshot — read-only view of selected runtime state.
+RuntimeObservabilitySnapshot — read-only view of selected runtime state.
 
-NOT a MeetingEngine responsibility.  Assembled ONCE at meeting start,
-read by:
-  - MeetingExecutionContext (OP-1)
-  - OP-3 budget-aware gating (via SupervisionSignals)
+Assembled ONCE at meeting start, read by MeetingExecutionContext
+and budget-aware gating (via SupervisionSignals).
 
 Sources: RuntimeEnvironment (DB model) + RuntimeAuthService.
 """

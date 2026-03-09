@@ -5,7 +5,7 @@ Tracks the lifecycle of dispatched tasks INDEPENDENTLY of the meeting
 session FSM (active → closed).  The meeting can close while tasks
 are still ``RUNNING`` or ``ACCEPTED``.
 
-OP-5: This is execution-level state, not session state.
+This is execution-level state, not session state.
 """
 
 from __future__ import annotations

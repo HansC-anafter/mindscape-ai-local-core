@@ -80,7 +80,7 @@ class MeetingResult:
     event_ids: List[str] = field(default_factory=list)
     task_ir: Optional[Any] = None
     dispatch_result: Optional[Dict[str, Any]] = None
-    completion_status: str = "accepted"  # OP-5: ExecutionCompletionStatus value
+    completion_status: str = "accepted"  # ExecutionCompletionStatus value
 
 
 class MeetingEngine(
@@ -201,7 +201,7 @@ class MeetingEngine(
             getattr(recovery_policy, "retry_strategy", "exponential_backoff")
         )
 
-        # OP-1: Assemble MeetingExecutionContext
+        # Assemble MeetingExecutionContext
         from backend.app.models.meeting_execution_context import (
             MeetingExecutionContext,
         )
@@ -302,7 +302,7 @@ class MeetingEngine(
         self._start_session()
         base_max_rounds = max(1, int(getattr(self.session, "max_rounds", 1)))
 
-        # OP-4: Select deliberation depth from meeting-internal factors
+        # Select deliberation depth from meeting-internal factors
         agenda = getattr(self.session, "agenda", None) or []
         depth = select_deliberation_depth(
             agenda_items=len(agenda),
@@ -356,7 +356,7 @@ class MeetingEngine(
                 self._emit_turn(planner_turn)
                 self._emit_decision_proposal(planner_turn)
 
-                # OP-4: Skip critic in SHALLOW depth to reduce latency
+                # Skip critic in SHALLOW depth to reduce latency
                 if depth != DeliberationDepth.SHALLOW:
                     critic_turn = await self._agent_turn(
                         "critic",
@@ -506,7 +506,7 @@ class MeetingEngine(
 
         # ── Phase 3: Gate → Compile → Orchestrate ─────────────
 
-        # Step 2: L3 Dispatch Gate with real L5 supervision signals (OP-3)
+        # L3 Dispatch Gate with real L5 supervision signals
         from backend.app.services.orchestration.meeting.dispatch_gate import (
             DispatchGate,
             GateDecision,
@@ -520,7 +520,7 @@ class MeetingEngine(
         real_signals = SupervisionSignals()  # safe default
         try:
             emitter = SupervisionSignalsEmitter()
-            # Gather PhaseAttempt records from session metadata (OP-3 write-read loop)
+            # Gather PhaseAttempt records from session metadata (write-read loop)
             session_attempts = []
             try:
                 # DispatchOrchestrator persists attempts to session.metadata["phase_attempts"]
@@ -654,7 +654,7 @@ class MeetingEngine(
                 "Supervisor hook failed for session %s: %s", self.session.id, exc
             )
 
-        # OP-5: Derive completion_status from dispatch results
+        # Derive completion_status from dispatch results
         from backend.app.models.completion_status import ExecutionCompletionStatus
 
         completion_status = ExecutionCompletionStatus.ACCEPTED
