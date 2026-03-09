@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { t } from '@/lib/i18n';
 import { getApiBaseUrl } from '@/lib/api-url';
@@ -52,6 +52,12 @@ const formatProviderName = (provider?: string): string => {
   return providerMap[provider.toLowerCase()] || provider.charAt(0).toUpperCase() + provider.slice(1).replace(/-/g, ' ').replace(/_/g, ' ');
 };
 
+interface HostServiceStatus {
+  name: string;
+  ok: boolean;
+  detail?: string;
+}
+
 export default function IntegratedSystemStatusCard({
   systemStatus,
   workspace,
@@ -63,6 +69,9 @@ export default function IntegratedSystemStatusCard({
   const [showBridgeDialog, setShowBridgeDialog] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [hostServices, setHostServices] = useState<HostServiceStatus[]>([]);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -81,26 +90,99 @@ export default function IntegratedSystemStatusCard({
     }
   }, [workspaceId]);
 
+  const fetchHostServices = useCallback(async () => {
+    const apiUrl = getApiBaseUrl();
+    const checks: HostServiceStatus[] = [];
+
+    // XTTS service
+    try {
+      const r = await fetch(`${apiUrl}/api/v1/host/services/xtts/health`, { signal: AbortSignal.timeout(3000) });
+      if (r.ok) {
+        const d = await r.json();
+        checks.push({
+          name: 'XTTS Service',
+          ok: d.status === 'ok',
+          detail: d.model_loaded ? 'model loaded' : 'model not loaded',
+        });
+      } else {
+        checks.push({ name: 'XTTS Service', ok: false, detail: 'unreachable' });
+      }
+    } catch {
+      checks.push({ name: 'XTTS Service', ok: false, detail: 'unreachable' });
+    }
+
+    // MCP Gateway (Node process on host)
+    try {
+      const r = await fetch(`${apiUrl}/api/v1/host/services/mcp-gateway/health`, { signal: AbortSignal.timeout(3000) });
+      checks.push({ name: 'MCP Gateway', ok: r.ok, detail: r.ok ? 'running' : 'not running' });
+    } catch {
+      checks.push({ name: 'MCP Gateway', ok: false, detail: 'unreachable' });
+    }
+
+    setHostServices(checks);
+    setLastUpdated(new Date());
+  }, []);
+
+  const handleManualRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await Promise.all([fetchAgents(), fetchHostServices()]);
+    onRefresh?.();
+    setIsRefreshing(false);
+  }, [fetchAgents, fetchHostServices, onRefresh]);
+
   useEffect(() => {
     fetchAgents();
+    fetchHostServices();
     // Poll every 30s to detect bridge connections
-    const interval = setInterval(fetchAgents, 30_000);
+    const interval = setInterval(() => {
+      fetchAgents();
+      fetchHostServices();
+    }, 30_000);
     return () => clearInterval(interval);
-  }, [fetchAgents]);
+  }, [fetchAgents, fetchHostServices]);
+
+  // Update lastUpdated whenever systemStatus changes (driven by Context 60s poll)
+  useEffect(() => {
+    if (systemStatus) setLastUpdated(new Date());
+  }, [systemStatus]);
 
   const availableCount = agents.filter(a => a.status === 'available').length;
+
+  const formatTime = (d: Date) =>
+    d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   return (
     <div className="bg-surface-secondary dark:bg-gray-800 border dark:border-gray-700 rounded p-2 shadow-sm">
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <h3 className="font-semibold text-primary dark:text-gray-100 text-xs">{t('systemStatusAndTools' as any)}</h3>
-        {systemStatus.has_issues && (
-          <span className="text-[10px] text-red-600 dark:text-red-400 font-medium">
-            {systemStatus.critical_issues_count} {t('issuesCount' as any)}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {systemStatus.has_issues && (
+            <span className="text-[10px] text-red-600 dark:text-red-400 font-medium">
+              {systemStatus.critical_issues_count} {t('issuesCount' as any)}
+            </span>
+          )}
+          <button
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            title="刷新系統狀態"
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors disabled:opacity-50"
+          >
+            <svg
+              className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`}
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+        </div>
       </div>
+      {lastUpdated && (
+        <div className="text-[9px] text-gray-400 dark:text-gray-500 mb-1.5 text-right">
+          更新於 {formatTime(lastUpdated)}
+        </div>
+      )}
 
       {/* Core System Status */}
       <div className="space-y-1.5 text-xs mb-2">
@@ -188,6 +270,26 @@ export default function IntegratedSystemStatusCard({
               No agents connected. Run the Bridge script to get started.
             </div>
           )}
+        </div>
+      )}
+
+      {/* Host Services */}
+      {hostServices.length > 0 && (
+        <div className="mt-2 pt-2 border-t dark:border-gray-700">
+          <div className="text-[10px] text-secondary dark:text-gray-400 mb-1">Host Services</div>
+          <div className="space-y-1">
+            {hostServices.map((svc) => (
+              <div key={svc.name} className="flex items-center justify-between text-xs">
+                <span className="text-secondary dark:text-gray-400">{svc.name}</span>
+                <div className="flex items-center gap-1.5">
+                  <div className={`w-1.5 h-1.5 rounded-full ${svc.ok ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-500'}`} />
+                  <span className={`text-xs ${svc.ok ? 'text-green-600 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                    {svc.detail || (svc.ok ? 'running' : 'offline')}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

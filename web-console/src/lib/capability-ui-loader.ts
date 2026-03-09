@@ -407,6 +407,15 @@ export function artifactsMatchComponent(
     return false;
   }
 
+  // Full-page capability entry points should only render on their dedicated
+  // capability routes, not inside artifact preview slots.
+  if (
+    typeof component?.code === 'string' &&
+    (component.code.endsWith('Page') || component.code.endsWith('StudioPage'))
+  ) {
+    return false;
+  }
+
   // Check artifact types
   if (component.artifact_types && component.artifact_types.length > 0) {
     const hasMatchingType = artifacts.some(artifact =>
