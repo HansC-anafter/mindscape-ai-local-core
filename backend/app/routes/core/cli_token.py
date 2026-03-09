@@ -17,14 +17,18 @@ import logging
 import os
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
-def _get_gca_token() -> dict:
+def _get_gca_token(
+    workspace_id: str | None = None,
+    auth_workspace_id: str | None = None,
+    source_workspace_id: str | None = None,
+) -> dict:
     """Retrieve Google IDP access token from connected GCA runtimes.
 
     Queries all GCA runtimes (id LIKE 'gca-%') with auth_status='connected',
@@ -34,6 +38,57 @@ def _get_gca_token() -> dict:
     Returns:
         dict with env vars and selected_runtime_id, or error details.
     """
+    try:
+        from ...services.gca_pool_service import GCAPoolService
+        from ...services.gca_workspace_resolver import GCAWorkspaceResolver
+
+        selection = None
+        if workspace_id:
+            selection = GCAWorkspaceResolver().resolve(
+                workspace_id=workspace_id,
+                auth_workspace_id=auth_workspace_id,
+                source_workspace_id=source_workspace_id,
+            )
+            if selection.selected_runtime_id:
+                pool_result = GCAPoolService().get_active_token(
+                    preferred_runtime_id=selection.selected_runtime_id,
+                    allow_fallback=False,
+                )
+            else:
+                pool_result = GCAPoolService().get_active_token()
+        else:
+            pool_result = GCAPoolService().get_active_token()
+        if "env" in pool_result:
+            if selection:
+                pool_result.update(
+                    {
+                        "requested_workspace_id": selection.requested_workspace_id,
+                        "effective_workspace_id": selection.effective_workspace_id,
+                        "auth_workspace_id": selection.auth_workspace_id,
+                        "source_workspace_id": selection.source_workspace_id,
+                        "selection_reason": selection.selection_reason,
+                        "selection_trace": list(selection.trace),
+                    }
+                )
+            return pool_result
+        if selection:
+            return {
+                "error": pool_result.get("error", "workspace-scoped GCA selection failed"),
+                "requested_workspace_id": selection.requested_workspace_id,
+                "effective_workspace_id": selection.effective_workspace_id,
+                "auth_workspace_id": selection.auth_workspace_id,
+                "source_workspace_id": selection.source_workspace_id,
+                "selection_reason": selection.selection_reason,
+                "selection_trace": list(selection.trace),
+            }
+    except Exception:
+        if workspace_id:
+            logger.exception("Workspace-scoped GCA token lookup failed")
+            return {
+                "error": f"Workspace-scoped GCA token lookup failed for workspace {workspace_id}",
+            }
+        logger.exception("GCA pool token lookup failed, falling back to legacy selector")
+
     try:
         from ...database.session import get_db_postgres as get_db
     except ImportError:
@@ -52,7 +107,7 @@ def _get_gca_token() -> dict:
             db.query(RuntimeEnvironment)
             .filter(
                 RuntimeEnvironment.id.like("gca-%"),
-                RuntimeEnvironment.auth_status == "connected",
+                RuntimeEnvironment.auth_status.in_(("connected", "expired")),
             )
             .all()
         )
@@ -98,6 +153,10 @@ def _get_gca_token() -> dict:
                     )
                     errors.append(f"{runtime.id}: refresh failed")
                     continue
+
+            if runtime.auth_status != "connected":
+                runtime.auth_status = "connected"
+                db.commit()
 
             # Resolve GCP project ID (required by cloudcode-pa)
             gcp_project = token_data.get("gcp_project") or ""
@@ -189,6 +248,7 @@ def _refresh_google_token(refresh_token, runtime, auth_service, token_data, db):
         encrypted = auth_service.encrypt_token_blob(token_data)
 
         runtime.auth_config = encrypted
+        runtime.auth_status = "connected"
         db.commit()
 
         logger.info("IDP token refreshed successfully, expires_in=%s", expires_in)
@@ -200,7 +260,11 @@ def _refresh_google_token(refresh_token, runtime, auth_service, token_data, db):
 
 
 @router.get("/cli-token")
-async def get_cli_token():
+async def get_cli_token(
+    workspace_id: str | None = Query(None),
+    auth_workspace_id: str | None = Query(None),
+    source_workspace_id: str | None = Query(None),
+):
     """Return auth env vars for CLI bridge processes.
 
     Queries system_settings for gemini_cli_auth_mode and the
@@ -220,7 +284,11 @@ async def get_cli_token():
 
         # ── GCA mode: return stored Google IDP token ──
         if auth_mode == "gca":
-            result = _get_gca_token()
+            result = _get_gca_token(
+                workspace_id=workspace_id,
+                auth_workspace_id=auth_workspace_id,
+                source_workspace_id=source_workspace_id,
+            )
             if "error" in result:
                 logger.warning("GCA token retrieval failed: %s", result["error"])
                 return {
@@ -228,11 +296,24 @@ async def get_cli_token():
                     "env": {},
                     "error": result["error"],
                     "model": agent_model,
+                    "requested_workspace_id": result.get("requested_workspace_id"),
+                    "effective_workspace_id": result.get("effective_workspace_id"),
+                    "auth_workspace_id": result.get("auth_workspace_id"),
+                    "source_workspace_id": result.get("source_workspace_id"),
+                    "selection_reason": result.get("selection_reason"),
+                    "selection_trace": result.get("selection_trace", []),
                 }
             return {
                 "auth_mode": "gca",
                 "env": result["env"],
                 "model": agent_model,
+                "selected_runtime_id": result.get("selected_runtime_id"),
+                "requested_workspace_id": result.get("requested_workspace_id"),
+                "effective_workspace_id": result.get("effective_workspace_id"),
+                "auth_workspace_id": result.get("auth_workspace_id"),
+                "source_workspace_id": result.get("source_workspace_id"),
+                "selection_reason": result.get("selection_reason"),
+                "selection_trace": result.get("selection_trace", []),
             }
 
         # ── API key mode ──

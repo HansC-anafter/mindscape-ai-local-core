@@ -43,28 +43,12 @@ def get_intent_pipeline(store: MindscapeStore = Depends(get_store)) -> IntentPip
     if _intent_pipeline is None:
         playbook_service = PlaybookService(store=store)
 
-        # Try to get llm_provider dynamically
-        llm_provider = None
-        try:
-            from ..shared.llm_provider_helper import (
-                get_llm_provider_from_settings,
-                create_llm_provider_manager,
-            )
-
-            llm_manager = create_llm_provider_manager()
-            llm_provider = get_llm_provider_from_settings(llm_manager)
-            logger.info(
-                f"IntentPipeline: Successfully obtained llm_provider from settings: {type(llm_provider).__name__}"
-            )
-        except Exception as e:
-            logger.warning(
-                f"IntentPipeline: Failed to get llm_provider from settings: {e}, will use None",
-                exc_info=True,
-            )
-
         _intent_pipeline = IntentPipeline(
-            llm_provider=llm_provider, store=store, playbook_service=playbook_service
+            llm_provider=None,
+            store=store,
+            playbook_service=playbook_service,
         )
+        logger.info("IntentPipeline: initialized without eager llm_provider")
     return _intent_pipeline
 
 

@@ -35,11 +35,16 @@ async def get_workspace_events(
     event_types: Optional[str] = Query(None),
     limit: int = Query(200),
     _t: Optional[str] = Query(None),
+    thread_id: Optional[str] = Query(None),
 ):
     try:
         # Build query with event_type filtering at SQL level
         query_str = "SELECT * FROM mind_events WHERE workspace_id = :ws"
         params: dict = {"ws": workspace_id, "lim": limit}
+
+        if thread_id:
+            query_str += " AND thread_id = :tid"
+            params["tid"] = thread_id
 
         if event_types:
             type_list = [t.strip() for t in event_types.split(",") if t.strip()]
@@ -234,45 +239,108 @@ async def get_thread_bundle(
         except Exception:
             pass
 
-        # Get runs (executions) related to this thread
+        # Get runs (executions) related to this thread via meeting sessions
         runs = []
         try:
+            from backend.app.services.stores.tasks_store import TasksStore
+
+            tasks_store = TasksStore()
+            # Find meeting sessions for this thread
             with store.events.get_connection() as conn:
-                run_rows = conn.execute(
+                session_rows = conn.execute(
                     text(
-                        "SELECT id, pack_id, status, created_at, updated_at, "
-                        "execution_context, result "
-                        "FROM tasks WHERE workspace_id = :ws "
-                        "ORDER BY created_at DESC LIMIT 10"
+                        "SELECT id FROM meeting_sessions "
+                        "WHERE workspace_id = :ws AND thread_id = :tid "
+                        "ORDER BY started_at DESC LIMIT 5"
                     ),
-                    {"ws": workspace_id},
+                    {"ws": workspace_id, "tid": thread_id},
                 ).fetchall()
-            for r in run_rows:
-                ctx = (
-                    r.execution_context if isinstance(r.execution_context, dict) else {}
-                )
-                started = str(r.created_at) if r.created_at else ""
-                duration = None
-                if r.created_at and r.updated_at:
-                    try:
-                        duration = int(
-                            (r.updated_at - r.created_at).total_seconds() * 1000
-                        )
-                    except Exception:
-                        pass
-                runs.append(
+            seen_task_ids = set()
+            for sr in session_rows:
+                sid = sr.id if hasattr(sr, "id") else sr[0]
+                session_tasks = tasks_store.list_tasks_by_meeting_session(str(sid))
+                for t in session_tasks:
+                    # Only show actual execution tasks, exclude planning items
+                    if t.task_type not in (
+                        "playbook_execution",
+                        "tool_execution",
+                    ):
+                        continue
+                    if t.id in seen_task_ids:
+                        continue
+                    seen_task_ids.add(t.id)
+                    ctx = (
+                        t.execution_context
+                        if isinstance(t.execution_context, dict)
+                        else {}
+                    )
+                    duration = None
+                    if t.created_at and t.completed_at:
+                        try:
+                            duration = int(
+                                (t.completed_at - t.created_at).total_seconds() * 1000
+                            )
+                        except Exception:
+                            pass
+                    runs.append(
+                        {
+                            "id": str(t.id),
+                            "playbook_name": ctx.get("playbook_name", t.pack_id or ""),
+                            "status": _map_status(
+                                str(t.status) if t.status else "running"
+                            ),
+                            "started_at": (str(t.started_at or t.created_at or "")),
+                            "duration_ms": duration,
+                            "steps_completed": 0,
+                            "steps_total": 0,
+                            "deliverable_ids": [],
+                            "result_summary": None,
+                        }
+                    )
+        except Exception:
+            pass
+
+        # Get deliverables (artifacts linked to this thread)
+        deliverables = []
+        try:
+            artifacts = store.artifacts.get_by_thread(workspace_id, thread_id, limit=20)
+            for a in artifacts:
+                deliverables.append(
                     {
-                        "id": str(r.id),
-                        "playbook_name": ctx.get("playbook_name", r.pack_id or ""),
-                        "status": _map_status(r.status),
-                        "started_at": started,
-                        "duration_ms": duration,
-                        "steps_completed": 0,
-                        "steps_total": 0,
-                        "deliverable_ids": [],
-                        "result_summary": None,
+                        "id": a.id,
+                        "type": (
+                            a.artifact_type.value
+                            if hasattr(a.artifact_type, "value")
+                            else str(a.artifact_type)
+                        ),
+                        "title": a.title,
+                        "summary": a.summary,
+                        "created_at": (
+                            a.created_at.isoformat() if a.created_at else ""
+                        ),
                     }
                 )
+        except Exception:
+            pass
+
+        # Derive status from meeting session
+        bundle_status = "in_progress"
+        try:
+            with store.events.get_connection() as conn:
+                ms_row = conn.execute(
+                    text(
+                        "SELECT status FROM meeting_sessions "
+                        "WHERE workspace_id = :ws AND thread_id = :tid "
+                        "ORDER BY started_at DESC LIMIT 1"
+                    ),
+                    {"ws": workspace_id, "tid": thread_id},
+                ).fetchone()
+            if ms_row:
+                ms_status = ms_row.status if hasattr(ms_row, "status") else ms_row[0]
+                if ms_status == "closed":
+                    bundle_status = "completed"
+                elif ms_status == "failed":
+                    bundle_status = "failed"
         except Exception:
             pass
 
@@ -281,13 +349,13 @@ async def get_thread_bundle(
             "overview": {
                 "title": title,
                 "brief": None,
-                "status": "in_progress",
+                "status": bundle_status,
                 "summary": None,
                 "project_id": project_id,
                 "labels": [],
                 "pinned_scope": None,
             },
-            "deliverables": [],
+            "deliverables": deliverables,
             "references": references,
             "runs": runs,
             "sources": [],

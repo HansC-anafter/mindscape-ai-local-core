@@ -10,8 +10,10 @@ Cross-worker support:
   which worker accepted the socket.
 """
 
+import asyncio
 import logging
 import os
+import socket
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -26,6 +28,7 @@ CREATE TABLE IF NOT EXISTS ws_connections (
     workspace_id VARCHAR(64) NOT NULL,
     client_id VARCHAR(64) NOT NULL UNIQUE,
     worker_pid INTEGER NOT NULL,
+    worker_instance_id VARCHAR(128),
     surface_type VARCHAR(32) DEFAULT 'gemini_cli',
     authenticated BOOLEAN DEFAULT FALSE,
     connected_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -55,6 +58,11 @@ CREATE INDEX IF NOT EXISTS idx_pending_dispatch_status
 _tables_ensured = False
 
 
+def _get_worker_instance_id() -> str:
+    """Return a worker identity stable for this process lifetime."""
+    return f"{socket.gethostname()}:{os.getpid()}"
+
+
 def _get_core_db_connection():
     """Get a raw psycopg2 connection to the core database.
 
@@ -76,6 +84,11 @@ def _get_core_db_connection():
             with conn.cursor() as cur:
                 cur.execute(_CREATE_WS_CONNECTIONS_SQL)
                 cur.execute(_CREATE_PENDING_DISPATCH_SQL)
+                cur.execute(
+                    "ALTER TABLE ws_connections "
+                    "ADD COLUMN IF NOT EXISTS worker_instance_id "
+                    "VARCHAR(128)"
+                )
                 # Migrate existing tables: add last_progress_at if missing
                 cur.execute(
                     "ALTER TABLE pending_dispatch "
@@ -185,6 +198,37 @@ class ConnectionMixin:
                             "output": "Already completed before disconnect",
                         }
                     )
+                continue
+
+            # If another worker is awaiting the result, hand retry control
+            # back to the origin worker instead of trapping it in a local queue.
+            if task.origin_worker_id and task.origin_worker_id != self._ensure_worker_identity():
+                self._inflight.pop(eid)
+                if task.payload:
+                    try:
+                        asyncio.create_task(
+                            self._relay_to_origin_worker(
+                                task,
+                                "dispatch_failed",
+                                client_id=cid,
+                                error=(
+                                    f"Client {cid} disconnected while executing {eid}"
+                                ),
+                                retry_transport="db_polling",
+                            )
+                        )
+                    except Exception:
+                        logger.exception(
+                            "[AgentWS] Failed to notify origin worker about disconnect "
+                            "for %s",
+                            eid,
+                        )
+                logger.warning(
+                    "[AgentWS] Remote-origin task %s lost client %s; "
+                    "origin worker will retry via shared transport",
+                    eid,
+                    cid,
+                )
                 continue
 
             # Re-queue with payload if available.
@@ -342,20 +386,32 @@ class ConnectionMixin:
         conn = _get_core_db_connection()
         if not conn:
             return
+        worker_instance_id = _get_worker_instance_id()
         try:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO ws_connections "
-                    "(workspace_id, client_id, worker_pid, surface_type, authenticated) "
-                    "VALUES (%s, %s, %s, %s, %s) "
+                    "("
+                    "workspace_id, client_id, worker_pid, worker_instance_id, "
+                    "surface_type, authenticated"
+                    ") "
+                    "VALUES (%s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT (client_id) DO UPDATE SET "
                     "workspace_id = EXCLUDED.workspace_id, "
                     "worker_pid = EXCLUDED.worker_pid, "
+                    "worker_instance_id = EXCLUDED.worker_instance_id, "
                     "surface_type = EXCLUDED.surface_type, "
                     "authenticated = EXCLUDED.authenticated, "
                     "connected_at = NOW(), "
                     "last_heartbeat = NOW()",
-                    (workspace_id, client_id, os.getpid(), surface_type, authenticated),
+                    (
+                        workspace_id,
+                        client_id,
+                        os.getpid(),
+                        worker_instance_id,
+                        surface_type,
+                        authenticated,
+                    ),
                 )
             conn.commit()
         except Exception:
@@ -468,5 +524,55 @@ class ConnectionMixin:
             conn.commit()
         except Exception:
             conn.rollback()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _db_get_dispatch_target(
+        workspace_id: str,
+        client_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Return the freshest authenticated connection for a workspace."""
+        conn = _get_core_db_connection()
+        if not conn:
+            return None
+        try:
+            with conn.cursor() as cur:
+                if client_id:
+                    cur.execute(
+                        "SELECT client_id, worker_pid, worker_instance_id, "
+                        "surface_type "
+                        "FROM ws_connections "
+                        "WHERE workspace_id = %s "
+                        "AND client_id = %s "
+                        "AND authenticated = TRUE "
+                        "AND last_heartbeat > NOW() - INTERVAL '90 seconds' "
+                        "ORDER BY last_heartbeat DESC "
+                        "LIMIT 1",
+                        (workspace_id, client_id),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT client_id, worker_pid, worker_instance_id, "
+                        "surface_type "
+                        "FROM ws_connections "
+                        "WHERE workspace_id = %s "
+                        "AND authenticated = TRUE "
+                        "AND last_heartbeat > NOW() - INTERVAL '90 seconds' "
+                        "ORDER BY last_heartbeat DESC "
+                        "LIMIT 1",
+                        (workspace_id,),
+                    )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                remote_client_id, worker_pid, worker_instance_id, surface_type = row
+                return {
+                    "workspace_id": workspace_id,
+                    "client_id": remote_client_id,
+                    "worker_pid": worker_pid,
+                    "worker_instance_id": worker_instance_id,
+                    "surface_type": surface_type,
+                }
         finally:
             conn.close()

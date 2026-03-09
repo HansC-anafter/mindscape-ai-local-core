@@ -63,11 +63,13 @@ class InflightTask:
     execution_id: str
     workspace_id: str
     client_id: str
+    origin_worker_id: Optional[str] = None
     dispatched_at: float = field(default_factory=time.monotonic)
     acked: bool = False
     result_future: Optional[asyncio.Future] = None
     payload: Optional[Dict[str, Any]] = None  # retained for re-queue on disconnect
     thread_id: Optional[str] = None  # for artifact bundle association
+    project_id: Optional[str] = None  # for artifact/project association
     last_progress_pct: int = 0
     last_progress_msg: str = ""
     last_progress_at: float = field(default_factory=time.monotonic)

@@ -53,6 +53,56 @@ class WorkspaceGroupMembersResponse(BaseModel):
 # ── Endpoints ──
 
 
+class WorkspaceGroupListResponse(BaseModel):
+    """Paginated list of workspace groups."""
+
+    groups: List[WorkspaceGroupResponse] = []
+    total: int = 0
+
+
+@router.get("", response_model=WorkspaceGroupListResponse)
+async def list_workspace_groups():
+    """List all workspace groups."""
+    from sqlalchemy import text as sa_text
+
+    group_store = PostgresWorkspaceGroupStore()
+    membership_store = GroupMembershipStore()
+
+    with group_store.get_connection() as conn:
+        rows = conn.execute(
+            sa_text("SELECT * FROM workspace_groups ORDER BY updated_at DESC LIMIT 200")
+        ).fetchall()
+
+    result = []
+    for row in rows:
+        group = group_store._row_to_group(row)
+        members_raw = membership_store.list_workspaces_in_group(group.id)
+        members = [
+            WorkspaceGroupMember(
+                workspace_id=m["workspace_id"],
+                role=m["role"],
+                title=m.get("title"),
+                visibility=m.get("visibility"),
+                joined_at=m.get("joined_at"),
+            )
+            for m in members_raw
+        ]
+        result.append(
+            WorkspaceGroupResponse(
+                id=group.id,
+                display_name=group.display_name,
+                owner_user_id=group.owner_user_id,
+                description=group.description,
+                role_map=group.role_map,
+                members=members,
+                created_at=group.created_at.isoformat() if group.created_at else None,
+                updated_at=group.updated_at.isoformat() if group.updated_at else None,
+            )
+        )
+
+    return WorkspaceGroupListResponse(groups=result, total=len(result))
+
+
 @router.get("/{group_id}", response_model=WorkspaceGroupResponse)
 async def get_workspace_group(group_id: str):
     """Get workspace group details including member list."""
