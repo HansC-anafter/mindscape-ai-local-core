@@ -13,6 +13,28 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+_NON_RETRIABLE_RUNTIME_PATTERNS = (
+    "terminalquotaerror",
+    "exhausted your capacity",
+    "quota exceeded",
+    "resource_exhausted",
+    "resource exhausted",
+    "rate limit",
+    "too many requests",
+)
+
+
+def _is_non_retriable_runtime_error(exc: Exception) -> bool:
+    """Return True when the runtime error should fail fast.
+
+    The Gemini CLI runtime bridge already performs one internal refresh/retry
+    for auth/quota faults. If the error still bubbles up here, retrying the
+    whole meeting turn just burns additional budget and delays failure.
+    """
+    text = str(exc or "").lower()
+    return any(pattern in text for pattern in _NON_RETRIABLE_RUNTIME_PATTERNS)
+
+
 class MeetingGenerationMixin:
     """Mixin providing LLM text generation methods for MeetingEngine."""
 
@@ -43,6 +65,15 @@ class MeetingGenerationMixin:
                 )
             except Exception as exc:
                 last_error = exc
+                if _is_non_retriable_runtime_error(exc):
+                    # OP-6: Emit structured RuntimeUnavailableEvent before fail-fast
+                    self._emit_runtime_unavailable_event(
+                        runtime_id=getattr(self, "executor_runtime", None)
+                        or "llm_provider",
+                        error=str(exc),
+                        reason="non_retriable_quota_or_rate_limit",
+                    )
+                    break
                 if attempt >= attempts:
                     break
                 self.orchestrator.record_retry()
@@ -107,6 +138,12 @@ class MeetingGenerationMixin:
                 )
                 await asyncio.sleep(2 * (attempt + 1))
         if not available:
+            # OP-6: Emit structured event before fail-fast
+            self._emit_runtime_unavailable_event(
+                runtime_id=self.executor_runtime,
+                error=f"Preferred agent '{self.executor_runtime}' unavailable after 3 attempts",
+                reason="executor_runtime_unavailable",
+            )
             raise RuntimeError(
                 f"Preferred agent '{self.executor_runtime}' is unavailable in meeting mode"
             )
@@ -190,6 +227,10 @@ class MeetingGenerationMixin:
         """Initialize the LLM provider if not already set."""
         if self.provider:
             return
+        # Skip direct LLM provider init when executor_runtime is available —
+        # _generate_text() will delegate to executor_runtime path instead.
+        if self.executor_runtime:
+            return
 
         if not self.model_name:
             self.model_name = self._resolve_model_name()
@@ -233,3 +274,29 @@ class MeetingGenerationMixin:
         if self.retry_strategy == "exponential_backoff":
             return float(min(2**attempt, 8))
         return 0.0
+
+    def _emit_runtime_unavailable_event(
+        self,
+        runtime_id: str,
+        error: str,
+        reason: str,
+    ) -> None:
+        """OP-6: Emit structured RuntimeUnavailableEvent for observability.
+
+        Enables dashboards and alerting to track runtime failures without
+        log parsing.  Fallback decisions happen ABOVE the meeting engine,
+        per v3 constraint.
+        """
+        try:
+            self._emit_event(
+                "runtime_unavailable",
+                payload={
+                    "runtime_id": runtime_id,
+                    "error": error[:500],
+                    "reason": reason,
+                    "session_id": getattr(getattr(self, "session", None), "id", None),
+                    "model_name": getattr(self, "model_name", None),
+                },
+            )
+        except Exception:
+            pass  # observability must never crash the engine

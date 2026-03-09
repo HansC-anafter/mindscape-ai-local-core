@@ -2,7 +2,9 @@
 Meeting Engine — slim orchestrator.
 
 Composes mixin modules for event emission, governance, prompts,
-action items, and text generation into a single MeetingEngine class.
+action items, text generation, dispatch, session lifecycle,
+tool discovery, IR compilation, and L2/L3 bridge into a single
+MeetingEngine class.
 
 The run() method drives a bounded multi-round governance meeting.
 """
@@ -22,6 +24,9 @@ from backend.app.services.orchestration.meeting_agents import (
     MEETING_AGENT_ROSTER,
     MEETING_TOPOLOGY,
     build_meeting_roster,
+    DeliberationDepth,
+    DEPTH_ROUND_CAPS,
+    select_deliberation_depth,
 )
 from backend.app.services.orchestration.multi_agent_orchestrator import (
     MultiAgentOrchestrator,
@@ -32,6 +37,7 @@ from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.orchestration.meeting._action_items import (
     MeetingActionItemsMixin,
 )
+from backend.app.services.orchestration.meeting._dispatch import MeetingDispatchMixin
 from backend.app.services.orchestration.meeting._events import MeetingEventsMixin
 from backend.app.services.orchestration.meeting._generation import (
     MeetingGenerationMixin,
@@ -42,7 +48,12 @@ from backend.app.services.orchestration.meeting._governance import (
 from backend.app.services.orchestration.meeting._ir_compiler import (
     MeetingIRCompilerMixin,
 )
+from backend.app.services.orchestration.meeting._l2_bridge import MeetingL2BridgeMixin
 from backend.app.services.orchestration.meeting._prompts import MeetingPromptsMixin
+from backend.app.services.orchestration.meeting._session import MeetingSessionMixin
+from backend.app.services.orchestration.meeting._tool_discovery import (
+    MeetingToolDiscoveryMixin,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +80,7 @@ class MeetingResult:
     event_ids: List[str] = field(default_factory=list)
     task_ir: Optional[Any] = None
     dispatch_result: Optional[Dict[str, Any]] = None
+    completion_status: str = "accepted"  # OP-5: ExecutionCompletionStatus value
 
 
 class MeetingEngine(
@@ -78,6 +90,10 @@ class MeetingEngine(
     MeetingActionItemsMixin,
     MeetingGenerationMixin,
     MeetingIRCompilerMixin,
+    MeetingDispatchMixin,
+    MeetingL2BridgeMixin,
+    MeetingSessionMixin,
+    MeetingToolDiscoveryMixin,
 ):
     """Drives a bounded multi-agent meeting with real LLM turns and action landing."""
 
@@ -94,6 +110,7 @@ class MeetingEngine(
         model_name: Optional[str] = None,
         executor_runtime: Optional[str] = None,
         uploaded_files: Optional[List[Dict[str, Any]]] = None,
+        execution_context: Optional["MeetingExecutionContext"] = None,
     ):
         self.session = session
         # Pre-0: store contract — never None
@@ -184,161 +201,19 @@ class MeetingEngine(
             getattr(recovery_policy, "retry_strategy", "exponential_backoff")
         )
 
-    @staticmethod
-    def _resolve_locale(workspace) -> str:
-        """Resolve locale with fallback chain.
-
-        Aligned with workspace_dependencies.py:100-112 get_orchestrator():
-        1. workspace.default_locale
-        2. system_settings "default_language"
-        3. "zh-TW" hardcoded fallback
-        """
-        # 1. Workspace direct field
-        ws_locale = getattr(workspace, "default_locale", None)
-        if ws_locale:
-            return ws_locale
-
-        # 2. System settings (key = "default_language", per workspace_dependencies.py:107)
-        try:
-            from backend.app.services.system_settings_store import SystemSettingsStore
-
-            store = SystemSettingsStore()
-            setting = store.get_setting("default_language")
-            if setting and setting.value:
-                return str(setting.value)
-        except Exception:
-            pass
-
-        # 3. Hardcoded fallback (per blueprint_loader.py:196 + workspace_dependencies.py:111)
-        return "zh-TW"
-
-    async def _ensure_agenda_decomposed(self, user_message: str) -> bool:
-        """Layer 0c: decompose single-item agenda into sub-tasks.
-
-        If agenda has ≤1 items (session created without decomposition),
-        split user_message into sub-tasks so per-agenda multi-query activates.
-        Persists decomposed agenda to session_store.
-
-        Returns True if decomposition happened, False otherwise.
-        """
-        _l0_agenda = getattr(self.session, "agenda", None) or []
-        if len(_l0_agenda) > 1 or not user_message or len(user_message.strip()) < 10:
-            return False
-
-        try:
-            from backend.app.services.conversation.pipeline_meeting import (
-                _decompose_agenda,
-            )
-
-            decomposed = await _decompose_agenda(
-                user_message,
-                model_name=self.model_name,
-            )
-            if len(decomposed) > 1:
-                self.session.agenda = decomposed
-                # Persist to store so reuse path also benefits
-                try:
-                    loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(
-                        None,
-                        lambda: self.session_store.update(self.session),
-                    )
-                except Exception:
-                    pass  # non-fatal
-                logger.info(
-                    "Layer-0c: decomposed agenda into %d items for session %s",
-                    len(decomposed),
-                    self.session.id,
-                )
-                return True
-        except Exception as exc:
-            logger.debug("Layer-0c fallback failed (non-fatal): %s", exc)
-        return False
-
-    async def _gap_refetch_for_null_actuators(
-        self,
-        action_items: list,
-        *,
-        decision: Any = None,
-        user_message: str = "",
-        critic_notes: str = "",
-        planner_proposals: str = "",
-    ) -> list:
-        """Layer C: re-fetch tools for any action item missing actuator.
-
-        For each item with tool_name=None AND playbook_code=None, query RAG
-        with the item title. If new tools are found, retry _build_action_items
-        and accept the result only if it improves binding coverage.
-
-        Returns the (possibly improved) action_items list.
-        """
-        has_tool_context = self._has_workspace_tool_bindings() or bool(
-            getattr(self, "_rag_tool_cache", [])
+        # OP-1: Assemble MeetingExecutionContext
+        from backend.app.models.meeting_execution_context import (
+            MeetingExecutionContext,
         )
-        null_actuator = [
-            i
-            for i in action_items
-            if not i.get("tool_name") and not i.get("playbook_code")
-        ]
-        if not null_actuator or not has_tool_context:
-            return action_items
 
-        try:
-            from backend.app.services.tool_rag import retrieve_relevant_tools
-
-            cache_ids = {t["tool_id"] for t in self._rag_tool_cache}
-            enriched = 0
-            for item in null_actuator:
-                title = item.get("title", "")
-                if not title:
-                    continue
-                aug = self._verb_augment(title)
-                q = f"{title} {aug}".strip() if aug else title
-                hits = await retrieve_relevant_tools(
-                    q,
-                    top_k=3,
-                    workspace_id=self.session.workspace_id,
-                )
-                for h in hits:
-                    if h["tool_id"] not in cache_ids:
-                        cache_ids.add(h["tool_id"])
-                        self._rag_tool_cache.append(h)
-                        enriched += 1
-            if enriched:
-                logger.info(
-                    "Layer-C gap-fill: +%d tools for %d null-actuator items",
-                    enriched,
-                    len(null_actuator),
-                )
-                # Retry executor with enriched cache
-                try:
-                    retry = await self._build_action_items(
-                        decision=decision,
-                        user_message=user_message,
-                        critic_notes=critic_notes,
-                        planner_proposals=planner_proposals,
-                    )
-                    new_bound = sum(
-                        1 for i in retry if i.get("tool_name") or i.get("playbook_code")
-                    )
-                    old_bound = sum(
-                        1
-                        for i in action_items
-                        if i.get("tool_name") or i.get("playbook_code")
-                    )
-                    if new_bound > old_bound:
-                        action_items = retry
-                        logger.info(
-                            "Layer-C retry improved binding: %d -> %d actuators",
-                            old_bound,
-                            new_bound,
-                        )
-                except Exception:
-                    pass  # keep original
-        except Exception as exc:
-            logger.debug("Layer-C gap-fill failed (non-fatal): %s", exc)
-
-        return action_items
+        if execution_context is not None:
+            self.ctx = execution_context
+        else:
+            self.ctx = MeetingExecutionContext.assemble(
+                workspace=workspace,
+                runtime_profile=runtime_profile,
+                route_decision=None,  # caller can pass via execution_context
+            )
 
     async def run(
         self,
@@ -425,7 +300,27 @@ class MeetingEngine(
         self._available_playbooks_cache = await self._async_load_installed_playbooks()
 
         self._start_session()
-        max_rounds = max(1, int(getattr(self.session, "max_rounds", 1)))
+        base_max_rounds = max(1, int(getattr(self.session, "max_rounds", 1)))
+
+        # OP-4: Select deliberation depth from meeting-internal factors
+        agenda = getattr(self.session, "agenda", None) or []
+        depth = select_deliberation_depth(
+            agenda_items=len(agenda),
+            estimated_action_count=len(agenda),  # conservative estimate
+            has_tool_ambiguity=len(self._rag_tool_cache) > 15,
+            budget_headroom_pct=self.ctx.budget_headroom_pct,
+        )
+        self._deliberation_depth = depth
+        max_rounds = min(
+            base_max_rounds, DEPTH_ROUND_CAPS.get(depth.value, base_max_rounds)
+        )
+        logger.info(
+            "Meeting depth=%s max_rounds=%d (base=%d) session=%s",
+            depth.value,
+            max_rounds,
+            base_max_rounds,
+            self.session.id,
+        )
 
         planner_proposals: List[str] = []
         critic_notes: List[str] = []
@@ -461,15 +356,17 @@ class MeetingEngine(
                 self._emit_turn(planner_turn)
                 self._emit_decision_proposal(planner_turn)
 
-                critic_turn = await self._agent_turn(
-                    "critic",
-                    round_num,
-                    user_message,
-                    planner_proposals=planner_proposals,
-                    critic_notes=critic_notes,
-                )
-                critic_notes.append(critic_turn.content)
-                self._emit_turn(critic_turn)
+                # OP-4: Skip critic in SHALLOW depth to reduce latency
+                if depth != DeliberationDepth.SHALLOW:
+                    critic_turn = await self._agent_turn(
+                        "critic",
+                        round_num,
+                        user_message,
+                        planner_proposals=planner_proposals,
+                        critic_notes=critic_notes,
+                    )
+                    critic_notes.append(critic_turn.content)
+                    self._emit_turn(critic_turn)
 
                 self.session.round_count = round_num
                 if self._is_converged(round_num, max_rounds, facilitator_turn.content):
@@ -533,14 +430,15 @@ class MeetingEngine(
             decision=decision, round_number=self.session.round_count
         )
 
-        action_items = await self._build_action_items(
+        # ── L2: Build typed ActionIntents via SemanticNormalizer ─────────────
+        action_intents = await self._build_action_items(
             decision=decision,
             user_message=user_message,
             critic_notes=critic_notes,
             planner_proposals=planner_proposals,
         )
-        action_items = await self._gap_refetch_for_null_actuators(
-            action_items,
+        action_intents = await self._gap_refetch_for_null_actuators(
+            action_intents,
             decision=decision,
             user_message=user_message,
             critic_notes=critic_notes,
@@ -550,14 +448,13 @@ class MeetingEngine(
         # ------------------------------------------------------------------ #
         # Pre-dispatch null-tool gate (original — fires only when ALL null)   #
         # ------------------------------------------------------------------ #
-        all_null = action_items and not any(
-            item.get("tool_name") or item.get("playbook_code") for item in action_items
+        all_null = action_intents and not any(
+            i.tool_name or i.playbook_code for i in action_intents
         )
         has_tool_context = self._has_workspace_tool_bindings() or bool(
             getattr(self, "_rag_tool_cache", [])
         )
         if all_null and has_tool_context:
-            pb_cache = getattr(self, "_available_playbooks_cache", "")
             logger.info(
                 "Pre-dispatch null-tool gate triggered for session %s: "
                 "workspace has explicit TOOL bindings but all action_items "
@@ -565,36 +462,30 @@ class MeetingEngine(
                 self.session.id,
             )
             try:
-                retry_items = await self._build_action_items(
+                retry_intents = await self._build_action_items(
                     decision=decision,
                     user_message=user_message,
                     critic_notes=critic_notes,
                     planner_proposals=planner_proposals,
                 )
                 has_actuator_retry = any(
-                    item.get("tool_name") or item.get("playbook_code")
-                    for item in retry_items
+                    i.tool_name or i.playbook_code for i in retry_intents
                 )
                 if has_actuator_retry:
-                    action_items = retry_items
+                    action_intents = retry_intents
+                    actuator_count = sum(
+                        1 for i in action_intents if i.tool_name or i.playbook_code
+                    )
                     logger.info(
                         "Null-tool gate retry produced %d actuator-linked items",
-                        sum(
-                            1
-                            for i in action_items
-                            if i.get("tool_name") or i.get("playbook_code")
-                        ),
+                        actuator_count,
                     )
                     self._emit_event(
                         "tool_name_self_heal",
                         payload={
                             "session_id": self.session.id,
                             "trigger": "null_tool_gate_retry",
-                            "actuator_count": sum(
-                                1
-                                for i in action_items
-                                if i.get("tool_name") or i.get("playbook_code")
-                            ),
+                            "actuator_count": actuator_count,
                         },
                     )
                 else:
@@ -605,12 +496,114 @@ class MeetingEngine(
             except Exception as exc:
                 logger.warning("Null-tool gate retry failed (non-fatal): %s", exc)
 
+        # Bridge: convert ActionIntents to dicts for legacy consumers
+        # (emit, render, session close, orchestrator)
+        action_items = [i.to_action_item_dict() for i in action_intents]
+
         # Emit final action_items AFTER gate (so SSE events match session.action_items)
         for item in action_items:
             self._emit_action_item(item)
 
-        # Dispatch action items to target workspaces (fan-out + fan-in)
-        dispatch_result = await self._dispatch_phases_to_workspaces(action_items)
+        # ── Phase 3: Gate → Compile → Orchestrate ─────────────
+
+        # Step 2: L3 Dispatch Gate with real L5 supervision signals (OP-3)
+        from backend.app.services.orchestration.meeting.dispatch_gate import (
+            DispatchGate,
+            GateDecision,
+        )
+        from backend.app.services.orchestration.supervision_signals_emitter import (
+            SupervisionSignalsEmitter,
+        )
+        from backend.app.models.supervision_signals import SupervisionSignals
+
+        # Compute real signals from session state
+        real_signals = SupervisionSignals()  # safe default
+        try:
+            emitter = SupervisionSignalsEmitter()
+            # Gather PhaseAttempt records from session metadata (OP-3 write-read loop)
+            session_attempts = []
+            try:
+                # DispatchOrchestrator persists attempts to session.metadata["phase_attempts"]
+                # as model_dump(mode="json") dicts — rehydrate back to PhaseAttempt objects
+                from backend.app.models.phase_attempt import PhaseAttempt
+
+                phase_attempts_meta = (self.session.metadata or {}).get(
+                    "phase_attempts", {}
+                )
+                for attempt_dict in phase_attempts_meta.values():
+                    try:
+                        session_attempts.append(
+                            PhaseAttempt.model_validate(attempt_dict)
+                        )
+                    except Exception:
+                        pass  # skip malformed entries
+            except Exception:
+                pass  # graceful fallback — no attempts yet
+
+            session_start = getattr(self.session, "created_at", None)
+            real_signals = emitter.compute(
+                attempts=session_attempts,
+                session_start=session_start,
+            )
+            logger.debug(
+                "L5→L3 signals: risk_remaining=%.2f retries=%d failure_rate=%.2f "
+                "session_age=%.0fs budget_pressure=%s",
+                real_signals.risk_budget_remaining,
+                real_signals.retry_budget_remaining,
+                real_signals.historical_failure_rate,
+                real_signals.session_age_s,
+                real_signals.budget_pressure_high,
+            )
+        except Exception as exc:
+            logger.warning("L5 signal computation failed, using safe defaults: %s", exc)
+
+        dispatch_gate = DispatchGate(signals=real_signals)
+        gate_result = dispatch_gate.evaluate(action_intents)
+
+        # Filter: only dispatch_now intents proceed to compile
+        dispatch_intent_ids = set(gate_result.dispatch_intents)
+        dispatchable_intents = [
+            i for i in action_intents if i.intent_id in dispatch_intent_ids
+        ]
+
+        # Log non-dispatch decisions
+        for d in gate_result.clarify_intents:
+            logger.info("L3 Gate CLARIFY: intent=%s reason=%s", d.intent_id, d.reason)
+        for d in gate_result.deferred_intents:
+            logger.info("L3 Gate DEFER: intent=%s reason=%s", d.intent_id, d.reason)
+        for d in gate_result.shrunk_intents:
+            logger.info(
+                "L3 Gate SHRINK_SCOPE: intent=%s reason=%s", d.intent_id, d.reason
+            )
+
+        # Step 3: Compile TaskIR BEFORE dispatch (only approved intents)
+        compiled_ir = None
+        try:
+            compiled_ir = self._compile_to_task_ir(
+                decision=decision,
+                action_items=action_items,
+                handoff_in=handoff_in,
+                action_intents=dispatchable_intents,
+            )
+        except Exception as exc:
+            logger.warning("Failed to compile TaskIR from meeting: %s", exc)
+
+        # Step 4: DAG-walking dispatch via DispatchOrchestrator
+        from backend.app.services.orchestration.dispatch_orchestrator import (
+            DispatchOrchestrator,
+        )
+
+        orchestrator = DispatchOrchestrator(
+            execution_launcher=self.execution_launcher,
+            tasks_store=self.tasks_store,
+            session=self.session,
+            profile_id=self.profile_id,
+            project_id=self.project_id,
+        )
+        dispatch_result = await orchestrator.execute(
+            task_ir=compiled_ir,
+            action_items=action_items,
+        )
 
         minutes_md = self._render_minutes(
             user_message=user_message,
@@ -626,17 +619,6 @@ class MeetingEngine(
         self._run_l2_bridge_pipeline()
 
         self._emit_minutes_message(minutes_md)
-
-        # Compile structured TaskIR from meeting output
-        compiled_ir = None
-        try:
-            compiled_ir = self._compile_to_task_ir(
-                decision=decision,
-                action_items=action_items,
-                handoff_in=handoff_in,
-            )
-        except Exception as exc:
-            logger.warning("Failed to compile TaskIR from meeting: %s", exc)
 
         # 5C: Post-session supervision (true fire-and-forget)
         try:
@@ -672,6 +654,26 @@ class MeetingEngine(
                 "Supervisor hook failed for session %s: %s", self.session.id, exc
             )
 
+        # OP-5: Derive completion_status from dispatch results
+        from backend.app.models.completion_status import ExecutionCompletionStatus
+
+        completion_status = ExecutionCompletionStatus.ACCEPTED
+        if run_error:
+            completion_status = ExecutionCompletionStatus.FAILED
+        elif dispatch_result:
+            task_statuses = []
+            for phase_result in dispatch_result.get("phase_results", []):
+                status = phase_result.get("status", "")
+                if status:
+                    task_statuses.append(status)
+            if task_statuses:
+                completion_status = ExecutionCompletionStatus.from_task_statuses(
+                    task_statuses, has_dispatched=True
+                )
+            elif not dispatch_result.get("phase_results"):
+                # No phases dispatched
+                completion_status = ExecutionCompletionStatus.COMPLETED
+
         return MeetingResult(
             session_id=self.session.id,
             minutes_md=minutes_md,
@@ -680,815 +682,8 @@ class MeetingEngine(
             event_ids=[e.id for e in self._events],
             task_ir=compiled_ir,
             dispatch_result=dispatch_result,
+            completion_status=completion_status.value,
         )
-
-    def _start_session(self) -> None:
-        """Transition session to ACTIVE and capture initial state snapshot."""
-        self.session.start()
-        self.session.status = MeetingStatus.ACTIVE
-        self.session.state_before = self._capture_state_snapshot()
-        self.session_store.update(self.session)
-        self._emit_event(
-            EventType.MEETING_START,
-            payload={
-                "meeting_session_id": self.session.id,
-                "meeting_type": self.session.meeting_type,
-                "agenda": self.session.agenda,
-                "lens_id": self.session.lens_id,
-            },
-        )
-
-    def _close_session(
-        self, minutes_md: str, action_items: List[Dict[str, Any]]
-    ) -> None:
-        """Close the session with final state snapshot and minutes."""
-        self.session.begin_closing()
-        self.session.minutes_md = minutes_md
-        self.session.action_items = action_items
-        self.session.state_after = self._capture_state_snapshot()
-        self.session.status = MeetingStatus.CLOSED
-        self.session.close()
-        self.session_store.update(self.session)
-
-        self._emit_event(
-            EventType.MEETING_END,
-            payload={
-                "meeting_session_id": self.session.id,
-                "round_count": self.session.round_count,
-                "action_item_count": len(action_items),
-                "state_diff": self.session.state_diff,
-            },
-        )
-
-    async def _async_load_installed_playbooks(self) -> str:
-        """Load workspace-installed playbooks for prompt injection.
-
-        Primary: query workspace_resource_bindings for PLAYBOOK type.
-        Fallback: PlaybookService.list_playbooks() when no bindings exist.
-
-        Returns:
-            Formatted string listing available playbooks.
-        """
-        # TODO: binding_store is sync I/O; consider run_in_executor or async store
-        try:
-            from backend.app.services.stores.workspace_resource_binding_store import (
-                WorkspaceResourceBindingStore,
-            )
-            from backend.app.models.workspace_resource_binding import ResourceType
-            from backend.app.services.playbook_service import PlaybookService
-
-            binding_store = WorkspaceResourceBindingStore()
-            bindings = binding_store.list_bindings_by_workspace(
-                self.session.workspace_id, resource_type=ResourceType.PLAYBOOK
-            )
-
-            if not bindings:
-                # Fallback: PlaybookService merges capability/system/user sources
-                svc = PlaybookService(store=self.store)
-                playbooks = await svc.list_playbooks(
-                    workspace_id=self.session.workspace_id
-                )
-                # list_playbooks returns List[PlaybookMetadata] — .name is direct
-                lines = [f"- {p.playbook_code}: {p.name}" for p in playbooks]
-                return "\n".join(lines) if lines else "(no playbooks installed)"
-
-            svc = PlaybookService(store=self.store)
-            lines = []
-            for b in bindings:
-                pb = await svc.get_playbook(
-                    b.resource_id, workspace_id=self.session.workspace_id
-                )
-                # get_playbook returns Playbook — name via .metadata.name
-                name = pb.metadata.name if pb else b.resource_id
-                lines.append(f"- {b.resource_id}: {name}")
-            return "\n".join(lines)
-        except Exception as exc:
-            logger.warning("Failed to load installed playbooks: %s", exc, exc_info=True)
-            return "(playbook discovery unavailable)"
-
-    def _resolve_blocked_by_order(
-        self, action_items: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Validate blocked_by references and return topologically sorted list.
-
-        Rules:
-        1. blocked_by refs are 0-based indices within the same dispatch batch.
-        2. Cycles → all items in the cycle marked dispatch_error.
-        3. Missing refs (non-existent index) → referencing item marked dispatch_error.
-
-        Returns:
-            Topologically sorted list of action items (dependencies first).
-        """
-        n = len(action_items)
-        # Quick exit: no blocked_by at all
-        has_blocked_by = False
-        for idx, item in enumerate(action_items):
-            deps = item.get("blocked_by")
-            if not deps or not isinstance(deps, list):
-                continue
-            has_blocked_by = True
-            for ref in deps:
-                if not isinstance(ref, int) or ref < 0 or ref >= n or ref == idx:
-                    item["landing_status"] = "dispatch_error"
-                    item["landing_error"] = f"missing dependency: {ref}"
-                    break
-
-        if not has_blocked_by:
-            return list(action_items)
-
-        # Kahn's algorithm: topological sort + cycle detection
-        from collections import deque
-
-        in_degree = [0] * n
-        adj: Dict[int, List[int]] = {i: [] for i in range(n)}
-        for idx, item in enumerate(action_items):
-            if item.get("landing_status"):
-                continue
-            deps = item.get("blocked_by")
-            if not deps or not isinstance(deps, list):
-                continue
-            for ref in deps:
-                if isinstance(ref, int) and 0 <= ref < n and ref != idx:
-                    adj[ref].append(idx)
-                    in_degree[idx] += 1
-
-        queue = deque()
-        for i in range(n):
-            if not action_items[i].get("landing_status") and in_degree[i] == 0:
-                queue.append(i)
-
-        sorted_indices: List[int] = []
-        while queue:
-            node = queue.popleft()
-            sorted_indices.append(node)
-            for neighbor in adj.get(node, []):
-                in_degree[neighbor] -= 1
-                if in_degree[neighbor] == 0:
-                    queue.append(neighbor)
-
-        # Items not in sorted output and not already marked → cycle
-        visited = set(sorted_indices)
-        for idx, item in enumerate(action_items):
-            if item.get("landing_status"):
-                continue
-            deps = item.get("blocked_by")
-            if deps and isinstance(deps, list) and idx not in visited:
-                item["landing_status"] = "dispatch_error"
-                item["landing_error"] = "dependency cycle detected"
-
-        # Build final ordered list: topo-sorted items first, then items
-        # without blocked_by (preserving original order), then errored items
-        in_sorted = set(sorted_indices)
-        result: List[Dict[str, Any]] = []
-        # Add items without blocked_by in original order (interleaved with
-        # topo-sorted items at their natural positions)
-        topo_order = {idx: pos for pos, idx in enumerate(sorted_indices)}
-
-        # Assign a sort key: topo-sorted items by their topo position,
-        # items without deps by original index, errored items last
-        def sort_key(pair):
-            idx, item = pair
-            if item.get("landing_status") in ("dispatch_error", "policy_blocked"):
-                return (2, idx)  # Errored items last
-            if idx in topo_order:
-                return (0, topo_order[idx])  # Topo-sorted position
-            return (0, idx)  # No deps: original order
-
-        for idx, item in sorted(enumerate(action_items), key=sort_key):
-            result.append(item)
-
-        return result
-
-    async def _attempt_tool_name_self_heal(
-        self,
-        action_items: List[Dict[str, Any]],
-        binding_store: Any,
-    ) -> int:
-        """Attempt one bounded LLM repair pass for TOOL_NOT_ALLOWED items.
-
-        Repair path is only used after deterministic normalization in
-        dispatch_policy_gate has already run. This method only clears
-        policy blocks for items that can be mapped to an allowlisted tool.
-        """
-        try:
-            from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
-                _canonicalize_tool_name,
-                _load_tool_allowlist,
-            )
-
-            blocked_rows: List[Dict[str, Any]] = []
-            for idx, item in enumerate(action_items):
-                if item.get("landing_status") != "policy_blocked":
-                    continue
-                if item.get("policy_reason_code") != "TOOL_NOT_ALLOWED":
-                    continue
-                current_tool = item.get("tool_name")
-                if not isinstance(current_tool, str) or not current_tool.strip():
-                    continue
-                target_ws = item.get("target_workspace_id") or self.session.workspace_id
-                allowlist = _load_tool_allowlist(target_ws, binding_store)
-                if not allowlist:
-                    continue
-                blocked_rows.append(
-                    {
-                        "index": idx,
-                        "item": item,
-                        "target_workspace_id": target_ws,
-                        "allowed_tools": set(allowlist),
-                    }
-                )
-
-            if not blocked_rows:
-                return 0
-
-            prompt_rows = [
-                {
-                    "index": row["index"],
-                    "title": row["item"].get("title"),
-                    "tool_name": row["item"].get("tool_name"),
-                    "target_workspace_id": row["target_workspace_id"],
-                    "allowed_tools": sorted(list(row["allowed_tools"]))[:80],
-                }
-                for row in blocked_rows
-            ]
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You repair tool_name fields for action items. "
-                        "Only use tool names from each item's allowed_tools."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "Return JSON array only. Schema: "
-                        '[{"index":<int>,"tool_name":"<allowed_tool_or_null>"}]. '
-                        "Use null when no valid repair exists.\n\n"
-                        f"Items:\n{json.dumps(prompt_rows, ensure_ascii=False)}"
-                    ),
-                },
-            ]
-
-            try:
-                raw = (await self._generate_text(messages, max_tokens=1200)).strip()
-            except Exception as exc:
-                logger.warning("Tool self-heal generation failed: %s", exc)
-                return 0
-
-            payload = None
-            extract_fn = getattr(self, "_extract_json_payload", None)
-            if callable(extract_fn):
-                try:
-                    payload = extract_fn(raw)
-                except Exception:
-                    payload = None
-            if payload is None:
-                try:
-                    payload = json.loads(raw)
-                except Exception:
-                    payload = None
-            if not isinstance(payload, list):
-                logger.warning("Tool self-heal returned non-list payload")
-                return 0
-
-            row_by_index = {row["index"]: row for row in blocked_rows}
-            repaired = 0
-            for rec in payload:
-                if not isinstance(rec, dict):
-                    continue
-                idx_raw = rec.get("index")
-                try:
-                    idx = int(idx_raw)
-                except (TypeError, ValueError):
-                    continue
-                if idx not in row_by_index:
-                    continue
-
-                candidate_tool = rec.get("tool_name")
-                if not isinstance(candidate_tool, str) or not candidate_tool.strip():
-                    continue
-                row = row_by_index[idx]
-                canonical, _ = _canonicalize_tool_name(
-                    candidate_tool, row["allowed_tools"]
-                )
-                if canonical is None:
-                    continue
-
-                item = row["item"]
-                original = item.get("tool_name")
-                item["tool_name"] = canonical
-                item.setdefault("tool_name_original", original)
-                item["tool_name_self_healed"] = True
-                item.pop("landing_status", None)
-                item.pop("landing_error", None)
-                item.pop("policy_reason_code", None)
-                repaired += 1
-
-            return repaired
-        except Exception as exc:
-            logger.warning("Tool self-heal pipeline failed (non-fatal): %s", exc)
-            return 0
-
-    async def _dispatch_phases_to_workspaces(
-        self, action_items: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """Dispatch action items grouped by workspace with fan-in aggregation.
-
-        Groups action items by their target_workspace_id, dispatches each
-        group concurrently, and aggregates results per workspace.
-
-        Returns dict with per-workspace results and aggregate status.
-        """
-        import asyncio
-        from collections import defaultdict
-
-        # 5E: Run policy gate before any dispatch
-        try:
-            from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
-                check_dispatch_policy,
-            )
-            from backend.app.services.stores.workspace_resource_binding_store import (
-                WorkspaceResourceBindingStore,
-            )
-
-            _binding_store = WorkspaceResourceBindingStore()
-            check_dispatch_policy(
-                action_items,
-                workspace_id=self.session.workspace_id,
-                available_playbooks_cache=getattr(
-                    self, "_available_playbooks_cache", ""
-                ),
-                binding_store=_binding_store,
-            )
-
-            # Self-heal priority: one bounded LLM repair for TOOL_NOT_ALLOWED.
-            repaired_count = 0
-            repair_fn = getattr(self, "_attempt_tool_name_self_heal", None)
-            if callable(repair_fn):
-                repaired_count = await repair_fn(
-                    action_items=action_items,
-                    binding_store=_binding_store,
-                )
-            if repaired_count > 0:
-                # Re-run policy gate after repair with same allowlist policy.
-                check_dispatch_policy(
-                    action_items,
-                    workspace_id=self.session.workspace_id,
-                    available_playbooks_cache=getattr(
-                        self, "_available_playbooks_cache", ""
-                    ),
-                    binding_store=_binding_store,
-                )
-                self._emit_event(
-                    EventType.DECISION_FINAL,
-                    payload={
-                        "tool_name_self_heal": True,
-                        "meeting_session_id": self.session.id,
-                        "repaired_count": repaired_count,
-                    },
-                )
-
-            # Emit audit event for any policy-blocked items
-            blocked_items = [
-                item
-                for item in action_items
-                if item.get("landing_status") == "policy_blocked"
-            ]
-            if blocked_items:
-                self._emit_event(
-                    EventType.DECISION_FINAL,
-                    payload={
-                        "policy_gate_blocked": True,
-                        "meeting_session_id": self.session.id,
-                        "blocked_count": len(blocked_items),
-                        "reasons": [
-                            {
-                                "title": item.get("title"),
-                                "policy_reason_code": item.get("policy_reason_code"),
-                            }
-                            for item in blocked_items
-                        ],
-                    },
-                )
-        except Exception as exc:
-            logger.warning("Policy gate check failed (non-fatal): %s", exc)
-
-        # 5B-4: Validate + topologically sort blocked_by references
-        action_items = self._resolve_blocked_by_order(action_items)
-
-        # Group action items by target workspace
-        ws_groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        default_ws = self.session.workspace_id
-        for item in action_items:
-            target = item.get("target_workspace_id") or default_ws
-            item["target_workspace_id"] = target
-            ws_groups[target].append(item)
-
-        if len(ws_groups) <= 1:
-            # Single workspace — use existing serial path
-            # Determine actual target workspace (may differ from session ws)
-            actual_ws = next(iter(ws_groups)) if ws_groups else default_ws
-            results = []
-            for item in action_items:
-                if item.get("landing_status") in ("policy_blocked", "dispatch_error"):
-                    results.append(item)
-                    continue
-                landed = await self._land_action_item(item)
-                results.append(landed)
-            succeeded = sum(
-                1
-                for r in results
-                if r.get("landing_status") in ("launched", "task_created")
-            )
-            failed = sum(
-                1
-                for r in results
-                if r.get("landing_status")
-                in (
-                    "launch_failed",
-                    "launch_error",
-                    "policy_blocked",
-                    "dispatch_error",
-                )
-            )
-            if failed == 0:
-                agg_status = "ok"
-            elif succeeded == 0:
-                agg_status = "all_failed"
-            else:
-                agg_status = "partial_failure"
-
-            return {
-                "dispatch_mode": "single",
-                "workspace_results": {actual_ws: results},
-                "aggregate_status": agg_status,
-                "total": len(results),
-                "succeeded": succeeded,
-                "failed": failed,
-            }
-
-        # Multi-workspace: run DataLocality boundary check before dispatch
-        boundary_violations = []
-        try:
-            from backend.app.services.data_locality_service import (
-                get_data_locality_service,
-            )
-            from backend.app.services.stores.workspace_resource_binding_store import (
-                WorkspaceResourceBindingStore,
-            )
-            from backend.app.models.workspace_resource_binding import ResourceType
-
-            binding_store = WorkspaceResourceBindingStore()
-            ws_asset_map: Dict[str, List[str]] = {}
-            for ws_id in ws_groups:
-                bindings = binding_store.list_bindings_by_workspace(
-                    ws_id, resource_type=ResourceType.ASSET
-                )
-                ws_asset_map[ws_id] = [b.resource_id for b in bindings]
-
-            locality_svc = get_data_locality_service()
-            boundary_result = locality_svc.check_dispatch_boundary(
-                action_items, ws_asset_map
-            )
-
-            if not boundary_result["valid"]:
-                boundary_violations = boundary_result["violations"]
-                logger.warning(
-                    "DataLocality boundary violations: %s",
-                    boundary_result["message"],
-                )
-                # Mark violating items so they are skipped during dispatch
-                violation_indices = {v["item_index"] for v in boundary_violations}
-                for idx in violation_indices:
-                    if idx < len(action_items):
-                        action_items[idx]["landing_status"] = "boundary_violation"
-                        action_items[idx]["landing_error"] = boundary_result["message"]
-
-                self._emit_event(
-                    EventType.DECISION_FINAL,
-                    payload={
-                        "dispatch_boundary_violation": True,
-                        "meeting_session_id": self.session.id,
-                        "violations": boundary_violations,
-                    },
-                )
-        except Exception as exc:
-            logger.warning("DataLocality boundary check failed: %s", exc)
-
-        # Rebuild groups excluding violated items
-        ws_groups_clean: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        for item in action_items:
-            if item.get("landing_status") in (
-                "boundary_violation",
-                "policy_blocked",
-                "dispatch_error",
-            ):
-                continue
-            ws_groups_clean[item["target_workspace_id"]].append(item)
-
-        # Multi-workspace fan-out: dispatch each workspace group concurrently
-        async def _dispatch_ws_group(
-            ws_id: str, items: List[Dict[str, Any]]
-        ) -> Dict[str, Any]:
-            ws_results = []
-            for item in items:
-                try:
-                    landed = await self._land_action_item(item)
-                    ws_results.append(landed)
-                except Exception as exc:
-                    logger.warning(
-                        "Dispatch failed for item '%s' → ws '%s': %s",
-                        item.get("title"),
-                        ws_id,
-                        exc,
-                    )
-                    item["landing_status"] = "dispatch_error"
-                    item["landing_error"] = str(exc)
-                    ws_results.append(item)
-            return {"workspace_id": ws_id, "items": ws_results}
-
-        tasks = [
-            _dispatch_ws_group(ws_id, items) for ws_id, items in ws_groups_clean.items()
-        ]
-        ws_outcomes = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Fan-in: aggregate results (include all pre-blocked items)
-        workspace_results: Dict[str, List[Dict[str, Any]]] = {}
-        all_items: List[Dict[str, Any]] = []
-        # Include all pre-blocked items (boundary_violation, policy_blocked, dispatch_error)
-        pre_blocked_items = [
-            item
-            for item in action_items
-            if item.get("landing_status")
-            in ("boundary_violation", "policy_blocked", "dispatch_error")
-        ]
-        all_items.extend(pre_blocked_items)
-        for outcome in ws_outcomes:
-            if isinstance(outcome, Exception):
-                logger.error("Workspace dispatch group failed: %s", outcome)
-                continue
-            ws_id = outcome["workspace_id"]
-            workspace_results[ws_id] = outcome["items"]
-            all_items.extend(outcome["items"])
-
-        succeeded = sum(
-            1
-            for r in all_items
-            if r.get("landing_status") in ("launched", "task_created")
-        )
-        failed = sum(
-            1
-            for r in all_items
-            if r.get("landing_status")
-            in (
-                "launch_failed",
-                "launch_error",
-                "dispatch_error",
-                "boundary_violation",
-                "policy_blocked",
-            )
-        )
-
-        if failed == 0:
-            agg_status = "ok"
-        elif succeeded == 0:
-            agg_status = "all_failed"
-        else:
-            agg_status = "partial_failure"
-
-        # Emit audit event for cross-workspace dispatch
-        self._emit_event(
-            EventType.DECISION_FINAL,
-            payload={
-                "cross_workspace_dispatch": True,
-                "meeting_session_id": self.session.id,
-                "workspace_count": len(ws_groups),
-                "total_items": len(all_items),
-                "succeeded": succeeded,
-                "failed": failed,
-                "aggregate_status": agg_status,
-                "workspace_ids": list(ws_groups.keys()),
-            },
-        )
-
-        return {
-            "dispatch_mode": "multi",
-            "workspace_results": workspace_results,
-            "aggregate_status": agg_status,
-            "total": len(all_items),
-            "succeeded": succeeded,
-            "failed": failed,
-        }
-
-    def _run_l2_bridge_pipeline(self) -> None:
-        """Run L2 Bridge extraction pipeline after session close.
-
-        Pipeline: events → MeetingExtract → GoalLinking → LensPatch
-        All failures are non-fatal (logged, never breaks the meeting).
-        """
-        try:
-            from backend.app.services.orchestration.meeting.extract_service import (
-                MeetingExtractService,
-            )
-            from backend.app.services.orchestration.meeting.lens_patch_service import (
-                LensPatchService,
-            )
-            from backend.app.services.orchestration.meeting.goal_linking_service import (
-                GoalLinkingService,
-            )
-            from backend.app.services.stores.meeting_extract_store import (
-                MeetingExtractStore,
-            )
-            from backend.app.services.stores.lens_patch_store import LensPatchStore
-            from backend.app.services.stores.goal_set_store import GoalSetStore
-
-            # Step 1: Extract structured items from meeting events
-            extract_svc = MeetingExtractService()
-            extract = extract_svc.extract_from_events(
-                meeting_session_id=self.session.id,
-                events=self._events,
-            )
-
-            # Step 2: Link extract items to active GoalSet (if any)
-            goal_store = GoalSetStore()
-            active_goals = goal_store.list_by_project(
-                workspace_id=self.session.workspace_id,
-                project_id=self.project_id or "",
-                limit=1,
-            )
-            if active_goals:
-                linking_svc = GoalLinkingService()
-                extract = linking_svc.link_extract_to_goals(extract, active_goals[0])
-                extract.goal_set_id = active_goals[0].id
-
-            # Step 3: Persist the extract
-            extract_store = MeetingExtractStore()
-            extract_store.create(extract)
-            logger.info(
-                "L2 Bridge: persisted MeetingExtract %s (%d items) for session %s",
-                extract.id,
-                len(extract.items),
-                self.session.id,
-            )
-
-            # Step 4: Generate lens patch (compare before/after)
-            lens_after = None
-            try:
-                from backend.app.services.stores.graph_store import GraphStore
-                from backend.app.services.lens.effective_lens_resolver import (
-                    EffectiveLensResolver,
-                )
-                from backend.app.services.lens.session_override_store import (
-                    InMemorySessionStore,
-                )
-
-                resolver = EffectiveLensResolver(GraphStore(), InMemorySessionStore())
-                lens_after = resolver.resolve(
-                    profile_id=self.profile_id,
-                    workspace_id=self.session.workspace_id,
-                )
-            except Exception as exc:
-                logger.debug("L2 Bridge: could not resolve post-session lens: %s", exc)
-
-            patch_svc = LensPatchService()
-            patch = patch_svc.generate_patch_from_session(
-                session=self.session,
-                lens_before=self._effective_lens,
-                lens_after=lens_after,
-            )
-            if patch:
-                patch_store = LensPatchStore()
-                patch_store.create(patch)
-                logger.info(
-                    "L2 Bridge: persisted LensPatch %s for session %s",
-                    patch.id,
-                    self.session.id,
-                )
-
-            # Step 5: L3 StateVector computation (non-fatal)
-            try:
-                from backend.app.services.orchestration.meeting.state_vector_service import (
-                    StateVectorService,
-                )
-                from backend.app.services.stores.state_vector_store import (
-                    StateVectorStore,
-                )
-                from backend.app.models.meeting_mode import MeetingMode
-
-                sv_svc = StateVectorService()
-                goal_set = active_goals[0] if active_goals else None
-
-                # Risk fallback: prefer EGB drift score, fall back to session metadata
-                risk_fallback = float(self.session.metadata.get("risk_score", 0.0))
-                intent_ids = self._get_active_intent_ids()
-                if intent_ids:
-                    try:
-                        from backend.app.database import get_db_postgres
-                        from sqlalchemy import text
-
-                        db_gen = get_db_postgres()
-                        db = next(db_gen)
-                        try:
-                            row = db.execute(
-                                text(
-                                    "SELECT overall_drift_score "
-                                    "FROM egb_drift_report "
-                                    "WHERE intent_id = :iid "
-                                    "ORDER BY created_at DESC LIMIT 1"
-                                ),
-                                {"iid": intent_ids[0]},
-                            ).fetchone()
-                            if row and row[0] and float(row[0]) > 0:
-                                risk_fallback = max(risk_fallback, float(row[0]))
-                        finally:
-                            next(db_gen, None)
-                    except Exception:
-                        pass  # EGB 不可用時回退到 session metadata
-
-                # Session count for evidence grace period
-                session_count = 0
-                if self.session_store and self.project_id:
-                    try:
-                        previous = self.session_store.list_by_workspace(
-                            workspace_id=self.session.workspace_id,
-                            project_id=self.project_id,
-                            limit=100,
-                        )
-                        session_count = len(previous)
-                    except Exception:
-                        pass
-
-                sv = sv_svc.compute(
-                    meeting_session_id=self.session.id,
-                    workspace_id=self.session.workspace_id,
-                    extract=extract,
-                    goal_set=goal_set,
-                    patches=[patch] if patch else [],
-                    current_lens_hash=getattr(self, "_lens_hash", None) or "",
-                    previous_lens_hash="",
-                    current_mode=MeetingMode(
-                        self.session.metadata.get("meeting_mode", "explore")
-                    ),
-                    session_count=session_count,
-                    risk_fallback=risk_fallback,
-                    project_id=self.project_id,
-                )
-
-                # Persist state vector
-                sv_store = StateVectorStore()
-                sv_store.create(sv)
-
-                # Emit STATE_VECTOR_COMPUTED event
-                self._emit_event(
-                    EventType.STATE_VECTOR_COMPUTED,
-                    payload={
-                        "meeting_session_id": self.session.id,
-                        "state_vector_id": sv.id,
-                        "axes": {
-                            "progress": sv.progress,
-                            "evidence": sv.evidence,
-                            "risk": sv.risk,
-                            "drift": sv.drift,
-                        },
-                        "lyapunov_v": sv.lyapunov_v,
-                        "mode": sv.mode,
-                    },
-                )
-
-                # Emit MODE_TRANSITION if mode changed
-                prev_mode = self.session.metadata.get("meeting_mode", "explore")
-                if sv.mode != prev_mode:
-                    self._emit_event(
-                        EventType.MODE_TRANSITION,
-                        payload={
-                            "meeting_session_id": self.session.id,
-                            "from_mode": prev_mode,
-                            "to_mode": sv.mode,
-                            "reason": f"StateVector triggered: V={sv.lyapunov_v:.3f}",
-                        },
-                    )
-
-                logger.info(
-                    "L3: StateVector %s computed for session %s (V=%.3f, mode=%s)",
-                    sv.id,
-                    self.session.id,
-                    sv.lyapunov_v,
-                    sv.mode,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "L3 StateVector computation failed (non-fatal) for session %s: %s",
-                    self.session.id,
-                    exc,
-                )
-
-        except Exception as exc:
-            logger.warning(
-                "L2 Bridge pipeline failed (non-fatal) for session %s: %s",
-                self.session.id,
-                exc,
-            )
 
     async def _agent_turn(
         self,

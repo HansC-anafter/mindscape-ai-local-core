@@ -39,6 +39,7 @@ class GateDecision(str, Enum):
     CLARIFY = "clarify"
     SPLIT = "split"
     DEFER = "defer"
+    SHRINK_SCOPE = "shrink_scope"  # OP-3: budget-aware scope reduction
 
 
 class IntentDecision(BaseModel):
@@ -81,6 +82,11 @@ class GateResult(BaseModel):
     def split_intents(self) -> List[IntentDecision]:
         """Intents that were split."""
         return [d for d in self.decisions if d.decision == GateDecision.SPLIT]
+
+    @property
+    def shrunk_intents(self) -> List[IntentDecision]:
+        """Intents deferred via scope shrinking (OP-3)."""
+        return [d for d in self.decisions if d.decision == GateDecision.SHRINK_SCOPE]
 
 
 # ------------------------------------------------------------------
@@ -180,6 +186,16 @@ class DispatchGate:
                 decision=GateDecision.DEFER,
                 reason="high_failure_rate_no_retries",
             )
+
+        # Rule 6 (OP-3): Budget pressure + low priority → SHRINK_SCOPE
+        if self.signals.budget_pressure_high:
+            priority = getattr(intent, "priority", None) or "medium"
+            if priority == "low":
+                return IntentDecision(
+                    intent_id=intent.intent_id,
+                    decision=GateDecision.SHRINK_SCOPE,
+                    reason="budget_pressure_low_priority",
+                )
 
         # Default: DISPATCH_NOW
         return IntentDecision(

@@ -179,6 +179,39 @@ class DispatchOrchestrator:
         else:
             agg_status = "partial_failure"
 
+        # OP-3: Persist PhaseAttempt records to tasks_store for L5→L3 signal path
+        session_id = getattr(self.session, "id", None)
+        if self.tasks_store and self._attempts and session_id:
+            try:
+                store_attempts = getattr(self.tasks_store, "store_phase_attempts", None)
+                if store_attempts:
+                    store_attempts(
+                        session_id=session_id,
+                        attempts=[
+                            att.model_dump(mode="json")
+                            for att in self._attempts.values()
+                        ],
+                    )
+                else:
+                    # Fallback: store as session metadata via meeting session store
+                    from backend.app.services.stores.meeting_session_store import (
+                        MeetingSessionStore,
+                    )
+
+                    try:
+                        ss = MeetingSessionStore()
+                        session_obj = ss.get_by_id(session_id)
+                        if session_obj:
+                            session_obj.metadata["phase_attempts"] = {
+                                pid: att.model_dump(mode="json")
+                                for pid, att in self._attempts.items()
+                            }
+                            ss.update(session_obj)
+                    except Exception:
+                        pass  # non-fatal
+            except Exception as exc:
+                logger.warning("OP-3 attempt persistence failed (non-fatal): %s", exc)
+
         return {
             "status": agg_status,
             "total": total,
@@ -189,6 +222,17 @@ class DispatchOrchestrator:
             "attempts": {
                 pid: att.model_dump(mode="json") for pid, att in self._attempts.items()
             },
+            "phase_results": [
+                {
+                    "phase_id": pid,
+                    "status": (
+                        "completed"
+                        if pid in completed_phases
+                        else ("failed" if pid in failed_phases else "skipped")
+                    ),
+                }
+                for pid in phase_map
+            ],
         }
 
     # ------------------------------------------------------------------
@@ -315,6 +359,11 @@ class DispatchOrchestrator:
             "thread_id": getattr(self.session, "thread_id", None),
             "workspace_id": target_workspace_id,
         }
+        # OP-5: Inject full lineage chain for L4 transport correlation
+        inputs["phase_attempt_id"] = attempt.id
+        inputs["phase_id"] = attempt.phase_id
+        inputs["task_ir_id"] = attempt.task_ir_id
+
         # Merge any explicit input_params from TaskIR phase
         extra_params = action_item.get("input_params")
         if isinstance(extra_params, dict):
@@ -335,6 +384,11 @@ class DispatchOrchestrator:
             )
 
             execution_id = result.get("execution_id")
+
+            # OP-5: Write execution_id back to attempt.adapter_meta
+            # for direct attempt → execution_id join
+            if execution_id:
+                attempt.adapter_meta["execution_id"] = execution_id
 
             # Track execution_id in session metadata (matches _land_action_item)
             if execution_id and self.session:
@@ -359,26 +413,37 @@ class DispatchOrchestrator:
         attempt: PhaseAttempt,
     ) -> Dict[str, Any]:
         """Dispatch a tool_execution task."""
+        import uuid
+
+        from app.models.workspace import Task, TaskStatus
+
         attempt.mark_started()
-        task_data = {
-            "title": phase.name,
-            "description": phase.description or "",
-            "task_type": "tool_execution",
-            "tool_name": phase.tool_name,
-            "input_params": phase.input_params or {},
-            "workspace_id": target_workspace_id,
-            "profile_id": self.profile_id,
-            "project_id": self.project_id,
-            "metadata": {
+        task = Task(
+            id=str(uuid.uuid4()),
+            workspace_id=target_workspace_id,
+            message_id=attempt.id,  # link to attempt as origin
+            pack_id=phase.tool_name or "meeting_dispatch",
+            task_type="tool_execution",
+            status=TaskStatus.PENDING,
+            params={
+                "tool_name": phase.tool_name,
+                "input_params": phase.input_params or {},
+                "title": phase.name,
+                "description": phase.description or "",
+            },
+            execution_context={
                 "phase_id": attempt.phase_id,
                 "attempt_id": attempt.id,
                 "task_ir_id": attempt.task_ir_id,
+                "profile_id": self.profile_id,
+                "project_id": self.project_id,
             },
-        }
+            project_id=self.project_id,
+        )
         if self.tasks_store:
             try:
-                task_id = self.tasks_store.create_task(task_data)
-                return {"task_id": task_id, "tool_name": phase.tool_name}
+                self.tasks_store.create_task(task)
+                return {"task_id": task.id, "tool_name": phase.tool_name}
             except Exception:
                 raise
         return {"task_id": None, "tool_name": phase.tool_name, "dry_run": True}
@@ -392,18 +457,30 @@ class DispatchOrchestrator:
         """Write a projection record to legacy tasks store."""
         if self.tasks_store:
             try:
-                task_data = {
-                    "title": phase.name,
-                    "description": phase.description
-                    or action_item.get("description", ""),
-                    "task_type": "planned",
-                    "workspace_id": target_workspace_id,
-                    "profile_id": self.profile_id,
-                    "project_id": self.project_id,
-                    "status": "planned",
-                }
-                task_id = self.tasks_store.create_task(task_data)
-                return {"task_id": task_id, "projected": True}
+                import uuid
+
+                from app.models.workspace import Task, TaskStatus
+
+                task = Task(
+                    id=str(uuid.uuid4()),
+                    workspace_id=target_workspace_id,
+                    message_id=phase.id,
+                    pack_id="meeting_projection",
+                    task_type="planned",
+                    status=TaskStatus.PENDING,
+                    params={
+                        "title": phase.name,
+                        "description": phase.description
+                        or action_item.get("description", ""),
+                    },
+                    execution_context={
+                        "profile_id": self.profile_id,
+                        "project_id": self.project_id,
+                    },
+                    project_id=self.project_id,
+                )
+                self.tasks_store.create_task(task)
+                return {"task_id": task.id, "projected": True}
             except Exception as exc:
                 logger.warning("Projection write failed (non-fatal): %s", exc)
         return {"projected": False}
