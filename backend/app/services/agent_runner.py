@@ -204,14 +204,20 @@ class AgentRunner:
     """Main agent execution service"""
 
     def __init__(self):
-        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
-
         self.store = MindscapeStore()
-        # Initialize with unified configuration (will be overridden by user config when needed)
-        self.llm_manager = create_llm_provider_manager()
+        self._llm_manager = None
         self.prompt_builder = AgentPromptBuilder()
         # Backend manager will be initialized lazily
         self._backend_manager = None
+
+    @property
+    def llm_manager(self):
+        """Lazily initialize the provider manager to avoid request-path init spam."""
+        if self._llm_manager is None:
+            from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+
+            self._llm_manager = create_llm_provider_manager()
+        return self._llm_manager
 
     @property
     def backend_manager(self):

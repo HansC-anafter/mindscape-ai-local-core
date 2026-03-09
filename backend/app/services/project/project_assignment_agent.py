@@ -10,11 +10,9 @@ import logging
 from typing import Optional, Dict, Any, List
 from backend.app.models.project import Project, ProjectAssignmentOutput
 from backend.app.models.workspace import Workspace
-from backend.app.services.agent_runner import LLMProviderManager
 from backend.app.shared.llm_provider_helper import (
-    get_llm_provider_from_settings,
-    create_llm_provider_manager,
-    get_model_name_from_chat_model
+    ManagedLLMDisabledForRuntime,
+    build_managed_llm_provider,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,9 +34,6 @@ class ProjectAssignmentAgent:
             llm_provider: Optional LLM provider (will be created from settings if None)
         """
         self.llm_provider = llm_provider
-        if llm_provider is None:
-            llm_manager = create_llm_provider_manager()
-            self.llm_provider = get_llm_provider_from_settings(llm_manager)
 
     async def suggest_assignment(
         self,
@@ -56,6 +51,17 @@ class ProjectAssignmentAgent:
             ProjectAssignmentOutput with suggested assignments
         """
         try:
+            provider, model_name = self._resolve_generation_backend(workspace)
+            if provider is None or model_name is None:
+                return ProjectAssignmentOutput(
+                    suggested_human_owner=None,
+                    suggested_ai_pm_id=None,
+                    reasoning=(
+                        "Managed LLM skipped because workspace is bound to an "
+                        "external executor runtime."
+                    ),
+                )
+
             # Get workspace members (simplified - would need member service)
             workspace_members = []  # TODO: Get from workspace/member service
 
@@ -110,9 +116,7 @@ Respond in JSON format:
                 }
             ]
 
-            # Get model name from system settings
-            model_name = get_model_name_from_chat_model() or "gemini-pro"
-            response = await self.llm_provider.chat_completion(messages, model=model_name)
+            response = await provider.chat_completion(messages, model=model_name)
             result_text = response.content if hasattr(response, 'content') else str(response)
 
             # Parse response
@@ -121,12 +125,32 @@ Respond in JSON format:
 
         except Exception as e:
             logger.error(f"Project assignment failed: {e}", exc_info=True)
-            # Return default assignment
             return ProjectAssignmentOutput(
                 suggested_human_owner=None,
-                suggested_ai_pm_id=self._get_default_ai_pm(project.type),
-                reasoning="Assignment failed, using default"
+                suggested_ai_pm_id=None,
+                reasoning=f"Assignment unavailable: {e}",
             )
+
+    def _resolve_generation_backend(
+        self,
+        workspace: Workspace,
+    ) -> tuple[Optional[Any], Optional[str]]:
+        """Resolve managed LLM provider/model, respecting executor runtime bindings."""
+        try:
+            provider, selection = build_managed_llm_provider(
+                workspace=workspace,
+                purpose="project_assignment",
+                default_model="gpt-4o-mini",
+            )
+        except ManagedLLMDisabledForRuntime as exc:
+            logger.info("ProjectAssignmentAgent bypassing managed LLM: %s", exc)
+            return None, None
+        except ValueError as exc:
+            logger.warning("ProjectAssignmentAgent failed to resolve LLM selection: %s", exc)
+            return None, None
+
+        self.llm_provider = provider
+        return provider, selection.model_name
 
     def _format_members(self, members: list) -> str:
         """Format workspace members for prompt"""
@@ -139,17 +163,6 @@ Respond in JSON format:
         """Get summary of past projects in workspace"""
         # TODO: Query past projects from database
         return "No past projects data available"
-
-    def _get_default_ai_pm(self, project_type: str) -> Optional[str]:
-        """Get default AI PM ID based on project type"""
-        mapping = {
-            "web_page": "ai_team.web_design",
-            "book": "ai_team.book_companion",
-            "course": "ai_team.course_production",
-            "campaign": "ai_team.campaign_manager",
-            "video_series": "ai_team.video_production"
-        }
-        return mapping.get(project_type, "ai_team.general")
 
     def _parse_response(self, response_text: str) -> ProjectAssignmentOutput:
         """Parse LLM response into ProjectAssignmentOutput"""
@@ -371,4 +384,3 @@ Respond in JSON format:
                 "reasoning": f"Parse error: {e}",
                 "selected_candidate": {}
             }
-

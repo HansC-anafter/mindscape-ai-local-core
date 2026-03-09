@@ -13,6 +13,7 @@ import uuid
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 
+import httpx
 import websockets
 from websockets.client import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed, WebSocketException
@@ -142,7 +143,7 @@ class CloudConnector:
                 db.query(RuntimeEnvironment)
                 .filter(
                     RuntimeEnvironment.auth_type == "oauth2",
-                    RuntimeEnvironment.auth_status == "connected",
+                    RuntimeEnvironment.auth_status.in_(["connected", "expired"]),
                 )
                 .all()
             )
@@ -369,3 +370,65 @@ class CloudConnector:
     def device_id(self, value: str) -> None:
         """Set device ID."""
         self._device_id = value
+
+    # ------------------------------------------------------------------
+    # HTTP dispatch API  (used by execution_dispatch.py:dispatch_remote_execution)
+    # ------------------------------------------------------------------
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        """Lazy-init an httpx client pointed at the Cloud REST API."""
+        if not getattr(self, "_http_client", None):
+            cloud_api_url = os.getenv("CLOUD_API_URL", "https://agent.anafter.co")
+            api_key = os.getenv("CLOUD_API_KEY", "") or os.getenv(
+                "CLOUD_PROVIDER_TOKEN", ""
+            )
+            self._http_client: Optional[httpx.AsyncClient] = httpx.AsyncClient(
+                base_url=cloud_api_url,
+                headers={
+                    "X-Device-Id": self._device_id,
+                    "Authorization": f"Bearer {api_key}",
+                },
+                timeout=30.0,
+            )
+        return self._http_client
+
+    async def start_remote_execution(
+        self,
+        tenant_id: str,
+        playbook_code: str,
+        request_payload: Dict[str, Any],
+        workspace_id: Optional[str] = None,
+        capability_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Dispatch execution request to cloud control plane via HTTP.
+
+        Called by execution_dispatch.dispatch_remote_execution().
+
+        Args:
+            tenant_id: Tenant identifier for cloud routing
+            playbook_code: Playbook to execute
+            request_payload: Execution input data
+            workspace_id: Optional workspace context
+            capability_code: Optional capability identifier
+
+        Returns:
+            Cloud execution record with id and state
+
+        Raises:
+            ConnectionError: If HTTP client cannot be initialised
+            httpx.HTTPStatusError: On API failure
+        """
+        client = self._get_http_client()
+        response = await client.post(
+            "/api/v1/executions",
+            json={
+                "tenant_id": tenant_id,
+                "playbook_code": playbook_code,
+                "request_payload": request_payload,
+                "workspace_id": workspace_id,
+                "capability_code": capability_code,
+                "device_id": self._device_id,
+            },
+        )
+        response.raise_for_status()
+        return response.json()

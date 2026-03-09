@@ -50,6 +50,8 @@ def build_dispatch_payload(
             "project_id": request.project_id,
             "intent_id": request.intent_id,
             "lens_id": request.lens_id,
+            "auth_workspace_id": request.auth_workspace_id or request.workspace_id,
+            "source_workspace_id": request.source_workspace_id or request.workspace_id,
             "sandbox_path": request.sandbox_path,
             "conversation_context": agent_cfg.get("conversation_context", ""),
             "thread_id": agent_cfg.get("thread_id", ""),
@@ -254,6 +256,7 @@ class PollingRuntimeAdapter(BaseRuntimeAdapter):
             result_future=result_future,
             payload=dispatch_payload,
             thread_id=(dispatch_payload.get("context") or {}).get("thread_id"),
+            project_id=(dispatch_payload.get("context") or {}).get("project_id"),
         )
         manager._inflight[execution_id] = inflight
 

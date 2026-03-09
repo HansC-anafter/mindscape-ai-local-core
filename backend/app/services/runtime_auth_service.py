@@ -223,6 +223,18 @@ class RuntimeAuthService:
                         )
                         if refreshed:
                             access_token = refreshed
+                            # Restore auth_status after successful refresh
+                            if runtime.auth_status != "connected":
+                                runtime.auth_status = "connected"
+                                if db:
+                                    try:
+                                        db.add(runtime)
+                                        db.commit()
+                                        logger.info(
+                                            f"Restored auth_status to 'connected' for runtime {runtime.id}"
+                                        )
+                                    except Exception:
+                                        db.rollback()
                         else:
                             # Refresh failed — mark runtime as expired
                             logger.warning(

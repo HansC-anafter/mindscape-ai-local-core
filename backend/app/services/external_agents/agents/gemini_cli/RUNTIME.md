@@ -25,9 +25,10 @@ governance:
 
 # Gemini CLI Agent Adapter
 
-Gemini CLI is an AI coding agent that runs inside the IDE (e.g. VS Code).
-This adapter dispatches coding tasks to Gemini CLI through a transport-agnostic
-Dispatch Contract, supporting WebSocket Push (primary) and REST Polling (fallback).
+Gemini CLI is an AI coding agent that runs in a host-side execution environment,
+often alongside an IDE but not inherently IDE-bound. This adapter dispatches
+coding tasks to Gemini CLI through a transport-agnostic Dispatch Contract,
+supporting WebSocket Push (primary) and REST Polling (fallback).
 
 ## Features
 
@@ -39,9 +40,10 @@ Dispatch Contract, supporting WebSocket Push (primary) and REST Polling (fallbac
 
 ## Architecture
 
-Unlike CLI-based agents (e.g. OpenClaw), Gemini CLI does not execute via
-subprocess. Instead, tasks are dispatched over the network to an IDE instance
-that has an active WebSocket connection to the Mindscape backend.
+Unlike CLI-based agents (e.g. OpenClaw), Gemini CLI does not execute via a
+backend-local subprocess. Instead, tasks are dispatched over the network to a
+host-side Gemini CLI client that has an active WebSocket connection to the
+Mindscape backend.
 
 ```
 GeminiCLIAdapter.execute()

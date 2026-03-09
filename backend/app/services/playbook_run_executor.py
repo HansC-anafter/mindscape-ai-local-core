@@ -340,6 +340,16 @@ class PlaybookRunExecutor:
                             "workspace_id": workspace_id,
                             "project_id": project_id,
                             "profile_id": profile_id,
+                            "meeting_session_id": (
+                                normalized_inputs.get("meeting_session_id")
+                                if isinstance(normalized_inputs, dict)
+                                else None
+                            ),
+                            "thread_id": (
+                                normalized_inputs.get("thread_id")
+                                if isinstance(normalized_inputs, dict)
+                                else None
+                            ),
                         }
                     )
                     if execution_backend_hint:
@@ -372,6 +382,16 @@ class PlaybookRunExecutor:
                                 "workspace_id": workspace_id,
                                 "project_id": project_id,
                                 "profile_id": profile_id,
+                                "meeting_session_id": (
+                                    normalized_inputs.get("meeting_session_id")
+                                    if isinstance(normalized_inputs, dict)
+                                    else None
+                                ),
+                                "thread_id": (
+                                    normalized_inputs.get("thread_id")
+                                    if isinstance(normalized_inputs, dict)
+                                    else None
+                                ),
                             },
                             created_at=_utc_now(),
                             started_at=_utc_now(),
@@ -1033,6 +1053,7 @@ class PlaybookRunExecutor:
                 id=execution_id,
                 workspace_id=workspace_id,
                 playbook_code=playbook_code,
+                thread_id=inputs.get("thread_id") if isinstance(inputs, dict) else None,
                 intent_instance_id=None,
                 status="running",
                 phase="initialization",
@@ -1088,6 +1109,10 @@ class PlaybookRunExecutor:
             "project_id": project_id,
             "profile_id": profile_id,
             "execution_metadata": execution_metadata.to_dict(),
+            "meeting_session_id": (
+                inputs.get("meeting_session_id") if isinstance(inputs, dict) else None
+            ),
+            "thread_id": inputs.get("thread_id") if isinstance(inputs, dict) else None,
         }
         if execution_backend_hint:
             execution_context["execution_backend_hint"] = execution_backend_hint

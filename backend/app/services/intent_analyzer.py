@@ -107,6 +107,33 @@ class IntentPipeline:
         self.store = store or MindscapeStore()
         self.enable_logging = enable_logging
 
+    def _ensure_llm_provider(self):
+        """Lazily construct the provider so non-LLM routes don't initialize Vertex eagerly."""
+        if self.llm_matcher.llm_provider:
+            if not self.playbook_selector.llm_provider:
+                self.playbook_selector.llm_provider = self.llm_matcher.llm_provider
+            return self.llm_matcher.llm_provider
+
+        from backend.app.services.conversation.llm_provider_factory import (
+            build_llm_provider,
+        )
+
+        try:
+            provider = build_llm_provider()
+        except Exception as e:
+            logger.warning(
+                "[IntentPipeline] Failed to lazily initialize llm_provider: %s", e
+            )
+            return None
+
+        self.llm_matcher.llm_provider = provider
+        self.playbook_selector.llm_provider = provider
+        logger.info(
+            "[IntentPipeline] Lazily initialized llm_provider: %s",
+            type(provider).__name__,
+        )
+        return provider
+
     async def analyze(
         self,
         user_input: str,
@@ -141,6 +168,9 @@ class IntentPipeline:
         result.profile_id = profile_id
         result.project_id = project_id
         result.workspace_id = workspace_id
+
+        if self.decision_coordinator.use_llm and not self.llm_matcher.llm_provider:
+            self._ensure_llm_provider()
 
         # [VERIFICATION HACK] Force UNKNOWN for test message (Top Level)
         try:

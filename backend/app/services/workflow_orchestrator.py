@@ -318,6 +318,7 @@ class WorkflowOrchestrator:
         step: WorkflowStep,
         results: Dict[str, Dict[str, Any]],
         playbook_inputs: Optional[Dict[str, Any]] = None,
+        step_outputs: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> bool:
         """
         Evaluate condition for workflow step
@@ -326,6 +327,7 @@ class WorkflowOrchestrator:
             step: WorkflowStep with optional condition
             results: Current execution results
             playbook_inputs: Playbook inputs for template evaluation
+            step_outputs: Step outputs dict for resolving step.X.Y references
 
         Returns:
             True if step should execute, False if should skip
@@ -352,8 +354,37 @@ class WorkflowOrchestrator:
                     python_expr = re.sub(
                         r"input\.(\w+)", r"input_dict.get('\1')", python_expr
                     )
+                    # Replace step.X.Y.Z with step_proxy['X']['Y']['Z']
+                    python_expr = re.sub(
+                        r"step\.(\w+)\.(\w+)\.(\w+)",
+                        r"_step_get('\1', '\2', '\3')",
+                        python_expr,
+                    )
+                    python_expr = re.sub(
+                        r"step\.(\w+)\.(\w+)",
+                        r"_step_get('\1', '\2')",
+                        python_expr,
+                    )
+
+                    _so = step_outputs or {}
+
+                    def _step_get(*keys):
+                        """Resolve step.X.Y.Z from step_outputs."""
+                        val = _so
+                        for k in keys:
+                            if isinstance(val, dict):
+                                val = val.get(k)
+                            else:
+                                return None
+                        return val
+
                     result_value = eval(
-                        python_expr, {"__builtins__": {}, "input_dict": input_dict}
+                        python_expr,
+                        {
+                            "__builtins__": {},
+                            "input_dict": input_dict,
+                            "_step_get": _step_get,
+                        },
                     )
                     logger.info(
                         f"Condition '{condition}' (expr: '{expr}') evaluated to: {result_value} (bool: {bool(result_value)}), input_dict keys: {list(input_dict.keys())}"
@@ -1105,10 +1136,15 @@ class WorkflowOrchestrator:
                 if hasattr(step, "condition") and step.condition:
                     # Build results dict for condition evaluation
                     results = {
-                        step_id: {"status": "completed", "outputs": {}}
+                        step_id: {
+                            "status": "completed",
+                            "outputs": (step_outputs or {}).get(step_id, {}),
+                        }
                         for step_id in completed_steps
                     }
-                    if not self._evaluate_condition(step, results, playbook_inputs):
+                    if not self._evaluate_condition(
+                        step, results, playbook_inputs, step_outputs=step_outputs
+                    ):
                         logger.info(f"Step {step.id} condition not met, skipping")
                         # Mark step as completed (skipped) to avoid circular dependency
                         completed_steps.add(step.id)

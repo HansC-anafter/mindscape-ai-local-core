@@ -3,7 +3,7 @@
 Gemini CLI Chat Adapter — bridge between TaskExecutor JSON protocol
 and the `gemini` CLI.
 
-Protocol (as expected by task_executor._execute_via_ide_runtime):
+Protocol (as expected by task_executor._execute_via_gemini_cli_bridge):
   stdin:  JSON payload with execution_id, workspace_id, task, etc.
   stdout: JSON result with status, output, error, tool_calls, files_modified, etc.
   exit 0 on success, non-zero on failure.
@@ -113,7 +113,7 @@ def main():
         result_data.setdefault("status", "completed")
         result_data.setdefault("execution_id", execution_id)
         result_data["metadata"] = {
-            "executor_location": "ide",
+            "executor_location": "host",
             "runtime": "gemini_cli",
             "workspace_id": workspace_id,
         }
@@ -148,7 +148,7 @@ def emit_result(
         "files_modified": files_modified or [],
         "files_created": files_created or [],
         "metadata": {
-            "executor_location": "ide",
+            "executor_location": "host",
             "runtime": "gemini_cli",
             "workspace_id": workspace_id,
         },
