@@ -30,6 +30,7 @@ def _sanitize_agenda_item(msg: str) -> str:
 async def _decompose_agenda(
     user_message: str,
     model_name: str | None = None,
+    executor_runtime: str | None = None,
 ) -> list[str]:
     """Use LLM to decompose a user message into 2-5 agenda items.
 
@@ -40,8 +41,12 @@ async def _decompose_agenda(
         user_message: Raw user message to decompose.
         model_name: Optional model override.  Falls back to system
             setting ``chat_model`` if not provided.
+        executor_runtime: Skip direct LLM agenda decomposition when an
+            executor runtime is driving the meeting.
     """
     if not user_message or len(user_message.strip()) < 10:
+        return [_sanitize_agenda_item(user_message)]
+    if executor_runtime:
         return [_sanitize_agenda_item(user_message)]
 
     try:
@@ -202,6 +207,7 @@ async def ensure_meeting_session(
     project_id: Optional[str] = None,
     user_message: Optional[str] = None,
     model_name: Optional[str] = None,
+    executor_runtime: Optional[str] = None,
 ) -> Optional[Any]:
     """Get or create the active MeetingSession for this workspace/thread.
 
@@ -215,6 +221,8 @@ async def ensure_meeting_session(
         project_id: Optional project ID.
         user_message: Optional user message to include in agenda.
         model_name: Optional LLM model name for agenda decomposition.
+        executor_runtime: Active executor runtime. When present, skip
+            direct LLM agenda decomposition and use the raw user message.
 
     Returns:
         MeetingSession or None on error.
@@ -234,7 +242,9 @@ async def ensure_meeting_session(
             # Append user_message to agenda (dedup + cap)
             if user_message:
                 decomposed = await _decompose_agenda(
-                    user_message, model_name=model_name
+                    user_message,
+                    model_name=model_name,
+                    executor_runtime=executor_runtime,
                 )
                 current = list(session.agenda or [])
                 for item in decomposed:
@@ -282,7 +292,9 @@ async def ensure_meeting_session(
         initial_agenda = None
         if user_message:
             initial_agenda = await _decompose_agenda(
-                user_message, model_name=model_name
+                user_message,
+                model_name=model_name,
+                executor_runtime=executor_runtime,
             )
         new_session = MeetingSession.new(
             workspace_id=workspace_id,
@@ -382,6 +394,10 @@ async def finalize_meeting_session(
             }
         )
         session.metadata["runs"] = run_meta
+
+        # OP-5: Surface completion_status into session metadata
+        if hasattr(result, "completion_status") and result.completion_status:
+            session.metadata["completion_status"] = result.completion_status
 
         await loop.run_in_executor(
             None,

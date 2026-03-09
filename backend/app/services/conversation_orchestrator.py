@@ -140,11 +140,12 @@ class ConversationOrchestrator:
             default_locale=default_locale,
         )
 
-        # Build LLM provider and coordinator facade
-        llm_provider = build_llm_provider()
         message_generator = MessageGenerator(
-            llm_provider=llm_provider, default_locale=default_locale
+            llm_provider=None,
+            llm_provider_factory=build_llm_provider,
+            default_locale=default_locale,
         )
+        self.message_generator = message_generator
 
         from backend.app.services.playbook_service import PlaybookService
 
@@ -328,9 +329,10 @@ class ConversationOrchestrator:
         Returns:
             Natural feedback message text describing what was automatically analyzed.
         """
-        llm_provider = build_llm_provider()
         message_generator = MessageGenerator(
-            llm_provider=llm_provider, default_locale=self.default_locale
+            llm_provider=None,
+            llm_provider_factory=build_llm_provider,
+            default_locale=self.default_locale,
         )
         return await message_generator.generate_readonly_feedback(
             timeline_item=timeline_item,

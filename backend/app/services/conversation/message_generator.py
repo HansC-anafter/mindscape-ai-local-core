@@ -8,7 +8,7 @@ Also generates HandoffPlan for multi-step workflows.
 
 import logging
 import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 from backend.app.capabilities.core_llm.services.generate import run as llm_generate
 from ...models.playbook import HandoffPlan, WorkflowStep, PlaybookKind, InteractionMode
 from ...services.intent_analyzer import IntentAnalysisResult
@@ -20,16 +20,34 @@ logger = logging.getLogger(__name__)
 class MessageGenerator:
     """Generate natural language messages using LLM"""
 
-    def __init__(self, llm_provider=None, default_locale: str = "en"):
+    def __init__(
+        self,
+        llm_provider=None,
+        default_locale: str = "en",
+        llm_provider_factory: Optional[Callable[[], Any]] = None,
+    ):
         """
         Initialize MessageGenerator
 
         Args:
             llm_provider: LLM provider instance (optional)
             default_locale: Default locale for messages
+            llm_provider_factory: Optional lazy provider factory
         """
         self.llm_provider = llm_provider
         self.default_locale = default_locale
+        self.llm_provider_factory = llm_provider_factory
+
+    def _ensure_llm_provider(self):
+        """Build the provider lazily so Gemini-only paths do not touch Vertex eagerly."""
+        if self.llm_provider is None and self.llm_provider_factory:
+            try:
+                self.llm_provider = self.llm_provider_factory()
+            except Exception as e:
+                logger.warning(
+                    "Failed to lazily initialize llm_provider: %s", e, exc_info=True
+                )
+        return self.llm_provider
 
     async def generate_readonly_feedback(
         self,
@@ -49,7 +67,8 @@ class MessageGenerator:
             Natural feedback message describing what was automatically analyzed
         """
         try:
-            if not self.llm_provider:
+            provider = self._ensure_llm_provider()
+            if not provider:
                 # Fallback to i18n template if LLM not available
                 summary = timeline_item.get('summary', '')
                 from ...services.i18n_service import I18nService
@@ -100,7 +119,7 @@ Generate a natural feedback message for the user describing what was analyzed an
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=0.7,
-                llm_provider=self.llm_provider,
+                llm_provider=provider,
                 target_language=locale or self.default_locale
             )
 
@@ -149,7 +168,8 @@ Generate a natural feedback message for the user describing what was analyzed an
             Natural suggestion message explaining what can be added
         """
         try:
-            if not self.llm_provider:
+            provider = self._ensure_llm_provider()
+            if not provider:
                 # Fallback to i18n template
                 from ...services.i18n_service import I18nService
                 i18n = I18nService(default_locale=locale or self.default_locale)
@@ -202,7 +222,7 @@ Generate a natural suggestion message encouraging the user to add this to their 
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=0.7,
-                llm_provider=self.llm_provider,
+                llm_provider=provider,
                 target_language=locale or self.default_locale
             )
 
@@ -242,7 +262,8 @@ Generate a natural suggestion message encouraging the user to add this to their 
             Dict with confirmation message and buttons
         """
         try:
-            if not self.llm_provider:
+            provider = self._ensure_llm_provider()
+            if not provider:
                 # Fallback to i18n template
                 from ...services.i18n_service import I18nService
                 i18n = I18nService(default_locale=locale or self.default_locale)
@@ -306,7 +327,7 @@ Generate a detailed confirmation message asking the user to confirm this action.
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=0.5,  # Lower temperature for more consistent confirmations
-                llm_provider=self.llm_provider,
+                llm_provider=provider,
                 target_language=locale or self.default_locale
             )
 
@@ -397,7 +418,8 @@ Generate a detailed confirmation message asking the user to confirm this action.
         Returns:
             Dict with 'message' (user-friendly text) and optional 'handoff_plan'
         """
-        if not self.llm_provider:
+        provider = self._ensure_llm_provider()
+        if not provider:
             return {
                 "message": "I understand your request, but I need an LLM provider to generate a workflow plan.",
                 "handoff_plan": None
@@ -473,7 +495,7 @@ HandoffPlan JSON:
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=0.7,
-                llm_provider=self.llm_provider,
+                llm_provider=provider,
                 target_language=locale or self.default_locale
             )
 
@@ -530,7 +552,8 @@ HandoffPlan JSON:
         Returns:
             Natural language summary of workflow execution
         """
-        if not self.llm_provider:
+        provider = self._ensure_llm_provider()
+        if not provider:
             from ...services.i18n_service import I18nService
             i18n = I18nService(default_locale=locale or self.default_locale)
             return i18n.t("conversation_orchestrator", "workflow.completed", fallback="Workflow completed successfully")
@@ -577,7 +600,7 @@ Generate a natural summary message for the user."""
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=0.7,
-                llm_provider=self.llm_provider,
+                llm_provider=provider,
                 target_language=locale or self.default_locale
             )
 
