@@ -179,7 +179,7 @@ class DispatchOrchestrator:
         else:
             agg_status = "partial_failure"
 
-        # OP-3: Persist PhaseAttempt records to tasks_store for L5→L3 signal path
+        # Persist PhaseAttempt records to tasks_store for L5→L3 signal path
         session_id = getattr(self.session, "id", None)
         if self.tasks_store and self._attempts and session_id:
             try:
@@ -210,7 +210,7 @@ class DispatchOrchestrator:
                     except Exception:
                         pass  # non-fatal
             except Exception as exc:
-                logger.warning("OP-3 attempt persistence failed (non-fatal): %s", exc)
+                logger.warning("Attempt persistence failed (non-fatal): %s", exc)
 
         return {
             "status": agg_status,
@@ -359,7 +359,7 @@ class DispatchOrchestrator:
             "thread_id": getattr(self.session, "thread_id", None),
             "workspace_id": target_workspace_id,
         }
-        # OP-5: Inject full lineage chain for L4 transport correlation
+        # Inject full lineage chain for L4 transport correlation
         inputs["phase_attempt_id"] = attempt.id
         inputs["phase_id"] = attempt.phase_id
         inputs["task_ir_id"] = attempt.task_ir_id
@@ -385,7 +385,7 @@ class DispatchOrchestrator:
 
             execution_id = result.get("execution_id")
 
-            # OP-5: Write execution_id back to attempt.adapter_meta
+            # Write execution_id back to attempt.adapter_meta
             # for direct attempt → execution_id join
             if execution_id:
                 attempt.adapter_meta["execution_id"] = execution_id

@@ -1,12 +1,12 @@
 """
 MeetingExecutionContext — resolved snapshot of runtime inputs for meeting.
 
-OP-1: Aggregates from existing models:
-- workspace.core: executor_specs, fallback_model, resolved_executor_runtime_id
+Aggregates from existing models:
+- workspace.core: executor_specs, fallback_model, resolved_executor_runtime
 - workspace_runtime_profile: loop_budget, recovery_policy
 - runtime_environment: auth_type, auth_status
 - route_decision: route_kind, execution_profile
-- Q0: RuntimeObservabilitySnapshot
+- RuntimeObservabilitySnapshot: runtime visibility
 
 Not persisted — assembled fresh at each meeting start by PipelineCore.
 """
@@ -88,10 +88,10 @@ class MeetingExecutionContext(BaseModel):
         description="Execution profile: simple | durable",
     )
 
-    # Q0: RuntimeObservabilitySnapshot (read-only)
+    # RuntimeObservabilitySnapshot (read-only)
     runtime_snapshot: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Q0: serialized RuntimeObservabilitySnapshot",
+        description="Serialized RuntimeObservabilitySnapshot",
     )
 
     # Timing (for budget_headroom_pct computation)
@@ -102,7 +102,7 @@ class MeetingExecutionContext(BaseModel):
         """Fraction of time budget remaining (0.0–1.0).
 
         Returns 1.0 if no budget is set.
-        Used by OP-4 select_deliberation_depth().
+        Used by select_deliberation_depth().
         """
         if not self.time_budget_seconds or self.time_budget_seconds <= 0:
             return 1.0
@@ -172,7 +172,7 @@ class MeetingExecutionContext(BaseModel):
                     profile.value if hasattr(profile, "value") else str(profile)
                 )
 
-        # Q0: RuntimeObservabilitySnapshot
+        # RuntimeObservabilitySnapshot
         if runtime_snapshot is not None:
             if hasattr(runtime_snapshot, "model_dump"):
                 ctx.runtime_snapshot = runtime_snapshot.model_dump(mode="json")
