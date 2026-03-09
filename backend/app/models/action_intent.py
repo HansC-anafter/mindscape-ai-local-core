@@ -139,4 +139,6 @@ class ActionIntent(BaseModel):
             priority=d.get("priority"),
             engine=d.get("engine"),
             asset_refs=d.get("asset_refs") or [],
+            landing_status=d.get("landing_status"),
+            policy_reason_code=d.get("policy_reason_code"),
         )

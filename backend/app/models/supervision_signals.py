@@ -91,3 +91,17 @@ class SupervisionSignals(BaseModel):
     def session_time_remaining_s(self) -> float:
         """Remaining session time in seconds."""
         return max(0.0, self.session_budget_s - self.session_age_s)
+
+    @property
+    def budget_pressure_high(self) -> bool:
+        """True when budget is under significant pressure (OP-3).
+
+        Triggers SHRINK_SCOPE in DispatchGate for low-priority intents.
+        Conditions: time remaining < 20% of budget OR risk budget < 0.2.
+        """
+        time_pressure = (
+            self.session_budget_s > 0
+            and self.session_time_remaining_s < self.session_budget_s * 0.2
+        )
+        risk_pressure = self.risk_budget_remaining < 0.2
+        return time_pressure or risk_pressure
