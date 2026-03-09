@@ -6,6 +6,7 @@ and previous decisions injected into agent turn prompts.
 import pytest
 from unittest.mock import MagicMock, patch
 from dataclasses import dataclass
+from pathlib import Path
 
 from backend.app.services.orchestration.meeting._prompts import MeetingPromptsMixin
 
@@ -616,3 +617,31 @@ class TestFinalMessagesInjection:
         system_msg = next(m for m in messages if m["role"] == "system")
         assert "Intent classifier" in system_msg["content"]
         assert "Intent Steward AI" in system_msg["content"]
+
+
+class TestToolInventoryCanonicalIds:
+    """Fallback tool inventory should surface canonical pack-prefixed IDs."""
+
+    def test_manifest_fallback_uses_pack_prefixed_tool_id(self, monkeypatch):
+        engine = StubEngine()
+        repo_root = Path(__file__).resolve().parents[4]
+        monkeypatch.setenv("APP_DIR", str(repo_root))
+
+        fake_binding_store = MagicMock()
+        fake_binding_store.list_bindings_by_workspace.return_value = []
+
+        fake_packs_store = MagicMock()
+        fake_packs_store.list_enabled_pack_ids.return_value = ["ig"]
+
+        with patch(
+            "backend.app.services.stores.workspace_resource_binding_store.WorkspaceResourceBindingStore",
+            return_value=fake_binding_store,
+        ), patch(
+            "backend.app.services.stores.installed_packs_store.InstalledPacksStore",
+            return_value=fake_packs_store,
+        ):
+            block = engine._build_tool_inventory_block()
+
+        assert "- ig.ig_capture_account_snapshot:" in block
+        assert "- ig.ig_fetch_posts:" in block
+        assert "- ig_capture_account_snapshot:" not in block

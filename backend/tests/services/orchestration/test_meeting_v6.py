@@ -315,46 +315,42 @@ class TestPolicyGate:
 
 
 class TestPolicyGateSinglePath:
-    """Policy-blocked items are skipped in single-path dispatch."""
+    """Policy-blocked items are skipped in DispatchOrchestrator."""
 
     @pytest.mark.asyncio
     async def test_single_path_skips_blocked(self):
-        from backend.app.services.orchestration.meeting.engine import MeetingEngine
-
-        class Eng(StubMixin):
-            _available_playbooks_cache = ""
-
-        Eng._dispatch_phases_to_workspaces = (
-            MeetingEngine._dispatch_phases_to_workspaces
+        from backend.app.services.orchestration.dispatch_orchestrator import (
+            DispatchOrchestrator,
         )
-        Eng._resolve_blocked_by_order = MeetingEngine._resolve_blocked_by_order
+        from backend.app.models.task_ir import TaskIR, PhaseIR
 
-        engine = Eng()
-        landed_titles = []
-
-        async def _tracking_land(item):
-            landed_titles.append(item["title"])
-            item["landing_status"] = "task_created"
-            return item
-
-        engine._land_action_item = _tracking_land
-
-        items = [
+        orch = DispatchOrchestrator(
+            session=MagicMock(id="sess-001", workspace_id="ws-default", metadata={}),
+            profile_id="user-001",
+            tasks_store=MagicMock(create_task=MagicMock(return_value="t-1")),
+        )
+        phases = [
+            PhaseIR(id="p1", name="Good"),
+            PhaseIR(id="p2", name="Blocked"),
+        ]
+        task_ir = TaskIR(
+            task_id="t-001",
+            intent_instance_id="i-001",
+            workspace_id="ws-default",
+            actor_id="user-001",
+            phases=phases,
+        )
+        action_items = [
             {"title": "Good", "description": "ok"},
             {
                 "title": "Blocked",
                 "description": "blocked",
                 "landing_status": "policy_blocked",
-                "landing_error": "not allowed",
-                "policy_reason_code": "UNKNOWN_PLAYBOOK",
             },
         ]
-        result = await engine._dispatch_phases_to_workspaces(items)
-        assert result["dispatch_mode"] == "single"
-        assert "Blocked" not in landed_titles
-        assert "Good" in landed_titles
-        assert result["failed"] >= 1
-        assert result["succeeded"] == 1
+        result = await orch.execute(task_ir, action_items)
+        assert result["succeeded"] >= 1
+        assert result["skipped"] >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -425,35 +421,36 @@ class TestBlockedByValidation:
 
 
 class TestSinglePathWorkspaceKey:
-    """single-path dispatch uses actual target workspace as results key."""
+    """DispatchOrchestrator records correct target workspace."""
 
     @pytest.mark.asyncio
     async def test_non_default_target_workspace_key(self):
-        from backend.app.services.orchestration.meeting.engine import MeetingEngine
-
-        class Eng(StubMixin):
-            _available_playbooks_cache = ""
-
-        Eng._dispatch_phases_to_workspaces = (
-            MeetingEngine._dispatch_phases_to_workspaces
+        from backend.app.services.orchestration.dispatch_orchestrator import (
+            DispatchOrchestrator,
         )
-        Eng._resolve_blocked_by_order = MeetingEngine._resolve_blocked_by_order
+        from backend.app.models.task_ir import TaskIR, PhaseIR
 
-        engine = Eng()
-        engine.session.workspace_id = "ws-default"
-
-        async def _tracking_land(item):
-            item["landing_status"] = "task_created"
-            return item
-
-        engine._land_action_item = _tracking_land
-
-        items = [
+        orch = DispatchOrchestrator(
+            session=MagicMock(id="sess-001", workspace_id="ws-default", metadata={}),
+            profile_id="user-001",
+            tasks_store=MagicMock(create_task=MagicMock(return_value="t-1")),
+        )
+        phases = [
+            PhaseIR(id="p1", name="Task", target_workspace_id="ws-other"),
+        ]
+        task_ir = TaskIR(
+            task_id="t-001",
+            intent_instance_id="i-001",
+            workspace_id="ws-default",
+            actor_id="user-001",
+            phases=phases,
+        )
+        action_items = [
             {"title": "Task", "description": "ok", "target_workspace_id": "ws-other"},
         ]
-        result = await engine._dispatch_phases_to_workspaces(items)
-        assert "ws-other" in result["workspace_results"]
-        assert "ws-default" not in result["workspace_results"]
+        result = await orch.execute(task_ir, action_items)
+        assert result["succeeded"] == 1
+        assert "ws-other" in result["workspaces"]
 
 
 # ---------------------------------------------------------------------------
@@ -462,43 +459,46 @@ class TestSinglePathWorkspaceKey:
 
 
 class TestMultiAllPolicyBlocked:
-    """Multi-path with all items policy_blocked reports all_failed."""
+    """All items policy_blocked → DispatchOrchestrator reports all_failed."""
 
     @pytest.mark.asyncio
     async def test_all_policy_blocked_gives_all_failed(self):
-        from backend.app.services.orchestration.meeting.engine import MeetingEngine
-
-        class Eng(StubMixin):
-            _available_playbooks_cache = ""
-
-        Eng._dispatch_phases_to_workspaces = (
-            MeetingEngine._dispatch_phases_to_workspaces
+        from backend.app.services.orchestration.dispatch_orchestrator import (
+            DispatchOrchestrator,
         )
-        Eng._resolve_blocked_by_order = MeetingEngine._resolve_blocked_by_order
+        from backend.app.models.task_ir import TaskIR, PhaseIR
 
-        engine = Eng()
-
-        items = [
+        orch = DispatchOrchestrator(
+            session=MagicMock(id="sess-001", workspace_id="ws-default", metadata={}),
+            profile_id="user-001",
+        )
+        phases = [
+            PhaseIR(id="p1", name="A", target_workspace_id="ws-a"),
+            PhaseIR(id="p2", name="B", target_workspace_id="ws-b"),
+        ]
+        task_ir = TaskIR(
+            task_id="t-001",
+            intent_instance_id="i-001",
+            workspace_id="ws-default",
+            actor_id="user-001",
+            phases=phases,
+        )
+        action_items = [
             {
                 "title": "A",
                 "description": "a",
-                "target_workspace_id": "ws-a",
                 "landing_status": "policy_blocked",
-                "policy_reason_code": "UNKNOWN_PLAYBOOK",
             },
             {
                 "title": "B",
                 "description": "b",
-                "target_workspace_id": "ws-b",
                 "landing_status": "policy_blocked",
-                "policy_reason_code": "UNKNOWN_PLAYBOOK",
             },
         ]
-        result = await engine._dispatch_phases_to_workspaces(items)
+        result = await orch.execute(task_ir, action_items)
         assert result["total"] == 2
-        assert result["failed"] == 2
         assert result["succeeded"] == 0
-        assert result["aggregate_status"] == "all_failed"
+        assert result["status"] == "all_failed"
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +631,44 @@ class TestToolAllowlist:
         assert items[0].get("landing_status") is None
         # tool_b is allowed on ws-session (fallback) → pass
         assert items[1].get("landing_status") is None
+
+    def test_suffix_tool_name_is_canonicalized_when_unique(self):
+        """Bare tool name should be normalized to canonical allowlist ID."""
+        from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
+            check_dispatch_policy,
+        )
+
+        binding = MagicMock()
+        binding.resource_id = "ig.ig_fetch_posts"
+        binding_store = MagicMock()
+        binding_store.list_bindings_by_workspace.return_value = [binding]
+
+        items = [{"title": "Sync", "tool_name": "ig_fetch_posts"}]
+        check_dispatch_policy(items, workspace_id="ws-1", binding_store=binding_store)
+
+        assert items[0].get("landing_status") is None
+        assert items[0]["tool_name"] == "ig.ig_fetch_posts"
+        assert items[0]["tool_name_original"] == "ig_fetch_posts"
+        assert items[0]["tool_name_normalized"] is True
+
+    def test_suffix_tool_name_ambiguous_still_blocked(self):
+        """Ambiguous bare name should stay blocked for later repair phase."""
+        from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
+            check_dispatch_policy,
+        )
+
+        binding_a = MagicMock()
+        binding_a.resource_id = "ig.ig_fetch_posts"
+        binding_b = MagicMock()
+        binding_b.resource_id = "legacy.ig_fetch_posts"
+        binding_store = MagicMock()
+        binding_store.list_bindings_by_workspace.return_value = [binding_a, binding_b]
+
+        items = [{"title": "Sync", "tool_name": "ig_fetch_posts"}]
+        check_dispatch_policy(items, workspace_id="ws-1", binding_store=binding_store)
+
+        assert items[0]["landing_status"] == "policy_blocked"
+        assert items[0]["policy_reason_code"] == "TOOL_NOT_ALLOWED"
 
 
 class TestVisibilityModel:

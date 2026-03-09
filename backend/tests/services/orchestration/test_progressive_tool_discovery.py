@@ -95,6 +95,7 @@ def _make_engine_stub(**overrides):
     engine.session = session
     engine.session_store = store
     engine.model_name = overrides.get("model_name", "test-model")
+    engine.executor_runtime = overrides.get("executor_runtime")
     engine._rag_tool_cache = overrides.get("rag_cache", [])
     engine._has_workspace_tool_bindings = MagicMock(
         return_value=overrides.get("has_bindings", False)
@@ -201,6 +202,20 @@ class TestDecomposeAgenda:
             )
             assert len(result) == 2
 
+    @pytest.mark.asyncio
+    async def test_executor_runtime_skips_provider_initialization(self):
+        from backend.app.services.conversation.pipeline_meeting import _decompose_agenda
+
+        result = await _decompose_agenda(
+            "Research autonomic nervous system studies and create IG posts",
+            model_name="gemini-2.5-pro",
+            executor_runtime="gemini_cli",
+        )
+
+        assert result == [
+            "Research autonomic nervous system studies and create IG posts"
+        ]
+
 
 # ---------------------------------------------------------------------------
 # TestModelNamePlumbing
@@ -239,10 +254,9 @@ class TestModelNamePlumbing:
                 user_message="Research and write posts",
                 model_name="gemini-2.5-pro",
             )
-            mock_decompose.assert_awaited_once_with(
-                "Research and write posts",
-                model_name="gemini-2.5-pro",
-            )
+            _, kwargs = mock_decompose.call_args
+            assert kwargs["model_name"] == "gemini-2.5-pro"
+            assert kwargs["executor_runtime"] is None
 
     @pytest.mark.asyncio
     async def test_model_name_forwarded_on_reuse(self):
@@ -271,10 +285,9 @@ class TestModelNamePlumbing:
                 user_message="New multi-step request",
                 model_name="claude-3-5-sonnet",
             )
-            mock_decompose.assert_awaited_once_with(
-                "New multi-step request",
-                model_name="claude-3-5-sonnet",
-            )
+            _, kwargs = mock_decompose.call_args
+            assert kwargs["model_name"] == "claude-3-5-sonnet"
+            assert kwargs["executor_runtime"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -302,10 +315,9 @@ class TestLayer0cProduction:
         assert result is True
         assert engine.session.agenda == ["sub A", "sub B", "sub C"]
         engine.session_store.update.assert_called_once_with(engine.session)
-        mock_decompose.assert_awaited_once_with(
-            "A message long enough to decompose into sub-tasks",
-            model_name="test-model",
-        )
+        _, kwargs = mock_decompose.call_args
+        assert kwargs["model_name"] == "test-model"
+        assert kwargs["executor_runtime"] is None
 
     @pytest.mark.asyncio
     async def test_skips_multi_item_agenda(self):
@@ -350,6 +362,27 @@ class TestLayer0cProduction:
         mock_decompose.assert_awaited_once()
         _, kwargs = mock_decompose.call_args
         assert kwargs["model_name"] == "gemini-2.5-pro"
+
+    @pytest.mark.asyncio
+    async def test_passes_executor_runtime(self):
+        """Should forward executor_runtime to _decompose_agenda."""
+        engine = _make_engine_stub(
+            agenda=["single"],
+            model_name="gemini-2.5-pro",
+            executor_runtime="gemini_cli",
+        )
+
+        with patch(
+            "backend.app.services.conversation.pipeline_meeting._decompose_agenda",
+            new_callable=AsyncMock,
+            return_value=["x", "y"],
+        ) as mock_decompose:
+            await engine._ensure_agenda_decomposed(
+                "A sufficiently long message for decomposition"
+            )
+
+        _, kwargs = mock_decompose.call_args
+        assert kwargs["executor_runtime"] == "gemini_cli"
 
     @pytest.mark.asyncio
     async def test_fallback_single_item_returns_false(self):
