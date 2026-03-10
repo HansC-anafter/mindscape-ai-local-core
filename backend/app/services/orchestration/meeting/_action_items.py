@@ -39,7 +39,7 @@ class MeetingActionItemsMixin:
             SemanticNormalizer,
         )
 
-        executor_turn = await self._agent_turn(
+        executor_turn = await self._role_turn(
             "executor",
             round_num=max(1, self.session.round_count),
             user_message=user_message,

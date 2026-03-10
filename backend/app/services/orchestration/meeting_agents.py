@@ -8,7 +8,7 @@ from backend.app.models.playbook import AgentDefinition
 from backend.app.models.workspace_runtime_profile import TopologyRouting
 
 
-MEETING_AGENT_ROSTER: Dict[str, AgentDefinition] = {
+MEETING_ROLE_ROSTER: Dict[str, AgentDefinition] = {
     "facilitator": AgentDefinition(
         agent_id="facilitator",
         agent_name="Facilitator",
@@ -18,6 +18,20 @@ MEETING_AGENT_ROSTER: Dict[str, AgentDefinition] = {
         ),
         tools=["meeting_round_control"],
         responsibility_boundary="orchestration_only",
+        critical_rules=[
+            "NEVER declare convergence before the critic has responded in the current round.",
+            "NEVER skip planner proposals — every round must include a planner turn.",
+            "NEVER take sides — summarize perspectives neutrally.",
+            "If the round count reaches max_rounds, you MUST converge.",
+        ],
+        communication_style=(
+            "Neutral moderator. Summarize each role's input concisely. "
+            "Use structured format: Progress → Open Issues → Next Step."
+        ),
+        success_metrics=[
+            "All agenda items addressed before convergence.",
+            "Convergence achieved within round budget.",
+        ],
     ),
     "planner": AgentDefinition(
         agent_id="planner",
@@ -28,6 +42,20 @@ MEETING_AGENT_ROSTER: Dict[str, AgentDefinition] = {
         ),
         tools=["workspace_query", "knowledge_search"],
         responsibility_boundary="proposal_and_planning",
+        critical_rules=[
+            "NEVER propose a plan without at least one verification or rollback step.",
+            "NEVER ignore critic feedback — address each concern explicitly.",
+            "NEVER assign tasks outside the available tool/playbook inventory.",
+            "Every step must have a clear owner and measurable outcome.",
+        ],
+        communication_style=(
+            "Structured planner. Use numbered steps with ownership and deliverables. "
+            "Format: Step N → Owner → Deliverable → Verification."
+        ),
+        success_metrics=[
+            "Plan has concrete, executable steps with clear ownership.",
+            "Every critic concern is either addressed or explicitly acknowledged.",
+        ],
     ),
     "critic": AgentDefinition(
         agent_id="critic",
@@ -38,6 +66,20 @@ MEETING_AGENT_ROSTER: Dict[str, AgentDefinition] = {
         ),
         tools=["workspace_query", "knowledge_search"],
         responsibility_boundary="risk_and_validation",
+        critical_rules=[
+            "NEVER approve a plan without raising at least one concern or risk.",
+            "NEVER propose alternative plans — stay in critique mode.",
+            "If no risk is found, state explicitly why the plan is safe.",
+            "NEVER repeat the planner's proposal — focus only on gaps and risks.",
+        ],
+        communication_style=(
+            "Constructive skepticism. Frame concerns as questions, not rejections. "
+            "Format: Risk → Impact → Suggested Mitigation."
+        ),
+        success_metrics=[
+            "At least one non-trivial risk identified per plan.",
+            "Each risk includes impact assessment and mitigation suggestion.",
+        ],
     ),
     "executor": AgentDefinition(
         agent_id="executor",
@@ -48,6 +90,19 @@ MEETING_AGENT_ROSTER: Dict[str, AgentDefinition] = {
         ),
         tools=["playbook_resolve", "task_create"],
         responsibility_boundary="execution_only",
+        critical_rules=[
+            "NEVER modify the user's original request or add agenda items not discussed.",
+            "NEVER choose a playbook_code not listed in Available Playbooks.",
+            "NEVER produce more than 3 action items unless explicitly requested.",
+            "Always set target_workspace_id when asset map is provided.",
+        ],
+        communication_style=(
+            "Precise executor. Output valid JSON only. No commentary outside JSON array."
+        ),
+        success_metrics=[
+            "All action items map to available playbooks or tools.",
+            "JSON output passes schema validation.",
+        ],
     ),
 }
 
@@ -85,7 +140,7 @@ def build_meeting_roster(
     Returns:
         Agent roster dictionary keyed by agent_id.
     """
-    roster = dict(MEETING_AGENT_ROSTER)
+    roster = dict(MEETING_ROLE_ROSTER)
     if workspace_metadata:
         agent_config = workspace_metadata.get("meeting_agents")
         if agent_config and isinstance(agent_config, dict):
@@ -115,6 +170,9 @@ def _apply_agent_overrides(
                 system_prompt=new_prompt,
                 tools=new_tools,
                 responsibility_boundary=agent.responsibility_boundary,
+                critical_rules=agent.critical_rules,
+                communication_style=agent.communication_style,
+                success_metrics=agent.success_metrics,
             )
     return roster
 
@@ -163,7 +221,7 @@ def get_round_roster(
     SHALLOW skips the critic to reduce latency on trivial requests.
     STANDARD and DEEP use the full roster.
     """
-    roster = full_roster or dict(MEETING_AGENT_ROSTER)
+    roster = full_roster or dict(MEETING_ROLE_ROSTER)
     keys = DEPTH_ROSTER_KEYS.get(depth.value, list(roster.keys()))
     return {k: v for k, v in roster.items() if k in keys}
 

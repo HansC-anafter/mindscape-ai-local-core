@@ -5,13 +5,13 @@ Public API re-exports for backward compatibility.
 """
 
 from backend.app.services.orchestration.meeting.engine import (
-    AgentTurnResult,
+    RoleTurnResult,
     MeetingEngine,
     MeetingResult,
 )
 
 __all__ = [
-    "AgentTurnResult",
+    "RoleTurnResult",
     "MeetingEngine",
     "MeetingResult",
 ]
