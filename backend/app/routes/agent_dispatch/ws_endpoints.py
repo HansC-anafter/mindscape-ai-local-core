@@ -61,8 +61,8 @@ async def agent_websocket(
         surface_type=surface,
     )
 
-    # Start cross-worker dispatch consumer on this worker
-    manager.start_dispatch_consumer()
+    # Start cross-worker dispatch services (pubsub listener + DB consumer)
+    manager.start_background_services()
 
     try:
         # Send auth challenge if auth is enabled
