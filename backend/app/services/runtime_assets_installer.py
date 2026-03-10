@@ -854,6 +854,12 @@ class RuntimeAssetsInstaller:
             if result.migration_status is None:
                 result.migration_status = {}
             result.migration_status[capability_code] = "error"
+        finally:
+            # Dispose ephemeral engine to release pooled connections
+            try:
+                engine.dispose()
+            except Exception:
+                pass
 
     def _detect_cloud_environment(self) -> bool:
         """

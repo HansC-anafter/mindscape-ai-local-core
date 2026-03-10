@@ -62,19 +62,20 @@ class ConnectionFactory:
         if role in self._postgres_engines:
             return self._postgres_engines[role]
 
-        url = self._get_role_url(role)
-        if not url.startswith("postgres"):
-            raise RuntimeError(f"PostgreSQL URL not configured for role: {role}")
+        # Reuse centralized engines from engine.py (single pool per role per process)
+        from app.database.engine import engine_postgres_core, engine_postgres_vector
 
-        safe_url = url
-        if "@" in url:
-            parts = url.split("@")
-            safe_url = "..." + parts[-1]
+        if role == "vector" and engine_postgres_vector:
+            self._postgres_engines[role] = engine_postgres_vector
+            return engine_postgres_vector
+        if engine_postgres_core:
+            self._postgres_engines[role] = engine_postgres_core
+            return engine_postgres_core
 
-        logger.info(f"Initializing PostgreSQL engine for {role}: {safe_url}")
-        engine = create_engine(url, pool_pre_ping=True)
-        self._postgres_engines[role] = engine
-        return engine
+        raise RuntimeError(
+            f"PostgreSQL engine not initialized for role: {role}. "
+            f"Check DATABASE_URL_CORE / DATABASE_URL_VECTOR environment variables."
+        )
 
     @classmethod
     def reset(cls):

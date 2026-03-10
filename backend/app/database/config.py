@@ -60,9 +60,7 @@ def _resolve_postgres_url(role: str) -> Optional[str]:
 
     legacy_url = _get_legacy_url()
     if legacy_url:
-        logger.warning(
-            f"Falling back to DATABASE_URL for PostgreSQL {role} connection"
-        )
+        logger.warning(f"Falling back to DATABASE_URL for PostgreSQL {role} connection")
         return legacy_url
 
     return None
@@ -150,4 +148,5 @@ def get_engine_kwargs() -> dict:
         "pool_pre_ping": True,
         "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
         "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+        "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "1800")),
     }

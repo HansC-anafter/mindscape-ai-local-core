@@ -15,36 +15,45 @@ class MigrationValidator:
 
     def validate_postgres_connection(self, postgres_url: str) -> bool:
         """Validate PostgreSQL connection."""
+        engine = create_engine(postgres_url)
         try:
-            engine = create_engine(postgres_url)
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             return True
         except Exception as e:
             logger.error(f"PostgreSQL connection failed: {e}")
             return False
+        finally:
+            engine.dispose()
 
-    def validate_postgres_extensions(self, postgres_url: str, required_extensions: List[str]) -> Dict[str, bool]:
+    def validate_postgres_extensions(
+        self, postgres_url: str, required_extensions: List[str]
+    ) -> Dict[str, bool]:
         """Check if required PostgreSQL extensions are installed."""
         results = {}
+        engine = create_engine(postgres_url)
         try:
-            engine = create_engine(postgres_url)
             with engine.connect() as conn:
                 for ext in required_extensions:
                     result = conn.execute(
-                        text("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = :ext)"),
-                        {"ext": ext}
+                        text(
+                            "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = :ext)"
+                        ),
+                        {"ext": ext},
                     )
                     results[ext] = result.scalar()
         except Exception as e:
             logger.error(f"Failed to check extensions: {e}")
             return {ext: False for ext in required_extensions}
+        finally:
+            engine.dispose()
 
         return results
 
     def validate_sqlite_permissions(self, db_path: str) -> bool:
         """Validate SQLite database file permissions."""
         from pathlib import Path
+
         db_file = Path(db_path)
 
         if not db_file.parent.exists():
@@ -74,10 +83,14 @@ class MigrationValidator:
 
             results["connection"] = self.validate_postgres_connection(postgres_url)
 
-            env_reqs = requirements.get("environment_requirements", {}).get("postgres", {})
+            env_reqs = requirements.get("environment_requirements", {}).get(
+                "postgres", {}
+            )
             required_extensions = env_reqs.get("extensions", [])
             if required_extensions:
-                ext_results = self.validate_postgres_extensions(postgres_url, required_extensions)
+                ext_results = self.validate_postgres_extensions(
+                    postgres_url, required_extensions
+                )
                 results.update(ext_results)
 
         elif db_type == "sqlite":
@@ -88,4 +101,3 @@ class MigrationValidator:
                 results["permissions"] = False
 
         return results
-
