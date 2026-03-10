@@ -398,7 +398,7 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
         Returns (allowed_tables, workspace_scoped_tables) as sets.
         """
         try:
-            from backend.app.capabilities.registry import (
+            from backend.app.services.capability_registry import (
                 get_registry,
                 load_capabilities,
             )

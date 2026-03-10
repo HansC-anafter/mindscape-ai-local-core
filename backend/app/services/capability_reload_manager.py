@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI
 
-from backend.app.capabilities.api_loader import load_capability_apis
-from backend.app.capabilities.registry import load_capabilities
+from backend.app.services.capability_api_loader import load_capability_apis
+from backend.app.services.capability_registry import load_capabilities
 from backend.app.core.pack_registry import load_and_register_packs
 
 logger = logging.getLogger(__name__)

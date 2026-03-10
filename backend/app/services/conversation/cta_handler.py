@@ -888,7 +888,7 @@ class CTAHandler:
         """
         try:
             # Try to use wp_sync pack if available
-            from ...capabilities.registry import get_registry
+            from ...services.capability_registry import get_registry
             registry = get_registry()
             wp_sync_pack = registry.get_pack("wp_sync")
 

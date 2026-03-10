@@ -19,7 +19,7 @@ from ...models.mindscape import MindEvent, EventType, EventActor
 from ...services.mindscape_store import MindscapeStore
 from ...services.playbook_service import PlaybookService, ExecutionMode as PlaybookExecutionMode
 from ...services.intent_infra import IntentInfraService
-from ...capabilities.registry import get_registry
+from ...services.capability_registry import get_registry
 from ...core.domain_context import LocalDomainContext
 
 logger = logging.getLogger(__name__)

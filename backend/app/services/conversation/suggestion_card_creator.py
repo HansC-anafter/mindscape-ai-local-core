@@ -320,7 +320,7 @@ class SuggestionCardCreator:
 
         # If not a playbook, check CapabilityRegistry
         if not is_valid:
-            from ...capabilities.registry import get_registry
+            from ...services.capability_registry import get_registry
 
             registry = get_registry()
             execution_method = registry.get_execution_method(pack_id)

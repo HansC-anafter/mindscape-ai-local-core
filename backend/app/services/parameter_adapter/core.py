@@ -167,7 +167,7 @@ class ParameterAdapter:
     def _load_contracts_from_capabilities(self):
         """Load contracts from all capability manifests"""
         try:
-            from backend.app.capabilities.registry import get_registry
+            from backend.app.services.capability_registry import get_registry
             from pathlib import Path
 
             registry = get_registry()

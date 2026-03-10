@@ -8,7 +8,7 @@ Used for generating dynamic pack lists in LLM prompts.
 import logging
 from typing import List, Dict, Any, Optional
 
-from backend.app.capabilities.registry import get_registry
+from backend.app.services.capability_registry import get_registry
 from backend.app.services.stores.installed_packs_store import InstalledPacksStore
 
 logger = logging.getLogger(__name__)

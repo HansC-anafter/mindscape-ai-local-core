@@ -62,7 +62,7 @@ from .routes.core import (
 from .core.pack_registry import load_and_register_packs
 from .core.security import security_monitor, auth_manager
 from .init_db import init_mindscape_tables
-from .capabilities.registry import load_capabilities
+from .services.capability_registry import load_capabilities
 from .services.capability_reload_manager import (
     hot_reload_enabled,
     reload_capability_routes,
@@ -283,7 +283,7 @@ def register_core_routes(app: FastAPI) -> None:
 
     if not _capability_hot_reload_enabled():
         try:
-            from backend.app.capabilities.api_loader import load_capability_apis
+            from backend.app.services.capability_api_loader import load_capability_apis
             import os
 
             allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")

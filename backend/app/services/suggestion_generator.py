@@ -7,7 +7,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from backend.app.capabilities.registry import get_registry
+from backend.app.services.capability_registry import get_registry
 from backend.app.services.playbook_service import PlaybookService
 from backend.app.services.conversation.plan_builder import PlanBuilder
 from backend.app.services.mindscape_store import MindscapeStore

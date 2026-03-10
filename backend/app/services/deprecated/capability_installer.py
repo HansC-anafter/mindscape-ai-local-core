@@ -314,7 +314,7 @@ class CapabilityInstaller:
 
             # 9.6. Reload capability registry to include newly installed tools
             try:
-                from backend.app.capabilities.registry import get_registry
+                from backend.app.services.capability_registry import get_registry
                 registry = get_registry()
                 # Force reload by clearing cache and reloading the capability
                 if hasattr(registry, '_capabilities_cache'):
@@ -976,7 +976,7 @@ class CapabilityInstaller:
         try:
             # 一次性設置 capabilities 模組結構（在驗證開始前）
             from pathlib import Path
-            from backend.app.capabilities.registry import get_registry
+            from backend.app.services.capability_registry import get_registry
             import importlib.util as importlib_util
             import types
 
@@ -1088,7 +1088,7 @@ class CapabilityInstaller:
                         if len(parts) == 2:
                             cap, tool_name = parts
 
-                            from backend.app.capabilities.registry import get_tool_backend
+                            from backend.app.services.capability_registry import get_tool_backend
                             import importlib
                             import inspect
 

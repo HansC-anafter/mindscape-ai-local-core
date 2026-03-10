@@ -114,8 +114,8 @@ def _initialize_capability_packages_for_runner() -> None:
     try:
         from pathlib import Path
 
-        from backend.app.capabilities.registry import get_registry, load_capabilities
-        from backend.app.capabilities.tool_loader import load_all_capability_tools
+        from backend.app.services.capability_registry import get_registry, load_capabilities
+        from backend.app.services.capability_tool_loader import load_all_capability_tools
 
         app_dir = Path(__file__).resolve().parent.parent
         capabilities_dir = (app_dir / "capabilities").resolve()
@@ -377,7 +377,7 @@ def _invoke_on_fail_hook(
         # Strategy 1: capability registry lookup (tool_slot = "cap.tool")
         if ":" not in tool_slot and "." in tool_slot:
             try:
-                from backend.app.capabilities.registry import get_tool_backend
+                from backend.app.services.capability_registry import get_tool_backend
 
                 parts = tool_slot.split(".", 1)
                 if len(parts) == 2:

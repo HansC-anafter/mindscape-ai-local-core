@@ -80,7 +80,7 @@ def _resolve_backend_ref(tool_slot: str) -> Optional[str]:
     # Strategy 1: capability registry lookup
     if ":" not in tool_slot and "." in tool_slot:
         try:
-            from backend.app.capabilities.registry import get_tool_backend
+            from backend.app.services.capability_registry import get_tool_backend
 
             parts = tool_slot.split(".", 1)
             if len(parts) == 2:

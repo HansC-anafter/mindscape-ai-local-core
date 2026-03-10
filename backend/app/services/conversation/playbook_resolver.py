@@ -93,7 +93,7 @@ class PlaybookResolver:
             ResolvedPlaybook if found, None otherwise
         """
         try:
-            from ...capabilities.registry import get_registry
+            from ...services.capability_registry import get_registry
 
             registry = get_registry()
             capability = registry.get_capability(pack_id)

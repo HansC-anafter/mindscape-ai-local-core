@@ -253,7 +253,7 @@ class ToolListService:
     def _get_capability_tools(self) -> List[ToolInfo]:
         """Get capability pack tools from capabilities/registry"""
         try:
-            from backend.app.capabilities.registry import (
+            from backend.app.services.capability_registry import (
                 get_registry,
                 load_capabilities,
             )

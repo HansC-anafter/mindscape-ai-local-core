@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 import inspect
 import time
 
-from backend.app.capabilities.registry import (
+from backend.app.services.capability_registry import (
     call_tool,
     call_tool_async,
     get_tool_backend,

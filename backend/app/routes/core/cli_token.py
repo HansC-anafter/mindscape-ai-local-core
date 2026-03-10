@@ -476,7 +476,7 @@ def _get_pack_agent_guides() -> list:
 
     guides: list = []
     try:
-        from ...capabilities.registry import get_registry, load_capabilities
+        from ...services.capability_registry import get_registry, load_capabilities
         from ...services.stores.installed_packs_store import InstalledPacksStore
 
         registry = get_registry()

@@ -277,7 +277,7 @@ async def run_install_pipeline(
         # 4. Reload capability registry
         hot_reload_performed = False
         try:
-            from app.capabilities.registry import get_registry, load_capabilities
+            from app.services.capability_registry import get_registry, load_capabilities
             from app.services.capability_reload_manager import (
                 hot_reload_enabled,
                 reload_capability_routes,
@@ -305,7 +305,7 @@ async def run_install_pipeline(
             logger.warning(f"Failed to reload capability registry/routes: {exc}")
             result.add_warning(f"Failed to reload capability registry/routes: {exc}")
             try:
-                from app.capabilities.registry import load_capabilities
+                from app.services.capability_registry import load_capabilities
 
                 load_capabilities(reset=True)
             except Exception:

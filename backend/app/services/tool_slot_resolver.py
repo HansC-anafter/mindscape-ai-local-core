@@ -77,7 +77,7 @@ class ToolSlotResolver:
         """
         try:
             # Local import to avoid import cycles during app bootstrap.
-            from backend.app.capabilities.registry import get_registry
+            from backend.app.services.capability_registry import get_registry
 
             reg = get_registry()
             return bool(reg.get_tool(tool_id))

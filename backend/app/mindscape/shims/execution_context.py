@@ -144,9 +144,9 @@ class ExecutionContext:
         # Synchronous execution fallback for Local-Core
         try:
             try:
-                from app.capabilities.registry import call_tool
+                from app.services.capability_registry import call_tool
             except ImportError:
-                from backend.app.capabilities.registry import call_tool
+                from backend.app.services.capability_registry import call_tool
 
             # Parse task_name as capability.tool format
             if '.' in task_name:

@@ -17,7 +17,7 @@ def _utc_now():
 
 
 from ...models.workspace import SideEffectLevel, ExecutionPlan, TaskPlan
-from ...capabilities.registry import get_registry
+from ...services.capability_registry import get_registry
 from backend.app.services.pack_info_collector import PackInfoCollector
 from backend.app.services.stores.installed_packs_store import InstalledPacksStore
 from backend.app.services.external_backend import (
@@ -1484,7 +1484,7 @@ Message analysis hints:
         Returns:
             Pack ID (capability_code) if found, None otherwise
         """
-        from backend.app.capabilities.registry import get_registry
+        from backend.app.services.capability_registry import get_registry
 
         registry = get_registry()
 

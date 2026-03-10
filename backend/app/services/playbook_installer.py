@@ -690,7 +690,7 @@ class PlaybookInstaller:
                                 logger.debug(
                                     f"Step '{step_id}': Backend not found in manifest for {cap}.{tool_name}, trying registry..."
                                 )
-                                from backend.app.capabilities.registry import (
+                                from backend.app.services.capability_registry import (
                                     get_tool_backend,
                                 )
 

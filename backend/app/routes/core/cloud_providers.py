@@ -625,7 +625,7 @@ async def install_default_packs(
 
                         # 7. Reload capability registry
                         try:
-                            from app.capabilities.registry import get_registry
+                            from app.services.capability_registry import get_registry
                             registry = get_registry()
                             if hasattr(registry, '_capabilities_cache'):
                                 registry._capabilities_cache.clear()
