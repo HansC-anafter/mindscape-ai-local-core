@@ -288,7 +288,7 @@ class MeetingSessionMixin:
                                             if isinstance(c, dict)
                                         }
                                         if consumes_types & available_types:
-                                            desc = pb.get("description", code)[:60]
+                                            desc = (pb.get("description") or code)[:60]
                                             if _add(code, f"- {code}: {desc}"):
                                                 r2_count += 1
                                 except Exception:
@@ -348,7 +348,7 @@ class MeetingSessionMixin:
                                 for pb in manifest.get("playbooks", []):
                                     if isinstance(pb, dict):
                                         code = pb.get("code", "")
-                                        desc = pb.get("description", code)[:60]
+                                        desc = (pb.get("description") or code)[:60]
                                         if code and _add(code, f"- {code}: {desc}"):
                                             r3_count += 1
                             except Exception:
