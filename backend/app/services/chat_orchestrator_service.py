@@ -106,7 +106,7 @@ class ChatOrchestratorService:
                 self.orchestrator.store, workspace_id, session.thread_id
             )
             logger.info("PipelineCore completed for %s", session.user_event.id)
-            return
+            return pipeline_result
 
             # 3. Below: retained legacy LLM streaming path (non-PipelineCore features)
 

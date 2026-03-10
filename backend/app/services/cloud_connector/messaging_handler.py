@@ -322,13 +322,16 @@ class MessagingHandler:
                 mode="auto",
             )
 
-            await service.run_background_chat(
+            pipeline_result = await service.run_background_chat(
                 request=chat_request,
                 workspace=workspace,
                 workspace_id=workspace_id,
                 profile_id=profile_id,
                 user_event_id=user_event_id,
             )
+
+            # Extract meeting session metadata from pipeline result
+            session_metadata = _extract_session_metadata(pipeline_result)
 
             # 3. Query DB for the assistant reply correlated to this request
             reply_text = ""
@@ -388,6 +391,12 @@ class MessagingHandler:
                 )
                 return
 
+            # Append formatted dispatch summary to reply text
+            if session_metadata:
+                dispatch_text = _format_dispatch_summary(session_metadata)
+                if dispatch_text:
+                    reply_text += dispatch_text
+
             # Generate concise summary for LINE rich card
             summary = await self._generate_reply_summary(reply_text)
 
@@ -400,6 +409,7 @@ class MessagingHandler:
                     "event_id": user_event_id,
                     "reply_text": reply_text,
                     "summary": summary,
+                    "session_metadata": session_metadata,
                 },
             )
 
@@ -542,3 +552,65 @@ class MessagingHandler:
             return segment[:space_idx] + "..."
 
         return segment[: max_len - 3] + "..."
+
+
+def _extract_session_metadata(pipeline_result) -> Dict[str, Any]:
+    """Extract meeting session summary from PipelineResult for cloud reply.
+
+    Pulls session_id, dispatch outcomes, and completion status from the
+    pipeline result returned by ChatOrchestratorService.run_background_chat.
+    Returns empty dict when pipeline_result is None (non-meeting flows).
+    """
+    meta: Dict[str, Any] = {}
+    if not pipeline_result:
+        return meta
+
+    if getattr(pipeline_result, "meeting_session_id", None):
+        meta["session_id"] = pipeline_result.meeting_session_id
+
+    if getattr(pipeline_result, "dispatch_result", None):
+        dr = pipeline_result.dispatch_result
+        meta["dispatch_summary"] = {
+            "total_phases": dr.get("total", 0),
+            "succeeded": dr.get("succeeded", 0),
+            "failed": dr.get("failed", 0),
+            "skipped": dr.get("skipped", 0),
+            "workspaces_touched": list(dr.get("workspaces", [])),
+        }
+
+    if getattr(pipeline_result, "completion_status", None):
+        meta["completion_status"] = pipeline_result.completion_status
+
+    if getattr(pipeline_result, "task_ir_id", None):
+        meta["task_ir_id"] = pipeline_result.task_ir_id
+
+    return meta
+
+
+def _format_dispatch_summary(meta: Dict[str, Any]) -> str:
+    """Format session dispatch summary for LINE display.
+
+    Appends a human-readable execution summary block to the AI reply text.
+    Uses emoji and Unicode box-drawing for readability on LINE.
+    """
+    ds = meta.get("dispatch_summary")
+    if not ds:
+        return ""
+
+    lines = ["\n\n──── 執行摘要 ────"]
+    total = ds.get("total_phases", 0)
+    ok = ds.get("succeeded", 0)
+    fail = ds.get("failed", 0)
+    skip = ds.get("skipped", 0)
+    lines.append(f"📊 任務: {ok}/{total} 成功")
+    if fail:
+        lines.append(f"❌ 失敗: {fail}")
+    if skip:
+        lines.append(f"⏭️ 跳過: {skip}")
+    ws = ds.get("workspaces_touched", [])
+    if ws:
+        lines.append(f"🏠 工作區: {', '.join(ws[:3])}")
+    status = meta.get("completion_status")
+    if status:
+        lines.append(f"📋 狀態: {status}")
+    return "\n".join(lines)
