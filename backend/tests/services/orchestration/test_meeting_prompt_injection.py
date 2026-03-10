@@ -114,7 +114,7 @@ class TestBuildTurnPromptInjection:
         engine = StubEngine()
         engine._effective_lens = FakeEffectiveLens(preset_name="Strategic")
         prompt = engine._build_turn_prompt(
-            agent_id="facilitator",
+            role_id="facilitator",
             round_num=1,
             user_message="Hello",
             decision=None,
@@ -127,7 +127,7 @@ class TestBuildTurnPromptInjection:
     def test_no_lens_block_when_no_lens(self):
         engine = StubEngine()
         prompt = engine._build_turn_prompt(
-            agent_id="facilitator",
+            role_id="facilitator",
             round_num=1,
             user_message="Hello",
             decision=None,
@@ -156,7 +156,7 @@ class TestBuildTurnPromptInjection:
         engine.store.list_intents.return_value = [intent_a, intent_b]
 
         prompt = engine._build_turn_prompt(
-            agent_id="planner",
+            role_id="planner",
             round_num=1,
             user_message="Plan something",
             decision=None,
@@ -171,7 +171,7 @@ class TestBuildTurnPromptInjection:
         engine = StubEngine()
         engine._active_intent_ids = []
         prompt = engine._build_turn_prompt(
-            agent_id="planner",
+            role_id="planner",
             round_num=1,
             user_message="Plan",
             decision=None,
@@ -304,7 +304,7 @@ class TestWorkspaceInstructionInjection:
             )
         )
         prompt = engine._build_turn_prompt(
-            agent_id="facilitator",
+            role_id="facilitator",
             round_num=1,
             user_message="Analyze IG account",
             decision=None,
@@ -313,7 +313,7 @@ class TestWorkspaceInstructionInjection:
         )
         assert "=== Workspace Context (Reference) ===" in prompt
         assert "=== End Context ===" in prompt
-        assert "does NOT override your agent role" in prompt
+        assert "does NOT override your deliberation role" in prompt
         assert "Yoga studio in Taipei" in prompt
         assert "Use formal Chinese" in prompt
         # Delimiters from helper are NOT present (raw_body=True)
@@ -581,7 +581,7 @@ class TestFinalMessagesInjection:
         # Goals preserved
         assert "Drive decisions" in block
 
-        # Simulate _agent_turn: system_content no longer includes ws_instruction
+        # Simulate _role_turn: system_content no longer includes ws_instruction
         system_content = "You are the meeting facilitator."
         # No prepend — workspace context goes in user prompt now
 
@@ -645,3 +645,71 @@ class TestToolInventoryCanonicalIds:
         assert "- ig.ig_capture_account_snapshot:" in block
         assert "- ig.ig_fetch_posts:" in block
         assert "- ig_capture_account_snapshot:" not in block
+
+
+class TestPersonaInjection:
+    """Tests for _assemble_system_message persona block (Change 3)."""
+
+    def test_includes_critical_rules(self):
+        engine = StubEngine()
+        from backend.app.models.playbook import AgentDefinition
+
+        role_def = AgentDefinition(
+            agent_id="critic",
+            agent_name="Critic",
+            role="critic",
+            system_prompt="You identify risks.",
+            critical_rules=["NEVER approve without concerns."],
+        )
+        result = engine._assemble_system_message(role_def)
+        assert "NEVER approve without concerns" in result
+        assert "Critical rules" in result
+
+    def test_includes_responsibility_boundary(self):
+        engine = StubEngine()
+        from backend.app.models.playbook import AgentDefinition
+
+        role_def = AgentDefinition(
+            agent_id="exec",
+            agent_name="Executor",
+            role="executor",
+            system_prompt="You convert decisions.",
+            responsibility_boundary="execution_only",
+        )
+        result = engine._assemble_system_message(role_def)
+        assert "execution_only" in result
+        assert "Stay strictly within" in result
+
+    def test_minimal_role_no_extras(self):
+        engine = StubEngine()
+        from backend.app.models.playbook import AgentDefinition
+
+        role_def = AgentDefinition(
+            agent_id="test",
+            agent_name="Test",
+            system_prompt="Basic prompt.",
+        )
+        result = engine._assemble_system_message(role_def)
+        assert result == "Basic prompt."
+
+    def test_full_persona_block_assembly(self):
+        engine = StubEngine()
+        from backend.app.models.playbook import AgentDefinition
+
+        role_def = AgentDefinition(
+            agent_id="planner",
+            agent_name="Planner",
+            role="planner",
+            system_prompt="You propose plans.",
+            responsibility_boundary="proposal_and_planning",
+            critical_rules=["Rule 1", "Rule 2"],
+            communication_style="Structured planner.",
+            success_metrics=["Metric A"],
+        )
+        result = engine._assemble_system_message(role_def)
+        assert "You propose plans." in result
+        assert "proposal_and_planning" in result
+        assert "Rule 1" in result
+        assert "Rule 2" in result
+        assert "Structured planner." in result
+        assert "Metric A" in result

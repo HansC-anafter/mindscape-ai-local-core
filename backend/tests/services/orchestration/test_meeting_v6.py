@@ -56,7 +56,7 @@ class TestBuildActionItemsRaw:
         )
 
         class StubEngine(MeetingActionItemsMixin, StubMixin):
-            async def _agent_turn(self, *args, **kwargs):
+            async def _role_turn(self, *args, **kwargs):
                 return MagicMock(
                     content=json.dumps(
                         [
