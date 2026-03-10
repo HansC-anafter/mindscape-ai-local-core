@@ -369,28 +369,22 @@ class MeetingPromptsMixin:
     def _build_asset_map_context(self) -> str:
         """Build workspace group asset map for cross-workspace dispatch routing.
 
-        Queries all workspaces in the group and their registered ASSET bindings,
-        then formats a context block so the planner knows which workspace owns
-        which data assets. Also injects discoverable workspaces from outside the
-        group (5D-3).
+        Queries all discoverable workspaces and injects their identity
+        (blueprint persona + goals + recent capabilities) so the planner
+        knows which workspace to route data-dependent tasks to.
 
-        Returns empty string only if no group members AND no discoverable
-        workspaces exist.
+        No longer depends on WorkspaceResourceBindingStore — uses
+        workspace_blueprint and suggestion_history instead.
         """
         workspace = getattr(self, "workspace", None)
         if not workspace:
             return ""
 
         try:
-            from backend.app.services.stores.workspace_resource_binding_store import (
-                WorkspaceResourceBindingStore,
-            )
-            from backend.app.models.workspace_resource_binding import ResourceType
             from backend.app.services.stores.postgres.workspaces_store import (
                 PostgresWorkspacesStore,
             )
 
-            binding_store = WorkspaceResourceBindingStore()
             parts: List[str] = []
             seen_ws_ids = set()
             current_ws_id = getattr(workspace, "id", None)
@@ -412,30 +406,14 @@ class MeetingPromptsMixin:
                     )
                     parts.append(f"Current workspace role: {workspace_role}")
 
+                    ws_store = PostgresWorkspacesStore()
                     for ws_id, role in group.role_map.items():
                         seen_ws_ids.add(ws_id)
-                        bindings = binding_store.list_bindings_by_workspace(
-                            ws_id, resource_type=ResourceType.ASSET
-                        )
-                        asset_lines = []
-                        for b in bindings:
-                            name = (b.overrides or {}).get(
-                                "display_name", b.resource_id
-                            )
-                            asset_type = (b.overrides or {}).get(
-                                "asset_type", "unknown"
-                            )
-                            asset_lines.append(f"    - {name} ({asset_type})")
-
                         ws_label = f"  [{role}] {ws_id}"
                         if ws_id == current_ws_id:
                             ws_label += " (current)"
                         parts.append(ws_label)
-
-                        if asset_lines:
-                            parts.extend(asset_lines)
-                        else:
-                            parts.append("    (no assets registered)")
+                        self._append_workspace_identity(ws_store, ws_id, parts)
 
             # --- Path B: Discoverable workspaces (always runs) ---
             ws_store = PostgresWorkspacesStore()
@@ -451,20 +429,8 @@ class MeetingPromptsMixin:
                 parts.append("")
                 parts.append("Discoverable Workspaces (outside group):")
                 for ws in extra:
-                    bindings = binding_store.list_bindings_by_workspace(
-                        ws.id, resource_type=ResourceType.ASSET
-                    )
-                    asset_lines = []
-                    for b in bindings:
-                        name = (b.overrides or {}).get("display_name", b.resource_id)
-                        asset_type = (b.overrides or {}).get("asset_type", "unknown")
-                        asset_lines.append(f"    - {name} ({asset_type})")
-
                     parts.append(f"  [discoverable] {ws.id} — {ws.title}")
-                    if asset_lines:
-                        parts.extend(asset_lines)
-                    else:
-                        parts.append("    (no assets registered)")
+                    self._format_workspace_identity(ws, parts)
 
             if not parts:
                 return ""
@@ -472,6 +438,62 @@ class MeetingPromptsMixin:
         except Exception as exc:
             logger.warning("Failed to build asset map context: %s", exc)
             return ""
+
+    @staticmethod
+    def _format_workspace_identity(ws: Any, parts: List[str]) -> None:
+        """Append workspace identity lines from blueprint + suggestions.
+
+        Uses workspace_blueprint (persona + goals) and suggestion_history
+        to describe what the workspace is and what capabilities it has used.
+        """
+        bp = getattr(ws, "workspace_blueprint", None)
+        if bp:
+            instr = getattr(bp, "instruction", None)
+            if instr:
+                persona = getattr(instr, "persona", "") or ""
+                if persona:
+                    parts.append(f"    Identity: {persona[:120]}")
+                goals = getattr(instr, "goals", []) or []
+                if goals:
+                    parts.append(f"    Goals: {'; '.join(g[:60] for g in goals[:3])}")
+
+        hist = getattr(ws, "suggestion_history", []) or []
+        if hist:
+            latest = hist[-1] if hist else {}
+            suggestions = latest.get("suggestions", [])[:3]
+            if suggestions:
+                titles = [s.get("title", "?")[:50] for s in suggestions]
+                parts.append(f"    Recent capabilities: {', '.join(titles)}")
+
+        # Fallback if nothing was added
+        if not any("Identity:" in p or "Goals:" in p for p in parts[-5:]):
+            parts.append("    (no identity info available)")
+
+    def _append_workspace_identity(
+        self, ws_store: Any, ws_id: str, parts: List[str]
+    ) -> None:
+        """Look up a workspace by ID and append its identity card."""
+        try:
+            import asyncio
+
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Sync fallback: use run_in_executor with blocking get
+                from concurrent.futures import Future
+
+                ws = None
+                try:
+                    ws = ws_store.get_workspace_sync(ws_id)
+                except AttributeError:
+                    pass
+
+                if ws:
+                    self._format_workspace_identity(ws, parts)
+                    return
+
+            parts.append("    (identity lookup unavailable)")
+        except Exception:
+            parts.append("    (identity lookup failed)")
 
     def _build_lens_context(self) -> str:
         """Build lens context block for prompt injection.
