@@ -1245,9 +1245,33 @@ class PlaybookRunExecutor:
                     status=TaskStatus.SUCCEEDED,
                     completed_at=completed_at,
                 )
-                logger.info(
-                    f"PlaybookRunExecutor: Execution {execution_id} completed successfully"
-                )
+                # Land result artifacts (result.json + summary.md) to disk
+                try:
+                    from backend.app.services.task_result_landing import (
+                        TaskResultLandingService,
+                    )
+                    from backend.app.services.mindscape_store import MindscapeStore
+
+                    landing_store = MindscapeStore()
+                    ws = await landing_store.get_workspace(workspace_id)
+                    storage_path = (
+                        getattr(ws, "storage_base_path", None) if ws else None
+                    )
+                    landing = TaskResultLandingService()
+                    landing.land_result(
+                        workspace_id=workspace_id,
+                        execution_id=execution_id,
+                        result_data=result or {},
+                        storage_base_path=storage_path,
+                        project_id=project_id,
+                    )
+                    logger.info(
+                        f"PlaybookRunExecutor: Landed result artifacts for {execution_id}"
+                    )
+                except Exception as land_err:
+                    logger.warning(
+                        f"PlaybookRunExecutor: Result landing failed (non-fatal): {land_err}"
+                    )
             except Exception as e:
                 from backend.app.shared.error_handler import parse_api_error
 

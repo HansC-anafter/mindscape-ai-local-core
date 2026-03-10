@@ -407,6 +407,34 @@ class ToolEmbeddingService:
                 count += 1
 
         logger.info(f"Indexed {count}/{len(all_tools)} tools")
+
+        # P3: Index playbooks into the same tool_embeddings table
+        try:
+            from backend.app.services.playbook_service import PlaybookService
+
+            pb_svc = PlaybookService()
+            all_playbooks = await pb_svc.list_playbooks()
+            pb_count = 0
+            seen_codes: set = set()
+            for pb in all_playbooks:
+                if pb.playbook_code in seen_codes:
+                    continue  # skip locale duplicates
+                seen_codes.add(pb.playbook_code)
+                cap_code = getattr(pb, "capability_code", None)
+                ok = await self.index_tool(
+                    tool_id=pb.playbook_code,
+                    display_name=pb.name,
+                    description=pb.description or pb.name,
+                    category="playbook",
+                    capability_code=cap_code,
+                )
+                if ok:
+                    pb_count += 1
+            logger.info("Indexed %d/%d playbooks", pb_count, len(seen_codes))
+            count += pb_count
+        except Exception as exc:
+            logger.warning("Playbook indexing failed (non-fatal): %s", exc)
+
         return count
 
     async def ensure_indexed(self) -> int:

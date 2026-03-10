@@ -149,6 +149,8 @@ class MeetingIRCompilerMixin:
             if not engine:
                 if intent.playbook_code:
                     engine = f"playbook:{intent.playbook_code}"
+                elif intent.tool_name:
+                    engine = f"tool:{intent.tool_name}"
                 else:
                     engine = "playbook:generic"
 
@@ -185,6 +187,8 @@ class MeetingIRCompilerMixin:
                 playbook_code = item.get("playbook_code")
                 if playbook_code:
                     engine = f"playbook:{playbook_code}"
+                elif item.get("tool_name"):
+                    engine = f"tool:{item['tool_name']}"
                 else:
                     engine = "playbook:generic"
 

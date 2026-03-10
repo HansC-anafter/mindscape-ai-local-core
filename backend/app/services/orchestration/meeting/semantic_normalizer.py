@@ -63,7 +63,7 @@ class SemanticNormalizer:
         # Try JSON extraction first
         items = self._try_parse_json(executor_output)
         if items:
-            intents = [self._dict_to_intent(d, workspace_id) for d in items]
+            intents = self._build_intents_from_items(items, workspace_id)
             logger.info(
                 "[SemanticNormalizer] Parsed %d intents from JSON", len(intents)
             )
@@ -87,8 +87,32 @@ class SemanticNormalizer:
             )
         ]
 
+    def _build_intents_from_items(
+        self, items: List[Dict[str, Any]], default_ws: Optional[str] = None
+    ) -> List[ActionIntent]:
+        """Build intents in two passes so legacy index deps become intent IDs."""
+        intents: List[ActionIntent] = []
+        raw_dependencies: List[Any] = []
+
+        for item in items:
+            intents.append(self._dict_to_intent(item, default_ws, depends_on=None))
+            raw_dependencies.append(self._extract_raw_dependencies(item))
+
+        resolved_intents: List[ActionIntent] = []
+        for intent, raw_deps in zip(intents, raw_dependencies):
+            resolved_depends_on = self._resolve_dependencies(raw_deps, intents)
+            resolved_intents.append(
+                intent.model_copy(update={"depends_on": resolved_depends_on})
+            )
+
+        return resolved_intents
+
     def _dict_to_intent(
-        self, d: Dict[str, Any], default_ws: Optional[str] = None
+        self,
+        d: Dict[str, Any],
+        default_ws: Optional[str] = None,
+        *,
+        depends_on: Optional[List[str]] = None,
     ) -> ActionIntent:
         """Convert a parsed dict to ActionIntent."""
         title = d.get("title") or d.get("action") or "Untitled"
@@ -115,11 +139,67 @@ class SemanticNormalizer:
             playbook_code=d.get("playbook_code"),
             input_params=d.get("input_params"),
             target_workspace_id=d.get("target_workspace_id") or default_ws,
-            depends_on=d.get("blocked_by") or d.get("depends_on"),
+            depends_on=depends_on,
             priority=d.get("priority"),
             engine=engine,
             asset_refs=d.get("asset_refs") or [],
         )
+
+    @staticmethod
+    def _extract_raw_dependencies(d: Dict[str, Any]) -> Any:
+        """Read legacy/new dependency fields before typed normalization."""
+        if d.get("blocked_by") is not None:
+            return d.get("blocked_by")
+        return d.get("depends_on")
+
+    def _resolve_dependencies(
+        self, raw_dependencies: Any, intents: List[ActionIntent]
+    ) -> Optional[List[str]]:
+        """Normalize mixed legacy deps to canonical intent IDs."""
+        if not isinstance(raw_dependencies, list):
+            return None
+
+        resolved: List[str] = []
+        for dep in raw_dependencies:
+            dep_id = self._resolve_dependency(dep, intents)
+            if dep_id and dep_id not in resolved:
+                resolved.append(dep_id)
+
+        return resolved or None
+
+    def _resolve_dependency(
+        self, dependency: Any, intents: List[ActionIntent]
+    ) -> Optional[str]:
+        """Resolve one dependency value to an intent_id."""
+        if isinstance(dependency, int):
+            return self._resolve_dependency_index(dependency, intents)
+
+        if isinstance(dependency, str):
+            dep = dependency.strip()
+            if not dep:
+                return None
+            if dep.isdigit():
+                return self._resolve_dependency_index(int(dep), intents)
+            return dep
+
+        logger.warning(
+            "[SemanticNormalizer] Ignoring unsupported dependency type: %r",
+            dependency,
+        )
+        return None
+
+    def _resolve_dependency_index(
+        self, index: int, intents: List[ActionIntent]
+    ) -> Optional[str]:
+        """Translate legacy 0-based blocked_by index to stable intent_id."""
+        if 0 <= index < len(intents):
+            return intents[index].intent_id
+        logger.warning(
+            "[SemanticNormalizer] Ignoring out-of-range dependency index %s for %d intents",
+            index,
+            len(intents),
+        )
+        return None
 
     def _try_parse_json(self, text: str) -> Optional[List[Dict[str, Any]]]:
         """Try to extract JSON array or object from text."""
