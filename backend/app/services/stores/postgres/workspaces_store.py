@@ -511,6 +511,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             existing["last_run"] = entry.get("last_run", _utc_now().isoformat())
             if entry.get("last_result_summary"):
                 existing["last_result_summary"] = entry["last_result_summary"]
+            if entry.get("produces"):
+                existing["produces"] = entry["produces"]
 
             current[pack_id] = existing
             conn.execute(

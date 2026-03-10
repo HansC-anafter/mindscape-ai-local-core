@@ -288,15 +288,24 @@ class TaskResultLandingService:
                 from app.services.stores.postgres.workspaces_store import (
                     PostgresWorkspacesStore,
                 )
+                from app.services.manifest_utils import resolve_playbook_produces
 
                 result_summary = self._extract_result_summary(result_data)
+                produces = resolve_playbook_produces(pack_id)
+                entry = {
+                    "last_run": _utc_now().isoformat(),
+                    "last_result_summary": result_summary,
+                }
+                if produces:
+                    entry["produces"] = [
+                        {"type": p.get("type"), "label": p.get("label", "")}
+                        for p in produces
+                        if isinstance(p, dict) and p.get("type")
+                    ]
                 PostgresWorkspacesStore().merge_data_sources(
                     workspace_id=workspace_id,
                     pack_id=pack_id,
-                    entry={
-                        "last_run": _utc_now().isoformat(),
-                        "last_result_summary": result_summary,
-                    },
+                    entry=entry,
                 )
             except Exception:
                 logger.debug(

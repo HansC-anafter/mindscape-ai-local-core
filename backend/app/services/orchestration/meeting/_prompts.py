@@ -477,13 +477,24 @@ class MeetingPromptsMixin:
             ):
                 runs = info.get("total_runs", 0)
                 last = (info.get("last_run") or "")[:10]
-                summary = info.get("last_result_summary", "")
-                line = f"      - {pack}: {runs} runs"
-                if last:
-                    line += f", last {last}"
-                if summary:
-                    line += f" ({summary[:60]})"
-                asset_lines.append(line)
+                produces = info.get("produces", [])
+                if produces and isinstance(produces, list):
+                    # Show structured asset labels
+                    for p in produces:
+                        label = p.get("label", p.get("type", pack))
+                        line = f"      - {label}: {runs} runs"
+                        if last:
+                            line += f", last {last}"
+                        asset_lines.append(line)
+                else:
+                    # Fallback: show pack_id
+                    summary = info.get("last_result_summary", "")
+                    line = f"      - {pack}: {runs} runs"
+                    if last:
+                        line += f", last {last}"
+                    if summary:
+                        line += f" ({summary[:60]})"
+                    asset_lines.append(line)
             if asset_lines:
                 parts.append("    Data assets (completed):")
                 parts.extend(asset_lines[:10])
