@@ -215,6 +215,27 @@ class MeetingEngine(
                 route_decision=None,  # caller can pass via execution_context
             )
 
+    async def _emit_meeting_stage(self, stage: str, message: str) -> None:
+        """Publish a meeting stage indicator via Redis for frontend display."""
+        try:
+            from backend.app.services.cache.async_redis import publish_meeting_chunk
+
+            workspace_id = (
+                getattr(self.workspace, "id", None) or self.session.workspace_id
+            )
+            session_id = getattr(self.session, "id", None) or ""
+            await publish_meeting_chunk(
+                workspace_id,
+                {
+                    "type": "meeting_stage",
+                    "stage": stage,
+                    "message": message,
+                    "session_id": session_id,
+                },
+            )
+        except Exception:
+            pass  # non-fatal: UI just won't show the stage
+
     async def run(
         self,
         user_message: str,
@@ -231,6 +252,7 @@ class MeetingEngine(
         self._last_user_message = user_message
 
         # Layer 0c: Engine-side agenda decomposition fallback.
+        await self._emit_meeting_stage("agenda", "分析議程中…")
         await self._ensure_agenda_decomposed(user_message)
 
         # Pre-fetch RAG tool results using per-agenda multi-query strategy.
@@ -295,10 +317,13 @@ class MeetingEngine(
                 "Meeting RAG pre-fetch failed (manifest fallback active): %s", exc
             )
 
+        await self._emit_meeting_stage("tool_discovery", "搜尋可用工具…")
+
         # 5A-1: Preload workspace-installed playbooks for prompt injection
 
         self._available_playbooks_cache = await self._async_load_installed_playbooks()
 
+        await self._emit_meeting_stage("deliberation", "開始多角色討論…")
         self._start_session()
         base_max_rounds = max(1, int(getattr(self.session, "max_rounds", 1)))
 
@@ -431,6 +456,7 @@ class MeetingEngine(
         )
 
         # ── L2: Build typed ActionIntents via SemanticNormalizer ─────────────
+        await self._emit_meeting_stage("action_items", "正在拆解行動項目…")
         action_intents = await self._build_action_items(
             decision=decision,
             user_message=user_message,
@@ -524,6 +550,7 @@ class MeetingEngine(
         for item in action_items:
             self._emit_action_item(item)
 
+        await self._emit_meeting_stage("dispatch", "準備派遣任務…")
         # ── Phase 3: Gate → Compile → Orchestrate ─────────────
 
         # L3 Dispatch Gate with real L5 supervision signals
@@ -602,37 +629,14 @@ class MeetingEngine(
         decomposer = None
         decomposed_phases = None
         try:
-            await self._ensure_provider()  # reuse meeting engine's LLM
+            from backend.app.services.orchestration.meeting.meeting_llm_adapter import (
+                MeetingLLMAdapter,
+            )
 
-            # When executor_runtime is set, _ensure_provider skips direct LLM init.
-            # Decomposer needs a direct LLM provider, so init one explicitly.
-            decomposer_llm = self.provider
-            if not decomposer_llm:
-                try:
-                    from backend.features.workspace.chat.utils.llm_provider import (
-                        get_llm_provider,
-                        get_llm_provider_manager,
-                    )
-
-                    if not self.model_name:
-                        self.model_name = self._resolve_model_name()
-                    manager = get_llm_provider_manager(
-                        profile_id=self.profile_id,
-                        db_path=getattr(self.store, "db_path", None),
-                    )
-                    decomposer_llm, _ = get_llm_provider(
-                        model_name=self.model_name,
-                        llm_provider_manager=manager,
-                        profile_id=self.profile_id,
-                        db_path=getattr(self.store, "db_path", None),
-                    )
-                except Exception as prov_exc:
-                    logger.warning(
-                        "Could not init LLM provider for decomposer: %s", prov_exc
-                    )
+            llm_adapter = MeetingLLMAdapter.from_engine(self)
 
             decomposer = TaskDecomposer(
-                llm_adapter=decomposer_llm,
+                llm_adapter=llm_adapter,
                 model_name=self.model_name or "",
                 decompose_threshold=3,
                 max_phases=50,
