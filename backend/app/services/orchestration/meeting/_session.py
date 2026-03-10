@@ -129,7 +129,7 @@ class MeetingSessionMixin:
         try:
             # --- Tier 1: RAG discovery (always runs) ---
             try:
-                from backend.app.services.tool_embedding_service import (
+                from app.services.tool_embedding_service import (
                     ToolEmbeddingService,
                 )
 
@@ -157,7 +157,7 @@ class MeetingSessionMixin:
 
             # --- Tier 2: Manifest fallback — scan installed packs ---
             try:
-                from backend.app.services.stores.installed_packs_store import (
+                from app.services.stores.installed_packs_store import (
                     InstalledPacksStore,
                 )
                 from pathlib import Path
