@@ -320,18 +320,9 @@ class MeetingSessionMixin:
                     import os
                     import yaml as _yaml
 
-                    # Scope: only packs that have data_sources in this workspace
-                    if not ws_id:
-                        raise ValueError("no workspace_id")
-                    ws_store = PostgresWorkspacesStore()
-                    ws = ws_store.get_workspace_sync(ws_id)
-                    ds = getattr(ws, "data_sources", None) or {}
-                    eligible_packs = set(ds.keys()) if ds else set()
-
-                    if not eligible_packs:
-                        # Fallback: use all installed packs
-                        packs_store = InstalledPacksStore()
-                        eligible_packs = set(packs_store.list_enabled_pack_ids())
+                    # Scope: all globally installed packs as a fallback
+                    packs_store = InstalledPacksStore()
+                    eligible_packs = set(packs_store.list_enabled_pack_ids())
 
                     app_dir = os.getenv("APP_DIR", "/app")
                     cap_dirs = [
@@ -351,13 +342,19 @@ class MeetingSessionMixin:
                                     if isinstance(pb, dict):
                                         code = pb.get("code", "")
                                         desc = (pb.get("description") or code)[:60]
+                                        logger.info(
+                                            f"R3 parsing pb={code} from pack={pack_id}"
+                                        )
                                         if code and _add(code, f"- {code}: {desc}"):
                                             r3_count += 1
+                                            logger.info(f"R3 added {code}")
                             except Exception as exc:
                                 logger.warning(
                                     f"R3 Error parsing manifest for pack {pack_id}: {exc}"
                                 )
                             break
+                        else:
+                            logger.info(f"R3 manifest NOT FOUND for pack {pack_id}")
 
                     logger.info(
                         "Playbook discovery round=3 eligible_scan +%d "
