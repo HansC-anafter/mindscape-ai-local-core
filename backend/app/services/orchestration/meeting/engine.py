@@ -602,9 +602,37 @@ class MeetingEngine(
         decomposer = None
         decomposed_phases = None
         try:
-            self._ensure_provider()  # reuse meeting engine's LLM
+            await self._ensure_provider()  # reuse meeting engine's LLM
+
+            # When executor_runtime is set, _ensure_provider skips direct LLM init.
+            # Decomposer needs a direct LLM provider, so init one explicitly.
+            decomposer_llm = self.provider
+            if not decomposer_llm:
+                try:
+                    from backend.features.workspace.chat.utils.llm_provider import (
+                        get_llm_provider,
+                        get_llm_provider_manager,
+                    )
+
+                    if not self.model_name:
+                        self.model_name = self._resolve_model_name()
+                    manager = get_llm_provider_manager(
+                        profile_id=self.profile_id,
+                        db_path=getattr(self.store, "db_path", None),
+                    )
+                    decomposer_llm, _ = get_llm_provider(
+                        model_name=self.model_name,
+                        llm_provider_manager=manager,
+                        profile_id=self.profile_id,
+                        db_path=getattr(self.store, "db_path", None),
+                    )
+                except Exception as prov_exc:
+                    logger.warning(
+                        "Could not init LLM provider for decomposer: %s", prov_exc
+                    )
+
             decomposer = TaskDecomposer(
-                llm_adapter=self.provider,
+                llm_adapter=decomposer_llm,
                 model_name=self.model_name or "",
                 decompose_threshold=3,
                 max_phases=50,
