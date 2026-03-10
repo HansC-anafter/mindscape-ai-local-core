@@ -142,6 +142,7 @@ docker-compose.override.yml
 /backend/app/models/*/
 !/backend/app/models/workspace/
 !/backend/app/models/playbook_models/
+!/backend/app/models/personal_governance/
 
 # Ignore nested backend/backend/ directory (should not exist)
 /backend/backend/
