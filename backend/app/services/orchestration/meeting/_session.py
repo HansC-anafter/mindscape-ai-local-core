@@ -119,20 +119,15 @@ class MeetingSessionMixin:
     async def _async_load_installed_playbooks(self) -> str:
         """Load available playbooks for prompt injection.
 
-        Lookup order (merge, no short-circuit):
-          1. RAG search_rrf using agenda + user_message — relevance-ranked.
-          2. Manifest scan — all installed pack playbooks (full coverage).
-
-        Both tiers run; results are merged and deduplicated (RAG first).
+        Lookup order (RAG-first, no Binding dependency):
+          1. RAG search_rrf using agenda + user_message — always runs.
+          2. Manifest Tier 3 fallback — scan all installed pack manifests.
 
         Returns:
             Formatted string listing available playbooks.
         """
-        seen: set = set()
-        lines: list = []
-
         try:
-            # --- Tier 1: RAG discovery (relevance-ranked) ---
+            # --- Tier 1: RAG discovery (always runs) ---
             try:
                 from app.services.tool_embedding_service import (
                     ToolEmbeddingService,
@@ -141,27 +136,26 @@ class MeetingSessionMixin:
                 rag_svc = ToolEmbeddingService()
                 agenda = getattr(self.session, "agenda", []) or []
                 user_msg = getattr(self, "_last_user_message", "")
+                # Build query from agenda + user_message
                 parts = list(agenda) + ([user_msg] if user_msg else [])
                 query = "; ".join(parts) if parts else "available playbooks"
 
                 matches, _status = await rag_svc.search_rrf(
-                    query=query, top_k=15, min_score=0.20
+                    query=query, top_k=10, min_score=0.25
                 )
                 pb_matches = [m for m in matches if m.category == "playbook"]
-                for m in pb_matches:
-                    if m.tool_id not in seen:
-                        seen.add(m.tool_id)
-                        lines.append(f"- {m.tool_id}: {m.display_name}")
                 if pb_matches:
+                    lines = [f"- {m.tool_id}: {m.display_name}" for m in pb_matches]
                     logger.info(
                         "Playbook RAG discovery: %d playbooks for session %s",
                         len(pb_matches),
                         getattr(self.session, "id", "?"),
                     )
+                    return "\n".join(lines)
             except Exception as rag_exc:
                 logger.warning("Playbook RAG discovery failed: %s", rag_exc)
 
-            # --- Tier 2: Manifest scan (full coverage, always runs) ---
+            # --- Tier 2: Manifest fallback — scan installed packs ---
             try:
                 from app.services.stores.installed_packs_store import (
                     InstalledPacksStore,
@@ -178,7 +172,7 @@ class MeetingSessionMixin:
                     Path("backend/app/capabilities"),
                     Path(os.getenv("DATA_DIR", "data")) / "capabilities",
                 ]
-                manifest_count = 0
+                lines = []
                 for pack_id in pack_ids:
                     for cap_base in cap_dirs:
                         manifest_path = cap_base / pack_id / "manifest.yaml"
@@ -190,27 +184,20 @@ class MeetingSessionMixin:
                             for pb in manifest.get("playbooks", []):
                                 if isinstance(pb, dict):
                                     code = pb.get("code", "")
-                                    desc = pb.get("description", code)
-                                    if code and code not in seen:
-                                        seen.add(code)
-                                        lines.append(f"- {code}: {desc[:60]}")
-                                        manifest_count += 1
+                                    name = pb.get("name", code)
+                                    if code:
+                                        lines.append(f"- {code}: {name}")
                         except Exception:
                             pass
                         break
-                if manifest_count:
-                    logger.info(
-                        "Playbook manifest scan: +%d playbooks (total %d)",
-                        manifest_count,
-                        len(lines),
-                    )
+                if lines:
+                    logger.info("Playbook manifest fallback: %d playbooks", len(lines))
+                    return "\n".join(lines)
             except ImportError:
                 pass
             except Exception as mf_exc:
-                logger.warning("Playbook manifest scan failed: %s", mf_exc)
+                logger.warning("Playbook manifest fallback failed: %s", mf_exc)
 
-            if lines:
-                return "\n".join(lines)
             return "(no playbooks discovered)"
         except Exception as exc:
             logger.warning("Failed to load installed playbooks: %s", exc, exc_info=True)
