@@ -47,6 +47,10 @@ class Task(BaseModel):
         None,
         description="Execution context (playbook_code, trigger_source, current_step_index, etc.)",
     )
+    meeting_session_id: Optional[str] = Field(
+        None,
+        description="Meeting session that produced this task (batch linkage)",
+    )
     storyline_tags: List[str] = Field(
         default_factory=list,
         description="Storyline tags for cross-project story tracking (e.g., brand storylines, learning paths, research themes)",

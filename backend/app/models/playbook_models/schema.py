@@ -144,6 +144,11 @@ class PlaybookStep(BaseModel):
         description="Step-level lifecycle hooks (pre_step/post_step/on_error).",
     )
 
+    @property
+    def playbook_code(self) -> str:
+        """Alias for ``id`` so WorkflowOrchestrator can reference step.playbook_code."""
+        return self.id
+
     @model_validator(mode="before")
     @classmethod
     def validate_tool_or_slot(cls, values: Any) -> Any:
