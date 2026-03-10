@@ -9,7 +9,7 @@ Matches MeetingExtract/MeetingExtractItem model contracts exactly:
   - ExtractType enum (not ExtractItemType)
   - meeting_session_id on items
   - source_event_ids as List[str]
-  - agent_id (not source_agent_role)
+  - role_id (renamed from agent_id; backward-compat fallback for old events)
 
 L2 Bridge pipeline: MeetingEngine events -> MeetingExtract -> GoalLinking
 """
@@ -32,8 +32,8 @@ _EVENT_TYPE_MAP = {
     "decision_final": ExtractType.DECISION,
 }
 
-# Mapping from agent role to extract type
-_AGENT_ROLE_MAP = {
+# Mapping from deliberation role name to extract type
+_ROLE_NAME_MAP = {
     "planner": ExtractType.ACTION,
     "critic": ExtractType.RISK,
     "executor": ExtractType.ACTION,
@@ -138,10 +138,11 @@ class MeetingExtractService:
                 round_number=payload.get("round_number"),
             )
 
-        # AGENT_TURN events classified by role
+        # AGENT_TURN events classified by deliberation role
         if event_type_str == "agent_turn":
-            agent_role = payload.get("agent_role", "")
-            extract_type = _AGENT_ROLE_MAP.get(agent_role)
+            # New key: "role_name"; fallback to legacy "agent_role" for old events
+            role_name = payload.get("role_name") or payload.get("agent_role", "")
+            extract_type = _ROLE_NAME_MAP.get(role_name)
             if not extract_type:
                 return None
             content = payload.get("content", "")
@@ -155,7 +156,7 @@ class MeetingExtractService:
                 source_event_ids=[event_id] if event_id else [],
                 evidence_refs=payload.get("evidence_refs", []),
                 confidence=0.8,
-                agent_id=payload.get("agent_id"),
+                agent_id=payload.get("role_id") or payload.get("agent_id"),
                 round_number=payload.get("round_number"),
             )
 

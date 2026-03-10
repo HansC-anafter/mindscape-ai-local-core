@@ -316,7 +316,7 @@ class TestAssetMapPromptInjection:
             "    - IG DB (database)"
         )
         prompt = engine._build_turn_prompt(
-            agent_id="planner",
+            role_id="planner",
             round_num=1,
             user_message="Plan data analysis",
             decision=None,
@@ -332,7 +332,7 @@ class TestAssetMapPromptInjection:
         engine = StubEngine()
         engine._asset_map_context = ""
         prompt = engine._build_turn_prompt(
-            agent_id="planner",
+            role_id="planner",
             round_num=1,
             user_message="Plan something",
             decision=None,
@@ -345,7 +345,7 @@ class TestAssetMapPromptInjection:
         engine = StubEngine()
         engine._asset_map_context = None
         prompt = engine._build_turn_prompt(
-            agent_id="facilitator",
+            role_id="facilitator",
             round_num=1,
             user_message="Hello",
             decision=None,
