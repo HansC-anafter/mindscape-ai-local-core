@@ -32,5 +32,7 @@ docs-internal/
 !backend/playbooks/pdf_ocr_processing.yaml
 !backend/playbooks/system_mindscape_state_sync.yaml
 !backend/app/capabilities/.gitkeep
+!backend/app/capabilities/registry.py
 !web-console/src/app/capabilities/.gitkeep
 !backend/app/models/workspace/
+!backend/app/models/playbook_models/

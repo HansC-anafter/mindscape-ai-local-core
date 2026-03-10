@@ -31,7 +31,9 @@ fi
 is_whitelisted() {
     local file="$1"
     for w in "${whitelist[@]}"; do
+        # Exact match (for individual files) or prefix match (for directories)
         [ "$file" = "$w" ] && return 0
+        [[ "$file" == ${w}* ]] && return 0
     done
     return 1
 }
