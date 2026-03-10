@@ -281,7 +281,7 @@ class MeetingSessionMixin:
                                         if not code or code in seen:
                                             continue
                                         # Check consumes match
-                                        consumes = pb.get("consumes", [])
+                                        consumes = pb.get("consumes") or []
                                         consumes_types = {
                                             c.get("type", "")
                                             for c in consumes
@@ -291,8 +291,10 @@ class MeetingSessionMixin:
                                             desc = (pb.get("description") or code)[:60]
                                             if _add(code, f"- {code}: {desc}"):
                                                 r2_count += 1
-                                except Exception:
-                                    pass
+                                except Exception as exc:
+                                    logger.warning(
+                                        f"R2 Error parsing manifest for pack {pack_id}: {exc}"
+                                    )
                                 break
 
                         logger.info(
@@ -351,8 +353,10 @@ class MeetingSessionMixin:
                                         desc = (pb.get("description") or code)[:60]
                                         if code and _add(code, f"- {code}: {desc}"):
                                             r3_count += 1
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                logger.warning(
+                                    f"R3 Error parsing manifest for pack {pack_id}: {exc}"
+                                )
                             break
 
                     logger.info(
