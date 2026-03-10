@@ -152,4 +152,72 @@ class MeetingToolDiscoveryMixin:
         except Exception as exc:
             logger.debug("Layer-C gap-fill failed (non-fatal): %s", exc)
 
+        # ── Layer-C playbook gap-refetch ──────────────────────────────
+        # Same pattern as tool gap-refetch but for playbook_code.
+        null_pb = [i for i in action_items if not _get(i, "playbook_code")]
+        if null_pb and has_tool_context:
+            try:
+                from app.services.tool_embedding_service import (
+                    ToolEmbeddingService,
+                )
+
+                pb_cache = getattr(self, "_rag_playbook_cache", [])
+                pb_ids = {p.get("playbook_code") or p.get("tool_id") for p in pb_cache}
+                tes = ToolEmbeddingService()
+                pb_enriched = 0
+                for item in null_pb:
+                    title = _get(item, "title") or ""
+                    if not title:
+                        continue
+                    pb_matches, _ = await tes.search_rrf(
+                        query=title, top_k=5, min_score=0.10
+                    )
+                    for m in pb_matches:
+                        if m.category == "playbook" and m.tool_id not in pb_ids:
+                            pb_ids.add(m.tool_id)
+                            pb_cache.append(
+                                {
+                                    "tool_id": m.tool_id,
+                                    "playbook_code": m.tool_id,
+                                    "display_name": m.display_name,
+                                    "description": m.description,
+                                }
+                            )
+                            pb_enriched += 1
+
+                self._rag_playbook_cache = pb_cache
+                if pb_enriched:
+                    logger.info(
+                        "Layer-C playbook gap-fill: +%d playbooks "
+                        "for %d null-pb items",
+                        pb_enriched,
+                        len(null_pb),
+                    )
+                    # Retry with enriched playbook cache
+                    try:
+                        retry = await self._build_action_items(
+                            decision=decision,
+                            user_message=user_message,
+                            critic_notes=critic_notes,
+                            planner_proposals=planner_proposals,
+                        )
+                        new_bound = sum(1 for i in retry if _get(i, "playbook_code"))
+                        old_bound = sum(
+                            1 for i in action_items if _get(i, "playbook_code")
+                        )
+                        if new_bound > old_bound:
+                            action_items = retry
+                            logger.info(
+                                "Layer-C playbook retry: %d -> %d bound",
+                                old_bound,
+                                new_bound,
+                            )
+                    except Exception:
+                        pass
+            except Exception as pb_exc:
+                logger.debug(
+                    "Layer-C playbook gap-fill failed (non-fatal): %s",
+                    pb_exc,
+                )
+
         return action_items
