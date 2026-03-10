@@ -54,12 +54,12 @@ class TestExtractFromEvents:
         assert "Approved design" in extract.items[0].content
         assert extract.items[0].source_event_ids == ["e1"]
 
-    def test_planner_agent_turn_classified_as_action(self):
+    def test_planner_role_turn_classified_as_action(self):
         evt = FakeEvent(
             id="e2",
             event_type="agent_turn",
             payload={
-                "agent_role": "planner",
+                "role_name": "planner",
                 "content": "Build landing page",
                 "round_number": 1,
             },
@@ -69,12 +69,12 @@ class TestExtractFromEvents:
         assert len(extract.items) == 1
         assert extract.items[0].extract_type == ExtractType.ACTION
 
-    def test_critic_agent_turn_classified_as_risk(self):
+    def test_critic_role_turn_classified_as_risk(self):
         evt = FakeEvent(
             id="e3",
             event_type="agent_turn",
             payload={
-                "agent_role": "critic",
+                "role_name": "critic",
                 "content": "Timeline too aggressive",
                 "round_number": 1,
             },
@@ -88,7 +88,7 @@ class TestExtractFromEvents:
         evt = FakeEvent(
             id="e4",
             event_type="agent_turn",
-            payload={"agent_role": "unknown_role", "content": "Should be ignored"},
+            payload={"role_name": "unknown_role", "content": "Should be ignored"},
         )
         svc = MeetingExtractService()
         extract = svc.extract_from_events("sess-004", [evt])
@@ -108,11 +108,9 @@ class TestExtractFromEvents:
         events = [
             FakeEvent("e1", "decision_final", {"decision": "Go ahead"}),
             FakeEvent(
-                "e2", "agent_turn", {"agent_role": "planner", "content": "Plan A"}
+                "e2", "agent_turn", {"role_name": "planner", "content": "Plan A"}
             ),
-            FakeEvent(
-                "e3", "agent_turn", {"agent_role": "critic", "content": "Risk B"}
-            ),
+            FakeEvent("e3", "agent_turn", {"role_name": "critic", "content": "Risk B"}),
             FakeEvent("e4", "meeting_start", {"meeting_session_id": "sess-006"}),
         ]
         svc = MeetingExtractService()
