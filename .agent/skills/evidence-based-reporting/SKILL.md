@@ -115,6 +115,49 @@ FOR a task execution investigation:
   5. Only investigate network/connectivity AFTER you know which machine the process runs on
 ```
 
+### 9. Unchecked Line Number Citation
+
+**WRONG**: "See `foo.py:108-116` for the fallback logic." (line range written from memory, never re-read)
+
+**RIGHT**: Before citing any line number, `view_file` that range and verify the content matches your claim.
+
+### 10. Design Claim Without Source Verification
+
+**WRONG**: "Validation will use data from index X." (never checked what index X actually contains)
+
+**RIGHT**: Before writing any design that references a data source, verify:
+
+1. What the source actually contains (query it or read the indexing/writing code)
+2. Whether the data format matches what your design needs
+3. Whether the source covers the full scope your design requires
+
+### 11. Schema-as-Data
+
+**WRONG**: "Model has field `X` — we can use it to build mappings." (field exists on the schema but is never populated)
+
+**RIGHT**: A model field definition only proves the schema exists. To claim the data is usable:
+
+1. Check actual data (DB query, file grep, runtime inspection)
+2. Check the code that populates the field (writer function + line number)
+3. If field has `default_factory=list` or `default=None`, assume empty unless proven otherwise
+
+### 12. Narrow Grep Scope for Negation
+
+**WRONG**: "Function X is dead code — no callers found." (searched only one subdirectory)
+
+**RIGHT**: When claiming "X is not called anywhere":
+
+1. Search the FULL project scope, not a subdirectory
+2. Also search for the MODULE name to catch partial imports
+3. Distinguish production code from test code
+4. Report the grep scope explicitly: "Searched `backend/app/` — 0 callers"
+
+### 13. Runtime Quantity from Code Inference
+
+**WRONG**: "Function returns N items." (number inferred from code, never verified at runtime)
+
+**RIGHT**: Any specific runtime quantity (row counts, list sizes, process counts) requires a runtime verification command. Run the query and paste the output before citing the number.
+
 ---
 
 ## Mandatory Workflow
@@ -177,11 +220,15 @@ Before delivering any report or plan to the user, verify:
 - [ ] Every "X is configured as Y" claim has the actual config file AND the runtime verification (`docker inspect`, env dump, process cmdline)
 - [ ] Every database state claim has a query result
 - [ ] Every "code does X" claim has a file path and line number
+- [ ] Every line number citation has been re-read via `view_file` to confirm the content matches the claim
 - [ ] Every log-based claim has the actual log lines pasted
 - [ ] No claim is derived purely from reading code and inferring runtime behavior
 - [ ] If multiple config layers exist (Dockerfile, docker-compose, overrides, .env, app settings files), ALL layers have been checked for the setting in question
 - [ ] The execution host (HOST vs container) has been verified via `ps aux` BEFORE investigating env/config/network
 - [ ] IP addresses in logs have been reverse-DNS verified before attributing them to any identity
+- [ ] Model schema fields are verified to have actual data (DB query or grep) before claiming the data is usable
+- [ ] "X is not called / dead code" claims use full-project grep scope, with scope explicitly stated
+- [ ] Runtime quantities (counts, sizes) have runtime evidence (command output), not code inference
 - [ ] DB field values have been traced to the code that writes them before being interpreted as evidence
 
 ---
@@ -240,3 +287,9 @@ Five errors from a tool availability investigation:
 5. Reached a correct conclusion about process location by accident — wasted time investigating the wrong machine before checking the host
 
 Root cause: **investigating the wrong machine because `ps aux` on the host was never run first**.
+
+### Incident 3 (2026-03-10)
+
+Five errors from one analysis report: unchecked line citations, design referencing unverified data source, schema field assumed to have data, narrow grep declaring dead code, runtime quantity from memory.
+
+Root cause: **writing claims before collecting evidence, and insufficient verification scope for negation claims**.
