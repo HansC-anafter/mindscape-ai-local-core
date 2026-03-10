@@ -446,6 +446,7 @@ class MeetingPromptsMixin:
         Uses workspace_blueprint (persona + goals) and suggestion_history
         to describe what the workspace is and what capabilities it has used.
         """
+        has_identity = False
         bp = getattr(ws, "workspace_blueprint", None)
         if bp:
             instr = getattr(bp, "instruction", None)
@@ -453,9 +454,11 @@ class MeetingPromptsMixin:
                 persona = getattr(instr, "persona", "") or ""
                 if persona:
                     parts.append(f"    Identity: {persona[:120]}")
+                    has_identity = True
                 goals = getattr(instr, "goals", []) or []
                 if goals:
                     parts.append(f"    Goals: {'; '.join(g[:60] for g in goals[:3])}")
+                    has_identity = True
 
         hist = getattr(ws, "suggestion_history", []) or []
         if hist:
@@ -465,8 +468,29 @@ class MeetingPromptsMixin:
                 titles = [s.get("title", "?")[:50] for s in suggestions]
                 parts.append(f"    Recent capabilities: {', '.join(titles)}")
 
+        # Data assets from completed executions (write-time aggregated)
+        ds = getattr(ws, "data_sources", None) or {}
+        if ds and isinstance(ds, dict):
+            asset_lines = []
+            for pack, info in sorted(
+                ds.items(), key=lambda x: x[1].get("last_run", ""), reverse=True
+            ):
+                runs = info.get("total_runs", 0)
+                last = (info.get("last_run") or "")[:10]
+                summary = info.get("last_result_summary", "")
+                line = f"      - {pack}: {runs} runs"
+                if last:
+                    line += f", last {last}"
+                if summary:
+                    line += f" ({summary[:60]})"
+                asset_lines.append(line)
+            if asset_lines:
+                parts.append("    Data assets (completed):")
+                parts.extend(asset_lines[:10])
+                has_identity = True
+
         # Fallback if nothing was added
-        if not any("Identity:" in p or "Goals:" in p for p in parts[-5:]):
+        if not has_identity:
             parts.append("    (no identity info available)")
 
     def _append_workspace_identity(
