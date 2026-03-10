@@ -266,6 +266,17 @@ class DispatchOrchestrator:
         engine = phase.preferred_engine or "playbook:generic"
         playbook_code = self._extract_playbook_code(engine)
 
+        # tool:* engine → clear playbook_code to reach tool dispatch branch
+        if engine and engine.startswith("tool:"):
+            playbook_code = None
+
+        # Build IR provenance snapshot for downstream traceability
+        ir_provenance = self._build_ir_provenance(
+            phase=phase,
+            action_item=action_item,
+            engine=engine,
+        )
+
         # Mark dispatched
         attempt.mark_dispatched(
             engine=engine,
@@ -282,6 +293,7 @@ class DispatchOrchestrator:
                     action_item=action_item,
                     target_workspace_id=target_ws,
                     attempt=attempt,
+                    ir_provenance=ir_provenance,
                 )
                 attempt.mark_completed(result)
                 action_item["landing_status"] = "launched"
@@ -297,6 +309,7 @@ class DispatchOrchestrator:
                     action_item=action_item,
                     target_workspace_id=target_ws,
                     attempt=attempt,
+                    ir_provenance=ir_provenance,
                 )
                 attempt.mark_completed(result)
                 action_item["landing_status"] = "task_created"
@@ -311,6 +324,7 @@ class DispatchOrchestrator:
                     phase=phase,
                     action_item=action_item,
                     target_workspace_id=target_ws,
+                    ir_provenance=ir_provenance,
                 )
                 attempt.mark_completed(result)
                 action_item["landing_status"] = "planned"
@@ -337,6 +351,7 @@ class DispatchOrchestrator:
         action_item: Dict[str, Any],
         target_workspace_id: str,
         attempt: PhaseAttempt,
+        ir_provenance: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Launch a playbook via execution_launcher.
 
@@ -363,6 +378,8 @@ class DispatchOrchestrator:
         inputs["phase_attempt_id"] = attempt.id
         inputs["phase_id"] = attempt.phase_id
         inputs["task_ir_id"] = attempt.task_ir_id
+        # Feature 1: IR provenance for downstream traceability
+        inputs["ir_provenance"] = ir_provenance
 
         # Merge any explicit input_params from TaskIR phase
         extra_params = action_item.get("input_params")
@@ -411,6 +428,7 @@ class DispatchOrchestrator:
         action_item: Dict[str, Any],
         target_workspace_id: str,
         attempt: PhaseAttempt,
+        ir_provenance: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Dispatch a tool_execution task."""
         import uuid
@@ -437,7 +455,10 @@ class DispatchOrchestrator:
                 "task_ir_id": attempt.task_ir_id,
                 "profile_id": self.profile_id,
                 "project_id": self.project_id,
+                # Feature 1: IR provenance snapshot
+                **ir_provenance,
             },
+            meeting_session_id=getattr(self.session, "id", None),
             project_id=self.project_id,
         )
         if self.tasks_store:
@@ -453,6 +474,7 @@ class DispatchOrchestrator:
         phase: PhaseIR,
         action_item: Dict[str, Any],
         target_workspace_id: str,
+        ir_provenance: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Write a projection record to legacy tasks store."""
         if self.tasks_store:
@@ -476,6 +498,7 @@ class DispatchOrchestrator:
                     execution_context={
                         "profile_id": self.profile_id,
                         "project_id": self.project_id,
+                        "ir_provenance": ir_provenance,
                     },
                     project_id=self.project_id,
                 )
@@ -528,6 +551,30 @@ class DispatchOrchestrator:
         if engine and engine.startswith("playbook:"):
             return engine.split(":", 1)[1]
         return None
+
+    def _build_ir_provenance(
+        self,
+        *,
+        phase: PhaseIR,
+        action_item: Dict[str, Any],
+        engine: str,
+    ) -> Dict[str, Any]:
+        """Build a provenance snapshot without assuming optional PhaseIR fields exist."""
+        dependencies = phase.depends_on or action_item.get("depends_on")
+        if dependencies is None:
+            dependencies = action_item.get("blocked_by") or []
+
+        return {
+            "preferred_engine": engine,
+            "tool_name": phase.tool_name,
+            "rationale": getattr(phase, "rationale", None)
+            or action_item.get("rationale"),
+            "dependencies": list(dependencies or []),
+            "meeting_session_id": getattr(self.session, "id", None),
+            "phase_id": phase.id,
+            "priority": getattr(phase, "priority", None)
+            or action_item.get("priority"),
+        }
 
     def get_attempt(self, phase_id: str) -> Optional[PhaseAttempt]:
         """Get the latest attempt for a phase."""

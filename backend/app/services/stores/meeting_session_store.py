@@ -43,6 +43,25 @@ CREATE TABLE IF NOT EXISTS meeting_sessions (
 );
 """
 
+DECISIONS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS meeting_decisions (
+    id                  TEXT PRIMARY KEY,
+    session_id          TEXT NOT NULL,
+    workspace_id        TEXT NOT NULL,
+    category            VARCHAR(32) NOT NULL DEFAULT 'action',
+    content             TEXT NOT NULL,
+    status              VARCHAR(32) DEFAULT 'pending',
+    resolved_by_task_id TEXT,
+    source_action_item  JSONB DEFAULT '{}',
+    created_at          TIMESTAMPTZ DEFAULT NOW()
+);
+"""
+
+DECISIONS_INDEX_DDL = [
+    "CREATE INDEX IF NOT EXISTS idx_decisions_session ON meeting_decisions(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_decisions_ws_status ON meeting_decisions(workspace_id, status)",
+]
+
 INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_meeting_sessions_ws_thread ON meeting_sessions(workspace_id, thread_id)",
     "CREATE INDEX IF NOT EXISTS idx_meeting_sessions_ws_project ON meeting_sessions(workspace_id, project_id)",
@@ -62,7 +81,7 @@ class MeetingSessionStore(PostgresStoreBase):
             MeetingSessionStore._table_ensured = True
 
     def ensure_table(self) -> None:
-        """Create the meeting_sessions table if it does not exist."""
+        """Create the meeting_sessions and meeting_decisions tables if they do not exist."""
         alter_ddls = [
             "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS project_id TEXT",
             "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS lens_id TEXT",
@@ -77,11 +96,14 @@ class MeetingSessionStore(PostgresStoreBase):
         ]
         with self.transaction() as conn:
             conn.execute(text(TABLE_DDL))
+            conn.execute(text(DECISIONS_TABLE_DDL))
             for alter in alter_ddls:
                 conn.execute(text(alter))
             for idx in INDEX_DDL:
                 conn.execute(text(idx))
-        logger.info("meeting_sessions table ensured")
+            for idx in DECISIONS_INDEX_DDL:
+                conn.execute(text(idx))
+        logger.info("meeting_sessions + meeting_decisions tables ensured")
 
     # ============== Write ==============
 
@@ -391,3 +413,73 @@ class MeetingSessionStore(PostgresStoreBase):
             intents_patched=self.deserialize_json(data.get("intents_patched"), []),
             metadata=self.deserialize_json(data.get("metadata"), {}),
         )
+
+    # ============== Decisions CRUD ==============
+
+    def save_decisions(self, decisions) -> int:
+        """Bulk-insert MeetingDecision records. Returns count saved."""
+        if not decisions:
+            return 0
+        with self.transaction() as conn:
+            for d in decisions:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO meeting_decisions (
+                            id, session_id, workspace_id, category,
+                            content, status, resolved_by_task_id,
+                            source_action_item, created_at
+                        ) VALUES (
+                            :id, :session_id, :workspace_id, :category,
+                            :content, :status, :resolved_by_task_id,
+                            :source_action_item, :created_at
+                        ) ON CONFLICT (id) DO NOTHING
+                    """
+                    ),
+                    {
+                        "id": d.id,
+                        "session_id": d.session_id,
+                        "workspace_id": d.workspace_id,
+                        "category": d.category,
+                        "content": d.content,
+                        "status": d.status,
+                        "resolved_by_task_id": d.resolved_by_task_id,
+                        "source_action_item": self.serialize_json(d.source_action_item),
+                        "created_at": d.created_at,
+                    },
+                )
+        logger.info("Saved %d meeting decisions", len(decisions))
+        return len(decisions)
+
+    def get_unresolved_decisions(
+        self, workspace_id: str, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Get unresolved decisions for a workspace."""
+        query = text(
+            """
+            SELECT id, session_id, workspace_id, category,
+                   content, status, resolved_by_task_id, created_at
+            FROM meeting_decisions
+            WHERE workspace_id = :workspace_id
+              AND status NOT IN ('resolved', 'cancelled')
+            ORDER BY created_at DESC
+            LIMIT :limit
+        """
+        )
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                query, {"workspace_id": workspace_id, "limit": limit}
+            ).fetchall()
+            return [
+                {
+                    "id": r[0],
+                    "session_id": r[1],
+                    "workspace_id": r[2],
+                    "category": r[3],
+                    "content": r[4],
+                    "status": r[5],
+                    "resolved_by_task_id": r[6],
+                    "created_at": r[7].isoformat() if r[7] else None,
+                }
+                for r in rows
+            ]

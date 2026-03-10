@@ -82,6 +82,20 @@ class SupervisionSignalsEmitter:
         failure_rate = stats.get("failure_rate", 0.0)
         avg_time = stats.get("avg_time_s", None)
 
+        # P4: Count policy gate blocks from skip reasons
+        # mark_skipped() stores reason in .error (phase_attempt.py:187)
+        policy_blocked = sum(
+            1
+            for a in attempts
+            if a.status == AttemptStatus.SKIPPED and "policy_blocked" in (a.error or "")
+        )
+        unknown_playbook = sum(
+            1
+            for a in attempts
+            if a.status == AttemptStatus.SKIPPED
+            and "UNKNOWN_PLAYBOOK" in (a.error or "")
+        )
+
         return SupervisionSignals(
             risk_budget_remaining=round(risk_remaining, 3),
             retry_budget_remaining=retry_remaining,
@@ -91,4 +105,6 @@ class SupervisionSignalsEmitter:
             max_concurrent_dispatches=self.max_concurrent,
             session_age_s=round(session_age, 1),
             session_budget_s=self.session_budget_s,
+            policy_blocked_count=policy_blocked,
+            unknown_playbook_count=unknown_playbook,
         )

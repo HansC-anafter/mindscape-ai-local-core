@@ -142,7 +142,7 @@ class PlanExecutor:
         execution_mode = (
             resolved_mode_enum.value
             if resolved_mode_enum
-            else (getattr(workspace, "execution_mode", None) or "qa")
+            else (getattr(workspace, "execution_mode", None) or "meeting")
         )
         execution_priority = getattr(workspace, "execution_priority", None) or "medium"
 

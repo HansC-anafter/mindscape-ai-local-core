@@ -50,6 +50,20 @@ class MeetingSessionMixin:
         self.session.start()
         self.session.status = MeetingStatus.ACTIVE
         self.session.state_before = self._capture_state_snapshot()
+
+        # Feature 4: Snapshot MeetingExecutionContext into session metadata
+        ctx = getattr(self, "ctx", None)
+        if ctx and hasattr(ctx, "model_dump"):
+            self.session.metadata["execution_context_snapshot"] = {
+                "executor_runtime_id": ctx.executor_runtime_id,
+                "auth_type": ctx.auth_type,
+                "auth_status": ctx.auth_status,
+                "fallback_model": ctx.fallback_model,
+                "max_iterations": ctx.max_iterations,
+                "route_kind": ctx.route_kind,
+                "execution_profile": ctx.execution_profile,
+            }
+
         self.session_store.update(self.session)
         self._emit_event(
             EventType.MEETING_START,
@@ -72,6 +86,25 @@ class MeetingSessionMixin:
         self.session.status = MeetingStatus.CLOSED
         self.session.close()
         self.session_store.update(self.session)
+
+        # Feature 3: Extract structured decisions from action_items
+        try:
+            from backend.app.models.meeting_decision import MeetingDecision
+
+            decisions = MeetingDecision.extract_from_session(self.session)
+            if decisions:
+                self.session_store.save_decisions(decisions)
+                logger.info(
+                    "Persisted %d decisions for session %s",
+                    len(decisions),
+                    self.session.id,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist meeting decisions for %s: %s",
+                self.session.id,
+                exc,
+            )
 
         self._emit_event(
             EventType.MEETING_END,
@@ -106,14 +139,30 @@ class MeetingSessionMixin:
             )
 
             if not bindings:
-                # Fallback: PlaybookService merges capability/system/user sources
-                svc = PlaybookService(store=self.store)
-                playbooks = await svc.list_playbooks(
-                    workspace_id=self.session.workspace_id
-                )
-                # list_playbooks returns List[PlaybookMetadata] — .name is direct
-                lines = [f"- {p.playbook_code}: {p.name}" for p in playbooks]
-                return "\n".join(lines) if lines else "(no playbooks installed)"
+                # P2: No explicit PLAYBOOK bindings — use RAG to find relevant
+                # playbooks instead of dumping all into the prompt
+                try:
+                    from backend.app.services.tool_embedding_service import (
+                        ToolEmbeddingService,
+                    )
+
+                    rag_svc = ToolEmbeddingService()
+                    agenda = getattr(self.session, "agenda", []) or []
+                    query = "; ".join(agenda) if agenda else ""
+                    if query:
+                        matches, _status = await rag_svc.search_rrf(
+                            query=query, top_k=10, min_score=0.25
+                        )
+                        pb_matches = [m for m in matches if m.category == "playbook"]
+                        if pb_matches:
+                            lines = [
+                                f"- {m.tool_id}: {m.display_name}" for m in pb_matches
+                            ]
+                            return "\n".join(lines)
+                except Exception as rag_exc:
+                    logger.debug("Playbook RAG fallback failed: %s", rag_exc)
+
+                return "(no playbooks bound to this workspace)"
 
             svc = PlaybookService(store=self.store)
             lines = []

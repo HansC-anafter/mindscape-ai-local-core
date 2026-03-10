@@ -811,7 +811,14 @@ class PlaybookRegistry:
         # 2. Check local capability playbooks
         # If capability_code is specified, check that specific capability first
         if capability_code and capability_code in self.capability_playbooks:
-            # First try locale-specific key
+            # First try locale-specific key with full_code (keys stored as cap.code:locale)
+            full_code_locale_key = f"{capability_code}.{playbook_code}:{locale}"
+            if full_code_locale_key in self.capability_playbooks[capability_code]:
+                logger.debug(
+                    f"Found playbook {playbook_code} ({locale}) via full_code locale key in capability {capability_code}"
+                )
+                return self.capability_playbooks[capability_code][full_code_locale_key]
+            # Then try locale-specific key with plain playbook_code
             locale_key = f"{playbook_code}:{locale}"
             if locale_key in self.capability_playbooks[capability_code]:
                 logger.debug(

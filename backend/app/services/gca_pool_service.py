@@ -216,7 +216,8 @@ class GCAPoolService:
                     RuntimeEnvironment.pool_priority.asc(),
                     RuntimeEnvironment.last_used_at.asc().nullsfirst(),
                 )
-                .with_for_update(skip_locked=True)
+                # Concurrent bridge turns may legitimately share the same
+                # connected GCA account; skip_locked causes false "empty pool".
                 .all()
             )
 

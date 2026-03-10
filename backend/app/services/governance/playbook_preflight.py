@@ -401,8 +401,15 @@ class PlaybookPreflight:
                     f"[WARNING MODE] Sandbox issue: {sandbox_issues}, allowing execution"
                 )
 
-            # 3. Assess task risk
-            risk_level, risk_reasons = self._assess_task_risk(task, workspace, context)
+            # Meeting agent turns are planning prompts, not direct side effects.
+            # Risk gates should apply to the downstream dispatched actions instead
+            # of raw meeting context, which can contain historical "delete" text.
+            if task.startswith("[Meeting Agent Turn]"):
+                risk_level, risk_reasons = "low", []
+            else:
+                risk_level, risk_reasons = self._assess_task_risk(
+                    task, workspace, context
+                )
 
             if risk_level == "high":
                 # High risk requires user confirmation
