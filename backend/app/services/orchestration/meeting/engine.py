@@ -596,7 +596,35 @@ class MeetingEngine(
                 "L3 Gate SHRINK_SCOPE: intent=%s reason=%s", d.intent_id, d.reason
             )
 
-        # Step 3: Compile TaskIR BEFORE dispatch (only approved intents)
+        # Step 3: Task Decomposer — expand action items into full phase DAG
+        from backend.app.services.orchestration.task_decomposer import TaskDecomposer
+
+        decomposer = None
+        decomposed_phases = None
+        try:
+            self._ensure_provider()  # reuse meeting engine's LLM
+            decomposer = TaskDecomposer(
+                llm_adapter=self.provider,
+                model_name=self.model_name or "",
+                decompose_threshold=3,
+                max_phases=50,
+            )
+            decomposed_phases = await decomposer.decompose(
+                decision=decision,
+                action_items=action_items,
+                available_playbooks=getattr(self, "_available_playbooks_cache", ""),
+                available_tools=self._build_tool_inventory_block(),
+                force=True,  # always decompose — let the LLM decide granularity
+            )
+            logger.info(
+                "TaskDecomposer produced %d phases from %d action items",
+                len(decomposed_phases) if decomposed_phases else 0,
+                len(action_items),
+            )
+        except Exception as exc:
+            logger.warning("TaskDecomposer failed (non-fatal): %s", exc)
+
+        # Step 3b: Compile TaskIR (only approved intents)
         compiled_ir = None
         try:
             compiled_ir = self._compile_to_task_ir(
@@ -605,10 +633,35 @@ class MeetingEngine(
                 handoff_in=handoff_in,
                 action_intents=dispatchable_intents,
             )
+            # If decomposer produced phases, replace compiler's default phases
+            if compiled_ir and decomposed_phases:
+                compiled_ir.phases = decomposed_phases
+                logger.info(
+                    "TaskIR phases replaced by decomposer output (%d phases)",
+                    len(decomposed_phases),
+                )
         except Exception as exc:
             logger.warning("Failed to compile TaskIR from meeting: %s", exc)
 
-        # Step 4: DAG-walking dispatch via DispatchOrchestrator
+        # Step 4: Build supervisor callback for iterative decomposition (G3)
+        async def _on_wave_complete(wave_summary, task_ir):
+            """Supervisor callback — ask decomposer if more phases needed."""
+            if not decomposer:
+                return None
+            try:
+                return await decomposer.extend(
+                    existing_phases=task_ir.phases,
+                    wave_results=wave_summary.get("phase_results", {}),
+                    decision=decision,
+                    available_playbooks=getattr(self, "_available_playbooks_cache", ""),
+                )
+            except Exception as ext_exc:
+                logger.warning(
+                    "Iterative decomposition failed (non-fatal): %s", ext_exc
+                )
+                return None
+
+        # Step 5: DAG-walking dispatch via DispatchOrchestrator
         from backend.app.services.orchestration.dispatch_orchestrator import (
             DispatchOrchestrator,
         )
@@ -619,6 +672,7 @@ class MeetingEngine(
             session=self.session,
             profile_id=self.profile_id,
             project_id=self.project_id,
+            on_wave_complete=_on_wave_complete,
         )
         dispatch_result = await orchestrator.execute(
             task_ir=compiled_ir,
