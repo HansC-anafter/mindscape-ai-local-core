@@ -12,8 +12,6 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
-
-
 import uuid
 
 from app.database.config import get_vector_postgres_config
@@ -36,7 +34,7 @@ class PlaybookWebhookHandler:
         execution_id: str,
         playbook_code: str,
         user_id: str,
-        output_data: Dict[str, Any],
+        output_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Handle playbook completion and trigger appropriate actions
@@ -50,38 +48,30 @@ class PlaybookWebhookHandler:
         Returns:
             Dictionary with created resources and updated state
         """
-        logger.info(
-            f"Handling playbook completion: {playbook_code} for profile {user_id}"
-        )
+        logger.info(f"Handling playbook completion: {playbook_code} for profile {user_id}")
 
         result = {
             "success": True,
             "playbook_code": playbook_code,
             "execution_id": execution_id,
-            "created_resources": {},
+            "created_resources": {}
         }
 
         try:
             # Check if this is an onboarding playbook
             if playbook_code == "project_breakdown_onboarding":
-                result.update(
-                    await self._handle_task2_completion(
-                        execution_id, user_id, output_data
-                    )
-                )
+                result.update(await self._handle_task2_completion(
+                    execution_id, user_id, output_data
+                ))
             elif playbook_code == "weekly_review_onboarding":
-                result.update(
-                    await self._handle_task3_completion(
-                        execution_id, user_id, output_data
-                    )
-                )
+                result.update(await self._handle_task3_completion(
+                    execution_id, user_id, output_data
+                ))
             else:
                 # Regular playbook completion
-                result.update(
-                    await self._handle_regular_playbook(
-                        execution_id, playbook_code, user_id, output_data
-                    )
-                )
+                result.update(await self._handle_regular_playbook(
+                    execution_id, playbook_code, user_id, output_data
+                ))
 
             # Observe habits from webhook completion (background, don't block response)
             try:
@@ -89,7 +79,7 @@ class PlaybookWebhookHandler:
                     profile_id=user_id,
                     playbook_code=playbook_code,
                     execution_id=execution_id,
-                    output_data=output_data,
+                    output_data=output_data
                 )
             except Exception as e:
                 logger.warning(f"Failed to observe habits from webhook: {e}")
@@ -98,10 +88,16 @@ class PlaybookWebhookHandler:
 
         except Exception as e:
             logger.error(f"Failed to handle playbook completion: {e}")
-            return {"success": False, "error": str(e)}
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
     async def _handle_task2_completion(
-        self, execution_id: str, user_id: str, output_data: Dict[str, Any]
+        self,
+        execution_id: str,
+        user_id: str,
+        output_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Handle Task 2 (project breakdown) completion"""
         logger.info(f"Handling Task 2 completion for profile {user_id}")
@@ -127,10 +123,10 @@ class PlaybookWebhookHandler:
                 "goal": project_data.get("goal"),
                 "steps": project_data.get("steps", []),
                 "next_action": project_data.get("next_action"),
-                "estimated_duration": project_data.get("estimated_duration"),
+                "estimated_duration": project_data.get("estimated_duration")
             },
             created_at=_utc_now(),
-            updated_at=_utc_now(),
+            updated_at=_utc_now()
         )
 
         created_intent = self.store.create_intent(intent)
@@ -138,7 +134,9 @@ class PlaybookWebhookHandler:
 
         # Update onboarding state
         onboarding_result = self.onboarding_service.complete_task2_project_breakdown(
-            user_id=user_id, execution_id=execution_id, intent_id=created_intent.id
+            user_id=user_id,
+            execution_id=execution_id,
+            intent_id=created_intent.id
         )
 
         # Extract and store seeds (if any)
@@ -150,20 +148,23 @@ class PlaybookWebhookHandler:
                 user_id=user_id,
                 insights=extracted_insights,
                 source_id=execution_id,
-                source_type="onboarding_task2",
+                source_type="onboarding_task2"
             )
 
         return {
             "created_resources": {
                 "intent_id": created_intent.id,
                 "intent_title": created_intent.title,
-                "seeds_created": seeds_created,
+                "seeds_created": seeds_created
             },
-            "onboarding_state": onboarding_result.get("onboarding_state"),
+            "onboarding_state": onboarding_result.get("onboarding_state")
         }
 
     async def _handle_task3_completion(
-        self, execution_id: str, user_id: str, output_data: Dict[str, Any]
+        self,
+        execution_id: str,
+        user_id: str,
+        output_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Handle Task 3 (weekly review) completion"""
         logger.info(f"Handling Task 3 completion for profile {user_id}")
@@ -184,7 +185,7 @@ class PlaybookWebhookHandler:
                     content=seed_data.get("content", ""),
                     metadata=seed_data.get("metadata", {}),
                     confidence=seed_data.get("confidence", 0.7),
-                    source_id=execution_id,
+                    source_id=execution_id
                 )
                 seeds_created += 1
             except Exception as e:
@@ -196,15 +197,15 @@ class PlaybookWebhookHandler:
         onboarding_result = self.onboarding_service.complete_task3_weekly_review(
             user_id=user_id,
             execution_id=execution_id,
-            created_seeds_count=seeds_created,
+            created_seeds_count=seeds_created
         )
 
         return {
-            "created_resources": {"seeds_created": seeds_created},
+            "created_resources": {
+                "seeds_created": seeds_created
+            },
             "onboarding_state": onboarding_result.get("onboarding_state"),
-            "is_onboarding_complete": onboarding_result.get("onboarding_state", {}).get(
-                "task3_completed", False
-            ),
+            "is_onboarding_complete": onboarding_result.get("onboarding_state", {}).get("task3_completed", False)
         }
 
     async def _handle_regular_playbook(
@@ -212,7 +213,7 @@ class PlaybookWebhookHandler:
         execution_id: str,
         playbook_code: str,
         user_id: str,
-        output_data: Dict[str, Any],
+        output_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Handle regular (non-onboarding) playbook completion"""
         logger.info(f"Handling regular playbook: {playbook_code}")
@@ -224,11 +225,15 @@ class PlaybookWebhookHandler:
 
         return {
             "created_resources": {},
-            "message": "Regular playbook handling not yet implemented",
+            "message": "Regular playbook handling not yet implemented"
         }
 
     async def _create_seeds_from_insights(
-        self, user_id: str, insights: Dict[str, Any], source_id: str, source_type: str
+        self,
+        user_id: str,
+        insights: Dict[str, Any],
+        source_id: str,
+        source_type: str
     ) -> int:
         """Create seeds from extracted insights"""
         seeds_created = 0
@@ -241,7 +246,7 @@ class PlaybookWebhookHandler:
                 source_type=source_type,
                 content=f"工作風格：{working_style}",
                 confidence=0.7,
-                source_id=source_id,
+                source_id=source_id
             )
             seeds_created += 1
 
@@ -253,7 +258,7 @@ class PlaybookWebhookHandler:
                 source_type=source_type,
                 content=f"潛在障礙：{blocker}",
                 confidence=0.6,
-                source_id=source_id,
+                source_id=source_id
             )
             seeds_created += 1
 
@@ -266,7 +271,7 @@ class PlaybookWebhookHandler:
         content: str,
         confidence: float,
         source_id: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None
     ):
         """Create a single seed in the database"""
         try:
@@ -278,26 +283,23 @@ class PlaybookWebhookHandler:
 
             with psycopg2.connect(**postgres_config) as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO memory_embeddings (
+                cursor.execute('''
+                    INSERT INTO mindscape_personal (
                         id, user_id, source_type, content, metadata,
-                        source_id, confidence, weight, updated_at, created_at
+                        source_type, source_id, confidence, weight, updated_at, created_at
                     ) VALUES (
-                        gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
+                        gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
                     )
-                """,
-                    (
-                        user_id,
-                        source_type,
-                        content,
-                        json.dumps(metadata or {}),
-                        source_type,
-                        source_id,
-                        confidence,
-                        1.0,  # default weight
-                    ),
-                )
+                ''', (
+                    user_id,
+                    source_type,
+                    content,
+                    json.dumps(metadata or {}),
+                    source_type,
+                    source_id,
+                    confidence,
+                    1.0  # default weight
+                ))
                 conn.commit()
                 logger.info(f"Created seed: {source_type} - {content}")
 
@@ -310,7 +312,7 @@ class PlaybookWebhookHandler:
         profile_id: str,
         playbook_code: str,
         execution_id: str,
-        output_data: Dict[str, Any],
+        output_data: Dict[str, Any]
     ):
         """
         從 Webhook 完成事件中觀察習慣
@@ -322,24 +324,16 @@ class PlaybookWebhookHandler:
             output_data: 輸出資料
         """
         try:
-            from backend.app.capabilities.habit_learning.services.habit_observer import (
-                HabitObserver,
-            )
-            from backend.app.capabilities.habit_learning.services.habit_candidate_generator import (
-                HabitCandidateGenerator,
-            )
+            from backend.app.capabilities.habit_learning.services.habit_observer import HabitObserver
+            from backend.app.capabilities.habit_learning.services.habit_candidate_generator import HabitCandidateGenerator
             from backend.app.services.mindscape_store import MindscapeStore
 
             # Check if habit learning is enabled
             store = MindscapeStore()
-            profile = store.get_profile(
-                profile_id, apply_habits=False
-            )  # Don't apply habits for check
+            profile = store.get_profile(profile_id, apply_habits=False)  # Don't apply habits for check
             if profile and profile.preferences:
-                if not getattr(profile.preferences, "enable_habit_suggestions", False):
-                    logger.debug(
-                        f"Habit suggestions disabled for profile {profile_id}, skipping webhook observation"
-                    )
+                if not getattr(profile.preferences, 'enable_habit_suggestions', False):
+                    logger.debug(f"Habit suggestions disabled for profile {profile_id}, skipping webhook observation")
                     return
 
             # Create observer and generator
@@ -355,7 +349,7 @@ class PlaybookWebhookHandler:
                 playbook_code=playbook_code,
                 profile=profile,
                 conversation_length=conversation_length,
-                execution_id=execution_id,
+                execution_id=execution_id
             )
 
             # For each observation, check if we should generate a candidate
@@ -366,14 +360,12 @@ class PlaybookWebhookHandler:
                         profile_id=obs.profile_id,
                         habit_key=obs.habit_key,
                         habit_value=obs.habit_value,
-                        habit_category=obs.habit_category,
+                        habit_category=obs.habit_category
                     )
                 except Exception as e:
                     logger.warning(f"Failed to process observation {obs.id}: {e}")
 
         except ImportError:
-            logger.debug(
-                "Habit learning modules not available, skipping webhook observation"
-            )
+            logger.debug("Habit learning modules not available, skipping webhook observation")
         except Exception as e:
             logger.warning(f"Failed to observe habits from webhook: {e}", exc_info=True)

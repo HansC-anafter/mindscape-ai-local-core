@@ -277,7 +277,7 @@ class VectorSearchService:
         Generic vector search across any table
 
         Args:
-            table: Table name (memory_embeddings, playbook_knowledge, external_docs)
+            table: Table name (mindscape_personal, playbook_knowledge, external_docs)
             query_embedding: Query vector
             filters: Additional filters (e.g., {"playbook_code": "xxx"})
             top_k: Number of results
@@ -292,10 +292,7 @@ class VectorSearchService:
 
             # Get current embedding model for filtering
             current_model_name = None
-            if require_model_match and table in (
-                "mindscape_personal",
-                "memory_embeddings",
-            ):
+            if require_model_match and table == "mindscape_personal":
                 from backend.app.services.system_settings_store import (
                     SystemSettingsStore,
                 )
@@ -318,7 +315,7 @@ class VectorSearchService:
             if (
                 require_model_match
                 and current_model_name
-                and table in ("mindscape_personal", "memory_embeddings")
+                and table == "mindscape_personal"
             ):
                 where_clauses.append("metadata->>'embedding_model' = %s")
                 params.append(current_model_name)
@@ -374,10 +371,7 @@ class VectorSearchService:
         self, user_id: str, query: str, top_k: int = 3
     ) -> List[Dict[str, Any]]:
         """
-        Search user's personal semantic memory (L2).
-
-        ADR-001 v2: queries memory_embeddings (L2) instead of mindscape_personal.
-        Falls back to mindscape_personal if memory_embeddings is empty.
+        Search user's personal mindscape context
 
         Args:
             user_id: User identifier
@@ -391,24 +385,12 @@ class VectorSearchService:
         if not query_embedding:
             return []
 
-        # Primary: L2 memory_embeddings
-        results = await self.vector_search(
-            table="memory_embeddings",
+        return await self.vector_search(
+            table="mindscape_personal",
             query_embedding=query_embedding,
             filters={"user_id": user_id},
             top_k=top_k,
         )
-
-        # Fallback: legacy mindscape_personal (frozen, read-only)
-        if not results:
-            results = await self.vector_search(
-                table="mindscape_personal",
-                query_embedding=query_embedding,
-                filters={"user_id": user_id},
-                top_k=top_k,
-            )
-
-        return results
 
     async def execute_playbook_with_context(
         self, playbook_code: str, user_query: str, user_id: str = "default_user"
@@ -595,7 +577,7 @@ class VectorSearchService:
             top_k = top_k_per_scope.get(scope, 5)
 
             scope_results = await self.vector_search(
-                table="memory_embeddings",
+                table="mindscape_personal",
                 query_embedding=query_embedding,
                 filters=filters,
                 top_k=top_k * 2,  # Get more results for composite scoring
@@ -683,7 +665,7 @@ class VectorSearchService:
         return scored_results
 
     async def update_last_used_at(
-        self, record_ids: List[str], table: str = "memory_embeddings"
+        self, record_ids: List[str], table: str = "mindscape_personal"
     ):
         """
         Update last_used_at timestamp for records

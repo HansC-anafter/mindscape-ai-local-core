@@ -2,8 +2,7 @@
 Event Embedding Generator Service
 
 Automatically generates embeddings for mind events with text content.
-Stores embeddings in memory_embeddings table for semantic search (L2).
-Legacy: previously wrote to mindscape_personal, now frozen (ADR-001 v2).
+Stores embeddings in mindscape_personal table for semantic search.
 """
 
 import logging
@@ -15,8 +14,6 @@ from datetime import datetime, timezone
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
-
-
 import uuid
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
@@ -37,7 +34,6 @@ class EventEmbeddingGenerator:
         """
         if store is None:
             from backend.app.services.mindscape_store import MindscapeStore
-
             self.store = MindscapeStore()
         else:
             self.store = store
@@ -65,10 +61,7 @@ class EventEmbeddingGenerator:
             if event.metadata.get("is_artifact") is True:
                 return True
 
-        if (
-            event.event_type == EventType.INTENT_CREATED
-            or event.event_type == EventType.INTENT_UPDATED
-        ):
+        if event.event_type == EventType.INTENT_CREATED or event.event_type == EventType.INTENT_UPDATED:
             if event.payload and isinstance(event.payload, dict):
                 status = event.payload.get("status")
                 priority = event.payload.get("priority")
@@ -79,10 +72,7 @@ class EventEmbeddingGenerator:
             if event.payload and isinstance(event.payload, dict):
                 if event.payload.get("is_final_output") is True:
                     return True
-                if (
-                    event.payload.get("step_type") == "output"
-                    and event.payload.get("status") == "completed"
-                ):
+                if event.payload.get("step_type") == "output" and event.payload.get("status") == "completed":
                     return True
 
         if event.event_type == EventType.MESSAGE:
@@ -115,9 +105,7 @@ class EventEmbeddingGenerator:
         """
         try:
             if not self.should_generate_embedding(event):
-                logger.debug(
-                    f"Skipping embedding for event {event.id} (does not meet criteria)"
-                )
+                logger.debug(f"Skipping embedding for event {event.id} (does not meet criteria)")
                 return None
 
             text_content = self._extract_text_from_event(event)
@@ -141,9 +129,7 @@ class EventEmbeddingGenerator:
             return seed_id
 
         except Exception as e:
-            logger.error(
-                f"Failed to generate embedding for event {event.id}: {e}", exc_info=True
-            )
+            logger.error(f"Failed to generate embedding for event {event.id}: {e}", exc_info=True)
             return None
 
     def _extract_text_from_event(self, event: MindEvent) -> Optional[str]:
@@ -161,11 +147,11 @@ class EventEmbeddingGenerator:
                     file_info_data = file_analysis.get("file_info", {})
 
                     extracted_text = (
-                        collaboration.get("extracted_text")
-                        or collaboration.get("summary")
-                        or collaboration.get("content")
-                        or file_analysis.get("extracted_text")
-                        or file_analysis.get("summary")
+                        collaboration.get("extracted_text") or
+                        collaboration.get("summary") or
+                        collaboration.get("content") or
+                        file_analysis.get("extracted_text") or
+                        file_analysis.get("summary")
                     )
 
                     files = event.payload.get("files", [])
@@ -182,35 +168,24 @@ class EventEmbeddingGenerator:
                         file_info_parts = [f"File: {file_name}"]
                         if file_info_data:
                             if file_info_data.get("type"):
-                                file_info_parts.append(
-                                    f"Type: {file_info_data['type']}"
-                                )
+                                file_info_parts.append(f"Type: {file_info_data['type']}")
                             if file_info_data.get("size"):
-                                file_info_parts.append(
-                                    f"Size: {file_info_data['size']}"
-                                )
+                                file_info_parts.append(f"Size: {file_info_data['size']}")
                             if file_info_data.get("pages"):
-                                file_info_parts.append(
-                                    f"Pages: {file_info_data['pages']}"
-                                )
+                                file_info_parts.append(f"Pages: {file_info_data['pages']}")
 
                         semantic_seeds = collaboration.get("semantic_seeds", {})
                         if semantic_seeds.get("intents"):
                             intents = semantic_seeds.get("intents", [])
                             if intents:
-                                file_info_parts.append(
-                                    f"Intents: {', '.join(intents[:5])}"
-                                )
+                                file_info_parts.append(f"Intents: {', '.join(intents[:5])}")
 
                         return "\n".join(file_info_parts)
 
             if message:
                 return message
 
-        elif (
-            event.event_type == EventType.INTENT_CREATED
-            or event.event_type == EventType.INTENT_UPDATED
-        ):
+        elif event.event_type == EventType.INTENT_CREATED or event.event_type == EventType.INTENT_UPDATED:
             title = event.payload.get("title", "")
             description = event.payload.get("description", "")
             if title or description:
@@ -238,12 +213,8 @@ class EventEmbeddingGenerator:
             if steps and isinstance(steps, list):
                 step_texts = []
                 for i, step in enumerate(steps, 1):
-                    step_name = (
-                        step.get("name", "") if isinstance(step, dict) else str(step)
-                    )
-                    step_desc = (
-                        step.get("description", "") if isinstance(step, dict) else ""
-                    )
+                    step_name = step.get("name", "") if isinstance(step, dict) else str(step)
+                    step_desc = step.get("description", "") if isinstance(step, dict) else ""
                     if step_name:
                         step_text = f"Step {i}: {step_name}"
                         if step_desc:
@@ -257,7 +228,6 @@ class EventEmbeddingGenerator:
                 return "\n\n".join(text_parts)
 
             import json
-
             return json.dumps(event.payload, indent=2)
 
         return None
@@ -274,14 +244,11 @@ class EventEmbeddingGenerator:
             cursor = conn.cursor()
 
             # First check by event ID
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT id FROM mindscape_personal
                 WHERE source_type = 'mind_event' AND metadata->>'source_id' = %s
                 LIMIT 1
-            """,
-                (event.id,),
-            )
+            """, (event.id,))
 
             row = cursor.fetchone()
             if row:
@@ -293,23 +260,18 @@ class EventEmbeddingGenerator:
             if event.metadata and isinstance(event.metadata, dict):
                 file_hash = event.metadata.get("file_hash")
                 if file_hash:
-                    cursor.execute(
-                        """
+                    cursor.execute("""
                         SELECT id FROM mindscape_personal
                         WHERE source_type = 'mind_event'
                           AND metadata->>'file_hash' = %s
                           AND metadata->>'embedding_model' IS NOT NULL
                         ORDER BY created_at DESC
                         LIMIT 1
-                    """,
-                        (file_hash,),
-                    )
+                    """, (file_hash,))
 
                     row = cursor.fetchone()
                     if row:
-                        logger.info(
-                            f"Found existing embedding for file_hash {file_hash[:8]}..., reusing seed {row[0]}"
-                        )
+                        logger.info(f"Found existing embedding for file_hash {file_hash[:8]}..., reusing seed {row[0]}")
                         cursor.close()
                         conn.close()
                         return row[0]
@@ -341,9 +303,7 @@ class EventEmbeddingGenerator:
             provider = embedding_setting.metadata.get("provider", "openai")
 
             if provider == "vertex-ai":
-                return await self._generate_embedding_vertex_ai(
-                    model_name, text, settings_store
-                )
+                return await self._generate_embedding_vertex_ai(model_name, text, settings_store)
             else:
                 return await self._generate_embedding_openai(model_name, text)
 
@@ -351,9 +311,7 @@ class EventEmbeddingGenerator:
             logger.error(f"Failed to generate embedding: {e}", exc_info=True)
             return None
 
-    async def _generate_embedding_openai(
-        self, model_name: str, text: str
-    ) -> Optional[List[float]]:
+    async def _generate_embedding_openai(self, model_name: str, text: str) -> Optional[List[float]]:
         """Generate embedding using OpenAI API"""
         try:
             from backend.app.services.config_store import ConfigStore
@@ -369,7 +327,10 @@ class EventEmbeddingGenerator:
                 return None
 
             client = openai.OpenAI(api_key=api_key)
-            response = client.embeddings.create(model=model_name, input=text)
+            response = client.embeddings.create(
+                model=model_name,
+                input=text
+            )
 
             if response.data and len(response.data) > 0:
                 return response.data[0].embedding
@@ -379,9 +340,7 @@ class EventEmbeddingGenerator:
             logger.error(f"Failed to generate OpenAI embedding: {e}", exc_info=True)
             return None
 
-    async def _generate_embedding_vertex_ai(
-        self, model_name: str, text: str, settings_store
-    ) -> Optional[List[float]]:
+    async def _generate_embedding_vertex_ai(self, model_name: str, text: str, settings_store) -> Optional[List[float]]:
         """Generate embedding using Vertex AI"""
         try:
             import os
@@ -391,58 +350,34 @@ class EventEmbeddingGenerator:
             from vertexai.language_models import TextEmbeddingModel
             import vertexai
 
-            service_account_setting = settings_store.get_setting(
-                "vertex_ai_service_account_json"
-            )
+            service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
             project_id_setting = settings_store.get_setting("vertex_ai_project_id")
             location_setting = settings_store.get_setting("vertex_ai_location")
 
-            vertex_service_account_json = (
-                service_account_setting.value
-                if service_account_setting and service_account_setting.value
-                else os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-            )
-            vertex_project_id = (
-                project_id_setting.value
-                if project_id_setting and project_id_setting.value
-                else os.getenv("GOOGLE_CLOUD_PROJECT")
-            )
-            vertex_location = (
-                location_setting.value
-                if location_setting and location_setting.value
-                else os.getenv("VERTEX_LOCATION", "us-central1")
-            )
+            vertex_service_account_json = service_account_setting.value if service_account_setting and service_account_setting.value else os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            vertex_project_id = project_id_setting.value if project_id_setting and project_id_setting.value else os.getenv("GOOGLE_CLOUD_PROJECT")
+            vertex_location = location_setting.value if location_setting and location_setting.value else os.getenv("VERTEX_LOCATION", "us-central1")
 
             if not vertex_service_account_json or not vertex_project_id:
-                logger.warning(
-                    "Vertex AI credentials not configured for embedding generation"
-                )
+                logger.warning("Vertex AI credentials not configured for embedding generation")
                 return None
 
             credentials = None
             if vertex_service_account_json:
                 try:
                     sa_info = json.loads(vertex_service_account_json)
-                    credentials = service_account.Credentials.from_service_account_info(
-                        sa_info
-                    )
-                    if not vertex_project_id and "project_id" in sa_info:
-                        vertex_project_id = sa_info["project_id"]
+                    credentials = service_account.Credentials.from_service_account_info(sa_info)
+                    if not vertex_project_id and 'project_id' in sa_info:
+                        vertex_project_id = sa_info['project_id']
                 except (json.JSONDecodeError, ValueError):
-                    credentials = service_account.Credentials.from_service_account_file(
-                        vertex_service_account_json
-                    )
+                    credentials = service_account.Credentials.from_service_account_file(vertex_service_account_json)
                     if not vertex_project_id:
-                        with open(vertex_service_account_json, "r") as f:
+                        with open(vertex_service_account_json, 'r') as f:
                             sa_info = json.load(f)
-                            if "project_id" in sa_info:
-                                vertex_project_id = sa_info["project_id"]
+                            if 'project_id' in sa_info:
+                                vertex_project_id = sa_info['project_id']
 
-            vertexai.init(
-                project=vertex_project_id,
-                location=vertex_location,
-                credentials=credentials,
-            )
+            vertexai.init(project=vertex_project_id, location=vertex_location, credentials=credentials)
 
             model = TextEmbeddingModel.from_pretrained(model_name)
             embeddings = model.get_embeddings([text])
@@ -459,13 +394,8 @@ class EventEmbeddingGenerator:
             logger.error(f"Failed to generate embedding: {e}", exc_info=True)
             return None
 
-    def _store_embedding(
-        self, event: MindEvent, text: str, embedding: List[float]
-    ) -> str:
-        """Store embedding in memory_embeddings table (L2 semantic memory).
-
-        ADR-001 v2: writes to memory_embeddings instead of mindscape_personal (frozen).
-        """
+    def _store_embedding(self, event: MindEvent, text: str, embedding: List[float]) -> str:
+        """Store embedding in mindscape_personal table (PostgreSQL with hierarchical memory support)"""
         try:
             from backend.app.services.system_settings_store import SystemSettingsStore
             import os
@@ -491,15 +421,10 @@ class EventEmbeddingGenerator:
             if event.event_type == EventType.PROJECT_UPDATED:
                 scope = "global"
                 importance = 0.8
-            elif (
-                event.event_type == EventType.INTENT_CREATED
-                or event.event_type == EventType.INTENT_UPDATED
-            ):
+            elif event.event_type == EventType.INTENT_CREATED or event.event_type == EventType.INTENT_UPDATED:
                 scope = "intent"
                 if event.payload and isinstance(event.payload, dict):
-                    intent_id = event.payload.get("intent_id") or event.payload.get(
-                        "id"
-                    )
+                    intent_id = event.payload.get("intent_id") or event.payload.get("id")
                     priority = event.payload.get("priority", "normal")
                     if priority in ["high", "critical"]:
                         importance = 0.9
@@ -510,9 +435,7 @@ class EventEmbeddingGenerator:
             elif workspace_id:
                 scope = "workspace"
                 if event.metadata and isinstance(event.metadata, dict):
-                    if event.metadata.get("is_final") or event.metadata.get(
-                        "is_artifact"
-                    ):
+                    if event.metadata.get("is_final") or event.metadata.get("is_artifact"):
                         importance = 0.8
                     elif event.metadata.get("should_embed"):
                         importance = 0.7
@@ -529,14 +452,8 @@ class EventEmbeddingGenerator:
 
             settings_store = SystemSettingsStore()
             embedding_setting = settings_store.get_setting("embedding_model")
-            embedding_model_name = (
-                str(embedding_setting.value) if embedding_setting else "unknown"
-            )
-            embedding_provider = (
-                embedding_setting.metadata.get("provider", "openai")
-                if embedding_setting
-                else "unknown"
-            )
+            embedding_model_name = str(embedding_setting.value) if embedding_setting else "unknown"
+            embedding_provider = embedding_setting.metadata.get("provider", "openai") if embedding_setting else "unknown"
 
             confidence = importance
             weight = importance
@@ -555,7 +472,7 @@ class EventEmbeddingGenerator:
                 "intent_id": intent_id,
                 "importance": importance,
                 "tags": tags,
-                "seed_type": seed_type,
+                "seed_type": seed_type
             }
 
             # Add file_hash and file_name from event metadata if available
@@ -575,39 +492,33 @@ class EventEmbeddingGenerator:
                 source_context_parts.append(f"workspace:{workspace_id}")
             if intent_id:
                 source_context_parts.append(f"intent:{intent_id}")
-            source_context = (
-                "|".join(source_context_parts) if source_context_parts else None
-            )
+            source_context = "|".join(source_context_parts) if source_context_parts else None
 
-            cursor.execute(
-                """
-                INSERT INTO memory_embeddings
+            # Store embedding in PostgreSQL (using actual table structure)
+            cursor.execute("""
+                INSERT INTO mindscape_personal
                 (id, user_id, source_type, content, metadata, source_id, source_context, confidence, weight, embedding, created_at, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s, %s)
-            """,
-                (
-                    seed_id,
-                    event.profile_id,
-                    "mind_event",
-                    text,
-                    Json(metadata_dict),
-                    event.id,
-                    source_context,
-                    confidence,
-                    weight,
-                    embedding,
-                    now,
-                    now,
-                ),
-            )
+            """, (
+                seed_id,
+                event.profile_id,
+                "mind_event",
+                text,
+                Json(metadata_dict),
+                event.id,
+                source_context,
+                confidence,
+                weight,
+                embedding,
+                now,
+                now
+            ))
 
             conn.commit()
             cursor.close()
             conn.close()
 
-            logger.info(
-                f"Stored embedding with scope={scope}, workspace_id={workspace_id}, intent_id={intent_id}, importance={importance}"
-            )
+            logger.info(f"Stored embedding with scope={scope}, workspace_id={workspace_id}, intent_id={intent_id}, importance={importance}")
             return seed_id
 
         except Exception as e:
@@ -615,7 +526,7 @@ class EventEmbeddingGenerator:
             raise
 
     def _map_event_type_to_seed_type(self, event_type: EventType) -> str:
-        """Map event type to seed type for memory_embeddings"""
+        """Map event type to seed type for mindscape_personal"""
         mapping = {
             EventType.MESSAGE: "conversation",
             EventType.INTENT_CREATED: "intent",
