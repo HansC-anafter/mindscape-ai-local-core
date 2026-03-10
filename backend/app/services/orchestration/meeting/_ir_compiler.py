@@ -152,7 +152,7 @@ class MeetingIRCompilerMixin:
                 elif intent.tool_name:
                     engine = f"tool:{intent.tool_name}"
                 else:
-                    engine = "playbook:generic"
+                    engine = "agent:auto"
 
             phase = PhaseIR(
                 # INV-2: phase_id = intent_id
@@ -190,7 +190,7 @@ class MeetingIRCompilerMixin:
                 elif item.get("tool_name"):
                     engine = f"tool:{item['tool_name']}"
                 else:
-                    engine = "playbook:generic"
+                    engine = "agent:auto"
 
             phase = PhaseIR(
                 id=f"action_{idx}",

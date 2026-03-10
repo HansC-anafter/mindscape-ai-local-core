@@ -196,33 +196,24 @@ class MeetingPromptsMixin:
             return ""
 
     def _has_workspace_tool_bindings(self) -> bool:
-        """Return True iff this workspace has explicit TOOL resource bindings.
+        """Return True iff tools or playbooks are available for this workspace.
 
-        Explicit bindings = admin-configured allowlist.  Manifest fallback
-        (the 215-line global dump) does NOT count as explicit — it is
-        reference-only and should not trigger mandatory-constraint or
-        null-tool retry gates.
+        Checks RAG caches (tools + playbooks) instead of admin-configured
+        bindings.  Any workspace with RAG-discovered tools/playbooks will
+        trigger the MANDATORY constraint requiring the executor to map
+        action items to available tools/playbooks.
         """
-        workspace = getattr(self, "workspace", None)
-        workspace_id = getattr(workspace, "id", None) or getattr(
-            getattr(self, "session", None), "workspace_id", None
+        has_rag_tools = bool(getattr(self, "_rag_tool_cache", []))
+        playbooks_cache = getattr(self, "_available_playbooks_cache", "")
+        has_playbooks = bool(
+            playbooks_cache
+            and playbooks_cache
+            not in (
+                "(no playbooks discovered)",
+                "(playbook discovery unavailable)",
+            )
         )
-        if not workspace_id:
-            return False
-        try:
-            from backend.app.services.stores.workspace_resource_binding_store import (
-                WorkspaceResourceBindingStore,
-            )
-            from backend.app.models.workspace_resource_binding import ResourceType
-
-            store = WorkspaceResourceBindingStore()
-            bindings = store.list_bindings_by_workspace(
-                workspace_id, resource_type=ResourceType.TOOL
-            )
-            return bool(bindings)
-        except Exception as exc:
-            logger.debug("_has_workspace_tool_bindings check failed: %s", exc)
-            return False
+        return has_rag_tools or has_playbooks
 
     # Chinese action-verb → English RAG keywords for cross-lingual recall.
     # These are matched against the user message and appended to the RAG

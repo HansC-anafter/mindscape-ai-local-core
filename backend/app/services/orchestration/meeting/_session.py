@@ -117,63 +117,88 @@ class MeetingSessionMixin:
         )
 
     async def _async_load_installed_playbooks(self) -> str:
-        """Load workspace-installed playbooks for prompt injection.
+        """Load available playbooks for prompt injection.
 
-        Primary: query workspace_resource_bindings for PLAYBOOK type.
-        Fallback: PlaybookService.list_playbooks() when no bindings exist.
+        Lookup order (RAG-first, no Binding dependency):
+          1. RAG search_rrf using agenda + user_message — always runs.
+          2. Manifest Tier 3 fallback — scan all installed pack manifests.
 
         Returns:
             Formatted string listing available playbooks.
         """
-        # TODO: binding_store is sync I/O; consider run_in_executor or async store
         try:
-            from backend.app.services.stores.workspace_resource_binding_store import (
-                WorkspaceResourceBindingStore,
-            )
-            from backend.app.models.workspace_resource_binding import ResourceType
-            from backend.app.services.playbook_service import PlaybookService
-
-            binding_store = WorkspaceResourceBindingStore()
-            bindings = binding_store.list_bindings_by_workspace(
-                self.session.workspace_id, resource_type=ResourceType.PLAYBOOK
-            )
-
-            if not bindings:
-                # P2: No explicit PLAYBOOK bindings — use RAG to find relevant
-                # playbooks instead of dumping all into the prompt
-                try:
-                    from backend.app.services.tool_embedding_service import (
-                        ToolEmbeddingService,
-                    )
-
-                    rag_svc = ToolEmbeddingService()
-                    agenda = getattr(self.session, "agenda", []) or []
-                    query = "; ".join(agenda) if agenda else ""
-                    if query:
-                        matches, _status = await rag_svc.search_rrf(
-                            query=query, top_k=10, min_score=0.25
-                        )
-                        pb_matches = [m for m in matches if m.category == "playbook"]
-                        if pb_matches:
-                            lines = [
-                                f"- {m.tool_id}: {m.display_name}" for m in pb_matches
-                            ]
-                            return "\n".join(lines)
-                except Exception as rag_exc:
-                    logger.debug("Playbook RAG fallback failed: %s", rag_exc)
-
-                return "(no playbooks bound to this workspace)"
-
-            svc = PlaybookService(store=self.store)
-            lines = []
-            for b in bindings:
-                pb = await svc.get_playbook(
-                    b.resource_id, workspace_id=self.session.workspace_id
+            # --- Tier 1: RAG discovery (always runs) ---
+            try:
+                from backend.app.services.tool_embedding_service import (
+                    ToolEmbeddingService,
                 )
-                # get_playbook returns Playbook — name via .metadata.name
-                name = pb.metadata.name if pb else b.resource_id
-                lines.append(f"- {b.resource_id}: {name}")
-            return "\n".join(lines)
+
+                rag_svc = ToolEmbeddingService()
+                agenda = getattr(self.session, "agenda", []) or []
+                user_msg = getattr(self, "_last_user_message", "")
+                # Build query from agenda + user_message
+                parts = list(agenda) + ([user_msg] if user_msg else [])
+                query = "; ".join(parts) if parts else "available playbooks"
+
+                matches, _status = await rag_svc.search_rrf(
+                    query=query, top_k=10, min_score=0.25
+                )
+                pb_matches = [m for m in matches if m.category == "playbook"]
+                if pb_matches:
+                    lines = [f"- {m.tool_id}: {m.display_name}" for m in pb_matches]
+                    logger.info(
+                        "Playbook RAG discovery: %d playbooks for session %s",
+                        len(pb_matches),
+                        getattr(self.session, "id", "?"),
+                    )
+                    return "\n".join(lines)
+            except Exception as rag_exc:
+                logger.warning("Playbook RAG discovery failed: %s", rag_exc)
+
+            # --- Tier 2: Manifest fallback — scan installed packs ---
+            try:
+                from backend.app.services.stores.installed_packs_store import (
+                    InstalledPacksStore,
+                )
+                from pathlib import Path
+                import os
+                import yaml as _yaml
+
+                packs_store = InstalledPacksStore()
+                pack_ids = packs_store.list_enabled_pack_ids()
+                app_dir = os.getenv("APP_DIR", "/app")
+                cap_dirs = [
+                    Path(app_dir) / "backend" / "app" / "capabilities",
+                    Path("backend/app/capabilities"),
+                    Path(os.getenv("DATA_DIR", "data")) / "capabilities",
+                ]
+                lines = []
+                for pack_id in pack_ids:
+                    for cap_base in cap_dirs:
+                        manifest_path = cap_base / pack_id / "manifest.yaml"
+                        if not manifest_path.exists():
+                            continue
+                        try:
+                            with manifest_path.open("r", encoding="utf-8") as mf:
+                                manifest = _yaml.safe_load(mf) or {}
+                            for pb in manifest.get("playbooks", []):
+                                if isinstance(pb, dict):
+                                    code = pb.get("code", "")
+                                    name = pb.get("name", code)
+                                    if code:
+                                        lines.append(f"- {code}: {name}")
+                        except Exception:
+                            pass
+                        break
+                if lines:
+                    logger.info("Playbook manifest fallback: %d playbooks", len(lines))
+                    return "\n".join(lines)
+            except ImportError:
+                pass
+            except Exception as mf_exc:
+                logger.warning("Playbook manifest fallback failed: %s", mf_exc)
+
+            return "(no playbooks discovered)"
         except Exception as exc:
             logger.warning("Failed to load installed playbooks: %s", exc, exc_info=True)
             return "(playbook discovery unavailable)"
