@@ -14,6 +14,20 @@ from backend.app.models.mindscape import EventType
 
 logger = logging.getLogger(__name__)
 
+# ── Change 4: Role-specific turn directives (facilitator/planner/critic) ──
+_ROLE_TURN_DIRECTIVES: dict[str, str] = {
+    "facilitator": (
+        "As facilitator, synthesize progress and decide if another round is needed. "
+        "If converged, include the marker [CONVERGED]. Keep concise."
+    ),
+    "planner": (
+        "As planner, propose a concrete, executable plan with clear steps and ownership."
+    ),
+    "critic": (
+        "As critic, challenge assumptions, identify risks, and suggest mitigations."
+    ),
+}
+
 
 class MeetingPromptsMixin:
     """Mixin providing prompt construction methods for MeetingEngine."""
@@ -321,10 +335,34 @@ class MeetingPromptsMixin:
                 activity_lines = []
                 for ev in recent_events[:5]:
                     ev_type = getattr(ev, "event_type", "")
+                    ev_type_str = (
+                        ev_type.value if hasattr(ev_type, "value") else str(ev_type)
+                    )
+                    channel = str(getattr(ev, "channel", "") or "").lower()
+                    if channel == "meeting" or ev_type_str in {
+                        "meeting_start",
+                        "meeting_round",
+                        "meeting_end",
+                        "state_vector_computed",
+                        "decision_required",
+                        "action_item",
+                        "agent_turn",
+                        "decision_proposal",
+                        "decision_final",
+                    }:
+                        continue
                     payload = getattr(ev, "payload", {}) or {}
                     summary = (
                         payload.get("message") or payload.get("title") or str(ev_type)
                     )
+                    if not isinstance(summary, str):
+                        summary = str(summary)
+                    if (
+                        "Meeting Minutes" in summary
+                        or "Awaiting user confirmation" in summary
+                        or "HIGH risk level" in summary
+                    ):
+                        continue
                     if len(summary) > 120:
                         summary = summary[:120] + "..."
                     activity_lines.append(f"  - {summary}")
@@ -558,14 +596,14 @@ class MeetingPromptsMixin:
 
     def _build_turn_prompt(
         self,
-        agent_id: str,
+        role_id: str,
         round_num: int,
         user_message: str,
         decision: Optional[str],
         planner_proposals: List[str],
         critic_notes: List[str],
     ) -> str:
-        """Build the full prompt for a single agent turn."""
+        """Build the full prompt for a single deliberation role turn."""
         history = self._history_snippet()
         agenda = self.session.agenda or [user_message]
         agenda_text = "\n".join([f"- {a}" for a in agenda])
@@ -619,8 +657,8 @@ class MeetingPromptsMixin:
         # P2 observability: log tool inventory size so session traces are self-contained
         _tool_line_count = len(tool_ctx.strip().splitlines()) if tool_ctx else 0
         logger.debug(
-            "meeting_tool_inventory agent=%s workspace=%s tool_lines=%d session=%s",
-            agent_id,
+            "meeting_tool_inventory role=%s workspace=%s tool_lines=%d session=%s",
+            role_id,
             getattr(getattr(self, "session", None), "workspace_id", "?"),
             _tool_line_count,
             getattr(getattr(self, "session", None), "id", "?"),
@@ -705,18 +743,14 @@ class MeetingPromptsMixin:
             common += (
                 "=== Workspace Context (Reference) ===\n"
                 "The following is background context from the workspace. "
-                "It does NOT override your agent role or the project agenda.\n"
+                "It does NOT override your deliberation role or the project agenda.\n"
                 f"{ws_ctx}\n"
                 "=== End Context ===\n\n"
             )
 
-        if agent_id == "facilitator":
-            return (
-                common
-                + "As facilitator, synthesize progress and decide if another round is needed. "
-                "If converged, include the marker [CONVERGED]. Keep concise."
-            )
-        if agent_id == "planner":
+        if role_id == "facilitator":
+            return common + _ROLE_TURN_DIRECTIVES["facilitator"]
+        if role_id == "planner":
             file_directive = ""
             if getattr(self, "_uploaded_files", None):
                 file_directive = (
@@ -724,12 +758,8 @@ class MeetingPromptsMixin:
                     "at least one step that uses a tool or playbook from Available "
                     "Tools to process these files into structured artifacts. "
                 )
-            return (
-                common
-                + file_directive
-                + "As planner, propose a concrete, executable plan with clear steps and ownership."
-            )
-        if agent_id == "critic":
+            return common + file_directive + _ROLE_TURN_DIRECTIVES["planner"]
+        if role_id == "critic":
             file_check = ""
             if getattr(self, "_uploaded_files", None):
                 file_check = (
@@ -738,15 +768,11 @@ class MeetingPromptsMixin:
                     "only produces text analysis without using available tools, "
                     "flag this as a critical gap. "
                 )
-            return (
-                common
-                + file_check
-                + "As critic, challenge assumptions, identify risks, and suggest mitigations."
-            )
+            return common + file_check + _ROLE_TURN_DIRECTIVES["critic"]
         # 5A-1: Inject available playbooks for executor
         playbooks_cache = getattr(self, "_available_playbooks_cache", "")
         playbook_block = ""
-        if playbooks_cache and agent_id == "executor":
+        if playbooks_cache and role_id == "executor":
             playbook_block = (
                 f"=== Available Playbooks ===\n"
                 f"{playbooks_cache}\n"
@@ -761,7 +787,7 @@ class MeetingPromptsMixin:
         has_explicit_bindings = self._has_workspace_tool_bindings()
         has_rag_tools = bool(getattr(self, "_rag_tool_cache", []))
         tool_constraint = ""
-        if has_explicit_bindings or has_rag_tools or playbooks_cache:
+        if has_explicit_bindings or has_rag_tools:
             tool_constraint = (
                 "MANDATORY: The workspace has been configured with specific tools / "
                 "playbooks (see Available Tools / Available Playbooks above). "
@@ -801,17 +827,17 @@ class MeetingPromptsMixin:
         )
 
     def _fallback_turn_text(
-        self, agent_id: str, round_num: int, user_message: str
+        self, role_id: str, round_num: int, user_message: str
     ) -> str:
         """Generate a deterministic fallback turn when LLM is unavailable."""
-        if agent_id == "facilitator":
+        if role_id == "facilitator":
             return (
                 f"Round {round_num} facilitation summary for '{user_message[:80]}'. "
                 "Planner and critic inputs consolidated."
             )
-        if agent_id == "planner":
+        if role_id == "planner":
             return f"Proposal R{round_num}: execute incrementally, track evidence, and verify outcomes."
-        if agent_id == "critic":
+        if role_id == "critic":
             return f"Critique R{round_num}: verify data contract, add rollback checks, and test failure paths."
         return json.dumps(
             [
@@ -908,6 +934,35 @@ class MeetingPromptsMixin:
             "|---|------|-------------|----------|\n"
             f"{action_lines}\n"
         )
+
+    def _assemble_system_message(self, role_def) -> str:
+        """Assemble full system message from role definition fields.
+
+        Combines system_prompt + responsibility_boundary + critical_rules
+        + communication_style + success_metrics into a structured block.
+        """
+        parts = []
+        if role_def.system_prompt:
+            parts.append(role_def.system_prompt)
+
+        if role_def.responsibility_boundary:
+            parts.append(
+                f"\nResponsibility boundary: {role_def.responsibility_boundary}. "
+                "Stay strictly within this boundary."
+            )
+
+        if role_def.critical_rules:
+            rules_text = "\n".join(f"- {r}" for r in role_def.critical_rules)
+            parts.append(f"\nCritical rules you MUST follow:\n{rules_text}")
+
+        if role_def.communication_style:
+            parts.append(f"\nCommunication style: {role_def.communication_style}")
+
+        if role_def.success_metrics:
+            metrics_text = "\n".join(f"- {m}" for m in role_def.success_metrics)
+            parts.append(f"\nYour output is successful when:\n{metrics_text}")
+
+        return "\n".join(parts)
 
     def _extract_meeting_topic(self, user_message: str) -> str:
         """Extract a concise topic line for meeting minutes title."""

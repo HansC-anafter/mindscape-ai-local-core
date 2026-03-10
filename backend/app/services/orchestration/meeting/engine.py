@@ -21,7 +21,7 @@ from backend.app.models.meeting_session import MeetingSession, MeetingStatus
 from backend.app.models.mindscape import EventType
 from backend.app.services.conversation.execution_launcher import ExecutionLauncher
 from backend.app.services.orchestration.meeting_agents import (
-    MEETING_AGENT_ROSTER,
+    MEETING_ROLE_ROSTER,
     MEETING_TOPOLOGY,
     build_meeting_roster,
     DeliberationDepth,
@@ -59,11 +59,11 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class AgentTurnResult:
-    """Result of a single agent turn in a meeting round."""
+class RoleTurnResult:
+    """Result of a single deliberation role turn in a meeting round."""
 
-    agent_id: str
-    agent_role: str
+    role_id: str
+    role_name: str
     round_number: int
     content: str
     converged: bool = False
@@ -95,7 +95,7 @@ class MeetingEngine(
     MeetingSessionMixin,
     MeetingToolDiscoveryMixin,
 ):
-    """Drives a bounded multi-agent meeting with real LLM turns and action landing."""
+    """Drives a bounded multi-role meeting with real LLM turns and action landing."""
 
     def __init__(
         self,
@@ -336,7 +336,7 @@ class MeetingEngine(
                 self.orchestrator.record_iteration()
                 self._emit_round_event(round_num, status="started")
 
-                facilitator_turn = await self._agent_turn(
+                facilitator_turn = await self._role_turn(
                     "facilitator",
                     round_num,
                     user_message,
@@ -345,7 +345,7 @@ class MeetingEngine(
                 )
                 self._emit_turn(facilitator_turn)
 
-                planner_turn = await self._agent_turn(
+                planner_turn = await self._role_turn(
                     "planner",
                     round_num,
                     user_message,
@@ -358,7 +358,7 @@ class MeetingEngine(
 
                 # Skip critic in SHALLOW depth to reduce latency
                 if depth != DeliberationDepth.SHALLOW:
-                    critic_turn = await self._agent_turn(
+                    critic_turn = await self._role_turn(
                         "critic",
                         round_num,
                         user_message,
@@ -500,7 +500,27 @@ class MeetingEngine(
         # (emit, render, session close, orchestrator)
         action_items = [i.to_action_item_dict() for i in action_intents]
 
-        # Emit final action_items AFTER gate (so SSE events match session.action_items)
+        # P1: Policy gate — validate playbook_code and tool_name before emit/dispatch
+        try:
+            from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
+                check_dispatch_policy,
+            )
+            from backend.app.services.stores.workspace_resource_binding_store import (
+                WorkspaceResourceBindingStore,
+            )
+
+            check_dispatch_policy(
+                action_items,
+                workspace_id=self.session.workspace_id,
+                available_playbooks_cache=getattr(
+                    self, "_available_playbooks_cache", ""
+                ),
+                binding_store=WorkspaceResourceBindingStore(),
+            )
+        except Exception as exc:
+            logger.warning("Policy gate check failed (non-fatal): %s", exc)
+
+        # Emit final action_items AFTER policy gate (so SSE events carry landing_status)
         for item in action_items:
             self._emit_action_item(item)
 
@@ -685,29 +705,29 @@ class MeetingEngine(
             completion_status=completion_status.value,
         )
 
-    async def _agent_turn(
+    async def _role_turn(
         self,
-        agent_id: str,
+        role_id: str,
         round_num: int,
         user_message: str,
         decision: Optional[str] = None,
         planner_proposals: Optional[List[str]] = None,
         critic_notes: Optional[List[str]] = None,
-    ) -> AgentTurnResult:
-        """Execute a single agent turn with prompt construction and LLM generation."""
+    ) -> RoleTurnResult:
+        """Execute a single deliberation role turn with prompt construction and LLM generation."""
         self.orchestrator.record_turn()
-        role_def = self._roster[agent_id]
+        role_def = self._roster[role_id]
         role = role_def.agent_name
 
         prompt = self._build_turn_prompt(
-            agent_id=agent_id,
+            role_id=role_id,
             round_num=round_num,
             user_message=user_message,
             decision=decision,
             planner_proposals=planner_proposals or [],
             critic_notes=critic_notes or [],
         )
-        system_content = role_def.system_prompt
+        system_content = self._assemble_system_message(role_def)
         messages = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},
@@ -721,17 +741,17 @@ class MeetingEngine(
             self.orchestrator.record_error()
             logger.error(
                 "MeetingEngine turn failed for %s (round=%s): %s",
-                agent_id,
+                role_id,
                 round_num,
                 exc,
             )
             raise RuntimeError(
-                f"Meeting turn failed for agent '{agent_id}' at round {round_num}: {exc}"
+                f"Meeting turn failed for role '{role_id}' at round {round_num}: {exc}"
             ) from exc
 
-        turn = AgentTurnResult(
-            agent_id=agent_id,
-            agent_role=role,
+        turn = RoleTurnResult(
+            role_id=role_id,
+            role_name=role,
             round_number=round_num,
             content=content,
             converged=round_num >= 2,
@@ -739,7 +759,7 @@ class MeetingEngine(
         self._turn_history.append(
             {
                 "round": round_num,
-                "agent_id": agent_id,
+                "role_id": role_id,
                 "role": role,
                 "content": content,
             }

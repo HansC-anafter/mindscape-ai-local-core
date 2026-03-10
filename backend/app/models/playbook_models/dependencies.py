@@ -74,4 +74,15 @@ class AgentDefinition(BaseModel):
     capability_profile: Optional[str] = Field(
         None, description="Capability profile for this agent"
     )
-
+    critical_rules: Optional[List[str]] = Field(
+        default=None,
+        description="Hard constraints this role must never violate",
+    )
+    communication_style: Optional[str] = Field(
+        default=None,
+        description="Tone, language, and formatting preferences",
+    )
+    success_metrics: Optional[List[str]] = Field(
+        default=None,
+        description="Measurable quality criteria for role output",
+    )

@@ -2,7 +2,7 @@
 Meeting engine event emission mixin.
 
 Handles emitting structured MindEvents for each stage of the meeting lifecycle
-(round start/end, agent turns, decisions, action items, state vector).
+(round start/end, deliberation role turns, decisions, action items, state vector).
 """
 
 import re
@@ -22,8 +22,8 @@ class MeetingEventsMixin:
             EventType.AGENT_TURN,
             payload={
                 "meeting_session_id": self.session.id,
-                "agent_id": turn.agent_id,
-                "agent_role": turn.agent_role,
+                "role_id": turn.role_id,
+                "role_name": turn.role_name,
                 "round_number": turn.round_number,
                 "content": turn.content,
                 "lens_id": self.session.lens_id,
@@ -52,7 +52,7 @@ class MeetingEventsMixin:
             EventType.DECISION_PROPOSAL,
             payload={
                 "meeting_session_id": self.session.id,
-                "proposed_by": turn.agent_id,
+                "proposed_by": turn.role_id,
                 "round_number": turn.round_number,
                 "proposal": turn.content,
                 "supporting_evidence": [],
