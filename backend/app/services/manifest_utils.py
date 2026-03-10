@@ -104,12 +104,14 @@ def resolve_tool_schema_paths(
 # Playbook asset declaration resolver
 # ---------------------------------------------------------------------------
 
-_PRODUCES_CACHE: Dict[str, Any] = {}  # playbook_code -> [{"type": ..., "label": ...}]
+_AFFORDANCE_CACHE: Dict[str, Any] = (
+    {}
+)  # playbook_code -> {"produces": [...], "consumes": [...], ...}
 _CACHE_BUILT = False
 
 
-def _build_produces_cache(capabilities_dir: Optional[Path] = None) -> None:
-    """Scan all installed manifests and cache playbook produces declarations."""
+def _build_affordance_cache(capabilities_dir: Optional[Path] = None) -> None:
+    """Scan all installed manifests and cache playbook affordance declarations."""
     global _CACHE_BUILT
     if _CACHE_BUILT:
         return
@@ -143,16 +145,34 @@ def _build_produces_cache(capabilities_dir: Optional[Path] = None) -> None:
                 if not isinstance(pb, dict):
                     continue
                 code = pb.get("code")
-                produces = pb.get("produces")
-                if code and produces:
-                    _PRODUCES_CACHE[code] = produces
+                if code:
+                    affordance = {}
+                    if pb.get("produces"):
+                        affordance["produces"] = pb.get("produces")
+                    if pb.get("consumes"):
+                        affordance["consumes"] = pb.get("consumes")
+                    if pb.get("required_tools"):
+                        affordance["required_tools"] = pb.get("required_tools")
+
+                    if affordance:
+                        _AFFORDANCE_CACHE[code] = affordance
         except Exception as exc:
             logger.debug("Failed to parse manifest %s: %s", manifest_path, exc)
 
     _CACHE_BUILT = True
     logger.info(
-        "Produces cache built: %d playbooks with declarations", len(_PRODUCES_CACHE)
+        "Affordance cache built: %d playbooks with declarations", len(_AFFORDANCE_CACHE)
     )
+
+
+def resolve_playbook_affordance(playbook_code: str) -> dict:
+    """Return the full affordance declaration for a playbook code.
+
+    Returns a dict with 'produces', 'consumes', and 'required_tools'.
+    Returns empty dict if no affordance declared.
+    """
+    _build_affordance_cache()
+    return _AFFORDANCE_CACHE.get(playbook_code, {})
 
 
 def resolve_playbook_produces(playbook_code: str) -> list:
@@ -161,5 +181,4 @@ def resolve_playbook_produces(playbook_code: str) -> list:
     Returns a list of dicts: [{"type": "...", "label": "...", "storage": "..."}]
     Returns empty list if no produces declared.
     """
-    _build_produces_cache()
-    return _PRODUCES_CACHE.get(playbook_code, [])
+    return resolve_playbook_affordance(playbook_code).get("produces", [])
