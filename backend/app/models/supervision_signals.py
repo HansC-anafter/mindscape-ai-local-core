@@ -71,6 +71,18 @@ class SupervisionSignals(BaseModel):
         description="Total session time budget in seconds",
     )
 
+    # P4: Policy gate signals
+    policy_blocked_count: int = Field(
+        default=0,
+        ge=0,
+        description="Number of action items blocked by dispatch_policy_gate in this session",
+    )
+    unknown_playbook_count: int = Field(
+        default=0,
+        ge=0,
+        description="Number of UNKNOWN_PLAYBOOK blocks in this session",
+    )
+
     # Custom signals from L5 plugins
     custom: Dict[str, Any] = Field(
         default_factory=dict,
