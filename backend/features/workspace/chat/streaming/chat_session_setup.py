@@ -208,7 +208,7 @@ async def setup_chat_session(
     execution_mode = (
         resolved_mode_enum.value
         if resolved_mode_enum
-        else (getattr(workspace, "execution_mode", None) or "qa")
+        else (getattr(workspace, "execution_mode", None) or "meeting")
     )
 
     locale = get_locale_from_context(profile=profile, workspace=workspace) or "zh-TW"
