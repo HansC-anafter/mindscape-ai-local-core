@@ -6,7 +6,7 @@ and workspace playbook discovery.
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from backend.app.models.meeting_session import MeetingStatus
 from backend.app.models.mindscape import EventType
@@ -76,7 +76,10 @@ class MeetingSessionMixin:
         )
 
     def _close_session(
-        self, minutes_md: str, action_items: List[Dict[str, Any]]
+        self,
+        minutes_md: str,
+        action_items: List[Dict[str, Any]],
+        dispatch_result: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Close the session with final state snapshot and minutes."""
         self.session.begin_closing()
@@ -106,6 +109,56 @@ class MeetingSessionMixin:
                 exc,
             )
 
+        # ADR-001 v2 Phase 1: Emit session_digest (L1→L2 bridge)
+        try:
+            from backend.app.models.personal_governance.session_digest import (
+                SessionDigest,
+            )
+            from backend.app.services.stores.postgres.session_digest_store import (
+                SessionDigestStore,
+            )
+
+            profile_id = getattr(self, "profile_id", "")
+            workspace = getattr(self, "workspace", None)
+            digest = SessionDigest.from_meeting_session(
+                session=self.session,
+                workspace=workspace,
+                profile_id=profile_id,
+            )
+            digest_store = SessionDigestStore()
+            digest_store.create(digest)
+            logger.info(
+                "Emitted session_digest %s for session %s",
+                digest.id,
+                self.session.id,
+            )
+
+            # Phase 2: Fire-and-forget extraction (PersonalKnowledge + GoalLedger)
+            try:
+                import asyncio
+                from backend.app.services.personal_governance.digest_extraction import (
+                    trigger_extraction,
+                )
+
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(trigger_extraction(digest, self.session.id))
+                else:
+                    asyncio.run(trigger_extraction(digest, self.session.id))
+            except Exception as ext_exc:
+                logger.warning(
+                    "Failed to trigger extraction for %s: %s",
+                    self.session.id,
+                    ext_exc,
+                )
+
+        except Exception as exc:
+            logger.warning(
+                "Failed to emit session_digest for %s: %s",
+                self.session.id,
+                exc,
+            )
+
         self._emit_event(
             EventType.MEETING_END,
             payload={
@@ -113,6 +166,7 @@ class MeetingSessionMixin:
                 "round_count": self.session.round_count,
                 "action_item_count": len(action_items),
                 "state_diff": self.session.state_diff,
+                "dispatch_result": dispatch_result,
             },
         )
 

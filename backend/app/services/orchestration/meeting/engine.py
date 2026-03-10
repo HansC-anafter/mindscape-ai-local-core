@@ -633,7 +633,11 @@ class MeetingEngine(
             converged=converged,
         )
 
-        self._close_session(minutes_md=minutes_md, action_items=action_items)
+        self._close_session(
+            minutes_md=minutes_md,
+            action_items=action_items,
+            dispatch_result=dispatch_result,
+        )
 
         # B8: Run L2 Bridge extraction pipeline (non-fatal)
         self._run_l2_bridge_pipeline()
