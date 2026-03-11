@@ -60,7 +60,6 @@ class ChatOrchestratorService:
         Handles: session setup, PipelineCore routing, agent dispatch,
         LLM streaming, and thread summarization.
         """
-        logger.info("Starting background task for workspace %s", workspace_id)
 
         try:
             # 1. Unified session setup
@@ -82,6 +81,7 @@ class ChatOrchestratorService:
                 profile=session.profile,
                 runtime_profile=session.runtime_profile,
             )
+
             pipeline_result = await pipeline.process(
                 workspace_id=workspace_id,
                 profile_id=profile_id,
@@ -93,6 +93,7 @@ class ChatOrchestratorService:
                 model_name=request.model_name,
                 request=request,
             )
+
             if not pipeline_result.success:
                 await self._create_error_event(
                     workspace_id,
