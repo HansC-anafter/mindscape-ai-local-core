@@ -131,3 +131,63 @@ class MeetingGovernanceMixin:
             high_risk_fields,
         )
         return False
+
+    async def _try_coverage_audit(self, planner_content: str, round_num: int) -> None:
+        """G2: Attempt to run CoverageAuditor on planner output.
+
+        Best-effort: if the planner produces structured JSON with
+        workstream references, run the auditor.  If parsing fails or
+        no RequestContract exists, this is a graceful no-op.
+        """
+        if not self._request_contract:
+            return
+
+        import json
+
+        from backend.app.services.orchestration.meeting.coverage_auditor import (
+            CoverageAuditor,
+            ProgramDraft,
+        )
+
+        # Try to extract JSON from planner output
+        draft = None
+        stripped = planner_content.strip()
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start != -1 and end > start:
+            try:
+                data = json.loads(stripped[start : end + 1])
+                if "workstreams" in data:
+                    draft = ProgramDraft.model_validate(data)
+            except (json.JSONDecodeError, Exception):
+                pass
+
+        if not draft:
+            return  # Planner output is not structured — skip audit
+
+        try:
+            auditor = CoverageAuditor()
+            matrix = auditor.audit(self._request_contract, draft)
+
+            # Store coverage result on session metadata
+            if self.session.metadata is None:
+                self.session.metadata = {}
+            self.session.metadata["last_coverage_matrix"] = matrix.model_dump()
+
+            # Propagate coverage_pass to the verdict so _is_converged can gate
+            if hasattr(self, "_last_round_verdict") and self._last_round_verdict:
+                self._last_round_verdict.coverage_pass = matrix.coverage_pass
+
+            logger.info(
+                "CoverageAuditor round=%d: pass=%s pct=%.0f%% gaps=%s",
+                round_num,
+                matrix.coverage_pass,
+                matrix.coverage_pct * 100,
+                matrix.gap_summary(),
+            )
+        except Exception as exc:
+            logger.warning(
+                "CoverageAuditor failed (non-fatal, round=%d): %s",
+                round_num,
+                exc,
+            )

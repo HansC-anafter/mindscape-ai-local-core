@@ -243,6 +243,10 @@ class MeetingEngine(
     ) -> MeetingResult:
         """Execute a bounded meeting and return generated minutes + action items.
 
+        Orchestrates a 7-stage pipeline:
+          S1 agenda + RAG → S2 contract → S3 deliberation →
+          S4 action extraction → S5 policy gate → S6 dispatch → S7 finalize.
+
         Args:
             user_message: User message that triggered the meeting.
             handoff_in: Optional HandoffIn for governance context.
@@ -251,7 +255,53 @@ class MeetingEngine(
         # MUST be set before _rag_tool_cache pre-fetch below.
         self._last_user_message = user_message
 
-        # Layer 0c: Engine-side agenda decomposition fallback.
+        # S1: Agenda decomposition + RAG pre-fetch
+        await self._stage_agenda_and_rag(user_message)
+
+        # S2: Playbook cache + RequestContract compile
+        await self._stage_compile_contract(user_message)
+
+        # S3: Multi-round deliberation
+        decision, planner_proposals, critic_notes, converged = (
+            await self._stage_deliberation(user_message)
+        )
+
+        # S4: Action intent extraction + null-tool gate
+        action_intents, action_items = await self._stage_extract_actions(
+            decision=decision,
+            user_message=user_message,
+            critic_notes=critic_notes,
+            planner_proposals=planner_proposals,
+        )
+
+        # S5: Policy gate check + emit action items
+        self._stage_policy_gate_and_emit(action_items)
+
+        # S6: Decompose + IR compile + DAG dispatch
+        compiled_ir, dispatch_result = await self._stage_decompose_and_dispatch(
+            decision=decision,
+            action_intents=action_intents,
+            action_items=action_items,
+            handoff_in=handoff_in,
+        )
+
+        # S7: Finalize (minutes, supervisor, completion status)
+        return self._stage_finalize(
+            user_message=user_message,
+            decision=decision,
+            critic_notes=critic_notes,
+            action_items=action_items,
+            converged=converged,
+            compiled_ir=compiled_ir,
+            dispatch_result=dispatch_result,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Pipeline stage methods (extracted from run())                        #
+    # ------------------------------------------------------------------ #
+
+    async def _stage_agenda_and_rag(self, user_message: str) -> None:
+        """S1: Agenda decomposition + RAG tool pre-fetch."""
         await self._emit_meeting_stage("agenda", "分析議程中…")
         await self._ensure_agenda_decomposed(user_message)
 
@@ -267,7 +317,6 @@ class MeetingEngine(
             ws_id = self.session.workspace_id
 
             if agenda and len(agenda) > 1:
-                # Layer A: per-agenda-item multi-query RAG
                 per_k = max(5, 40 // len(agenda))
                 seen_ids: set = set()
                 combined: list = []
@@ -284,7 +333,6 @@ class MeetingEngine(
                             seen_ids.add(h["tool_id"])
                             combined.append(h)
 
-                # Also query the user message for any tools not covered by agenda
                 msg_aug = self._verb_augment(str(user_message))
                 msg_q = f"{user_message} {msg_aug}".strip()
                 msg_hits = await retrieve_relevant_tools(
@@ -299,7 +347,6 @@ class MeetingEngine(
 
                 self._rag_tool_cache = combined
             else:
-                # Fallback: single query (original path)
                 self._rag_tool_cache = await retrieve_relevant_tools(
                     self._build_tool_query_from_context(),
                     top_k=40,
@@ -319,19 +366,52 @@ class MeetingEngine(
 
         await self._emit_meeting_stage("tool_discovery", "搜尋可用工具…")
 
-        # 5A-1: Preload workspace-installed playbooks for prompt injection
-
+    async def _stage_compile_contract(self, user_message: str) -> None:
+        """S2: Preload playbooks + compile RequestContract."""
         self._available_playbooks_cache = await self._async_load_installed_playbooks()
 
         await self._emit_meeting_stage("deliberation", "開始多角色討論…")
+
+        self._request_contract = None
+        try:
+            from backend.app.models.request_contract import RequestContract
+
+            agenda = getattr(self.session, "agenda", None) or []
+            self._request_contract = await RequestContract.compile_with_llm(
+                user_message=user_message,
+                agenda=agenda,
+                workspace_id=getattr(self.session, "workspace_id", ""),
+                model_name=self.model_name,
+            )
+            if self.session.metadata is None:
+                self.session.metadata = {}
+            self.session.metadata["request_contract"] = (
+                self._request_contract.model_dump()
+            )
+            logger.info(
+                "RequestContract compiled: %d deliverables, scale=%s",
+                len(self._request_contract.deliverables),
+                self._request_contract.scale_estimate.value,
+            )
+        except Exception as exc:
+            logger.warning("RequestContract compile failed (non-fatal): %s", exc)
+
+    async def _stage_deliberation(
+        self,
+        user_message: str,
+    ) -> tuple:
+        """S3: Multi-round role deliberation loop.
+
+        Returns:
+            (decision, planner_proposals, critic_notes, converged)
+        """
         self._start_session()
         base_max_rounds = max(1, int(getattr(self.session, "max_rounds", 1)))
 
-        # Select deliberation depth from meeting-internal factors
         agenda = getattr(self.session, "agenda", None) or []
         depth = select_deliberation_depth(
             agenda_items=len(agenda),
-            estimated_action_count=len(agenda),  # conservative estimate
+            estimated_action_count=len(agenda),
             has_tool_ambiguity=len(self._rag_tool_cache) > 15,
             budget_headroom_pct=self.ctx.budget_headroom_pct,
         )
@@ -349,9 +429,9 @@ class MeetingEngine(
 
         planner_proposals: List[str] = []
         critic_notes: List[str] = []
-
         converged = False
         run_error: Optional[Exception] = None
+
         try:
             for round_num in range(1, max_rounds + 1):
                 if self.orchestrator.should_stop():
@@ -361,6 +441,10 @@ class MeetingEngine(
                 self.orchestrator.record_iteration()
                 self._emit_round_event(round_num, status="started")
 
+                await self._emit_meeting_stage(
+                    "deliberation",
+                    f"第 {round_num}/{max_rounds} 輪 — Facilitator 發言中…",
+                )
                 facilitator_turn = await self._role_turn(
                     "facilitator",
                     round_num,
@@ -370,6 +454,10 @@ class MeetingEngine(
                 )
                 self._emit_turn(facilitator_turn)
 
+                await self._emit_meeting_stage(
+                    "deliberation",
+                    f"第 {round_num}/{max_rounds} 輪 — Planner 規劃中…",
+                )
                 planner_turn = await self._role_turn(
                     "planner",
                     round_num,
@@ -381,8 +469,15 @@ class MeetingEngine(
                 self._emit_turn(planner_turn)
                 self._emit_decision_proposal(planner_turn)
 
+                # G2: Run CoverageAuditor after planner turn
+                await self._try_coverage_audit(planner_turn.content, round_num)
+
                 # Skip critic in SHALLOW depth to reduce latency
                 if depth != DeliberationDepth.SHALLOW:
+                    await self._emit_meeting_stage(
+                        "deliberation",
+                        f"第 {round_num}/{max_rounds} 輪 — Critic 審查中…",
+                    )
                     critic_turn = await self._role_turn(
                         "critic",
                         round_num,
@@ -408,10 +503,9 @@ class MeetingEngine(
                 exc,
             )
             self.session.status = MeetingStatus.FAILED
-            self.session.end()  # Set ended_at so session is not stale
+            self.session.end()
 
-            # Generate partial minutes from completed rounds so content
-            # is not silently discarded when later rounds fail.
+            # Generate partial minutes from completed rounds
             if self.session.round_count > 0 and planner_proposals:
                 self.session.metadata["partial_rounds"] = self.session.round_count
                 try:
@@ -454,8 +548,20 @@ class MeetingEngine(
         self._emit_decision_final(
             decision=decision, round_number=self.session.round_count
         )
+        return decision, planner_proposals, critic_notes, converged
 
-        # ── L2: Build typed ActionIntents via SemanticNormalizer ─────────────
+    async def _stage_extract_actions(
+        self,
+        decision: str,
+        user_message: str,
+        critic_notes: List[str],
+        planner_proposals: List[str],
+    ) -> tuple:
+        """S4: Build ActionIntents + null-tool gate retry.
+
+        Returns:
+            (action_intents, action_items) where action_items are legacy dicts.
+        """
         await self._emit_meeting_stage("action_items", "正在拆解行動項目…")
         action_intents = await self._build_action_items(
             decision=decision,
@@ -471,9 +577,7 @@ class MeetingEngine(
             planner_proposals=planner_proposals,
         )
 
-        # ------------------------------------------------------------------ #
-        # Pre-dispatch null-tool gate (original — fires only when ALL null)   #
-        # ------------------------------------------------------------------ #
+        # Pre-dispatch null-tool gate (fires only when ALL null)
         all_null = action_intents and not any(
             i.tool_name or i.playbook_code for i in action_intents
         )
@@ -523,10 +627,11 @@ class MeetingEngine(
                 logger.warning("Null-tool gate retry failed (non-fatal): %s", exc)
 
         # Bridge: convert ActionIntents to dicts for legacy consumers
-        # (emit, render, session close, orchestrator)
         action_items = [i.to_action_item_dict() for i in action_intents]
+        return action_intents, action_items
 
-        # P1: Policy gate — validate playbook_code and tool_name before emit/dispatch
+    def _stage_policy_gate_and_emit(self, action_items: List[Dict[str, Any]]) -> None:
+        """S5: Policy gate validation + emit action items via SSE."""
         try:
             from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
                 check_dispatch_policy,
@@ -546,32 +651,38 @@ class MeetingEngine(
         except Exception as exc:
             logger.warning("Policy gate check failed (non-fatal): %s", exc)
 
-        # Emit final action_items AFTER policy gate (so SSE events carry landing_status)
+        # Emit final action_items AFTER policy gate (SSE events carry landing_status)
         for item in action_items:
             self._emit_action_item(item)
 
+    async def _stage_decompose_and_dispatch(
+        self,
+        decision: str,
+        action_intents: list,
+        action_items: List[Dict[str, Any]],
+        handoff_in: Optional[Any] = None,
+    ) -> tuple:
+        """S6: Dispatch gate → TaskDecomposer → IR compile → DispatchOrchestrator.
+
+        Returns:
+            (compiled_ir, dispatch_result)
+        """
         await self._emit_meeting_stage("dispatch", "準備派遣任務…")
-        # ── Phase 3: Gate → Compile → Orchestrate ─────────────
 
         # L3 Dispatch Gate with real L5 supervision signals
         from backend.app.services.orchestration.meeting.dispatch_gate import (
             DispatchGate,
-            GateDecision,
         )
         from backend.app.services.orchestration.supervision_signals_emitter import (
             SupervisionSignalsEmitter,
         )
         from backend.app.models.supervision_signals import SupervisionSignals
 
-        # Compute real signals from session state
         real_signals = SupervisionSignals()  # safe default
         try:
             emitter = SupervisionSignalsEmitter()
-            # Gather PhaseAttempt records from session metadata (write-read loop)
             session_attempts = []
             try:
-                # DispatchOrchestrator persists attempts to session.metadata["phase_attempts"]
-                # as model_dump(mode="json") dicts — rehydrate back to PhaseAttempt objects
                 from backend.app.models.phase_attempt import PhaseAttempt
 
                 phase_attempts_meta = (self.session.metadata or {}).get(
@@ -583,9 +694,9 @@ class MeetingEngine(
                             PhaseAttempt.model_validate(attempt_dict)
                         )
                     except Exception:
-                        pass  # skip malformed entries
+                        pass
             except Exception:
-                pass  # graceful fallback — no attempts yet
+                pass
 
             session_start = getattr(self.session, "created_at", None)
             real_signals = emitter.compute(
@@ -607,13 +718,11 @@ class MeetingEngine(
         dispatch_gate = DispatchGate(signals=real_signals)
         gate_result = dispatch_gate.evaluate(action_intents)
 
-        # Filter: only dispatch_now intents proceed to compile
         dispatch_intent_ids = set(gate_result.dispatch_intents)
         dispatchable_intents = [
             i for i in action_intents if i.intent_id in dispatch_intent_ids
         ]
 
-        # Log non-dispatch decisions
         for d in gate_result.clarify_intents:
             logger.info("L3 Gate CLARIFY: intent=%s reason=%s", d.intent_id, d.reason)
         for d in gate_result.deferred_intents:
@@ -623,7 +732,7 @@ class MeetingEngine(
                 "L3 Gate SHRINK_SCOPE: intent=%s reason=%s", d.intent_id, d.reason
             )
 
-        # Step 3: Task Decomposer — expand action items into full phase DAG
+        # Task Decomposer — expand action items into full phase DAG
         from backend.app.services.orchestration.task_decomposer import TaskDecomposer
 
         decomposer = None
@@ -635,18 +744,27 @@ class MeetingEngine(
 
             llm_adapter = MeetingLLMAdapter.from_engine(self)
 
+            from backend.app.services.orchestration.task_decomposer import (
+                DecompositionPolicy,
+            )
+
+            scale = "standard"
+            if self._request_contract:
+                scale = self._request_contract.scale_estimate.value
+            policy = DecompositionPolicy.from_scale(scale)
+
             decomposer = TaskDecomposer(
                 llm_adapter=llm_adapter,
                 model_name=self.model_name or "",
-                decompose_threshold=3,
-                max_phases=50,
+                decomposition_policy=policy,
+                max_phases=policy.max_phases_per_wave,
             )
             decomposed_phases = await decomposer.decompose(
                 decision=decision,
                 action_items=action_items,
                 available_playbooks=getattr(self, "_available_playbooks_cache", ""),
                 available_tools=self._build_tool_inventory_block(),
-                force=True,  # always decompose — let the LLM decide granularity
+                force=True,
             )
             logger.info(
                 "TaskDecomposer produced %d phases from %d action items",
@@ -656,7 +774,7 @@ class MeetingEngine(
         except Exception as exc:
             logger.warning("TaskDecomposer failed (non-fatal): %s", exc)
 
-        # Step 3b: Compile TaskIR (only approved intents)
+        # Compile TaskIR (only approved intents)
         compiled_ir = None
         try:
             compiled_ir = self._compile_to_task_ir(
@@ -665,7 +783,6 @@ class MeetingEngine(
                 handoff_in=handoff_in,
                 action_intents=dispatchable_intents,
             )
-            # If decomposer produced phases, replace compiler's default phases
             if compiled_ir and decomposed_phases:
                 compiled_ir.phases = decomposed_phases
                 logger.info(
@@ -675,7 +792,7 @@ class MeetingEngine(
         except Exception as exc:
             logger.warning("Failed to compile TaskIR from meeting: %s", exc)
 
-        # Step 4: Build supervisor callback for iterative decomposition (G3)
+        # Build supervisor callback for iterative decomposition (G3)
         async def _on_wave_complete(wave_summary, task_ir):
             """Supervisor callback — ask decomposer if more phases needed."""
             if not decomposer:
@@ -693,7 +810,7 @@ class MeetingEngine(
                 )
                 return None
 
-        # Step 5: DAG-walking dispatch via DispatchOrchestrator
+        # DAG-walking dispatch via DispatchOrchestrator
         from backend.app.services.orchestration.dispatch_orchestrator import (
             DispatchOrchestrator,
         )
@@ -710,7 +827,19 @@ class MeetingEngine(
             task_ir=compiled_ir,
             action_items=action_items,
         )
+        return compiled_ir, dispatch_result
 
+    def _stage_finalize(
+        self,
+        user_message: str,
+        decision: str,
+        critic_notes: List[str],
+        action_items: List[Dict[str, Any]],
+        converged: bool,
+        compiled_ir: Optional[Any],
+        dispatch_result: Optional[Dict[str, Any]],
+    ) -> "MeetingResult":
+        """S7: Minutes render, session close, L2 bridge, supervisor, completion status."""
         minutes_md = self._render_minutes(
             user_message=user_message,
             decision=decision,
@@ -768,9 +897,7 @@ class MeetingEngine(
         from backend.app.models.completion_status import ExecutionCompletionStatus
 
         completion_status = ExecutionCompletionStatus.ACCEPTED
-        if run_error:
-            completion_status = ExecutionCompletionStatus.FAILED
-        elif dispatch_result:
+        if dispatch_result:
             task_statuses = []
             for phase_result in dispatch_result.get("phase_results", []):
                 status = phase_result.get("status", "")
@@ -781,7 +908,6 @@ class MeetingEngine(
                     task_statuses, has_dispatched=True
                 )
             elif not dispatch_result.get("phase_results"):
-                # No phases dispatched
                 completion_status = ExecutionCompletionStatus.COMPLETED
 
         return MeetingResult(
@@ -824,7 +950,12 @@ class MeetingEngine(
         ]
 
         try:
-            content = (await self._generate_text(messages)).strip()
+            content = (
+                await self._generate_text(
+                    messages,
+                    capability_profile=role_def.capability_profile,
+                )
+            ).strip()
             if not content:
                 raise ValueError("empty LLM content")
         except Exception as exc:
