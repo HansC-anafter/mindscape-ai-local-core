@@ -166,8 +166,11 @@ class VertexAIProvider(LLMProvider):
                 temperature, max_tokens, max_completion_tokens
             )
 
-            response = await model_instance.generate_content_async(
-                contents=vertex_messages, generation_config=generation_config
+            response = await asyncio.wait_for(
+                model_instance.generate_content_async(
+                    contents=vertex_messages, generation_config=generation_config
+                ),
+                timeout=60.0,
             )
 
             # Extract and log usage metadata if available
@@ -315,15 +318,13 @@ class VertexAIProvider(LLMProvider):
                 temperature, max_tokens, max_completion_tokens
             )
 
-            def create_stream():
-                return model_instance.generate_content(
-                    contents=vertex_messages,
-                    generation_config=generation_config,
-                    stream=True,
-                )
+            responses = await model_instance.generate_content_async(
+                contents=vertex_messages,
+                generation_config=generation_config,
+                stream=True,
+            )
 
-            responses = await asyncio.to_thread(create_stream)
-            for response in responses:
+            async for response in responses:
                 if response.candidates and len(response.candidates) > 0:
                     candidate = response.candidates[0]
                     # Check for finish_reason to detect truncation
@@ -352,7 +353,6 @@ class VertexAIProvider(LLMProvider):
                         for part in candidate.content.parts:
                             if hasattr(part, "text") and part.text:
                                 yield part.text
-                                await asyncio.sleep(0)
 
         except ImportError:
             raise Exception(
