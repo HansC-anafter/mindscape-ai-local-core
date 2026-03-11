@@ -258,7 +258,12 @@ class TasksStoreCrudMixin:
                 pass
 
             logger.info("Updated task %s status to %s", task_id, status.value)
-            return self.get_task(task_id)
+            updated_task = self.get_task(task_id)
+
+        # Activity stream: push terminal status change
+        _publish_terminal_event(task_id, status.value, updated_task)
+
+        return updated_task
 
     def update_task(
         self,
@@ -344,7 +349,15 @@ class TasksStoreCrudMixin:
                 pass
 
             logger.info("Updated task %s", task_id)
-            return self.get_task(task_id)
+            updated_task = self.get_task(task_id)
+
+        # Activity stream: push terminal status change
+        status_val = kwargs.get("status")
+        if status_val is not None:
+            raw = status_val.value if hasattr(status_val, "value") else str(status_val)
+            _publish_terminal_event(task_id, raw, updated_task)
+
+        return updated_task
 
     # ── Private helpers ──────────────────────────────────────────
 
@@ -394,3 +407,44 @@ class TasksStoreCrudMixin:
             completed_at=self._coerce_datetime(row.completed_at),
             error=row.error,
         )
+
+
+def _publish_terminal_event(
+    task_id: str, status_raw: str, task_obj: Optional["Task"] = None
+) -> None:
+    """Fire-and-forget publish to activity stream on terminal status."""
+    _TERMINAL = {
+        "completed",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "cancelled_by_user",
+        "expired",
+    }
+    if status_raw.lower() not in _TERMINAL:
+        return
+    try:
+        import asyncio
+
+        from backend.app.services.cache.async_redis import publish_meeting_chunk
+
+        ws_id = task_obj.workspace_id if task_obj else ""
+        if not ws_id:
+            return
+        coro = publish_meeting_chunk(
+            ws_id,
+            {
+                "type": "task_completed",
+                "task_id": task_id,
+                "execution_id": task_obj.execution_id if task_obj else None,
+                "status": status_raw,
+                "pack_id": task_obj.pack_id if task_obj else None,
+            },
+        )
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            pass  # no event loop
+    except Exception:
+        pass  # non-fatal
