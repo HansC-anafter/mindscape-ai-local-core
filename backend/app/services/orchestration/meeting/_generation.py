@@ -42,6 +42,8 @@ class MeetingGenerationMixin:
         self,
         messages: List[Dict[str, str]],
         max_tokens: int = 4096,
+        capability_profile: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> str:
         """Generate text with retry logic, via preferred agent or LLM provider.
 
@@ -51,17 +53,53 @@ class MeetingGenerationMixin:
                 are multi-turn conversations that need generous output budgets.
                 Callers doing constrained tasks (e.g. self-heal repair) can
                 pass a lower value.
+            capability_profile: Optional profile name (e.g. 'fast', 'precise').
+                When set, CapabilityProfileResolver resolves it to a model.
+            model: Optional explicit model override. Takes precedence over
+                capability_profile resolution. Used by MeetingLLMAdapter and
+                external consumers.
         """
+        # Resolve model: explicit model > capability_profile > global default
+        resolved_model: Optional[str] = model
+        resolved_variant: Optional[str] = None
+        if not resolved_model and capability_profile:
+            from backend.app.services.capability_profile_resolver import (
+                CapabilityProfileResolver,
+            )
+
+            resolver = CapabilityProfileResolver()
+            resolved_model, resolved_variant = resolver.resolve(capability_profile)
+
+        # P1.6-C: Trace hook — record per-agent model routing for observability
+        if capability_profile:
+            try:
+                self._emit_event(
+                    "meeting_turn_model",
+                    payload={
+                        "capability_profile": capability_profile,
+                        "resolved_model": resolved_model,
+                        "resolved_variant": resolved_variant,
+                        "fallback_happened": resolved_model is None,
+                        "session_id": getattr(
+                            getattr(self, "session", None), "id", None
+                        ),
+                    },
+                )
+            except Exception:
+                pass  # observability must never crash the engine
+
         attempts = max(0, self.max_retries)
 
         last_error: Optional[Exception] = None
         for attempt in range(attempts + 1):
             try:
                 if self.executor_runtime:
-                    return await self._generate_text_via_executor_runtime(messages)
+                    return await self._generate_text_via_executor_runtime(
+                        messages, model=resolved_model
+                    )
                 await self._ensure_provider()
                 return await self._generate_text_via_llm(
-                    messages, max_tokens=max_tokens
+                    messages, max_tokens=max_tokens, model=resolved_model
                 )
             except Exception as exc:
                 last_error = exc
@@ -87,14 +125,93 @@ class MeetingGenerationMixin:
         self,
         messages: List[Dict[str, str]],
         max_tokens: int = 4096,
+        model: Optional[str] = None,
     ) -> str:
-        """Generate text directly via the configured LLM provider."""
+        """Generate text directly via the configured LLM provider.
+
+        When the provider supports ``chat_completion_stream``, tokens are
+        published to Redis in real-time so the SSE endpoint can relay them
+        to the frontend as a typing effect.  Falls back to the original
+        non-streaming path when streaming is unavailable.
+        """
         call_kwargs = {
             "messages": messages,
-            "model": self.model_name,
+            "model": model or self.model_name,
             "temperature": 0.3,
             "max_tokens": max_tokens,
         }
+
+        # ── Streaming path ────────────────────────────────────
+        if hasattr(self.provider, "chat_completion_stream"):
+            workspace_id = getattr(self.workspace, "id", None) or ""
+            session_id = getattr(self.session, "id", None) or ""
+            full_text = ""
+            try:
+                from backend.app.services.cache.async_redis import (
+                    publish_meeting_chunk,
+                )
+
+                # Publish "stream_start" so the frontend knows a new
+                # streaming block is beginning.
+                await publish_meeting_chunk(
+                    workspace_id,
+                    {
+                        "type": "stream_start",
+                        "session_id": session_id,
+                    },
+                )
+
+                sig = inspect.signature(self.provider.chat_completion_stream)
+                allowed = set(sig.parameters.keys())
+                stream_kwargs = {k: v for k, v in call_kwargs.items() if k in allowed}
+                if "messages" not in stream_kwargs:
+                    stream_kwargs["messages"] = messages
+
+                async for chunk_content in self.provider.chat_completion_stream(
+                    **stream_kwargs
+                ):
+                    full_text += chunk_content
+                    await publish_meeting_chunk(
+                        workspace_id,
+                        {
+                            "type": "chunk",
+                            "content": chunk_content,
+                            "session_id": session_id,
+                        },
+                    )
+
+                # Publish "stream_end" so the frontend can finalise the
+                # accumulated text and clear the streaming buffer.
+                await publish_meeting_chunk(
+                    workspace_id,
+                    {
+                        "type": "stream_end",
+                        "session_id": session_id,
+                        "full_text": full_text,
+                    },
+                )
+
+            except Exception as stream_exc:
+                logger.warning(
+                    "Meeting streaming failed, falling back to non-stream: %s",
+                    stream_exc,
+                )
+                # Fallback: use non-streaming to still produce output
+                if not full_text:
+                    sig_fb = inspect.signature(self.provider.chat_completion)
+                    allowed_fb = set(sig_fb.parameters.keys())
+                    kwargs_fb = {
+                        k: v for k, v in call_kwargs.items() if k in allowed_fb
+                    }
+                    if "messages" not in kwargs_fb:
+                        kwargs_fb["messages"] = messages
+                    full_text = str(await self.provider.chat_completion(**kwargs_fb))
+
+            if not full_text or not full_text.strip():
+                raise RuntimeError("Meeting LLM returned empty content")
+            return full_text.strip()
+
+        # ── Non-streaming fallback ────────────────────────────
         sig = inspect.signature(self.provider.chat_completion)
         allowed = set(sig.parameters.keys())
         kwargs = {k: v for k, v in call_kwargs.items() if k in allowed}
@@ -106,7 +223,9 @@ class MeetingGenerationMixin:
         return str(content).strip()
 
     async def _generate_text_via_executor_runtime(
-        self, messages: List[Dict[str, str]]
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
     ) -> str:
         """Generate text by delegating to a preferred agent runtime."""
         if not self.executor_runtime:
@@ -173,6 +292,7 @@ class MeetingGenerationMixin:
                 "thread_id": self.thread_id,
                 "project_id": self.project_id,
                 "conversation_context": system_prompt,
+                "model": model,  # per-agent model hint for runtime bridge
             },
         )
         if not result.success:

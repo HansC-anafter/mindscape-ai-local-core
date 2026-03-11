@@ -5,6 +5,41 @@ description: "Generic LLM generation, structured extraction and other core LLM o
 side_effect_level: "readonly"
 
 tools:
+  - name: multimodal_analyze
+    description: "Analyze images using multimodal VLM — routes to cloud or local model based on settings"
+    backend: "app.capabilities.core_llm.services.multimodal:analyze"
+    input_schema:
+      type: object
+      required: [images]
+      properties:
+        images:
+          type: array
+          items:
+            type: object
+            properties:
+              shortcode: { type: string }
+              base64_jpeg: { type: string }
+          description: "Preprocessed images with Base64 JPEG data"
+        prompt:
+          type: string
+          description: "Vision analysis prompt"
+        temperature:
+          type: number
+          default: 0.3
+        _model_override:
+          type: string
+          description: "Model override from resolver chain (internal, injected by workflow_orchestrator)"
+    output_schema:
+      type: object
+      properties:
+        status: { type: string }
+        analyzed_count: { type: integer }
+        model_id: { type: string }
+        results:
+          type: array
+          items:
+            type: object
+
   - name: generate
     description: "Basic one-time text generation/rewriting"
     backend: "app.capabilities.core_llm.services.generate:run"

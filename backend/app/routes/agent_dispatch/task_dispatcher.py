@@ -116,8 +116,14 @@ class TaskDispatchMixin:
         # Instead of a hard timeout, poll every 30s and check if the
         # inflight task has received progress updates. Only timeout
         # when there has been no activity for `timeout` seconds.
+        #
+        # ACK fail-fast: if the client never acknowledges within
+        # ACK_DEADLINE seconds, the client is likely dead/disconnected.
+        # Fail fast instead of waiting the full idle timeout.
+        ACK_DEADLINE = 30.0  # seconds to wait for initial ACK
         max_idle = timeout
-        last_activity = time.monotonic()
+        dispatch_time = time.monotonic()
+        last_activity = dispatch_time
 
         while True:
             try:
@@ -126,8 +132,28 @@ class TaskDispatchMixin:
                     timeout=30.0,
                 )
             except asyncio.TimeoutError:
-                # Check if inflight task has received progress
                 inflight = self._inflight.get(execution_id)
+
+                # ACK fail-fast: no acknowledgment within deadline
+                if inflight and not inflight.acked:
+                    elapsed = time.monotonic() - dispatch_time
+                    if elapsed > ACK_DEADLINE:
+                        self._inflight.pop(execution_id, None)
+                        logger.error(
+                            f"[AgentWS] dispatch_and_wait: no ACK after "
+                            f"{elapsed:.0f}s, client likely disconnected. "
+                            f"exec={execution_id}"
+                        )
+                        return {
+                            "execution_id": execution_id,
+                            "status": "timeout",
+                            "error": (
+                                f"No ACK from agent within {elapsed:.0f}s. "
+                                f"The CLI bridge may have disconnected."
+                            ),
+                        }
+
+                # Activity-aware idle timeout (post-ACK)
                 if inflight and inflight.last_progress_at > last_activity:
                     last_activity = inflight.last_progress_at
 

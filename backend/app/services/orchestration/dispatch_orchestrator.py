@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from backend.app.models.phase_attempt import (
@@ -95,6 +96,15 @@ class DispatchOrchestrator:
             return {"status": "empty", "total": 0, "succeeded": 0, "failed": 0}
 
         phases = task_ir.phases
+
+        # Activity stream: dispatch started
+        await self._publish_activity(
+            "dispatch_started",
+            {
+                "task_ir_id": task_ir.task_id,
+                "total_phases": len(phases),
+            },
+        )
         phase_map: Dict[str, PhaseIR] = {p.id: p for p in phases}
 
         # Build adjacency + in-degree for topo walk
@@ -257,6 +267,17 @@ class DispatchOrchestrator:
             except Exception as exc:
                 logger.warning("Attempt persistence failed (non-fatal): %s", exc)
 
+        # Activity stream: dispatch completed
+        await self._publish_activity(
+            "dispatch_completed",
+            {
+                "task_ir_id": task_ir.task_id,
+                "succeeded": succeeded,
+                "failed": failed,
+                "skipped": skipped,
+            },
+        )
+
         return {
             "status": agg_status,
             "total": total,
@@ -382,6 +403,21 @@ class DispatchOrchestrator:
                 )
                 attempt.mark_completed(result)
                 action_item["landing_status"] = "launched"
+                await self._publish_activity(
+                    "task_dispatched",
+                    {
+                        "phase_id": phase.id,
+                        "phase_name": phase.name,
+                        "engine": engine,
+                        "playbook_code": playbook_code,
+                        "workspace_id": target_ws,
+                        "execution_id": (
+                            result.get("execution_id")
+                            if isinstance(result, dict)
+                            else None
+                        ),
+                    },
+                )
                 return {
                     "status": "completed",
                     "workspace_id": target_ws,
@@ -398,6 +434,16 @@ class DispatchOrchestrator:
                 )
                 attempt.mark_completed(result)
                 action_item["landing_status"] = "task_created"
+                await self._publish_activity(
+                    "task_dispatched",
+                    {
+                        "phase_id": phase.id,
+                        "phase_name": phase.name,
+                        "engine": engine,
+                        "tool_name": phase.tool_name,
+                        "workspace_id": target_ws,
+                    },
+                )
                 return {
                     "status": "completed",
                     "workspace_id": target_ws,
@@ -413,6 +459,15 @@ class DispatchOrchestrator:
                 )
                 attempt.mark_completed(result)
                 action_item["landing_status"] = "planned"
+                await self._publish_activity(
+                    "task_dispatched",
+                    {
+                        "phase_id": phase.id,
+                        "phase_name": phase.name,
+                        "engine": engine,
+                        "workspace_id": target_ws,
+                    },
+                )
                 return {
                     "status": "completed",
                     "workspace_id": target_ws,
@@ -423,6 +478,14 @@ class DispatchOrchestrator:
             attempt.mark_failed(error_msg)
             action_item["landing_status"] = "dispatch_error"
             action_item["landing_error"] = error_msg
+            await self._publish_activity(
+                "task_dispatch_failed",
+                {
+                    "phase_id": phase.id,
+                    "phase_name": phase.name,
+                    "error": error_msg[:200],
+                },
+            )
             logger.warning("Phase %s dispatch failed: %s", phase.id, exc)
             return {"status": "failed", "error": error_msg}
 
@@ -470,6 +533,29 @@ class DispatchOrchestrator:
         extra_params = action_item.get("input_params")
         if isinstance(extra_params, dict):
             inputs.update(extra_params)
+
+        # v3.1: Resolve per-agent model from capability_profile
+        _cap_profile = action_item.get("capability_profile")
+        if _cap_profile:
+            try:
+                from backend.app.services.capability_profile_resolver import (
+                    CapabilityProfileResolver,
+                )
+
+                _resolved_model, _ = CapabilityProfileResolver().resolve(
+                    _cap_profile
+                )
+                if _resolved_model:
+                    inputs["_model_override"] = _resolved_model
+                    logger.info(
+                        "Injected _model_override=%s from capability_profile=%s",
+                        _resolved_model,
+                        _cap_profile,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "capability_profile resolve failed (non-fatal): %s", exc
+                )
 
         ctx = LocalDomainContext(
             actor_id=self.profile_id,
@@ -540,6 +626,11 @@ class DispatchOrchestrator:
                 "task_ir_id": attempt.task_ir_id,
                 "profile_id": self.profile_id,
                 "project_id": self.project_id,
+                # Runner reads execution_context.inputs as tool arguments
+                "inputs": phase.input_params or {},
+                "tool_name": phase.tool_name,
+                # v3.1 F3: capability_profile for model routing in runner
+                "capability_profile": phase.capability_profile,
                 # Feature 1: IR provenance snapshot
                 **ir_provenance,
             },
@@ -672,6 +763,24 @@ class DispatchOrchestrator:
             "phase_id": phase.id,
             "priority": getattr(phase, "priority", None) or action_item.get("priority"),
         }
+
+    async def _publish_activity(self, event_type: str, data: dict) -> None:
+        """Publish event to workspace activity stream (fire-and-forget)."""
+        try:
+            from backend.app.services.cache.async_redis import publish_meeting_chunk
+
+            ws_id = getattr(self.session, "workspace_id", None) or ""
+            if ws_id:
+                await publish_meeting_chunk(
+                    ws_id,
+                    {
+                        "type": event_type,
+                        **data,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+        except Exception:
+            pass  # non-fatal
 
     def get_attempt(self, phase_id: str) -> Optional[PhaseAttempt]:
         """Get the latest attempt for a phase."""
