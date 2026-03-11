@@ -460,7 +460,10 @@ class ToolRegistryService(PostgresStoreBase):
         try:
             with open(self.registry_file, "w", encoding="utf-8") as f:
                 json.dump(
-                    {tool_id: tool.model_dump() for tool_id, tool in self._tools.items()},
+                    {
+                        tool_id: tool.model_dump()
+                        for tool_id, tool in self._tools.items()
+                    },
                     f,
                     indent=2,
                     ensure_ascii=False,
@@ -1015,18 +1018,21 @@ class ToolRegistryService(PostgresStoreBase):
         return list(self._connections.values())
 
     def get_connection(
-        self, connection_id: str, profile_id: Optional[str] = None
-    ) -> Optional[ToolConnectionModel]:
+        self, connection_id: Optional[str] = None, profile_id: Optional[str] = None
+    ) -> Any:
         """
         Get a specific connection
 
         Args:
-            connection_id: Connection ID
+            connection_id: Connection ID. If None, returns the underlying Postgres connection.
             profile_id: Optional profile ID. If None, searches across all profiles (backward compatibility).
 
         Returns:
-            Tool connection if found, None otherwise
+            Tool connection if found, DB connection context manager if None, None otherwise
         """
+        if connection_id is None:
+            return super().get_connection()
+
         if profile_id:
             return self._connections.get((profile_id, connection_id))
 
