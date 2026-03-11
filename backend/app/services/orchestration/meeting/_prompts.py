@@ -689,9 +689,9 @@ class MeetingPromptsMixin:
                 f"=== Workspace Asset Map ===\n"
                 f"{asset_map_ctx}\n"
                 f"=== End Asset Map ===\n\n"
-                f"When proposing action items, consider which workspace "
-                f"owns the relevant data assets. Assign target_workspace_id "
-                f"accordingly.\n\n"
+                f"Use the asset map as context for understanding what data "
+                f"is already available. All action items MUST target the "
+                f"current workspace — do NOT set target_workspace_id.\n\n"
             )
 
         common = locale_directive + project_block + asset_map_block
@@ -849,13 +849,10 @@ class MeetingPromptsMixin:
         return (
             common
             + playbook_block
-            + "As executor, produce only JSON array with up to 3 action items. "
+            + "As executor, produce a JSON array of action items covering all required steps. "
             'Schema: [{"title":"...","description":"...","assigned_to":"executor",'
             '"priority":"low|medium|high","playbook_code":null,'
-            '"target_workspace_id":null,'
             '"tool_name":null,"input_params":null,"blocked_by":null}] '
-            "If a workspace asset map is provided, set target_workspace_id to the "
-            "workspace that owns the relevant data assets for each action item. "
             "playbook_code MUST be selected from Available Playbooks above, or null "
             "if none match. "
             "tool_name is for direct tool invocation without a playbook. "

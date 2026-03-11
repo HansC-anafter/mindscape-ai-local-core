@@ -53,6 +53,8 @@ class DispatchOrchestrator:
         profile_id: str = "",
         project_id: Optional[str] = None,
         skip_policy: str = "skip_on_dep_failure",
+        on_wave_complete=None,
+        lens_injector=None,
     ):
         self.execution_launcher = execution_launcher
         self.tasks_store = tasks_store
@@ -61,8 +63,18 @@ class DispatchOrchestrator:
         self.project_id = project_id
         self.skip_policy = skip_policy
 
+        # G3: Optional supervisor callback after each wave
+        # Signature: async (wave_summary, task_ir) -> Optional[List[PhaseIR]]
+        self._on_wave_complete = on_wave_complete
+
         # PhaseAttempt tracking (phase_id → latest attempt)
         self._attempts: Dict[str, PhaseAttempt] = {}
+
+        # G1: Phase result tracking for artifact pipeline
+        self._phase_results: Dict[str, Dict[str, Any]] = {}
+
+        # G4: Optional lens injector for per-phase persona context
+        self._lens_injector = lens_injector
 
     # ------------------------------------------------------------------
     # Public API
@@ -134,6 +146,10 @@ class DispatchOrchestrator:
                 elif result.get("status") == "completed":
                     completed_phases.add(pid)
                     phase.status = PhaseStatus.COMPLETED
+                    # G1: Store result for downstream artifact pipeline
+                    phase_result = result.get("result")
+                    if isinstance(phase_result, dict):
+                        self._phase_results[pid] = phase_result
                     ws = result.get("workspace_id")
                     if ws:
                         workspaces.add(ws)
@@ -165,6 +181,35 @@ class DispatchOrchestrator:
                             next_ready.append(dep_pid)
 
             ready = next_ready
+
+            # G3: Supervisor callback — can trigger re-plan or phase injection
+            if self._on_wave_complete and ready:
+                try:
+                    wave_summary = {
+                        "completed": sorted(completed_phases),
+                        "failed": sorted(failed_phases),
+                        "skipped": sorted(skipped_phases),
+                        "phase_results": dict(self._phase_results),
+                    }
+                    new_phases = await self._on_wave_complete(wave_summary, task_ir)
+                    if new_phases:
+                        for np in new_phases:
+                            if np.id not in phase_map:
+                                task_ir.phases.append(np)
+                                phase_map[np.id] = np
+                                in_degree[np.id] = 0
+                                for dep_id in np.depends_on or []:
+                                    if dep_id in phase_map:
+                                        dependents[dep_id].append(np.id)
+                                        in_degree[np.id] += 1
+                                if in_degree[np.id] == 0:
+                                    ready.append(np.id)
+                        logger.info(
+                            "Supervisor injected %d new phases",
+                            len(new_phases),
+                        )
+                except Exception as exc:
+                    logger.warning("Supervisor callback failed (non-fatal): %s", exc)
 
         # Aggregate
         total = len(phases)
@@ -248,6 +293,16 @@ class DispatchOrchestrator:
         """Dispatch a single phase, creating a PhaseAttempt."""
         attempt = self._create_attempt(phase, task_ir_id)
 
+        # G1: Inject upstream phase results into downstream phase
+        if phase.depends_on:
+            upstream_context = {}
+            for dep_id in phase.depends_on:
+                dep_result = self._phase_results.get(dep_id)
+                if dep_result:
+                    upstream_context[dep_id] = dep_result
+            if upstream_context:
+                action_item["_upstream_context"] = upstream_context
+
         # Check if action_item is pre-blocked (policy gate)
         landing_status = action_item.get("landing_status", "")
         if landing_status in ("policy_blocked", "dispatch_error", "boundary_violation"):
@@ -262,8 +317,38 @@ class DispatchOrchestrator:
             or ""
         )
 
-        # Resolve engine/adapter
-        engine = phase.preferred_engine or "playbook:generic"
+        # G4: Per-phase lens binding
+        if self._lens_injector:
+            try:
+                lens_ctx = self._lens_injector.prepare_lens_context(
+                    profile_id=self.profile_id,
+                    workspace_id=target_ws,
+                    session_id=getattr(self.session, "id", None),
+                )
+                if lens_ctx:
+                    action_item["_lens_context"] = {
+                        "effective_lens_hash": lens_ctx.get("effective_lens_hash"),
+                        "style_rules": lens_ctx.get("style_rules"),
+                        "emphasized_values": lens_ctx.get("emphasized_values"),
+                        "anti_goals": lens_ctx.get("anti_goals"),
+                    }
+            except Exception as exc:
+                logger.warning(
+                    "Lens injection failed for phase %s: %s",
+                    phase.id,
+                    exc,
+                )
+
+        # Resolve engine/adapter — derive from phase attributes, never
+        # fall back to nonexistent "generic" playbook.
+        engine = phase.preferred_engine
+        if not engine:
+            if phase.tool_name:
+                engine = f"tool:{phase.tool_name}"
+            elif getattr(phase, "playbook_code", None):
+                engine = f"playbook:{phase.playbook_code}"
+            else:
+                engine = "agent:auto"  # let agent pick the playbook
         playbook_code = self._extract_playbook_code(engine)
 
         # tool:* engine → clear playbook_code to reach tool dispatch branch
@@ -513,7 +598,13 @@ class DispatchOrchestrator:
     # ------------------------------------------------------------------
 
     def _should_skip(self, phase_id: str, phase_map: Dict[str, PhaseIR]) -> bool:
-        """Check if a phase should be skipped due to failed dependencies."""
+        """Check if a phase should be skipped due to failed dependencies.
+
+        Respects PhaseIR.rollback_strategy (G3):
+        - 'retry': do NOT skip — supervisor should re-queue
+        - 'revert': skip and signal checkpoint rollback
+        - 'skip' or default: skip propagation (original behavior)
+        """
         if self.skip_policy == "continue_on_dep_failure":
             return False
 
@@ -524,6 +615,13 @@ class DispatchOrchestrator:
         for dep_id in phase.depends_on:
             dep = phase_map.get(dep_id)
             if dep and dep.status in (PhaseStatus.FAILED, PhaseStatus.SKIPPED):
+                # G3: Respect rollback_strategy
+                strategy = getattr(phase, "rollback_strategy", None) or "skip"
+                if strategy == "retry":
+                    # Do not skip — supervisor handles retry
+                    return False
+                # 'revert' and 'skip' both skip the phase;
+                # the supervisor callback handles checkpoint rollback for 'revert'
                 return True
         return False
 
@@ -572,8 +670,7 @@ class DispatchOrchestrator:
             "dependencies": list(dependencies or []),
             "meeting_session_id": getattr(self.session, "id", None),
             "phase_id": phase.id,
-            "priority": getattr(phase, "priority", None)
-            or action_item.get("priority"),
+            "priority": getattr(phase, "priority", None) or action_item.get("priority"),
         }
 
     def get_attempt(self, phase_id: str) -> Optional[PhaseAttempt]:
