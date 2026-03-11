@@ -751,6 +751,40 @@ class WorkflowOrchestrator:
                 if action == "approved":
                     completed_steps.add(paused_step_id)
 
+        # ── v3.1 Gap-A: execution_profile → resolver → _model_override ──
+        # If playbook declares execution_profile and no _model_override is already present,
+        # resolve it via CapabilityProfileResolver to determine the model for LLM steps.
+        if (
+            hasattr(playbook_json, "execution_profile")
+            and playbook_json.execution_profile
+            and not playbook_inputs.get("_model_override")
+        ):
+            try:
+                from backend.app.services.capability_profile_resolver import (
+                    CapabilityProfileResolver,
+                )
+
+                ep = playbook_json.execution_profile
+                # Use reasoning tier as capability_profile, defaulting to 'standard'
+                cap_profile = ep.get("reasoning", "standard")
+                resolved_model, _variant = CapabilityProfileResolver().resolve(
+                    cap_profile, execution_profile=ep
+                )
+                if resolved_model:
+                    playbook_inputs["_model_override"] = resolved_model
+                    logger.info(
+                        "v3.1: execution_profile resolved _model_override=%s "
+                        "(profile=%s, modalities=%s, locality=%s)",
+                        resolved_model,
+                        cap_profile,
+                        ep.get("modalities"),
+                        ep.get("locality"),
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "v3.1: execution_profile resolve failed (non-fatal): %s", exc
+                )
+
         while len(completed_steps) < len(playbook_json.steps):
             ready_steps = self._get_ready_steps(
                 playbook_json.steps, completed_steps, playbook_inputs, step_outputs
@@ -1377,6 +1411,13 @@ class WorkflowOrchestrator:
                 tool_id.startswith("core_llm.") or "llm" in tool_id.lower()
             ):
                 tool_inputs["profile_id"] = profile_id
+
+            # v3.1: Propagate _model_override from playbook inputs to LLM tools
+            _model_override = playbook_inputs.get("_model_override")
+            if _model_override and (
+                tool_id.startswith("core_llm.") or "llm" in tool_id.lower()
+            ):
+                tool_inputs["_model_override"] = _model_override
 
             tool_result = await self.tool_executor.execute_tool(tool_id, **tool_inputs)
 

@@ -20,7 +20,9 @@ async def run(
     locale: Optional[str] = None,
     target_language: Optional[str] = None,
     workspace_id: Optional[str] = None,
-    available_playbooks: Optional[list] = None
+    available_playbooks: Optional[list] = None,
+    _model_override: Optional[str] = None,
+    **kwargs,  # absorb extra playbook inputs
 ) -> Dict[str, Any]:
     """
     Basic one-time text generation/rewriting
@@ -186,6 +188,11 @@ async def run(
 
         logger.info(f"Using conversation model from settings: {conversation_model}")
         model_to_use = conversation_model
+
+        # v3.1: Per-agent model override from dispatch chain
+        if _model_override:
+            logger.info(f"Model override applied: {conversation_model} → {_model_override}")
+            model_to_use = _model_override
 
         # Call LLM
         result = await call_llm(

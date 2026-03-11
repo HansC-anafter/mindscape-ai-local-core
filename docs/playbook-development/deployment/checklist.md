@@ -20,6 +20,7 @@ Checklist before publishing your playbook.
 - [ ] All required fields are present
 - [ ] Step IDs are unique
 - [ ] Dependencies are valid
+- [ ] `execution_profile` is set if playbook uses vision, high-quality, or specific locality requirements (see [fields.md](../playbook-definition/fields.md#execution_profile-v31))
 
 ### i18n Files
 
