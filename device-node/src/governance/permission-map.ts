@@ -88,7 +88,7 @@ export class PermissionMap {
                 shell_execute: {
                     trust_level: "EXECUTE",
                     confirm_required: true,
-                    allowed_commands: ["git", "npm", "node", "python", "ls", "cat", "echo", "pwd"],
+                    allowed_commands: ["git", "npm", "node", "python", "ls", "cat", "echo", "pwd", "osascript"],
                     denied_commands: ["rm -rf", "sudo", "chmod", "chown", "mkfs", "dd"],
                 },
             },
