@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from . import (
+    activity_stream,
     crud,
     launchpad,
     files,
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
 # Mount sub-routers
 # Note: These sub-routers define their own paths relative to the prefix (usually empty or specific subpaths)
 router.include_router(crud.router)
+router.include_router(activity_stream.router)
 router.include_router(launchpad.router)
 router.include_router(files.router)
 router.include_router(intents.router)

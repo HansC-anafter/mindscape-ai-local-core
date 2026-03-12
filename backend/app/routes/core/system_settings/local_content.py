@@ -66,6 +66,39 @@ def _default_directories() -> List[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# Volume mapping: resolve container paths to host paths
+# ---------------------------------------------------------------------------
+
+# Mirrors the volume mounts declared in docker-compose.yml.
+_VOLUME_MAP = [
+    ("/app/data",       "data"),
+    ("/app/backend",    "backend"),
+    ("/app/scripts",    "scripts"),
+    ("/app/logs",       "logs"),
+    ("/app/web-console", "web-console"),
+]
+
+
+def _resolve_host_path(container_path: str) -> Optional[str]:
+    """Convert a container path to the corresponding host path.
+
+    Uses HOST_PROJECT_PATH (set in docker-compose.yml) combined with
+    the known volume mount table above.
+    Returns None when the mapping cannot be determined.
+    """
+    host_root = os.environ.get("HOST_PROJECT_PATH")
+    if not host_root:
+        return None
+
+    for mount_point, host_rel in _VOLUME_MAP:
+        if container_path == mount_point or container_path.startswith(mount_point + "/"):
+            suffix = container_path[len(mount_point):]
+            return os.path.join(host_root, host_rel) + suffix
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
 
@@ -73,6 +106,7 @@ def _default_directories() -> List[Dict[str, Any]]:
 class DirectoryEntry(BaseModel):
     path: str
     enabled: bool = False
+    host_path: Optional[str] = None
 
 
 class NotesFolder(BaseModel):
@@ -108,13 +142,95 @@ async def get_status():
     return StatusResponse(connected=connected, notesAvailable=notes_available)
 
 
+@router.post("/choose-directory")
+async def choose_directory():
+    """Open native macOS Finder directory picker via Device Node osascript.
+
+    Returns the real full host path selected by the user.
+    Falls back to error if Device Node is unavailable.
+    """
+    import httpx
+
+    device_node_url = os.getenv(
+        "DEVICE_NODE_URL", "http://host.docker.internal:3100"
+    )
+
+    # AppleScript: open Finder folder picker, return POSIX path
+    script = (
+        'set chosenFolder to choose folder with prompt '
+        '"Select a directory to authorize for AI access"\n'
+        'return POSIX path of chosenFolder'
+    )
+
+    mcp_request = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_execute",
+            "arguments": {
+                "command": "osascript",
+                "args": ["-e", script],
+            },
+        },
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mindscape-LocalCore/1.0",
+        "X-Request-Source": "local-content-picker",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f"{device_node_url}/mcp",
+                json=mcp_request,
+                headers=headers,
+            )
+
+        result = response.json()
+
+        if "error" in result:
+            error_msg = result["error"].get("message", "Unknown error")
+            raise HTTPException(status_code=502, detail=f"Device Node error: {error_msg}")
+
+        content_list = result.get("result", {}).get("content", [])
+        chosen_path = ""
+        if content_list:
+            chosen_path = content_list[0].get("text", "").strip()
+
+        if not chosen_path:
+            raise HTTPException(status_code=400, detail="No directory selected")
+
+        # Remove trailing slash for consistency
+        chosen_path = chosen_path.rstrip("/")
+
+        return {"path": chosen_path}
+
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=503,
+            detail="Device Node not reachable. Start it on host with: cd device-node && npm run dev",
+        )
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Directory picker timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to open directory picker: {e}")
+
+
 @router.get("/directories", response_model=List[DirectoryEntry])
 async def get_directories():
-    """Get authorized directory list."""
+    """Get authorized directory list with resolved host paths."""
     config = _load_config()
-    return [
-        DirectoryEntry(**d) for d in config.get("directories", _default_directories())
-    ]
+    entries = []
+    for d in config.get("directories", _default_directories()):
+        entry = DirectoryEntry(**d)
+        entry.host_path = _resolve_host_path(entry.path)
+        entries.append(entry)
+    return entries
 
 
 from starlette.concurrency import run_in_threadpool

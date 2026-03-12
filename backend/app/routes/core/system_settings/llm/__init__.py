@@ -16,6 +16,7 @@ from .models import router as models_router
 from .chat_embedding import router as chat_embedding_router
 from .capability_profiles import router as capability_profiles_router
 from .utility_configs import router as utility_configs_router
+from .discovery import router as discovery_router
 
 # Combined router for backward compatibility
 router = APIRouter()
@@ -25,6 +26,7 @@ router.include_router(models_router)
 router.include_router(chat_embedding_router)
 router.include_router(capability_profiles_router)
 router.include_router(utility_configs_router)
+router.include_router(discovery_router)
 
 __all__ = [
     "router",
@@ -32,4 +34,5 @@ __all__ = [
     "chat_embedding_router",
     "capability_profiles_router",
     "utility_configs_router",
+    "discovery_router",
 ]

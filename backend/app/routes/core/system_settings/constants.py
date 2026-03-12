@@ -159,3 +159,65 @@ DEFAULT_EMBEDDING_MODELS = [
         "dimensions": 768,
     },
 ]
+
+DEFAULT_MULTIMODAL_MODELS = [
+    # ── Cloud providers ──────────────────────────────────────────────────
+    {
+        "model_name": "gpt-4o",
+        "provider": "openai",
+        "description": "OpenAI GPT-4o — Vision + text, 128K context",
+        "is_latest": True,
+        "is_recommended": True,
+        "context_window": 128000,
+    },
+    {
+        "model_name": "gpt-4o-mini",
+        "provider": "openai",
+        "description": "OpenAI GPT-4o Mini — Vision + text, cost-effective",
+        "context_window": 128000,
+    },
+    {
+        "model_name": "claude-sonnet-4.5",
+        "provider": "anthropic",
+        "description": "Anthropic Claude Sonnet 4.5 — Vision + text, balanced",
+        "is_latest": True,
+    },
+    {
+        "model_name": "claude-haiku-4.5",
+        "provider": "anthropic",
+        "description": "Anthropic Claude Haiku 4.5 — Vision + text, fast & cheap",
+        "is_latest": True,
+    },
+    {
+        "model_name": "gemini-2.5-pro",
+        "provider": "vertex-ai",
+        "description": "Google Gemini 2.5 Pro — Vision + text + audio, 2M context",
+        "is_latest": True,
+        "is_recommended": True,
+        "context_window": 2000000,
+    },
+    {
+        "model_name": "gemini-2.5-flash",
+        "provider": "vertex-ai",
+        "description": "Google Gemini 2.5 Flash — Vision + text, fast & efficient",
+        "is_latest": True,
+        "context_window": 1000000,
+    },
+    # ── Local deployment ─────────────────────────────────────────────────
+    {
+        "model_name": "llava",
+        "provider": "ollama",
+        "description": "LLaVA (Ollama) — Open-source vision-language model, runs locally",
+        "is_latest": True,
+    },
+    {
+        "model_name": "llava:13b",
+        "provider": "ollama",
+        "description": "LLaVA 13B (Ollama) — Larger vision-language model, better quality",
+    },
+    {
+        "model_name": "bakllava",
+        "provider": "ollama",
+        "description": "BakLLaVA (Ollama) — Improved LLaVA variant, runs locally",
+    },
+]

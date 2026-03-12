@@ -48,7 +48,7 @@ async def get_settings_by_category(category: str):
 
         # Mask sensitive values
         for setting in settings:
-            if setting.is_sensitive:
+            if setting.is_sensitive and setting.value:
                 setting.value = "***"
 
         return settings
@@ -70,7 +70,7 @@ async def get_setting(key: str):
             raise HTTPException(status_code=404, detail=f"Setting not found: {key}")
 
         # Mask sensitive values
-        if setting.is_sensitive:
+        if setting.is_sensitive and setting.value:
             setting.value = "***"
 
         return setting
@@ -168,7 +168,7 @@ async def update_setting(
         updated = settings_store.save_setting(setting)
 
         # Mask sensitive values in response
-        if updated.is_sensitive:
+        if updated.is_sensitive and updated.value:
             updated.value = "***"
 
         return updated
