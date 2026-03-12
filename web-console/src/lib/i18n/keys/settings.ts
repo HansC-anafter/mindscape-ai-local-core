@@ -65,6 +65,8 @@ export const settingsKeys = {
   llmChatModel: true,
   llmChatModelDescription: true,
   modelConfiguration: true,
+  modelReady: true,
+  modelCloudConnected: true,
   llmConnectionStatus: true,
   selectChatModel: true,
   selectEmbeddingModel: true,

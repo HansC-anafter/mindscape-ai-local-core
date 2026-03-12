@@ -7,7 +7,7 @@ export interface EnabledModel {
   id: number;
   model_name: string;
   provider: string;
-  model_type: 'chat' | 'embedding';
+  model_type: 'chat' | 'embedding' | 'multimodal';
   display_name: string;
   description: string;
   enabled: boolean;
@@ -19,7 +19,7 @@ export interface EnabledModel {
   icon?: string;
 }
 
-export function useEnabledModels(modelType?: 'chat' | 'embedding') {
+export function useEnabledModels(modelType?: 'chat' | 'embedding' | 'multimodal') {
   const [enabledModels, setEnabledModels] = useState<EnabledModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

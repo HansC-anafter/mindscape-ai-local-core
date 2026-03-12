@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 interface DirectoryEntry {
     path: string;
     enabled: boolean;
+    host_path?: string | null;
 }
 
 interface NotesFolder {
@@ -416,40 +417,48 @@ export function LocalContentView() {
     };
 
     const handleDirectoryPicker = async () => {
-        if ('showDirectoryPicker' in window) {
-            try {
-                const dirHandle = await (window as any).showDirectoryPicker({
-                    mode: 'read',
-                });
+        try {
+            // Use backend endpoint which opens native macOS Finder picker
+            // via Device Node osascript to get the real full host path
+            const response = await fetch('/api/v1/system-settings/local-content/choose-directory', {
+                method: 'POST',
+            });
 
-                const dirName = dirHandle.name;
-                const isWindows = navigator.userAgent.includes('Windows');
-                let defaultPath = '';
-
-                if (directories.length > 0 && directories[0].path.trim()) {
-                    const currentPath = directories[0].path.trim();
-                    const separator = isWindows ? '\\' : '/';
-                    if (currentPath.endsWith(separator) || currentPath.endsWith('/') || currentPath.endsWith('\\')) {
-                        defaultPath = `${currentPath}${dirName}`;
-                    } else {
-                        defaultPath = `${currentPath}${separator}${dirName}`;
-                    }
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({ detail: 'Unknown error' }));
+                if (response.status === 503) {
+                    setDirError('Device Node 未連線，請先啟動 Device Node');
+                } else if (response.status === 400) {
+                    // User cancelled the picker
+                    return;
                 } else {
-                    defaultPath = isWindows ? `C:\\Users\\${dirName}` : `/Users/${dirName}`;
+                    setDirError(err.detail || '無法開啟目錄選擇器');
                 }
-
-                setSelectedDirName(dirName);
-                setPathInputValue(defaultPath);
-                setShowPathInputDialog(true);
-                setDirError(null);
-            } catch (err: any) {
-                if (err.name !== 'AbortError') {
-                    console.error('Directory picker error:', err);
-                    setDirError('無法開啟目錄選擇器，請直接輸入路徑。');
-                }
+                return;
             }
-        } else {
-            setDirError('您的瀏覽器不支援目錄選擇器，請直接輸入路徑。');
+
+            const data = await response.json();
+            const chosenPath = data.path;
+
+            if (!chosenPath) return;
+
+            // Check for duplicates
+            const existingPaths = directories.map(d => d.path);
+            if (existingPaths.includes(chosenPath)) {
+                setDirError('目錄已存在');
+                return;
+            }
+
+            const updated = [...directories, { path: chosenPath, enabled: true }];
+            setDirectories(updated);
+            setDirError(null);
+            await saveDirectories(updated);
+            // Refetch to get host_path from backend
+            await loadAll();
+            showToast('✓ 已新增');
+        } catch (err: any) {
+            console.error('Directory picker error:', err);
+            setDirError('無法開啟目錄選擇器，請直接輸入路徑。');
         }
     };
 
@@ -594,7 +603,14 @@ export function LocalContentView() {
                                     {directories.map((dir, idx) => (
                                         <div key={dir.path} className="flex items-center px-5 py-3 group hover:bg-gray-50 dark:hover:bg-gray-800/50">
                                             <span className="text-gray-400 dark:text-gray-500 mr-3 text-sm">📂</span>
-                                            <span className="flex-1 text-sm font-mono text-gray-800 dark:text-gray-200 truncate">{dir.path}</span>
+                                            <div className="flex-1 min-w-0">
+                                                <span className="text-sm font-mono text-gray-800 dark:text-gray-200 truncate block">{dir.path}</span>
+                                                {dir.host_path && (
+                                                    <span className="text-xs text-gray-400 dark:text-gray-500 truncate block mt-0.5">
+                                                        📍 {dir.host_path}
+                                                    </span>
+                                                )}
+                                            </div>
                                             <button
                                                 onClick={() => removeDirectory(idx)}
                                                 className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 text-xs mr-3 transition-opacity"

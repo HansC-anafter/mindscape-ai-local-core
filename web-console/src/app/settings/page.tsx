@@ -11,7 +11,7 @@ import { MindscapePanel } from './components/MindscapePanel';
 import { SettingsNotificationContainer } from './hooks/useSettingsNotification';
 import { SocialMediaPanel } from './components/SocialMediaPanel';
 import { ToolsPanel } from './components/ToolsPanel';
-import { PacksPanel } from './components/PacksPanel';
+
 import { LocalizationPanel } from './components/LocalizationPanel';
 import { ServiceStatusPanel } from './components/ServiceStatusPanel';
 import { GovernancePanel } from './components/GovernancePanel';
@@ -44,7 +44,7 @@ export default function SettingsPage() {
     const modelParam = searchParams?.get('model' as any);
     const serviceParam = searchParams?.get('service' as any);
 
-    const validTabs: SettingsTab[] = ['tools', 'packs', 'basic', 'mindscape', 'ai-team-governance', 'social_media', 'localization', 'service_status', 'governance', 'runtime'];
+    const validTabs: SettingsTab[] = ['tools', 'basic', 'mindscape', 'ai-team-governance', 'social_media', 'localization', 'service_status', 'governance', 'runtime'];
     if (tabParam && validTabs.includes(tabParam as SettingsTab)) {
       setActiveTab(tabParam as SettingsTab);
     }
@@ -104,8 +104,7 @@ export default function SettingsPage() {
         return <SocialMediaPanel activeProvider={activeProvider} />;
       case 'tools':
         return <ToolsPanel activeSection={activeSection} activeProvider={activeProvider} />;
-      case 'packs':
-        return <PacksPanel getToolStatus={getToolStatusForPack} activeSection={activeSection} />;
+
       case 'runtime':
         return <RuntimeEnvironmentsSettings />;
       case 'localization':
@@ -120,11 +119,11 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-surface dark:bg-gray-900">
+    <div className="h-screen flex flex-col overflow-hidden bg-surface dark:bg-gray-900">
       <Header />
 
       {/* Page Header */}
-      <div className="bg-surface-secondary dark:bg-gray-800 border-b border-default dark:border-gray-700 sticky top-12 z-40">
+      <div className="bg-surface-secondary dark:bg-gray-800 border-b border-default dark:border-gray-700 z-40 shrink-0">
         <div className="w-full px-4 sm:px-6 lg:px-12 py-3 flex items-center gap-4">
           <h1 className="text-xl font-bold text-primary dark:text-gray-100 flex-shrink-0 min-w-0">
             {t('systemManagement' as any)} <span className="text-sm font-normal text-secondary dark:text-gray-400 ml-2">{t('systemManagementDescription' as any)}</span>
@@ -135,7 +134,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Mobile Navigation (only on small screens) */}
-      <div className="lg:hidden bg-surface-secondary dark:bg-gray-800 border-b border-default dark:border-gray-700 px-4 py-2">
+      <div className="lg:hidden bg-surface-secondary dark:bg-gray-800 border-b border-default dark:border-gray-700 px-4 py-2 shrink-0">
         <div className="flex gap-2 overflow-x-auto">
           {[
             { id: 'basic' as SettingsTab, label: t('basicSettings' as any) },
@@ -160,11 +159,11 @@ export default function SettingsPage() {
       </div>
 
       {/* Three Column Layout */}
-      <main className="w-full">
-        <div className="grid grid-cols-12">
+      <main className="w-full flex-1 flex flex-col min-h-0">
+        <div className="grid grid-cols-12 flex-1 min-h-0">
           {/* Left Column: Navigation (Desktop only) - col-span-2 (16.67%) */}
-          <div className="hidden lg:block col-span-2">
-            <div className="bg-surface-secondary dark:bg-gray-800 h-[calc(100vh-8rem)] flex flex-col sticky top-[calc(3rem+3rem)] z-30 border-r border-default dark:border-gray-700">
+          <div className="hidden lg:block col-span-2 h-full">
+            <div className="bg-surface-secondary dark:bg-gray-800 h-full overflow-y-auto flex flex-col z-30 border-r border-default dark:border-gray-700">
               <SettingsNavigation
                 activeTab={activeTab}
                 activeSection={activeSection}
@@ -177,15 +176,15 @@ export default function SettingsPage() {
           </div>
 
           {/* Middle Column: Content - col-span-7 (58.33%) */}
-          <div className="col-span-12 lg:col-span-7 flex flex-col">
-            <div className="flex-1 overflow-y-auto min-h-[calc(100vh-8rem)] p-4">
+          <div className="col-span-12 lg:col-span-7 flex flex-col h-full bg-surface dark:bg-gray-900">
+            <div className="flex-1 overflow-y-auto min-h-0 p-3 lg:p-4">
               {renderContent()}
             </div>
           </div>
 
           {/* Right Column: Assistant (Desktop only) - col-span-3 (25%) */}
-          <div className="hidden lg:block col-span-3">
-            <div className="bg-surface-secondary dark:bg-gray-800 h-[calc(100vh-8rem)] flex flex-col p-4 sticky top-[calc(3rem+3rem)] z-30 border-l border-default dark:border-gray-700">
+          <div className="hidden lg:block col-span-3 h-full">
+            <div className="bg-surface-secondary dark:bg-gray-800 h-full overflow-y-auto flex flex-col p-4 z-30 border-l border-default dark:border-gray-700">
               <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">
                 {t('configAssistant' as any)}
               </h3>

@@ -140,26 +140,7 @@ const navigationItems: NavigationItem[] = [
       },
     ],
   },
-  {
-    id: 'packs',
-    label: 'capabilityPacks',
-    icon: '📦',
-    tab: 'packs',
-    children: [
-      {
-        id: 'capability-suites',
-        label: 'capabilitySuites',
-        tab: 'packs',
-        section: 'suites',
-      },
-      {
-        id: 'capability-packages',
-        label: 'capabilityPackages',
-        tab: 'packs',
-        section: 'packages',
-      },
-    ],
-  },
+
   {
     id: 'runtime',
     label: 'runtimeEnvironments',

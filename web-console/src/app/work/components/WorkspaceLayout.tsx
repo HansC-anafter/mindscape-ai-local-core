@@ -1,10 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { DashboardView } from './DashboardView';
 import { LocalContentView } from './LocalContentView';
 
-type SidebarView = 'dashboard' | 'local-content';
+// Lazy-load the Chat Capture Workbench (capability component)
+// No apiUrl needed — uses same-origin, Next.js rewrites proxy /api/* to backend
+const ChatCaptureWorkbench = lazy(
+    () => import('@/app/capabilities/chat_capture/components/ChatCaptureWorkbench')
+);
+
+
+type SidebarView = 'dashboard' | 'local-content' | 'chat-capture';
 
 interface SidebarItem {
     id: SidebarView;
@@ -15,6 +22,7 @@ interface SidebarItem {
 const SIDEBAR_ITEMS: SidebarItem[] = [
     { id: 'dashboard', icon: '📊', label: '儀表板' },
     { id: 'local-content', icon: '📁', label: '本機內容' },
+    { id: 'chat-capture', icon: '📡', label: '外部對話' },
 ];
 
 export function WorkspaceLayout() {
@@ -62,6 +70,15 @@ export function WorkspaceLayout() {
             <div className="flex-1 flex flex-col min-w-0">
                 {activeView === 'dashboard' && <DashboardView />}
                 {activeView === 'local-content' && <LocalContentView />}
+                {activeView === 'chat-capture' && (
+                    <Suspense fallback={
+                        <div className="flex items-center justify-center h-full text-gray-400">
+                            Loading Chat Capture…
+                        </div>
+                    }>
+                        <ChatCaptureWorkbench />
+                    </Suspense>
+                )}
             </div>
         </div>
     );

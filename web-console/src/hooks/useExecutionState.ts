@@ -231,7 +231,8 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
 
       case 'pipeline_stage':
         setState(prev => {
-          if (event.run_id !== prev.currentRunId && prev.currentRunId !== null) {
+          // Allow meeting stage events (no run_id) to always pass through
+          if (event.run_id && event.run_id !== prev.currentRunId && prev.currentRunId !== null) {
             if (process.env.NODE_ENV === 'development') {
               console.warn(`[useExecutionState] Ignoring pipeline_stage event with mismatched run_id: ${event.run_id} (current: ${prev.currentRunId})`);
             }

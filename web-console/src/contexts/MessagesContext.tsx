@@ -126,6 +126,10 @@ export interface MessagesState {
   handleViewDetail: (executionId: string) => void;
   handlePause: (executionId: string) => void;
   handleCancel: (executionId: string) => void;
+
+  // Meeting real-time streaming
+  streamingText: string;
+  isStreaming: boolean;
 }
 
 interface MessagesProviderProps {
@@ -171,6 +175,8 @@ export function MessagesProvider({
     connected: sseConnected,
     markManyAsSeen,
     clearStreamedMessages,
+    streamingText,
+    isStreaming,
   } = messageStream;
 
   // 🆕 Mark initial messages as seen to prevent duplicates from SSE
@@ -240,6 +246,10 @@ export function MessagesProvider({
       handleViewDetail,
       handlePause,
       handleCancel,
+
+      // Meeting real-time streaming
+      streamingText,
+      isStreaming,
     }),
     [
       messages,
@@ -261,6 +271,8 @@ export function MessagesProvider({
       handleViewDetail,
       handlePause,
       handleCancel,
+      streamingText,
+      isStreaming,
     ]
   );
 

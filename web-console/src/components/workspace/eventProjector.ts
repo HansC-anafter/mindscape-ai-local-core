@@ -704,6 +704,11 @@ function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
     'step_progress',
     'step_complete',
     'step_error',
+    // Meeting real-time streaming (Redis Pub/Sub → SSE relay)
+    'chunk',
+    'stream_start',
+    'stream_end',
+    'meeting_stage',
   ];
 
   for (const eventType of allEventTypes) {

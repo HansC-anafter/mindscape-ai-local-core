@@ -11,6 +11,7 @@ import { getPlaybookRegistry } from '../../playbook';
 import ForkPlaybookButton from '../../components/playbooks/ForkPlaybookButton';
 import { WorkspaceSelector } from '../../components/workspace/WorkspaceSelector';
 import PlaybookLibrarySidebar from '../../components/playbooks/PlaybookLibrarySidebar';
+import { InstallFromFileButton } from '../settings/components/InstallFromFileButton';
 
 import { getApiBaseUrl } from '../../lib/api-url';
 
@@ -323,84 +324,93 @@ export default function PlaybooksPage() {
       {/* Page Header - Single Row */}
       <div className="bg-surface-secondary dark:bg-gray-900 border-b border-default dark:border-gray-800">
         <div className="w-full px-4 sm:px-6 lg:px-12 py-3">
-          <div className="flex items-center justify-between gap-6">
-            {/* Left: Title, Workflow, and Workspace Selector */}
-            <div className="flex items-center gap-6 flex-shrink-0">
-              <h1 className="text-xl font-bold text-primary dark:text-gray-100 whitespace-nowrap">
-                {t('playbooksTitle' as any)}
-              </h1>
-              <div className="hidden md:flex items-center gap-2 text-xs text-secondary dark:text-gray-400 bg-gradient-to-r from-accent-10 to-surface-secondary dark:from-blue-900/20 dark:to-gray-800/20 rounded-lg px-3 py-2 border border-accent/30 dark:border-blue-800">
-                <span>{t('playbookStepMindscape' as any)}</span>
-                <span className="text-tertiary dark:text-gray-500">→</span>
-                <span>{t('playbookStepTools' as any)}</span>
-                <span className="text-tertiary dark:text-gray-500">→</span>
-                <span>{t('playbookStepMembers' as any)}</span>
-              </div>
-              {/* Workspace Selector */}
-              <div className="hidden md:flex items-center gap-2">
-                <WorkspaceSelector
-                  ownerUserId="default-user"
-                  value={selectedWorkspaceId || ''}
-                  onValueChange={(workspaceId) => {
-                    setSelectedWorkspaceId(workspaceId || null);
-                  }}
-                  showLabel={false}
-                  className="min-w-[200px]"
-                />
-              </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Title */}
+            <h1 className="text-xl font-bold text-primary dark:text-gray-100 whitespace-nowrap flex-shrink-0">
+              {t('playbooksTitle' as any)}
+            </h1>
+
+            {/* Workflow Steps Badge — hidden below xl */}
+            <div className="hidden xl:flex items-center gap-2 text-xs text-secondary dark:text-gray-400 bg-gradient-to-r from-accent-10 to-surface-secondary dark:from-blue-900/20 dark:to-gray-800/20 rounded-lg px-3 py-1.5 border border-accent/30 dark:border-blue-800 whitespace-nowrap">
+              <span>{t('playbookStepMindscape' as any)}</span>
+              <span className="text-tertiary dark:text-gray-500">→</span>
+              <span>{t('playbookStepTools' as any)}</span>
+              <span className="text-tertiary dark:text-gray-500">→</span>
+              <span>{t('playbookStepMembers' as any)}</span>
             </div>
 
-            {/* Right: Search and Reload */}
-            <div className="flex items-center gap-3 flex-1 max-w-xl">
-              <input
-                type="text"
-                placeholder={t('searchPlaybooks' as any)}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="flex-1 px-3 py-1.5 text-sm border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100"
-              />
-              <button
-                onClick={async () => {
-                  if (reloading) return;
-                  try {
-                    setReloading(true);
-                    setError(null);
-                    const apiUrl = API_URL.startsWith('http') ? API_URL : '';
-
-                    const reindexController = new AbortController();
-                    const reindexTimeout = setTimeout(() => reindexController.abort(), 30000);
-
-                    try {
-                      const reindexResponse = await fetch(`${apiUrl}/api/v1/playbooks/reindex`, {
-                        method: 'POST',
-                        signal: reindexController.signal
-                      });
-                      clearTimeout(reindexTimeout);
-
-                      if (!reindexResponse.ok) {
-                        console.warn('Reindex failed, but continuing with reload');
-                      }
-                    } catch (reindexErr: any) {
-                      clearTimeout(reindexTimeout);
-                      if (reindexErr.name !== 'AbortError') {
-                        console.warn('Reindex error, but continuing with reload:', reindexErr);
-                      }
-                    }
-
-                    await loadPlaybooks();
-                  } catch (err) {
-                    console.error('Failed to reload playbooks:', err);
-                    setError('Failed to reload playbooks. Please try again.');
-                  } finally {
-                    setReloading(false);
-                  }
+            {/* Workspace Selector */}
+            <div className="hidden md:block flex-shrink-0">
+              <WorkspaceSelector
+                ownerUserId="default-user"
+                value={selectedWorkspaceId || ''}
+                onValueChange={(workspaceId) => {
+                  setSelectedWorkspaceId(workspaceId || null);
                 }}
-                disabled={reloading || loading}
-                className="px-3 py-1.5 text-sm bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {reloading ? t('reloading' as any) : t('reload' as any)}
-              </button>
+                showLabel={false}
+                className="min-w-[160px] max-w-[200px]"
+              />
             </div>
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Search */}
+            <input
+              type="text"
+              placeholder={t('searchPlaybooks' as any)}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-36 lg:w-48 px-3 py-1.5 text-sm border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-surface-accent dark:bg-gray-800 text-primary dark:text-gray-100"
+            />
+
+            {/* Reload */}
+            <button
+              onClick={async () => {
+                if (reloading) return;
+                try {
+                  setReloading(true);
+                  setError(null);
+                  const apiUrl = API_URL.startsWith('http') ? API_URL : '';
+
+                  const reindexController = new AbortController();
+                  const reindexTimeout = setTimeout(() => reindexController.abort(), 30000);
+
+                  try {
+                    const reindexResponse = await fetch(`${apiUrl}/api/v1/playbooks/reindex`, {
+                      method: 'POST',
+                      signal: reindexController.signal
+                    });
+                    clearTimeout(reindexTimeout);
+
+                    if (!reindexResponse.ok) {
+                      console.warn('Reindex failed, but continuing with reload');
+                    }
+                  } catch (reindexErr: any) {
+                    clearTimeout(reindexTimeout);
+                    if (reindexErr.name !== 'AbortError') {
+                      console.warn('Reindex error, but continuing with reload:', reindexErr);
+                    }
+                  }
+
+                  await loadPlaybooks();
+                } catch (err) {
+                  console.error('Failed to reload playbooks:', err);
+                  setError('Failed to reload playbooks. Please try again.');
+                } finally {
+                  setReloading(false);
+                }
+              }}
+              disabled={reloading || loading}
+              className="px-3 py-1.5 text-sm bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+            >
+              {reloading ? t('reloading' as any) : t('reload' as any)}
+            </button>
+
+            {/* Install .mindpack */}
+            <InstallFromFileButton onSuccess={() => {
+              loadPlaybooks();
+            }} />
           </div>
 
           {error && (

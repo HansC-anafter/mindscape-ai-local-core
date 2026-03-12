@@ -8,7 +8,9 @@ export type ExecutionPriority = 'low' | 'medium' | 'high';
 interface ExecutionModeSelectorProps {
   mode: ExecutionMode;
   priority: ExecutionPriority;
+  meetingEnabled?: boolean;
   onChange: (update: { mode?: ExecutionMode; priority?: ExecutionPriority }) => void;
+  onMeetingToggle?: (enabled: boolean) => void;
   disabled?: boolean;
 }
 
@@ -80,7 +82,9 @@ const valueToPriority = (v: number): ExecutionPriority => {
 export default function ExecutionModeSelector({
   mode,
   priority,
+  meetingEnabled = true,
   onChange,
+  onMeetingToggle,
   disabled = false,
 }: ExecutionModeSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -117,7 +121,7 @@ export default function ExecutionModeSelector({
 
   return (
     <div className="relative" ref={dropdownRef}>
-{/* Trigger button */}
+      {/* Trigger button */}
       <button
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
@@ -139,11 +143,10 @@ export default function ExecutionModeSelector({
         <span className="text-[11px] font-semibold text-purple-700 dark:text-purple-300">
           {priorityValue.toFixed(1)}
         </span>
-        <span className={`text-[10px] ${
-          priority === 'high' ? 'text-amber-500' :
+        <span className={`text-[10px] ${priority === 'high' ? 'text-amber-500' :
           priority === 'medium' ? 'text-gray-500 dark:text-gray-400' :
-          'text-gray-400 dark:text-gray-500'
-        }`}>
+            'text-gray-400 dark:text-gray-500'
+          }`}>
           {currentPriority.indicator}
         </span>
         <span className="text-gray-600 dark:text-gray-400">AI Team</span>
@@ -181,6 +184,35 @@ export default function ExecutionModeSelector({
               {mode === m && <span className="ml-auto">✓</span>}
             </button>
           ))}
+
+          {/* Divider */}
+          <div className="my-2 border-t border-gray-100 dark:border-gray-700" />
+
+          {/* Meeting toggle */}
+          <div className="px-3 py-1.5 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm">🧭</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">會議引擎</span>
+            </div>
+            <button
+              onClick={() => onMeetingToggle?.(!meetingEnabled)}
+              className={`
+                relative w-9 h-5 rounded-full transition-colors duration-200
+                ${meetingEnabled
+                  ? 'bg-purple-500'
+                  : 'bg-gray-300 dark:bg-gray-600'
+                }
+              `}
+            >
+              <span
+                className={`
+                  absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow
+                  transition-transform duration-200
+                  ${meetingEnabled ? 'translate-x-4' : 'translate-x-0'}
+                `}
+              />
+            </button>
+          </div>
 
           {/* Divider */}
           <div className="my-2 border-t border-gray-100 dark:border-gray-700" />

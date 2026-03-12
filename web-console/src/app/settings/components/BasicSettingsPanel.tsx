@@ -71,12 +71,6 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
     }
 
     switch (activeSection) {
-      case 'models-and-quota':
-      case 'api-quota':
-      case 'embedding':
-      case 'llm-chat':
-        return <ModelsAndQuotaPanel />;
-
       case 'backend-mode':
         return (
           <div className="space-y-6">
@@ -178,6 +172,16 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
         return null;
     }
   };
+
+  const isStandalone = activeSection && ['models-and-quota', 'api-quota', 'embedding', 'llm-chat'].includes(activeSection);
+
+  if (isStandalone) {
+    return (
+      <Card className="h-full min-h-0 flex flex-col">
+        <ModelsAndQuotaPanel />
+      </Card>
+    );
+  }
 
   const sectionContent = renderSection();
 
