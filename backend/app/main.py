@@ -175,9 +175,18 @@ def get_cors_origins():
         ]
 
 
+def _get_cors_origins_with_extension():
+    """Wrap get_cors_origins and add chrome-extension:// support."""
+    origins = get_cors_origins()
+    # Chrome extensions use chrome-extension://<id> as origin.
+    # Since this is a local unpacked extension, wildcard is safe.
+    origins.append("chrome-extension://*")
+    return origins
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_cors_origins(),
+    allow_origins=_get_cors_origins_with_extension(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allow_headers=["*"],
@@ -262,6 +271,15 @@ def register_core_routes(app: FastAPI) -> None:
     from .routes.core.dashboard import router as dashboard_router
 
     app.include_router(dashboard_router, tags=["dashboard"])
+
+    # Skills listing routes (agent skills + capability pack skills)
+    try:
+        from .routes.core.skills import router as skills_router
+
+        app.include_router(skills_router, tags=["skills"])
+        logger.info("Skills listing routes registered")
+    except Exception as e:
+        logger.debug(f"Skills listing routes not registered: {e}")
 
     # Meeting session routes (Phase 2 - pipeline unification)
     try:

@@ -468,6 +468,29 @@ async def event_stream_generator(
         heartbeat_counter = 0
         HEARTBEAT_INTERVAL = 30  # Send heartbeat every 30 seconds
 
+        # ── Redis Pub/Sub for meeting streaming chunks ────────
+        redis_listener = None
+        try:
+            from backend.app.services.cache.async_redis import (
+                get_async_redis_client,
+                meeting_stream_channel,
+            )
+
+            _redis = await get_async_redis_client()
+            if _redis:
+                redis_listener = _redis.pubsub(ignore_subscribe_messages=True)
+                await redis_listener.subscribe(meeting_stream_channel(workspace_id))
+                logger.info(
+                    "[SSE] Redis meeting stream subscribed for ws=%s",
+                    workspace_id[:8],
+                )
+        except Exception as redis_exc:
+            logger.warning(
+                "[SSE] Redis meeting stream unavailable, degrading to DB-only: %s",
+                redis_exc,
+            )
+            redis_listener = None
+
         poll_count = 0
         while True:
             try:
@@ -578,6 +601,32 @@ async def event_stream_generator(
                             evt_ts = evt_ts.replace(tzinfo=timezone.utc)
                         last_poll_time = min(evt_ts, now_utc)
 
+                # ── Drain Redis meeting stream chunks ─────────
+                if redis_listener:
+                    try:
+                        for _ in range(50):  # cap per cycle
+                            msg = await redis_listener.get_message(
+                                ignore_subscribe_messages=True,
+                                timeout=0.01,
+                            )
+                            if not msg:
+                                break
+                            raw = msg.get("data")
+                            if not raw or not isinstance(raw, str):
+                                continue
+                            try:
+                                chunk_data = json.loads(raw)
+                            except json.JSONDecodeError:
+                                continue
+                            chunk_type = chunk_data.get("type", "chunk")
+                            yield f"event: {chunk_type}\n"
+                            yield f"data: {json.dumps(chunk_data)}\n\n"
+                    except Exception as drain_exc:
+                        logger.warning(
+                            "[SSE] Redis drain error (non-fatal): %s",
+                            drain_exc,
+                        )
+
                 # Send heartbeat to keep connection alive
                 heartbeat_counter += 1
                 if heartbeat_counter >= HEARTBEAT_INTERVAL:
@@ -595,6 +644,14 @@ async def event_stream_generator(
     except Exception as e:
         logger.error(f"Fatal error in event stream: {e}", exc_info=True)
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    finally:
+        # Clean up Redis listener
+        if redis_listener:
+            try:
+                await redis_listener.unsubscribe()
+                await redis_listener.close()
+            except Exception:
+                pass
 
 
 @router.get("/{workspace_id}/events/stream")

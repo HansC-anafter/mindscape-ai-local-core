@@ -61,17 +61,17 @@ def migrate_chat_model_to_capability_profile():
     settings_store.set_capability_profile_mapping(default_mapping)
     logger.info(f"Set capability_profile_mapping: {default_mapping}")
 
-    # Set profile to model mapping (from chat_model)
-    profile_model_mapping = {
-        "fast": [model_name, "gpt-3.5-turbo", "claude-3-haiku", "gemini-1.5-flash"],
-        "standard": [model_name, "gpt-4o", "claude-3-sonnet", "gemini-1.5-pro"],
-        "precise": [model_name, "gpt-4", "claude-3-opus", "gemini-2.0-pro"],
-        "tool_strict": [model_name, "gpt-4", "claude-3-opus"],
-        "safe_write": [model_name, "gpt-4", "claude-3-opus"],
+    # Set profile to model mapping (single model per profile, new format)
+    profile_model_map = {
+        "fast": model_name,
+        "standard": model_name,
+        "precise": model_name,
+        "tool_strict": model_name,
+        "safe_write": model_name,
     }
 
-    settings_store.set_profile_model_mapping(profile_model_mapping)
-    logger.info(f"Set profile_model_mapping for {len(profile_model_mapping)} profiles")
+    settings_store.set_profile_model_map(profile_model_map)
+    logger.info(f"Set profile_model_map for {len(profile_model_map)} profiles")
 
     logger.info("Migration completed successfully")
 
