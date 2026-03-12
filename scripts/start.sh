@@ -106,34 +106,50 @@ fi
 echo "Starting services..."
 echo ""
 
-# Start Device Node (for host-level operations like container restart)
+# Start Device Node (host-level MCP service via launchd)
 if [ -d "$PROJECT_ROOT/device-node" ] && command -v node &> /dev/null; then
-    echo "Starting Device Node..."
+    echo "Setting up Device Node..."
 
-    # Check if already running
-    DEVICE_NODE_PID=$(pgrep -f "device-node" 2>/dev/null || true)
-    if [ -n "$DEVICE_NODE_PID" ]; then
-        echo "  ✓ Device Node already running (PID: $DEVICE_NODE_PID)"
-    else
-        cd "$PROJECT_ROOT/device-node"
+    PLIST_DST="$HOME/Library/LaunchAgents/ai.mindscape.device-node.plist"
 
-        # Build if needed
-        if [ ! -d "dist" ]; then
-            echo "  Building Device Node..."
-            npm run build --silent 2>/dev/null || true
-        fi
-
-        # Start in background with HTTP transport
-        MCP_TRANSPORT=http MCP_HTTP_PORT=3100 nohup npm start > /tmp/device-node.log 2>&1 &
-        DEVICE_NODE_PID=$!
-
+    # Check if launchd agent is already installed
+    if launchctl list 2>/dev/null | grep -q "ai.mindscape.device-node"; then
+        echo "  ✓ Device Node launchd agent running"
+    elif [ -f "$PLIST_DST" ]; then
+        # Plist exists but not loaded — load it
+        echo "  Loading Device Node launchd agent..."
+        launchctl load "$PLIST_DST"
         sleep 2
-        if ps -p $DEVICE_NODE_PID > /dev/null 2>&1; then
-            echo "  ✓ Device Node started (PID: $DEVICE_NODE_PID, Port: 3100)"
+        if launchctl list 2>/dev/null | grep -q "ai.mindscape.device-node"; then
+            echo "  ✓ Device Node started via launchd"
         else
-            echo "  ⚠️  Device Node failed to start. See /tmp/device-node.log"
+            echo "  ⚠️  Device Node launchd agent failed to start"
         fi
+    else
+        # First run — auto-install
+        echo "  First-time setup: installing Device Node launchd agent..."
+        cd "$PROJECT_ROOT/device-node"
+        npm install --silent 2>/dev/null
+        npm run build --silent 2>/dev/null
+        mkdir -p logs
 
+        NODE_BIN="$(which node)"
+        DN_DIR="$PROJECT_ROOT/device-node"
+        PLIST_TEMPLATE="$DN_DIR/config/ai.mindscape.device-node.plist"
+
+        mkdir -p "$HOME/Library/LaunchAgents"
+        sed \
+            -e "s|__NODE_BIN__|${NODE_BIN}|g" \
+            -e "s|__PROJECT_DIR__|${DN_DIR}|g" \
+            "$PLIST_TEMPLATE" > "$PLIST_DST"
+
+        launchctl load "$PLIST_DST"
+        sleep 2
+        if launchctl list 2>/dev/null | grep -q "ai.mindscape.device-node"; then
+            echo "  ✓ Device Node installed and started (launchd, port 3100)"
+        else
+            echo "  ⚠️  Device Node install failed. Run manually: cd device-node && npm run install:macos"
+        fi
         cd "$PROJECT_ROOT"
     fi
     echo ""

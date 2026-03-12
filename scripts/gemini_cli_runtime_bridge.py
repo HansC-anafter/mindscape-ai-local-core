@@ -485,9 +485,7 @@ def main():
     workspace_root = os.environ.get("MINDSCAPE_WORKSPACE_ROOT", "")
     resolved_sandbox_path = _resolve_host_sandbox_path(sandbox_path, workspace_root)
     if resolved_sandbox_path:
-        log(
-            f"Resolved sandbox path {sandbox_path} -> {resolved_sandbox_path}"
-        )
+        log(f"Resolved sandbox path {sandbox_path} -> {resolved_sandbox_path}")
 
     # Determine working directory
     cwd = resolved_sandbox_path or os.getcwd()
@@ -499,7 +497,7 @@ def main():
         source_workspace_id=source_workspace_id,
     )
 
-    effective_model = api_model or GEMINI_CLI_MODEL
+    effective_model = payload.get("model") or api_model or GEMINI_CLI_MODEL
 
     # Build gemini CLI command with JSON output for structured response
     cmd = [
@@ -680,7 +678,9 @@ def _extract_auth_scope(auth_trace: dict | None) -> dict | None:
         "selection_reason",
         "selection_trace",
     )
-    scope = {key: auth_trace.get(key) for key in keys if auth_trace.get(key) is not None}
+    scope = {
+        key: auth_trace.get(key) for key in keys if auth_trace.get(key) is not None
+    }
     return scope or None
 
 

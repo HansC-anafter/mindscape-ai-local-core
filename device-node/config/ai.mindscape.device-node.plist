@@ -7,9 +7,12 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/node</string>
-        <string>/usr/local/lib/mindscape-device-node/dist/index.js</string>
+        <string>__NODE_BIN__</string>
+        <string>__PROJECT_DIR__/dist/index.js</string>
     </array>
+
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_DIR__</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -21,17 +24,17 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/usr/local/var/log/mindscape-device-node.log</string>
+    <string>__PROJECT_DIR__/logs/device-node.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/usr/local/var/log/mindscape-device-node.error.log</string>
+    <string>__PROJECT_DIR__/logs/device-node.error.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>NODE_ENV</key>
         <string>production</string>
         <key>MCP_TRANSPORT</key>
-        <string>stdio</string>
+        <string>http</string>
     </dict>
 
     <key>ThrottleInterval</key>

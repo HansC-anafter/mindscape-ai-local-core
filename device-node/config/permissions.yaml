@@ -66,6 +66,7 @@ capabilities:
       - touch
       - cp
       - mv
+      - osascript
     denied_commands:
       - "rm -rf"
       - sudo
