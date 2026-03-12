@@ -27,8 +27,10 @@ from ...models.dashboard import (
 from ...dependencies.auth import get_current_user, AuthContext
 from ...utils.scope import parse_scope, validate_scope
 from ...services.dashboard_aggregator import DashboardAggregator
+from ...services.stores.postgres.saved_views_store import PostgresSavedViewsStore
 from ...services.saved_views_store import SavedViewsStore
 from ...services.mindscape_store import MindscapeStore
+from ...database.connection_factory import ConnectionFactory
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 logger = logging.getLogger(__name__)
@@ -39,9 +41,12 @@ def get_aggregator() -> DashboardAggregator:
     return DashboardAggregator(store)
 
 
-def get_saved_views_store() -> SavedViewsStore:
-    store = MindscapeStore()
-    return PostgresSavedViewsStore()
+def get_saved_views_store() -> PostgresSavedViewsStore:
+    # We only support Postgres now, but checking ConnectionFactory for consistency
+    factory = ConnectionFactory()
+    if factory.get_db_type() == "postgres":
+        return PostgresSavedViewsStore()
+    raise RuntimeError("Saved views requires PostgreSQL")
 
 
 # ==================== Summary ====================
