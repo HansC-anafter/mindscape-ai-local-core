@@ -157,7 +157,12 @@ export async function apiRequest<T>(
     }
 
     return response.json();
-  } catch (error) {
+  } catch (error: any) {
+    // Ignore AbortError as it's expected when requests are cancelled
+    if (error.name === 'AbortError') {
+      throw error;
+    }
+
     // Handle network errors (e.g., ERR_INSUFFICIENT_RESOURCES, connection failures)
     const errorKey = `network_error:${url}`;
     const errorMessage =

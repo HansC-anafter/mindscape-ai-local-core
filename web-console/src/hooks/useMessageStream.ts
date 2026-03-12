@@ -69,6 +69,11 @@ export function useMessageStream(
     const [connected, setConnected] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Meeting streaming state — accumulates token chunks in real-time
+    const [streamingText, setStreamingText] = useState<string>('');
+    const [isStreaming, setIsStreaming] = useState(false);
+    const streamingTextRef = useRef<string>('');
+
     // Track seen message IDs to avoid duplicates
     const seenIdsRef = useRef<Set<string>>(new Set());
 
@@ -76,6 +81,9 @@ export function useMessageStream(
     useEffect(() => {
         setStreamedMessages([]);
         seenIdsRef.current.clear();
+        setStreamingText('');
+        setIsStreaming(false);
+        streamingTextRef.current = '';
     }, [threadId]);
 
     useEffect(() => {
@@ -89,8 +97,41 @@ export function useMessageStream(
 
         const unsubscribe = subscribeEventStream(workspaceId, {
             apiUrl,
-            eventTypes: ['message', 'pipeline_stage', 'execution_plan', 'run_started', 'run_completed', 'run_failed', 'step_start', 'step_progress', 'step_complete', 'step_error'],  // Subscribe to message and execution events
+            eventTypes: ['message', 'pipeline_stage', 'execution_plan', 'run_started', 'run_completed', 'run_failed', 'step_start', 'step_progress', 'step_complete', 'step_error', 'chunk', 'stream_start', 'stream_end', 'meeting_stage'],
             onEvent: (event) => {
+                // ── Meeting streaming chunk handling ──────────
+                if (event.type === 'stream_start') {
+                    streamingTextRef.current = '';
+                    setStreamingText('');
+                    setIsStreaming(true);
+                    return;
+                }
+                if (event.type === 'chunk') {
+                    const chunkContent = (event.payload as any)?.content || '';
+                    streamingTextRef.current += chunkContent;
+                    setStreamingText(streamingTextRef.current);
+                    return;
+                }
+                if (event.type === 'stream_end') {
+                    streamingTextRef.current = '';
+                    setStreamingText('');
+                    setIsStreaming(false);
+                    return;
+                }
+
+                // ── Meeting stage indicators ─────────────────
+                if (event.type === 'meeting_stage') {
+                    const stagePayload = event.payload as any;
+                    window.dispatchEvent(new CustomEvent('execution-event', {
+                        detail: {
+                            type: 'pipeline_stage',
+                            stage: stagePayload?.stage || 'meeting',
+                            message: stagePayload?.message || 'Processing…',
+                        }
+                    }));
+                    return;
+                }
+
                 // Forward execution-related events to useExecutionState via CustomEvent
                 if (event.type !== 'message') {
                     const payload = event.payload as any;
@@ -184,5 +225,8 @@ export function useMessageStream(
         markAsSeen,
         markManyAsSeen,
         clearStreamedMessages,
+        // Meeting real-time streaming
+        streamingText,
+        isStreaming,
     };
 }

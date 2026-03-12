@@ -55,6 +55,8 @@ export function MessagesContainer({
     reloadMessages,
     executionTree,
     pipelineStage,
+    streamingText: meetingStreamingText,
+    isStreaming: meetingIsStreaming,
   } = useMessages();
 
   const { isStreaming, firstChunkReceived } = useUIState();
@@ -148,6 +150,24 @@ export function MessagesContainer({
                   }
                 }}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Meeting real-time streaming text */}
+      {meetingIsStreaming && meetingStreamingText && (
+        <div className="space-y-2 pb-2">
+          <div className="flex justify-start px-4">
+            <div className="max-w-[85%] rounded-2xl px-4 py-3 bg-surface-secondary dark:bg-gray-800 text-primary dark:text-gray-100 shadow-sm border border-border/40 dark:border-gray-700">
+              <div className="text-xs text-secondary dark:text-gray-400 mb-1 flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                Meeting Engine
+              </div>
+              <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                {meetingStreamingText}
+                <span className="inline-block w-0.5 h-4 bg-accent dark:bg-blue-400 ml-0.5 animate-pulse" style={{ verticalAlign: 'text-bottom' }} />
+              </div>
             </div>
           </div>
         </div>

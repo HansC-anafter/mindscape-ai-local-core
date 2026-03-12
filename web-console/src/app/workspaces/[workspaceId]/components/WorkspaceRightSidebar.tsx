@@ -84,16 +84,24 @@ export default function WorkspaceRightSidebar({
                                 key={`exec-mode-${workspace.id}-${workspace.execution_mode || 'hybrid'}-${workspace.execution_priority || 'medium'}`}
                                 mode={(workspace.execution_mode as 'qa' | 'execution' | 'hybrid' | 'meeting') || 'hybrid'}
                                 priority={(workspace.execution_priority as 'low' | 'medium' | 'high') || 'medium'}
+                                meetingEnabled={(workspace as any).meeting_enabled !== false}
                                 onChange={async (update) => {
                                     try {
                                         await contextData.updateWorkspace({
                                             execution_mode: update.mode,
                                             execution_priority: update.priority,
                                         });
-                                        // WorkspaceDataContext auto-updates workspace state
-                                        // key prop ensures re-render on workspace update
                                     } catch (err) {
                                         console.error('Failed to update execution mode:', err);
+                                    }
+                                }}
+                                onMeetingToggle={async (enabled) => {
+                                    try {
+                                        await contextData.updateWorkspace({
+                                            meeting_enabled: enabled,
+                                        });
+                                    } catch (err) {
+                                        console.error('Failed to toggle meeting:', err);
                                     }
                                 }}
                             />

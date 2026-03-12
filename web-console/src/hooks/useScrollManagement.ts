@@ -79,18 +79,21 @@ export function useScrollManagement(options?: ScrollManagementOptions) {
     (force: boolean = false) => {
       if (!messagesScrollRef.current || !enabled) return;
 
+      const jumpToBottom = () => {
+        if (messagesScrollRef.current) {
+          messagesScrollRef.current.scrollTop = messagesScrollRef.current.scrollHeight;
+        }
+      };
+
       if (force) {
-        messagesScrollRef.current.scrollTo({
-          top: messagesScrollRef.current.scrollHeight,
-          behavior: 'smooth',
-        });
+        jumpToBottom();
+        // Follow-up frame to catch any late layout shifts
+        requestAnimationFrame(jumpToBottom);
         setAutoScroll(true);
         setUserScrolled(false);
       } else if (autoScroll && !userScrolled && messages.length > 0) {
-        messagesScrollRef.current.scrollTo({
-          top: messagesScrollRef.current.scrollHeight,
-          behavior: 'smooth',
-        });
+        jumpToBottom();
+        requestAnimationFrame(jumpToBottom);
       }
     },
     [
@@ -144,11 +147,25 @@ export function useScrollManagement(options?: ScrollManagementOptions) {
   useEffect(() => {
     if (isInitialLoad && messages.length > 0) {
       setIsInitialLoad(false);
-      setTimeout(() => {
-        scrollToBottom(true);
-      }, 100);
+
+      // Scroll to bottom using rAF loop to guarantee the DOM has
+      // finished layout.  We scroll on every frame for ~500ms so
+      // that late-arriving content (images, markdown, lazy chunks)
+      // doesn't leave us stranded in the middle.
+      let frames = 0;
+      const maxFrames = 30; // ~500ms at 60fps
+      const scrollLoop = () => {
+        if (messagesScrollRef.current) {
+          messagesScrollRef.current.scrollTop = messagesScrollRef.current.scrollHeight;
+        }
+        frames++;
+        if (frames < maxFrames) {
+          requestAnimationFrame(scrollLoop);
+        }
+      };
+      requestAnimationFrame(scrollLoop);
     }
-  }, [isInitialLoad, messages.length, setIsInitialLoad, scrollToBottom]);
+  }, [isInitialLoad, messages.length, setIsInitialLoad, messagesScrollRef]);
 
   return {
     scrollToBottom,

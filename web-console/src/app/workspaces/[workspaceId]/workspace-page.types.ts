@@ -28,6 +28,7 @@ export interface Workspace {
     default_locale?: string;
     mode?: WorkspaceMode;
     execution_mode?: ExecutionMode;
+    meeting_enabled?: boolean;
     expected_artifacts?: string[];
     execution_priority?: ExecutionPriority;
     data_sources?: DataSource | null;

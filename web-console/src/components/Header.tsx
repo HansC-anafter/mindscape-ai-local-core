@@ -16,7 +16,9 @@ import { PackListSidebar } from './workspace/PackListSidebar';
 
 export default function Header() {
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
+  const [worksheetsMenuOpen, setWorksheetsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const worksheetsMenuRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const [locale, setLocale] = useLocale();
@@ -39,6 +41,9 @@ export default function Header() {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setSettingsMenuOpen(false);
+      }
+      if (worksheetsMenuRef.current && !worksheetsMenuRef.current.contains(event.target as Node)) {
+        setWorksheetsMenuOpen(false);
       }
     };
 
@@ -124,12 +129,44 @@ export default function Header() {
               >
                 {t('navMindscape' as any)}
               </a>
-              <a
-                href="/playbooks"
-                className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded-md text-xs font-medium"
-              >
-                {t('navPlaybooks' as any)}
-              </a>
+              {/* Worksheets Dropdown (Playbooks + Skills) */}
+              <div className="relative" ref={worksheetsMenuRef}>
+                <button
+                  onClick={() => setWorksheetsMenuOpen(!worksheetsMenuOpen)}
+                  className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 px-2 py-1 rounded-md text-xs font-medium flex items-center transition-colors"
+                >
+                  {t('navPlaybooks' as any)}
+                  <svg
+                    className={`ml-1 h-4 w-4 transition-transform ${worksheetsMenuOpen ? 'transform rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {worksheetsMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 z-50 border border-gray-200 dark:border-gray-700">
+                    <a
+                      href="/playbooks"
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      onClick={() => setWorksheetsMenuOpen(false)}
+                    >
+                      <span className="text-base">📋</span>
+                      Playbooks
+                    </a>
+                    <a
+                      href="/skills"
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      onClick={() => setWorksheetsMenuOpen(false)}
+                    >
+                      <span className="text-base">🛠️</span>
+                      Skills
+                    </a>
+                  </div>
+                )}
+              </div>
               {/* Settings Dropdown Menu */}
               <div className="relative" ref={menuRef}>
                 <button
