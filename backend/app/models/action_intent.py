@@ -90,6 +90,12 @@ class ActionIntent(BaseModel):
         description="Referenced asset IDs",
     )
 
+    # Model routing (v3.1)
+    capability_profile: Optional[str] = Field(
+        default=None,
+        description="Capability profile for model routing (e.g. 'fast', 'precise', 'vision')",
+    )
+
     # Policy gate results (populated post-normalization)
     landing_status: Optional[str] = Field(
         default=None,
@@ -117,6 +123,8 @@ class ActionIntent(BaseModel):
         }
         if self.depends_on:
             d["blocked_by"] = self.depends_on
+        if self.capability_profile:
+            d["capability_profile"] = self.capability_profile
         if self.landing_status:
             d["landing_status"] = self.landing_status
         if self.policy_reason_code:
@@ -139,6 +147,7 @@ class ActionIntent(BaseModel):
             priority=d.get("priority"),
             engine=d.get("engine"),
             asset_refs=d.get("asset_refs") or [],
+            capability_profile=d.get("capability_profile"),
             landing_status=d.get("landing_status"),
             policy_reason_code=d.get("policy_reason_code"),
         )

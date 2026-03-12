@@ -182,6 +182,12 @@ class PhaseIR(BaseModel):
         description="ID of the latest PhaseAttempt for this phase",
     )
 
+    # Per-agent model routing (v3.1)
+    capability_profile: Optional[str] = Field(
+        None,
+        description="Capability profile for model selection (from meeting role or ProgramSpec)",
+    )
+
     # Timing
     started_at: Optional[datetime] = Field(None, description="Phase start timestamp")
     completed_at: Optional[datetime] = Field(

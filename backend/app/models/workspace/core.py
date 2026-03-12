@@ -106,7 +106,12 @@ class Workspace(BaseModel):
     # Execution mode configuration
     execution_mode: Optional[str] = Field(
         default="qa",
-        description="Workspace execution mode: 'qa' | 'execution' | 'hybrid' | 'meeting'",
+        description="Workspace execution mode: 'qa' | 'execution' | 'hybrid'",
+    )
+    meeting_enabled: bool = Field(
+        default=False,
+        description="Orthogonal meeting engine flag. When True, meeting engine activates "
+        "regardless of execution_mode. Per-project meeting_enabled overrides this.",
     )
     expected_artifacts: Optional[List[str]] = Field(
         default=None,
@@ -311,7 +316,11 @@ class UpdateWorkspaceRequest(BaseModel):
         "{playbook_code: {base_path: str, artifacts_dir: str}}",
     )
     execution_mode: Optional[str] = Field(
-        None, description="Execution mode: 'qa' | 'execution' | 'hybrid' | 'meeting'"
+        None, description="Execution mode: 'qa' | 'execution' | 'hybrid'"
+    )
+    meeting_enabled: Optional[bool] = Field(
+        None,
+        description="Enable meeting engine for this workspace (orthogonal to execution_mode)",
     )
     expected_artifacts: Optional[List[str]] = Field(
         None, description="Expected artifact types"
