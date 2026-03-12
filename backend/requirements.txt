@@ -66,6 +66,12 @@ redis>=4.0.0
 # Browser automation (required by IG capability tools)
 playwright
 
+# Image processing (required by IG vision analyzer)
+Pillow>=12.0.0
+
+# HuggingFace model downloads
+huggingface_hub>=0.20.0
+
 # ⚠️ Hard Rule: local-core core does NOT depend on cloud contract packages
 # sitehub-execution-protocol is only installed in pack runtime venv (via Pack Installer)
 # For cloud handoff, local-core sends JSON payload to site-hub API (no protocol package needed)
