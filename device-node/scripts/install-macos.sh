@@ -1,57 +1,56 @@
 #!/bin/bash
-# Mindscape Device Node - macOS Installation Script
+# Mindscape Device Node - macOS Installation Script (dev-mode)
+#
+# Installs a launchd agent that runs Device Node directly from the project
+# directory. No sudo required. Clone → npm install → npm run install:macos.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-INSTALL_DIR="/usr/local/lib/mindscape-device-node"
-PLIST_SRC="$PROJECT_DIR/config/ai.mindscape.device-node.plist"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PLIST_TEMPLATE="$PROJECT_DIR/config/ai.mindscape.device-node.plist"
 PLIST_DST="$HOME/Library/LaunchAgents/ai.mindscape.device-node.plist"
 
-echo "🚀 Installing Mindscape Device Node..."
+echo "🚀 Installing Mindscape Device Node (dev-mode)..."
+echo "   Project: $PROJECT_DIR"
 
-# Build the project
-echo "📦 Building project..."
+# ── 1. Build ─────────────────────────────────────────────────────────────
+echo "📦 Building TypeScript..."
 cd "$PROJECT_DIR"
-npm install
+npm install --silent
 npm run build
 
-# Create installation directory
-echo "📁 Creating installation directory..."
-sudo mkdir -p "$INSTALL_DIR"
-sudo cp -r "$PROJECT_DIR/dist" "$INSTALL_DIR/"
-sudo cp -r "$PROJECT_DIR/config" "$INSTALL_DIR/"
-sudo cp "$PROJECT_DIR/package.json" "$INSTALL_DIR/"
+# ── 2. Create logs directory ─────────────────────────────────────────────
+mkdir -p "$PROJECT_DIR/logs"
 
-# Install production dependencies
-echo "📦 Installing production dependencies..."
-cd "$INSTALL_DIR"
-sudo npm install --production
+# ── 3. Detect node binary ────────────────────────────────────────────────
+NODE_BIN="$(which node)"
+if [ -z "$NODE_BIN" ]; then
+    echo "❌ Error: node not found in PATH. Please install Node.js >= 18."
+    exit 1
+fi
+echo "   Node: $NODE_BIN ($(node --version))"
 
-# Create log directory
-sudo mkdir -p /usr/local/var/log
-
-# Install launchd plist
-echo "🔧 Installing launchd service..."
+# ── 4. Generate plist from template ──────────────────────────────────────
+echo "🔧 Installing launchd agent..."
 mkdir -p "$HOME/Library/LaunchAgents"
-cp "$PLIST_SRC" "$PLIST_DST"
 
-# Unload if already loaded
+sed \
+    -e "s|__NODE_BIN__|${NODE_BIN}|g" \
+    -e "s|__PROJECT_DIR__|${PROJECT_DIR}|g" \
+    "$PLIST_TEMPLATE" > "$PLIST_DST"
+
+# ── 5. (Re)load the agent ────────────────────────────────────────────────
 launchctl unload "$PLIST_DST" 2>/dev/null || true
-
-# Load the service
 launchctl load "$PLIST_DST"
 
-echo "✅ Mindscape Device Node installed successfully!"
 echo ""
-echo "To check status:"
-echo "  launchctl list | grep mindscape"
+echo "✅ Device Node installed and started!"
 echo ""
-echo "To view logs:"
-echo "  tail -f /usr/local/var/log/mindscape-device-node.log"
+echo "  Status:  launchctl list | grep mindscape"
+echo "  Logs:    tail -f $PROJECT_DIR/logs/device-node.log"
+echo "  Stop:    launchctl unload ~/Library/LaunchAgents/ai.mindscape.device-node.plist"
+echo "  Restart: launchctl unload ~/Library/LaunchAgents/ai.mindscape.device-node.plist && \\"
+echo "           launchctl load   ~/Library/LaunchAgents/ai.mindscape.device-node.plist"
 echo ""
-echo "To uninstall:"
-echo "  launchctl unload ~/Library/LaunchAgents/ai.mindscape.device-node.plist"
-echo "  rm ~/Library/LaunchAgents/ai.mindscape.device-node.plist"
-echo "  sudo rm -rf /usr/local/lib/mindscape-device-node"
+echo "  After code changes:  npm run build && launchctl unload ~/Library/LaunchAgents/ai.mindscape.device-node.plist && launchctl load ~/Library/LaunchAgents/ai.mindscape.device-node.plist"

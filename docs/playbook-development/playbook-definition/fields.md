@@ -74,6 +74,24 @@ Capability pack code this playbook belongs to. Used for grouping playbooks in th
 - Markdown frontmatter (`.md` files): `capability_code: instagram`
 - JSON metadata (`.json` files): `"capability_code": "instagram"`
 
+## execution_profile (v3.1)
+
+Declarative requirements for model routing. Tells the system what the playbook *needs* without specifying concrete models.
+
+| Field | Type | Values | Default |
+|-------|------|--------|---------|
+| `reasoning` | string | `fast`, `standard`, `precise` | `standard` |
+| `modalities` | string[] | `text`, `vision` | `["text"]` |
+| `output_mode` | string | `json`, `markdown`, `structured` | — |
+| `context_need` | string | `low`, `medium`, `high` | — |
+| `locality` | string | `local_preferred`, `cloud_ok`, `local_only` | — |
+
+**Routing behavior**:
+- `modalities: ["vision"]` → routes to local HF VLM (Qwen2-VL-9B by default)
+- `reasoning: "precise"` → routes to stronger model (gemini-2.5-pro by default)
+- `reasoning: "fast"` → routes to faster model (gemini-2.0-flash by default)
+- Mapping can be overridden via Settings → Models & Quota → `profile_model_map`
+
 ## Step Fields
 
 ### id

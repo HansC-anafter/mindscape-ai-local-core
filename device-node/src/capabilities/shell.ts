@@ -55,6 +55,8 @@ const DEFAULT_WHITELIST: CommandWhitelist = {
         allowed_subcommands: ["compose", "ps", "logs", "inspect"],
         denied_flags: ["--rm", "--force-rm", "-f"],
     },
+    // macOS native UI scripts
+    osascript: { allowed_subcommands: [], denied_flags: [] },
 };
 
 function validateCommand(
