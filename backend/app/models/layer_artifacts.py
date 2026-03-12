@@ -34,6 +34,22 @@ class RoundVerdict(BaseModel):
         default_factory=list,
         description="Open items that were not fully resolved",
     )
+    coverage_pass: bool = Field(
+        default=True,
+        description="Whether CoverageMatrix audit passed (P1-C)",
+    )
+    risk_pass: bool = Field(
+        default=True,
+        description="Whether risk assessment passed",
+    )
+    decomposition_ready: bool = Field(
+        default=False,
+        description="Whether output is ready for decomposition",
+    )
+    next_action: str = Field(
+        default="more_rounds",
+        description="more_rounds | synthesize | abort",
+    )
 
     @classmethod
     def from_text(cls, text: str) -> "RoundVerdict":
