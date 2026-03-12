@@ -473,6 +473,18 @@ async def agent_mode_chat(request: AgentChatRequest) -> AgentChatResponse:
                 location = getattr(llm_provider, "location", None) or "us-central1"
 
         # Create LangChain agent executor with credentials from Mindscape config
+        # Inject Guardrail specifications into the agent's base instructions
+        agent_system_prompt = (
+            "You are a Configuration Assistant for Mindscape AI Local Core.\n"
+            "When asked to install or create an Agent Skill, you must adhere to these rules:\n"
+            "1. You must use the `install_skill` tool.\n"
+            "2. The `skill_content` MUST start with standard YAML frontmatter (---) containing "
+            "at least 'name' and 'description', followed by another (---), and then the Markdown instructions.\n"
+            "3. DO NOT include any destructive shell commands (like rm -rf, mkfs) or network exfiltration patterns "
+            "(like nc -e, bash -i) in the skill instructions. The system's SecurityGuardrail will block them.\n"
+            "4. Only provide safe, helpful prompts and procedural blueprints.\n"
+        )
+
         executor = LangChainAgentExecutor(
             provider=provider,
             model=model,
@@ -481,6 +493,7 @@ async def agent_mode_chat(request: AgentChatRequest) -> AgentChatResponse:
             api_key=api_key,
             project_id=project_id,
             location=location,
+            system_prompt=agent_system_prompt,
         )
 
         # Build context dict

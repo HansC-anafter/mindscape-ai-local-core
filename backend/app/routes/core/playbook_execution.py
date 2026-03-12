@@ -858,3 +858,93 @@ async def reindex_playbooks_for_executor():
     except Exception as e:
         logger.error(f"Failed to reindex playbooks for executor: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/executions/global")
+async def get_global_executions(
+    limit: int = Query(30, description="Maximum number of executions"),
+    playbook_code_prefix: Optional[str] = Query(
+        None, description="Filter by playbook code prefix (e.g., 'ig_')"
+    ),
+    status_filter: Optional[str] = Query(
+        None, description="Comma-separated status filter (e.g., 'running,pending')"
+    ),
+):
+    """List executions across ALL workspaces for global visibility.
+
+    Enables cross-workspace awareness: users can see which tasks are
+    occupying runner slots or holding browser locks even if they belong
+    to a different workspace.
+    """
+    try:
+        from sqlalchemy import text
+        from backend.app.services.stores.tasks_store import TasksStore
+
+        tasks_store = TasksStore()
+
+        query_parts = [
+            """
+            SELECT
+                t.id,
+                t.workspace_id,
+                t.message_id,
+                t.execution_id,
+                t.project_id,
+                t.pack_id,
+                t.task_type,
+                t.status,
+                t.params,
+                t.result,
+                (
+                    t.execution_context::jsonb
+                    - 'result'
+                    - 'workflow_result'
+                    - 'step_outputs'
+                    - 'outputs'
+                )::json AS execution_context,
+                t.storyline_tags,
+                t.created_at,
+                t.started_at,
+                t.completed_at,
+                t.error,
+                w.title AS workspace_name
+            FROM tasks t
+            LEFT JOIN workspaces w ON w.id = t.workspace_id
+            WHERE 1=1
+            """
+        ]
+        params: dict = {}
+
+        if playbook_code_prefix:
+            query_parts.append("AND t.pack_id LIKE :pack_prefix")
+            params["pack_prefix"] = f"{playbook_code_prefix}%"
+
+        if status_filter:
+            statuses = [s.strip().lower() for s in status_filter.split(",") if s.strip()]
+            if statuses:
+                query_parts.append("AND LOWER(t.status) = ANY(:statuses)")
+                params["statuses"] = statuses
+
+        query_parts.append("ORDER BY t.created_at DESC")
+        query_parts.append("LIMIT :limit")
+        params["limit"] = limit
+
+        with tasks_store.get_connection() as conn:
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+
+        executions = []
+        for row in rows:
+            task = tasks_store._row_to_task(row)
+            d = task.model_dump()
+            d["playbook_code"] = d.get("pack_id") or (
+                d.get("execution_context") or {}
+            ).get("playbook_code")
+            d["execution_id"] = d.get("execution_id") or d.get("id")
+            d["workspace_name"] = row.workspace_name if hasattr(row, "workspace_name") else None
+            executions.append(d)
+
+        return {"executions": executions}
+    except Exception as e:
+        logger.error(f"Failed to get global executions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+

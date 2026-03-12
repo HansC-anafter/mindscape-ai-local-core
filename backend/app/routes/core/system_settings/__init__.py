@@ -17,6 +17,7 @@ from . import (
     ports,
     files,
     assistant,
+    local_content,
 )
 
 router = APIRouter(prefix="/api/v1/system-settings", tags=["system-settings"])
@@ -33,4 +34,7 @@ router.include_router(env_vars.router)
 router.include_router(system_control.router)
 router.include_router(ports.router)  # Port configuration routes
 router.include_router(files.router)  # File system utility routes
+router.include_router(
+    local_content.router
+)  # Local content access (Device Node filesystem + Notes)
 router.include_router(general.router)  # Catch-all routes last

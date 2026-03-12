@@ -23,7 +23,7 @@ async def get_capability_profiles():
 
         return {
             "capability_profile_mapping": settings_store.get_capability_profile_mapping(),
-            "profile_model_mapping": settings_store.get_profile_model_mapping(),
+            "profile_model_map": settings_store.get_profile_model_map(),
             "custom_model_provider_mapping": settings_store.get_custom_model_provider_mapping(),
         }
     except Exception as e:
@@ -38,8 +38,8 @@ async def update_capability_profiles(
     capability_profile_mapping: Optional[Dict[str, str]] = Body(
         None, description="Stage to capability profile mapping"
     ),
-    profile_model_mapping: Optional[Dict[str, List[str]]] = Body(
-        None, description="Profile to model list mapping"
+    profile_model_map: Optional[Dict[str, str]] = Body(
+        None, description="Profile to model mapping (single model per profile)"
     ),
     custom_model_provider_mapping: Optional[Dict[str, str]] = Body(
         None, description="Custom model to provider mapping"
@@ -53,8 +53,8 @@ async def update_capability_profiles(
 
         if capability_profile_mapping is not None:
             settings_store.set_capability_profile_mapping(capability_profile_mapping)
-        if profile_model_mapping is not None:
-            settings_store.set_profile_model_mapping(profile_model_mapping)
+        if profile_model_map is not None:
+            settings_store.set_profile_model_map(profile_model_map)
         if custom_model_provider_mapping is not None:
             settings_store.set_custom_model_provider_mapping(
                 custom_model_provider_mapping
@@ -63,7 +63,7 @@ async def update_capability_profiles(
         return {
             "status": "success",
             "capability_profile_mapping": settings_store.get_capability_profile_mapping(),
-            "profile_model_mapping": settings_store.get_profile_model_mapping(),
+            "profile_model_map": settings_store.get_profile_model_map(),
             "custom_model_provider_mapping": settings_store.get_custom_model_provider_mapping(),
         }
     except Exception as e:

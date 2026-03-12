@@ -6,7 +6,7 @@ These tools call governance_tools directly instead of via HTTP to avoid deadlock
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +164,67 @@ async def update_agent_config(agent_id: str, config: Dict[str, Any]) -> Dict[str
     return {"success": False, "error": "Failed to save config"}
 
 
+async def install_skill(skill_id: str, skill_content: str) -> Dict[str, Any]:
+    """
+    Install a mindscape agent skill (.agent/skills/<skill_id>/SKILL.md)
+    by writing directly to the project's .agent/skills/ directory.
+
+    The backend container has write access to /work via Docker volume mount,
+    so we write there directly. If /work is not available, we try common
+    fallback paths.
+
+    Args:
+        skill_id: The folder name for the skill (e.g., 'openclaw-developer', 'data-analyzer').
+        skill_content: The full markdown content for the SKILL.md file, starting with YAML frontmatter.
+
+    Returns:
+        Dict with success status, error messages, and installation method details.
+    """
+    import os
+
+    from backend.app.services.security.guardrails import (
+        SecurityGuardrail,
+        SecurityException,
+    )
+
+    # 1. Security check
+    try:
+        logger.info(f"Running static security guardrails for skill {skill_id}...")
+        SecurityGuardrail.verify_installation(skill_content)
+    except SecurityException as e:
+        logger.warning(f"Skill installation blocked by Security Guardrail: {e}")
+        return {"success": False, "error": str(e), "guardrail_triggered": True}
+
+    # 2. Resolve the skill directory path
+    #    Priority: WORKSPACE_STORAGE_PATH env > /work (Docker volume) > cwd fallback
+    base_path = os.getenv("WORKSPACE_STORAGE_PATH", "/work")
+    if not os.path.isdir(base_path):
+        # Fallback: try the project root (for non-Docker local dev)
+        base_path = os.getcwd()
+
+    skill_dir = os.path.join(base_path, ".agent", "skills", skill_id)
+
+    # 3. Write the skill file
+    try:
+        logger.info(f"Writing skill '{skill_id}' to {skill_dir}")
+        os.makedirs(skill_dir, exist_ok=True)
+
+        file_path = os.path.join(skill_dir, "SKILL.md")
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(skill_content)
+
+        return {
+            "success": True,
+            "message": f"Successfully installed skill '{skill_id}'.",
+            "method": "direct_write",
+            "path": file_path,
+        }
+    except Exception as e:
+        error_msg = f"Skill write failed: {e}"
+        logger.error(error_msg)
+        return {"success": False, "error": error_msg}
+
+
 # Tool registry for Config Assistant Agent Mode
 CONFIG_ASSISTANT_TOOLS = {
     "check_agent_cli": check_agent_cli,
@@ -173,6 +234,7 @@ CONFIG_ASSISTANT_TOOLS = {
     "list_available_agents": list_available_agents,
     "get_agent_config": get_agent_config,
     "update_agent_config": update_agent_config,
+    "install_skill": install_skill,
 }
 
 
