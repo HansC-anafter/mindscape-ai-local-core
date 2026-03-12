@@ -46,8 +46,8 @@ async def _decompose_agenda(
     """
     if not user_message or len(user_message.strip()) < 10:
         return [_sanitize_agenda_item(user_message)]
-    if executor_runtime:
-        return [_sanitize_agenda_item(user_message)]
+    # executor_runtime no longer blocks decomposition — Layer-0c
+    # agenda split must happen regardless of runtime driver.
 
     try:
         import inspect as _inspect
@@ -115,7 +115,7 @@ async def _decompose_agenda(
         if isinstance(items, list) and 2 <= len(items) <= _AGENDA_MAX_ITEMS:
             return [_sanitize_agenda_item(str(i)) for i in items if str(i).strip()]
     except Exception as exc:
-        logger.debug("Agenda decomposition failed (fallback): %s", exc)
+        logger.warning("Agenda decomposition failed (fallback): %s", exc)
 
     return [_sanitize_agenda_item(user_message)]
 

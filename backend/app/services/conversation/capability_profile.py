@@ -40,7 +40,7 @@ class CapabilityProfileRegistry:
     def __init__(self):
         # Default profile configurations
         # Note: model_candidates are examples, actual should support multiple providers
-        # Can be overridden by SystemSettingsStore profile_model_mapping
+        # Can be overridden by SystemSettingsStore profile_model_map
         self.profiles: Dict[CapabilityProfile, ProfileConfig] = {
             CapabilityProfile.FAST: ProfileConfig(
                 profile=CapabilityProfile.FAST,
@@ -131,11 +131,12 @@ class CapabilityProfileRegistry:
         else:
             model_candidates = config.model_candidates
 
-        # Override with SystemSettingsStore profile_model_mapping if available
-        profile_mapping = settings_store.get_profile_model_mapping()
+        # Override with SystemSettingsStore profile_model_map if available
+        profile_mapping = settings_store.get_profile_model_map()
         if profile_mapping and profile.value in profile_mapping:
-            # Prepend custom models to the list
-            custom_models_from_settings = profile_mapping[profile.value]
+            # New format is Dict[str, str] (single model), wrap in list
+            custom_model = profile_mapping[profile.value]
+            custom_models_from_settings = [custom_model] if isinstance(custom_model, str) else custom_model
             model_candidates = custom_models_from_settings + [
                 m for m in model_candidates if m not in custom_models_from_settings
             ]
@@ -212,10 +213,11 @@ class CapabilityProfileRegistry:
             # Method 1: Read from SystemSettingsStore global config
             from backend.app.services.system_settings_store import SystemSettingsStore
             settings_store = SystemSettingsStore()
-            profile_mapping = settings_store.get_profile_model_mapping()
+            profile_mapping = settings_store.get_profile_model_map()
 
             if profile_mapping and profile.value in profile_mapping:
-                custom_models = profile_mapping[profile.value]
+                custom_model = profile_mapping[profile.value]
+                custom_models = [custom_model] if isinstance(custom_model, str) else custom_model
                 # Filter out standard models, return only custom models
                 standard_prefixes = ["gpt", "claude", "gemini", "text-", "o1"]
                 custom_only = [

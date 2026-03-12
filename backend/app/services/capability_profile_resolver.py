@@ -41,14 +41,8 @@ class CapabilityProfileResolver:
         "vision": "balanced",  # vision tasks use balanced variant
     }
 
-    # Profile → model mapping (overridable via system settings)
-    DEFAULT_MODEL_MAP: Dict[str, Optional[str]] = {
-        "fast": "gemini-2.0-flash",
-        "standard": None,  # fallback to global chat_model
-        "precise": "gemini-2.5-pro",
-        "safe_write": "gemini-2.5-pro",  # safe_path + precise model
-        "vision": "Qwen/Qwen2-VL-9B-Instruct",  # local HF VLM
-    }
+    # No hardcoded default model map.
+    # Unconfigured profiles → model=None → caller uses global chat_model.
 
     def resolve(
         self,
@@ -72,10 +66,7 @@ class CapabilityProfileResolver:
 
         # 1. Check system settings for user-defined overrides
         custom_map = self._load_profile_map()
-        if custom_map and capability_profile in custom_map:
-            model = custom_map[capability_profile]
-        else:
-            model = self.DEFAULT_MODEL_MAP.get(capability_profile)
+        model = custom_map.get(capability_profile) if custom_map else None
 
         variant = self.PROFILE_VARIANT_MAP.get(capability_profile, "balanced")
 

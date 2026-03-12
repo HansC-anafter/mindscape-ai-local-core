@@ -21,7 +21,16 @@ _ROLE_TURN_DIRECTIVES: dict[str, str] = {
         "If converged, include the marker [CONVERGED]. Keep concise."
     ),
     "planner": (
-        "As planner, propose a concrete, executable plan with clear steps and ownership."
+        "As planner, produce a structured program draft in JSON. "
+        "Output a JSON object with a 'workstreams' array. "
+        "Each workstream must have: id, name, produces_deliverables (list of deliverable IDs from the contract), "
+        "estimated_units (number of tasks), and depends_on (list of workstream IDs). "
+        'Schema: {"workstreams": [{"id": "WS1", "name": "...", '
+        '"produces_deliverables": ["D1"], "reviews_deliverables": [], '
+        '"consumes_deliverables": [], "estimated_units": 10, "depends_on": []}], '
+        '"total_estimated_tasks": 30} '
+        "EVERY deliverable ID from the contract MUST appear in at least one workstream's "
+        "produces_deliverables. Orphan deliverables will cause coverage failure."
     ),
     "critic": (
         "As critic, challenge assumptions, identify risks, and suggest mitigations."
@@ -806,7 +815,26 @@ class MeetingPromptsMixin:
                     "at least one step that uses a tool or playbook from Available "
                     "Tools to process these files into structured artifacts. "
                 )
-            return common + file_directive + _ROLE_TURN_DIRECTIVES["planner"]
+            # P2-B: Inject RequestContract deliverables so planner can reference them
+            contract_block = ""
+            contract = getattr(self, "_request_contract", None)
+            if contract and hasattr(contract, "deliverables") and contract.deliverables:
+                d_lines = []
+                for d in contract.deliverables:
+                    d_lines.append(f"  - {d.id}: {d.name} (qty={d.quantity})")
+                contract_block = (
+                    f"=== Contract Deliverables ===\n"
+                    + "\n".join(d_lines)
+                    + "\n=== End Deliverables ===\n\n"
+                    "Your workstreams MUST reference these deliverable IDs "
+                    "in produces_deliverables / reviews_deliverables fields.\n\n"
+                )
+            return (
+                common
+                + file_directive
+                + contract_block
+                + _ROLE_TURN_DIRECTIVES["planner"]
+            )
         if role_id == "critic":
             file_check = ""
             if getattr(self, "_uploaded_files", None):
@@ -910,16 +938,22 @@ class MeetingPromptsMixin:
         if round_num >= max_rounds:
             self._last_round_verdict = RoundVerdict(
                 converged=True,
-                confidence=1.0,
-                reason="max_rounds_reached",
+                confidence=0.5,
+                reason="timebox_exhausted",
+                remaining_concerns=["Max rounds reached without explicit convergence"],
             )
             return True
 
         verdict = RoundVerdict.try_parse(facilitator_text)
         self._last_round_verdict = verdict
 
-        if round_num >= 2 and verdict.converged:
+        if round_num >= 2 and verdict.converged and verdict.coverage_pass:
             return True
+
+        # If converged but coverage failed, force another round
+        if verdict.converged and not verdict.coverage_pass:
+            logger.info("Converge blocked: coverage_pass=False")
+            return False
 
         return False
 

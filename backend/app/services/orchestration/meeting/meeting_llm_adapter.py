@@ -76,15 +76,18 @@ class MeetingLLMAdapter:
     ) -> str:
         """Send messages through the configured runtime and return text.
 
-        Keyword arguments (temperature, max_tokens, model, etc.) are
-        accepted for signature compatibility but are NOT forwarded to
-        the underlying generate_fn — the runtime controls those.
+        The ``model`` keyword argument is forwarded to the underlying
+        generate_fn (P1.6).  Other kwargs are accepted for signature
+        compatibility but NOT forwarded — the runtime controls those.
         """
+        model = kwargs.pop("model", None)
         if kwargs:
             logger.debug(
                 "MeetingLLMAdapter: ignoring kwargs %s (runtime controls params)",
                 list(kwargs.keys()),
             )
+        if model:
+            return await self._generate_fn(messages, model=model)
         return await self._generate_fn(messages)
 
     # ----- diagnostics ------------------------------------------------------
@@ -94,9 +97,3 @@ class MeetingLLMAdapter:
             f"MeetingLLMAdapter(runtime={self._runtime_id!r}, "
             f"model={self._model_name!r})"
         )
-
-
-""",
-        Overwrite=false,
-        TargetFile="/Users/shock/Projects_local/workspace/mindscape-ai-local-core/backend/app/services/orchestration/meeting/meeting_llm_adapter.py",
-""".strip()

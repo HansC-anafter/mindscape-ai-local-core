@@ -21,6 +21,7 @@ from websockets.exceptions import ConnectionClosed, WebSocketException
 from .transport import TransportHandler
 from .heartbeat import HeartbeatMonitor
 from .messaging_handler import MessagingHandler
+from .activity_relay import ActivityRelay
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +247,10 @@ class CloudConnector:
             asyncio.create_task(self._message_loop())
             asyncio.create_task(self.heartbeat_monitor.start())
 
+            # Start activity event relay (Redis → WS → Site-Hub)
+            self.activity_relay = ActivityRelay(self.websocket, self.device_id)
+            asyncio.create_task(self.activity_relay.start())
+
         except Exception as e:
             self._is_connecting = False
             self._is_connected = False
@@ -263,6 +268,11 @@ class CloudConnector:
 
         if self.heartbeat_monitor:
             await self.heartbeat_monitor.stop()
+
+        # Stop activity relay
+        if hasattr(self, "activity_relay") and self.activity_relay:
+            await self.activity_relay.stop()
+            self.activity_relay = None
 
         if self.websocket:
             try:

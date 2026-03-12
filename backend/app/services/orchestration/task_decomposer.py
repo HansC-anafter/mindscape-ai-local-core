@@ -22,9 +22,72 @@ import re
 import uuid
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field
+
 from backend.app.models.task_ir import PhaseIR, PhaseStatus
 
 logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# P3-B: DecompositionPolicy — controls decomposition behavior per scale
+# ──────────────────────────────────────────────────────────────────────
+
+
+class DecompositionPolicy(BaseModel):
+    """Large-program decomposition strategy — replaces naive param tuning.
+
+    Drives batching, wave budgets, and recursive depth. Use
+    ``from_scale`` factory to get sensible defaults per scale tier.
+    """
+
+    max_phases_per_wave: int = Field(
+        default=20,
+        description="Max phases dispatched per wave (avoids DAG explosion)",
+    )
+    wave_budget_seconds: int = Field(
+        default=300,
+        description="Time budget per wave in seconds",
+    )
+    batch_size: int = Field(
+        default=10,
+        description="Batch unit size (e.g. 10 posts per batch phase)",
+    )
+    recursive_depth: int = Field(
+        default=2,
+        description="Max recursion depth for iterative decomposition",
+    )
+    scale_tier: str = Field(
+        default="standard",
+        description="Scale tier: trivial, standard, program, campaign",
+    )
+
+    @classmethod
+    def from_scale(cls, scale: str) -> "DecompositionPolicy":
+        """Factory: select policy defaults from scale tier."""
+        if scale == "campaign":
+            return cls(
+                max_phases_per_wave=30,
+                batch_size=20,
+                recursive_depth=3,
+                scale_tier=scale,
+            )
+        if scale == "program":
+            return cls(
+                max_phases_per_wave=20,
+                batch_size=10,
+                recursive_depth=2,
+                scale_tier=scale,
+            )
+        if scale == "trivial":
+            return cls(
+                max_phases_per_wave=5,
+                batch_size=5,
+                recursive_depth=1,
+                wave_budget_seconds=120,
+                scale_tier=scale,
+            )
+        return cls(scale_tier=scale)  # standard defaults
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -121,13 +184,15 @@ class TaskDecomposer:
         self,
         llm_adapter=None,
         model_name: str = "",
-        decompose_threshold: int = 3,
-        max_phases: int = 50,
+        decompose_threshold: int = 1,  # P3-B: any >1 item triggers decomposition
+        max_phases: int = 200,  # P3-B: support large campaign-scale programs
+        decomposition_policy=None,  # P3-B: Optional DecompositionPolicy
     ):
         self._llm = llm_adapter
         self._model_name = model_name
         self._threshold = decompose_threshold
         self._max_phases = max_phases
+        self._policy = decomposition_policy
 
     # ------------------------------------------------------------------
     # Public API

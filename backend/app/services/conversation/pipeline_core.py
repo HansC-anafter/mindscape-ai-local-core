@@ -156,7 +156,7 @@ class PipelineCore:
             router = IngressRouter()
             route_decision = await router.decide(
                 execution_mode=execution_mode,
-                meeting_enabled=False,  # IngressRouter resolves via _check_project_meeting
+                meeting_enabled=getattr(self.workspace, "meeting_enabled", False),
                 executor_runtime=executor_runtime,
                 entry_point="chat",
                 store=self.store,

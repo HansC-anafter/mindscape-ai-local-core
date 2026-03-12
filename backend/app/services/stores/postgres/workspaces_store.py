@@ -41,7 +41,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     playbook_auto_execution_config, suggestion_history,
                     storage_base_path, artifacts_dir, uploads_dir, storage_config,
                     playbook_storage_config, cloud_remote_tools_config,
-                    execution_mode, expected_artifacts, execution_priority,
+                    execution_mode, meeting_enabled,
+                    expected_artifacts, execution_priority,
                     project_assignment_mode, metadata, workspace_blueprint, launch_status, starter_kit_type,
                     executor_runtime, executor_specs, sandbox_config, fallback_model,
                     ttl_hours, expires_at, parent_workspace_id, visibility,
@@ -54,7 +55,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     :playbook_auto_execution_config, :suggestion_history,
                     :storage_base_path, :artifacts_dir, :uploads_dir, :storage_config,
                     :playbook_storage_config, :cloud_remote_tools_config,
-                    :execution_mode, :expected_artifacts, :execution_priority,
+                    :execution_mode, :meeting_enabled,
+                    :expected_artifacts, :execution_priority,
                     :project_assignment_mode, :metadata, :workspace_blueprint, :launch_status, :starter_kit_type,
                     :executor_runtime, :executor_specs, :sandbox_config, :fallback_model,
                     :ttl_hours, :expires_at, :parent_workspace_id, :visibility,
@@ -114,6 +116,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     else None
                 ),
                 "execution_mode": workspace.execution_mode,
+                "meeting_enabled": getattr(workspace, "meeting_enabled", False),
                 "expected_artifacts": (
                     self.serialize_json(workspace.expected_artifacts)
                     if workspace.expected_artifacts
@@ -229,6 +232,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     playbook_storage_config = :playbook_storage_config,
                     cloud_remote_tools_config = :cloud_remote_tools_config,
                     execution_mode = :execution_mode,
+                    meeting_enabled = :meeting_enabled,
                     expected_artifacts = :expected_artifacts,
                     execution_priority = :execution_priority,
                     project_assignment_mode = :project_assignment_mode,
@@ -298,6 +302,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     else None
                 ),
                 "execution_mode": workspace.execution_mode,
+                "meeting_enabled": getattr(workspace, "meeting_enabled", False),
                 "expected_artifacts": (
                     self.serialize_json(workspace.expected_artifacts)
                     if workspace.expected_artifacts
@@ -437,6 +442,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             storage_config=self.deserialize_json(row.storage_config),
             playbook_storage_config=self.deserialize_json(row.playbook_storage_config),
             execution_mode=row.execution_mode or "qa",
+            meeting_enabled=bool(getattr(row, "meeting_enabled", False)),
             expected_artifacts=self.deserialize_json(
                 row.expected_artifacts, default=[]
             ),

@@ -214,6 +214,7 @@ Always verify your actions completed successfully.""",
         api_key: Optional[str] = None,
         project_id: Optional[str] = None,
         location: str = "us-central1",
+        system_prompt: Optional[str] = None,
     ):
         """
         Initialize LangChain Agent Executor.
@@ -226,6 +227,7 @@ Always verify your actions completed successfully.""",
             api_key: API key or service account JSON
             project_id: GCP project ID (for Vertex AI)
             location: GCP location (for Vertex AI)
+            system_prompt: Optional system prompt to prepend
         """
         if not LANGCHAIN_AGENTS_AVAILABLE:
             raise ImportError(
@@ -245,11 +247,21 @@ Always verify your actions completed successfully.""",
         # Convert tools to LangChain format
         self.lc_tools = create_langchain_tools(tools)
 
+        # Construct prompt
+        messages = []
+        if system_prompt:
+            messages.append(("system", system_prompt))
+        messages.extend(self.AGENT_PROMPT.messages)
+
+        prompt = (
+            ChatPromptTemplate.from_messages(messages) if self.AGENT_PROMPT else None
+        )
+
         # Create agent
         self.agent = create_tool_calling_agent(
             llm=self.llm,
             tools=self.lc_tools,
-            prompt=self.AGENT_PROMPT,
+            prompt=prompt,
         )
 
         # Create executor

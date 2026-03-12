@@ -56,7 +56,7 @@ class MeetingToolDiscoveryMixin:
                 )
                 return True
         except Exception as exc:
-            logger.debug("Layer-0c fallback failed (non-fatal): %s", exc)
+            logger.warning("Layer-0c decomposition failed (non-fatal): %s", exc)
         return False
 
     async def _gap_refetch_for_null_actuators(

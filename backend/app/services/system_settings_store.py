@@ -668,19 +668,31 @@ class SystemSettingsStore(PostgresStoreBase):
             return setting.value
         return {}
 
-    def set_profile_model_mapping(self, mapping: Dict[str, List[str]]) -> None:
+    def set_profile_model_map(self, mapping: Dict[str, str]) -> None:
         self.set_setting(
-            key="profile_model_mapping",
+            key="profile_model_map",
             value=mapping,
             value_type=SettingType.JSON,
             category="llm",
-            description="Capability profile to model candidate list mapping",
+            description="Capability profile to model mapping (single model per profile)",
         )
 
-    def get_profile_model_mapping(self) -> Dict[str, List[str]]:
-        setting = self.get_setting("profile_model_mapping")
+    def get_profile_model_map(self) -> Dict[str, str]:
+        setting = self.get_setting("profile_model_map")
         if setting and isinstance(setting.value, dict):
             return setting.value
+        # Fallback: migrate from old key (profile_model_mapping, Dict[str, List[str]])
+        old = self.get_setting("profile_model_mapping")
+        if old and isinstance(old.value, dict):
+            logger.info("Migrating profile_model_mapping → profile_model_map")
+            migrated = {
+                k: v[0] if isinstance(v, list) and v else v
+                for k, v in old.value.items()
+                if v  # skip empty lists/values
+            }
+            self.set_profile_model_map(migrated)
+            self.delete_setting("profile_model_mapping")
+            return migrated
         return {}
 
     def set_custom_model_provider_mapping(self, mapping: Dict[str, str]) -> None:

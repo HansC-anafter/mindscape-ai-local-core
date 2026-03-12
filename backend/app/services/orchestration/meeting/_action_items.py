@@ -165,7 +165,7 @@ class MeetingActionItemsMixin:
         if isinstance(payload, dict) and isinstance(payload.get("action_items"), list):
             payload = payload.get("action_items")
         if isinstance(payload, list):
-            for raw_item in payload[:3]:
+            for raw_item in payload:
                 if not isinstance(raw_item, dict):
                     continue
                 items.append(

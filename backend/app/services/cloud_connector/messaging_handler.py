@@ -322,6 +322,25 @@ class MessagingHandler:
                 mode="auto",
             )
 
+            # ── Phase 1: Quick reply for meeting-enabled workspaces only ──
+            is_meeting = getattr(workspace, "meeting_enabled", False)
+            page_id = None
+
+            if is_meeting:
+                page_id = str(uuid.uuid4())
+                await self._send_reply(
+                    request_id,
+                    original_payload,
+                    {
+                        "status": "processing",
+                        "workspace_id": workspace_id,
+                        "page_id": page_id,
+                        "summary": "已收到任務，正在進行任務會議，完成後可點選連結查看完整結果 📋",
+                    },
+                )
+                logger.info(f"[MessagingHandler] Quick reply sent: page_id={page_id}")
+
+            # ── Phase 2: Run the pipeline (meeting or chat) ──
             pipeline_result = await service.run_background_chat(
                 request=chat_request,
                 workspace=workspace,
@@ -400,18 +419,42 @@ class MessagingHandler:
             # Generate concise summary for LINE rich card
             summary = await self._generate_reply_summary(reply_text)
 
-            await self._send_reply(
-                request_id,
-                original_payload,
-                {
-                    "status": "completed",
-                    "workspace_id": workspace_id,
-                    "event_id": user_event_id,
-                    "reply_text": reply_text,
-                    "summary": summary,
-                    "session_metadata": session_metadata,
-                },
-            )
+            if page_id:
+                # ── Phase 3: Meeting path — update the pre-created page ──
+                meeting_md = await self._build_meeting_detail_md(
+                    store, workspace_id, pipeline_result
+                )
+                page_content = (
+                    reply_text + "\n\n" + meeting_md if meeting_md else reply_text
+                )
+                await self._send_reply(
+                    request_id,
+                    original_payload,
+                    {
+                        "status": "page_update",
+                        "workspace_id": workspace_id,
+                        "event_id": user_event_id,
+                        "page_id": page_id,
+                        "page_content": page_content,
+                        "reply_text": reply_text,
+                        "summary": summary,
+                        "session_metadata": session_metadata,
+                    },
+                )
+            else:
+                # ── Non-meeting path — single reply as before ──
+                await self._send_reply(
+                    request_id,
+                    original_payload,
+                    {
+                        "status": "completed",
+                        "workspace_id": workspace_id,
+                        "event_id": user_event_id,
+                        "reply_text": reply_text,
+                        "summary": summary,
+                        "session_metadata": session_metadata,
+                    },
+                )
 
         except Exception as e:
             logger.error(f"[MessagingHandler] Dispatch failed: {e}", exc_info=True)
@@ -426,6 +469,121 @@ class MessagingHandler:
 
         finally:
             self._active_sessions.pop(request_id, None)
+
+    async def _build_meeting_detail_md(
+        self,
+        store,
+        workspace_id: str,
+        pipeline_result,
+    ) -> str:
+        """Build Markdown with full meeting discussion, actions, and stats.
+
+        Returns empty string for non-meeting flows.
+        """
+        if not pipeline_result:
+            return ""
+
+        session_id = getattr(pipeline_result, "meeting_session_id", None)
+        if not session_id:
+            return ""
+
+        try:
+            events = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: store.events.get_events_by_workspace(
+                    workspace_id=workspace_id,
+                    limit=100,
+                ),
+            )
+
+            if not events:
+                return ""
+
+            sections = []
+            sections.append("---")
+            sections.append("## 📋 會議討論紀錄")
+            sections.append("")
+
+            # Collect turns by round
+            current_round = 0
+            for evt in events:
+                evt_type = evt.type if hasattr(evt, "type") else ""
+                payload = evt.payload or {}
+
+                if evt_type == "meeting_round":
+                    current_round = payload.get("round", current_round + 1)
+                    sections.append(f"### 第 {current_round} 輪")
+                    sections.append("")
+
+                elif evt_type == "agent_turn":
+                    role = payload.get("role", "unknown")
+                    content = payload.get("content", "")
+                    role_label = {
+                        "facilitator": "🎯 Facilitator",
+                        "planner": "📐 Planner",
+                        "critic": "🔍 Critic",
+                    }.get(role, role)
+                    if content:
+                        # Trim very long turns for readability
+                        if len(content) > 800:
+                            content = content[:800] + "…"
+                        sections.append(f"**{role_label}**")
+                        sections.append(content)
+                        sections.append("")
+
+            # Action items
+            action_items = [
+                e
+                for e in events
+                if (e.type if hasattr(e, "type") else "") == "action_item"
+            ]
+            if action_items:
+                sections.append("## ⚡ 行動項目")
+                sections.append("")
+                for i, ai in enumerate(action_items, 1):
+                    p = ai.payload or {}
+                    intent = p.get("intent", p.get("description", ""))
+                    tool = p.get("tool_name", p.get("playbook_code", ""))
+                    line = f"{i}. {intent}"
+                    if tool:
+                        line += f" (`{tool}`)"
+                    sections.append(line)
+                sections.append("")
+
+            # Decisions
+            decisions = [
+                e
+                for e in events
+                if (e.type if hasattr(e, "type") else "") == "decision_final"
+            ]
+            if decisions:
+                sections.append("## ✅ 決策")
+                sections.append("")
+                for d in decisions:
+                    p = d.payload or {}
+                    sections.append(f"- {p.get('summary', p.get('decision', ''))}")
+                sections.append("")
+
+            # Stats
+            quality = getattr(pipeline_result, "quality_score", None)
+            if quality is not None:
+                sections.append("## 📊 統計")
+                sections.append("")
+                sections.append(f"- 質量分數: {quality:.0%}")
+                task_ir = getattr(pipeline_result, "task_ir_id", None)
+                if task_ir:
+                    sections.append(f"- Task IR: `{task_ir}`")
+                sections.append("")
+
+            # Only return if we captured meaningful content
+            if len(sections) <= 3:
+                return ""
+
+            return "\n".join(sections)
+
+        except Exception as e:
+            logger.warning(f"[MessagingHandler] Failed to build meeting detail: {e}")
+            return ""
 
     async def _send_reply(
         self,
