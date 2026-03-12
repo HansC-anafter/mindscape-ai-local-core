@@ -107,6 +107,27 @@ class MeetingIRCompilerMixin:
 
             metadata.set_governance(gov)
 
+        # P3-C: Fallback — build GovernanceContext from request_contract
+        elif hasattr(self, "session") and (self.session.metadata or {}).get(
+            "request_contract"
+        ):
+            try:
+                from backend.app.models.request_contract import (
+                    RequestContract,
+                )
+
+                contract_data = self.session.metadata["request_contract"]
+                contract = RequestContract.model_validate(contract_data)
+                gov = GovernanceContext(
+                    goals=contract.goals,
+                    deliverables=[d.model_dump() for d in contract.deliverables],
+                    acceptance_tests=contract.acceptance_tests,
+                    constraints=contract.constraints,
+                )
+                metadata.set_governance(gov)
+            except Exception:
+                pass  # graceful degradation — no governance is better than crash
+
         # Resolve workspace ID from session or handoff
         workspace_id = ""
         if handoff_in and getattr(handoff_in, "workspace_id", None):
@@ -152,7 +173,7 @@ class MeetingIRCompilerMixin:
                 elif intent.tool_name:
                     engine = f"tool:{intent.tool_name}"
                 else:
-                    engine = "playbook:generic"
+                    engine = "agent:auto"
 
             phase = PhaseIR(
                 # INV-2: phase_id = intent_id
@@ -167,6 +188,7 @@ class MeetingIRCompilerMixin:
                 asset_refs=intent.asset_refs or [],
                 tool_name=intent.tool_name,
                 input_params=intent.input_params,
+                capability_profile=intent.capability_profile,
             )
             phases.append(phase)
         return phases
@@ -190,7 +212,7 @@ class MeetingIRCompilerMixin:
                 elif item.get("tool_name"):
                     engine = f"tool:{item['tool_name']}"
                 else:
-                    engine = "playbook:generic"
+                    engine = "agent:auto"
 
             phase = PhaseIR(
                 id=f"action_{idx}",
@@ -203,6 +225,7 @@ class MeetingIRCompilerMixin:
                 asset_refs=item.get("asset_refs") or [],
                 tool_name=item.get("tool_name"),
                 input_params=item.get("input_params"),
+                capability_profile=item.get("capability_profile"),
                 blocked_by=item.get("blocked_by"),
             )
             phases.append(phase)

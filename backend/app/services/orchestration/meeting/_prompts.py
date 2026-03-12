@@ -21,7 +21,16 @@ _ROLE_TURN_DIRECTIVES: dict[str, str] = {
         "If converged, include the marker [CONVERGED]. Keep concise."
     ),
     "planner": (
-        "As planner, propose a concrete, executable plan with clear steps and ownership."
+        "As planner, produce a structured program draft in JSON. "
+        "Output a JSON object with a 'workstreams' array. "
+        "Each workstream must have: id, name, produces_deliverables (list of deliverable IDs from the contract), "
+        "estimated_units (number of tasks), and depends_on (list of workstream IDs). "
+        'Schema: {"workstreams": [{"id": "WS1", "name": "...", '
+        '"produces_deliverables": ["D1"], "reviews_deliverables": [], '
+        '"consumes_deliverables": [], "estimated_units": 10, "depends_on": []}], '
+        '"total_estimated_tasks": 30} '
+        "EVERY deliverable ID from the contract MUST appear in at least one workstream's "
+        "produces_deliverables. Orphan deliverables will cause coverage failure."
     ),
     "critic": (
         "As critic, challenge assumptions, identify risks, and suggest mitigations."
@@ -196,33 +205,24 @@ class MeetingPromptsMixin:
             return ""
 
     def _has_workspace_tool_bindings(self) -> bool:
-        """Return True iff this workspace has explicit TOOL resource bindings.
+        """Return True iff tools or playbooks are available for this workspace.
 
-        Explicit bindings = admin-configured allowlist.  Manifest fallback
-        (the 215-line global dump) does NOT count as explicit — it is
-        reference-only and should not trigger mandatory-constraint or
-        null-tool retry gates.
+        Checks RAG caches (tools + playbooks) instead of admin-configured
+        bindings.  Any workspace with RAG-discovered tools/playbooks will
+        trigger the MANDATORY constraint requiring the executor to map
+        action items to available tools/playbooks.
         """
-        workspace = getattr(self, "workspace", None)
-        workspace_id = getattr(workspace, "id", None) or getattr(
-            getattr(self, "session", None), "workspace_id", None
+        has_rag_tools = bool(getattr(self, "_rag_tool_cache", []))
+        playbooks_cache = getattr(self, "_available_playbooks_cache", "")
+        has_playbooks = bool(
+            playbooks_cache
+            and playbooks_cache
+            not in (
+                "(no playbooks discovered)",
+                "(playbook discovery unavailable)",
+            )
         )
-        if not workspace_id:
-            return False
-        try:
-            from backend.app.services.stores.workspace_resource_binding_store import (
-                WorkspaceResourceBindingStore,
-            )
-            from backend.app.models.workspace_resource_binding import ResourceType
-
-            store = WorkspaceResourceBindingStore()
-            bindings = store.list_bindings_by_workspace(
-                workspace_id, resource_type=ResourceType.TOOL
-            )
-            return bool(bindings)
-        except Exception as exc:
-            logger.debug("_has_workspace_tool_bindings check failed: %s", exc)
-            return False
+        return has_rag_tools or has_playbooks
 
     # Chinese action-verb → English RAG keywords for cross-lingual recall.
     # These are matched against the user message and appended to the RAG
@@ -378,28 +378,22 @@ class MeetingPromptsMixin:
     def _build_asset_map_context(self) -> str:
         """Build workspace group asset map for cross-workspace dispatch routing.
 
-        Queries all workspaces in the group and their registered ASSET bindings,
-        then formats a context block so the planner knows which workspace owns
-        which data assets. Also injects discoverable workspaces from outside the
-        group (5D-3).
+        Queries all discoverable workspaces and injects their identity
+        (blueprint persona + goals + recent capabilities) so the planner
+        knows which workspace to route data-dependent tasks to.
 
-        Returns empty string only if no group members AND no discoverable
-        workspaces exist.
+        No longer depends on WorkspaceResourceBindingStore — uses
+        workspace_blueprint and suggestion_history instead.
         """
         workspace = getattr(self, "workspace", None)
         if not workspace:
             return ""
 
         try:
-            from backend.app.services.stores.workspace_resource_binding_store import (
-                WorkspaceResourceBindingStore,
-            )
-            from backend.app.models.workspace_resource_binding import ResourceType
             from backend.app.services.stores.postgres.workspaces_store import (
                 PostgresWorkspacesStore,
             )
 
-            binding_store = WorkspaceResourceBindingStore()
             parts: List[str] = []
             seen_ws_ids = set()
             current_ws_id = getattr(workspace, "id", None)
@@ -421,30 +415,14 @@ class MeetingPromptsMixin:
                     )
                     parts.append(f"Current workspace role: {workspace_role}")
 
+                    ws_store = PostgresWorkspacesStore()
                     for ws_id, role in group.role_map.items():
                         seen_ws_ids.add(ws_id)
-                        bindings = binding_store.list_bindings_by_workspace(
-                            ws_id, resource_type=ResourceType.ASSET
-                        )
-                        asset_lines = []
-                        for b in bindings:
-                            name = (b.overrides or {}).get(
-                                "display_name", b.resource_id
-                            )
-                            asset_type = (b.overrides or {}).get(
-                                "asset_type", "unknown"
-                            )
-                            asset_lines.append(f"    - {name} ({asset_type})")
-
                         ws_label = f"  [{role}] {ws_id}"
                         if ws_id == current_ws_id:
                             ws_label += " (current)"
                         parts.append(ws_label)
-
-                        if asset_lines:
-                            parts.extend(asset_lines)
-                        else:
-                            parts.append("    (no assets registered)")
+                        self._append_workspace_identity(ws_store, ws_id, parts)
 
             # --- Path B: Discoverable workspaces (always runs) ---
             ws_store = PostgresWorkspacesStore()
@@ -460,20 +438,8 @@ class MeetingPromptsMixin:
                 parts.append("")
                 parts.append("Discoverable Workspaces (outside group):")
                 for ws in extra:
-                    bindings = binding_store.list_bindings_by_workspace(
-                        ws.id, resource_type=ResourceType.ASSET
-                    )
-                    asset_lines = []
-                    for b in bindings:
-                        name = (b.overrides or {}).get("display_name", b.resource_id)
-                        asset_type = (b.overrides or {}).get("asset_type", "unknown")
-                        asset_lines.append(f"    - {name} ({asset_type})")
-
                     parts.append(f"  [discoverable] {ws.id} — {ws.title}")
-                    if asset_lines:
-                        parts.extend(asset_lines)
-                    else:
-                        parts.append("    (no assets registered)")
+                    self._format_workspace_identity(ws, parts)
 
             if not parts:
                 return ""
@@ -481,6 +447,97 @@ class MeetingPromptsMixin:
         except Exception as exc:
             logger.warning("Failed to build asset map context: %s", exc)
             return ""
+
+    @staticmethod
+    def _format_workspace_identity(ws: Any, parts: List[str]) -> None:
+        """Append workspace identity lines from blueprint + suggestions.
+
+        Uses workspace_blueprint (persona + goals) and suggestion_history
+        to describe what the workspace is and what capabilities it has used.
+        """
+        has_identity = False
+        bp = getattr(ws, "workspace_blueprint", None)
+        if bp:
+            instr = getattr(bp, "instruction", None)
+            if instr:
+                persona = getattr(instr, "persona", "") or ""
+                if persona:
+                    parts.append(f"    Identity: {persona[:120]}")
+                    has_identity = True
+                goals = getattr(instr, "goals", []) or []
+                if goals:
+                    parts.append(f"    Goals: {'; '.join(g[:60] for g in goals[:3])}")
+                    has_identity = True
+
+        hist = getattr(ws, "suggestion_history", []) or []
+        if hist:
+            latest = hist[-1] if hist else {}
+            suggestions = latest.get("suggestions", [])[:3]
+            if suggestions:
+                titles = [s.get("title", "?")[:50] for s in suggestions]
+                parts.append(f"    Recent capabilities: {', '.join(titles)}")
+
+        # Data assets from completed executions (write-time aggregated)
+        ds = getattr(ws, "data_sources", None) or {}
+        if ds and isinstance(ds, dict):
+            asset_lines = []
+            for pack, info in sorted(
+                ds.items(), key=lambda x: x[1].get("last_run", ""), reverse=True
+            ):
+                runs = info.get("total_runs", 0)
+                last = (info.get("last_run") or "")[:10]
+                produces = info.get("produces", [])
+                if produces and isinstance(produces, list):
+                    # Show structured asset labels
+                    for p in produces:
+                        label = p.get("label", p.get("type", pack))
+                        line = f"      - {label}: {runs} runs"
+                        if last:
+                            line += f", last {last}"
+                        asset_lines.append(line)
+                else:
+                    # Fallback: show pack_id
+                    summary = info.get("last_result_summary", "")
+                    line = f"      - {pack}: {runs} runs"
+                    if last:
+                        line += f", last {last}"
+                    if summary:
+                        line += f" ({summary[:60]})"
+                    asset_lines.append(line)
+            if asset_lines:
+                parts.append("    Data assets (completed):")
+                parts.extend(asset_lines[:10])
+                has_identity = True
+
+        # Fallback if nothing was added
+        if not has_identity:
+            parts.append("    (no identity info available)")
+
+    def _append_workspace_identity(
+        self, ws_store: Any, ws_id: str, parts: List[str]
+    ) -> None:
+        """Look up a workspace by ID and append its identity card."""
+        try:
+            import asyncio
+
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Sync fallback: use run_in_executor with blocking get
+                from concurrent.futures import Future
+
+                ws = None
+                try:
+                    ws = ws_store.get_workspace_sync(ws_id)
+                except AttributeError:
+                    pass
+
+                if ws:
+                    self._format_workspace_identity(ws, parts)
+                    return
+
+            parts.append("    (identity lookup unavailable)")
+        except Exception:
+            parts.append("    (identity lookup failed)")
 
     def _build_lens_context(self) -> str:
         """Build lens context block for prompt injection.
@@ -641,9 +698,9 @@ class MeetingPromptsMixin:
                 f"=== Workspace Asset Map ===\n"
                 f"{asset_map_ctx}\n"
                 f"=== End Asset Map ===\n\n"
-                f"When proposing action items, consider which workspace "
-                f"owns the relevant data assets. Assign target_workspace_id "
-                f"accordingly.\n\n"
+                f"Use the asset map as context for understanding what data "
+                f"is already available. All action items MUST target the "
+                f"current workspace — do NOT set target_workspace_id.\n\n"
             )
 
         common = locale_directive + project_block + asset_map_block
@@ -758,7 +815,26 @@ class MeetingPromptsMixin:
                     "at least one step that uses a tool or playbook from Available "
                     "Tools to process these files into structured artifacts. "
                 )
-            return common + file_directive + _ROLE_TURN_DIRECTIVES["planner"]
+            # P2-B: Inject RequestContract deliverables so planner can reference them
+            contract_block = ""
+            contract = getattr(self, "_request_contract", None)
+            if contract and hasattr(contract, "deliverables") and contract.deliverables:
+                d_lines = []
+                for d in contract.deliverables:
+                    d_lines.append(f"  - {d.id}: {d.name} (qty={d.quantity})")
+                contract_block = (
+                    f"=== Contract Deliverables ===\n"
+                    + "\n".join(d_lines)
+                    + "\n=== End Deliverables ===\n\n"
+                    "Your workstreams MUST reference these deliverable IDs "
+                    "in produces_deliverables / reviews_deliverables fields.\n\n"
+                )
+            return (
+                common
+                + file_directive
+                + contract_block
+                + _ROLE_TURN_DIRECTIVES["planner"]
+            )
         if role_id == "critic":
             file_check = ""
             if getattr(self, "_uploaded_files", None):
@@ -801,13 +877,10 @@ class MeetingPromptsMixin:
         return (
             common
             + playbook_block
-            + "As executor, produce only JSON array with up to 3 action items. "
+            + "As executor, produce a JSON array of action items covering all required steps. "
             'Schema: [{"title":"...","description":"...","assigned_to":"executor",'
             '"priority":"low|medium|high","playbook_code":null,'
-            '"target_workspace_id":null,'
             '"tool_name":null,"input_params":null,"blocked_by":null}] '
-            "If a workspace asset map is provided, set target_workspace_id to the "
-            "workspace that owns the relevant data assets for each action item. "
             "playbook_code MUST be selected from Available Playbooks above, or null "
             "if none match. "
             "tool_name is for direct tool invocation without a playbook. "
@@ -865,16 +938,22 @@ class MeetingPromptsMixin:
         if round_num >= max_rounds:
             self._last_round_verdict = RoundVerdict(
                 converged=True,
-                confidence=1.0,
-                reason="max_rounds_reached",
+                confidence=0.5,
+                reason="timebox_exhausted",
+                remaining_concerns=["Max rounds reached without explicit convergence"],
             )
             return True
 
         verdict = RoundVerdict.try_parse(facilitator_text)
         self._last_round_verdict = verdict
 
-        if round_num >= 2 and verdict.converged:
+        if round_num >= 2 and verdict.converged and verdict.coverage_pass:
             return True
+
+        # If converged but coverage failed, force another round
+        if verdict.converged and not verdict.coverage_pass:
+            logger.info("Converge blocked: coverage_pass=False")
+            return False
 
         return False
 

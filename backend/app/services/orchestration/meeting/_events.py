@@ -145,3 +145,48 @@ class MeetingEventsMixin:
         )
         self.store.create_event(event)
         self._events.append(event)
+
+        # Fire-and-forget push to workspace activity stream
+        try:
+            import asyncio
+
+            from backend.app.services.cache.async_redis import publish_meeting_chunk
+
+            ws_id = self.session.workspace_id
+            coro = publish_meeting_chunk(
+                ws_id,
+                {
+                    "type": "mind_event",
+                    "event_type": event_type.value,
+                    "event_id": event.id,
+                    "summary": self._summarize_payload(event_type, payload),
+                    "session_id": self.session.id,
+                },
+            )
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(coro)
+            except RuntimeError:
+                pass  # no event loop — skip
+        except Exception:
+            pass  # non-fatal
+
+    @staticmethod
+    def _summarize_payload(event_type: EventType, payload: Dict[str, Any]) -> str:
+        """Compact summary of event for frontend display."""
+        if event_type == EventType.AGENT_TURN:
+            role = payload.get("role_name", "agent")
+            rd = payload.get("round_number", "?")
+            return f"{role} (round {rd})"
+        if event_type == EventType.DECISION_FINAL:
+            return "Decision finalized"
+        if event_type == EventType.ACTION_ITEM:
+            title = payload.get("title", payload.get("description", ""))[:60]
+            return f"Action: {title}" if title else "Action item"
+        if event_type == EventType.MEETING_ROUND:
+            rd = payload.get("round_number", "?")
+            status = payload.get("status", "")
+            return f"Round {rd} {status}"
+        if event_type == EventType.MESSAGE:
+            return "Meeting minutes"
+        return event_type.value

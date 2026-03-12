@@ -7,6 +7,7 @@ and stores embeddings in the vector DB (mindscape_vectors).
 """
 
 import logging
+import json
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
@@ -45,6 +46,7 @@ CREATE TABLE IF NOT EXISTS tool_embeddings (
     embedding       vector,
     embedding_model TEXT NOT NULL,
     embedding_dim   INTEGER NOT NULL,
+    affordance      JSONB DEFAULT '{}',
     created_at      TIMESTAMPTZ DEFAULT now(),
     updated_at      TIMESTAMPTZ DEFAULT now(),
     UNIQUE (tool_id, embedding_model)
@@ -243,6 +245,12 @@ class ToolEmbeddingService:
                         END $$;
                     """
                     )
+                    # Add affordance column migration
+                    cur.execute(
+                        """
+                        ALTER TABLE tool_embeddings ADD COLUMN IF NOT EXISTS affordance JSONB DEFAULT '{}';
+                        """
+                    )
                 conn.commit()
                 logger.info("tool_embeddings table ensured (with BM25 tsvector)")
             finally:
@@ -308,6 +316,7 @@ class ToolEmbeddingService:
         description: str,
         category: str,
         capability_code: Optional[str] = None,
+        affordance: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Embed and upsert a single tool.
 
@@ -344,8 +353,8 @@ class ToolEmbeddingService:
                         INSERT INTO tool_embeddings
                             (tool_id, display_name, description, category,
                              capability_code, embedding, embedding_model,
-                             embedding_dim, updated_at)
-                        VALUES (%s, %s, %s, %s, %s, %s::vector, %s, %s, now())
+                             embedding_dim, affordance, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s::vector, %s, %s, %s, now())
                         ON CONFLICT (tool_id, embedding_model)
                         DO UPDATE SET
                             display_name = EXCLUDED.display_name,
@@ -354,6 +363,7 @@ class ToolEmbeddingService:
                             capability_code = EXCLUDED.capability_code,
                             embedding = EXCLUDED.embedding,
                             embedding_dim = EXCLUDED.embedding_dim,
+                            affordance = EXCLUDED.affordance,
                             updated_at = now()
                         """,
                         (
@@ -365,6 +375,7 @@ class ToolEmbeddingService:
                             embedding_str,
                             model_name,
                             embedding_dim,
+                            json.dumps(affordance) if affordance else "{}",
                         ),
                     )
                 conn.commit()
@@ -410,6 +421,7 @@ class ToolEmbeddingService:
 
         # P3: Index playbooks into the same tool_embeddings table
         try:
+            from backend.app.services.manifest_utils import resolve_playbook_affordance
             from backend.app.services.playbook_service import PlaybookService
 
             pb_svc = PlaybookService()
@@ -421,12 +433,19 @@ class ToolEmbeddingService:
                     continue  # skip locale duplicates
                 seen_codes.add(pb.playbook_code)
                 cap_code = getattr(pb, "capability_code", None)
+
+                # Retrieve affordance block if available
+                affordance_dict = {}
+                if pb.playbook_code:
+                    affordance_dict = resolve_playbook_affordance(pb.playbook_code)
+
                 ok = await self.index_tool(
                     tool_id=pb.playbook_code,
                     display_name=pb.name,
                     description=pb.description or pb.name,
                     category="playbook",
                     capability_code=cap_code,
+                    affordance=affordance_dict if affordance_dict else None,
                 )
                 if ok:
                     pb_count += 1
@@ -908,6 +927,65 @@ class ToolEmbeddingService:
         else:
             logger.info("Tool RRF: 0 matches above threshold")
             return [], RAG_MISS
+
+    async def search_by_affordance(
+        self,
+        consumes_types: List[str],
+    ) -> List[ToolMatch]:
+        """Search for playbooks that consume ANY of the specified asset types.
+
+        Queries the JSONB affordance column to match 'consumes' declarations.
+        """
+        if not consumes_types:
+            return []
+
+        try:
+            import json
+
+            conn = self._get_connection()
+            try:
+                with conn.cursor() as cur:
+                    query_parts = []
+                    params = []
+                    for t in consumes_types:
+                        query_parts.append("affordance->'consumes' @> %s::jsonb")
+                        params.append(json.dumps([t]))
+
+                    where_clause = " OR ".join(query_parts)
+
+                    cur.execute(
+                        f"""
+                        SELECT DISTINCT tool_id, display_name, description, category, capability_code
+                        FROM tool_embeddings
+                        WHERE category = 'playbook'
+                          AND ({where_clause})
+                        """,
+                        tuple(params),
+                    )
+                    rows = cur.fetchall()
+                    matches = []
+                    for row in rows:
+                        matches.append(
+                            ToolMatch(
+                                tool_id=row[0],
+                                display_name=row[1] or row[0],
+                                description=row[2],
+                                category=row[3] or "",
+                                capability_code=row[4],
+                                similarity=1.0,  # Exact structural match
+                            )
+                        )
+                    logger.info(
+                        "Structured search found %d playbooks for consumes_types=%s",
+                        len(matches),
+                        consumes_types,
+                    )
+                    return matches
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.error("Failed to search_by_affordance: %s", exc)
+            return []
 
     # ------------------------------------------------------------------ #
     #  Multi-model index path

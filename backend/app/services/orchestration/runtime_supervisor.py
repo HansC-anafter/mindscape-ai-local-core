@@ -183,7 +183,7 @@ class RuntimeSupervisor:
                 attempt_id=attempt.id,
                 action=RecoveryAction.REROUTE,
                 reason="max_retries_exhausted_rerouting",
-                reroute_engine="playbook:generic",
+                reroute_engine="agent:auto",
             )
 
         return RecoveryDirective(

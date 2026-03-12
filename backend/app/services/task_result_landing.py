@@ -281,6 +281,40 @@ class TaskResultLandingService:
             except Exception:
                 logger.exception("Task DB update failed task_id=%s", task_id)
 
+        # --- Workspace data_sources: write-time aggregation ---
+        pack_id = getattr(task, "pack_id", None) if task else None
+        if pack_id and workspace_id:
+            try:
+                from app.services.stores.postgres.workspaces_store import (
+                    PostgresWorkspacesStore,
+                )
+                from app.services.manifest_utils import resolve_playbook_produces
+
+                result_summary = self._extract_result_summary(result_data)
+                produces = resolve_playbook_produces(pack_id)
+                entry = {
+                    "last_run": _utc_now().isoformat(),
+                    "last_result_summary": result_summary,
+                }
+                if produces:
+                    entry["produces"] = [
+                        {"type": p.get("type"), "label": p.get("label", "")}
+                        for p in produces
+                        if isinstance(p, dict) and p.get("type")
+                    ]
+                PostgresWorkspacesStore().merge_data_sources(
+                    workspace_id=workspace_id,
+                    pack_id=pack_id,
+                    entry=entry,
+                )
+            except Exception:
+                logger.debug(
+                    "data_sources merge skipped exec=%s: %s",
+                    execution_id,
+                    "error",
+                    exc_info=True,
+                )
+
         return LandingResult(
             artifact_dir=artifact_dir_str,
             result_json_path=result_json_path_str,
@@ -288,6 +322,36 @@ class TaskResultLandingService:
             attachments=written_attachments,
             artifact_id=artifact_id,
         )
+
+    @staticmethod
+    def _extract_result_summary(result_data: Dict[str, Any]) -> str:
+        """Extract a compact metrics summary from task result payload.
+
+        Looks for common output keys (processed, created, tagged, etc.)
+        and formats them as a short string for workspace data_sources.
+        """
+        if not result_data:
+            return ""
+        # Try steps -> first step -> outputs
+        steps = result_data.get("steps") or {}
+        for step_data in steps.values():
+            outputs = step_data.get("outputs") or step_data.get("step_outputs", {})
+            if isinstance(outputs, dict):
+                # Flatten nested step_outputs
+                flat = {}
+                for v in outputs.values():
+                    if isinstance(v, dict):
+                        flat.update(v)
+                    else:
+                        flat = outputs
+                        break
+                if flat:
+                    parts = [f"{k}={v}" for k, v in flat.items() if v is not None]
+                    if parts:
+                        return ", ".join(parts[:5])
+        # Fallback: status
+        status = result_data.get("status")
+        return str(status) if status else ""
 
     def get_landed_result(
         self,

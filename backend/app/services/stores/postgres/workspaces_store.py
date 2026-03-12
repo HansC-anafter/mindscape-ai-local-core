@@ -41,7 +41,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     playbook_auto_execution_config, suggestion_history,
                     storage_base_path, artifacts_dir, uploads_dir, storage_config,
                     playbook_storage_config, cloud_remote_tools_config,
-                    execution_mode, expected_artifacts, execution_priority,
+                    execution_mode, meeting_enabled,
+                    expected_artifacts, execution_priority,
                     project_assignment_mode, metadata, workspace_blueprint, launch_status, starter_kit_type,
                     executor_runtime, executor_specs, sandbox_config, fallback_model,
                     ttl_hours, expires_at, parent_workspace_id, visibility,
@@ -54,7 +55,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     :playbook_auto_execution_config, :suggestion_history,
                     :storage_base_path, :artifacts_dir, :uploads_dir, :storage_config,
                     :playbook_storage_config, :cloud_remote_tools_config,
-                    :execution_mode, :expected_artifacts, :execution_priority,
+                    :execution_mode, :meeting_enabled,
+                    :expected_artifacts, :execution_priority,
                     :project_assignment_mode, :metadata, :workspace_blueprint, :launch_status, :starter_kit_type,
                     :executor_runtime, :executor_specs, :sandbox_config, :fallback_model,
                     :ttl_hours, :expires_at, :parent_workspace_id, :visibility,
@@ -114,6 +116,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     else None
                 ),
                 "execution_mode": workspace.execution_mode,
+                "meeting_enabled": getattr(workspace, "meeting_enabled", False),
                 "expected_artifacts": (
                     self.serialize_json(workspace.expected_artifacts)
                     if workspace.expected_artifacts
@@ -229,6 +232,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     playbook_storage_config = :playbook_storage_config,
                     cloud_remote_tools_config = :cloud_remote_tools_config,
                     execution_mode = :execution_mode,
+                    meeting_enabled = :meeting_enabled,
                     expected_artifacts = :expected_artifacts,
                     execution_priority = :execution_priority,
                     project_assignment_mode = :project_assignment_mode,
@@ -298,6 +302,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     else None
                 ),
                 "execution_mode": workspace.execution_mode,
+                "meeting_enabled": getattr(workspace, "meeting_enabled", False),
                 "expected_artifacts": (
                     self.serialize_json(workspace.expected_artifacts)
                     if workspace.expected_artifacts
@@ -437,6 +442,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             storage_config=self.deserialize_json(row.storage_config),
             playbook_storage_config=self.deserialize_json(row.playbook_storage_config),
             execution_mode=row.execution_mode or "qa",
+            meeting_enabled=bool(getattr(row, "meeting_enabled", False)),
             expected_artifacts=self.deserialize_json(
                 row.expected_artifacts, default=[]
             ),
@@ -482,3 +488,47 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                 query, {"visibility": visibility, "limit": limit}
             ).fetchall()
             return [self._row_to_workspace(row) for row in rows]
+
+    def merge_data_sources(
+        self,
+        workspace_id: str,
+        pack_id: str,
+        entry: Dict[str, Any],
+    ) -> None:
+        """Merge a single pack_id entry into workspace.data_sources.
+
+        Performs a targeted UPDATE on only the data_sources column.
+        Reads current value, merges the new entry, writes back.
+        Called by task_result_landing on successful task completion.
+        """
+        with self.transaction() as conn:
+            row = conn.execute(
+                text("SELECT data_sources FROM workspaces WHERE id = :id"),
+                {"id": workspace_id},
+            ).fetchone()
+            if not row:
+                return
+
+            current = self.deserialize_json(row.data_sources) or {}
+            existing = current.get(pack_id, {})
+
+            # Merge: increment total_runs, update last_run and last_result_summary
+            existing["total_runs"] = existing.get("total_runs", 0) + 1
+            existing["last_run"] = entry.get("last_run", _utc_now().isoformat())
+            if entry.get("last_result_summary"):
+                existing["last_result_summary"] = entry["last_result_summary"]
+            if entry.get("produces"):
+                existing["produces"] = entry["produces"]
+
+            current[pack_id] = existing
+            conn.execute(
+                text(
+                    "UPDATE workspaces SET data_sources = :ds, updated_at = :now "
+                    "WHERE id = :id"
+                ),
+                {
+                    "ds": self.serialize_json(current),
+                    "now": _utc_now(),
+                    "id": workspace_id,
+                },
+            )

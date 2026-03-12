@@ -46,6 +46,7 @@ def build_dispatch_payload(
         "task": request.task,
         "allowed_tools": request.allowed_tools,
         "max_duration": request.max_duration_seconds,
+        "model": agent_cfg.get("model"),  # per-agent model hint (P1.5)
         "context": {
             "project_id": request.project_id,
             "intent_id": request.intent_id,

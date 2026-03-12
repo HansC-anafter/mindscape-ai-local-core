@@ -7,7 +7,7 @@ Shared helpers for loading and post-processing capability manifest.yaml files.
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -98,3 +98,87 @@ def resolve_tool_schema_paths(
             )
 
     return manifest
+
+
+# ---------------------------------------------------------------------------
+# Playbook asset declaration resolver
+# ---------------------------------------------------------------------------
+
+_AFFORDANCE_CACHE: Dict[str, Any] = (
+    {}
+)  # playbook_code -> {"produces": [...], "consumes": [...], ...}
+_CACHE_BUILT = False
+
+
+def _build_affordance_cache(capabilities_dir: Optional[Path] = None) -> None:
+    """Scan all installed manifests and cache playbook affordance declarations."""
+    global _CACHE_BUILT
+    if _CACHE_BUILT:
+        return
+
+    if capabilities_dir is None:
+        # Default: inside Docker container
+        candidates = [
+            Path("/app/backend/app/capabilities"),
+            Path(__file__).resolve().parent.parent / "capabilities",
+        ]
+        for c in candidates:
+            if c.is_dir():
+                capabilities_dir = c
+                break
+    if not capabilities_dir or not capabilities_dir.is_dir():
+        _CACHE_BUILT = True
+        return
+
+    for cap_dir in capabilities_dir.iterdir():
+        if not cap_dir.is_dir() or cap_dir.name.startswith(("_", ".")):
+            continue
+        manifest_path = cap_dir / "manifest.yaml"
+        if not manifest_path.exists():
+            continue
+        try:
+            if yaml is None:
+                continue
+            with manifest_path.open("r", encoding="utf-8") as f:
+                manifest = yaml.safe_load(f) or {}
+            for pb in manifest.get("playbooks", []) or []:
+                if not isinstance(pb, dict):
+                    continue
+                code = pb.get("code")
+                if code:
+                    affordance = {}
+                    if pb.get("produces"):
+                        affordance["produces"] = pb.get("produces")
+                    if pb.get("consumes"):
+                        affordance["consumes"] = pb.get("consumes")
+                    if pb.get("required_tools"):
+                        affordance["required_tools"] = pb.get("required_tools")
+
+                    if affordance:
+                        _AFFORDANCE_CACHE[code] = affordance
+        except Exception as exc:
+            logger.debug("Failed to parse manifest %s: %s", manifest_path, exc)
+
+    _CACHE_BUILT = True
+    logger.info(
+        "Affordance cache built: %d playbooks with declarations", len(_AFFORDANCE_CACHE)
+    )
+
+
+def resolve_playbook_affordance(playbook_code: str) -> dict:
+    """Return the full affordance declaration for a playbook code.
+
+    Returns a dict with 'produces', 'consumes', and 'required_tools'.
+    Returns empty dict if no affordance declared.
+    """
+    _build_affordance_cache()
+    return _AFFORDANCE_CACHE.get(playbook_code, {})
+
+
+def resolve_playbook_produces(playbook_code: str) -> list:
+    """Return the produces declarations for a playbook code.
+
+    Returns a list of dicts: [{"type": "...", "label": "...", "storage": "..."}]
+    Returns empty list if no produces declared.
+    """
+    return resolve_playbook_affordance(playbook_code).get("produces", [])

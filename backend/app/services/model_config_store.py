@@ -224,6 +224,15 @@ class ModelConfigStore(PostgresStoreBase):
             )
         return self.get_model_by_id(model_id)
 
+    def delete_model(self, model_id: int) -> bool:
+        """Delete a model from model_configs by ID. Returns True if deleted."""
+        with self.transaction() as conn:
+            result = conn.execute(
+                text("DELETE FROM model_configs WHERE id = :id"),
+                {"id": model_id},
+            )
+            return result.rowcount > 0
+
     def _row_to_model(self, row) -> ModelConfig:
         metadata = self.deserialize_json(row["metadata"], default={})
         created_at = row["created_at"]
@@ -263,6 +272,7 @@ class ModelConfigStore(PostgresStoreBase):
         from backend.app.routes.core.system_settings.constants import (
             DEFAULT_CHAT_MODELS,
             DEFAULT_EMBEDDING_MODELS,
+            DEFAULT_MULTIMODAL_MODELS,
         )
 
         existing_models = self.get_all_models()
@@ -304,6 +314,22 @@ class ModelConfigStore(PostgresStoreBase):
             )
             self.create_or_update_model(model)
 
+        for model_data in DEFAULT_MULTIMODAL_MODELS:
+            is_latest = model_data.get("is_latest", False)
+            model = ModelConfig(
+                model_name=model_data["model_name"],
+                provider_name=model_data["provider"],
+                model_type=ModelType.MULTIMODAL,
+                display_name=model_data["model_name"],
+                description=model_data.get("description", ""),
+                enabled=is_latest,
+                is_latest=is_latest,
+                is_recommended=model_data.get("is_recommended", False),
+                context_window=model_data.get("context_window"),
+                icon=None,
+            )
+            self.create_or_update_model(model)
+
         logger.info("Default models initialized")
 
     _synced = False
@@ -320,6 +346,7 @@ class ModelConfigStore(PostgresStoreBase):
         from backend.app.routes.core.system_settings.constants import (
             DEFAULT_CHAT_MODELS,
             DEFAULT_EMBEDDING_MODELS,
+            DEFAULT_MULTIMODAL_MODELS,
         )
 
         all_defaults = []
@@ -327,6 +354,8 @@ class ModelConfigStore(PostgresStoreBase):
             all_defaults.append(("chat", md))
         for md in DEFAULT_EMBEDDING_MODELS:
             all_defaults.append(("embedding", md))
+        for md in DEFAULT_MULTIMODAL_MODELS:
+            all_defaults.append(("multimodal", md))
 
         added = 0
         with self.transaction() as conn:
@@ -371,7 +400,7 @@ class ModelConfigStore(PostgresStoreBase):
                         "model_type": model_type_str,
                         "display_name": model_data["model_name"],
                         "description": model_data.get("description", ""),
-                        "enabled": False,
+                        "enabled": is_latest,
                         "is_latest": is_latest,
                         "is_recommended": model_data.get("is_recommended", False),
                         "is_deprecated": model_data.get("is_deprecated", False),

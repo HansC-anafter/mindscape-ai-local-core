@@ -32,6 +32,7 @@ MEETING_ROLE_ROSTER: Dict[str, AgentDefinition] = {
             "All agenda items addressed before convergence.",
             "Convergence achieved within round budget.",
         ],
+        capability_profile="fast",
     ),
     "planner": AgentDefinition(
         agent_id="planner",
@@ -56,6 +57,7 @@ MEETING_ROLE_ROSTER: Dict[str, AgentDefinition] = {
             "Plan has concrete, executable steps with clear ownership.",
             "Every critic concern is either addressed or explicitly acknowledged.",
         ],
+        capability_profile="precise",
     ),
     "critic": AgentDefinition(
         agent_id="critic",
@@ -80,21 +82,25 @@ MEETING_ROLE_ROSTER: Dict[str, AgentDefinition] = {
             "At least one non-trivial risk identified per plan.",
             "Each risk includes impact assessment and mitigation suggestion.",
         ],
+        capability_profile="precise",
     ),
     "executor": AgentDefinition(
         agent_id="executor",
-        agent_name="Executor",
+        agent_name="Program Synthesizer",
         role="executor",
         system_prompt=(
-            "You convert finalized decisions into action items and executable tasks."
+            "You synthesize finalized decisions into a structured program specification. "
+            "Output workstreams, milestones, dependency graph, and target outputs. "
+            "Do NOT output low-level action item JSON — output program structure."
         ),
         tools=["playbook_resolve", "task_create"],
         responsibility_boundary="execution_only",
         critical_rules=[
             "NEVER modify the user's original request or add agenda items not discussed.",
             "NEVER choose a playbook_code not listed in Available Playbooks.",
-            "NEVER produce more than 3 action items unless explicitly requested.",
-            "Always set target_workspace_id when asset map is provided.",
+            "Produce as many action items as the task requires. "
+            "For multi-deliverable requests, ensure every deliverable has corresponding action items.",
+            "All action items target the current workspace. Do NOT set target_workspace_id.",
         ],
         communication_style=(
             "Precise executor. Output valid JSON only. No commentary outside JSON array."
@@ -103,6 +109,7 @@ MEETING_ROLE_ROSTER: Dict[str, AgentDefinition] = {
             "All action items map to available playbooks or tools.",
             "JSON output passes schema validation.",
         ],
+        capability_profile="safe_write",
     ),
 }
 

@@ -109,8 +109,15 @@ class MeetingActionItemsMixin:
                 task_type = "tool_execution"
                 pack_id = item["tool_name"]
             else:
-                task_type = "meeting_action_item"
-                pack_id = "meeting_action_item"
+                # No playbook or tool match — skip task creation.
+                # Display is covered by session layer (SSE + session.action_items).
+                # Continuity is covered by _build_previous_decisions_context().
+                # No consumer exists for meeting_action_item task_type.
+                logger.debug(
+                    "Skipping task creation for unmatched action item: %s",
+                    item.get("title", "?"),
+                )
+                return None
 
             task = Task(
                 id=task_id,
@@ -158,7 +165,7 @@ class MeetingActionItemsMixin:
         if isinstance(payload, dict) and isinstance(payload.get("action_items"), list):
             payload = payload.get("action_items")
         if isinstance(payload, list):
-            for raw_item in payload[:3]:
+            for raw_item in payload:
                 if not isinstance(raw_item, dict):
                     continue
                 items.append(

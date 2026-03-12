@@ -130,6 +130,11 @@ class SemanticNormalizer:
         has_actuator = bool(d.get("tool_name") or d.get("playbook_code"))
         confidence = IntentConfidence.HIGH if has_actuator else IntentConfidence.MEDIUM
 
+        # v3.1 F1: Extract capability_profile for model routing
+        cap_profile = d.get("capability_profile")
+        if not cap_profile and d.get("playbook_code"):
+            cap_profile = self._infer_capability_profile(d["playbook_code"])
+
         return ActionIntent(
             title=title,
             description=desc,
@@ -143,6 +148,7 @@ class SemanticNormalizer:
             priority=d.get("priority"),
             engine=engine,
             asset_refs=d.get("asset_refs") or [],
+            capability_profile=cap_profile,
         )
 
     @staticmethod
@@ -262,3 +268,27 @@ class SemanticNormalizer:
                     )
 
         return intents
+
+    @staticmethod
+    def _infer_capability_profile(playbook_code: str) -> Optional[str]:
+        """Infer capability_profile from a playbook's execution_profile.
+
+        v3.1 F1: If the playbook spec declares an execution_profile with
+        modalities or reasoning, derive a capability_profile string.
+        """
+        try:
+            from backend.app.services.playbook_loaders import PlaybookJsonLoader
+
+            pb = PlaybookJsonLoader.load_playbook_json(playbook_code)
+            if pb and pb.execution_profile:
+                ep = pb.execution_profile
+                # Vision modality takes priority
+                if "vision" in (ep.get("modalities") or []):
+                    return "vision"
+                # Otherwise use reasoning tier
+                reasoning = ep.get("reasoning")
+                if reasoning and reasoning != "standard":
+                    return reasoning
+        except Exception:
+            pass
+        return None
