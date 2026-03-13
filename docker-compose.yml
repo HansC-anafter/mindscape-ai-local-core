@@ -161,6 +161,7 @@ services:
       - ./backend:/app/backend:rw
       - ./scripts:/app/scripts:rw
       - ./data:/app/data:rw
+      - ./data/secrets:/root/.mindscape:rw
       - ./logs:/app/logs:rw
       - ./web-console:/app/web-console:rw
 
