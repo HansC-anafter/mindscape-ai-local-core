@@ -47,13 +47,11 @@ class CloudConnector:
         Initialize Cloud Connector.
 
         Args:
-            cloud_ws_url: Cloud WebSocket URL (default: from env CLOUD_WS_URL)
+            cloud_ws_url: Cloud WebSocket URL (resolved from DB → env → error)
             device_id: Device identifier (default: auto-generated)
             tenant_id: Tenant identifier (default: from env or "local")
         """
-        self.cloud_ws_url = cloud_ws_url or os.getenv(
-            "CLOUD_WS_URL", "wss://agent.anafter.co/api/v1/executor/ws"
-        )
+        self.cloud_ws_url = cloud_ws_url or self._resolve_ws_url()
         self.device_id = device_id or self._get_or_create_device_id()
         self.tenant_id = tenant_id or os.getenv("TENANT_ID", "local")
 
@@ -70,6 +68,65 @@ class CloudConnector:
         self._is_connecting = False
         self._is_connected = False
         self._should_reconnect = True
+
+    @staticmethod
+    def _resolve_cloud_base_url() -> Optional[str]:
+        """
+        Read cloud base URL from RuntimeEnvironment DB (config_url field).
+
+        Falls back to CLOUD_API_URL env var. Returns None if not configured.
+        """
+        try:
+            from app.database import get_db_postgres
+            from app.models.runtime_environment import RuntimeEnvironment
+
+            db = next(get_db_postgres())
+            try:
+                runtime = (
+                    db.query(RuntimeEnvironment)
+                    .filter(
+                        RuntimeEnvironment.env_type == "cloud",
+                        RuntimeEnvironment.is_enabled.is_(True),
+                    )
+                    .first()
+                )
+                if runtime and runtime.config_url:
+                    logger.debug(
+                        "Cloud base URL from DB runtime %s: %s",
+                        runtime.id,
+                        runtime.config_url,
+                    )
+                    return runtime.config_url.rstrip("/")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.debug("Could not read cloud URL from DB: %s", e)
+
+        return None
+
+    def _resolve_ws_url(self) -> str:
+        """
+        Resolve WebSocket URL: DB → env var → error.
+
+        Derives WSS URL from the cloud base URL stored in the runtime DB.
+        """
+        # Priority 1: env var override (for testing / docker-compose)
+        env_ws = os.getenv("CLOUD_WS_URL")
+        if env_ws:
+            return env_ws
+
+        # Priority 2: derive from DB cloud base URL
+        base = self._resolve_cloud_base_url()
+        if base:
+            scheme = "wss" if base.startswith("https") else "ws"
+            host = base.split("://", 1)[-1]
+            return f"{scheme}://{host}/api/v1/executor/ws"
+
+        logger.warning(
+            "Cloud WS URL not configured. "
+            "Set it in Settings → Runtime Environments or via CLOUD_WS_URL env var."
+        )
+        return ""
 
     def _get_or_create_device_id(self) -> str:
         """
@@ -391,7 +448,15 @@ class CloudConnector:
     def _get_http_client(self) -> httpx.AsyncClient:
         """Lazy-init an httpx client pointed at the Cloud REST API."""
         if not getattr(self, "_http_client", None):
-            cloud_api_url = os.getenv("CLOUD_API_URL", "https://agent.anafter.co")
+            cloud_api_url = (
+                os.getenv("CLOUD_API_URL")
+                or self._resolve_cloud_base_url()
+            )
+            if not cloud_api_url:
+                raise ConnectionError(
+                    "Cloud API URL not configured. "
+                    "Set it in Settings → Runtime Environments or via CLOUD_API_URL env var."
+                )
             api_key = os.getenv("CLOUD_API_KEY", "") or os.getenv(
                 "CLOUD_PROVIDER_TOKEN", ""
             )
