@@ -200,6 +200,8 @@ export const settingsKeys = {
   modelOverride: true,
   saveModelOverride: true,
   modelOverrideDescription: true,
+  maxOutputTokens: true,
+  maxOutputTokensHint: true,
   save: true,
   howToGetGeminiApiKey: true,
   geminiApiStep1: true,

@@ -325,6 +325,8 @@ export const settingsEn = {
   modelConfiguration: 'Model Configuration',
   modelOverride: 'Model Override (Advanced)',
   saveModelOverride: 'Save Model Override',
+  maxOutputTokens: 'Max Output Tokens',
+  maxOutputTokensHint: 'Default: {default}. Set higher for thinking models.',
   modelOverrideDescription: 'Override provider settings for this specific model (usually not needed)',
   override: 'Override',
   location: 'Location',

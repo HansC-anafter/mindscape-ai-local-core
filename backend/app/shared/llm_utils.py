@@ -150,26 +150,22 @@ async def call_llm(
                 model = get_model_name_from_env() or "gpt-4o-mini"
 
             model_name = model
+            from backend.app.shared.inference_config import InferenceConfig
+            resolved_max = InferenceConfig.get_max_tokens(
+                model_name, caller_default=max_tokens
+            )
+
             is_newer_model = model_name and ("gpt-5" in model_name or "o1" in model_name.lower() or "o3" in model_name.lower())
             is_gemini_model = model_name and "gemini" in model_name.lower()
 
-            if is_newer_model:
-                # Newer models support higher token limits
-                default_token_limit = max_tokens or 8000
+            if is_newer_model or is_gemini_model:
                 if 'max_completion_tokens' in sig.parameters:
-                    params['max_completion_tokens'] = default_token_limit
-            elif is_gemini_model:
-                # Gemini models support up to 8192 output tokens via max_completion_tokens
-                default_token_limit = max_tokens or 8192
-                if 'max_completion_tokens' in sig.parameters:
-                    params['max_completion_tokens'] = default_token_limit
+                    params['max_completion_tokens'] = resolved_max
                 elif 'max_tokens' in sig.parameters:
-                    params['max_tokens'] = default_token_limit
+                    params['max_tokens'] = resolved_max
             else:
-                # Older models (gpt-3.5-turbo, gpt-4o-mini) have lower limits, cap at 4096
-                default_token_limit = min(max_tokens or 4096, 4096)
                 if 'max_tokens' in sig.parameters:
-                    params['max_tokens'] = default_token_limit
+                    params['max_tokens'] = resolved_max
 
             response_text = await provider.chat_completion(
                 messages=messages,

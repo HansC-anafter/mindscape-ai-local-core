@@ -272,6 +272,8 @@ export const settingsJa = {
   modelConfiguration: 'モデル設定',
   modelOverride: 'モデル上書き (高度)',
   saveModelOverride: 'モデル上書きを保存',
+  maxOutputTokens: '最大出力トークン数',
+  maxOutputTokensHint: 'デフォルト：{default}。思考モデルは高めに設定してください。',
   modelOverrideDescription: 'この特定のモデルのプロバイダー設定を上書き (通常は不要)',
   override: '上書き',
   location: '場所',

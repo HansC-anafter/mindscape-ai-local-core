@@ -327,6 +327,8 @@ export const settingsZhTW = {
   modelCloudConnected: '雲端串接',
   modelOverride: '模型覆寫 (進階)',
   saveModelOverride: '儲存模型覆寫',
+  maxOutputTokens: '最大輸出 Token 數',
+  maxOutputTokensHint: '預設值：{default}。Thinking 模型建議設更高。',
   modelOverrideDescription: '覆寫此特定模型的提供者設定 (通常不需要)',
   override: '覆寫',
   location: '位置',

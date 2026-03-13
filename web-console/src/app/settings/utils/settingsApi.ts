@@ -259,6 +259,23 @@ export const settingsApi = {
     return response.json();
   },
 
+  patch: async <T>(endpoint: string, data: unknown): Promise<T> => {
+    const apiUrl = await getApiUrl();
+    const url = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const errorMessage = await parseError(response);
+      throw new Error(errorMessage);
+    }
+
+    return response.json();
+  },
+
   post: async <T>(endpoint: string, data?: unknown): Promise<T> => {
     const apiUrl = await getApiUrl();
     const url = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;

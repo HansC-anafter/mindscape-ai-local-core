@@ -54,10 +54,13 @@ async def stream_openai_response(
 
     full_text = ""
 
+    from backend.app.shared.inference_config import InferenceConfig
+    resolved_max = InferenceConfig.get_max_tokens(model_name)
+
     if use_provider_stream:
         # Use improved provider abstraction
         async for chunk_content in provider.chat_completion_stream(
-            messages=messages, model=model_name, temperature=0.7, max_tokens=8000
+            messages=messages, model=model_name, temperature=0.7, max_tokens=resolved_max
         ):
             full_text += chunk_content
             yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'model_name': model_name, 'is_fallback': is_fallback})}\n\n"
@@ -76,9 +79,9 @@ async def stream_openai_response(
             "gpt-5" in model_lower or "o1" in model_lower or "o3" in model_lower
         )
         if is_newer_model:
-            request_params["extra_body"] = {"max_completion_tokens": 8000}
+            request_params["extra_body"] = {"max_completion_tokens": resolved_max}
         else:
-            request_params["max_tokens"] = 8000
+            request_params["max_tokens"] = resolved_max
 
         # Create streaming request
         stream = await client.chat.completions.create(**request_params)
@@ -117,9 +120,12 @@ async def stream_vertexai_response(
     logger.info(f"Starting stream_llm_response for model {model_name}")
     full_text = ""
 
+    from backend.app.shared.inference_config import InferenceConfig
+    resolved_max = InferenceConfig.get_max_tokens(model_name)
+
     if hasattr(provider, "chat_completion_stream"):
         async for chunk_content in provider.chat_completion_stream(
-            messages=messages, model=model_name, temperature=0.7, max_tokens=8000
+            messages=messages, model=model_name, temperature=0.7, max_tokens=resolved_max
         ):
             full_text += chunk_content
             yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'model_name': model_name, 'is_fallback': is_fallback})}\n\n"
@@ -129,7 +135,7 @@ async def stream_vertexai_response(
             "VertexAIProvider does not support streaming, using non-streaming mode"
         )
         response_text = await provider.chat_completion(
-            messages=messages, model=model_name, temperature=0.7, max_tokens=8000
+            messages=messages, model=model_name, temperature=0.7, max_tokens=resolved_max
         )
         # Simulate streaming by sending chunks
         chunk_size = 10
