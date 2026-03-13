@@ -50,6 +50,15 @@ logs/
 .env.local
 .env.*.local
 
+# GCP / Cloud credentials (NEVER commit private keys)
+**/service-account*.json
+**/service_account*.json
+**/credentials*.json
+**/client_secret*.json
+**/gcloud-*.json
+**/*-keyfile.json
+**/key.json
+
 # Temporary
 *.tmp
 temp/
