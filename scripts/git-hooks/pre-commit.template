@@ -79,8 +79,8 @@ fi
 
 FORBIDDEN_PATTERNS=(
     # GCP project IDs (hardcoded string literals, not env var reads)
-    'REDACTED-PROJECT-ID'
-    'REDACTED-PROJECT'
+    'anafter-workspace-project'
+    'anafter-workspace'
     # Hardcoded Vertex AI forcing
     '"GOOGLE_GENAI_USE_VERTEXAI".*"true"'
     '"GOOGLE_CLOUD_PROJECT".*"[a-z][a-z0-9-]*"'
