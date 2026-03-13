@@ -841,7 +841,8 @@ async def replay_intent_logs(
         # Initialize pipeline
         llm_provider = None
         if request.model:
-            llm_manager = LLMProviderManager()
+            from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+            llm_manager = create_llm_provider_manager()
             try:
                 llm_provider = get_llm_provider_from_settings(llm_manager)
             except ValueError as e:

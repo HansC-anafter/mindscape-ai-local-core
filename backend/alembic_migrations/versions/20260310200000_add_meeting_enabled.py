@@ -13,6 +13,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.engine.reflection import Inspector
 
 # revision identifiers, used by Alembic.
 revision: str = "20260310200000"
@@ -22,16 +23,24 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "workspaces",
-        sa.Column(
-            "meeting_enabled",
-            sa.Boolean(),
-            server_default=sa.text("false"),
-            nullable=False,
-        ),
-    )
+    conn = op.get_bind()
+    inspector = Inspector.from_engine(conn)
+    columns = [col['name'] for col in inspector.get_columns("workspaces")]
+    if "meeting_enabled" not in columns:
+        op.add_column(
+            "workspaces",
+            sa.Column(
+                "meeting_enabled",
+                sa.Boolean(),
+                server_default=sa.text("false"),
+                nullable=False,
+            ),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("workspaces", "meeting_enabled")
+    conn = op.get_bind()
+    inspector = Inspector.from_engine(conn)
+    columns = [col['name'] for col in inspector.get_columns("workspaces")]
+    if "meeting_enabled" in columns:
+        op.drop_column("workspaces", "meeting_enabled")

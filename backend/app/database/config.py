@@ -47,22 +47,32 @@ def _build_role_url(role: str) -> Optional[str]:
     return f"postgresql://{user}:{password}@{host}:{port}/{db}"
 
 
-def _resolve_postgres_url(role: str) -> Optional[str]:
+_resolved_url_cache: dict[str, str | None] = {}
+
+
+def _resolve_postgres_url(role: str) -> str | None:
+    if role in _resolved_url_cache:
+        return _resolved_url_cache[role]
+
     url = _get_role_url(role)
     if url:
         logger.info(f"Using PostgreSQL {role} URL from role-specific env")
+        _resolved_url_cache[role] = url
         return url
 
     url = _build_role_url(role)
     if url:
         logger.info(f"Using PostgreSQL {role} URL from role-specific parts")
+        _resolved_url_cache[role] = url
         return url
 
     legacy_url = _get_legacy_url()
     if legacy_url:
         logger.warning(f"Falling back to DATABASE_URL for PostgreSQL {role} connection")
+        _resolved_url_cache[role] = legacy_url
         return legacy_url
 
+    _resolved_url_cache[role] = None
     return None
 
 

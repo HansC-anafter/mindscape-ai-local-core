@@ -267,6 +267,29 @@ def get_model_name_from_chat_model(default: Optional[str] = None) -> Optional[st
     return str(chat_setting.value)
 
 
+import functools
+
+@functools.lru_cache(maxsize=4)
+def _get_cached_llm_provider_manager(
+    openai_key: Optional[str] = None,
+    anthropic_key: Optional[str] = None,
+    vertex_api_key: Optional[str] = None,
+    vertex_project_id: Optional[str] = None,
+    vertex_location: Optional[str] = None,
+    llama_model_path: Optional[str] = None,
+    ollama_base_url: Optional[str] = None,
+):
+    from backend.app.services.agent_runner import LLMProviderManager
+    return LLMProviderManager(
+        openai_key=openai_key,
+        anthropic_key=anthropic_key,
+        vertex_api_key=vertex_api_key,
+        vertex_project_id=vertex_project_id,
+        vertex_location=vertex_location,
+        llama_model_path=llama_model_path,
+        ollama_base_url=ollama_base_url,
+    )
+
 def create_llm_provider_manager(
     openai_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
@@ -294,7 +317,6 @@ def create_llm_provider_manager(
     Returns:
         LLMProviderManager instance with all available providers configured
     """
-    from backend.app.services.agent_runner import LLMProviderManager
     from backend.app.services.system_settings_store import SystemSettingsStore
 
     settings_store = SystemSettingsStore()
@@ -350,7 +372,7 @@ def create_llm_provider_manager(
     if provider_name in (None, "ollama") and not ollama_base_url:
         ollama_base_url = os.getenv("OLLAMA_BASE_URL")
 
-    return LLMProviderManager(
+    return _get_cached_llm_provider_manager(
         openai_key=openai_key,
         anthropic_key=anthropic_key,
         vertex_api_key=vertex_api_key,

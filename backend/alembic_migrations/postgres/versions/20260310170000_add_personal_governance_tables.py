@@ -52,9 +52,9 @@ def upgrade() -> None:
         );
     """
     )
-    op.create_index("idx_sd_owner", "session_digests", ["owner_profile_id"])
-    op.create_index("idx_sd_source", "session_digests", ["source_type", "source_id"])
-    op.create_index("idx_sd_created", "session_digests", ["created_at"])
+    op.execute("CREATE INDEX IF NOT EXISTS idx_sd_owner ON session_digests (owner_profile_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_sd_source ON session_digests (source_type, source_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_sd_created ON session_digests (created_at)")
 
     # ---------- personal_knowledge ----------
     op.execute(
@@ -76,9 +76,9 @@ def upgrade() -> None:
         );
     """
     )
-    op.create_index("idx_pk_owner", "personal_knowledge", ["owner_profile_id"])
-    op.create_index("idx_pk_type", "personal_knowledge", ["knowledge_type"])
-    op.create_index("idx_pk_status", "personal_knowledge", ["status"])
+    op.execute("CREATE INDEX IF NOT EXISTS idx_pk_owner ON personal_knowledge (owner_profile_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_pk_type ON personal_knowledge (knowledge_type)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_pk_status ON personal_knowledge (status)")
 
     # ---------- goal_ledger ----------
     op.execute(
@@ -102,8 +102,8 @@ def upgrade() -> None:
         );
     """
     )
-    op.create_index("idx_gl_owner", "goal_ledger", ["owner_profile_id"])
-    op.create_index("idx_gl_status", "goal_ledger", ["status"])
+    op.execute("CREATE INDEX IF NOT EXISTS idx_gl_owner ON goal_ledger (owner_profile_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_gl_status ON goal_ledger (status)")
 
     # ---------- meta_scopes ----------
     op.execute(
@@ -127,7 +127,7 @@ def upgrade() -> None:
         );
     """
     )
-    op.create_index("idx_ms_owner", "meta_scopes", ["owner_profile_id"])
+    op.execute("CREATE INDEX IF NOT EXISTS idx_ms_owner ON meta_scopes (owner_profile_id)")
 
     # ---------- writeback_receipts ----------
     op.execute(
@@ -146,10 +146,8 @@ def upgrade() -> None:
         );
     """
     )
-    op.create_index("idx_wr_session", "writeback_receipts", ["meta_session_id"])
-    op.create_index(
-        "idx_wr_target", "writeback_receipts", ["target_table", "target_id"]
-    )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_wr_session ON writeback_receipts (meta_session_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_wr_target ON writeback_receipts (target_table, target_id)")
 
 
 def downgrade() -> None:

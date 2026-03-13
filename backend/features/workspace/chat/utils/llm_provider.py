@@ -216,7 +216,8 @@ def get_llm_provider_manager(
         f"Vertex AI config: service_account={'set' if vertex_api_key else 'not set'}, project_id={vertex_project_id}, location={vertex_location}"
     )
 
-    return LLMProviderManager(
+    from backend.app.shared.llm_provider_helper import _get_cached_llm_provider_manager
+    return _get_cached_llm_provider_manager(
         openai_key=openai_key,
         anthropic_key=anthropic_key,
         vertex_api_key=vertex_api_key,
