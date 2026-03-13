@@ -73,6 +73,60 @@ if [ -n "$blocked" ]; then
     exit 1
 fi
 
+# --- Content pattern scanning (catch hardcoded secrets / project IDs) ---
+# Scans the ADDED lines (+ lines) in staged diffs for forbidden patterns.
+# This prevents hardcoded credentials from reaching the repository.
+
+FORBIDDEN_PATTERNS=(
+    # GCP project IDs (hardcoded string literals, not env var reads)
+    'REDACTED-PROJECT-ID'
+    'REDACTED-PROJECT'
+    # Hardcoded Vertex AI forcing
+    '"GOOGLE_GENAI_USE_VERTEXAI".*"true"'
+    '"GOOGLE_CLOUD_PROJECT".*"[a-z][a-z0-9-]*"'
+    # API keys / tokens (common patterns)
+    'sk-[a-zA-Z0-9]{20,}'
+    'AIza[0-9A-Za-z_-]{35}'
+    'ghp_[a-zA-Z0-9]{36}'
+    'gho_[a-zA-Z0-9]{36}'
+    'xoxb-[0-9]'
+    'xoxp-[0-9]'
+    # Private keys
+    'PRIVATE KEY-----'
+    # Hardcoded passwords
+    'password\s*=\s*"[^"]{4,}"'
+    'passwd\s*=\s*"[^"]{4,}"'
+)
+
+content_violations=""
+for pattern in "${FORBIDDEN_PATTERNS[@]}"; do
+    # Only scan added lines (+) in staged diff, skip filenames
+    matches=$(git diff --cached -U0 --diff-filter=d | grep -E "^\+" | grep -v "^+++" | grep -iE "$pattern" 2>/dev/null || true)
+    if [ -n "$matches" ]; then
+        content_violations="${content_violations}  Pattern: ${pattern}\n"
+        while IFS= read -r line; do
+            content_violations="${content_violations}    ${line}\n"
+        done <<< "$matches"
+    fi
+done
+
+if [ -n "$content_violations" ]; then
+    echo ""
+    echo "============================================================"
+    echo "  COMMIT BLOCKED: Hardcoded secret / credential detected"
+    echo "============================================================"
+    echo ""
+    echo "  The following forbidden patterns were found in staged diffs:"
+    echo ""
+    echo -e "$content_violations"
+    echo ""
+    echo "  Fix: Use environment variables or config files instead."
+    echo "  Override: git commit --no-verify (pre-push will still block)"
+    echo "============================================================"
+    echo ""
+    exit 1
+fi
+
 # --- Check staged file count (prevent accidental mass commits) ---
 staged_count=$(echo "$staged_files" | wc -l | tr -d ' ')
 if [ "$staged_count" -gt 50 ] && [ -z "$ALLOW_ADD_ALL" ]; then
