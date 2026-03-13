@@ -274,6 +274,8 @@ export const settingsJa = {
   saveModelOverride: 'モデル上書きを保存',
   maxOutputTokens: '最大出力トークン数',
   maxOutputTokensHint: 'デフォルト：{default}。思考モデルは高めに設定してください。',
+  modelReady: '準備完了',
+  modelCloudConnected: 'クラウド接続済み',
   modelOverrideDescription: 'この特定のモデルのプロバイダー設定を上書き (通常は不要)',
   override: '上書き',
   location: '場所',

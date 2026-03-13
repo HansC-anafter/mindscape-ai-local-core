@@ -162,7 +162,7 @@ export default function SettingsPage() {
       <main className="w-full flex-1 flex flex-col min-h-0">
         <div className="grid grid-cols-12 flex-1 min-h-0">
           {/* Left Column: Navigation (Desktop only) - col-span-2 (16.67%) */}
-          <div className="hidden lg:block col-span-2 h-full">
+          <div className="hidden lg:block col-span-2 h-full min-h-0">
             <div className="bg-surface-secondary dark:bg-gray-800 h-full overflow-y-auto flex flex-col z-30 border-r border-default dark:border-gray-700">
               <SettingsNavigation
                 activeTab={activeTab}
@@ -176,14 +176,20 @@ export default function SettingsPage() {
           </div>
 
           {/* Middle Column: Content - col-span-7 (58.33%) */}
-          <div className="col-span-12 lg:col-span-7 flex flex-col h-full bg-surface dark:bg-gray-900">
-            <div className="flex-1 overflow-y-auto min-h-0 p-3 lg:p-4">
-              {renderContent()}
-            </div>
+          <div className="col-span-12 lg:col-span-7 flex flex-col h-full min-h-0 bg-surface dark:bg-gray-900">
+            {activeTab === 'basic' && activeSection === 'models-and-quota' ? (
+              <div className="flex-1 flex flex-col min-h-0 p-3 lg:p-4">
+                {renderContent()}
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto min-h-0 p-3 lg:p-4">
+                {renderContent()}
+              </div>
+            )}
           </div>
 
           {/* Right Column: Assistant (Desktop only) - col-span-3 (25%) */}
-          <div className="hidden lg:block col-span-3 h-full">
+          <div className="hidden lg:block col-span-3 h-full min-h-0">
             <div className="bg-surface-secondary dark:bg-gray-800 h-full overflow-y-auto flex flex-col p-4 z-30 border-l border-default dark:border-gray-700">
               <h3 className="text-sm font-semibold text-primary dark:text-gray-100 mb-3">
                 {t('configAssistant' as any)}

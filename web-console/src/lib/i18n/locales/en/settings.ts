@@ -727,4 +727,8 @@ export const settingsEn = {
   portConfigConflictExists: 'Port configuration has conflicts',
   portConfigLoadFailed: 'Failed to load port configuration',
   portConfigUpdateDbString: 'Please follow the instructions to update database connection strings and restart related services',
+
+  // Service Status Cloud
+  modelReady: 'Ready',
+  modelCloudConnected: 'Cloud Connected',
 } as const satisfies Partial<Record<MessageKey, string>>;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { apiGet } from '../utils/apiClient';
 import type {
   DashboardSummaryDTO,
@@ -157,44 +157,53 @@ export function useDashboardInbox(query: DashboardQuery = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const fetchedKeyRef = useRef<string>('');
+  const mountedRef = useRef(true);
 
-  const fetchInbox = useCallback(async () => {
-    // Cancel previous request if still pending
+  const queryKey = JSON.stringify(query);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    // Only fetch if query actually changed
+    if (fetchedKeyRef.current === queryKey) return;
+    fetchedKeyRef.current = queryKey;
+
+    // Cancel previous request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
 
-    abortControllerRef.current = new AbortController();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    const q = query;
+    const params = new URLSearchParams({
+      scope: q.scope || 'global',
+      sort_by: q.sort_by || 'auto',
+      sort_order: q.sort_order || 'desc',
+      limit: String(q.limit || 50),
+      offset: String(q.offset || 0),
+    });
+
     setLoading(true);
     setError(null);
 
-    const params = new URLSearchParams({
-      scope: query.scope || 'global',
-      sort_by: query.sort_by || 'auto',
-      sort_order: query.sort_order || 'desc',
-      limit: String(query.limit || 50),
-      offset: String(query.offset || 0),
-    });
-
-    const requestKey = `inbox:${params.toString()}`;
-
-    try {
-      const inbox = await requestManager.execute(requestKey, async () => {
-        return apiGet<PaginatedResponse<InboxItemDTO>>(
-          `/api/v1/dashboard/inbox?${params}`,
-          { signal: abortControllerRef.current?.signal }
-        );
-      });
-      setData(inbox);
-    } catch (err) {
-      // Ignore aborted requests
-      if (err instanceof Error && err.name === 'AbortError') {
-        return;
+    apiGet<PaginatedResponse<InboxItemDTO>>(
+      `/api/v1/dashboard/inbox?${params}`,
+      { signal: abortController.signal }
+    ).then((inbox) => {
+      if (mountedRef.current && !abortController.signal.aborted) {
+        setData(inbox);
       }
-
+    }).catch((err) => {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      if (!mountedRef.current) return;
       const error = err instanceof Error ? err : new Error('Unknown error');
       const status = (err as any)?.status;
-
       if (status === 401) {
         error.message = 'Authentication required. Please log in to access the inbox.';
         (error as any).status = 401;
@@ -204,25 +213,26 @@ export function useDashboardInbox(query: DashboardQuery = {}) {
         (error as any).status = 403;
         (error as any).isAuthError = true;
       }
-
       setError(error);
-    } finally {
-      setLoading(false);
-    }
-  }, [query]);
-
-  useEffect(() => {
-    fetchInbox();
+    }).finally(() => {
+      if (mountedRef.current && !abortController.signal.aborted) {
+        setLoading(false);
+      }
+    });
 
     return () => {
-      // Cleanup: abort request on unmount or dependency change
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      abortController.abort();
     };
-  }, [fetchInbox]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey]);
 
-  return { data, loading, error, refetch: fetchInbox };
+  const refetch = useCallback(() => {
+    fetchedKeyRef.current = ''; // Reset guard to allow re-fetch
+    // Trigger re-render to re-run the effect
+    setLoading((prev) => prev);
+  }, []);
+
+  return { data, loading, error, refetch };
 }
 
 export function useDashboardCases(query: DashboardQuery = {}) {
@@ -230,44 +240,51 @@ export function useDashboardCases(query: DashboardQuery = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const fetchedKeyRef = useRef<string>('');
+  const mountedRef = useRef(true);
 
-  const fetchCases = useCallback(async () => {
-    // Cancel previous request if still pending
+  const queryKey = JSON.stringify(query);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (fetchedKeyRef.current === queryKey) return;
+    fetchedKeyRef.current = queryKey;
+
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
 
-    abortControllerRef.current = new AbortController();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    const q = query;
+    const params = new URLSearchParams({
+      scope: q.scope || 'global',
+      sort_by: q.sort_by || 'auto',
+      sort_order: q.sort_order || 'desc',
+      limit: String(q.limit || 50),
+      offset: String(q.offset || 0),
+    });
+
     setLoading(true);
     setError(null);
 
-    const params = new URLSearchParams({
-      scope: query.scope || 'global',
-      sort_by: query.sort_by || 'auto',
-      sort_order: query.sort_order || 'desc',
-      limit: String(query.limit || 50),
-      offset: String(query.offset || 0),
-    });
-
-    const requestKey = `cases:${params.toString()}`;
-
-    try {
-      const cases = await requestManager.execute(requestKey, async () => {
-        return apiGet<PaginatedResponse<CaseCardDTO>>(
-          `/api/v1/dashboard/cases?${params}`,
-          { signal: abortControllerRef.current?.signal }
-        );
-      });
-      setData(cases);
-    } catch (err) {
-      // Ignore aborted requests
-      if (err instanceof Error && err.name === 'AbortError') {
-        return;
+    apiGet<PaginatedResponse<CaseCardDTO>>(
+      `/api/v1/dashboard/cases?${params}`,
+      { signal: abortController.signal }
+    ).then((cases) => {
+      if (mountedRef.current && !abortController.signal.aborted) {
+        setData(cases);
       }
-
+    }).catch((err) => {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      if (!mountedRef.current) return;
       const error = err instanceof Error ? err : new Error('Unknown error');
       const status = (err as any)?.status;
-
       if (status === 401) {
         error.message = 'Authentication required. Please log in to access cases.';
         (error as any).status = 401;
@@ -277,25 +294,25 @@ export function useDashboardCases(query: DashboardQuery = {}) {
         (error as any).status = 403;
         (error as any).isAuthError = true;
       }
-
       setError(error);
-    } finally {
-      setLoading(false);
-    }
-  }, [query]);
-
-  useEffect(() => {
-    fetchCases();
+    }).finally(() => {
+      if (mountedRef.current && !abortController.signal.aborted) {
+        setLoading(false);
+      }
+    });
 
     return () => {
-      // Cleanup: abort request on unmount or dependency change
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      abortController.abort();
     };
-  }, [fetchCases]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey]);
 
-  return { data, loading, error, refetch: fetchCases };
+  const refetch = useCallback(() => {
+    fetchedKeyRef.current = '';
+    setLoading((prev) => prev);
+  }, []);
+
+  return { data, loading, error, refetch };
 }
 
 export function useDashboardAssignments(query: DashboardQuery = {}) {
@@ -303,45 +320,52 @@ export function useDashboardAssignments(query: DashboardQuery = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const fetchedKeyRef = useRef<string>('');
+  const mountedRef = useRef(true);
 
-  const fetchAssignments = useCallback(async () => {
-    // Cancel previous request if still pending
+  const queryKey = JSON.stringify(query);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (fetchedKeyRef.current === queryKey) return;
+    fetchedKeyRef.current = queryKey;
+
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
 
-    abortControllerRef.current = new AbortController();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    const q = query;
+    const params = new URLSearchParams({
+      scope: q.scope || 'global',
+      view: q.view || 'assigned_to_me',
+      sort_by: q.sort_by || 'auto',
+      sort_order: q.sort_order || 'desc',
+      limit: String(q.limit || 50),
+      offset: String(q.offset || 0),
+    });
+
     setLoading(true);
     setError(null);
 
-    const params = new URLSearchParams({
-      scope: query.scope || 'global',
-      view: query.view || 'assigned_to_me',
-      sort_by: query.sort_by || 'auto',
-      sort_order: query.sort_order || 'desc',
-      limit: String(query.limit || 50),
-      offset: String(query.offset || 0),
-    });
-
-    const requestKey = `assignments:${params.toString()}`;
-
-    try {
-      const assignments = await requestManager.execute(requestKey, async () => {
-        return apiGet<PaginatedResponse<AssignmentCardDTO>>(
-          `/api/v1/dashboard/assignments?${params}`,
-          { signal: abortControllerRef.current?.signal }
-        );
-      });
-      setData(assignments);
-    } catch (err) {
-      // Ignore aborted requests
-      if (err instanceof Error && err.name === 'AbortError') {
-        return;
+    apiGet<PaginatedResponse<AssignmentCardDTO>>(
+      `/api/v1/dashboard/assignments?${params}`,
+      { signal: abortController.signal }
+    ).then((assignments) => {
+      if (mountedRef.current && !abortController.signal.aborted) {
+        setData(assignments);
       }
-
+    }).catch((err) => {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      if (!mountedRef.current) return;
       const error = err instanceof Error ? err : new Error('Unknown error');
       const status = (err as any)?.status;
-
       if (status === 401) {
         error.message = 'Authentication required. Please log in to access assignments.';
         (error as any).status = 401;
@@ -351,24 +375,24 @@ export function useDashboardAssignments(query: DashboardQuery = {}) {
         (error as any).status = 403;
         (error as any).isAuthError = true;
       }
-
       setError(error);
-    } finally {
-      setLoading(false);
-    }
-  }, [query]);
-
-  useEffect(() => {
-    fetchAssignments();
+    }).finally(() => {
+      if (mountedRef.current && !abortController.signal.aborted) {
+        setLoading(false);
+      }
+    });
 
     return () => {
-      // Cleanup: abort request on unmount or dependency change
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      abortController.abort();
     };
-  }, [fetchAssignments]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey]);
 
-  return { data, loading, error, refetch: fetchAssignments };
+  const refetch = useCallback(() => {
+    fetchedKeyRef.current = '';
+    setLoading((prev) => prev);
+  }, []);
+
+  return { data, loading, error, refetch };
 }
 

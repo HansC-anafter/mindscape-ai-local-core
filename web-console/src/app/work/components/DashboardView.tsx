@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { formatLocalDateTime } from '@/lib/time';
 import { useDashboardSummary, useDashboardInbox, useDashboardCases, useDashboardAssignments } from '../hooks/useDashboard';
 import { useSavedViews } from '../hooks/useSavedViews';
@@ -22,25 +22,21 @@ export function DashboardView() {
         sort_order: 'desc',
     });
 
+    // Memoize query objects to prevent infinite re-render loops.
+    // Spread syntax `{ ...query, scope }` creates a new object every render,
+    // which would cause hooks to re-fetch infinitely.
+    const scopedQuery = useMemo(() => ({ ...query, scope }), [query, scope]);
+
     const { data: summary, loading: summaryLoading, error: summaryError } = useDashboardSummary({
         scope,
         view: 'my_work',
     });
 
-    const { data: inboxData, loading: inboxLoading, error: inboxError } = useDashboardInbox({
-        ...query,
-        scope,
-    });
+    const { data: inboxData, loading: inboxLoading, error: inboxError } = useDashboardInbox(scopedQuery);
 
-    const { data: casesData, loading: casesLoading, error: casesError } = useDashboardCases({
-        ...query,
-        scope,
-    });
+    const { data: casesData, loading: casesLoading, error: casesError } = useDashboardCases(scopedQuery);
 
-    const { data: assignmentsData, loading: assignmentsLoading, error: assignmentsError } = useDashboardAssignments({
-        ...query,
-        scope,
-    });
+    const { data: assignmentsData, loading: assignmentsLoading, error: assignmentsError } = useDashboardAssignments(scopedQuery);
 
     return (
         <div className="flex h-full bg-white dark:bg-gray-900">

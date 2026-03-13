@@ -621,7 +621,7 @@ export function ModelsAndQuotaPanel() {
   };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* ── Tab bar ────────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 pb-3 mb-3">
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-3">

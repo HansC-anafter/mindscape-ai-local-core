@@ -67,11 +67,11 @@ function isCloudMode(): boolean {
   if (typeof window === 'undefined') {
     return false;
   }
-  // Check environment variable or localStorage flag
-  return !!(
-    CLOUD_MODE_API_BASE ||
-    localStorage.getItem('cloud_mode') === 'true'
-  );
+  // Only true if a cloud API base is explicitly set (non-empty string)
+  // and localStorage flag is explicitly 'true'
+  const hasCloudBase = typeof CLOUD_MODE_API_BASE === 'string' && CLOUD_MODE_API_BASE.length > 0;
+  const hasCloudFlag = localStorage.getItem('cloud_mode') === 'true';
+  return hasCloudBase || hasCloudFlag;
 }
 
 /**
