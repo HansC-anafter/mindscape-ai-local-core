@@ -99,10 +99,6 @@ class PlaybookStep(BaseModel):
     """Step definition in playbook.json."""
 
     id: str = Field(..., description="Step unique identifier")
-    tool: Optional[str] = Field(
-        None,
-        description="Concrete tool ID to call (legacy). Use tool_slot for new playbooks.",
-    )
     tool_slot: Optional[str] = Field(
         None,
         description="Logical tool slot identifier resolved to tool_id at runtime.",
@@ -152,19 +148,18 @@ class PlaybookStep(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def validate_tool_or_slot(cls, values: Any) -> Any:
-        """Ensure exactly one binding: tool, tool_slot, or playbook_slot."""
+        """Ensure exactly one binding: tool_slot or playbook_slot."""
         if isinstance(values, dict):
-            tool = values.get("tool")
             tool_slot = values.get("tool_slot")
             playbook_slot = values.get("playbook_slot")
-            bindings = sum(1 for v in [tool, tool_slot, playbook_slot] if v)
+            bindings = sum(1 for v in [tool_slot, playbook_slot] if v)
             if bindings == 0:
                 raise ValueError(
-                    "One of 'tool', 'tool_slot', or 'playbook_slot' must be provided"
+                    "One of 'tool_slot' or 'playbook_slot' must be provided"
                 )
             if bindings > 1:
                 raise ValueError(
-                    "Only one of 'tool', 'tool_slot', 'playbook_slot' is allowed"
+                    "Only one of 'tool_slot', 'playbook_slot' is allowed"
                 )
         return values
 
