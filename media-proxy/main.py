@@ -85,10 +85,13 @@ async def proxy_image(
         timeout=httpx.Timeout(timeout_seconds),
         follow_redirects=True,
         headers={
-            "User-Agent": "MindscapeMediaProxy/1.0",
-            "Accept": "image/*,*/*;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
             "Referer": "https://www.instagram.com/",
-            "Origin": "https://www.instagram.com",
+            "Sec-Fetch-Dest": "image",
+            "Sec-Fetch-Mode": "no-cors",
+            "Sec-Fetch-Site": "cross-site",
         },
     )
 

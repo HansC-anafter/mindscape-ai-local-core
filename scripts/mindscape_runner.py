@@ -137,15 +137,11 @@ def execute_with_gemini(task: str, execution_id: str) -> tuple:
     task_hint = task[:500]
 
     try:
+        # NOTE: Previously hardcoded GOOGLE_GENAI_USE_VERTEXAI=true here,
+        # which bypassed system_settings and forced Vertex AI usage.
+        # Removed to respect the configured gemini_cli_auth_mode setting.
         sub_env = {
             **os.environ,
-            "GOOGLE_GENAI_USE_VERTEXAI": "true",
-            "GOOGLE_CLOUD_PROJECT": os.environ.get(
-                "GOOGLE_CLOUD_PROJECT", "REDACTED-PROJECT-ID"
-            ),
-            "GOOGLE_CLOUD_LOCATION": os.environ.get(
-                "GOOGLE_CLOUD_LOCATION", "us-central1"
-            ),
             "MINDSCAPE_TASK_HINT": task_hint,
         }
 
