@@ -203,10 +203,10 @@ async def github_oauth_callback(
             raise_api_error(400, "Failed to obtain access token from GitHub")
 
         # Create connection using registry
-        from backend.app.services.tool_registry import ToolRegistryService
+        from backend.app.routes.core.tools.base import get_tool_registry
         from backend.app.models.tool_registry import ToolConnectionModel
-        data_dir = os.getenv("DATA_DIR", "./data")
-        registry = ToolRegistryService(data_dir=data_dir)
+        
+        registry = get_tool_registry()
 
         connection_model = ToolConnectionModel(
             id=connection_id or "github-oauth-1",

@@ -106,6 +106,7 @@ class DiscoveryScanRequest(BaseModel):
 @router.get("")
 async def list_runtime_environments(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
     List all runtime environments for the current user.
@@ -115,9 +116,6 @@ async def list_runtime_environments(
         plus the default Local-Core runtime
     """
     try:
-        # Manually get db session (get_db is a wrapped generator, FastAPI can't auto-detect)
-        db_gen = get_db()
-        db = next(db_gen)
         # Get user's runtime environments
         user_runtimes = (
             db.query(RuntimeEnvironment)

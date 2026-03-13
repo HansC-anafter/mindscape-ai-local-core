@@ -86,6 +86,9 @@ class FilteredToolsResponse(BaseModel):
     meta: FilteredToolsMeta
 
 
+import functools
+
+@functools.lru_cache()
 def _get_tool_registry() -> ToolRegistryService:
     """Initialize tool registry with extensions."""
     import os

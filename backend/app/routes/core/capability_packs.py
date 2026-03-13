@@ -7,7 +7,8 @@ Provides endpoints for listing, enabling, and disabling packs.
 Install endpoints have been extracted to ``capability_install.py``.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 import logging
@@ -49,13 +50,18 @@ def _load_manifest_file(manifest_path: Path) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
-    """
-    Scan for pack YAML files in /packs directory and cloud capability manifests
+_pack_yaml_cache = None
+_pack_yaml_cache_time = 0
 
-    Returns:
-        List of pack metadata dictionaries
+def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
+    """Scan all installed capabilities and return their manifest data.
+    Results are cached for 60 seconds to avoid filesystem latency.
     """
+    global _pack_yaml_cache, _pack_yaml_cache_time
+    import time
+    if _pack_yaml_cache is not None and (time.time() - _pack_yaml_cache_time < 60):
+        return _pack_yaml_cache
+
     packs = []
 
     # Get packs directory
@@ -136,6 +142,8 @@ def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
                         meta_mapped[key] = value
                 packs.append(meta_mapped)
 
+    _pack_yaml_cache = packs
+    _pack_yaml_cache_time = time.time()
     return packs
 
 
@@ -166,7 +174,7 @@ class PackResponse(BaseModel):
 
 
 @router.get("/", response_model=List[PackResponse])
-async def list_packs():
+def list_packs():
     """
     List all available capability packs
 
@@ -257,26 +265,34 @@ async def enable_pack(pack_id: str):
     Enables a pack that has been installed. If the pack is not installed,
     it will be installed first (if enabled_by_default is True).
     """
+    import anyio
     try:
-        # Check if pack exists in YAML files
-        pack_metas = _scan_pack_yaml_files()
-        pack_meta = next((p for p in pack_metas if p.get("id") == pack_id), None)
+        def _do_enable():
+            # Check if pack exists in YAML files
+            pack_metas = _scan_pack_yaml_files()
+            pack_meta = next((p for p in pack_metas if p.get("id") == pack_id), None)
+            return pack_meta
+
+        pack_meta = await anyio.to_thread.run_sync(_do_enable)
 
         if not pack_meta:
             raise HTTPException(
                 status_code=404, detail=f"Capability pack '{pack_id}' not found"
             )
 
-        existing = installed_packs_store.get_pack(pack_id)
-        if existing:
-            installed_packs_store.set_enabled(pack_id, True)
-        else:
-            installed_packs_store.upsert_pack(
-                pack_id=pack_id,
-                installed_at=_utc_now(),
-                enabled=True,
-                metadata=pack_meta,
-            )
+        def _do_db_enable():
+            existing = installed_packs_store.get_pack(pack_id)
+            if existing:
+                installed_packs_store.set_enabled(pack_id, True)
+            else:
+                installed_packs_store.upsert_pack(
+                    pack_id=pack_id,
+                    installed_at=_utc_now(),
+                    enabled=True,
+                    metadata=pack_meta,
+                )
+
+        await anyio.to_thread.run_sync(_do_db_enable)
 
         # Rebuild tool embeddings for re-enabled pack (background, non-fatal)
         import asyncio as _asyncio
@@ -330,8 +346,9 @@ async def disable_pack(pack_id: str):
 
     Disables a pack but does not uninstall it. The pack can be re-enabled later.
     """
+    import anyio
     try:
-        updated = installed_packs_store.set_enabled(pack_id, False)
+        updated = await anyio.to_thread.run_sync(installed_packs_store.set_enabled, pack_id, False)
         if not updated:
             raise HTTPException(
                 status_code=404, detail=f"Pack '{pack_id}' is not installed"
@@ -383,31 +400,38 @@ async def disable_pack(pack_id: str):
 
 
 @router.get("/installed", response_model=List[str])
-async def list_installed_packs():
+def list_installed_packs():
     """List all installed pack IDs"""
     return installed_packs_store.list_installed_pack_ids()
 
 
 @router.get("/enabled", response_model=List[str])
-async def list_enabled_packs():
+def list_enabled_packs():
     """List all enabled pack IDs"""
     return list(_get_enabled_pack_ids())
 
 
-@router.get("/installed-capabilities", response_model=List[Dict[str, Any]])
-async def list_installed_capabilities():
+@router.get("/installed-capabilities")
+def list_installed_capabilities():
     """
     List all installed capability packs with detailed information
 
     Returns list of installed packs with their metadata.
     This endpoint is used by the frontend to display installed capabilities.
     """
+    import time
+    t0 = time.time()
+    print(f"[{t0:.3f}] list_installed_capabilities - Start")
     try:
         # Get all packs
         pack_metas = _scan_pack_yaml_files()
+        t1 = time.time()
+        print(f"[{t1:.3f}] list_installed_capabilities - Scanned YAML (in {t1-t0:.3f}s)")
 
         # Get installed pack IDs
         installed_ids = _get_installed_pack_ids()
+        t2 = time.time()
+        print(f"[{t2:.3f}] list_installed_capabilities - Got installed IDs (in {t2-t1:.3f}s)")
 
         # Filter to only installed packs and format response
         installed_capabilities = []
@@ -430,7 +454,10 @@ async def list_installed_capabilities():
                     }
                 )
 
-        return installed_capabilities
+        t3 = time.time()
+        print(f"[{t3:.3f}] list_installed_capabilities - Mapped response (in {t3-t2:.3f}s)")
+        print(f"[{t3:.3f}] list_installed_capabilities - Returning JSON (total {t3-t0:.3f}s)")
+        return JSONResponse(content=installed_capabilities)
     except Exception as e:
         logger.error(f"Failed to list installed capabilities: {e}", exc_info=True)
         raise HTTPException(
@@ -442,7 +469,7 @@ async def list_installed_capabilities():
     "/installed-capabilities/{capability_code}/ui-components",
     response_model=List[Dict[str, Any]],
 )
-async def get_capability_ui_components(capability_code: str):
+def get_capability_ui_components(capability_code: str):
     """
     Get UI components information for an installed capability
 

@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
 
 
+import functools
+
+@functools.lru_cache()
 def get_tool_registry() -> ToolRegistryService:
     """
     Initialize Tool Registry and register community extensions

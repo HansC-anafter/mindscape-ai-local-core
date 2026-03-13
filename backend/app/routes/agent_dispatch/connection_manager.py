@@ -64,20 +64,25 @@ def _get_worker_instance_id() -> str:
 
 
 def _get_core_db_connection():
-    """Get a raw psycopg2 connection to the core database.
+    """Get a raw DB-API connection from the SQLAlchemy engine pool.
+
+    Uses the centralized engine_postgres_core pool (pool_size=5,
+    max_overflow=10, pool_recycle=1800) instead of creating ephemeral
+    psycopg2 connections that bypass pool management.
 
     On the first successful call, ensures cross-worker tables exist.
     """
     global _tables_ensured
 
-    from backend.app.database.config import get_postgres_url_core
+    try:
+        from app.database.engine import engine_postgres_core
 
-    url = get_postgres_url_core(required=False)
-    if not url:
+        if engine_postgres_core is None:
+            return None
+        conn = engine_postgres_core.raw_connection()
+    except Exception:
+        logger.warning("[AgentWS] Failed to get pooled DB connection")
         return None
-    import psycopg2
-
-    conn = psycopg2.connect(url)
 
     if not _tables_ensured:
         try:

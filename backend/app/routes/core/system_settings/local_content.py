@@ -238,11 +238,11 @@ from starlette.concurrency import run_in_threadpool
 
 def _sync_directories_to_registry(enabled_dirs: List[str]):
     try:
-        from backend.app.services.tool_registry import ToolRegistryService
+        from backend.app.routes.core.tools.base import get_tool_registry
         from backend.app.models.tool_registry import ToolConnectionModel
         from datetime import datetime
 
-        tool_registry = ToolRegistryService()
+        tool_registry = get_tool_registry()
 
         connections = tool_registry.get_connections_by_tool_type(
             profile_id="default-user", tool_type="local_filesystem"

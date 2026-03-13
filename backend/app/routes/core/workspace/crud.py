@@ -393,10 +393,13 @@ async def get_workspace(workspace_id: str = PathParam(..., description="Workspac
     logger.info(f"[{request_id}] GET /workspaces/{workspace_id} - Request started")
 
     try:
+        import time
+        t_start = time.time()
         logger.info(f"[{request_id}] Getting workspace from store...")
         workspace = await store.get_workspace(workspace_id)
+        t_store = time.time()
         logger.info(
-            f"[{request_id}] Workspace retrieved: {workspace.id if workspace else 'None'}"
+            f"[{request_id}] Workspace retrieved: {workspace.id if workspace else 'None'} in {t_store - t_start:.3f}s"
         )
 
         if not workspace:
@@ -404,6 +407,8 @@ async def get_workspace(workspace_id: str = PathParam(..., description="Workspac
 
         # Reconcile launch_status
         await ensure_workspace_launch_status(workspace_id, workspace)
+        t_launch = time.time()
+        logger.info(f"[{request_id}] Launch status checked in {t_launch - t_store:.3f}s")
 
         associated_intent = None
         if workspace.primary_project_id:
@@ -426,12 +431,18 @@ async def get_workspace(workspace_id: str = PathParam(..., description="Workspac
                     }
             except Exception as e:
                 logger.warning(f"Failed to fetch associated intent: {e}")
+        
+        t_intent = time.time()
+        logger.info(f"[{request_id}] Intent checked in {t_intent - t_launch:.3f}s")
 
         workspace_dict = workspace.model_dump()
         if associated_intent:
             workspace_dict["associated_intent"] = associated_intent
+            
+        t_dump = time.time()
+        logger.info(f"[{request_id}] Pydantic dump took {t_dump - t_intent:.3f}s")
 
-        logger.info(f"[{request_id}] Returning workspace data")
+        logger.info(f"[{request_id}] Returning workspace data (total {t_dump - t_start:.3f}s)")
         return workspace_dict
     except HTTPException:
         raise

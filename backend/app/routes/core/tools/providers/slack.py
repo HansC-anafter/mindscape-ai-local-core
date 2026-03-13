@@ -199,12 +199,11 @@ async def slack_oauth_callback(
             raise_api_error(400, "Failed to obtain access token from Slack")
 
         # Create connection using registry
-        from backend.app.services.tool_registry import ToolRegistryService
+        from backend.app.routes.core.tools.base import get_tool_registry
         from backend.app.models.tool_registry import ToolConnectionModel
         from datetime import datetime, timezone
-        import os
-        data_dir = os.getenv("DATA_DIR", "./data")
-        registry = ToolRegistryService(data_dir=data_dir)
+        
+        registry = get_tool_registry()
 
         connection_model = ToolConnectionModel(
             id=connection_id or "slack-oauth-1",

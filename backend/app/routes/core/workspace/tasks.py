@@ -303,10 +303,12 @@ async def get_workspace_tasks(
         tasks_store = TasksStore()
 
         if include_completed:
-            all_tasks = tasks_store.list_tasks_by_workspace(workspace_id, limit=limit)
+            all_tasks = await asyncio.to_thread(
+                tasks_store.list_tasks_by_workspace, workspace_id, limit=limit
+            )
         else:
-            pending = tasks_store.list_pending_tasks(workspace_id)
-            running = tasks_store.list_running_tasks(workspace_id)
+            pending = await asyncio.to_thread(tasks_store.list_pending_tasks, workspace_id)
+            running = await asyncio.to_thread(tasks_store.list_running_tasks, workspace_id)
             all_tasks = (pending + running)[:limit]
 
         return {"tasks": [task.model_dump() for task in all_tasks]}
@@ -395,9 +397,12 @@ async def get_workspace_executions(
         query_parts.append("LIMIT :limit")
         params["limit"] = limit
 
-        with tasks_store.get_connection() as conn:
-            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
-            tasks = [tasks_store._row_to_task(row) for row in rows]
+        def _fetch_executions():
+            with tasks_store.get_connection() as conn:
+                rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+                return [tasks_store._row_to_task(row) for row in rows]
+
+        tasks = await asyncio.to_thread(_fetch_executions)
 
         # Enrich with fields the UI expects (RunLogCard reads playbook_code, not pack_id)
         executions = []

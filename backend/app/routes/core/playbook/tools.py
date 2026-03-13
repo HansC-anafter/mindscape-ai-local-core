@@ -185,8 +185,8 @@ async def check_playbook_tools_status(
                 status_code=404, detail=f"Playbook not found: {playbook_code}"
             )
 
-        data_dir = os.getenv("DATA_DIR", "./data")
-        tool_registry = ToolRegistryService(data_dir=data_dir)
+        from ..tools.base import get_tool_registry
+        tool_registry = get_tool_registry()
         tool_status_checker = ToolStatusChecker(tool_registry)
         playbook_tool_checker = PlaybookToolChecker(tool_status_checker)
 

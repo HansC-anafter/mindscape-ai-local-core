@@ -74,6 +74,16 @@ async def get_workspace(
     return workspace
 
 
+# Global singleton for SystemSettingsStore
+_settings_store = None
+
+def get_system_settings_store(db_path: str = None):
+    global _settings_store
+    if _settings_store is None:
+        from ..services.system_settings_store import SystemSettingsStore
+        _settings_store = SystemSettingsStore(db_path=db_path)
+    return _settings_store
+
 def get_orchestrator(
     workspace: Workspace = Depends(get_workspace),
     store: MindscapeStore = Depends(get_store),
@@ -85,16 +95,14 @@ def get_orchestrator(
     if workspace and workspace.default_locale:
         default_locale = workspace.default_locale
     else:
-        from ..services.system_settings_store import SystemSettingsStore
-
-        settings_store = SystemSettingsStore(db_path=store.db_path)
+        settings_store = get_system_settings_store(db_path=store.db_path)
         language_setting = settings_store.get_setting("default_language")
         default_locale = (
             language_setting.value
             if language_setting and language_setting.value
             else "zh-TW"
         )
-        logger.info(
+        logger.debug(
             f"Workspace {workspace.id if workspace else 'None'} has no default_locale, using system setting: {default_locale}"
         )
 

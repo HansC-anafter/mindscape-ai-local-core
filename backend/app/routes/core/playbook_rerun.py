@@ -190,7 +190,51 @@ async def rerun_playbook_execution(
                 if profile_id and "profile_id" not in normalized_inputs:
                     normalized_inputs["profile_id"] = profile_id
 
+                # ── Extract spec-level configs (mirrors playbook_execution.py) ──
+                concurrency_config = None
+                if (
+                    playbook_run.playbook_json
+                    and playbook_run.playbook_json.concurrency
+                ):
+                    c = playbook_run.playbook_json.concurrency
+                    if isinstance(c, dict) and c.get("lock_key_input"):
+                        concurrency_config = c
+
+                runner_timeout_seconds = None
+                import os as _os
+                if (
+                    playbook_run.playbook_json
+                    and playbook_run.playbook_json.execution_profile
+                ):
+                    ep = playbook_run.playbook_json.execution_profile
+                    raw_timeout = ep.get("runner_timeout_seconds")
+                    if isinstance(raw_timeout, (int, float)) and raw_timeout > 0:
+                        max_ceiling = int(
+                            _os.environ.get(
+                                "LOCAL_CORE_RUNNER_MAX_TIMEOUT_SECONDS", "43200"
+                            )
+                        )
+                        runner_timeout_seconds = min(int(raw_timeout), max_ceiling)
+
+                lifecycle_hooks_config = None
+                if (
+                    playbook_run.playbook_json
+                    and playbook_run.playbook_json.lifecycle_hooks
+                ):
+                    lifecycle_hooks_config = playbook_run.playbook_json.lifecycle_hooks
+
                 from backend.app.models.workspace import Task, TaskStatus
+
+                playbook_name = (
+                    playbook_run.playbook.metadata.name
+                    if playbook_run.playbook and playbook_run.playbook.metadata
+                    else playbook_code
+                )
+                total_steps = (
+                    len(playbook_run.playbook_json.steps)
+                    if playbook_run.playbook_json and playbook_run.playbook_json.steps
+                    else 1
+                )
 
                 await asyncio.to_thread(
                     tasks_store.create_task,
@@ -206,6 +250,7 @@ async def rerun_playbook_execution(
                         status=TaskStatus.PENDING,
                         execution_context={
                             "playbook_code": playbook_code,
+                            "playbook_name": playbook_name,
                             "execution_id": new_execution_id,
                             "status": "queued",
                             "execution_mode": "runner",
@@ -214,6 +259,22 @@ async def rerun_playbook_execution(
                             "workspace_id": workspace_id,
                             "project_id": project_id,
                             "profile_id": profile_id,
+                            "total_steps": total_steps,
+                            **(
+                                {"concurrency": concurrency_config}
+                                if concurrency_config
+                                else {}
+                            ),
+                            **(
+                                {"runner_timeout_seconds": runner_timeout_seconds}
+                                if runner_timeout_seconds
+                                else {}
+                            ),
+                            **(
+                                {"lifecycle_hooks": lifecycle_hooks_config}
+                                if lifecycle_hooks_config
+                                else {}
+                            ),
                         },
                         created_at=_utc_now(),
                         started_at=None,
