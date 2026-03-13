@@ -111,11 +111,9 @@ class ExecutionStateStore:
             # Reload tools list from cache if workspace_id is available
             if conv_manager.workspace_id:
                 try:
-                    from backend.app.services.tool_registry import ToolRegistryService
-                    import os
-
-                    data_dir = os.getenv("DATA_DIR", "./data")
-                    tool_registry = ToolRegistryService(data_dir=data_dir)
+                    from backend.app.routes.core.tools.base import get_tool_registry
+                    
+                    tool_registry = get_tool_registry()
 
                     profile_id_for_tools = conv_manager.profile.id if conv_manager.profile else None
                     if hasattr(tool_registry, 'get_tools_str_cached'):

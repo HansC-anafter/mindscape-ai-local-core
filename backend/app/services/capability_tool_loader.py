@@ -159,7 +159,7 @@ def load_capability_tool(
             if module_path.startswith("app.capabilities."):
                 # Try direct import first
                 try:
-                    module = importlib.import_module(module_path)
+                    logger.error(f"START IMPORT: {module_path}"); module = importlib.import_module(module_path); logger.error(f"END IMPORT: {module_path}")
                 except ImportError:
                     # Try with hyphen-to-underscore conversion in directory name
                     # e.g., app.capabilities.mindscape_cloud_integration -> app.capabilities.mindscape-cloud-integration
@@ -196,9 +196,9 @@ def load_capability_tool(
                 try:
                     module = importlib.import_module(app_module_path)
                 except ImportError:
-                    module = importlib.import_module(module_path)
+                    logger.error(f"START IMPORT: {module_path}"); module = importlib.import_module(module_path); logger.error(f"END IMPORT: {module_path}")
             else:
-                module = importlib.import_module(module_path)
+                logger.error(f"START IMPORT: {module_path}"); module = importlib.import_module(module_path); logger.error(f"END IMPORT: {module_path}")
 
             # Get the function
             tool_func = getattr(module, func_name, None)

@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 class ModelConfigStore(PostgresStoreBase):
     """PostgreSQL-based model configuration store"""
 
+    _schema_ensured = False
+
     def __init__(self, db_path: Optional[str] = None):
         super().__init__()
         if db_path is not None:
@@ -35,7 +37,8 @@ class ModelConfigStore(PostgresStoreBase):
             raise RuntimeError(
                 "SQLite is no longer supported for ModelConfigStore. Configure PostgreSQL."
             )
-        self._ensure_schema()
+        if not ModelConfigStore._schema_ensured:
+            self._ensure_schema()
 
     def _ensure_schema(self):
         """Ensure model_providers/model_configs tables exist (managed by Alembic)."""
@@ -56,6 +59,8 @@ class ModelConfigStore(PostgresStoreBase):
                 "Will be created by migration orchestrator in startup_event.",
                 missing_list,
             )
+        else:
+            ModelConfigStore._schema_ensured = True
 
     def get_all_models(
         self,

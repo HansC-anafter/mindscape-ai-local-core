@@ -445,7 +445,8 @@ Please retry the tool call."""
                     )
 
                 # Get tool registry
-                tool_registry = ToolRegistryService(db_path=self.store.db_path)
+                from backend.app.routes.core.tools.base import get_tool_registry
+                tool_registry = get_tool_registry()
 
                 # Get event store for event recording
                 from backend.app.services.stores.postgres.events_store import (
@@ -640,11 +641,8 @@ Please retry the tool call."""
 
                 if connection_id and workspace_id:
                     try:
-                        from backend.app.services.tool_registry import (
-                            ToolRegistryService,
-                        )
-
-                        registry = ToolRegistryService(db_path=self.store.db_path)
+                        from backend.app.routes.core.tools.base import get_tool_registry
+                        registry = get_tool_registry()
                         connection = registry.get_connection(
                             connection_id, profile_id=profile_id
                         )

@@ -10,10 +10,33 @@ This service provides a single interface to get all tools from:
 
 import logging
 import os
+import functools
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+@functools.lru_cache(maxsize=1)
+def _get_cached_tool_registry(data_dir: str):
+    """Get a globally cached instance of ToolRegistryService to prevent repeated DB initialization"""
+    from backend.app.services.tool_registry import ToolRegistryService
+    registry = ToolRegistryService(data_dir=data_dir)
+    
+    # Register external extensions
+    try:
+        from backend.app.extensions.console_kit import register_console_kit_tools
+        register_console_kit_tools(registry)
+    except ImportError:
+        pass
+
+    try:
+        from backend.app.extensions.community import register_community_extensions
+        register_community_extensions(registry)
+    except ImportError:
+        pass
+        
+    return registry
+
 
 
 @dataclass
@@ -135,28 +158,7 @@ class ToolListService:
     ) -> List[ToolInfo]:
         """Get tools from ToolRegistryService"""
         try:
-            from backend.app.services.tool_registry import ToolRegistryService
-
-            tool_registry = ToolRegistryService(data_dir=self.data_dir)
-
-            # Register external extensions
-            try:
-                from backend.app.extensions.console_kit import (
-                    register_console_kit_tools,
-                )
-
-                register_console_kit_tools(tool_registry)
-            except ImportError:
-                pass
-
-            try:
-                from backend.app.extensions.community import (
-                    register_community_extensions,
-                )
-
-                register_community_extensions(tool_registry)
-            except ImportError:
-                pass
+            tool_registry = _get_cached_tool_registry(self.data_dir)
 
             tools = tool_registry.get_tools(
                 workspace_id=workspace_id,

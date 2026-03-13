@@ -38,22 +38,8 @@ class ToolListLoader:
 
             # Try to get cached tools string from ToolRegistryService first
             try:
-                from backend.app.services.tool_registry import ToolRegistryService
-                data_dir = os.getenv("DATA_DIR", "./data")
-                tool_registry = ToolRegistryService(data_dir=data_dir)
-
-                # Register external extensions
-                try:
-                    from backend.app.extensions.console_kit import register_console_kit_tools
-                    register_console_kit_tools(tool_registry)
-                except ImportError:
-                    pass
-
-                try:
-                    from backend.app.extensions.community import register_community_extensions
-                    register_community_extensions(tool_registry)
-                except ImportError:
-                    pass
+                from backend.app.routes.core.tools.base import get_tool_registry
+                tool_registry = get_tool_registry()
 
                 if hasattr(tool_registry, 'get_tools_str_cached'):
                     cached_tools_str = tool_registry.get_tools_str_cached(

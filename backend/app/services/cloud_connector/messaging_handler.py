@@ -642,11 +642,9 @@ class MessagingHandler:
 
         # Try LLM-based summary
         try:
-            from backend.app.services.llm_providers.manager import (
-                LLMProviderManager,
-            )
+            from backend.app.shared.llm_provider_helper import create_llm_provider_manager
 
-            manager = LLMProviderManager()
+            manager = create_llm_provider_manager(provider_name="vertex-ai")
             provider = manager.get_provider("vertex-ai")
 
             if provider:

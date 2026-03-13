@@ -783,13 +783,6 @@ class CapabilityInstaller:
                     result["errors"].append(error_msg)
                     continue  # 跳過此 playbook 的安裝
 
-                # ⚠️ 硬規則：驗證 playbook spec 不使用 legacy `tool` 字段
-                legacy_tool_errors = self._validate_no_legacy_tool_field(spec_path, playbook_code)
-                if legacy_tool_errors:
-                    error_msg = f"Playbook {playbook_code} uses legacy 'tool' field (已棄用): {legacy_tool_errors}"
-                    logger.error(error_msg)
-                    result["errors"].append(error_msg)
-                    continue  # 跳過此 playbook 的安裝
 
                 # Install to backend/playbooks/specs/ (backward compatibility)
                 target_spec = self.specs_dir / f"{playbook_code}.json"
@@ -907,53 +900,8 @@ class CapabilityInstaller:
         except Exception as e:
             return [f"Validation error: {str(e)}"]
 
-    def _validate_no_legacy_tool_field(
-        self,
-        spec_path: Path,
-        playbook_code: str
-    ) -> List[str]:
-        """
-        Validate that playbook spec does not use legacy 'tool' field
 
-        ⚠️ 硬規則：playbook 必須使用 tool_slot 字段，tool 字段已棄用
 
-        Args:
-            spec_path: Path to playbook JSON spec file
-            playbook_code: Playbook code for error messages
-
-        Returns:
-            List of error messages (empty if validation passes)
-        """
-        errors = []
-        try:
-            with open(spec_path, 'r', encoding='utf-8') as f:
-                spec = json.load(f)
-
-            steps = spec.get('steps', [])
-            if not isinstance(steps, list):
-                return errors
-
-            for step_idx, step in enumerate(steps):
-                if not isinstance(step, dict):
-                    continue
-
-                # 檢查是否使用 legacy 'tool' 字段
-                if 'tool' in step:
-                    step_id = step.get('id', f'step_{step_idx}')
-                    errors.append(
-                        f"Step '{step_id}' uses legacy 'tool' field: '{step['tool']}'. "
-                        f"Must use 'tool_slot' field instead (format: 'capability.tool_name', e.g., 'yogacoach.intake_router')"
-                    )
-
-            if errors:
-                logger.error(f"Playbook {playbook_code} validation failed: legacy 'tool' field detected in {len(errors)} step(s)")
-
-        except json.JSONDecodeError as e:
-            errors.append(f"Invalid JSON in playbook spec: {e}")
-        except Exception as e:
-            errors.append(f"Error validating playbook spec: {e}")
-
-        return errors
 
     def _validate_tools_direct_call(
         self,

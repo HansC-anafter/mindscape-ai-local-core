@@ -1304,10 +1304,10 @@ class WorkflowOrchestrator:
                 step, playbook_inputs_with_context, step_outputs, workflow_context
             )
 
-            # Resolve tool: support both legacy 'tool' field and new 'tool_slot' field
+            # Resolve tool: use tool_slot field (tool field is deprecated and removed)
             tool_id = None
             if hasattr(step, "tool_slot") and step.tool_slot:
-                # New slot-based mode: resolve slot to tool_id
+                # Slot-based mode: resolve slot to tool_id
                 slot_resolver = get_tool_slot_resolver(store=self.store)
                 try:
                     tool_id = await slot_resolver.resolve(
@@ -1323,10 +1323,6 @@ class WorkflowOrchestrator:
                     raise ValueError(
                         f"Tool slot '{step.tool_slot}' not configured. Please set up a mapping in workspace settings."
                     )
-            elif hasattr(step, "tool") and step.tool:
-                # Legacy mode: use tool field directly
-                tool_id = step.tool
-                logger.debug(f"Using legacy tool field: '{tool_id}'")
             elif hasattr(step, "playbook_slot") and step.playbook_slot:
                 # Composition slot: sub-playbook invocation (P3-4d)
                 import os as _os

@@ -59,9 +59,11 @@ class SystemHealthChecker:
         backend_manager: Optional[BackendManager] = None
     ):
         import os
+        from backend.app.routes.core.tools.base import get_tool_registry
+        
         self.config_store = config_store or ConfigStore()
-        data_dir = os.getenv("DATA_DIR", "./data")
-        self.tool_registry = tool_registry or ToolRegistryService(data_dir=data_dir)
+        # Use cached global tool registry to avoid overhead on every health check
+        self.tool_registry = tool_registry or get_tool_registry()
         self.backend_manager = backend_manager or BackendManager(config_store=self.config_store)
 
     async def check_workspace_health(

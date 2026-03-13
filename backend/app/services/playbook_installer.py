@@ -51,15 +51,6 @@ class PlaybookInstaller:
                     result.add_error(error_msg)
                     continue  # 跳過此 playbook 的安裝
 
-                # ⚠️ 硬規則：驗證 playbook spec 不使用 legacy `tool` 字段
-                legacy_tool_errors = self._validate_no_legacy_tool_field(
-                    spec_path, playbook_code
-                )
-                if legacy_tool_errors:
-                    error_msg = f"Playbook {playbook_code} uses legacy 'tool' field (已棄用): {legacy_tool_errors}"
-                    logger.error(error_msg)
-                    result.add_error(error_msg)
-                    continue  # 跳過此 playbook 的安裝
 
                 # Install to backend/playbooks/specs/ (backward compatibility)
                 target_spec = self.specs_dir / f"{playbook_code}.json"
@@ -196,78 +187,8 @@ class PlaybookInstaller:
         except Exception as e:
             return [f"Validation error: {str(e)}"]
 
-    def _validate_no_legacy_tool_field(
-        self, spec_path: Path, playbook_code: str
-    ) -> List[str]:
-        """
-        Validate that playbook spec does not use legacy 'tool' field
 
-        ⚠️ 硬規則：playbook 必須使用 tool_slot 字段，tool 字段已棄用
-        """
-        errors = []
-        try:
-            with open(spec_path, "r", encoding="utf-8") as f:
-                spec = json.load(f)
 
-            steps = spec.get("steps", [])
-            if not isinstance(steps, list):
-                return errors
-
-            for step_idx, step in enumerate(steps):
-                if not isinstance(step, dict):
-                    continue
-
-                # Validate playbook_slot references exist at install time
-                if "playbook_slot" in step:
-                    slot_ref = step["playbook_slot"]
-                    step_id = step.get("id", f"step_{step_idx}")
-                    try:
-                        from backend.app.services.playbook_loaders.json_loader import (
-                            PlaybookJsonLoader,
-                        )
-
-                        sub_pb = PlaybookJsonLoader.load_playbook_json(slot_ref)
-                        if not sub_pb:
-                            # Check if the reference looks like a cross-capability
-                            # playbook (e.g. "other_cap.some_playbook") that may
-                            # not be installed yet. Warn instead of error.
-                            if "." in slot_ref:
-                                logger.warning(
-                                    f"Step '{step_id}': playbook_slot '{slot_ref}' "
-                                    f"not found locally (cross-capability ref, may "
-                                    f"be installed later)"
-                                )
-                            else:
-                                errors.append(
-                                    f"Step '{step_id}': playbook_slot '{slot_ref}' "
-                                    f"not found. Local/system playbooks must exist "
-                                    f"at install time."
-                                )
-                    except Exception as e:
-                        logger.warning(
-                            f"Step '{step_id}': could not validate playbook_slot "
-                            f"'{slot_ref}': {e}"
-                        )
-
-                # Check for legacy 'tool' field (skip for playbook_slot steps)
-                if "tool" in step and "playbook_slot" not in step:
-                    step_id = step.get("id", f"step_{step_idx}")
-                    errors.append(
-                        f"Step '{step_id}' uses legacy 'tool' field: '{step['tool']}'. "
-                        f"Must use 'tool_slot' field instead (format: 'capability.tool_name', e.g., 'yogacoach.intake_router')"
-                    )
-
-            if errors:
-                logger.error(
-                    f"Playbook {playbook_code} validation failed: legacy 'tool' field detected in {len(errors)} step(s)"
-                )
-
-        except json.JSONDecodeError as e:
-            errors.append(f"Invalid JSON in playbook spec: {e}")
-        except Exception as e:
-            errors.append(f"Error validating playbook spec: {e}")
-
-        return errors
 
     def _validate_tools_direct_call(
         self, playbook_code: str, capability_code: str

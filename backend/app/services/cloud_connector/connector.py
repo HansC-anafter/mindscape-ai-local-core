@@ -140,41 +140,44 @@ class CloudConnector:
             from app.services.runtime_auth_service import RuntimeAuthService
 
             db = next(get_db_postgres())
-            runtimes = (
-                db.query(RuntimeEnvironment)
-                .filter(
-                    RuntimeEnvironment.auth_type == "oauth2",
-                    RuntimeEnvironment.auth_status.in_(["connected", "expired"]),
-                )
-                .all()
-            )
-            if not runtimes:
-                logger.debug("No connected OAuth runtimes found in DB")
-                return None
-
-            svc = RuntimeAuthService()
-
-            for runtime in runtimes:
-                if not runtime.auth_config:
-                    continue
-                try:
-                    headers = await svc.get_auth_headers(runtime, db)
-                    auth_header = headers.get("Authorization", "")
-                    if auth_header.startswith("Bearer "):
-                        access_token = auth_header[7:]
-                        logger.info(
-                            "Retrieved OAuth token (with auto-refresh) from runtime %s",
-                            runtime.id,
-                        )
-                        return access_token
-                except Exception as e:
-                    logger.warning(
-                        "Failed to get valid token from runtime %s: %s",
-                        runtime.id,
-                        e,
+            try:
+                runtimes = (
+                    db.query(RuntimeEnvironment)
+                    .filter(
+                        RuntimeEnvironment.auth_type == "oauth2",
+                        RuntimeEnvironment.auth_status.in_(["connected", "expired"]),
                     )
-            logger.debug("All connected runtimes have empty access_token")
-            return None
+                    .all()
+                )
+                if not runtimes:
+                    logger.debug("No connected OAuth runtimes found in DB")
+                    return None
+
+                svc = RuntimeAuthService()
+
+                for runtime in runtimes:
+                    if not runtime.auth_config:
+                        continue
+                    try:
+                        headers = await svc.get_auth_headers(runtime, db)
+                        auth_header = headers.get("Authorization", "")
+                        if auth_header.startswith("Bearer "):
+                            access_token = auth_header[7:]
+                            logger.info(
+                                "Retrieved OAuth token (with auto-refresh) from runtime %s",
+                                runtime.id,
+                            )
+                            return access_token
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to get valid token from runtime %s: %s",
+                            runtime.id,
+                            e,
+                        )
+                logger.debug("All connected runtimes have empty access_token")
+                return None
+            finally:
+                db.close()
         except Exception as e:
             logger.warning(f"Failed to read runtime OAuth token: {e}")
             return None

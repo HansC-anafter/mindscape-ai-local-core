@@ -14,7 +14,7 @@ class AnthropicProvider(LLMProvider):
     """Anthropic Claude API provider"""
 
     async def chat_completion(
-        self, messages: List[Dict[str, str]], model: str = "claude-3-sonnet-20240229"
+        self, messages: List[Dict[str, str]], model: str = ""
     ) -> str:
         try:
             import anthropic

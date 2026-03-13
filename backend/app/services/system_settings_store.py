@@ -28,19 +28,27 @@ logger = logging.getLogger(__name__)
 class SystemSettingsStore(PostgresStoreBase):
     """PostgreSQL-based system settings store"""
 
+    _schema_ensured = False
+    _defaults_initialized = False
+
     def __init__(self, db_path: Optional[str] = None):
         super().__init__()
         self._tables_ready = False
-        if db_path is not None:
-            logger.warning("SystemSettingsStore ignores db_path in Postgres-only mode.")
+        # (Silenced db_path warning to avoid spam across multiple processes)
         if self.factory.get_db_type(self.db_role) != "postgres":
             raise RuntimeError(
                 "SQLite is no longer supported for SystemSettingsStore. Configure PostgreSQL."
             )
-        self._ensure_schema()
-        if self._tables_ready:
+        
+        if not SystemSettingsStore._schema_ensured:
+            self._ensure_schema()
+        else:
+            self._tables_ready = True
+            
+        if self._tables_ready and not SystemSettingsStore._defaults_initialized:
             self._init_default_settings()
             self._migrate_settings()
+            SystemSettingsStore._defaults_initialized = True
 
     def _ensure_schema(self):
         """Ensure system_settings table exists (managed by Alembic)."""
@@ -58,6 +66,7 @@ class SystemSettingsStore(PostgresStoreBase):
                 )
                 return
             self._tables_ready = True
+            SystemSettingsStore._schema_ensured = True
 
     def _init_default_settings(self):
         """Initialize default system settings"""

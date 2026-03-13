@@ -25,7 +25,7 @@ class OllamaProvider(LLMProvider):
     async def chat_completion(
         self,
         messages: List[Dict[str, str]],
-        model: str = "llama3",
+        model: str = "",
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         max_completion_tokens: Optional[int] = None,
@@ -82,7 +82,7 @@ class OllamaProvider(LLMProvider):
     async def chat_completion_stream(
         self,
         messages: List[Dict[str, str]],
-        model: str = "llama3",
+        model: str = "",
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         max_completion_tokens: Optional[int] = None,

@@ -62,6 +62,15 @@ class ToolRegistryService(PostgresStoreBase):
     - Responsible for registration, querying, and management only
     """
 
+    # Class-level flags to prevent repeated heavy init across instances
+    _schema_ensured = False
+    _registry_loaded = False
+    _providers_registered = False
+    _shared_tools: Dict[str, RegisteredTool] = {}
+    _shared_connections: Dict[tuple, ToolConnectionModel] = {}
+    _shared_providers: Dict[str, ToolDiscoveryProvider] = {}
+    _shared_tables_ready = False
+
     def __init__(
         self,
         data_dir: str = "./data",
@@ -82,25 +91,29 @@ class ToolRegistryService(PostgresStoreBase):
         self.registry_file = self.data_dir / "tool_registry.json"
         self.connections_file = self.data_dir / "tool_connections.json"
 
-        # In-memory cache
-        # Tools: keyed by tool_id
-        self._tools: Dict[str, RegisteredTool] = {}
-        # Connections: keyed by (profile_id, connection_id) tuple for multi-tenant support
-        self._connections: Dict[tuple, ToolConnectionModel] = {}
+        # Point instance caches to shared class-level caches
+        self._tools = ToolRegistryService._shared_tools
+        self._connections = ToolRegistryService._shared_connections
+        self._discovery_providers = ToolRegistryService._shared_providers
 
-        # Discovery providers registry
-        self._discovery_providers: Dict[str, ToolDiscoveryProvider] = {}
+        # Initialize database (only once per process)
+        self._tables_ready = ToolRegistryService._shared_tables_ready
+        if not ToolRegistryService._schema_ensured:
+            self._ensure_tables()
+            ToolRegistryService._shared_tables_ready = self._tables_ready
+            ToolRegistryService._schema_ensured = True
+        else:
+            self._tables_ready = ToolRegistryService._shared_tables_ready
 
-        # Initialize database
-        self._tables_ready = False
-        self._ensure_tables()
-
-        # Load data only if tables exist
-        if self._tables_ready:
+        # Load data only if tables exist (only once per process)
+        if self._tables_ready and not ToolRegistryService._registry_loaded:
             self._load_registry()
+            ToolRegistryService._registry_loaded = True
 
-        # Register default providers (built-in)
-        self._register_default_providers()
+        # Register default providers (built-in) — only once per process
+        if not ToolRegistryService._providers_registered:
+            self._register_default_providers()
+            ToolRegistryService._providers_registered = True
 
     def _ensure_tables(self):
         """Validate required tables exist (managed by Alembic migrations)."""
@@ -508,7 +521,7 @@ class ToolRegistryService(PostgresStoreBase):
             )
 
         self._discovery_providers[provider_name] = provider
-        logger.info(f"Registered discovery provider: {provider_name}")
+        logger.debug(f"Registered discovery provider: {provider_name}")
 
     def _register_default_providers(self):
         """Register default providers (generic, platform-agnostic)"""

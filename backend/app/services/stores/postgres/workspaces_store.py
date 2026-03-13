@@ -183,7 +183,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
 
     async def get_workspace(self, workspace_id: str) -> Optional[Workspace]:
         """Get workspace by ID (async wrapper for compatibility)."""
-        return self.get_workspace_sync(workspace_id)
+        import anyio
+        return await anyio.to_thread.run_sync(self.get_workspace_sync, workspace_id)
 
     def list_workspaces(
         self,
@@ -206,8 +207,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             rows = result.fetchall()
             return [self._row_to_workspace(row) for row in rows]
 
-    async def update_workspace(self, workspace: Workspace) -> Workspace:
-        """Update an existing workspace."""
+    def update_workspace_sync(self, workspace: Workspace) -> Workspace:
+        """Update an existing workspace (synchronous)."""
         workspace.updated_at = _utc_now()
         with self.transaction() as conn:
             query = text(
@@ -356,6 +357,11 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             conn.execute(query, params)
             logger.info(f"Updated workspace: {workspace.id}")
             return workspace
+
+    async def update_workspace(self, workspace: Workspace) -> Workspace:
+        """Update an existing workspace (async interface)."""
+        import anyio
+        return await anyio.to_thread.run_sync(self.update_workspace_sync, workspace)
 
     def delete_workspace(self, workspace_id: str) -> bool:
         """Delete a workspace."""

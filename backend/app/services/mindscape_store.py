@@ -102,11 +102,23 @@ class MindscapeStore:
 
     This class provides a unified interface to all domain-specific stores
     while maintaining backward compatibility with existing code.
+
+    Uses singleton pattern to avoid redundant initialization (50+ call sites).
     """
 
     _schema_initialized = False
+    _instance = None
+
+    def __new__(cls, db_path: str = None):
+        if cls._instance is not None:
+            return cls._instance
+        cls._instance = super().__new__(cls)
+        cls._instance._initialized = False
+        return cls._instance
 
     def __init__(self, db_path: str = None):
+        if self._initialized:
+            return
         if db_path is None:
             if os.path.exists("/.dockerenv") or os.environ.get("PYTHONPATH") == "/app":
                 db_path = "/app/data/mindscape.db"
@@ -169,6 +181,8 @@ class MindscapeStore:
             logger.warning(
                 "ensure_default_profile deferred (tables may not exist yet): %s", e
             )
+            
+        self._initialized = True
 
     def get_user_meta(
         self, profile_id: str, playbook_code: str

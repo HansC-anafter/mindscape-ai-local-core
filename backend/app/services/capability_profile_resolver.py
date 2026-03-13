@@ -12,7 +12,7 @@ falling back to built-in defaults.  ``model_name`` may be None, meaning
 """
 
 import logging
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +90,17 @@ class CapabilityProfileResolver:
             )
 
             setting = SystemSettingsStore().get_setting("profile_model_map")
-            if setting and isinstance(setting.value, dict):
-                return setting.value
+            if setting:
+                if isinstance(setting.value, dict):
+                    return setting.value
+                elif isinstance(setting.value, str):
+                    import json
+                    try:
+                        parsed = json.loads(setting.value)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except Exception:
+                        pass
         except Exception:
             pass
         return None

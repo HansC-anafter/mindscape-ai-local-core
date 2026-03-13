@@ -15,7 +15,7 @@ class LLMProvider:
         self.api_key = api_key
 
     async def chat_completion(
-        self, messages: List[Dict[str, str]], model: str = "gpt-4o-mini"
+        self, messages: List[Dict[str, str]], model: str = "", **kwargs
     ) -> str:
         """Abstract method for chat completion"""
         raise NotImplementedError
@@ -23,7 +23,7 @@ class LLMProvider:
     async def chat_completion_stream(
         self,
         messages: List[Dict[str, str]],
-        model: str = "gpt-4o-mini",
+        model: str = "",
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         max_completion_tokens: Optional[int] = None,

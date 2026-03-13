@@ -152,7 +152,7 @@ class VertexAIProvider(LLMProvider):
     async def chat_completion(
         self,
         messages: List[Dict[str, str]],
-        model: str = "gemini-pro",
+        model: str,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         max_completion_tokens: Optional[int] = None,
@@ -299,7 +299,7 @@ class VertexAIProvider(LLMProvider):
     async def chat_completion_stream(
         self,
         messages: List[Dict[str, str]],
-        model: str = "gemini-pro",
+        model: str,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         max_completion_tokens: Optional[int] = None,

@@ -188,14 +188,24 @@ class TemplateEngine:
                 logger.warning(f"Template variable {{input.{var_path}}} resolved to None, using empty string")
                 return ""
 
-            # Handle {{step.xxx.yyy}} or {{step.xxx.yyy[0]}}
+            # Handle {{step.xxx.yyy}}, {{step.xxx.yyy[0]}}, or {{step.xxx}} (entire step output)
             elif var_type == 'step':
                 step_parts = var_path.split('.', 1)
-                if len(step_parts) < 2:
-                    logger.warning(f"Invalid step reference: {var_expr}")
-                    return match.group(0)
-                step_id, output_path = step_parts[0], step_parts[1]
+                step_id = step_parts[0]
                 step_result = step_outputs.get(step_id, {})
+
+                if len(step_parts) < 2:
+                    # {{step.xxx}} — return entire step output as JSON
+                    if not step_result:
+                        logger.warning(f"Invalid step reference: {var_expr} (step '{step_id}' has no output)")
+                        return match.group(0)
+                    import json
+                    logger.debug(f"TemplateEngine: Resolved {{{{step.{step_id}}}}} to full step output (keys={list(step_result.keys()) if isinstance(step_result, dict) else 'N/A'})")
+                    if isinstance(step_result, dict):
+                        return json.dumps(step_result, ensure_ascii=False)
+                    return str(step_result)
+
+                output_path = step_parts[1]
                 logger.debug(f"TemplateEngine: Resolving {{step.{var_expr}}}: step_id={step_id}, output_path={output_path}, step_result_keys={list(step_result.keys()) if isinstance(step_result, dict) else 'N/A'}")
 
                 # Handle nested paths and array indexing: output_name.xxx[0].yyy
