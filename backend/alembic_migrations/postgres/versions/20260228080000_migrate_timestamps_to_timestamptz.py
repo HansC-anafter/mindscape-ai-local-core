@@ -14,6 +14,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.exc import ProgrammingError
 
 
 # revision identifiers, used by Alembic.
@@ -139,15 +140,31 @@ def upgrade() -> None:
     are UTC. This is a metadata-only change for most rows — PostgreSQL
     stores the same epoch internally, just adds timezone awareness.
     """
+    conn = op.get_bind()
+    
+    # Missing Tasks table column schema application
+    def attempt_schema(stmt):
+        try:
+            with conn.begin_nested():
+                conn.execute(sa.text(stmt))
+        except ProgrammingError:
+            pass
+            
+    attempt_schema("ALTER TABLE tasks ADD COLUMN meeting_session_id TEXT")
+    
     for table_name, columns in ALL_TABLES:
         for col_name in columns:
-            op.alter_column(
-                table_name,
-                col_name,
-                type_=sa.DateTime(timezone=True),
-                existing_type=sa.DateTime(),
-                postgresql_using=f"{col_name} AT TIME ZONE 'UTC'",
-            )
+            try:
+                with conn.begin_nested():
+                    op.alter_column(
+                        table_name,
+                        col_name,
+                        type_=sa.DateTime(timezone=True),
+                        existing_type=sa.DateTime(),
+                        postgresql_using=f"{col_name} AT TIME ZONE 'UTC'",
+                    )
+            except ProgrammingError:
+                pass
 
 
 def downgrade() -> None:

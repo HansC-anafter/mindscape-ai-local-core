@@ -12,6 +12,7 @@ Adds versioning and session linkage columns for the intent governance paradigm:
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.exc import ProgrammingError
 
 # revision identifiers
 revision = "20260222000001"
@@ -21,28 +22,21 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        "reasoning_traces",
-        sa.Column("parent_trace_id", sa.Text(), nullable=True),
-    )
-    op.add_column(
-        "reasoning_traces",
-        sa.Column("supersedes", sa.Text(), nullable=True),
-    )
-    op.add_column(
-        "reasoning_traces",
-        sa.Column("meeting_session_id", sa.Text(), nullable=True),
-    )
-    op.create_index(
-        "idx_reasoning_traces_parent",
-        "reasoning_traces",
-        ["parent_trace_id"],
-    )
-    op.create_index(
-        "idx_reasoning_traces_session",
-        "reasoning_traces",
-        ["meeting_session_id"],
-    )
+    conn = op.get_bind()
+    
+    # helper for clean try/except in pg transactions
+    def attempt(stmt):
+        try:
+            with conn.begin_nested():
+                conn.execute(sa.text(stmt))
+        except ProgrammingError:
+            pass
+            
+    attempt("ALTER TABLE reasoning_traces ADD COLUMN parent_trace_id TEXT")
+    attempt("ALTER TABLE reasoning_traces ADD COLUMN supersedes TEXT")
+    attempt("ALTER TABLE reasoning_traces ADD COLUMN meeting_session_id TEXT")
+    attempt("CREATE INDEX idx_reasoning_traces_parent ON reasoning_traces (parent_trace_id)")
+    attempt("CREATE INDEX idx_reasoning_traces_session ON reasoning_traces (meeting_session_id)")
 
 
 def downgrade():

@@ -16,6 +16,7 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import ProgrammingError
 
 # revision identifiers, used by Alembic
 revision: str = "20260221220000"
@@ -80,33 +81,19 @@ def upgrade() -> None:
             sa.Column("ready_at", sa.DateTime(timezone=True)),
         )
 
-    if not _index_exists(inspector, "voice_profiles", "idx_voice_profiles_workspace"):
-        op.create_index(
-            "idx_voice_profiles_workspace", "voice_profiles", ["workspace_id"]
-        )
-    if not _index_exists(inspector, "voice_profiles", "idx_voice_profiles_instructor"):
-        op.create_index(
-            "idx_voice_profiles_instructor", "voice_profiles", ["instructor_id"]
-        )
-    if not _index_exists(inspector, "voice_profiles", "idx_voice_profiles_status"):
-        op.create_index("idx_voice_profiles_status", "voice_profiles", ["status"])
-    if not _index_exists(
-        inspector, "voice_profiles", "idx_voice_profiles_ws_instructor"
-    ):
-        op.create_index(
-            "idx_voice_profiles_ws_instructor",
-            "voice_profiles",
-            ["workspace_id", "instructor_id"],
-        )
-    if not _index_exists(
-        inspector, "voice_profiles", "idx_voice_profiles_sample_paths"
-    ):
-        op.create_index(
-            "idx_voice_profiles_sample_paths",
-            "voice_profiles",
-            ["sample_paths"],
-            postgresql_using="gin",
-        )
+    conn = op.get_bind()
+    def attempt_index(stmt):
+        try:
+            with conn.begin_nested():
+                conn.execute(sa.text(stmt))
+        except ProgrammingError:
+            pass
+            
+    attempt_index("CREATE INDEX idx_voice_profiles_workspace ON voice_profiles (workspace_id)")
+    attempt_index("CREATE INDEX idx_voice_profiles_instructor ON voice_profiles (instructor_id)")
+    attempt_index("CREATE INDEX idx_voice_profiles_status ON voice_profiles (status)")
+    attempt_index("CREATE INDEX idx_voice_profiles_ws_instructor ON voice_profiles (workspace_id, instructor_id)")
+    attempt_index("CREATE INDEX idx_voice_profiles_sample_paths ON voice_profiles USING gin (sample_paths)")
 
     # ----------------------------------------------------------------
     # voice_training_jobs
@@ -154,43 +141,11 @@ def upgrade() -> None:
             sa.ForeignKeyConstraint(["voice_profile_id"], ["voice_profiles.id"]),
         )
 
-    if not _index_exists(
-        inspector, "voice_training_jobs", "idx_voice_training_jobs_workspace"
-    ):
-        op.create_index(
-            "idx_voice_training_jobs_workspace", "voice_training_jobs", ["workspace_id"]
-        )
-    if not _index_exists(
-        inspector, "voice_training_jobs", "idx_voice_training_jobs_profile"
-    ):
-        op.create_index(
-            "idx_voice_training_jobs_profile",
-            "voice_training_jobs",
-            ["voice_profile_id"],
-        )
-    if not _index_exists(
-        inspector, "voice_training_jobs", "idx_voice_training_jobs_instructor"
-    ):
-        op.create_index(
-            "idx_voice_training_jobs_instructor",
-            "voice_training_jobs",
-            ["instructor_id"],
-        )
-    if not _index_exists(
-        inspector, "voice_training_jobs", "idx_voice_training_jobs_status"
-    ):
-        op.create_index(
-            "idx_voice_training_jobs_status", "voice_training_jobs", ["status"]
-        )
-    if not _index_exists(
-        inspector, "voice_training_jobs", "idx_voice_training_jobs_config"
-    ):
-        op.create_index(
-            "idx_voice_training_jobs_config",
-            "voice_training_jobs",
-            ["training_config"],
-            postgresql_using="gin",
-        )
+    attempt_index("CREATE INDEX idx_voice_training_jobs_workspace ON voice_training_jobs (workspace_id)")
+    attempt_index("CREATE INDEX idx_voice_training_jobs_profile ON voice_training_jobs (voice_profile_id)")
+    attempt_index("CREATE INDEX idx_voice_training_jobs_instructor ON voice_training_jobs (instructor_id)")
+    attempt_index("CREATE INDEX idx_voice_training_jobs_status ON voice_training_jobs (status)")
+    attempt_index("CREATE INDEX idx_voice_training_jobs_config ON voice_training_jobs USING gin (training_config)")
 
     # ----------------------------------------------------------------
     # video_segments
@@ -242,35 +197,12 @@ def upgrade() -> None:
             ),
         )
 
-    if not _index_exists(inspector, "video_segments", "idx_video_segments_workspace"):
-        op.create_index(
-            "idx_video_segments_workspace", "video_segments", ["workspace_id"]
-        )
-    if not _index_exists(inspector, "video_segments", "idx_video_segments_instructor"):
-        op.create_index(
-            "idx_video_segments_instructor", "video_segments", ["instructor_id"]
-        )
-    if not _index_exists(inspector, "video_segments", "idx_video_segments_course"):
-        op.create_index("idx_video_segments_course", "video_segments", ["course_id"])
-    if not _index_exists(inspector, "video_segments", "idx_video_segments_quality"):
-        op.create_index(
-            "idx_video_segments_quality",
-            "video_segments",
-            [sa.text("quality_score DESC")],
-        )
-    if not _index_exists(inspector, "video_segments", "idx_video_segments_tags"):
-        op.create_index(
-            "idx_video_segments_tags",
-            "video_segments",
-            ["tags"],
-            postgresql_using="gin",
-        )
-    if not _index_exists(inspector, "video_segments", "idx_video_segments_ws_source"):
-        op.create_index(
-            "idx_video_segments_ws_source",
-            "video_segments",
-            ["workspace_id", "source_video_path"],
-        )
+    attempt_index("CREATE INDEX idx_video_segments_workspace ON video_segments (workspace_id)")
+    attempt_index("CREATE INDEX idx_video_segments_instructor ON video_segments (instructor_id)")
+    attempt_index("CREATE INDEX idx_video_segments_course ON video_segments (course_id)")
+    attempt_index("CREATE INDEX idx_video_segments_quality ON video_segments (quality_score DESC)")
+    attempt_index("CREATE INDEX idx_video_segments_tags ON video_segments USING gin (tags)")
+    attempt_index("CREATE INDEX idx_video_segments_ws_source ON video_segments (workspace_id, source_video_path)")
 
 
 def downgrade() -> None:
