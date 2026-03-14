@@ -23,6 +23,15 @@ class WordPressSyncRequest(BaseModel):
     per_page: int = 10
 
 
+class DocumentSyncRequest(BaseModel):
+    user_id: str = "default_user"
+    source_app: str
+    source_id: str
+    title: str
+    content: str
+    metadata: Optional[Dict[str, Any]] = None
+
+
 class WordPressSyncResponse(BaseModel):
     total_fetched: int
     new: int
@@ -33,6 +42,48 @@ class WordPressSyncResponse(BaseModel):
 
 
 # WordPress Sync Endpoints
+
+@router.post("/sync/document")
+async def sync_document(request: DocumentSyncRequest):
+    """
+    Sync a single document (or chunk) to the vector database.
+    Generates embedding automatically.
+    """
+    try:
+        from backend.app.services.vector_search import VectorSearchService
+        vs = VectorSearchService()
+        
+        # Generate embedding
+        embedding, model_name = await vs._generate_embedding_with_model(request.content, is_query=False)
+        if not embedding:
+            raise HTTPException(status_code=500, detail="Failed to generate embedding")
+            
+        doc_metadata = request.metadata or {}
+        if model_name:
+            doc_metadata["embedding_model"] = model_name
+            
+        doc = {
+            "user_id": request.user_id,
+            "source_app": request.source_app,
+            "source_id": request.source_id,
+            "title": request.title,
+            "content": request.content,
+            "embedding": embedding,
+            "metadata": doc_metadata
+        }
+        
+        success = await vs.save_to_external_docs(doc)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to save document")
+            
+        return {"success": True, "source_id": request.source_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Document sync failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/sync/wordpress", response_model=WordPressSyncResponse)
 async def sync_wordpress(
