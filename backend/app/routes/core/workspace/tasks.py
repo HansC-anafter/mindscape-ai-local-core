@@ -303,9 +303,15 @@ async def get_workspace_tasks(
         tasks_store = TasksStore()
 
         if include_completed:
-            all_tasks = await asyncio.to_thread(
-                tasks_store.list_tasks_by_workspace, workspace_id, limit=limit
+            # Always include running tasks first — they must never be cut off
+            # by ORDER BY created_at DESC LIMIT even if they were created long ago.
+            running = await asyncio.to_thread(tasks_store.list_running_tasks, workspace_id)
+            remaining_limit = max(0, limit - len(running))
+            rest = await asyncio.to_thread(
+                tasks_store.list_tasks_by_workspace, workspace_id, limit=remaining_limit
             )
+            running_ids = {t.id for t in running}
+            all_tasks = running + [t for t in rest if t.id not in running_ids]
         else:
             pending = await asyncio.to_thread(tasks_store.list_pending_tasks, workspace_id)
             running = await asyncio.to_thread(tasks_store.list_running_tasks, workspace_id)
@@ -392,7 +398,11 @@ async def get_workspace_executions(
         safe_col = "created_at"
         if order_by in ("created_at", "started_at", "completed_at", "status"):
             safe_col = order_by
-        query_parts.append(f"ORDER BY {safe_col} {safe_order}")
+        # Running and pending tasks sort first so they're never buried by old completed ones
+        query_parts.append(
+            f"ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, "
+            f"{safe_col} {safe_order}"
+        )
 
         query_parts.append("LIMIT :limit")
         params["limit"] = limit
