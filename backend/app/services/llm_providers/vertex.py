@@ -81,13 +81,41 @@ class VertexAIProvider(LLMProvider):
             if msg["role"] == "system":
                 system_instruction = msg["content"]
             elif msg["role"] == "user":
-                vertex_messages.append(
-                    {"role": "user", "parts": [{"text": msg["content"]}]}
-                )
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    parts = []
+                    for item in content:
+                        if item.get("type") == "text":
+                            parts.append({"text": item.get("text", "")})
+                        elif item.get("type") == "image_url":
+                            url = item.get("image_url", {}).get("url", "")
+                            if url.startswith("data:"):
+                                mime_type, b64_data = url.split(";", 1)
+                                mime_type = mime_type.replace("data:", "")
+                                b64_data = b64_data.replace("base64,", "")
+                                parts.append(
+                                    {
+                                        "inline_data": {
+                                            "mime_type": mime_type,
+                                            "data": b64_data
+                                        }
+                                    }
+                                )
+                    vertex_messages.append({"role": "user", "parts": parts})
+                else:
+                    vertex_messages.append(
+                        {"role": "user", "parts": [{"text": str(content)}]}
+                    )
             elif msg["role"] == "assistant":
-                vertex_messages.append(
-                    {"role": "model", "parts": [{"text": msg["content"]}]}
-                )
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    # For assistant, usually just text, but just in case
+                    texts = [item.get("text", "") for item in content if item.get("type") == "text"]
+                    vertex_messages.append({"role": "model", "parts": [{"text": "".join(texts)}]})
+                else:
+                    vertex_messages.append(
+                        {"role": "model", "parts": [{"text": str(content)}]}
+                    )
 
         return vertex_messages, system_instruction
 

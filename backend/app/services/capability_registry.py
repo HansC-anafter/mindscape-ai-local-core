@@ -278,13 +278,21 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
             func = getattr(module, target)
 
         # Check if it's an async function
-        if inspect.iscoroutinefunction(func):
-            import asyncio
-            # If async, need to await in outer layer
-            # Return coroutine here, let caller decide how to handle
-            return func(**kwargs)
-        else:
-            return func(**kwargs)
+
+        logger.info(f"DEBUG CAPABILITY_REGISTRY_SYNC calling {func} with kwargs keys: {list(kwargs.keys())}")
+        import inspect
+        logger.info(f"DEBUG CAPABILITY_REGISTRY_SYNC func signature: {inspect.signature(func)}")
+        try:
+            if inspect.iscoroutinefunction(func):
+                import asyncio
+                return func(**kwargs)
+            else:
+                return func(**kwargs)
+        except Exception as e_inner:
+            import traceback
+            logger.error(f"DEBUG CAPABILITY_REGISTRY_SYNC exception: {traceback.format_exc()}")
+            raise e_inner
+
 
     except Exception as e:
         error_msg = f"Failed to call tool {tool_name} (backend: {backend_path}): {str(e)}"
@@ -382,10 +390,20 @@ async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
             # Module-level function
             func = getattr(module, target)
 
-        if inspect.iscoroutinefunction(func):
-            return await func(**kwargs)
-        else:
-            return func(**kwargs)
+
+        logger.info(f"DEBUG CAPABILITY_REGISTRY calling {func} with kwargs keys: {list(kwargs.keys())}")
+        import inspect
+        logger.info(f"DEBUG CAPABILITY_REGISTRY func signature: {inspect.signature(func)}")
+        try:
+            if inspect.iscoroutinefunction(func):
+                return await func(**kwargs)
+            else:
+                return func(**kwargs)
+        except Exception as e_inner:
+            import traceback
+            logger.error(f"DEBUG CAPABILITY_REGISTRY exception: {traceback.format_exc()}")
+            raise e_inner
+
 
     except Exception as e:
         # Avoid recursion in error logging - use simple error message
