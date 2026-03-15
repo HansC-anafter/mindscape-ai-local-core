@@ -167,8 +167,8 @@ class PlaybookStep(BaseModel):
 class ConcurrencyPolicy(BaseModel):
     """Runner-level concurrency control for playbook execution."""
 
-    lock_key_input: str = Field(
-        ...,
+    lock_key_input: Optional[str] = Field(
+        None,
         description="Input parameter name whose value is used as lock key.",
     )
     max_parallel: int = Field(
