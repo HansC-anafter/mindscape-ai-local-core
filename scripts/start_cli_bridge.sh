@@ -197,9 +197,17 @@ for cli in gemini claude codex openclaw aider; do
 done
 
 if [[ $DETECTED -eq 0 ]]; then
-    log_warn "No CLI agents detected on this machine."
-    log_warn "The bridge will still connect, but no agents will be available."
-    log_warn "Install one with: npm install -g @google/gemini-cli"
+    log_warn "No CLI agents detected. Attempting to install gemini-cli..."
+    if command -v npm &>/dev/null; then
+        npm install -g @google/gemini-cli 2>/dev/null \
+            && { log_info "gemini-cli installed successfully"; DETECTED=1; } \
+            || log_warn "Auto-install failed. Install manually: npm install -g @google/gemini-cli"
+    else
+        log_warn "npm not found. Install Node.js first, then: npm install -g @google/gemini-cli"
+    fi
+    if [[ $DETECTED -eq 0 ]]; then
+        log_warn "The bridge will still connect, but no agents will be available."
+    fi
 fi
 
 # --- Environment for TaskExecutor ---

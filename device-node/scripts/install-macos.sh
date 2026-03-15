@@ -20,7 +20,20 @@ cd "$PROJECT_DIR"
 npm install --silent
 npm run build
 
-# ── 2. Create logs directory ─────────────────────────────────────────────
+# ── 2. Install default CLI agent (skip if already present) ───────────────
+#    Only gemini-cli is installed by default (free tier available).
+#    Claude Code / Codex are installed on-demand via start_cli_bridge.sh
+#    when the user configures them.
+if command -v gemini &>/dev/null; then
+    echo "   ✅ gemini-cli already installed ($(command -v gemini))"
+else
+    echo "📦 Installing gemini-cli (default agent)..."
+    npm install -g @google/gemini-cli 2>/dev/null \
+        && echo "   ✅ gemini-cli installed" \
+        || echo "   ⚠️  gemini-cli install failed (non-fatal, install manually: npm install -g @google/gemini-cli)"
+fi
+
+# ── 3. Create logs directory ─────────────────────────────────────────────
 mkdir -p "$PROJECT_DIR/logs"
 
 # ── 3. Detect node binary ────────────────────────────────────────────────

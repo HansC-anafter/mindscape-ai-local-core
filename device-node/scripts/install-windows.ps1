@@ -22,6 +22,21 @@ Set-Location $ProjectDir
 npm install
 npm run build
 
+# Install default CLI agent (skip if already present)
+# Only gemini-cli by default (free tier). Others installed on-demand via bridge.
+$geminiCmd = Get-Command gemini -ErrorAction SilentlyContinue
+if ($geminiCmd) {
+    Write-Host "   ✅ gemini-cli already installed ($($geminiCmd.Source))" -ForegroundColor Green
+} else {
+    Write-Host "📦 Installing gemini-cli (default agent)..." -ForegroundColor Yellow
+    try {
+        npm install -g @google/gemini-cli 2>$null
+        Write-Host "   ✅ gemini-cli installed" -ForegroundColor Green
+    } catch {
+        Write-Host "   ⚠️ gemini-cli install failed (non-fatal). Install manually: npm install -g @google/gemini-cli" -ForegroundColor Yellow
+    }
+}
+
 # Create installation directory
 Write-Host "📁 Creating installation directory..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
