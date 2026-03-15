@@ -31,7 +31,7 @@ from backend.app.models.playbook import (
     InvocationTolerance,
 )
 from backend.app.services.playbook_runner import PlaybookRunner
-from backend.app.services.workflow_orchestrator import WorkflowOrchestrator
+from backend.app.services.workflow_orchestrator import WorkflowOrchestrator, RecoverableStepError
 from backend.app.services.playbook_service import PlaybookService
 from backend.app.services.playbook_initializer import PlaybookInitializer
 from backend.app.services.playbook_checkpoint_manager import PlaybookCheckpointManager
@@ -617,6 +617,35 @@ class PlaybookRunExecutor:
                     except Exception as e:
                         logger.warning(
                             f"PlaybookRunExecutor: Failed to persist execution context: {e}",
+                            exc_info=True,
+                        )
+
+                except RecoverableStepError as e:
+                    logger.warning(f"PlaybookRunExecutor: Step runtime recoverable error: {e}")
+                    try:
+                        from backend.app.services.stores.tasks_store import TasksStore
+                        from backend.app.models.workspace import TaskStatus
+
+                        tasks_store = TasksStore()
+                        existing_task = tasks_store.get_task_by_execution_id(execution_id)
+                        if existing_task:
+                            ctx = (
+                                existing_task.execution_context
+                                if isinstance(existing_task.execution_context, dict)
+                                else {}
+                            )
+                            ctx["pending_reason"] = getattr(e, "error_type", "recoverable_error")
+                            ctx["pending_detail"] = str(e)
+                            ctx["pending_since"] = _utc_now().isoformat()
+                            tasks_store.update_task(
+                                existing_task.id,
+                                execution_context=ctx,
+                                status=TaskStatus.PENDING,
+                                error=str(e),
+                            )
+                    except Exception as inner_e:
+                        logger.error(
+                            f"PlaybookRunExecutor: Failed to set task pending: {inner_e}",
                             exc_info=True,
                         )
 

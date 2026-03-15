@@ -46,6 +46,15 @@ from backend.app.services.playbook_loaders import PlaybookJsonLoader
 logger = logging.getLogger(__name__)
 
 
+class RecoverableStepError(Exception):
+    """Step 因暫時原因無法執行（LLM 不可用、server 離線等），可回退 PENDING 重試。"""
+    def __init__(self, step_id: str, error_type: str, detail: str):
+        self.step_id = step_id
+        self.error_type = error_type
+        self.detail = detail
+        super().__init__(f"Step {step_id} recoverable error [{error_type}]: {detail}")
+
+
 class WorkflowOrchestrator:
     """Orchestrates multi-step workflow execution"""
 
@@ -1417,6 +1426,13 @@ class WorkflowOrchestrator:
 
             tool_result = await self.tool_executor.execute_tool(tool_id, **tool_inputs)
 
+            if isinstance(tool_result, dict) and tool_result.get("status") == "error":
+                error_msg = tool_result.get("error", "Unknown tool error")
+                if tool_result.get("recoverable"):
+                    raise RecoverableStepError(step.id, error_type=tool_result.get("error_type", "recoverable"), detail=error_msg)
+                else:
+                    raise ValueError(f"Step {step.id} tool error: {error_msg}")
+
             step_output = {}
             for output_name, tool_field in step.outputs.items():
                 if isinstance(tool_result, dict):
@@ -1450,8 +1466,9 @@ class WorkflowOrchestrator:
                                 break
 
                         if value is None:
-                            logger.warning(
-                                f"Step {step.id} output mapping failed: output_name={output_name}, tool_field={tool_field} not found in tool_result"
+                            raise ValueError(
+                                f"Step {step.id} required output '{output_name}' "
+                                f"(field='{tool_field}') not found in tool result"
                             )
                         else:
                             value_preview = (

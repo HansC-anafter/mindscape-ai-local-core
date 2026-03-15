@@ -362,18 +362,22 @@ class TasksStoreQueryMixin:
     def list_runnable_playbook_execution_tasks(
         self, workspace_id: Optional[str] = None, limit: int = 1
     ) -> List[Task]:
+        from datetime import timezone
         query_parts = [
             """
             SELECT *
             FROM tasks
             WHERE task_type IN (:task_type_pb, :task_type_tool)
             AND status = :status
+            AND (execution_context->>'resume_after' IS NULL 
+                 OR CAST(execution_context->>'resume_after' AS timestamptz) <= :now)
             """
         ]
         params: Dict[str, Any] = {
             "task_type_pb": "playbook_execution",
             "task_type_tool": "tool_execution",
             "status": TaskStatus.PENDING.value,
+            "now": datetime.now(timezone.utc),
         }
 
         if workspace_id:
