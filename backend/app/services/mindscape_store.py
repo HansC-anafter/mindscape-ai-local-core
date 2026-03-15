@@ -12,7 +12,7 @@ import os
 import json
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def _utc_now():
