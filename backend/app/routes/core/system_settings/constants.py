@@ -205,19 +205,21 @@ DEFAULT_MULTIMODAL_MODELS = [
     },
     # ── Local deployment ─────────────────────────────────────────────────
     {
-        "model_name": "llava",
+        "model_name": "llama3.2-vision",
         "provider": "ollama",
-        "description": "LLaVA (Ollama) — Open-source vision-language model, runs locally",
+        "description": "Llama 3.2 Vision (Ollama) — Meta's latest vision model, 11B/90B, strong OCR & reasoning",
+        "is_latest": True,
+        "is_recommended": True,
+    },
+    {
+        "model_name": "qwen2.5vl",
+        "provider": "ollama",
+        "description": "Qwen 2.5 VL (Ollama) — Alibaba's vision-language model, strong multilingual & document understanding",
         "is_latest": True,
     },
     {
-        "model_name": "llava:13b",
+        "model_name": "llava",
         "provider": "ollama",
-        "description": "LLaVA 13B (Ollama) — Larger vision-language model, better quality",
-    },
-    {
-        "model_name": "bakllava",
-        "provider": "ollama",
-        "description": "BakLLaVA (Ollama) — Improved LLaVA variant, runs locally",
+        "description": "LLaVA (Ollama) — Open-source vision-language model, runs locally (legacy)",
     },
 ]
