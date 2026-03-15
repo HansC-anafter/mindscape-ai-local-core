@@ -106,54 +106,25 @@ fi
 echo "Starting services..."
 echo ""
 
-# Start Device Node (host-level MCP service via launchd)
-if [ -d "$PROJECT_ROOT/device-node" ] && command -v node &> /dev/null; then
-    echo "Setting up Device Node..."
-
-    PLIST_DST="$HOME/Library/LaunchAgents/ai.mindscape.device-node.plist"
-
-    # Check if launchd agent is already installed
-    if launchctl list 2>/dev/null | grep -q "ai.mindscape.device-node"; then
-        echo "  ✓ Device Node launchd agent running"
-    elif [ -f "$PLIST_DST" ]; then
-        # Plist exists but not loaded — load it
-        echo "  Loading Device Node launchd agent..."
-        launchctl load "$PLIST_DST"
-        sleep 2
-        if launchctl list 2>/dev/null | grep -q "ai.mindscape.device-node"; then
-            echo "  ✓ Device Node started via launchd"
-        else
-            echo "  ⚠️  Device Node launchd agent failed to start"
-        fi
-    else
-        # First run — auto-install
-        echo "  First-time setup: installing Device Node launchd agent..."
-        cd "$PROJECT_ROOT/device-node"
-        npm install --silent 2>/dev/null
-        npm run build --silent 2>/dev/null
-        mkdir -p logs
-
-        NODE_BIN="$(which node)"
-        DN_DIR="$PROJECT_ROOT/device-node"
-        PLIST_TEMPLATE="$DN_DIR/config/ai.mindscape.device-node.plist"
-
-        mkdir -p "$HOME/Library/LaunchAgents"
-        sed \
-            -e "s|__NODE_BIN__|${NODE_BIN}|g" \
-            -e "s|__PROJECT_DIR__|${DN_DIR}|g" \
-            "$PLIST_TEMPLATE" > "$PLIST_DST"
-
-        launchctl load "$PLIST_DST"
-        sleep 2
-        if launchctl list 2>/dev/null | grep -q "ai.mindscape.device-node"; then
-            echo "  ✓ Device Node installed and started (launchd, port 3100)"
-        else
-            echo "  ⚠️  Device Node install failed. Run manually: cd device-node && npm run install:macos"
-        fi
-        cd "$PROJECT_ROOT"
-    fi
-    echo ""
-fi
+# Start Device Node (host-level MCP service — platform-aware)
+source "$SCRIPT_DIR/modules/platform.sh"
+detect_platform
+detect_arch
+detect_gpu
+echo "Setting up Device Node ($PLATFORM)..."
+case "$PLATFORM" in
+  macos)
+    source "$SCRIPT_DIR/modules/services/launchd.sh"
+    setup_device_node_launchd
+    ;;
+  linux)
+    source "$SCRIPT_DIR/modules/services/systemd.sh"
+    setup_device_node_systemd
+    ;;
+  *)
+    echo "  ⚠️  Device Node auto-start not supported on $PLATFORM"
+    ;;
+esac
 
 # Start CLI Bridge
 echo "Starting CLI Bridge..."
@@ -175,6 +146,12 @@ else
         echo "  ⚠️  scripts/start_cli_bridge.sh not found"
     fi
 fi
+echo ""
+
+# Start Inference Engine
+echo "Checking inference engine..."
+source "$SCRIPT_DIR/modules/inference/detect.sh"
+select_inference_engine
 echo ""
 
 # Start MCP Gateway

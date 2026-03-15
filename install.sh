@@ -96,6 +96,23 @@ if [ -f "scripts/setup.sh" ]; then
     ./scripts/setup.sh
 fi
 
+# macOS: whitelist Python for MLX firewall access (one-time sudo)
+if [[ "$OSTYPE" == darwin* ]]; then
+    FW="/usr/libexec/ApplicationFirewall/socketfilterfw"
+    if [ -f "scripts/modules/inference/mlx.sh" ]; then
+        source "scripts/modules/inference/mlx.sh"
+        PYTHON_BIN="$(_find_mlx_python)"
+        if [ -n "$PYTHON_BIN" ] && [ -x "$FW" ] && [ -x "$PYTHON_BIN" ]; then
+            if ! "$FW" --listapps 2>/dev/null | grep -q "$PYTHON_BIN"; then
+                echo "Setting up macOS firewall rules for MLX server ($PYTHON_BIN)..."
+                sudo "$FW" --add "$PYTHON_BIN" 2>/dev/null || true
+                sudo "$FW" --unblockapp "$PYTHON_BIN" 2>/dev/null || true
+                echo "  ✓ Firewall rules configured"
+            fi
+        fi
+    fi
+fi
+
 # Start services
 if [ -f "scripts/start.sh" ]; then
     echo ""

@@ -39,8 +39,10 @@ TASK_TIMEOUT = int(os.environ.get("MINDSCAPE_TASK_TIMEOUT", "600"))
 MAX_CONCURRENT = int(os.environ.get("MINDSCAPE_MAX_CONCURRENT", "3"))
 MAX_OUTPUT = 500  # chars for summary
 WORKSPACE_ROOT = os.environ.get(
-    "MINDSCAPE_WORKSPACE_ROOT", "/Users/shock/Projects_local/workspace"
+    "MINDSCAPE_WORKSPACE_ROOT", os.path.expanduser("~/mindscape-workspace")
 )
+# Ensure the workspace root exists — subprocess.run(cwd=...) will crash without it
+os.makedirs(WORKSPACE_ROOT, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,

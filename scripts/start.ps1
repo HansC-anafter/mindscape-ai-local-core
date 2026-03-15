@@ -392,6 +392,60 @@ if ($LASTEXITCODE -eq 0 -and $existingContainers) {
 Write-Host "Starting services..." -ForegroundColor Cyan
 Write-Host ""
 
+# --- Device Node (host-level MCP service) ---
+$DeviceNodeDir = Join-Path $ProjectRoot "device-node"
+if (Test-Path $DeviceNodeDir) {
+    Write-Host "Setting up Device Node..." -ForegroundColor Yellow
+
+    # Check if service is already running
+    $dnService = Get-Service -Name "MindscapeDeviceNode" -ErrorAction SilentlyContinue
+    if ($dnService -and $dnService.Status -eq "Running") {
+        Write-Host "  ✓ Device Node service already running" -ForegroundColor Green
+    } else {
+        # Check if NSSM is installed AND we have admin rights (install-windows.ps1 requires admin)
+        $nssmAvailable = Get-Command nssm -ErrorAction SilentlyContinue
+        $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+        if ($nssmAvailable -and $isAdmin) {
+            Write-Host "  Installing/updating Device Node service..." -ForegroundColor Yellow
+            Set-Location $DeviceNodeDir
+            npm install --silent 2>$null
+            npm run build --silent 2>$null
+            & "$DeviceNodeDir\scripts\install-windows.ps1"
+            Set-Location $ProjectRoot
+        } else {
+            # Fallback: run in background (no admin or no NSSM)
+            if ($nssmAvailable -and -not $isAdmin) {
+                Write-Host "  ⚠️  NSSM found but not running as Administrator. Starting Device Node in background..." -ForegroundColor Yellow
+                Write-Host "     To install as service, re-run: powershell -RunAs .\\scripts\\start.ps1" -ForegroundColor Yellow
+            } else {
+                Write-Host "  ⚠️  NSSM not found. Starting Device Node in background..." -ForegroundColor Yellow
+            }
+            Set-Location $DeviceNodeDir
+            if (-not (Test-Path "dist")) {
+                npm install --silent 2>$null
+                npm run build --silent 2>$null
+            }
+            Start-Process -FilePath "node" -ArgumentList "dist\index.js" -WorkingDirectory $DeviceNodeDir -WindowStyle Hidden
+            Write-Host "  ✓ Device Node started (background process)" -ForegroundColor Green
+            Set-Location $ProjectRoot
+        }
+    }
+    Write-Host ""
+} else {
+    Write-Host "  ⚠️  device-node directory not found, skipping" -ForegroundColor Yellow
+    Write-Host ""
+}
+
+# --- Ollama inference check ---
+$ollamaAvailable = Get-Command ollama -ErrorAction SilentlyContinue
+if ($ollamaAvailable) {
+    Write-Host "  ✓ Ollama found: $(ollama --version 2>$null)" -ForegroundColor Green
+} else {
+    Write-Host "  ⚠️  Ollama not found. Install from https://ollama.com/download for local inference." -ForegroundColor Yellow
+}
+Write-Host ""
+
 # Start services
 Write-Host "Building and starting containers..." -ForegroundColor Cyan
 $exitCode = Invoke-DockerCompose -Arguments @("up", "-d")
