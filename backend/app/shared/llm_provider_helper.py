@@ -272,6 +272,7 @@ import functools
 @functools.lru_cache(maxsize=4)
 def _get_cached_llm_provider_manager(
     openai_key: Optional[str] = None,
+    openai_base_url: Optional[str] = None,
     anthropic_key: Optional[str] = None,
     vertex_api_key: Optional[str] = None,
     vertex_project_id: Optional[str] = None,
@@ -282,6 +283,7 @@ def _get_cached_llm_provider_manager(
     from backend.app.services.agent_runner import LLMProviderManager
     return LLMProviderManager(
         openai_key=openai_key,
+        openai_base_url=openai_base_url,
         anthropic_key=anthropic_key,
         vertex_api_key=vertex_api_key,
         vertex_project_id=vertex_project_id,
@@ -327,6 +329,13 @@ def create_llm_provider_manager(
         openai_key = openai_setting.value if openai_setting else None
     if provider_name in (None, "openai") and not openai_key:
         openai_key = os.getenv("OPENAI_API_KEY")
+
+    openai_base_url = None
+    if provider_name in (None, "openai"):
+        base_setting = settings_store.get_setting("openai_api_base")
+        openai_base_url = base_setting.value if base_setting else os.getenv("OPENAI_API_BASE")
+        if openai_base_url and not openai_key:
+            openai_key = "dummy-key-for-local-endpoint"
 
     # Get Anthropic key: parameter > system settings > environment variable
     if provider_name in (None, "anthropic") and not anthropic_key:
@@ -374,6 +383,7 @@ def create_llm_provider_manager(
 
     return _get_cached_llm_provider_manager(
         openai_key=openai_key,
+        openai_base_url=openai_base_url,
         anthropic_key=anthropic_key,
         vertex_api_key=vertex_api_key,
         vertex_project_id=vertex_project_id,

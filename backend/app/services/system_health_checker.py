@@ -182,7 +182,7 @@ class SystemHealthChecker:
                             if provider == "openai":
                                 import openai
                                 client_kwargs = {"api_key": api_key}
-                                if hasattr(locals(), 'base_url') and base_url:
+                                if 'base_url' in locals() and base_url:
                                     client_kwargs["base_url"] = base_url
                                 client = openai.OpenAI(**client_kwargs)
                                 create_params = {

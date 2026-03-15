@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 class OpenAIProvider(LLMProvider):
     """OpenAI API provider"""
 
+    def __init__(self, api_key: str, base_url: Optional[str] = None):
+        super().__init__(api_key)
+        self.base_url = base_url
+
     async def chat_completion(
         self,
         messages: List[Dict[str, str]],
@@ -25,7 +29,10 @@ class OpenAIProvider(LLMProvider):
         try:
             import openai
 
-            client = openai.AsyncOpenAI(api_key=self.api_key)
+            client_kwargs = {"api_key": self.api_key}
+            if getattr(self, "base_url", None):
+                client_kwargs["base_url"] = self.base_url
+            client = openai.AsyncOpenAI(**client_kwargs)
 
             # Build request parameters
             request_params = {
@@ -153,7 +160,10 @@ class OpenAIProvider(LLMProvider):
         try:
             import openai
 
-            client = openai.AsyncOpenAI(api_key=self.api_key)
+            client_kwargs = {"api_key": self.api_key}
+            if getattr(self, "base_url", None):
+                client_kwargs["base_url"] = self.base_url
+            client = openai.AsyncOpenAI(**client_kwargs)
 
             # Build request parameters
             request_params = {

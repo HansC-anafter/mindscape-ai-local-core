@@ -22,6 +22,7 @@ class LLMProviderManager:
     def __init__(
         self,
         openai_key: Optional[str] = None,
+        openai_base_url: Optional[str] = None,
         anthropic_key: Optional[str] = None,
         vertex_api_key: Optional[str] = None,
         vertex_project_id: Optional[str] = None,
@@ -32,6 +33,7 @@ class LLMProviderManager:
         self.providers: Dict[str, LLMProvider] = {}
         self._init_providers(
             openai_key=openai_key,
+            openai_base_url=openai_base_url,
             anthropic_key=anthropic_key,
             vertex_api_key=vertex_api_key,
             vertex_project_id=vertex_project_id,
@@ -43,6 +45,7 @@ class LLMProviderManager:
     def _init_providers(
         self,
         openai_key: Optional[str] = None,
+        openai_base_url: Optional[str] = None,
         anthropic_key: Optional[str] = None,
         vertex_api_key: Optional[str] = None,
         vertex_project_id: Optional[str] = None,
@@ -53,8 +56,9 @@ class LLMProviderManager:
         """Initialize available providers"""
         # Use provided keys or fallback to environment variables
         openai_key = openai_key or os.getenv("OPENAI_API_KEY")
+        openai_base_url = openai_base_url or os.getenv("OPENAI_API_BASE")
         if openai_key:
-            self.providers["openai"] = OpenAIProvider(openai_key)
+            self.providers["openai"] = OpenAIProvider(openai_key, base_url=openai_base_url)
 
         anthropic_key = anthropic_key or os.getenv("ANTHROPIC_API_KEY")
         if anthropic_key:
