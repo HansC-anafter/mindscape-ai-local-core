@@ -1,5 +1,5 @@
 {
-    "localCoreUrl": "ws://localhost:8000/api/v1/ws/device-node",
+    "localCoreUrl": "ws://localhost:8200/api/v1/ws/device-node",
     "permissionsPath": "../config/permissions.yaml",
     "transport": "http",
     "httpPort": 3100

@@ -30,7 +30,7 @@ async function loadConfig(): Promise<DeviceNodeConfig> {
     }
 
     return {
-        localCoreUrl: process.env.LOCAL_CORE_URL || "ws://localhost:8000/ws",
+        localCoreUrl: process.env.LOCAL_CORE_URL || "ws://localhost:8200/api/v1/ws/device-node",
         permissionsPath: path.join(__dirname, "../config/permissions.yaml"),
         transport: (process.env.MCP_TRANSPORT as "stdio" | "http") || "stdio",
         httpPort: parseInt(process.env.MCP_HTTP_PORT || "3100", 10),
