@@ -250,7 +250,7 @@ services:
     networks:
       - mindscape-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_CORE_USER:-mindscape}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_CORE_USER:-mindscape} -d ${POSTGRES_CORE_DB:-mindscape_core}"]
       interval: 10s
       timeout: 5s
       retries: 10
