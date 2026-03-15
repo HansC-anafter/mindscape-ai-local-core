@@ -149,6 +149,11 @@ class SystemHealthChecker:
                     # Get API key or Vertex AI configuration
                     if provider == "openai":
                         api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+                        # Fallback: read from SystemSettingsStore (where the UI saves it)
+                        if not api_key:
+                            openai_key_setting = settings_store.get_setting("openai_api_key")
+                            if openai_key_setting and openai_key_setting.value:
+                                api_key = openai_key_setting.value
                         try:
                             base_url_setting = settings_store.get_setting("openai_api_base")
                             base_url = base_url_setting.value if base_url_setting else os.getenv("OPENAI_API_BASE")
@@ -159,6 +164,11 @@ class SystemHealthChecker:
                         vertex_ai_configured = False
                     elif provider == "anthropic":
                         api_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+                        # Fallback: read from SystemSettingsStore (where the UI saves it)
+                        if not api_key:
+                            anthropic_key_setting = settings_store.get_setting("anthropic_api_key")
+                            if anthropic_key_setting and anthropic_key_setting.value:
+                                api_key = anthropic_key_setting.value
                         vertex_ai_configured = False
                     elif provider == "vertex-ai":
                         # Check Vertex AI configuration

@@ -201,11 +201,26 @@ def get_llm_provider_manager(
 
     settings_store = SystemSettingsStore()
 
-    # Get API keys
+    # Get API keys: ConfigStore > SystemSettingsStore > environment variable
     openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        openai_key_setting = settings_store.get_setting("openai_api_key")
+        if openai_key_setting and openai_key_setting.value:
+            openai_key = openai_key_setting.value
+
+    # Check for custom base URL (local endpoints may not need a real key)
+    openai_base_setting = settings_store.get_setting("openai_api_base")
+    openai_base_url = openai_base_setting.value if openai_base_setting else os.getenv("OPENAI_API_BASE")
+    if openai_base_url and not openai_key:
+        openai_key = "dummy-key-for-local-endpoint"
+
     anthropic_key = config.agent_backend.anthropic_api_key or os.getenv(
         "ANTHROPIC_API_KEY"
     )
+    if not anthropic_key:
+        anthropic_key_setting = settings_store.get_setting("anthropic_api_key")
+        if anthropic_key_setting and anthropic_key_setting.value:
+            anthropic_key = anthropic_key_setting.value
 
     # Get Vertex AI config
     vertex_api_key, vertex_project_id, vertex_location = get_vertex_ai_config(
@@ -219,6 +234,7 @@ def get_llm_provider_manager(
     from backend.app.shared.llm_provider_helper import _get_cached_llm_provider_manager
     return _get_cached_llm_provider_manager(
         openai_key=openai_key,
+        openai_base_url=openai_base_url,
         anthropic_key=anthropic_key,
         vertex_api_key=vertex_api_key,
         vertex_project_id=vertex_project_id,
