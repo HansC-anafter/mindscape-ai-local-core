@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { t } from '@/lib/i18n';
+import ErrorDialog from '@/components/ErrorDialog';
 import {
   Rocket,
   Target,
@@ -108,6 +109,7 @@ export default function WorkspaceHomePage() {
   const [showSetupDrawer, setShowSetupDrawer] = useState(false);
   const [setupSeedText, setSetupSeedText] = useState<string>('');
   const [isProcessingSeed, setIsProcessingSeed] = useState(false);
+  const [errorDialogMessage, setErrorDialogMessage] = useState<string | null>(null);
 
   // Wizard state for new workspace creation
   const [wizardStep, setWizardStep] = useState<'method' | 'seed' | 'preview' | 'complete'>(isNewWorkspace ? 'method' : 'complete');
@@ -377,7 +379,7 @@ export default function WorkspaceHomePage() {
                               // Redirect to the new workspace's launchpad
                               router.push(`/workspaces/${newWorkspace.id}/home`);
                             } catch (err) {
-                              alert(t('creationFailed' as any) + ': ' + (err instanceof Error ? err.message : String(err)));
+                              setErrorDialogMessage(t('creationFailed' as any) + ': ' + (err instanceof Error ? err.message : String(err)));
                             }
                           }}
                           disabled={
@@ -398,6 +400,12 @@ export default function WorkspaceHomePage() {
           )}
 
         </div>
+
+        <ErrorDialog
+          isOpen={!!errorDialogMessage}
+          onClose={() => setErrorDialogMessage(null)}
+          message={errorDialogMessage || ''}
+        />
       </div>
     );
   }
@@ -820,10 +828,10 @@ export default function WorkspaceHomePage() {
                             alert(t('workspaceConfigured' as any));
                           } else {
                             const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-                            alert(t('configurationFailed' as any) + ': ' + (errorData.detail || errorData.message || t('retry' as any)));
+                            setErrorDialogMessage(t('configurationFailed' as any) + ': ' + (errorData.detail || errorData.message || t('retry' as any)));
                           }
                         } catch (err) {
-                          alert(t('configurationFailed' as any) + ': ' + (err instanceof Error ? err.message : String(err)));
+                          setErrorDialogMessage(t('configurationFailed' as any) + ': ' + (err instanceof Error ? err.message : String(err)));
                         } finally {
                           setIsProcessingSeed(false);
                         }
@@ -866,6 +874,12 @@ export default function WorkspaceHomePage() {
           </div>
         </div>
       )}
+
+      <ErrorDialog
+        isOpen={!!errorDialogMessage}
+        onClose={() => setErrorDialogMessage(null)}
+        message={errorDialogMessage || ''}
+      />
     </div>
   );
 }

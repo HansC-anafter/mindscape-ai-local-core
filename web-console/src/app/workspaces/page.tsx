@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Header from '../../components/Header';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import ErrorDialog from '../../components/ErrorDialog';
 import { t } from '@/lib/i18n';
 
 import { getApiBaseUrl } from '../../lib/api-url';
@@ -30,6 +31,7 @@ export default function WorkspacesPage() {
   const [ownerUserId] = useState('default-user'); // TODO: Get from auth context
   const [deleteTarget, setDeleteTarget] = useState<Workspace | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [errorDialogMessage, setErrorDialogMessage] = useState<string | null>(null);
   const router = useRouter();
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(true);
@@ -162,13 +164,13 @@ export default function WorkspacesPage() {
           // If JSON parsing fails, use status text
           errorMessage = `${t('workspaceCreateFailed' as any)}: ${response.status} ${response.statusText}`;
         }
-        alert(errorMessage);
+        setErrorDialogMessage(errorMessage);
       }
     } catch (err) {
       const errorMessage = err instanceof Error
         ? `${t('workspaceCreateFailed' as any)}: ${err.message}`
         : `${t('workspaceCreateFailed' as any)}: ${String(err)}`;
-      alert(errorMessage);
+      setErrorDialogMessage(errorMessage);
       console.error('Failed to create workspace:', err);
     }
   };
@@ -205,13 +207,13 @@ export default function WorkspacesPage() {
           // If JSON parsing fails, use status text
           errorMessage = `${t('workspaceDeleteFailed' as any)}: ${response.status} ${response.statusText}`;
         }
-        alert(errorMessage);
+        setErrorDialogMessage(errorMessage);
       }
     } catch (err) {
       const errorMessage = err instanceof Error
         ? `${t('workspaceDeleteFailed' as any)}: ${err.message}`
         : `${t('workspaceDeleteFailed' as any)}: ${String(err)}`;
-      alert(errorMessage);
+      setErrorDialogMessage(errorMessage);
       console.error('Failed to delete workspace:', err);
     } finally {
       setIsDeleting(false);
@@ -333,6 +335,12 @@ export default function WorkspacesPage() {
           </div>
         )}
 
+
+        <ErrorDialog
+          isOpen={!!errorDialogMessage}
+          onClose={() => setErrorDialogMessage(null)}
+          message={errorDialogMessage || ''}
+        />
 
         <ConfirmDialog
           isOpen={!!deleteTarget}
