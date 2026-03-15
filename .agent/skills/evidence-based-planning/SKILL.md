@@ -29,6 +29,20 @@ FOR EACH component under investigation:
 
 **Applies**: `evidence-based-reporting` skill rules. Every claim needs evidence.
 
+### Phase 1.5: Historical Regression Analysis (Git History)
+
+Before defining the current problem, review the git history (`git log -p`) of the component to understand past fixes.
+
+```
+FOR EACH previous fix related to the component:
+  1. What was the exact code change?
+  2. Why did the author think it would work?
+  3. Why did it ultimately fail (creating the current problem)?
+  4. How does the NEW proposed approach structurally avoid the failure mode of the past fixes?
+```
+
+This prevents repeating past mistakes (e.g., swapping one unreliable API for another) by formally acknowledging why previous attempts failed.
+
 ### Phase 2: Problem Definition + Severity Scoring
 
 Write a numbered list of concrete problems, each referencing evidence items.
@@ -114,6 +128,8 @@ Rules:
 - Every data source referenced must have been verified in Phase 3
 - Every model attribute must have been confirmed to exist
 - Group changes by dependency order (independent first)
+- **Traceability**: Every implementation block MUST explicitly state which Phase 2 Problem ID it resolves (e.g., `Resolves Problem #2`).
+- **Provide concrete code diffs OR precise code replacement logic** for all critical modifications at verified insertion points
 - Include verification commands for each phase
 
 ### Phase 5: Citation Audit (CoVe Final Pass)
@@ -127,6 +143,33 @@ FOR EACH file referenced in the plan:
   3. Confirm the content matches what the plan describes
   4. If any mismatch: STOP and correct before delivering
 ```
+
+### Phase 6: Validation SOP (Standard Operating Procedure)
+
+Define a rigorous step-by-step SOP that connects the original problem to the fix and how to verify it. 
+
+Rules:
+- Give a clear narrative: "How did we diagnose this (Phase 1-3), how did we fix this (Phase 4), and how do we verify it now?"
+- List specific scenarios (e.g., "sunny day", "error case").
+- Provide the exact verification steps (Where to click, what `curl` or SQL command to run).
+- Define explicitly what constitutes a "Pass" and a "Fail" for the verification, mapping back to the original Problem ID.
+- **🚨 DATA BACKUP WARNING**: If the verification SOP requires modifying, deleting, or overwriting data (e.g., database records, static files), you MUST instruct the user to **perform a data backup BEFORE making any code changes**. This backup step must be placed at the VERY BEGINNING of the Implementation Plan (Phase 4), NOT buried inside the Testing SOP (Phase 6).
+
+  > **Standard Backup Procedure:**
+  > - All backups MUST be saved to the local-core `.gitignore`'d directory: `data/backups/`
+  > - For PostgreSQL database backups, use this exact command:
+  >   ```bash
+  >   docker compose exec -T postgres pg_dump -U mindscape -d mindscape_core > data/backups/mindscape_core_pre_test_$(date +%Y%m%d_%H%M%S).sql
+  >   ```
+
+### Phase 7: Evaluation & Automated Testing SOP
+
+Propose an exact automated testing strategy that protects the specific logic fixed in this plan.
+
+Rules:
+- Do not just write "Write a test". You must propose the **exact test cases** (Input, Mock setup, Expected Output).
+- Explain how this automated test specifically prevents the Problem IDs identified in Phase 2 from recurring.
+- If an automated test is not feasible, explain why and propose a monitoring metric or dashboard.
 
 ---
 
@@ -177,4 +220,9 @@ Before delivering any implementation plan:
 - [ ] Negation claims use full-project grep with scope reported
 - [ ] Pre-mortem failure modes have been enumerated and ruled out
 - [ ] Changes are ordered by dependency (independent first)
+- [ ] Every implementation block traces back to a specific Problem ID from Phase 2
+- [ ] Concrete code diffs or explicit replacement logic are provided for key changes
 - [ ] Verification commands are included for each phase
+- [ ] A Validation Checklist (Phase 6) with explicit pass/fail criteria and commands is included
+- [ ] 🚨 Data backup instructions are placed at the very start of Implementation (if testing modifies data)
+- [ ] An Evaluation/Automated Testing section (Phase 7) is included to prevent regression
