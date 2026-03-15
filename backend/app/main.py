@@ -733,6 +733,18 @@ async def startup_event():
                 f"Failed to initialize mindscape tables (will retry on first use): {e2}"
             )
 
+    # Re-run ensure_default_profile after migrations complete.
+    # During initial module import, MindscapeStore.__init__ may have failed
+    # to create the default-user profile because tables didn't exist yet.
+    # Now that migrations are done, retry to ensure the FK target exists.
+    try:
+        from backend.app.services.mindscape_store import MindscapeStore as _MS
+        _store = _MS()
+        _store.ensure_default_profile()
+        logger.info("Default profile seeding verified after migrations")
+    except Exception as e:
+        logger.warning(f"Post-migration default profile seeding failed: {e}")
+
     # SQLite auto-migration removed (2026-02-23) — PostgreSQL is the only backend
 
     # Reap zombie tasks on startup and start periodic background reaper
