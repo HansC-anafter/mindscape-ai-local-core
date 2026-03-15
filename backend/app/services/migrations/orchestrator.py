@@ -175,9 +175,15 @@ class MigrationOrchestrator:
                     from alembic.config import Config
                     from alembic.script import ScriptDirectory
 
-                    config = Config(str(alembic_config))
-                    script = ScriptDirectory.from_config(config)
-                    current = script.get_current_head()
+                    import os
+                    old_cwd = os.getcwd()
+                    os.chdir(str(Path(alembic_config).parent))
+                    try:
+                        config = Config(str(alembic_config))
+                        script = ScriptDirectory.from_config(config)
+                        current = script.get_current_head()
+                    finally:
+                        os.chdir(old_cwd)
 
                     return current
                 else:
