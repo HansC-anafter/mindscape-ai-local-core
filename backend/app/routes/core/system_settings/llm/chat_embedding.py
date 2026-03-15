@@ -314,6 +314,15 @@ async def test_chat_model_connection(
         if provider == "openai":
             api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
             
+            # Fallback: read from SystemSettingsStore (where the UI saves it)
+            if not api_key:
+                import asyncio as _asyncio
+                _key_setting = await _asyncio.to_thread(
+                    settings_store.get_setting, "openai_api_key"
+                )
+                if _key_setting and _key_setting.value:
+                    api_key = _key_setting.value
+            
             # Check for custom base URL
             import asyncio
             base_url_setting = await asyncio.to_thread(
@@ -332,6 +341,14 @@ async def test_chat_model_connection(
             api_key = config.agent_backend.anthropic_api_key or os.getenv(
                 "ANTHROPIC_API_KEY"
             )
+            # Fallback: read from SystemSettingsStore (where the UI saves it)
+            if not api_key:
+                import asyncio as _asyncio
+                _key_setting = await _asyncio.to_thread(
+                    settings_store.get_setting, "anthropic_api_key"
+                )
+                if _key_setting and _key_setting.value:
+                    api_key = _key_setting.value
             if not api_key:
                 raise HTTPException(
                     status_code=400, detail="Anthropic API key not configured"
@@ -582,6 +599,15 @@ async def test_embedding_model_connection(
             config_store = ConfigStore()
             config = config_store.get_or_create_config("default-user")
             api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+            
+            # Fallback: read from SystemSettingsStore (where the UI saves it)
+            if not api_key:
+                import asyncio as _asyncio
+                _key_setting = await _asyncio.to_thread(
+                    settings_store.get_setting, "openai_api_key"
+                )
+                if _key_setting and _key_setting.value:
+                    api_key = _key_setting.value
             
             # Check for custom base URL
             import asyncio

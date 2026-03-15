@@ -25,6 +25,14 @@ async def _test_openai(
 ) -> Dict[str, Any]:
     api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
     
+    # Fallback: read from SystemSettingsStore (where the UI saves it)
+    if not api_key:
+        api_key_setting = await asyncio.to_thread(
+            settings_store.get_setting, "openai_api_key"
+        )
+        if api_key_setting and api_key_setting.value:
+            api_key = api_key_setting.value
+    
     # Check for custom base URL
     base_url_setting = await asyncio.to_thread(
         settings_store.get_setting, "openai_api_base"
@@ -86,6 +94,15 @@ async def _test_anthropic(
     model_name: str, model_type: str, settings_store, config
 ) -> Dict[str, Any]:
     api_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+    
+    # Fallback: read from SystemSettingsStore (where the UI saves it)
+    if not api_key:
+        api_key_setting = await asyncio.to_thread(
+            settings_store.get_setting, "anthropic_api_key"
+        )
+        if api_key_setting and api_key_setting.value:
+            api_key = api_key_setting.value
+    
     if not api_key:
         return {"success": False, "message": "Anthropic API key not configured"}
 
