@@ -442,13 +442,9 @@ async def stream_llm_response(
         )
 
         # Handle hybrid mode
-        # [Phase 1] Playbook decisions moved to PipelineCore when enabled.
-        # Functions preserved for legacy path (feature flag off).
-        from backend.app.services.conversation.pipeline_core import (
-            should_use_pipeline_core,
-        )
-
-        _pipeline_active = should_use_pipeline_core(workspace)
+        # [Hard cutover] PipelineCore is always active.
+        # Legacy playbook trigger path preserved but never reached.
+        _pipeline_active = True
 
         if execution_mode == "hybrid" and not _pipeline_active:
             async for event in handle_hybrid_mode_response(
@@ -507,8 +503,8 @@ async def stream_llm_response(
         )
 
         # Handle hybrid mode
-        # [Phase 1] Playbook decisions moved to PipelineCore when enabled.
-        _pipeline_active_vtx = should_use_pipeline_core(workspace)
+        # [Hard cutover] PipelineCore is always active.
+        _pipeline_active_vtx = True
 
         if execution_mode == "hybrid" and not _pipeline_active_vtx:
             async for event in handle_hybrid_mode_response(
