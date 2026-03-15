@@ -81,6 +81,7 @@ test_*.yaml
 
 # Allow selected committed tests for normalization work.
 !backend/tests/
+!backend/tests/test_app_bootstrap.py
 !backend/tests/test_system_control_restart_api.py
 !backend/tests/test_runner_time_tzinfo.py
 !backend/tests/routes/test_agent_dispatch_pubsub.py
