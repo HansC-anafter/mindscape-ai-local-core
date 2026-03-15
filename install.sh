@@ -76,6 +76,38 @@ else
         echo "  Skipped. Install later from: https://ollama.com/download"
     fi
 fi
+
+# Check Node.js (required for CLI agents like gemini-cli, claude-code)
+if command -v node &> /dev/null; then
+    NODE_VER=$(node --version 2>/dev/null)
+    echo "✓ Node.js found ($NODE_VER)"
+else
+    echo "⚠️  Node.js not found (required for CLI agents: gemini-cli, claude-code, codex)"
+    read -p "Install Node.js LTS now? (Y/n) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        if [[ "$OSTYPE" == darwin* ]] && command -v brew &> /dev/null; then
+            echo "Installing Node.js via Homebrew..."
+            brew install node
+        elif command -v apt-get &> /dev/null; then
+            echo "Installing Node.js via apt..."
+            curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+        elif command -v dnf &> /dev/null; then
+            echo "Installing Node.js via dnf..."
+            curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo bash -
+            sudo dnf install -y nodejs
+        else
+            echo "  Could not auto-install. Install Node.js from: https://nodejs.org/"
+        fi
+        if command -v node &> /dev/null; then
+            echo "  ✓ Node.js installed ($(node --version))"
+        fi
+    else
+        echo "  Skipped. Install later from: https://nodejs.org/"
+        echo "  Without Node.js, CLI agents will not be available."
+    fi
+fi
 echo ""
 
 # Determine install directory

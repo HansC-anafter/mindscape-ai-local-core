@@ -78,6 +78,29 @@ if (Test-Command "ollama") {
     }
 }
 
+# Check Node.js (required for CLI agents like gemini-cli, claude-code)
+if (Test-Command "node") {
+    $nodeVersion = (node --version 2>$null)
+    Write-Host "✓ Node.js found ($nodeVersion)" -ForegroundColor Green
+} else {
+    Write-Host "⚠️  Node.js not found (required for CLI agents: gemini-cli, claude-code, codex)" -ForegroundColor Yellow
+    $response = Read-Host "Install Node.js LTS now? (Y/n)"
+    if ($response -notmatch "^[Nn]") {
+        if (Test-Command "winget") {
+            Write-Host "Installing Node.js LTS via winget..." -ForegroundColor Cyan
+            winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+            # Refresh PATH so npm is available in this session
+            $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
+            Write-Host "✓ Node.js installed" -ForegroundColor Green
+        } else {
+            Write-Host "  winget not available. Install Node.js from: https://nodejs.org/" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  Skipped. Install later from: https://nodejs.org/" -ForegroundColor Gray
+        Write-Host "  Without Node.js, CLI agents will not be available." -ForegroundColor Gray
+    }
+}
+
 Write-Host ""
 
 # Check if directory exists
