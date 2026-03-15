@@ -130,6 +130,28 @@ if [[ "$OSTYPE" == darwin* ]]; then
     fi
 fi
 
+# Install Device Node + CLI agents (requires Node.js on host)
+if command -v node &> /dev/null && command -v npm &> /dev/null; then
+    echo ""
+    echo "Setting up Device Node (CLI agent bridge)..."
+    if [[ "$OSTYPE" == darwin* ]] && [ -f "device-node/scripts/install-macos.sh" ]; then
+        chmod +x device-node/scripts/install-macos.sh
+        device-node/scripts/install-macos.sh || echo "  ⚠️  Device Node setup failed (non-fatal)"
+    elif [ -d "device-node" ]; then
+        echo "  Building Device Node..."
+        cd device-node && npm install --silent && npm run build && cd ..
+        # Install gemini-cli if not present
+        if ! command -v gemini &> /dev/null; then
+            echo "  📦 Installing gemini-cli..."
+            npm install -g @google/gemini-cli 2>/dev/null || echo "  ⚠️  gemini-cli install failed (non-fatal)"
+        fi
+    fi
+else
+    echo ""
+    echo "⚠️  Node.js not found — skipping Device Node setup."
+    echo "  Install Node.js >= 18 to enable CLI agents (gemini-cli, claude-code, codex)."
+fi
+
 # Start services
 if [ -f "scripts/start.sh" ]; then
     echo ""
@@ -150,4 +172,5 @@ echo ""
 echo "Next steps:"
 echo "  cd $INSTALL_DIR"
 echo "  # Configure API keys in .env (optional if using Ollama)"
+echo "  # CLI Bridge: ./scripts/start_cli_bridge.sh (for Gemini CLI / Claude Code)"
 echo ""
