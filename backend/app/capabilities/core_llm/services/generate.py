@@ -20,7 +20,9 @@ async def run(
     locale: Optional[str] = None,
     target_language: Optional[str] = None,
     workspace_id: Optional[str] = None,
-    available_playbooks: Optional[list] = None
+    available_playbooks: Optional[list] = None,
+    profile_id: Optional[str] = None,
+    **kwargs
 ) -> Dict[str, Any]:
     """
     Basic one-time text generation/rewriting
@@ -83,7 +85,7 @@ async def run(
                 provider_name = "vertex-ai"
 
             config_store = ConfigStore()
-            config = config_store.get_or_create_config("default-user")
+            config = config_store.get_or_create_config(profile_id or "default-user")
 
             openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
             anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")

@@ -72,6 +72,32 @@ tools:
         confidence:
           type: number
 
+  - name: multimodal_analyze
+    description: "Analyze an image and return structured data or free-form text"
+    backend: "app.capabilities.core_llm.services.multimodal:vision_analyze"
+    input_schema:
+      type: object
+      properties:
+        image_url:
+          type: string
+          description: "URL of the image to analyze"
+        prompt:
+          type: string
+          description: "Prompt for the analysis (can enforce JSON schema)"
+        temperature:
+          type: number
+          default: 0.5
+        max_tokens:
+          type: integer
+          default: 1000
+    output_schema:
+      type: object
+      properties:
+        content:
+          type: string
+        status:
+          type: string
+
   - name: filter_features
     description: "Filter feature data to remove redundant fields like embeddings for LLM processing"
     backend: "app.capabilities.core_llm.services.data_utils:filter_features"
