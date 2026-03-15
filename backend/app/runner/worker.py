@@ -185,6 +185,10 @@ async def run_forever() -> None:
             await asyncio.sleep(poll_interval_ms / 1000)
             continue
 
+        from datetime import datetime, timedelta, timezone
+
+        dispatched_lock_keys: set = set()
+
         for t in tasks:
             try:
                 if len(inflight) >= max_inflight:
@@ -196,32 +200,29 @@ async def run_forever() -> None:
                 )
                 lock_key = _resolve_lock_key(lock_ctx, t.pack_id)
                 if lock_key:
-                    lock_ttl_seconds = _env_int(
-                        "LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 3600
-                    )
-                    acquired = locks_store.try_acquire(
-                        lock_key=lock_key,
-                        owner_id=runner_id,
-                        ttl_seconds=lock_ttl_seconds,
-                    )
-                    if not acquired:
-                        owner = locks_store.get_owner(lock_key)
+                    owner = locks_store.get_owner(lock_key)
+                    in_poll_conflict = lock_key in dispatched_lock_keys
+
+                    if owner is not None or in_poll_conflict:
                         try:
                             ctx2 = dict(lock_ctx)
                             ctx2["runner_skip_reason"] = "concurrency_locked"
                             ctx2["runner_skip_lock_key"] = lock_key
-                            ctx2["runner_skip_owner"] = owner
+                            ctx2["runner_skip_owner"] = owner if owner is not None else "in_poll_dedup"
+                            
+                            resume_dt = datetime.now(timezone.utc) + timedelta(seconds=15)
+                            ctx2["resume_after"] = resume_dt.isoformat()
+                            
                             tasks_store.update_task(t.id, execution_context=ctx2)
                         except Exception:
                             pass
                         continue
-                    try:
-                        locks_store.release(lock_key=lock_key, owner_id=runner_id)
-                    except Exception:
-                        pass
+
                 claimed = tasks_store.try_claim_task(t.id, runner_id=runner_id)
                 if not claimed:
                     continue
+                if lock_key:
+                    dispatched_lock_keys.add(lock_key)
                 task_coro = _run_single_task(tasks_store, runner_id, t.id)
                 inflight.add(asyncio.create_task(task_coro))
             except Exception as e:

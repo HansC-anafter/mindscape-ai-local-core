@@ -75,3 +75,8 @@ huggingface_hub>=0.20.0
 # ⚠️ Hard Rule: local-core core does NOT depend on cloud contract packages
 # sitehub-execution-protocol is only installed in pack runtime venv (via Pack Installer)
 # For cloud handoff, local-core sends JSON payload to site-hub API (no protocol package needed)
+
+# Capability pack optional dependencies
+scipy>=1.11.0
+beautifulsoup4>=4.12.0
+PyMuPDF>=1.23.0

@@ -409,6 +409,15 @@ def register_core_routes(app: FastAPI) -> None:
     except Exception as e:
         logger.debug(f"Agent WebSocket routes not registered: {e}")
 
+    # Device Node WebSocket + HTTP routes (host sidecar communication)
+    try:
+        from .routes.device_node import router as device_node_router
+
+        app.include_router(device_node_router, prefix="/api/v1", tags=["device-node"])
+        logger.info("Device Node routes registered")
+    except Exception as e:
+        logger.debug(f"Device Node routes not registered: {e}")
+
     # Agent Registry API routes (agent listing and availability)
     try:
         from .routes.core.agents import router as agents_router

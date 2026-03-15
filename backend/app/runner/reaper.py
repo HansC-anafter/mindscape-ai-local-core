@@ -60,32 +60,72 @@ def _reap_stale_running_tasks(tasks_store: TasksStore, runner_id: str) -> None:
             # - Do NOT use sandbox_id/current_step_index as "started" heuristics; some runner tasks
             #   execute in-process and may never set sandbox_id even after making real progress.
             if ctx2.get("status") == "queued":
-                ctx2.pop("runner_id", None)
-                ctx2.pop("heartbeat_at", None)
-                ctx2["status"] = "queued"
-                ctx2["runner_reaper"]["action"] = "requeue"
-                ctx2["runner_reaper"]["requeued_at"] = _utc_now().isoformat()
-                tasks_store.update_task(
-                    t.id,
-                    execution_context=ctx2,
-                    status=TaskStatus.PENDING,
-                    error=None,
-                )
-                logger.warning(f"Re-queued stale runner task task_id={t.id} ({msg})")
+                # Track re-queue count to prevent infinite crash loops
+                requeue_count = 0
+                if isinstance(ctx.get("runner_reaper"), dict):
+                    requeue_count = ctx["runner_reaper"].get("requeue_count", 0)
+
+                if requeue_count >= 3:
+                    # Too many re-queues — fail permanently
+                    ctx2["status"] = "failed"
+                    ctx2["error"] = f"Exceeded max re-queue attempts ({requeue_count})"
+                    ctx2["runner_reaper"]["action"] = "fail_max_requeue"
+                    ctx2["runner_reaper"]["requeue_count"] = requeue_count
+                    tasks_store.update_task(
+                        t.id,
+                        execution_context=ctx2,
+                        status=TaskStatus.FAILED,
+                        completed_at=_utc_now(),
+                        error=ctx2["error"],
+                    )
+                    logger.warning(
+                        f"Failed task after {requeue_count} re-queues task_id={t.id} ({msg})"
+                    )
+                else:
+                    ctx2.pop("runner_id", None)
+                    ctx2.pop("heartbeat_at", None)
+                    ctx2["status"] = "queued"
+                    ctx2["runner_reaper"]["action"] = "requeue"
+                    ctx2["runner_reaper"]["requeue_count"] = requeue_count + 1
+                    ctx2["runner_reaper"]["requeued_at"] = _utc_now().isoformat()
+                    tasks_store.update_task(
+                        t.id,
+                        execution_context=ctx2,
+                        status=TaskStatus.PENDING,
+                        error=None,
+                    )
+                    logger.warning(
+                        f"Re-queued stale runner task task_id={t.id} (attempt {requeue_count + 1}/3) ({msg})"
+                    )
             else:
                 # If the task is running but heartbeat is stale, mark failed.
                 # Try on_fail lifecycle hook first (declared in playbook spec).
-                hook_handled = _invoke_on_fail_hook(ctx2, msg, t.id)
+                hook_handled = False
+                try:
+                    hook_handled = _invoke_on_fail_hook(ctx2, msg, t.id)
+                except Exception as hook_err:
+                    logger.warning(f"Reaper on_fail hook error for {t.id}: {hook_err}")
+
                 if hook_handled:
                     ctx2["runner_reaper"]["action"] = "lifecycle_hook_on_fail"
                     logger.warning(
-                        f"Reaped + on_fail hook handled stale task task_id={t.id} ({msg})"
+                        f"Reaped + on_fail hook invoked for stale task task_id={t.id} ({msg})"
                     )
-                else:
+
+                # ALWAYS ensure task reaches terminal state, regardless of hook result.
+                # Re-read to check if hook already marked it FAILED.
+                refreshed = tasks_store.get_task(t.id)
+                if refreshed and refreshed.status not in (
+                    TaskStatus.FAILED,
+                    TaskStatus.CANCELLED_BY_USER,
+                    TaskStatus.SUCCEEDED,
+                    TaskStatus.EXPIRED,
+                ):
                     ctx2["status"] = "failed"
                     ctx2["error"] = msg
                     ctx2["failed_at"] = _utc_now().isoformat()
-                    ctx2["runner_reaper"]["action"] = "fail"
+                    if not hook_handled:
+                        ctx2["runner_reaper"]["action"] = "fail"
                     tasks_store.update_task(
                         t.id,
                         execution_context=ctx2,

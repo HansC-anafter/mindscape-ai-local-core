@@ -58,11 +58,15 @@ def _resolve_lock_key(
             ws = task_ctx.get("workspace_id", "")
             return f"concurrency:workspace:{ws}" if ws else None
 
-    # --- Legacy fallback: IG playbooks lock by user_data_dir ---
+    # --- Legacy fallback: IG playbooks lock by user_data_dir or pack_id ---
     if _is_ig_playbook(pack_id):
         val = inputs.get("user_data_dir")
         if isinstance(val, str) and val.strip():
             return f"ig_profile:{val.strip()}"
+        # Browser-heavy IG playbooks without user_data_dir still need
+        # concurrency protection to prevent multiple Chromium instances
+        # from causing OOM.  Fall back to playbook-level lock.
+        return f"concurrency:playbook:{pack_id}"
 
     return None
 

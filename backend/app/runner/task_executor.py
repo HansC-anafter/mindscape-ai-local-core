@@ -115,7 +115,14 @@ def _mark_task_failed(
     runner_id: str,
     msg: str,
 ) -> None:
-    """Mark a task as FAILED, invoking on_fail lifecycle hook if declared."""
+    """Mark a task as FAILED, invoking on_fail lifecycle hook if declared.
+
+    IMPORTANT: This function ALWAYS writes FAILED status to the database.
+    The on_fail hook may do additional work (e.g. create follow-up tasks),
+    but the base status update is never skipped. Previously, the hook's
+    return value was used to gate the DB write, causing tasks to remain
+    stuck in RUNNING when the hook was invoked but failed to update DB.
+    """
     try:
         latest = tasks_store.get_task(task_id)
         if latest and latest.status not in (
@@ -132,16 +139,30 @@ def _mark_task_failed(
             ctxf["error"] = msg
             ctxf["runner_id"] = runner_id
             ctxf["failed_at"] = _utc_now().isoformat()
-            if not _invoke_on_fail_hook(ctxf, msg, latest.id):
+
+            # Invoke on_fail hook (best-effort, may create follow-up tasks).
+            # Hook result is logged but does NOT gate the DB status update.
+            try:
+                _invoke_on_fail_hook(ctxf, msg, latest.id)
+            except Exception as hook_err:
+                logger.warning(f"on_fail hook error for task {task_id}: {hook_err}")
+
+            # Re-read task in case hook already marked it FAILED
+            refreshed = tasks_store.get_task(task_id)
+            if refreshed and refreshed.status not in (
+                TaskStatus.CANCELLED_BY_USER,
+                TaskStatus.FAILED,
+                TaskStatus.SUCCEEDED,
+            ):
                 tasks_store.update_task(
-                    latest.id,
+                    refreshed.id,
                     execution_context=ctxf,
                     status=TaskStatus.FAILED,
                     completed_at=_utc_now(),
                     error=msg,
                 )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Failed to mark task {task_id} as failed: {e}", exc_info=True)
 
 
 def _mark_task_succeeded(
@@ -186,8 +207,8 @@ def _mark_task_succeeded(
                 latest.id,
                 **update_kwargs,
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Failed to mark task {task_id} as succeeded: {e}", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +227,8 @@ async def _run_single_task(
         return
 
     os.environ["LOCAL_CORE_RUNNER_PROCESS"] = "1"
+    inflight_files = set()
+    did_acquire = False
 
     ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
     locks_store = None
@@ -228,27 +251,39 @@ async def _run_single_task(
                     f"Runner skipped task due to concurrency lock task_id={task.id} lock_key={lock_key} owner={owner}"
                 )
                 try:
+                    from datetime import datetime, timedelta, timezone
+
                     ctx2 = dict(ctx)
                     ctx2["runner_skip_reason"] = "concurrency_locked"
                     ctx2["runner_skip_lock_key"] = lock_key
                     ctx2["runner_skip_owner"] = owner
+                    ctx2.pop("runner_id", None)
+                    ctx2.pop("heartbeat_at", None)
+
+                    resume_dt = datetime.now(timezone.utc) + timedelta(seconds=15)
+                    ctx2["resume_after"] = resume_dt.isoformat()
+
                     # Revert status to PENDING so the task stays in the queue
                     # and the reaper doesn't mark it as stale/failed.
                     tasks_store.update_task(
                         task.id,
                         execution_context=ctx2,
                         status=TaskStatus.PENDING,
+                        started_at=None,
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"Failed to revert task to PENDING for {task.id}: {e}", exc_info=True)
                 return
+            
+            did_acquire = True
             # Lock acquired. Clear stale skip markers from previous attempts.
             try:
                 ctx2 = dict(ctx)
-                if ctx2.get("runner_skip_reason") or ctx2.get("runner_skip_owner"):
+                if ctx2.get("runner_skip_reason") or ctx2.get("runner_skip_owner") or ctx2.get("resume_after"):
                     ctx2.pop("runner_skip_reason", None)
                     ctx2.pop("runner_skip_owner", None)
                     ctx2.pop("runner_skip_lock_key", None)
+                    ctx2.pop("resume_after", None)
                     tasks_store.update_task(task.id, execution_context=ctx2)
             except Exception:
                 pass
@@ -274,12 +309,12 @@ async def _run_single_task(
                         f"Runner heartbeat stopping: subprocess died for task {task.id}, exitcode={p.exitcode}"
                     )
                     break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error checking subprocess alive status in heartbeat thread: {e}", exc_info=True)
             try:
                 tasks_store.update_task_heartbeat(task.id, runner_id=runner_id)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error updating heartbeat in heartbeat thread for task {task.id}: {e}", exc_info=True)
             stop_event.wait(interval_s)
 
     hb_thread = threading.Thread(target=_heartbeat_thread, daemon=True)
@@ -376,11 +411,8 @@ async def _run_single_task(
 
         async def _wait_for_timeout() -> bool:
             # Returns True if timeout fired.
-            deadline = _utc_now() + timedelta(seconds=task_timeout_seconds)
-            while True:
-                if _utc_now() >= deadline:
-                    return True
-                await asyncio.sleep(1.0)
+            await asyncio.sleep(task_timeout_seconds)
+            return True
 
         exec_task = asyncio.create_task(_wait_for_proc())
         cancel_task = asyncio.create_task(_wait_for_cancel())
@@ -389,6 +421,7 @@ async def _run_single_task(
         done, pending = await asyncio.wait(
             {exec_task, cancel_task, timeout_task}, return_when=asyncio.FIRST_COMPLETED
         )
+
         if cancel_task in done and cancel_task.result() is True:
             # --- Cancelled by user ---
             try:
@@ -484,6 +517,11 @@ async def _run_single_task(
                     )
                     proc.kill()
                     proc.join(timeout=1.0)
+                    # Mark killed task as FAILED to prevent reaper re-queue loop
+                    _mark_task_failed(
+                        tasks_store, task.id, runner_id,
+                        f"Runner subprocess killed after join timeout (pid={proc.pid})"
+                    )
         except Exception as e:
             logger.warning(f"Runner subprocess cleanup error for task {task.id}: {e}")
         try:
@@ -495,7 +533,10 @@ async def _run_single_task(
                 lock_renew_thread.join(timeout=1.0)
             except Exception:
                 pass
-        if locks_store and lock_key:
+        # Release lock
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        lock_key = _resolve_lock_key(ctx, task.pack_id)
+        if locks_store and lock_key and did_acquire:
             try:
                 locks_store.release(lock_key=lock_key, owner_id=runner_id)
             except Exception:
