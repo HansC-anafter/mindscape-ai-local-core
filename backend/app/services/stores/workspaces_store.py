@@ -22,6 +22,12 @@ class WorkspacesStore(StoreBase):
 
     def create_workspace(self, workspace: Workspace) -> Workspace:
         """Create a new workspace"""
+        
+        # Ensure default-user profile exists before we try to reference it as an owner
+        if workspace.owner_user_id == "default-user":
+            from backend.app.services.mindscape_store import MindscapeStore
+            MindscapeStore().ensure_default_profile()
+            
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
