@@ -10,7 +10,7 @@ from typing import Optional
 # Model context presets based on context window size
 MODEL_CONTEXT_PRESETS = {
     # Large context models (128k+ tokens)
-    "gpt-5.1": {
+    "gpt-5.4": {
         "MAX_EVENTS_FOR_QUERY": 200,
         "MAX_HISTORY_MESSAGES": 100,
         "MAX_MESSAGE_CHARS": 10000,

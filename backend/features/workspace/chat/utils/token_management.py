@@ -16,7 +16,7 @@ MODEL_CONTEXT_LIMITS = {
     "gpt-4-turbo": 12000,
     "gpt-4o": 120000,
     "gpt-4o-mini": 120000,
-    "gpt-5.1": 120000,
+    "gpt-5.4": 120000,
     "gpt-4.1": 120000,
 }
 

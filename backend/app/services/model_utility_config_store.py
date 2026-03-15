@@ -83,8 +83,8 @@ class ModelUtilityConfigStore:
                 success_rate=0.97,
                 latency_ms=3000,
             ),
-            "gpt-5.1": ModelUtilityConfig(
-                model_name="gpt-5.1",
+            "gpt-5.4": ModelUtilityConfig(
+                model_name="gpt-5.4",
                 provider="openai",
                 cost_per_1m_tokens=10.0,
                 success_rate=0.96,
@@ -355,7 +355,7 @@ class ModelUtilityConfigStore:
                 cost = 15.0
                 success_rate = 0.97
                 latency_ms = 3000
-            elif "gpt-5.1" in model_lower or "gpt-5" in model_lower:
+            elif "gpt-5.4" in model_lower or "gpt-5.1" in model_lower or "gpt-5" in model_lower:
                 cost = 10.0
                 success_rate = 0.96
                 latency_ms = 2500

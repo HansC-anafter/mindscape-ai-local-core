@@ -103,13 +103,13 @@ class SystemSettingsStore(PostgresStoreBase):
             },
             {
                 "key": "chat_model",
-                "value": "gpt-5.1",
+                "value": "gpt-5.4",
                 "value_type": SettingType.STRING,
                 "category": "llm",
                 "description": "Model for chat/conversation inference (latest: gpt-5.1, gpt-5.1-pro, claude-haiku-4.5)",
                 "is_sensitive": False,
                 "is_user_editable": True,
-                "default_value": "gpt-5.1",
+                "default_value": "gpt-5.4",
                 "metadata": {
                     "provider": "openai",
                     "model_type": "chat",

@@ -60,7 +60,7 @@ class CapabilityProfileRegistry:
             ),
             CapabilityProfile.PRECISE: ProfileConfig(
                 profile=CapabilityProfile.PRECISE,
-                model_candidates=["gpt-4", "gpt-4-turbo", "claude-3-opus", "gemini-2.0-pro"],
+                model_candidates=["gpt-5.4", "gpt-5.4-pro", "claude-opus-4.6", "gemini-3-pro"],
                 required_capabilities=["strong_reasoning", "json_strict"],
                 max_latency_ms=8000,
                 max_cost_per_1k_tokens=0.03,
@@ -68,7 +68,7 @@ class CapabilityProfileRegistry:
             ),
             CapabilityProfile.TOOL_STRICT: ProfileConfig(
                 profile=CapabilityProfile.TOOL_STRICT,
-                model_candidates=["gpt-4", "gpt-4-turbo", "claude-3-opus"],
+                model_candidates=["gpt-5.4", "claude-sonnet-4.6"],
                 required_capabilities=["json_strict", "tool_calling", "schema_validation"],
                 max_latency_ms=5000,
                 max_cost_per_1k_tokens=0.03,
@@ -76,7 +76,7 @@ class CapabilityProfileRegistry:
             ),
             CapabilityProfile.SAFE_WRITE: ProfileConfig(
                 profile=CapabilityProfile.SAFE_WRITE,
-                model_candidates=["gpt-4", "gpt-4-turbo", "claude-3-opus"],
+                model_candidates=["gpt-5.4", "claude-sonnet-4.6"],
                 required_capabilities=["strong_reasoning", "conservative_scope"],
                 max_latency_ms=8000,
                 max_cost_per_1k_tokens=0.03,

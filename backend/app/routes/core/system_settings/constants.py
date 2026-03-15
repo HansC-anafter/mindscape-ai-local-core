@@ -4,35 +4,59 @@ Constants and default configurations for system settings
 
 DEFAULT_CHAT_MODELS = [
     {
-        "model_name": "gpt-5.1-pro",
+        "model_name": "gpt-5.4-pro",
         "provider": "openai",
-        "description": "OpenAI GPT-5.1 Pro (latest, Nov 2025) - Enhanced for writing, data science, business",
+        "description": "OpenAI GPT-5.4 Pro (latest, Mar 2026) - Most capable logic and programming model",
         "is_latest": True,
         "is_recommended": True,
     },
     {
+        "model_name": "gpt-5.4",
+        "provider": "openai",
+        "description": "OpenAI GPT-5.4 (latest, Mar 2026) - Fast and effective frontier model",
+        "is_latest": True,
+    },
+    {
+        "model_name": "gpt-5.3-codex",
+        "provider": "openai",
+        "description": "OpenAI GPT-5.3 Codex (Feb 2026) - Real-time specialized coding model",
+    },
+    {
+        "model_name": "gpt-5.1-pro",
+        "provider": "openai",
+        "description": "OpenAI GPT-5.1 Pro (deprecated)",
+        "is_deprecated": True,
+    },
+    {
         "model_name": "gpt-5.1",
         "provider": "openai",
-        "description": "OpenAI GPT-5.1 (latest, Nov 2025) - Latest general-purpose model",
-        "is_latest": True,
+        "description": "OpenAI GPT-5.1 (deprecated)",
+        "is_deprecated": True,
     },
     {
         "model_name": "gpt-4o",
         "provider": "openai",
-        "description": "OpenAI GPT-4o (updated Mar 2025) - High quality, deprecated Feb 2026",
+        "description": "OpenAI GPT-4o (retired Feb 2026)",
         "is_deprecated": True,
-        "deprecation_date": "2026-02-16",
     },
     {
-        "model_name": "gpt-4o-mini",
-        "provider": "openai",
-        "description": "OpenAI GPT-4o Mini - Cost-effective, 128K context",
+        "model_name": "claude-opus-4.6",
+        "provider": "anthropic",
+        "description": "Anthropic Claude Opus 4.6 (latest, Feb 2026) - 1M context window, exceptional reasoning",
+        "is_latest": True,
+    },
+    {
+        "model_name": "claude-sonnet-4.6",
+        "provider": "anthropic",
+        "description": "Anthropic Claude Sonnet 4.6 (latest, Feb 2026) - Versatile intelligence, 1M context window",
+        "is_latest": True,
+        "is_recommended": True,
     },
     {
         "model_name": "claude-opus-4.5",
         "provider": "anthropic",
-        "description": "Anthropic Claude Opus 4.5 (latest) - Most powerful, enhanced coding & automation",
-        "is_latest": True,
+        "description": "Anthropic Claude Opus 4.5 (deprecated)",
+        "is_deprecated": True,
     },
     {
         "model_name": "claude-haiku-4.5",
@@ -43,18 +67,14 @@ DEFAULT_CHAT_MODELS = [
     {
         "model_name": "claude-sonnet-4.5",
         "provider": "anthropic",
-        "description": "Anthropic Claude Sonnet 4.5 (latest) - Balanced performance",
+        "description": "Anthropic Claude Sonnet 4.5 (deprecated)",
+        "is_deprecated": True,
     },
     {
         "model_name": "claude-3.5-sonnet",
         "provider": "anthropic",
-        "description": "Anthropic Claude 3.5 Sonnet (deprecated Oct 2025)",
+        "description": "Anthropic Claude 3.5 Sonnet (retired)",
         "is_deprecated": True,
-    },
-    {
-        "model_name": "claude-3-haiku",
-        "provider": "anthropic",
-        "description": "Anthropic Claude 3 Haiku (legacy)",
     },
     # ── Local deployment (Ollama) ────────────────────────────────────────
     {

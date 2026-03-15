@@ -92,14 +92,14 @@ class CostGovernance:
         model_name = context.get("model_name")
         if not model_name:
             # Try to get from execution profile or settings
-            model_name = self.settings_store.get("chat_model", "gpt-5.1")
+            model_name = self.settings_store.get("chat_model", "gpt-5.4")
 
         # Get model pricing from ModelUtilityConfigStore
         try:
             model_config = self.model_config_store.get_model_config(model_name)
             if not model_config or not model_config.enabled:
                 # Fallback to default model
-                model_config = self.model_config_store.get_model_config("gpt-5.1")
+                model_config = self.model_config_store.get_model_config("gpt-5.4")
                 if not model_config:
                     logger.warning(f"Model config not found for {model_name}, using default pricing")
                     return 0.0
@@ -199,7 +199,7 @@ class CostGovernance:
             return "Consider using 'simple' execution mode to reduce cost"
 
         # Suggest using cheaper model
-        current_model = context.get("model_name", "gpt-5.1")
+        current_model = context.get("model_name", "gpt-5.4")
         cheaper_models = ["gpt-4o-mini", "gpt-3.5-turbo", "claude-haiku-4.5"]
         for model in cheaper_models:
             try:
