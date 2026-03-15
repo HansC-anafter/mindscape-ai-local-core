@@ -149,6 +149,13 @@ class SystemHealthChecker:
                     # Get API key or Vertex AI configuration
                     if provider == "openai":
                         api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+                        try:
+                            base_url_setting = settings_store.get_setting("openai_api_base")
+                            base_url = base_url_setting.value if base_url_setting else os.getenv("OPENAI_API_BASE")
+                        except Exception:
+                            base_url = os.getenv("OPENAI_API_BASE")
+                        if base_url and not api_key:
+                            api_key = "dummy-key-for-local-endpoint"
                         vertex_ai_configured = False
                     elif provider == "anthropic":
                         api_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
@@ -174,7 +181,10 @@ class SystemHealthChecker:
                         try:
                             if provider == "openai":
                                 import openai
-                                client = openai.OpenAI(api_key=api_key)
+                                client_kwargs = {"api_key": api_key}
+                                if hasattr(locals(), 'base_url') and base_url:
+                                    client_kwargs["base_url"] = base_url
+                                client = openai.OpenAI(**client_kwargs)
                                 create_params = {
                                     "model": model_name,
                                     "messages": [{"role": "user", "content": "Hi"}]

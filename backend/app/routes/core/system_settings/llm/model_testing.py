@@ -24,14 +24,30 @@ async def _test_openai(
     model_name: str, model_type: str, settings_store, config
 ) -> Dict[str, Any]:
     api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+    
+    # Check for custom base URL
+    base_url_setting = await asyncio.to_thread(
+        settings_store.get_setting, "openai_api_base"
+    )
+    base_url = base_url_setting.value if base_url_setting else os.getenv("OPENAI_API_BASE")
+    
+    # If a custom base URL is used (like LM Studio or local proxy), an API key might not be required
+    # But the official openai SDK requires *some* string.
+    if base_url and not api_key:
+        api_key = "dummy-key-for-local-endpoint"
+        
     if not api_key:
         return {"success": False, "message": "OpenAI API key not configured"}
 
     if model_type == "chat":
         try:
             import openai
+            
+            client_kwargs = {"api_key": api_key}
+            if base_url:
+                client_kwargs["base_url"] = base_url
 
-            client = openai.OpenAI(api_key=api_key)
+            client = openai.OpenAI(**client_kwargs)
             models = client.models.list()
             next(iter(models), None)
             return {
@@ -46,8 +62,12 @@ async def _test_openai(
     elif model_type == "embedding":
         try:
             import openai
+            
+            client_kwargs = {"api_key": api_key}
+            if base_url:
+                client_kwargs["base_url"] = base_url
 
-            client = openai.OpenAI(api_key=api_key)
+            client = openai.OpenAI(**client_kwargs)
             client.embeddings.create(model=model_name, input="test")
             return {
                 "success": True,

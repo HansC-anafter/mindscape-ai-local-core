@@ -313,6 +313,17 @@ async def test_chat_model_connection(
 
         if provider == "openai":
             api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+            
+            # Check for custom base URL
+            import asyncio
+            base_url_setting = await asyncio.to_thread(
+                settings_store.get_setting, "openai_api_base"
+            )
+            base_url = base_url_setting.value if base_url_setting else os.getenv("OPENAI_API_BASE")
+            
+            if base_url and not api_key:
+                api_key = "dummy-key-for-local-endpoint"
+                
             if not api_key:
                 raise HTTPException(
                     status_code=400, detail="OpenAI API key not configured"
@@ -334,7 +345,11 @@ async def test_chat_model_connection(
             if provider == "openai":
                 import openai
 
-                client = openai.OpenAI(api_key=api_key)
+                client_kwargs = {"api_key": api_key}
+                if base_url:
+                    client_kwargs["base_url"] = base_url
+
+                client = openai.OpenAI(**client_kwargs)
                 create_params = {
                     "model": model_name,
                     "messages": [{"role": "user", "content": "Hi"}],
@@ -567,6 +582,17 @@ async def test_embedding_model_connection(
             config_store = ConfigStore()
             config = config_store.get_or_create_config("default-user")
             api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
+            
+            # Check for custom base URL
+            import asyncio
+            base_url_setting = await asyncio.to_thread(
+                settings_store.get_setting, "openai_api_base"
+            )
+            base_url = base_url_setting.value if base_url_setting else os.getenv("OPENAI_API_BASE")
+            
+            if base_url and not api_key:
+                api_key = "dummy-key-for-local-endpoint"
+                
             if not api_key:
                 raise HTTPException(
                     status_code=400, detail="OpenAI API key not configured"
@@ -575,7 +601,11 @@ async def test_embedding_model_connection(
             try:
                 import openai
 
-                client = openai.OpenAI(api_key=api_key)
+                client_kwargs = {"api_key": api_key}
+                if base_url:
+                    client_kwargs["base_url"] = base_url
+
+                client = openai.OpenAI(**client_kwargs)
                 response = client.embeddings.create(model=model_name, input="test")
                 success = bool(
                     response.data
