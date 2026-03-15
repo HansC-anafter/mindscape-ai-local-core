@@ -118,6 +118,10 @@ class SystemHealthChecker:
     ) -> Dict[str, Any]:
         """Check LLM API key configuration by actually testing the connection"""
         try:
+            if profile_id == "default-user":
+                from backend.app.services.mindscape_store import MindscapeStore
+                MindscapeStore().ensure_default_profile()
+                
             config = self.config_store.get_or_create_config(profile_id)
             available_backends = self.backend_manager.get_available_backends()
 

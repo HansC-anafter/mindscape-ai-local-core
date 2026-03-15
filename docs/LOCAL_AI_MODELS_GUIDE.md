@@ -1,6 +1,15 @@
 # 本地 AI 模型使用指南
 
-適用於 Mindscape AI Local-Core 搭配本地 GPU 工作站的使用者。
+## Capability Pack Migrations (開發者指南)
+
+Capability pack 的資料庫遷移檔 (migrations) 必須與 Local Core 分開管理。
+
+如果要為特定的 capability pack (例如 `my_pack`) 建立新的遷移檔：
+
+1. 確認已經建立目錄 `backend/app/capabilities/my_pack/migrations/versions`。
+2. 執行 Alembic 指令並明確指定該路徑：
+   `alembic revision --autogenerate -m "add my_pack tables" --version-path backend/app/capabilities/my_pack/migrations/versions`
+3. 確保生成的遷移檔中，`down_revision` 有正確指向它所依賴的 Core migration 節點。
 
 ---
 

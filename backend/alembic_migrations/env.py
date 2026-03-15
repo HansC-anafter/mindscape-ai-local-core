@@ -104,11 +104,23 @@ try:
         backend_dir, "alembic_migrations", "postgres", "versions"
     )
 
+    locations = [common_versions, postgres_versions]
+
+    # Dynamically discover capability migration paths
+    capabilities_dir = backend_dir / "app" / "capabilities"
+    if capabilities_dir.exists():
+        for cap_dir in capabilities_dir.iterdir():
+            if cap_dir.is_dir() and not cap_dir.name.startswith("_"):
+                cap_migrations = cap_dir / "migrations" / "versions"
+                if cap_migrations.exists():
+                    locations.append(str(cap_migrations.absolute()))
+                    logger.debug(f"Added capability migration path: {cap_migrations}")
+
     # Use os.pathsep to combine (alembic.ini sets version_path_separator = os)
     config.set_main_option(
-        "version_locations", f"{common_versions}{os.pathsep}{postgres_versions}"
+        "version_locations", os.pathsep.join(locations)
     )
-    print(f"Version locations: {common_versions}, {postgres_versions}")
+    print(f"Version locations established for {len(locations)} paths.")
 
 except Exception as e:
     print(f"Warning: Failed to get PostgreSQL URL: {e}")
