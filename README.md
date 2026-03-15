@@ -628,7 +628,7 @@ The **Device Node** is a lightweight sidecar that runs alongside the backend and
 - **Docker Management**: Restart containers programmatically (e.g., after capability pack installation)
 - **Service Coordination**: Works with the startup scripts (`scripts/start.sh`, `scripts/start.ps1`) to orchestrate multi-container environments
 
-The Device Node is automatically started by the one-line installer and the `scripts/start.sh` / `scripts/start.ps1` startup scripts.
+The Device Node is automatically started by the one-line installer and the startup scripts (`scripts/start.sh` on macOS/Linux via launchd/systemd, `scripts/start.ps1` on Windows via NSSM service). On macOS it runs as a launchd agent; on Linux it uses systemd `--user` with nohup fallback; on Windows it installs as an NSSM service.
 
 ---
 
