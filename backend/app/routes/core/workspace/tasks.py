@@ -6,6 +6,51 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional, Any
 
+from sqlalchemy import text as _sa_text
+
+
+# ── Queue Position Cache (process-wide singleton) ──
+
+_QUEUE_RANK_SQL = """
+SELECT id,
+       ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) as queue_position
+FROM tasks
+WHERE status = 'pending'
+  AND task_type IN ('playbook_execution', 'tool_execution')
+  AND (execution_context->>'resume_after' IS NULL
+       OR CAST(execution_context->>'resume_after' AS timestamptz) <= NOW())
+"""
+
+
+class _QueuePositionCache:
+    """Process-wide cache for queue positions. Shared across all SSE pollers."""
+    def __init__(self):
+        self._positions: dict[str, int] = {}
+        self._total: int = 0
+        self._updated: float = 0.0
+
+    def refresh_if_stale(self, tasks_store, max_age: float = 3.0) -> None:
+        if time.monotonic() - self._updated < max_age:
+            return
+        try:
+            with tasks_store.get_connection() as conn:
+                rows = conn.execute(_sa_text(_QUEUE_RANK_SQL)).fetchall()
+                self._positions = {str(r[0]): int(r[1]) for r in rows}
+                self._total = len(rows)
+                self._updated = time.monotonic()
+        except Exception:
+            pass  # Keep stale cache on error
+
+    def get_position(self, task_id: str) -> Optional[int]:
+        return self._positions.get(task_id)
+
+    @property
+    def total(self) -> int:
+        return self._total
+
+
+_QUEUE_CACHE = _QueuePositionCache()
+
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -202,12 +247,18 @@ async def _execution_stream_poller(
             if not progress:
                 progress = last_known_progress
 
+            # Refresh queue cache (shared, max once per 3s across all pollers)
+            _QUEUE_CACHE.refresh_if_stale(tasks_store)
+
             payload_obj = {
                 "type": "progress",
                 "status": task.status,
-                "current": 0,
-                "total": 0,
                 "progress": progress,
+                "queue_position": _QUEUE_CACHE.get_position(task.id or ""),
+                "queue_total": _QUEUE_CACHE.total,
+                "dependency_hold": ctx.get("dependency_hold"),
+                "heartbeat_at": ctx.get("heartbeat_at"),
+                "runner_id": ctx.get("runner_id"),
             }
             payload = json.dumps(payload_obj)
             signature = json.dumps(payload_obj, sort_keys=True, default=str)
@@ -414,6 +465,9 @@ async def get_workspace_executions(
 
         tasks = await asyncio.to_thread(_fetch_executions)
 
+        # Refresh queue cache for position data
+        _QUEUE_CACHE.refresh_if_stale(tasks_store)
+
         # Enrich with fields the UI expects (RunLogCard reads playbook_code, not pack_id)
         executions = []
         for task in tasks:
@@ -422,6 +476,8 @@ async def get_workspace_executions(
                 d.get("execution_context") or {}
             ).get("playbook_code")
             d["execution_id"] = d.get("execution_id") or d.get("id")
+            d["queue_position"] = _QUEUE_CACHE.get_position(d.get("id") or "")
+            d["queue_total"] = _QUEUE_CACHE.total
             executions.append(d)
 
         return {"executions": executions}
@@ -522,6 +578,9 @@ async def get_execution_progress_snapshot(
 
         ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
 
+        # Refresh queue cache for position data
+        _QUEUE_CACHE.refresh_if_stale(tasks_store)
+
         return {
             "workspace_id": workspace_id,
             "execution_id": execution_id,
@@ -529,6 +588,8 @@ async def get_execution_progress_snapshot(
             "artifact_id": artifact_id,
             "artifact_updated_at": artifact_updated_at,
             "progress": progress if isinstance(progress, dict) else None,
+            "queue_position": _QUEUE_CACHE.get_position(task.id or ""),
+            "queue_total": _QUEUE_CACHE.total,
             "artifact_metadata": artifact_metadata,
             "content_metadata": content_metadata,
             "execution_context": {
@@ -536,6 +597,7 @@ async def get_execution_progress_snapshot(
                 "runner_id": ctx.get("runner_id"),
                 "execution_backend_hint": ctx.get("execution_backend_hint"),
                 "inputs": ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {},
+                "dependency_hold": ctx.get("dependency_hold"),
             },
         }
     except HTTPException:

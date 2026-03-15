@@ -932,6 +932,11 @@ async def get_global_executions(
         with tasks_store.get_connection() as conn:
             rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
 
+        # Import shared queue cache (process-wide singleton from tasks route)
+        from backend.app.routes.core.workspace.tasks import _QUEUE_CACHE
+
+        _QUEUE_CACHE.refresh_if_stale(tasks_store)
+
         executions = []
         for row in rows:
             task = tasks_store._row_to_task(row)
@@ -941,6 +946,8 @@ async def get_global_executions(
             ).get("playbook_code")
             d["execution_id"] = d.get("execution_id") or d.get("id")
             d["workspace_name"] = row.workspace_name if hasattr(row, "workspace_name") else None
+            d["queue_position"] = _QUEUE_CACHE.get_position(d.get("id") or "")
+            d["queue_total"] = _QUEUE_CACHE.total
             executions.append(d)
 
         return {"executions": executions}
