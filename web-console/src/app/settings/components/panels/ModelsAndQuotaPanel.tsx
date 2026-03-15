@@ -385,6 +385,8 @@ export function ModelsAndQuotaPanel() {
                 hf_likes: d.likes || 0,
                 hf_tags: tags.slice(0, 15),
                 hf_storage_bytes: d.usedStorage || null,
+                runtime_engine: fmt === 'MLX' ? 'mlx' : 'huggingface',
+                temperature: 0.6,
               };
 
               await fetch(`/api/v1/system-settings/models/${m.id}/metadata`, {

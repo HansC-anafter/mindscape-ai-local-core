@@ -4,13 +4,17 @@ const getInitialApiUrl = (): string => {
     return process.env.NEXT_PUBLIC_API_URL;
   }
 
-  // Use same-origin proxy (when frontend and backend share the same hostname)
+  // When accessed remotely (not localhost), use same-origin proxy via Next.js rewrites
+  // This avoids health-check timeouts when the browser can't reach localhost:8200 directly
   if (typeof window !== 'undefined') {
-    const protocol = window.location.protocol;
     const hostname = window.location.hostname;
-    // Port config system default: 8200
-    // Initial value; dynamically updated via port config API later
-    return `${protocol}//${hostname}:8200`;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      // Local development: connect to backend port directly
+      const protocol = window.location.protocol;
+      return `${protocol}//${hostname}:8200`;
+    }
+    // Remote access (tunnel, LAN, etc.): rely on Next.js proxy, use same-origin
+    return '';
   }
 
   // SSR fallback (port config system default)
@@ -21,54 +25,52 @@ const getInitialApiUrl = (): string => {
 let apiUrlCache: string | null = null;
 let apiUrlPromise: Promise<string> | null = null;
 let lastValidationTime: number = 0;
-let failedUrls: Set<string> = new Set(); // Track failed URLs to avoid retrying
-const VALIDATION_INTERVAL = 30000; // Validate at most once per 30 seconds
+let isValidating: boolean = false; // Lock to prevent concurrent validation races
+const VALIDATION_INTERVAL = 60000; // Validate at most once per 60 seconds (was 30s)
 
 const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
   const now = Date.now();
 
   // Return cached URL if available and not force-refreshing
-  if (apiUrlCache && !forceRefresh) {
-    // Skip validation if cached URL previously failed
-    if (failedUrls.has(apiUrlCache as string)) {
-      const initialUrl = getInitialApiUrl();
-      if (initialUrl !== apiUrlCache) {
-        apiUrlCache = initialUrl;
-        failedUrls.clear();
-        return apiUrlCache;
-      }
-    }
-
+  if (apiUrlCache !== null && !forceRefresh) {
     // Rate-limit validation: only re-validate after VALIDATION_INTERVAL
     if (now - lastValidationTime < VALIDATION_INTERVAL) {
       return apiUrlCache;
     }
 
-    // Quick health check on cached URL
-    try {
-      const testController = new AbortController();
-      const testTimeoutId = setTimeout(() => testController.abort(), 500);
-      const testResponse = await fetch(`${apiUrlCache}/health`, {
-        signal: testController.signal,
-        method: 'GET', // Backend only supports GET, not HEAD
-      });
-      clearTimeout(testTimeoutId);
-      lastValidationTime = now;
-      if (testResponse.ok) {
-        failedUrls.delete(apiUrlCache);
-        return apiUrlCache;
+    // Prevent concurrent validation — if another call is already validating, just use cache
+    if (isValidating) {
+      return apiUrlCache;
+    }
+
+    // Quick health check on cached URL (skip if using same-origin proxy)
+    if (apiUrlCache !== '') {
+      isValidating = true;
+      try {
+        const testController = new AbortController();
+        const testTimeoutId = setTimeout(() => testController.abort(), 500);
+        const testResponse = await fetch(`${apiUrlCache}/health`, {
+          signal: testController.signal,
+          method: 'GET',
+        });
+        clearTimeout(testTimeoutId);
+        lastValidationTime = now;
+        isValidating = false;
+        if (testResponse.ok) {
+          return apiUrlCache;
+        }
+        // Health check failed but DON'T clear cache — keep using it
+        // The actual API calls will fail on their own if the backend is truly down
+      } catch (e) {
+        // Health check timed out — DON'T clear cache, just update timestamp
+        lastValidationTime = now;
+        isValidating = false;
       }
-      failedUrls.add(apiUrlCache);
-      apiUrlCache = null;
-      apiUrlPromise = null;
-    } catch (e) {
+      return apiUrlCache;
+    } else {
+      // Same-origin proxy: no health check needed
       lastValidationTime = now;
-      if (apiUrlCache) {
-        failedUrls.add(apiUrlCache);
-        console.warn(`Cached API URL (${apiUrlCache}) unreachable, clearing cache`);
-      }
-      apiUrlCache = null;
-      apiUrlPromise = null;
+      return apiUrlCache;
     }
   }
 
@@ -80,6 +82,13 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
   // First load or force refresh
   apiUrlPromise = (async () => {
     const initialUrl = getInitialApiUrl();
+
+    // If using same-origin proxy (remote access), skip all port config resolution
+    if (initialUrl === '') {
+      apiUrlCache = '';
+      lastValidationTime = Date.now();
+      return apiUrlCache;
+    }
 
     try {
       // Resolve current scope (priority: global state > localStorage > env vars)
@@ -153,31 +162,25 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
             clearTimeout(testTimeoutId);
             if (testResponse.ok) {
               apiUrlCache = backendUrl;
-              failedUrls.delete(backendUrl);
+              lastValidationTime = Date.now();
               return apiUrlCache;
-            } else {
-              failedUrls.add(backendUrl);
             }
           } catch (e) {
-            failedUrls.add(backendUrl);
             console.warn(`Configured API URL (${backendUrl}) unreachable, falling back to initial URL (${initialUrl})`);
           }
         } else {
           apiUrlCache = backendUrl;
-          failedUrls.delete(backendUrl);
+          lastValidationTime = Date.now();
           return apiUrlCache;
         }
       }
     } catch (error) {
-      // Port config service unavailable; fall back to initial URL
-      console.warn('Cannot fetch API URL from config service, using initial URL:', error);
+      // Port config service unavailable; fall back silently
     }
 
     // Fallback to initial URL
-    const fallbackUrl = getInitialApiUrl();
-    apiUrlCache = fallbackUrl;
-    failedUrls.delete(fallbackUrl);
-    lastValidationTime = now;
+    apiUrlCache = initialUrl;
+    lastValidationTime = Date.now();
     return apiUrlCache;
   })();
 

@@ -97,6 +97,14 @@ export function ModelConfigCard({ card, onConfigSaved, pullState, onPullModel, o
     model.metadata?.max_output_tokens ?? getDefaultMaxTokens(model)
   );
 
+  const [runtimeEngine, setRuntimeEngine] = useState<string>(
+    model.metadata?.runtime_engine || 'auto'
+  );
+  
+  const [temperature, setTemperature] = useState<number>(
+    model.metadata?.temperature ?? 0.6
+  );
+
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -208,46 +216,48 @@ export function ModelConfigCard({ card, onConfigSaved, pullState, onPullModel, o
   const handleSaveModelOverride = async () => {
     try {
       setSaving(true);
+      
+      // 1. Prepare and send metadata PATCH directly
+      if (
+        maxOutputTokens !== getDefaultMaxTokens(model) ||
+        runtimeEngine !== (model.metadata?.runtime_engine || 'auto') ||
+        temperature !== (model.metadata?.temperature ?? 0.6)
+      ) {
+        const updates: any = {};
+        if (maxOutputTokens !== getDefaultMaxTokens(model)) updates.max_output_tokens = maxOutputTokens;
+        if (runtimeEngine !== (model.metadata?.runtime_engine || 'auto')) updates.runtime_engine = runtimeEngine;
+        if (temperature !== (model.metadata?.temperature ?? 0.6)) updates.temperature = temperature;
+
+        if (Object.keys(updates).length > 0) {
+          await settingsApi.patch<{ success: boolean }>(
+            `/api/v1/system-settings/models/${model.id}/metadata`,
+            updates
+          );
+        }
+      }
+
+      // 2. Prepare config PUT
       const config: any = {
         provider_level: false
       };
 
-      if (modelApiKey) {
-        config.api_key = modelApiKey;
-      }
-
-      if (model.provider === 'ollama' && modelBaseUrl) {
-        config.base_url = modelBaseUrl;
-      }
+      if (modelApiKey) config.api_key = modelApiKey;
+      if (model.provider === 'ollama' && modelBaseUrl) config.base_url = modelBaseUrl;
 
       if (model.provider === 'vertex-ai') {
-        if (modelProjectId) {
-          config.project_id = modelProjectId;
-        }
-        if (modelLocation) {
-          config.location = modelLocation;
-        }
-      }
-
-      // Save max_output_tokens via metadata PATCH
-      if (maxOutputTokens !== getDefaultMaxTokens(model)) {
-        try {
-          await settingsApi.patch<{ success: boolean }>(
-            `/api/v1/system-settings/models/${model.id}/metadata`,
-            { max_output_tokens: maxOutputTokens }
-          );
-        } catch (err) {
-          console.error('Failed to save max_output_tokens:', err);
-        }
+        if (modelProjectId) config.project_id = modelProjectId;
+        if (modelLocation) config.location = modelLocation;
       }
 
       const response = await settingsApi.put<{ success: boolean; message: string }>(`/api/v1/system-settings/models/${model.id}/config`, config);
       const message = response?.message || t('configSaved' as any) || 'Settings saved successfully';
+      
       setModelApiKey('');
       setModelBaseUrl('');
       setModelProjectId('');
       setModelLocation('');
       showNotification('success', message);
+      
       if (onConfigSaved) {
         onConfigSaved();
       }
@@ -663,7 +673,51 @@ export function ModelConfigCard({ card, onConfigSaved, pullState, onPullModel, o
                 </>
               )}
 
-              {/* Max Output Tokens Slider */}
+              {/* Runtime Engine Override (Local Models Only) */}
+              {['huggingface', 'ollama'].includes(model.provider) && (
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {t('runtimeEngineOverride' as any) || 'Runtime Engine Override'}
+                  </label>
+                  <select
+                    value={runtimeEngine}
+                    onChange={(e) => setRuntimeEngine(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="auto">Auto (Default Detection)</option>
+                    <option value="mlx">MLX Local Server (Apple Silicon)</option>
+                    <option value="llama-cpp">Llama.cpp</option>
+                    <option value="huggingface">HuggingFace Transformers</option>
+                  </select>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Force the execution engine for this model. Essential if downloading MLX/GGUF models via HF.
+                  </p>
+                </div>
+              )}
+
+              {/* Temperature Slider */}
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {t('temperature' as any) || 'Temperature'}
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={0.0}
+                    max={2.0}
+                    step={0.1}
+                    value={temperature}
+                    onChange={(e) => setTemperature(Number(e.target.value))}
+                    className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                  />
+                  <span className="text-sm font-mono text-gray-700 dark:text-gray-300 min-w-[3rem] text-right">
+                    {temperature.toFixed(1)}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Controls randomness: Lowering results in less random completions.
+                </p>
+              </div>
               <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {t('maxOutputTokens' as any) || 'Max Output Tokens'}
