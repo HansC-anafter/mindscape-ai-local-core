@@ -161,7 +161,7 @@ export function useChatModel(
 
   // Update available models when enabledChatModels changes
   useEffect(() => {
-    if (enabledChatModels.length > 0 && !modelsLoading && isMountedRef.current) {
+    if (enabledChatModels.length > 0 && !modelsLoading) {
       setAvailableChatModels(
         enabledChatModels.map(m => ({
           model_name: m.model_name,
@@ -173,6 +173,7 @@ export function useChatModel(
 
   // Initial load on mount or when dependencies change
   useEffect(() => {
+    isMountedRef.current = true;
     if (enabled && apiUrl) {
       // Reset loaded flag when API URL changes
       if (loadedApiUrlRef.current !== apiUrl) {
