@@ -58,6 +58,26 @@ try {
     exit 1
 }
 
+# Check Ollama (optional but recommended for local LLM)
+if (Test-Command "ollama") {
+    Write-Host "✓ Ollama found" -ForegroundColor Green
+    Write-Host "  ℹ️  To use local LLM, pull a model:  ollama pull qwen3:8b" -ForegroundColor Cyan
+} else {
+    Write-Host "⚠️  Ollama not found (optional, for local LLM support)" -ForegroundColor Yellow
+    $response = Read-Host "Install Ollama now? (Y/n)"
+    if ($response -notmatch "^[Nn]") {
+        if (Test-Command "winget") {
+            Write-Host "Installing Ollama via winget..." -ForegroundColor Cyan
+            winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements
+            Write-Host "  ℹ️  To use local LLM, pull a model:  ollama pull qwen3:8b" -ForegroundColor Cyan
+        } else {
+            Write-Host "  winget not available. Install Ollama from: https://ollama.com/download" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  Skipped. Install later from: https://ollama.com/download" -ForegroundColor Gray
+    }
+}
+
 Write-Host ""
 
 # Check if directory exists

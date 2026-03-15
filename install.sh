@@ -59,6 +59,23 @@ if ! docker info &> /dev/null; then
     exit 1
 fi
 echo "✓ Docker is running"
+
+# Check Ollama (optional but recommended for local LLM)
+if command -v ollama &> /dev/null; then
+    echo "✓ Ollama found"
+    echo "  ℹ️  To use local LLM, pull a model:  ollama pull qwen3:8b"
+else
+    echo "⚠️  Ollama not found (optional, for local LLM support)"
+    read -p "Install Ollama now? (Y/n) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        echo "Installing Ollama..."
+        curl -fsSL https://ollama.com/install.sh | sh
+        echo "  ℹ️  To use local LLM, pull a model:  ollama pull qwen3:8b"
+    else
+        echo "  Skipped. Install later from: https://ollama.com/download"
+    fi
+fi
 echo ""
 
 # Determine install directory
