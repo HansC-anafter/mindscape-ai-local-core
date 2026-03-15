@@ -56,6 +56,37 @@ DEFAULT_CHAT_MODELS = [
         "provider": "anthropic",
         "description": "Anthropic Claude 3 Haiku (legacy)",
     },
+    # ── Local deployment (Ollama) ────────────────────────────────────────
+    {
+        "model_name": "qwen3:8b",
+        "provider": "ollama",
+        "description": "Qwen 3 8B (Ollama) — Strong instruction following, tool use, multilingual",
+        "is_latest": True,
+        "is_recommended": True,
+    },
+    {
+        "model_name": "deepseek-r1:8b",
+        "provider": "ollama",
+        "description": "DeepSeek R1 8B (Ollama) — Reasoning model for complex planning & analysis",
+        "is_latest": True,
+    },
+    {
+        "model_name": "llama3.1:8b",
+        "provider": "ollama",
+        "description": "Meta Llama 3.1 8B (Ollama) — General-purpose, strong writing & reasoning",
+        "is_latest": True,
+    },
+    {
+        "model_name": "gemma3:4b",
+        "provider": "ollama",
+        "description": "Google Gemma 3 4B (Ollama) — Lightweight, fast summarization & Q&A",
+        "is_latest": True,
+    },
+    {
+        "model_name": "mistral:7b",
+        "provider": "ollama",
+        "description": "Mistral 7B (Ollama) — Efficient general-purpose model",
+    },
     {
         "model_name": "gemini-3-pro",
         "provider": "vertex-ai",
@@ -221,5 +252,29 @@ DEFAULT_MULTIMODAL_MODELS = [
         "model_name": "llava",
         "provider": "ollama",
         "description": "LLaVA (Ollama) — Open-source vision-language model, runs locally (legacy)",
+    },
+    {
+        "model_name": "gemma3:12b",
+        "provider": "ollama",
+        "description": "Google Gemma 3 12B (Ollama) — Vision + text, 1080p image understanding, multilingual",
+        "is_latest": True,
+        "is_recommended": True,
+    },
+    {
+        "model_name": "mistral-small3.1",
+        "provider": "ollama",
+        "description": "Mistral Small 3.1 (Ollama) — Vision + text, enhanced long context",
+        "is_latest": True,
+    },
+    {
+        "model_name": "llama4-scout",
+        "provider": "ollama",
+        "description": "Meta Llama 4 Scout (Ollama) — Multimodal reasoning, latest Meta vision model",
+        "is_latest": True,
+    },
+    {
+        "model_name": "moondream:1.8b",
+        "provider": "ollama",
+        "description": "Moondream 1.8B (Ollama) — Ultra-lightweight vision model, efficient for edge devices",
     },
 ]
