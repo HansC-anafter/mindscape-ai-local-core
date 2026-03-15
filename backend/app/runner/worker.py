@@ -48,6 +48,7 @@ from backend.app.runner.restart import (
     _RESTART_SENTINEL_PATH,
     _RESTART_DRAIN_TIMEOUT_SECONDS,
 )
+from backend.app.runner.dependency_check import DependencyChecker
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ async def run_forever() -> None:
     inflight: set[asyncio.Task] = set()
     last_reap_at: Optional[datetime] = None
     reap_interval_seconds = _env_int("LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS", 60)
+    dep_checker = DependencyChecker(cache_ttl=5.0)
 
     while True:
         # Periodic reaping for runner restarts / orphaned tasks.
@@ -195,9 +197,42 @@ async def run_forever() -> None:
                     break
                 if t.status == TaskStatus.CANCELLED_BY_USER:
                     continue
+
+                # ── Per-task dependency check ──
                 lock_ctx = (
                     t.execution_context if isinstance(t.execution_context, dict) else {}
                 )
+                playbook_code = lock_ctx.get("playbook_code") or t.pack_id or ""
+                unmet = await dep_checker.check_playbook_deps(playbook_code)
+
+                if unmet:
+                    # Hold task — write dependency_hold with throttled refresh
+                    current_hold = lock_ctx.get("dependency_hold")
+                    now_dt = datetime.now(timezone.utc)
+                    should_write = (
+                        not current_hold
+                        or set(current_hold.get("deps", [])) != set(unmet)
+                        or (
+                            current_hold.get("checked_at")
+                            and (now_dt - _parse_utc_iso(current_hold["checked_at"])).total_seconds() >= 30
+                        )
+                    )
+                    if should_write:
+                        ctx2 = dict(lock_ctx)
+                        ctx2["dependency_hold"] = {
+                            "deps": unmet,
+                            "checked_at": now_dt.isoformat(),
+                        }
+                        tasks_store.update_task(t.id, execution_context=ctx2)
+                    continue
+
+                # Clear stale dependency_hold if deps are now met
+                if lock_ctx.get("dependency_hold"):
+                    ctx2 = dict(lock_ctx)
+                    del ctx2["dependency_hold"]
+                    tasks_store.update_task(t.id, execution_context=ctx2)
+                    lock_ctx = ctx2
+
                 lock_key = _resolve_lock_key(lock_ctx, t.pack_id)
                 if lock_key:
                     owner = locks_store.get_owner(lock_key)
