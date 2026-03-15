@@ -243,6 +243,11 @@ class VectorSearchService:
 
             # Get API key
             config_store = ConfigStore()
+            
+            # Ensure background processes don't crash on foreign key violations during startup
+            from backend.app.services.mindscape_store import MindscapeStore
+            MindscapeStore().ensure_default_profile()
+            
             config = config_store.get_or_create_config("default-user")
             api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
 
