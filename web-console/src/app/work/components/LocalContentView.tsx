@@ -717,7 +717,7 @@ export function LocalContentView() {
                                         <div className="divide-y divide-gray-100 dark:divide-gray-800">
                                             {notesFolders.map((folder, idx) => (
                                                 <div
-                                                    key={folder.name}
+                                                    key={`${folder.name}-${idx}`}
                                                     className="flex items-center px-5 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer"
                                                     onClick={() => toggleNotesFolder(idx)}
                                                 >
