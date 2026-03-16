@@ -23,10 +23,13 @@ import urllib.error
 import urllib.parse
 
 # Path to the Gemini CLI
-GEMINI_CLI = os.environ.get(
-    "GEMINI_CLI_PATH",
-    "gemini",
-)
+_gemini_cli_env = os.environ.get("GEMINI_CLI_PATH", "").strip()
+if _gemini_cli_env:
+    GEMINI_CLI = _gemini_cli_env
+else:
+    import shutil
+    # shutil.which resolves .cmd/.ps1 on Windows (npm global installs use .cmd wrappers)
+    GEMINI_CLI = shutil.which("gemini") or "gemini"
 
 # Model to use for Gemini CLI execution
 GEMINI_CLI_MODEL = os.environ.get("GEMINI_CLI_MODEL", "gemini-3-pro")
