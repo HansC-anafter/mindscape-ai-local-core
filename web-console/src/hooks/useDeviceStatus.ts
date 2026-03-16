@@ -61,7 +61,7 @@ export function useDeviceStatus(
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchStatus = useCallback(async () => {
-        if (!apiUrl) return;
+        if (apiUrl == null) return;
         try {
             setIsPolling(true);
             const res = await fetch(`${apiUrl}/api/v1/mcp/agent/status`);

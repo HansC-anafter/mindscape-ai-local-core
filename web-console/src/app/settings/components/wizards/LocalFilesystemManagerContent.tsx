@@ -247,7 +247,7 @@ export function LocalFilesystemManagerContent({
   }, [workspaceMode, initialStorageBasePath, initialArtifactsDir, initialPlaybookStorageConfig, workspaceId, apiUrl]);
 
   const loadUsedPlaybooks = async () => {
-    if (!workspaceId || !apiUrl) return;
+    if (!workspaceId || apiUrl == null) return;
 
     setLoadingPlaybooks(true);
     try {

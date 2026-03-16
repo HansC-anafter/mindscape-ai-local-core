@@ -150,7 +150,7 @@ export function useCurrentExecution(workspaceId: string, apiUrl: string = '') {
   }, [currentExecution, workspaceId]);
 
   const handlePause = useCallback(async () => {
-    if (!currentExecution || !apiUrl) return;
+    if (!currentExecution || apiUrl == null) return;
 
     try {
       const response = await fetch(
@@ -166,7 +166,7 @@ export function useCurrentExecution(workspaceId: string, apiUrl: string = '') {
   }, [currentExecution, workspaceId, apiUrl]);
 
   const handleCancel = useCallback(async () => {
-    if (!currentExecution || !apiUrl) return;
+    if (!currentExecution || apiUrl == null) return;
 
     try {
       const response = await fetch(

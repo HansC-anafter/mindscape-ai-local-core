@@ -41,7 +41,7 @@ export function useLLMConfiguration(
   } = options || {};
 
   const checkConfiguration = useCallback(async () => {
-    if (!enabled || !apiUrl) {
+    if (!enabled || apiUrl == null) {
       return;
     }
 

@@ -531,7 +531,7 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
 
   // Load execution state from backend on mount
   useEffect(() => {
-    if (!workspaceId || !apiUrl) return;
+    if (!workspaceId || apiUrl == null) return;
 
     const loadExecutionState = async () => {
       try {

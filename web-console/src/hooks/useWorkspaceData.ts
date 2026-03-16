@@ -45,7 +45,7 @@ export function useWorkspaceData(
   } = options || {};
 
   const loadWorkspaceInfo = useCallback(async () => {
-    if (!enabled || !workspaceId || !apiUrl) {
+    if (!enabled || !workspaceId || apiUrl == null) {
       return;
     }
 
@@ -76,7 +76,7 @@ export function useWorkspaceData(
   }, [workspaceId, apiUrl, enabled, setWorkspaceTitle, setExecutorRuntime, onWorkspaceLoaded]);
 
   const loadSystemHealth = useCallback(async () => {
-    if (!enabled || !workspaceId || !apiUrl) {
+    if (!enabled || !workspaceId || apiUrl == null) {
       return;
     }
 
@@ -103,7 +103,7 @@ export function useWorkspaceData(
   }, [workspaceId, apiUrl, enabled, setSystemHealth, onSystemHealthLoaded]);
 
   const loadContextTokenCount = useCallback(async () => {
-    if (!enabled || !workspaceId || !apiUrl) {
+    if (!enabled || !workspaceId || apiUrl == null) {
       return;
     }
 

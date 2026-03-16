@@ -43,7 +43,7 @@ export default function StepDetailPanel({
 
   // Load installed capabilities (boundary: via API, not hardcoded)
   useEffect(() => {
-    if (!apiUrl) return;
+    if (apiUrl == null) return;
 
     const loadCapabilities = async () => {
       try {
@@ -62,7 +62,7 @@ export default function StepDetailPanel({
 
   // Load UI components when artifacts match (boundary: lazy loading)
   useEffect(() => {
-    if (!apiUrl || artifacts.length === 0 || installedCapabilities.length === 0) {
+    if (apiUrl == null || artifacts.length === 0 || installedCapabilities.length === 0) {
       return;
     }
 

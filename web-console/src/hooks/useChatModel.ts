@@ -59,7 +59,7 @@ export function useChatModel(
   } = options || {};
 
   const loadModel = useCallback(async (retryCount = 0) => {
-    if (!enabled || !apiUrl) {
+    if (!enabled || apiUrl == null) {
       return;
     }
 

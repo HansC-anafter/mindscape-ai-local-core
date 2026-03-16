@@ -205,7 +205,7 @@ export default function ProjectCard({
   useEffect(() => {
     // Load data when component mounts or when project changes, not just when expanded
     // This ensures statistics are visible even when card is collapsed
-    if (cardData || loadingRef.current || !apiUrl || !effectiveWorkspaceId) {
+    if (cardData || loadingRef.current || apiUrl == null || !effectiveWorkspaceId) {
       return;
     }
 
@@ -270,7 +270,7 @@ export default function ProjectCard({
     const meetingOn = Boolean(
       cardData?.meeting?.enabled ?? project.metadata?.meeting_enabled
     );
-    if (!meetingOn || !apiUrl || !effectiveWorkspaceId) return;
+    if (!meetingOn || apiUrl == null || !effectiveWorkspaceId) return;
 
 
     const unsubscribe = subscribeEventStream(effectiveWorkspaceId, {
@@ -296,7 +296,7 @@ export default function ProjectCard({
   const meetingActive = Boolean(cardData?.meeting?.active);
 
   const handleToggleMeeting = async (enabled: boolean) => {
-    if (!apiUrl || !effectiveWorkspaceId || meetingUpdating) return;
+    if (apiUrl == null || !effectiveWorkspaceId || meetingUpdating) return;
     setMeetingUpdating(true);
     try {
       const response = await fetch(
