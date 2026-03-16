@@ -98,7 +98,8 @@ export function useChatEvents(
       }
       setError(null);
 
-      const url = new URL(`${apiUrl}/api/v1/workspaces/${workspaceId}/events`);
+      const urlStr = `${apiUrl}/api/v1/workspaces/${workspaceId}/events`;
+      const url = new URL(urlStr, window.location.origin);
       // Increase limit to load more messages initially (was 25, now 200 to match backend max)
       url.searchParams.set('limit', beforeId ? '100' : '200');
       if (beforeId) {

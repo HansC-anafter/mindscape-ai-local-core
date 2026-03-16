@@ -16,7 +16,12 @@ import { getApiBaseUrl } from '../../../../lib/api-url';
 let rawCapabilityComponentsContext: any;
 try {
   // @ts-ignore - require.context is a webpack feature, not standard TypeScript
-  rawCapabilityComponentsContext = require.context('../../../capabilities', true, /\.tsx$/, 'sync');
+  rawCapabilityComponentsContext = require.context(
+    '../../../capabilities',
+    true,
+    /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._)).*\.tsx$/,
+    'sync'
+  );
 } catch {
   // Capabilities directory empty or missing — provide no-op fallback
   rawCapabilityComponentsContext = Object.assign(

@@ -1,20 +1,25 @@
 // Get initial API URL (avoids circular dependency)
 const getInitialApiUrl = (): string => {
-  if (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.startsWith('http')) {
-    return process.env.NEXT_PUBLIC_API_URL;
+  const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
+
+  if (typeof window !== 'undefined') {
+    if (!configuredUrl || !configuredUrl.startsWith('http')) {
+      return '';
+    }
+
+    try {
+      const url = new URL(configuredUrl);
+      if (url.hostname === window.location.hostname) {
+        return '';
+      }
+      return configuredUrl;
+    } catch {
+      return '';
+    }
   }
 
-  // When accessed remotely (not localhost), use same-origin proxy via Next.js rewrites
-  // This avoids health-check timeouts when the browser can't reach localhost:8200 directly
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      // Local development: connect to backend port directly
-      const protocol = window.location.protocol;
-      return `${protocol}//${hostname}:8200`;
-    }
-    // Remote access (tunnel, LAN, etc.): rely on Next.js proxy, use same-origin
-    return '';
+  if (configuredUrl && configuredUrl.startsWith('http')) {
+    return configuredUrl;
   }
 
   // SSR fallback (port config system default)

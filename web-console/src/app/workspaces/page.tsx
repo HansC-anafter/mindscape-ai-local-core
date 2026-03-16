@@ -42,17 +42,24 @@ export default function WorkspacesPage() {
     if (loadingRef.current) return;
 
     loadingRef.current = true;
+    if (isMountedRef.current) {
+      setLoading(true);
+      setError(null);
+    }
 
+    let wasAborted = false;
+    let controller: AbortController | null = null;
     try {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      abortControllerRef.current = new AbortController();
+      controller = new AbortController();
+      abortControllerRef.current = controller;
 
       const response = await fetch(
         `${API_URL}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=50`,
         {
-          signal: abortControllerRef.current.signal,
+          signal: controller.signal,
           headers: {
             'Content-Type': 'application/json',
           }
@@ -60,25 +67,14 @@ export default function WorkspacesPage() {
       );
 
       if (!isMountedRef.current) {
-        loadingRef.current = false;
         return;
       }
 
       if (response.ok) {
-        try {
-          const data = await response.json();
+        const data = await response.json();
 
-          if (isMountedRef.current) {
-            setWorkspaces(Array.isArray(data) ? data : []);
-            setError(null);
-            setLoading(false);
-          }
-        } catch (jsonErr) {
-          console.error('[loadWorkspaces] JSON parse error:', jsonErr);
-          if (isMountedRef.current) {
-            setError('Failed to parse workspace data');
-            setLoading(false);
-          }
+        if (isMountedRef.current) {
+          setWorkspaces(Array.isArray(data) ? data : []);
         }
       } else {
         let errorMessage = 'Failed to load workspaces';
@@ -93,19 +89,24 @@ export default function WorkspacesPage() {
         console.error('[loadWorkspaces] Error response:', errorMessage);
         if (isMountedRef.current) {
           setError(errorMessage);
-          setLoading(false);
         }
       }
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        loadingRef.current = false;
+        wasAborted = true;
         return;
       }
       if (isMountedRef.current) {
         setError(`Failed to load workspaces: ${err instanceof Error ? err.message : String(err)}`);
-        setLoading(false);
+      }
+    } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
       }
       loadingRef.current = false;
+      if (isMountedRef.current && !wasAborted) {
+        setLoading(false);
+      }
     }
   }, [ownerUserId]);
 

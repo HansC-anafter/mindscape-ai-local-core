@@ -7,7 +7,12 @@ import { convertImportPathToContextKey, normalizeCapabilityContextKey } from '..
 // Use require.context to load capability components (webpack feature)
 // @ts-ignore - require.context is a webpack feature, not standard TypeScript
 // Use 'sync' mode instead of 'lazy' to avoid webpack pp/src path bug
-const rawCapabilityComponentsContext = require.context('../../../capabilities', true, /\.tsx$/, 'sync');
+const rawCapabilityComponentsContext = require.context(
+  '../../../capabilities',
+  true,
+  /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._)).*\.tsx$/,
+  'sync'
+);
 const capabilityComponentKeys = new Set<string>(
   typeof rawCapabilityComponentsContext.keys === 'function'
     ? rawCapabilityComponentsContext.keys()

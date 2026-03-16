@@ -3,20 +3,40 @@
  * All frontend code should use these functions to get the API URL instead of hardcoding ports
  */
 
-/**
- * Get initial API URL (synchronous, for initialization)
- * Prioritizes env var, falls back to port config system default (8200)
- */
-export function getApiBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.startsWith('http')) {
-    return process.env.NEXT_PUBLIC_API_URL;
+function shouldUseSameOriginProxy(configuredUrl?: string): boolean {
+  if (typeof window === 'undefined') {
+    return false;
   }
 
-  // Use same-origin proxy (when frontend and backend share the same hostname)
+  if (!configuredUrl || !configuredUrl.startsWith('http')) {
+    return true;
+  }
+
+  try {
+    const url = new URL(configuredUrl);
+    return url.hostname === window.location.hostname;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Get initial API URL (synchronous, for initialization)
+ * Browser requests should prefer Next.js same-origin rewrites to avoid
+ * fragile cross-port CORS behavior in forwarded/dev-proxy environments.
+ */
+export function getApiBaseUrl(): string {
+  const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
+
   if (typeof window !== 'undefined') {
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    return `${protocol}//${hostname}:8200`;
+    if (shouldUseSameOriginProxy(configuredUrl)) {
+      return '';
+    }
+    return configuredUrl as string;
+  }
+
+  if (configuredUrl && configuredUrl.startsWith('http')) {
+    return configuredUrl;
   }
 
   // SSR fallback
@@ -29,12 +49,10 @@ export function getApiBaseUrl(): string {
  */
 export async function getApiUrl(): Promise<string> {
   try {
-    const module = await import('../app/settings/utils/settingsApi') as any;
-    const getDynamicApiUrl = module.getApiUrl;
+    const settingsApiModule = await import('../app/settings/utils/settingsApi') as any;
+    const getDynamicApiUrl = settingsApiModule.getApiUrl;
     return await getDynamicApiUrl();
   } catch {
     return getApiBaseUrl();
   }
 }
-
-

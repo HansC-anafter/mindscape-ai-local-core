@@ -27,7 +27,12 @@ interface UIComponentInfo {
  */
 // @ts-ignore - require.context is a webpack feature, not standard TypeScript
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const rawCapabilityComponentsContext = require.context('../app/capabilities', true, /\.tsx$/, 'sync');
+const rawCapabilityComponentsContext = require.context(
+  '../app/capabilities',
+  true,
+  /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._)).*\.tsx$/,
+  'sync'
+);
 const rawKeys = typeof rawCapabilityComponentsContext.keys === 'function'
   ? rawCapabilityComponentsContext.keys()
   : [];

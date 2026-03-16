@@ -42,7 +42,8 @@ export function useWorkspaceProjects(
         const loadProjects = async () => {
             setIsLoadingProjects(true);
             try {
-                const url = new URL(`${API_URL}/api/v1/workspaces/${workspaceId}/projects`);
+                const urlStr = `${API_URL}/api/v1/workspaces/${workspaceId}/projects`;
+                const url = new URL(urlStr, window.location.origin);
                 url.searchParams.set('state', 'open');
                 url.searchParams.set('limit', '20');
                 if (selectedType) {

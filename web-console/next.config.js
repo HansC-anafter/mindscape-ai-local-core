@@ -4,6 +4,9 @@ const path = require('path');
 const nextConfig = {
   reactStrictMode: false,
   output: 'standalone',
+  // Preserve backend route shape when using same-origin rewrites.
+  // Some FastAPI endpoints are slash-sensitive and must not be normalized by Next.
+  skipTrailingSlashRedirect: true,
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
   },

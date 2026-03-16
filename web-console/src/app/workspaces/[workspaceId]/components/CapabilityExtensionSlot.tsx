@@ -9,7 +9,12 @@ import { getApiBaseUrl } from '@/lib/api-url';
 let rawCapabilityComponentsContext: ReturnType<typeof require.context>;
 try {
     // @ts-ignore - require.context is a webpack feature
-    rawCapabilityComponentsContext = require.context('../../../capabilities', true, /\.tsx$/, 'sync');
+    rawCapabilityComponentsContext = require.context(
+        '../../../capabilities',
+        true,
+        /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._)).*\.tsx$/,
+        'sync'
+    );
 } catch {
     rawCapabilityComponentsContext = Object.assign(
         (() => ({})) as any,
