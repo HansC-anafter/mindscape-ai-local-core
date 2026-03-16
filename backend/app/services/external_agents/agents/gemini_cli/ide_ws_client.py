@@ -111,8 +111,10 @@ class GeminiCLIWSClient:
             )
 
         import shlex as _shlex
+        import os as _os
 
-        argv = _shlex.split(runtime_cmd)
+        # posix=False on Windows: preserve backslashes in paths
+        argv = _shlex.split(runtime_cmd, posix=(_os.name != 'nt'))
         # Must have at least 2 tokens: interpreter + script path
         if len(argv) < 2:
             raise RuntimeError(

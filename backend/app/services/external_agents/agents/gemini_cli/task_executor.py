@@ -275,7 +275,8 @@ class TaskExecutor:
                 ),
             )
 
-        argv = shlex.split(runtime_cmd)
+        # posix=False on Windows: preserve backslashes in paths
+        argv = shlex.split(runtime_cmd, posix=(os.name != 'nt'))
         if not argv:
             return ExecutionResult(
                 status="failed",
