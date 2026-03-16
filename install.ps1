@@ -101,6 +101,29 @@ if (Test-Command "node") {
     }
 }
 
+# Check Python websockets (required for CLI Bridge)
+if (Test-Command "python") {
+    $wsCheck = python -c "import websockets" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Installing Python websockets (required for CLI Bridge)..." -ForegroundColor Cyan
+        python -m pip install websockets --quiet 2>$null
+        Write-Host "✓ websockets installed" -ForegroundColor Green
+    } else {
+        Write-Host "✓ Python websockets found" -ForegroundColor Green
+    }
+}
+
+# Install gemini-cli if Node.js is available
+if ((Test-Command "npm") -and -not (Test-Command "gemini")) {
+    Write-Host "Installing gemini-cli..." -ForegroundColor Cyan
+    npm install -g @google/gemini-cli 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✓ gemini-cli installed" -ForegroundColor Green
+    }
+} elseif (Test-Command "gemini") {
+    Write-Host "✓ gemini-cli found" -ForegroundColor Green
+}
+
 Write-Host ""
 
 # Check if directory exists
@@ -146,7 +169,11 @@ Write-Host "Your Mindscape AI is running at:" -ForegroundColor White
 Write-Host "  • Web Console: http://localhost:8300" -ForegroundColor Cyan
 Write-Host "  • Backend API: http://localhost:8200" -ForegroundColor Cyan
 Write-Host ""
+Write-Host "To start CLI Bridge (connects Gemini CLI, Claude Code, etc.):" -ForegroundColor Yellow
+Write-Host "  .\scripts\start_cli_bridge.ps1 -All" -ForegroundColor White
+Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
-Write-Host "  cd $Dir"
-Write-Host "  # Configure API keys in .env (optional if using Ollama)"
+Write-Host "  1. Open http://localhost:8300 in your browser"
+Write-Host "  2. Configure API keys in Settings (optional if using Ollama)"
+Write-Host "  3. Start CLI Bridge in a separate terminal (see above)"
 Write-Host ""

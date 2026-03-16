@@ -526,7 +526,8 @@ def main():
         for _ in range(10):
             bridge_path = os.path.join(_dir, "scripts", "gemini_cli_runtime_bridge.py")
             if os.path.isfile(bridge_path):
-                os.environ["GEMINI_CLI_RUNTIME_CMD"] = f"python3 {bridge_path}"
+                # Use sys.executable for cross-platform compat (python3 doesn't exist on Windows)
+                os.environ["GEMINI_CLI_RUNTIME_CMD"] = f"{sys.executable} {bridge_path}"
                 break
             parent = os.path.dirname(_dir)
             if parent == _dir:
