@@ -13,7 +13,9 @@ from sqlalchemy import text as _sa_text
 
 _QUEUE_RANK_SQL = """
 SELECT id,
-       ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) as queue_position
+       COALESCE(pack_id, 'default') as pack_group,
+       ROW_NUMBER() OVER (PARTITION BY COALESCE(pack_id, 'default') ORDER BY created_at ASC, id ASC) as queue_position,
+       COUNT(*) OVER (PARTITION BY COALESCE(pack_id, 'default')) as queue_total
 FROM tasks
 WHERE status = 'pending'
   AND task_type IN ('playbook_execution', 'tool_execution')
@@ -26,7 +28,7 @@ class _QueuePositionCache:
     """Process-wide cache for queue positions. Shared across all SSE pollers."""
     def __init__(self):
         self._positions: dict[str, int] = {}
-        self._total: int = 0
+        self._totals: dict[str, int] = {}
         self._updated: float = 0.0
 
     def refresh_if_stale(self, tasks_store, max_age: float = 3.0) -> None:
@@ -35,8 +37,8 @@ class _QueuePositionCache:
         try:
             with tasks_store.get_connection() as conn:
                 rows = conn.execute(_sa_text(_QUEUE_RANK_SQL)).fetchall()
-                self._positions = {str(r[0]): int(r[1]) for r in rows}
-                self._total = len(rows)
+                self._positions = {str(r[0]): int(r[2]) for r in rows}
+                self._totals = {str(r[1]): int(r[3]) for r in rows if r[1]}
                 self._updated = time.monotonic()
         except Exception:
             pass  # Keep stale cache on error
@@ -44,9 +46,8 @@ class _QueuePositionCache:
     def get_position(self, task_id: str) -> Optional[int]:
         return self._positions.get(task_id)
 
-    @property
-    def total(self) -> int:
-        return self._total
+    def get_total(self, pack_id: str) -> int:
+        return self._totals.get(pack_id, 0)
 
 
 _QUEUE_CACHE = _QueuePositionCache()
@@ -255,7 +256,7 @@ async def _execution_stream_poller(
                 "status": task.status,
                 "progress": progress,
                 "queue_position": _QUEUE_CACHE.get_position(task.id or ""),
-                "queue_total": _QUEUE_CACHE.total,
+                "queue_total": _QUEUE_CACHE.get_total(task.pack_id or ""),
                 "dependency_hold": ctx.get("dependency_hold"),
                 "heartbeat_at": ctx.get("heartbeat_at"),
                 "runner_id": ctx.get("runner_id"),
@@ -477,7 +478,7 @@ async def get_workspace_executions(
             ).get("playbook_code")
             d["execution_id"] = d.get("execution_id") or d.get("id")
             d["queue_position"] = _QUEUE_CACHE.get_position(d.get("id") or "")
-            d["queue_total"] = _QUEUE_CACHE.total
+            d["queue_total"] = _QUEUE_CACHE.get_total(d.get("pack_id") or "")
             executions.append(d)
 
         return {"executions": executions}
@@ -589,7 +590,7 @@ async def get_execution_progress_snapshot(
             "artifact_updated_at": artifact_updated_at,
             "progress": progress if isinstance(progress, dict) else None,
             "queue_position": _QUEUE_CACHE.get_position(task.id or ""),
-            "queue_total": _QUEUE_CACHE.total,
+            "queue_total": _QUEUE_CACHE.get_total(task.pack_id or ""),
             "artifact_metadata": artifact_metadata,
             "content_metadata": content_metadata,
             "execution_context": {

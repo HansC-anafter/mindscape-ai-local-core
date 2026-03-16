@@ -1,4 +1,8 @@
+from typing import List
+
 from fastapi import APIRouter
+
+from ....models.workspace import Workspace
 from . import (
     activity_stream,
     crud,
@@ -34,6 +38,24 @@ router.include_router(profiles.router)
 router.include_router(runtime.router)
 router.include_router(pinned.router)
 router.include_router(stubs.router)
+
+# Allow no-trailing-slash access for workspace collection routes.
+# This avoids proxy-induced redirects leaking the internal backend hostname.
+router.add_api_route(
+    "",
+    crud.list_workspaces,
+    methods=["GET"],
+    response_model=List[Workspace],
+    include_in_schema=False,
+)
+router.add_api_route(
+    "",
+    crud.create_workspace,
+    methods=["POST"],
+    response_model=Workspace,
+    status_code=201,
+    include_in_schema=False,
+)
 
 # Import and mount workspace governance router
 # This was previously in workspace.py at the end
