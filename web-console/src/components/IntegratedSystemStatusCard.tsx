@@ -389,10 +389,10 @@ export default function IntegratedSystemStatusCard({
                   <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Run the Bridge script in your terminal</span>
                 </div>
                 {/* Windows (PowerShell) */}
-                <div className="ml-7 mb-2">
-                  <div className="text-[10px] text-gray-500 dark:text-gray-400 font-medium mb-1">Windows (PowerShell):</div>
+                <div className="ml-7 mb-3 border border-blue-200 dark:border-blue-800 rounded-lg p-2.5">
+                  <div className="text-sm font-bold text-blue-700 dark:text-blue-300 mb-1.5">🪟 Windows (PowerShell)</div>
                   <div className="relative">
-                    <pre className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
+                    <pre className="bg-gray-900 text-green-400 rounded p-2 text-[10px] font-mono overflow-x-auto whitespace-pre-wrap break-all">
                       {`.\u005Cscripts\u005Cstart_cli_bridge.ps1 -All`}
                     </pre>
                     <button
@@ -401,7 +401,7 @@ export default function IntegratedSystemStatusCard({
                         setCopiedAll(true);
                         setTimeout(() => setCopiedAll(false), 1500);
                       }}
-                      className={`absolute top-2 right-2 px-2 py-1 text-[10px] rounded transition-colors ${copiedAll
+                      className={`absolute top-1.5 right-1.5 px-2 py-0.5 text-[9px] rounded transition-colors ${copiedAll
                         ? 'bg-green-700 text-green-200'
                         : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
                         }`}
@@ -411,10 +411,10 @@ export default function IntegratedSystemStatusCard({
                   </div>
                 </div>
                 {/* macOS / Linux */}
-                <div className="ml-7">
-                  <div className="text-[10px] text-gray-500 dark:text-gray-400 font-medium mb-1">macOS / Linux:</div>
+                <div className="ml-7 border border-gray-200 dark:border-gray-600 rounded-lg p-2.5">
+                  <div className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-1.5">🍎 macOS / Linux</div>
                   <div className="relative">
-                    <pre className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
+                    <pre className="bg-gray-900 text-green-400 rounded p-2 text-[10px] font-mono overflow-x-auto whitespace-pre-wrap break-all">
                       {bridgeScriptPath
                         ? `${bridgeScriptPath} --all`
                         : `./scripts/start_cli_bridge.sh --all`}
@@ -428,7 +428,7 @@ export default function IntegratedSystemStatusCard({
                         setCopied(true);
                         setTimeout(() => setCopied(false), 1500);
                       }}
-                      className={`absolute top-2 right-2 px-2 py-1 text-[10px] rounded transition-colors ${copied
+                      className={`absolute top-1.5 right-1.5 px-2 py-0.5 text-[9px] rounded transition-colors ${copied
                         ? 'bg-green-700 text-green-200'
                         : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
                         }`}

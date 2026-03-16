@@ -250,6 +250,7 @@ class TaskExecutor:
         """
         # Auto-discover bridge script: env override > project-relative path
         runtime_cmd = os.environ.get("GEMINI_CLI_RUNTIME_CMD", "").strip()
+        logger.info(f"[TaskExecutor] GEMINI_CLI_RUNTIME_CMD={runtime_cmd!r}, workspace_root={self.workspace_root!r}")
         if not runtime_cmd:
             # Derive from project root (workspace_root may be project or parent)
             for candidate_root in (
