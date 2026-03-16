@@ -2,7 +2,9 @@
 Meeting LLM Adapter — runtime-aware LLM access for meeting engine components.
 
 Provides a unified chat_completion() interface that routes through the
-configured runtime (executor_runtime → gemini-cli, or direct LLM provider).
+meeting engine's preferred generation path (direct LLM for governance,
+executor runtime only when explicitly requested or used as a compatibility
+fallback).
 
 Consumers (TaskDecomposer, future Agent Assembler, etc.) depend on this
 adapter instead of hardcoding provider resolution logic.
@@ -24,8 +26,8 @@ class MeetingLLMAdapter:
     Routes ``chat_completion()`` calls through the meeting engine's
     existing ``_generate_text()`` method, which already handles:
 
-    - executor_runtime → WorkspaceAgentExecutor → gemini-cli
-    - direct LLM provider fallback (when no executor_runtime)
+    - direct LLM generation for meeting governance
+    - executor_runtime fallback when no direct provider is configured
     - retry logic, availability checks, clarification handling
 
     Usage::

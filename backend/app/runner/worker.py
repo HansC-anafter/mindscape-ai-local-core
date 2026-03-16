@@ -83,9 +83,10 @@ __all__ = [
 async def run_forever() -> None:
     poll_interval_ms = _env_int("LOCAL_CORE_RUNNER_POLL_INTERVAL_MS", 1000)
     max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
-    # Poll a bit more than inflight so we can quickly fill capacity.
+    # Poll significantly more than inflight to prevent Head-of-Line Blocking
+    # where many locked older tasks prevent newer ready tasks from being evaluated.
     batch_limit = _env_int(
-        "LOCAL_CORE_RUNNER_POLL_BATCH_LIMIT", max(1, max_inflight * 2)
+        "LOCAL_CORE_RUNNER_POLL_BATCH_LIMIT", max(50, max_inflight * 10)
     )
     runner_id = _runner_id()
 
@@ -245,7 +246,7 @@ async def run_forever() -> None:
                             ctx2["runner_skip_lock_key"] = lock_key
                             ctx2["runner_skip_owner"] = owner if owner is not None else "in_poll_dedup"
                             
-                            resume_dt = datetime.now(timezone.utc) + timedelta(seconds=15)
+                            resume_dt = datetime.now(timezone.utc) + timedelta(seconds=120)
                             ctx2["resume_after"] = resume_dt.isoformat()
                             
                             tasks_store.update_task(t.id, execution_context=ctx2)

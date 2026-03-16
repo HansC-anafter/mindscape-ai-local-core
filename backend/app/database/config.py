@@ -156,7 +156,7 @@ def get_engine_kwargs() -> dict:
     return {
         "echo": os.getenv("SQLALCHEMY_ECHO", "false").lower() == "true",
         "pool_pre_ping": True,
-        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
-        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "20")),
         "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "1800")),
     }

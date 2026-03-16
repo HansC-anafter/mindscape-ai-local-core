@@ -44,6 +44,7 @@ class MeetingGenerationMixin:
         max_tokens: int = 4096,
         capability_profile: Optional[str] = None,
         model: Optional[str] = None,
+        use_executor_runtime: bool = False,
     ) -> str:
         """Generate text with retry logic, via preferred agent or LLM provider.
 
@@ -58,6 +59,10 @@ class MeetingGenerationMixin:
             model: Optional explicit model override. Takes precedence over
                 capability_profile resolution. Used by MeetingLLMAdapter and
                 external consumers.
+            use_executor_runtime: When True, force the preferred executor runtime
+                for this generation. Meeting governance defaults to direct LLM
+                generation because executor runtimes are execution environments,
+                not the identity layer for facilitator/planner/critic turns.
         """
         # Resolve model: explicit model > capability_profile > global default
         resolved_model: Optional[str] = model
@@ -93,11 +98,25 @@ class MeetingGenerationMixin:
         last_error: Optional[Exception] = None
         for attempt in range(attempts + 1):
             try:
-                if self.executor_runtime:
+                if use_executor_runtime:
                     return await self._generate_text_via_executor_runtime(
                         messages, model=resolved_model
                     )
-                await self._ensure_provider()
+
+                try:
+                    await self._ensure_provider(force=True)
+                except Exception as provider_exc:
+                    if self.executor_runtime:
+                        logger.info(
+                            "Meeting generation falling back to executor runtime "
+                            "because direct LLM provider is unavailable: %s",
+                            provider_exc,
+                        )
+                        return await self._generate_text_via_executor_runtime(
+                            messages, model=resolved_model
+                        )
+                    raise
+
                 return await self._generate_text_via_llm(
                     messages, max_tokens=max_tokens, model=resolved_model
                 )
@@ -343,13 +362,13 @@ class MeetingGenerationMixin:
         except Exception as exc:
             logger.warning("Failed to emit clarification event: %s", exc)
 
-    async def _ensure_provider(self) -> None:
+    async def _ensure_provider(self, force: bool = False) -> None:
         """Initialize the LLM provider if not already set."""
         if self.provider:
             return
         # Skip direct LLM provider init when executor_runtime is available —
-        # _generate_text() will delegate to executor_runtime path instead.
-        if self.executor_runtime:
+        # unless the caller explicitly forces direct LLM routing.
+        if self.executor_runtime and not force:
             return
 
         if not self.model_name:
