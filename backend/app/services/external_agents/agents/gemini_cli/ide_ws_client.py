@@ -556,8 +556,12 @@ def main():
         logger.info(f"Received {sig.name}, shutting down...")
         loop.create_task(client.stop())
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda s=sig: shutdown(s))
+    try:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, lambda s=sig: shutdown(s))
+    except NotImplementedError:
+        # Windows: add_signal_handler is not supported, use signal.signal fallback
+        signal.signal(signal.SIGINT, lambda s, f: shutdown(signal.SIGINT))
 
     try:
         loop.run_until_complete(client.run())
