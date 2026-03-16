@@ -95,6 +95,28 @@ class RuntimeAssetsInstaller:
         # 13. Install evals directory (evaluation scenarios and validators)
         self.install_evals(cap_dir, capability_code, result)
 
+        # 14. Install workflows directory (ComfyUI templates + .meta.json)
+        self.install_workflows(cap_dir, capability_code, result)
+
+    def install_workflows(
+        self, cap_dir: Path, capability_code: str, result: InstallResult
+    ):
+        """Install workflows directory (e.g. ComfyUI workflow templates + .meta.json sidecars)"""
+        workflows_dir = cap_dir / "workflows"
+        if not workflows_dir.exists():
+            return
+
+        target_workflows_dir = self.capabilities_dir / capability_code / "workflows"
+        if target_workflows_dir.exists():
+            shutil.rmtree(target_workflows_dir)
+        shutil.copytree(workflows_dir, target_workflows_dir)
+
+        installed = [f.name for f in workflows_dir.iterdir() if f.is_file()]
+        result.add_installed("workflows", f"{len(installed)} files")
+        logger.info(
+            f"Installed workflows directory for {capability_code}: {len(installed)} files"
+        )
+
     def install_tools(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install capability tools"""
         tools_dir = cap_dir / "tools"
