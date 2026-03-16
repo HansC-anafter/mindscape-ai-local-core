@@ -388,64 +388,57 @@ export default function IntegratedSystemStatusCard({
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">2</span>
                   <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Run the Bridge script in your terminal</span>
                 </div>
-                <div className="ml-7 relative">
-                  <pre className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
-                    {bridgeScriptPath
-                      ? `${bridgeScriptPath} \\
-  --workspace-id ${workspaceId}`
-                      : `# Bridge script not found on server\n# Please check scripts/start_cli_bridge.sh`}
-                  </pre>
-                  <button
-                    onClick={() => {
-                      if (bridgeScriptPath) {
-                        navigator.clipboard.writeText(
-                          `${bridgeScriptPath} --workspace-id ${workspaceId}`
-                        );
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 1500);
-                      }
-                    }}
-                    disabled={!bridgeScriptPath}
-                    className={`absolute top-2 right-2 px-2 py-1 text-[10px] rounded transition-colors ${copied
-                      ? 'bg-green-700 text-green-200'
-                      : bridgeScriptPath
-                        ? 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-                        : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                      }`}
-                  >
-                    {copied ? 'Copied ✓' : 'Copy'}
-                  </button>
-                </div>
-                <div className="ml-7 mt-2 text-[10px] text-gray-500 dark:text-gray-400 font-medium">Or connect all workspaces at once:</div>
-                <div className="ml-7 mt-1 relative">
-                  <pre className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
-                    {bridgeScriptPath
-                      ? `${bridgeScriptPath} --all`
-                      : `# Bridge script not found`}
-                  </pre>
-                  <button
-                    onClick={() => {
-                      if (bridgeScriptPath) {
-                        navigator.clipboard.writeText(
-                          `${bridgeScriptPath} --all`
-                        );
+                {/* Windows (PowerShell) */}
+                <div className="ml-7 mb-2">
+                  <div className="text-[10px] text-gray-500 dark:text-gray-400 font-medium mb-1">Windows (PowerShell):</div>
+                  <div className="relative">
+                    <pre className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
+                      {`.\u005Cscripts\u005Cstart_cli_bridge.ps1 -All`}
+                    </pre>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`.\\scripts\\start_cli_bridge.ps1 -All`);
                         setCopiedAll(true);
                         setTimeout(() => setCopiedAll(false), 1500);
-                      }
-                    }}
-                    disabled={!bridgeScriptPath}
-                    className={`absolute top-2 right-2 px-2 py-1 text-[10px] rounded transition-colors ${copiedAll
-                      ? 'bg-green-700 text-green-200'
-                      : bridgeScriptPath
-                        ? 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-                        : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                      }`}
-                  >
-                    {copiedAll ? 'Copied ✓' : 'Copy'}
-                  </button>
+                      }}
+                      className={`absolute top-2 right-2 px-2 py-1 text-[10px] rounded transition-colors ${copiedAll
+                        ? 'bg-green-700 text-green-200'
+                        : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                        }`}
+                    >
+                      {copiedAll ? 'Copied ✓' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+                {/* macOS / Linux */}
+                <div className="ml-7">
+                  <div className="text-[10px] text-gray-500 dark:text-gray-400 font-medium mb-1">macOS / Linux:</div>
+                  <div className="relative">
+                    <pre className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
+                      {bridgeScriptPath
+                        ? `${bridgeScriptPath} --all`
+                        : `./scripts/start_cli_bridge.sh --all`}
+                    </pre>
+                    <button
+                      onClick={() => {
+                        const cmd = bridgeScriptPath
+                          ? `${bridgeScriptPath} --all`
+                          : `./scripts/start_cli_bridge.sh --all`;
+                        navigator.clipboard.writeText(cmd);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 1500);
+                      }}
+                      className={`absolute top-2 right-2 px-2 py-1 text-[10px] rounded transition-colors ${copied
+                        ? 'bg-green-700 text-green-200'
+                        : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                        }`}
+                    >
+                      {copied ? 'Copied ✓' : 'Copy'}
+                    </button>
+                  </div>
                 </div>
                 <p className="ml-7 text-[10px] text-gray-500 dark:text-gray-400 mt-1.5">
-                  <code>--all</code> connects all workspaces. Single workspace mode connects to this workspace only.
+                  <code>--all</code> / <code>-All</code> connects all workspaces. Or use <code>--workspace-id {workspaceId}</code> for this workspace only.
                 </p>
               </div>
 

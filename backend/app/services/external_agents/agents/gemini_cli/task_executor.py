@@ -260,7 +260,8 @@ class TaskExecutor:
                     candidate_root, "scripts", "gemini_cli_runtime_bridge.py"
                 )
                 if os.path.isfile(bridge_path):
-                    runtime_cmd = f"python3 {bridge_path}"
+                    import sys as _sys
+                    runtime_cmd = f"{_sys.executable} {bridge_path}"
                     break
 
         if not runtime_cmd:
