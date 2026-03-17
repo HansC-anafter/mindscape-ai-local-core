@@ -71,28 +71,53 @@ MLX_PID=$!
 # respond to any request (including /v1/models). This watchdog detects
 # prolonged unresponsiveness and kills the process so that launchd's
 # KeepAlive: true restarts it automatically.
+#
+# Key insight: during ACTIVE inference, MLX writes Prefill/Generation
+# progress to stderr (error log). If stderr was recently modified,
+# MLX is busy but alive — don't count the health check failure.
+# Only count failures when BOTH health check fails AND stderr is stale.
+STDERR_LOG="$(dirname "$0")/logs/mlx-server.error.log"
+STALE_THRESHOLD=$((WATCHDOG_INTERVAL * 2))  # 2 intervals = 120s
+
 failures=0
 while kill -0 "$MLX_PID" 2>/dev/null; do
   sleep "$WATCHDOG_INTERVAL"
 
   if curl -sf -m "$WATCHDOG_CURL_TIMEOUT" "http://localhost:${PORT}/v1/models" > /dev/null 2>&1; then
-    # Reset on any successful response
+    # Health check OK — reset
     if [ "$failures" -gt 0 ]; then
       echo "[mlx-watchdog] Health check OK, resetting failure count (was ${failures})"
     fi
     failures=0
   else
-    failures=$((failures + 1))
-    echo "[mlx-watchdog] Health check failed (${failures}/${WATCHDOG_MAX_FAILURES})"
+    # Health check failed — is MLX still writing to stderr (active inference)?
+    stderr_stale=true
+    if [ -f "$STDERR_LOG" ]; then
+      stderr_mtime=$(stat -f %m "$STDERR_LOG" 2>/dev/null || echo 0)
+      now=$(date +%s)
+      stderr_age=$((now - stderr_mtime))
+      if [ "$stderr_age" -lt "$STALE_THRESHOLD" ]; then
+        stderr_stale=false
+      fi
+    fi
 
-    if [ "$failures" -ge "$WATCHDOG_MAX_FAILURES" ]; then
-      echo "[mlx-watchdog] ${WATCHDOG_MAX_FAILURES} consecutive failures — killing MLX (PID ${MLX_PID})"
-      kill "$MLX_PID" 2>/dev/null || true
-      sleep 2
-      # Force kill if still alive
-      kill -9 "$MLX_PID" 2>/dev/null || true
-      echo "[mlx-watchdog] MLX killed. Exiting so launchd KeepAlive restarts."
-      exit 1
+    if [ "$stderr_stale" = false ]; then
+      # stderr recently modified — MLX is actively inferring, not hung
+      echo "[mlx-watchdog] Health check failed but MLX stderr active (${stderr_age}s ago) — not counting"
+      failures=0
+    else
+      failures=$((failures + 1))
+      echo "[mlx-watchdog] Health check failed, stderr stale (${failures}/${WATCHDOG_MAX_FAILURES})"
+
+      if [ "$failures" -ge "$WATCHDOG_MAX_FAILURES" ]; then
+        echo "[mlx-watchdog] ${WATCHDOG_MAX_FAILURES} consecutive failures — killing MLX (PID ${MLX_PID})"
+        kill "$MLX_PID" 2>/dev/null || true
+        sleep 2
+        # Force kill if still alive
+        kill -9 "$MLX_PID" 2>/dev/null || true
+        echo "[mlx-watchdog] MLX killed. Exiting so launchd KeepAlive restarts."
+        exit 1
+      fi
     fi
   fi
 done
