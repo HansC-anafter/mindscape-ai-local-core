@@ -71,28 +71,51 @@ MLX_PID=$!
 # respond to any request (including /v1/models). This watchdog detects
 # prolonged unresponsiveness and kills the process so that launchd's
 # KeepAlive: true restarts it automatically.
+#
+# Detection: track '200 OK' lines in stdout log. Each completed inference
+# produces a POST 200 OK line. If no new 200 OK lines appear across
+# WATCHDOG_MAX_FAILURES consecutive checks, AND health check also fails,
+# the process is truly hung.
+STDOUT_LOG="$(dirname "$0")/logs/mlx-server.log"
+
+_count_ok_lines() {
+  grep -c "200 OK" "$STDOUT_LOG" 2>/dev/null || echo 0
+}
+
 failures=0
+last_ok_count=$(_count_ok_lines)
+
 while kill -0 "$MLX_PID" 2>/dev/null; do
   sleep "$WATCHDOG_INTERVAL"
 
   if curl -sf -m "$WATCHDOG_CURL_TIMEOUT" "http://localhost:${PORT}/v1/models" > /dev/null 2>&1; then
-    # Reset on any successful response
+    # Health check OK — reset
     if [ "$failures" -gt 0 ]; then
       echo "[mlx-watchdog] Health check OK, resetting failure count (was ${failures})"
     fi
     failures=0
+    last_ok_count=$(_count_ok_lines)
   else
-    failures=$((failures + 1))
-    echo "[mlx-watchdog] Health check failed (${failures}/${WATCHDOG_MAX_FAILURES})"
+    # Health check failed — did MLX complete any request since last check?
+    current_ok_count=$(_count_ok_lines)
+    if [ "$current_ok_count" -gt "$last_ok_count" ]; then
+      # New 200 OK lines appeared — MLX completed work, just busy with next request
+      echo "[mlx-watchdog] Health check failed but MLX completed requests (${last_ok_count}→${current_ok_count}) — not counting"
+      failures=0
+      last_ok_count=$current_ok_count
+    else
+      failures=$((failures + 1))
+      echo "[mlx-watchdog] Health check failed, no new completions (${failures}/${WATCHDOG_MAX_FAILURES})"
 
-    if [ "$failures" -ge "$WATCHDOG_MAX_FAILURES" ]; then
-      echo "[mlx-watchdog] ${WATCHDOG_MAX_FAILURES} consecutive failures — killing MLX (PID ${MLX_PID})"
-      kill "$MLX_PID" 2>/dev/null || true
-      sleep 2
-      # Force kill if still alive
-      kill -9 "$MLX_PID" 2>/dev/null || true
-      echo "[mlx-watchdog] MLX killed. Exiting so launchd KeepAlive restarts."
-      exit 1
+      if [ "$failures" -ge "$WATCHDOG_MAX_FAILURES" ]; then
+        echo "[mlx-watchdog] ${WATCHDOG_MAX_FAILURES} consecutive failures — killing MLX (PID ${MLX_PID})"
+        kill "$MLX_PID" 2>/dev/null || true
+        sleep 2
+        # Force kill if still alive
+        kill -9 "$MLX_PID" 2>/dev/null || true
+        echo "[mlx-watchdog] MLX killed. Exiting so launchd KeepAlive restarts."
+        exit 1
+      fi
     fi
   fi
 done
