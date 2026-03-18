@@ -133,7 +133,7 @@ class TasksStoreRunnerMixin:
             )
         else:
             self.update_task(task_id, execution_context=ctx)
-        logger.info("Updated heartbeat for task %s (runner=%s)", task_id, runner_id)
+        logger.debug("Updated heartbeat for task %s (runner=%s)", task_id, runner_id)
 
         # ── Abort detection ──────────────────────────────────────
         # Re-read status after write to catch external cancellation.

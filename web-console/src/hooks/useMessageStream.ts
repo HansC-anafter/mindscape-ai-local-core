@@ -99,6 +99,13 @@ export function useMessageStream(
             apiUrl,
             eventTypes: ['message', 'pipeline_stage', 'execution_plan', 'run_started', 'run_completed', 'run_failed', 'step_start', 'step_progress', 'step_complete', 'step_error', 'chunk', 'stream_start', 'stream_end', 'meeting_stage'],
             onEvent: (event) => {
+                // ── Strict Thread Isolation ──
+                const eventPayload = event.payload as any;
+                const eventThreadId = event.thread_id || eventPayload?.thread_id || eventPayload?.session_id || event.metadata?.thread_id;
+                if (threadId && eventThreadId && eventThreadId !== threadId) {
+                    return; // Ignore events from other threads
+                }
+
                 // ── Meeting streaming chunk handling ──────────
                 if (event.type === 'stream_start') {
                     streamingTextRef.current = '';
@@ -138,23 +145,16 @@ export function useMessageStream(
                     window.dispatchEvent(new CustomEvent('execution-event', {
                         detail: {
                             type: event.type,
-                            run_id: payload?.run_id || (event as any).metadata?.run_id,
+                            run_id: payload?.run_id || event.metadata?.run_id,
                             stage: payload?.stage,
                             message: payload?.message || payload?.text,
-                            metadata: (event as any).metadata,
+                            metadata: event.metadata,
                             plan: payload?.plan,
                             stepId: payload?.step_id,
                             error: payload?.error,
                         }
                     }));
                     console.log(`[useMessageStream] Forwarded ${event.type} event to execution state`);
-                    return;
-                }
-
-                // Filter by thread if specified
-                const eventPayload = event.payload as any;
-                const eventThreadId = (event as any).metadata?.thread_id || eventPayload?.thread_id;
-                if (threadId && eventThreadId && eventThreadId !== threadId) {
                     return;
                 }
 

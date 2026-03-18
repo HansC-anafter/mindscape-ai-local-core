@@ -51,6 +51,52 @@ def _is_runner_process() -> bool:
     return val in {"1", "true", "yes"}
 
 
+def _workflow_result_has_errors(result: Dict[str, Any]) -> bool:
+    """Detect terminal workflow errors even when the wrapper status is completed."""
+    if not isinstance(result, dict):
+        return False
+
+    if result.get("status") == "error":
+        return True
+
+    steps = result.get("steps")
+    if not isinstance(steps, dict):
+        return False
+
+    for step_result in steps.values():
+        if isinstance(step_result, dict) and step_result.get("status") == "error":
+            return True
+    return False
+
+
+def _runtime_result_has_errors(runtime_result: Any, raw_result: Optional[Dict[str, Any]] = None) -> bool:
+    """Detect step-level runtime failures from either raw workflow payload or runtime metadata."""
+    if _workflow_result_has_errors(raw_result):
+        return True
+
+    if runtime_result is None:
+        return False
+
+    if getattr(runtime_result, "status", None) == "failed":
+        return True
+
+    metadata = getattr(runtime_result, "metadata", None)
+    if not isinstance(metadata, dict):
+        return False
+
+    steps = metadata.get("steps")
+    if isinstance(steps, dict):
+        for step_result in steps.values():
+            if isinstance(step_result, dict) and step_result.get("status") == "error":
+                return True
+
+    workflow_result = metadata.get("workflow_result")
+    if isinstance(workflow_result, dict) and _workflow_result_has_errors(workflow_result):
+        return True
+
+    return False
+
+
 class PlaybookRunExecutor:
     """Unified executor for playbook.run"""
 
@@ -511,6 +557,11 @@ class PlaybookRunExecutor:
                         ):
                             outputs_payload = runtime_result.outputs
 
+                        workflow_failed = _runtime_result_has_errors(
+                            runtime_result,
+                            result if isinstance(result, dict) else None,
+                        )
+
                         execution_context_dict = {
                             "playbook_code": playbook_code,
                             "playbook_name": playbook_name,
@@ -520,10 +571,17 @@ class PlaybookRunExecutor:
                                 total_steps
                                 if runtime_result
                                 and runtime_result.status == "completed"
+                                and not workflow_failed
                                 else 0
                             ),
                             "status": (
-                                runtime_result.status if runtime_result else "failed"
+                                "failed"
+                                if workflow_failed
+                                else (
+                                    runtime_result.status
+                                    if runtime_result
+                                    else "failed"
+                                )
                             ),
                             "inputs": normalized_inputs,
                             "workspace_id": workspace_id,
@@ -534,9 +592,13 @@ class PlaybookRunExecutor:
                             "result": result,
                             "workflow_result": {
                                 "status": (
-                                    runtime_result.status
-                                    if runtime_result
-                                    else "failed"
+                                    "failed"
+                                    if workflow_failed
+                                    else (
+                                        runtime_result.status
+                                        if runtime_result
+                                        else "failed"
+                                    )
                                 ),
                                 "step_outputs": step_outputs_payload,
                                 "outputs": outputs_payload,
@@ -585,7 +647,7 @@ class PlaybookRunExecutor:
 
                         if runtime_result and runtime_result.status == "paused":
                             task_status = TaskStatus.RUNNING
-                        elif runtime_result and runtime_result.status == "completed":
+                        elif runtime_result and runtime_result.status == "completed" and not workflow_failed:
                             task_status = TaskStatus.SUCCEEDED
                         else:
                             task_status = TaskStatus.FAILED
@@ -605,11 +667,13 @@ class PlaybookRunExecutor:
                                 status=task_status,
                                 completed_at=(
                                     _utc_now()
-                                    if task_status == TaskStatus.SUCCEEDED
+                                    if task_status in (TaskStatus.SUCCEEDED, TaskStatus.FAILED)
                                     else None
                                 ),
                                 error=(
-                                    runtime_result.error
+                                    "Workflow completed with step errors"
+                                    if workflow_failed
+                                    else runtime_result.error
                                     if runtime_result
                                     else "Runtime execution returned None"
                                 ),
@@ -1254,7 +1318,8 @@ class PlaybookRunExecutor:
                     )
                     return
 
-                execution_context["status"] = "completed"
+                workflow_failed = _workflow_result_has_errors(result)
+                execution_context["status"] = "failed" if workflow_failed else "completed"
                 execution_context["current_step_index"] = total_steps
                 execution_context["workflow_result"] = result
                 execution_context["step_outputs"] = result.get("step_outputs", {})
@@ -1271,8 +1336,13 @@ class PlaybookRunExecutor:
                 tasks_store.update_task(
                     task.id,
                     execution_context=merged_ctx,
-                    status=TaskStatus.SUCCEEDED,
+                    status=TaskStatus.FAILED if workflow_failed else TaskStatus.SUCCEEDED,
                     completed_at=completed_at,
+                    error=(
+                        "Workflow completed with step errors"
+                        if workflow_failed
+                        else None
+                    ),
                 )
                 # Land result artifacts (result.json + summary.md) to disk
                 try:

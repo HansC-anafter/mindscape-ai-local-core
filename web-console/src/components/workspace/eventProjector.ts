@@ -21,6 +21,7 @@ export interface UnifiedEvent {
   workspace_id?: string;
   project_id?: string;
   profile_id: string;
+  thread_id?: string;
   payload: {
     // DECISION_REQUIRED
     decision_id?: string;
@@ -626,7 +627,8 @@ function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
       workspace_id: data.workspace_id,
       project_id: data.project_id,
       profile_id: data.profile_id,
-      payload: data.payload,
+      thread_id: data.thread_id || data.payload?.thread_id || data.metadata?.thread_id || data.payload?.session_id,
+      payload: data.payload || data,
       entity_ids: data.entity_ids,
       metadata: data.metadata,
     };

@@ -6,7 +6,7 @@ that delegates to focused sub-modules:
   utils.py          — _utc_now, _parse_utc_iso, _env_int
   concurrency.py    — _runner_id, _resolve_lock_key, _build_inputs
   lifecycle_hooks.py — _invoke_on_fail_hook
-  reaper.py         — _reap_stale_running_tasks, _reap_stale_runner_locks
+  reaper.py         — _reap_stale_running_tasks, _reap_redis_queues
   task_executor.py  — _child_execute_playbook, _run_single_task
   restart.py        — _check_restart_sentinel
 """
@@ -21,9 +21,7 @@ from datetime import datetime
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.stores.tasks_store import TasksStore
-from backend.app.services.stores.postgres.runner_locks_store import (
-    PostgresRunnerLocksStore,
-)
+
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
 # ── Sub-module imports ──
@@ -179,8 +177,10 @@ async def run_forever() -> None:
 
         # ── 1. Redis Queue Dequeue ──
         # Blocking Pop from pending to processing (ZSET). This wait completely replaces DB polling.
-        task_id = await redis_queue.dequeue_task_blocking(timeout=2, visibility_timeout_sec=180)
-        
+        task_id = await redis_queue.dequeue_task_blocking(
+            timeout=2, visibility_timeout_sec=180
+        )
+
         if not task_id:
             continue
 
@@ -191,55 +191,80 @@ async def run_forever() -> None:
             # If the task doesn't exist or is deeply corrupt, deadletter it.
             t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
             if not t_data:
-                logger.error(f"[Worker] Task {task_id} not found in DB but was in queue. Dropping from processing.")
+                logger.error(
+                    f"[Worker] Task {task_id} not found in DB but was in queue. Dropping from processing."
+                )
                 await redis_queue.ack_task(task_id)
                 continue
-                
+
             if t_data.status != TaskStatus.PENDING:
-                logger.info(f"[Worker] Task {task_id} popped but no longer PENDING (status: {t_data.status.value}). Dropping duplicate queue item.")
+                logger.info(
+                    f"[Worker] Task {task_id} popped but no longer PENDING (status: {t_data.status.value}). Dropping duplicate queue item."
+                )
                 await redis_queue.ack_task(task_id)
                 continue
 
             # ── Per-task dependency check ──
             lock_ctx = (
-                t_data.execution_context if isinstance(t_data.execution_context, dict) else {}
+                t_data.execution_context
+                if isinstance(t_data.execution_context, dict)
+                else {}
             )
             playbook_code = lock_ctx.get("playbook_code") or t_data.pack_id or ""
             unmet = await dep_checker.check_playbook_deps(playbook_code)
 
             if unmet:
-                # Dependency unmet. Put back to delayed queue for 10 seconds.
+                # Dependency unmet. Put back to delayed queue for 30 seconds.
                 now_dt = datetime.now(timezone.utc)
-                ctx2 = dict(lock_ctx)
-                ctx2["dependency_hold"] = {
-                    "deps": unmet,
-                    "checked_at": now_dt.isoformat(),
-                }
-                await asyncio.to_thread(tasks_store.update_task, t_data.id, execution_context=ctx2)
-                await redis_queue.nack_task_to_delayed(task_id, delay_sec=10)
+
+                existing_hold = lock_ctx.get("dependency_hold")
+                if not existing_hold or existing_hold.get("deps") != unmet:
+                    ctx2 = dict(lock_ctx)
+                    ctx2["dependency_hold"] = {
+                        "deps": unmet,
+                        "checked_at": now_dt.isoformat(),
+                    }
+                    await asyncio.to_thread(
+                        tasks_store.update_task, t_data.id, execution_context=ctx2
+                    )
+
+                await redis_queue.nack_task_to_delayed(task_id, delay_sec=30)
                 continue
 
             # ── 2. Lock BEFORE Claim ──
             lock_key = _resolve_lock_key(lock_ctx, t_data.pack_id)
             if lock_key:
                 # Try acquire Lock exclusively on Redis
-                acquired = await redis_queue.acquire_lock(lock_key, runner_id, ttl_seconds=120)
+                acquired = await redis_queue.acquire_lock(
+                    lock_key, runner_id, ttl_seconds=120
+                )
                 if not acquired:
                     # Concurrency locked -> Backoff defer directly into delayed queue
-                    ctx2 = dict(lock_ctx)
-                    ctx2["runner_skip_reason"] = "concurrency_locked"
-                    ctx2["runner_skip_lock_key"] = lock_key
-                    # We NO LONGER update `resume_after` to the database per poll.
-                    # Send it silently into Redis delayed ZSET.
-                    await asyncio.to_thread(tasks_store.update_task, t_data.id, execution_context=ctx2)
-                    await redis_queue.nack_task_to_delayed(task_id, delay_sec=10)
+                    if (
+                        lock_ctx.get("runner_skip_reason") != "concurrency_locked"
+                        or lock_ctx.get("runner_skip_lock_key") != lock_key
+                    ):
+                        ctx2 = dict(lock_ctx)
+                        ctx2["runner_skip_reason"] = "concurrency_locked"
+                        ctx2["runner_skip_lock_key"] = lock_key
+                        # We NO LONGER update `resume_after` to the database per poll.
+                        # Send it silently into Redis delayed ZSET.
+                        await asyncio.to_thread(
+                            tasks_store.update_task, t_data.id, execution_context=ctx2
+                        )
+
+                    await redis_queue.nack_task_to_delayed(task_id, delay_sec=30)
                     continue
 
             # ── 3. Atomic DB Claim ──
             # Only status PENDING -> RUNNING. If rows_updated=0, it's a stolen pop or duplicate claim.
-            claimed = await asyncio.to_thread(tasks_store.try_claim_task, t_data.id, runner_id=runner_id)
+            claimed = await asyncio.to_thread(
+                tasks_store.try_claim_task, t_data.id, runner_id=runner_id
+            )
             if not claimed:
-                logger.warning(f"[Worker] DB claim failed for Task {task_id}. Ghost pop or duplicated. Acking.")
+                logger.warning(
+                    f"[Worker] DB claim failed for Task {task_id}. Ghost pop or duplicated. Acking."
+                )
                 if lock_key:
                     await redis_queue.release_lock(lock_key, runner_id)
                 await redis_queue.ack_task(task_id)
@@ -250,7 +275,9 @@ async def run_forever() -> None:
             inflight.add(asyncio.create_task(task_coro))
 
         except Exception as e:
-            logger.warning(f"Runner task dispatch error for {task_id}: {e}", exc_info=True)
+            logger.warning(
+                f"Runner task dispatch error for {task_id}: {e}", exc_info=True
+            )
             # Failsafe in case of dispatch crash
             await redis_queue.nack_task_to_delayed(task_id, delay_sec=15)
 
@@ -263,7 +290,7 @@ def main() -> None:
         tasks_store = TasksStore()
         rid = _runner_id()
         _reap_stale_running_tasks(tasks_store, runner_id=rid)
-        _reap_stale_runner_locks(tasks_store, PostgresRunnerLocksStore(), runner_id=rid)
+
     except Exception:
         pass
     asyncio.run(run_forever())

@@ -263,7 +263,7 @@ async def delete_thread(
 
 
 @router.get("/{workspace_id}/threads/{thread_id}/bundle", response_model=ThreadBundle)
-async def get_thread_bundle(
+def get_thread_bundle(
     workspace_id: str = Path(..., description="Workspace ID"),
     thread_id: str = Path(..., description="Thread ID"),
     workspace: Workspace = Depends(get_workspace),

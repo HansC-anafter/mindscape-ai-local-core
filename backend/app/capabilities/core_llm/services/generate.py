@@ -21,8 +21,8 @@ async def run(
     target_language: Optional[str] = None,
     workspace_id: Optional[str] = None,
     available_playbooks: Optional[list] = None,
-    _model_override: Optional[str] = None,
-    **kwargs,  # absorb extra playbook inputs
+    profile_id: Optional[str] = None,
+    **kwargs
 ) -> Dict[str, Any]:
     """
     Basic one-time text generation/rewriting
@@ -85,7 +85,7 @@ async def run(
                 provider_name = "vertex-ai"
 
             config_store = ConfigStore()
-            config = config_store.get_or_create_config("default-user")
+            config = config_store.get_or_create_config(profile_id or "default-user")
 
             openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
             anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
@@ -188,11 +188,6 @@ async def run(
 
         logger.info(f"Using conversation model from settings: {conversation_model}")
         model_to_use = conversation_model
-
-        # v3.1: Per-agent model override from dispatch chain
-        if _model_override:
-            logger.info(f"Model override applied: {conversation_model} → {_model_override}")
-            model_to_use = _model_override
 
         # Call LLM
         result = await call_llm(

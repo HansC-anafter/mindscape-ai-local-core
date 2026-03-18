@@ -576,6 +576,7 @@ async def event_stream_generator(
                         "workspace_id": event.workspace_id,
                         "project_id": event.project_id,
                         "profile_id": event.profile_id,
+                        "thread_id": getattr(event, "thread_id", None),
                         "payload": payload,
                         "entity_ids": entity_ids,
                         "metadata": metadata,

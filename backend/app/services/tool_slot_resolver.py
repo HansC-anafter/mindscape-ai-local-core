@@ -77,10 +77,24 @@ class ToolSlotResolver:
         """
         try:
             # Local import to avoid import cycles during app bootstrap.
-            from backend.app.services.capability_registry import get_registry
+            from backend.app.services.capability_registry import (
+                get_registry,
+                load_capabilities,
+            )
 
             reg = get_registry()
-            return bool(reg.get_tool(tool_id))
+            tool = reg.get_tool(tool_id)
+            if tool:
+                return True
+
+            # Some runtime paths resolve tool slots before capability manifests
+            # have been preloaded into the global registry.
+            if not reg.list_tools():
+                load_capabilities()
+                reg = get_registry()
+                return bool(reg.get_tool(tool_id))
+
+            return False
         except Exception:
             return False
 
@@ -367,4 +381,3 @@ def get_tool_slot_resolver(store=None) -> ToolSlotResolver:
     if _resolver_instance is None:
         _resolver_instance = ToolSlotResolver(store=store)
     return _resolver_instance
-

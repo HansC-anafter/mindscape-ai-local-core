@@ -159,3 +159,12 @@ class ExecutionContextBuilder:
 
         return result
 
+# === Task Grouping ContextVar ===
+# Follows EGB trace_propagation.py ContextVar pattern (set/reset/try-finally).
+# Used by tasks_store._base.create_task to auto-inject parent_execution_id.
+import contextvars
+from typing import Optional as _Optional
+
+active_parent_execution_id: contextvars.ContextVar[_Optional[str]] = contextvars.ContextVar(
+    "active_parent_execution_id", default=None
+)

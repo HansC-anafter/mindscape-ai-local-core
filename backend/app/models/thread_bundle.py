@@ -34,7 +34,7 @@ class ThreadDeliverable(BaseModel):
     id: str = Field(..., description="Artifact ID")
     title: str = Field(..., description="Artifact title")
     artifact_type: str = Field(..., description="Artifact type")
-    source: Literal["playbook", "connector", "manual", "ai_generated"] = Field(
+    source: Literal["playbook", "connector", "manual", "ai_generated", "task_runner"] = Field(
         ..., description="Source of the artifact"
     )
     source_event_id: str = Field(..., description="Source event ID")

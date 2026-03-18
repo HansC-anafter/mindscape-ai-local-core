@@ -48,10 +48,19 @@ class OCRClient:
 
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 with open(file_path, "rb") as f:
-                    files = {"file": (path.name, f, "image/png")}
+                    # Guess content type from suffix
+                    suffix = path.suffix.lower()
+                    content_type = {
+                        ".png": "image/png",
+                        ".jpg": "image/jpeg",
+                        ".jpeg": "image/jpeg",
+                        ".tiff": "image/tiff",
+                        ".bmp": "image/bmp",
+                    }.get(suffix, "image/png")
+                    files = {"file": (path.name, f, content_type)}
                     response = await client.post(
-                        f"{self.service_url}/ocr/image/path",
-                        data={"file_path": str(path)},
+                        f"{self.service_url}/ocr/image",
+                        files=files,
                         timeout=self.timeout
                     )
                     response.raise_for_status()
@@ -81,16 +90,16 @@ class OCRClient:
                 raise FileNotFoundError(f"File not found: {file_path}")
 
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    f"{self.service_url}/ocr/pdf/path",
-                    data={
-                        "file_path": str(path),
-                        "dpi": dpi
-                    },
-                    timeout=self.timeout
-                )
-                response.raise_for_status()
-                return response.json()
+                with open(file_path, "rb") as f:
+                    files = {"file": (path.name, f, "application/pdf")}
+                    response = await client.post(
+                        f"{self.service_url}/ocr/pdf",
+                        data={"dpi": str(dpi)},
+                        files=files,
+                        timeout=self.timeout
+                    )
+                    response.raise_for_status()
+                    return response.json()
 
         except httpx.HTTPError as e:
             logger.error(f"OCR service request failed: {e}")

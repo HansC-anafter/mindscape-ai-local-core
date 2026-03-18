@@ -5,7 +5,7 @@ Workspace core models — Workspace entity and API request/response models.
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from ._common import _utc_now
 from .enums import (
@@ -367,6 +367,8 @@ class UpdateWorkspaceRequest(BaseModel):
 
 class WorkspaceChatRequest(BaseModel):
     """Request for workspace chat interaction"""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     message: Optional[str] = Field(None, description="User message")
     files: list[str] = Field(

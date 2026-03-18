@@ -4,7 +4,7 @@ Model Provider Models
 Models for managing model providers and model configurations.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
@@ -20,6 +20,8 @@ class ModelType(str, Enum):
 
 class ModelConfig(BaseModel):
     """Individual model configuration"""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     id: Optional[int] = Field(None, description="Model ID (database primary key)")
     model_name: str = Field(..., description="Model name (e.g., 'gpt-5.1-pro')")

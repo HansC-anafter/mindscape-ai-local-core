@@ -5,7 +5,7 @@ Generic system settings model for storing various system-level configurations.
 Supports key-value pairs with type safety and validation.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Dict, Any, Union, List
 from enum import Enum
 from datetime import datetime
@@ -35,6 +35,8 @@ class LLMModelConfig(BaseModel):
 
     Represents a single model configuration with provider and type information.
     """
+
+    model_config = ConfigDict(protected_namespaces=())
 
     model_name: str = Field(
         ..., description="Model name (e.g., 'gpt-4o-mini', 'text-embedding-3-small')"

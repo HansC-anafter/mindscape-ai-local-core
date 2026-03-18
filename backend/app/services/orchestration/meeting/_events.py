@@ -153,6 +153,7 @@ class MeetingEventsMixin:
             from backend.app.services.cache.async_redis import publish_meeting_chunk
 
             ws_id = self.session.workspace_id
+            thread_id = getattr(self, "thread_id", None) or getattr(self.session, "thread_id", None) or self.session.id
             coro = publish_meeting_chunk(
                 ws_id,
                 {
@@ -162,6 +163,7 @@ class MeetingEventsMixin:
                     "summary": self._summarize_payload(event_type, payload),
                     "session_id": self.session.id,
                 },
+                thread_id,
             )
             try:
                 loop = asyncio.get_running_loop()

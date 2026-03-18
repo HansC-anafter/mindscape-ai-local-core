@@ -232,6 +232,7 @@ class MeetingEngine(
                     "message": message,
                     "session_id": session_id,
                 },
+                getattr(self, "thread_id", None) or getattr(self.session, "thread_id", None) or session_id,
             )
         except Exception:
             pass  # non-fatal: UI just won't show the stage

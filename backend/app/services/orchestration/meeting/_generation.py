@@ -169,6 +169,7 @@ class MeetingGenerationMixin:
                 from backend.app.services.cache.async_redis import (
                     publish_meeting_chunk,
                 )
+                thread_id = getattr(self, "thread_id", None) or getattr(self.session, "thread_id", None) or session_id
 
                 # Publish "stream_start" so the frontend knows a new
                 # streaming block is beginning.
@@ -178,37 +179,41 @@ class MeetingGenerationMixin:
                         "type": "stream_start",
                         "session_id": session_id,
                     },
+                    thread_id,
                 )
 
-                sig = inspect.signature(self.provider.chat_completion_stream)
-                allowed = set(sig.parameters.keys())
-                stream_kwargs = {k: v for k, v in call_kwargs.items() if k in allowed}
-                if "messages" not in stream_kwargs:
-                    stream_kwargs["messages"] = messages
+                try:
+                    sig = inspect.signature(self.provider.chat_completion_stream)
+                    allowed = set(sig.parameters.keys())
+                    stream_kwargs = {k: v for k, v in call_kwargs.items() if k in allowed}
+                    if "messages" not in stream_kwargs:
+                        stream_kwargs["messages"] = messages
 
-                async for chunk_content in self.provider.chat_completion_stream(
-                    **stream_kwargs
-                ):
-                    full_text += chunk_content
+                    async for chunk_content in self.provider.chat_completion_stream(
+                        **stream_kwargs
+                    ):
+                        full_text += chunk_content
+                        await publish_meeting_chunk(
+                            workspace_id,
+                            {
+                                "type": "chunk",
+                                "content": chunk_content,
+                                "session_id": session_id,
+                            },
+                            thread_id,
+                        )
+                finally:
+                    # Publish "stream_end" so the frontend can finalise the
+                    # accumulated text and clear the streaming buffer.
                     await publish_meeting_chunk(
                         workspace_id,
                         {
-                            "type": "chunk",
-                            "content": chunk_content,
+                            "type": "stream_end",
                             "session_id": session_id,
+                            "full_text": full_text,
                         },
+                        thread_id,
                     )
-
-                # Publish "stream_end" so the frontend can finalise the
-                # accumulated text and clear the streaming buffer.
-                await publish_meeting_chunk(
-                    workspace_id,
-                    {
-                        "type": "stream_end",
-                        "session_id": session_id,
-                        "full_text": full_text,
-                    },
-                )
 
             except Exception as stream_exc:
                 logger.warning(
@@ -303,6 +308,8 @@ class MeetingGenerationMixin:
             f"[Turn Prompt]\n{user_prompt}\n"
         )
 
+        await self._emit_meeting_stage("generating", f"正在透過 {self.executor_runtime} 執行中...")
+
         result = await self._agent_executor.execute(
             task=task,
             agent_id=self.executor_runtime,
@@ -330,7 +337,38 @@ class MeetingGenerationMixin:
             raise RuntimeError(
                 f"Preferred agent '{self.executor_runtime}' returned empty output"
             )
-        return result.output.strip()
+
+        # ── Simulated streaming for executor runtime ──
+        # Push the completed turn result as stream_start → chunk → stream_end
+        # so the frontend shows progressive output for each meeting turn.
+        output_text = result.output.strip()
+        try:
+            from backend.app.services.cache.async_redis import publish_meeting_chunk
+
+            workspace_id = getattr(self.workspace, "id", None) or ""
+            session_id = getattr(self.session, "id", None) or ""
+            thread_id = getattr(self, "thread_id", None) or getattr(self.session, "thread_id", None) or session_id
+
+            await publish_meeting_chunk(
+                workspace_id,
+                {"type": "stream_start", "session_id": session_id},
+                thread_id,
+            )
+            # Emit the full result as a single chunk
+            await publish_meeting_chunk(
+                workspace_id,
+                {"type": "chunk", "content": output_text, "session_id": session_id},
+                thread_id,
+            )
+            await publish_meeting_chunk(
+                workspace_id,
+                {"type": "stream_end", "session_id": session_id, "full_text": output_text},
+                thread_id,
+            )
+        except Exception as pub_exc:
+            logger.warning("Failed to publish executor turn result to Redis: %s", pub_exc)
+
+        return output_text
 
     async def _emit_clarification_event(self, questions: list[str]) -> None:
         """Emit a decision_required event so the UI shows a confirmation card."""

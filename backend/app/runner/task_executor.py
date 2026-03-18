@@ -142,11 +142,22 @@ def _mark_task_failed(
             ctxf["status"] = "failed" if is_deadletter else "queued"
 
             # Invoke on_fail hook (best-effort, may create follow-up tasks).
-            # Hook result is logged but does NOT gate the DB status update.
+            # Hook result is logged and if True, it gates the DB status update because
+            # the hook takes over lifecycle responsibility (such as creating a replacement task).
+            hook_invoked = False
             try:
-                _invoke_on_fail_hook(ctxf, msg, latest.id)
+                hook_invoked = _invoke_on_fail_hook(ctxf, msg, latest.id)
             except Exception as hook_err:
                 logger.warning(f"on_fail hook error for task {task_id}: {hook_err}")
+
+            if hook_invoked:
+                logger.info(f"on_fail hook handled failure for task {task_id}. Skipping native requeue.")
+                if redis_queue:
+                    try:
+                        asyncio.run(redis_queue.ack_task(latest.id))
+                    except Exception as e:
+                        logger.error(f"Failed to ack task {task_id} after hook invocation: {e}")
+                return
 
             # 1. Strict DB write first
             tasks_store.update_task(
@@ -217,10 +228,10 @@ def _mark_task_succeeded(
                 **update_kwargs,
             )
             
-            # 2. Redis Ack
-            if redis_queue:
-                import asyncio
-                asyncio.run(redis_queue.ack_task(task_id))
+        # 2. Redis Ack MUST ALWAYS happen even if DB state was skipped
+        if redis_queue:
+            import asyncio
+            asyncio.run(redis_queue.ack_task(task_id))
     except Exception as e:
         logger.error(f"Failed to mark task {task_id} as succeeded: {e}", exc_info=True)
 
@@ -255,11 +266,17 @@ async def _run_single_task(
     # We clear any leftover UI lock status metadata as this task is executing now.
     try:
         ctx2 = dict(ctx)
-        if ctx2.get("runner_skip_reason") or ctx2.get("runner_skip_owner") or ctx2.get("resume_after"):
+        if (
+            ctx2.get("runner_skip_reason") 
+            or ctx2.get("runner_skip_owner") 
+            or ctx2.get("resume_after")
+            or ctx2.get("dependency_hold")
+        ):
             ctx2.pop("runner_skip_reason", None)
             ctx2.pop("runner_skip_owner", None)
             ctx2.pop("runner_skip_lock_key", None)
             ctx2.pop("resume_after", None)
+            ctx2.pop("dependency_hold", None)
             tasks_store.update_task(task.id, execution_context=ctx2)
     except Exception:
         pass

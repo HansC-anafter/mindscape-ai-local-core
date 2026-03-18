@@ -394,6 +394,9 @@ async def get_workspace_executions(
             "Default false returns a trimmed context to avoid oversized list payloads."
         ),
     ),
+    group_by_parent: bool = Query(
+        False, description="Group results by parent_execution_id"
+    ),
 ):
     """List executions (tasks) for a workspace with optional playbook filters."""
     try:
@@ -408,6 +411,7 @@ async def get_workspace_executions(
                 workspace_id,
                 message_id,
                 execution_id,
+                parent_execution_id,
                 project_id,
                 pack_id,
                 task_type,
@@ -479,7 +483,34 @@ async def get_workspace_executions(
             d["execution_id"] = d.get("execution_id") or d.get("id")
             d["queue_position"] = _QUEUE_CACHE.get_position(d.get("id") or "")
             d["queue_total"] = _QUEUE_CACHE.get_total(d.get("pack_id") or "")
+            d["parent_execution_id"] = d.get("parent_execution_id")
             executions.append(d)
+
+        if group_by_parent:
+            groups = {}
+            ungrouped = []
+            for d in executions:
+                pid = d.get("parent_execution_id")
+                if pid:
+                    groups.setdefault(pid, []).append(d)
+                else:
+                    ungrouped.append(d)
+            
+            group_summaries = []
+            for pid, tasks_list in groups.items():
+                statuses = [t.get("status", "") for t in tasks_list]
+                group_summaries.append({
+                    "parent_execution_id": pid,
+                    "tasks": tasks_list,
+                    "summary": {
+                        "total": len(tasks_list),
+                        "succeeded": sum(1 for s in statuses if s in ("succeeded", "completed")),
+                        "failed": sum(1 for s in statuses if s == "failed"),
+                        "running": sum(1 for s in statuses if s == "running"),
+                        "pending": sum(1 for s in statuses if s == "pending"),
+                    }
+                })
+            return {"groups": group_summaries, "ungrouped": ungrouped}
 
         return {"executions": executions}
     except Exception as e:

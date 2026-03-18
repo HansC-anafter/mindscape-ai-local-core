@@ -1,5 +1,6 @@
 """Runner reaper — cleans up stale tasks and orphaned locks."""
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Optional
@@ -149,23 +150,32 @@ async def _reap_redis_queues(tasks_store: TasksStore, redis_queue: RedisRunnerQu
             
         now_ts = redis_queue._utc_now_timestamp()
         
-        # 1. Delayed Queue Mover
+        # 1. Delayed Queue Mover — move in small pipeline batches to avoid
+        #    blocking Redis single-threaded processing (SLOWLOG showed 17ms for 688-item pipeline).
+        _PIPELINE_BATCH = 100
         delayed_items = await client.zrangebyscore(redis_queue.q_delayed, "-inf", now_ts)
-        for task_id in delayed_items:
+        if delayed_items:
             try:
-                pipe = client.pipeline()
-                pipe.lpush(redis_queue.q_pending, task_id)
-                pipe.zrem(redis_queue.q_delayed, task_id)
-                await pipe.execute()
-                logger.info(f"[Bridge] Moved task {task_id} from delayed to pending queue.")
+                moved = 0
+                for i in range(0, len(delayed_items), _PIPELINE_BATCH):
+                    batch = delayed_items[i:i + _PIPELINE_BATCH]
+                    pipe = client.pipeline()
+                    for task_id in batch:
+                        pipe.lpush(redis_queue.q_pending, task_id)
+                        pipe.zrem(redis_queue.q_delayed, task_id)
+                    await pipe.execute()
+                    moved += len(batch)
+                    # Yield so Redis can serve other clients between batches
+                    if i + _PIPELINE_BATCH < len(delayed_items):
+                        await asyncio.sleep(0)
+                logger.info(f"[Bridge] Moved {moved} tasks from delayed to pending queue.")
             except Exception as e:
-                logger.warning(f"Failed to move delayed task {task_id}: {e}")
+                logger.warning(f"Failed to batch move delayed tasks: {e}")
 
         # 2. Visibility Timeout Recycler
         stale_items = await client.zrangebyscore(redis_queue.q_processing, "-inf", now_ts)
         for task_id in stale_items:
             try:
-                import asyncio
                 t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
                 if not t_data:
                     await redis_queue.ack_task(task_id)
@@ -208,23 +218,39 @@ async def _reap_redis_queues(tasks_store: TasksStore, redis_queue: RedisRunnerQu
                 logger.error(f"Failed to recycle visibility task {task_id}: {e}")
 
         # 3. DB Bridge Sync (Eventual Consistency Repair)
+        #    Batch-read all Redis queues into Python sets first (O(N) total),
+        #    then check membership in O(1) per task.
+        #    Previous approach did per-task LPOS (O(N) each × M tasks = O(N×M)),
+        #    which blocked Redis single-threaded processing and caused timeouts.
         try:
-            import asyncio
+
+            # Snapshot all Redis queues into Python sets — 3 Redis calls total
+            pending_members = set(await client.lrange(redis_queue.q_pending, 0, -1))
+            processing_members = set(await client.zrange(redis_queue.q_processing, 0, -1))
+            delayed_members = set(await client.zrange(redis_queue.q_delayed, 0, -1))
+            all_queued = pending_members | processing_members | delayed_members
+
             pending_tasks = await asyncio.to_thread(
-                tasks_store.list_runnable_playbook_execution_tasks, limit=500
-            ) # list_runnable_playbook_execution_tasks filters by PENDING status
-            
+                tasks_store.list_runnable_playbook_execution_tasks
+            )
+
+            missing_tasks = []
             for t in pending_tasks:
-                task_id = t.id
-                # Check all queues (O(1) / O(N) operations via LPOS)
-                in_pending = await client.lpos(redis_queue.q_pending, task_id)
-                if in_pending is not None: continue
-                
-                if await client.zscore(redis_queue.q_processing, task_id) is not None: continue
-                if await client.zscore(redis_queue.q_delayed, task_id) is not None: continue
-                
-                logger.warning(f"[Bridge] PENDING DB Task {task_id} missing from all Redis queues. Best-effort repair Enqueueing.")
-                await redis_queue.enqueue_task(task_id)
+                if t.id not in all_queued:
+                    missing_tasks.append(t.id)
+
+            if missing_tasks:
+                for i in range(0, len(missing_tasks), _PIPELINE_BATCH):
+                    batch = missing_tasks[i:i + _PIPELINE_BATCH]
+                    pipe = client.pipeline()
+                    for task_id in batch:
+                        pipe.lpush(redis_queue.q_pending, task_id)
+                    await pipe.execute()
+                    if i + _PIPELINE_BATCH < len(missing_tasks):
+                        await asyncio.sleep(0)
+                logger.warning(
+                    f"[Bridge] Repaired {len(missing_tasks)} PENDING DB tasks missing from Redis queues."
+                )
                 
         except Exception as e:
             logger.error(f"[Bridge] DB Bridge sync failed: {e}")

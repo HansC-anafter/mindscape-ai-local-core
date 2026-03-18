@@ -33,6 +33,10 @@ class Task(BaseModel):
     execution_id: Optional[str] = Field(
         None, description="Associated playbook execution ID (if applicable)"
     )
+    parent_execution_id: Optional[str] = Field(
+        None,
+        description="Parent execution ID for task grouping (batch/playbook ancestry)",
+    )
     project_id: Optional[str] = Field(
         None, description="Associated project ID (if applicable)"
     )

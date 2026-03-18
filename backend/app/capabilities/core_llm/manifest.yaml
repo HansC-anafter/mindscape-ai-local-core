@@ -7,7 +7,7 @@ side_effect_level: "readonly"
 tools:
   - name: multimodal_analyze
     description: "Analyze images using multimodal VLM — routes to cloud or local model based on settings"
-    backend: "app.capabilities.core_llm.services.multimodal:analyze"
+    backend: "app.capabilities.core_llm.services.multimodal:vision_analyze"
     input_schema:
       type: object
       required: [images]

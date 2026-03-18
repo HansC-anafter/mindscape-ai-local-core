@@ -344,6 +344,7 @@ async def dispatch_to_llm(
         get_llm_provider_manager,
         get_llm_provider,
     )
+    from backend.app.services.cache.async_redis import publish_meeting_chunk
 
     # Resolve model
     if not model_name:
@@ -402,35 +403,65 @@ async def dispatch_to_llm(
 
     # Collect full text from stream
     full_text = ""
-    async for chunk in stream_llm_response(
-        provider=provider,
-        provider_type=provider_type,
-        messages=messages,
-        model_name=model_name,
-        execution_mode=execution_mode,
-        user_event_id=user_event_id,
-        profile_id=profile_id,
-        project_id=project_id,
-        workspace_id=workspace_id,
-        thread_id=thread_id,
-        workspace=workspace,
-        message=message,
-        profile=profile,
-        store=store,
-        context_token_count=context_token_count,
-        execution_playbook_result=None,
-        openai_key=None,
-        meeting_session_id=result.meeting_session_id,
-        is_fallback=is_fallback,
-    ):
-        # Accumulate full text from chunks
-        if chunk.startswith("data: "):
-            try:
-                data = json.loads(chunk[6:].strip())
-                if data.get("type") == "chunk":
-                    full_text += data.get("content", "")
-            except Exception:
-                pass
+    await publish_meeting_chunk(
+        workspace_id,
+        {
+            "type": "stream_start",
+            "session_id": thread_id,
+        },
+        thread_id,
+    )
+
+    try:
+        async for chunk in stream_llm_response(
+            provider=provider,
+            provider_type=provider_type,
+            messages=messages,
+            model_name=model_name,
+            execution_mode=execution_mode,
+            user_event_id=user_event_id,
+            profile_id=profile_id,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            workspace=workspace,
+            message=message,
+            profile=profile,
+            store=store,
+            context_token_count=context_token_count,
+            execution_playbook_result=None,
+            openai_key=None,
+            meeting_session_id=result.meeting_session_id,
+            is_fallback=is_fallback,
+        ):
+            # Accumulate full text from chunks
+            if chunk.startswith("data: "):
+                try:
+                    data = json.loads(chunk[6:].strip())
+                    if data.get("type") == "chunk":
+                        content = data.get("content", "")
+                        full_text += content
+                        await publish_meeting_chunk(
+                            workspace_id,
+                            {
+                                "type": "chunk",
+                                "content": content,
+                                "session_id": thread_id,
+                            },
+                            thread_id,
+                        )
+                except Exception:
+                    pass
+    finally:
+        await publish_meeting_chunk(
+            workspace_id,
+            {
+                "type": "stream_end",
+                "session_id": thread_id,
+                "full_text": full_text,
+            },
+            thread_id,
+        )
 
     result.response_text = full_text
     return result

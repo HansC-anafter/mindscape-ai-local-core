@@ -96,8 +96,7 @@ class OCREngine:
                 self.ocr = PaddleOCR(
                     use_angle_cls=True,
                     lang=self.lang,
-                    use_gpu=self.use_gpu,
-                    show_log=False
+                    use_gpu=self.use_gpu
                 )
                 self._initialized = True
                 logger.info(f"PaddleOCR initialized successfully (GPU: {self.use_gpu})")
@@ -108,8 +107,7 @@ class OCREngine:
                     self.ocr = PaddleOCR(
                         use_angle_cls=True,
                         lang=self.lang,
-                        use_gpu=False,
-                        show_log=False
+                        use_gpu=False
                     )
                     self._initialized = True
                     logger.info("PaddleOCR initialized with CPU fallback")

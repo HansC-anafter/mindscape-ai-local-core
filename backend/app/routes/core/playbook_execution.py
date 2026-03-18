@@ -324,7 +324,6 @@ async def start_playbook_execution(
                         message_id=str(uuid.uuid4()),
                         execution_id=execution_id,
                         project_id=final_project_id,
-                        profile_id=profile_id,
                         pack_id=playbook_code,
                         task_type="playbook_execution",
                         status=TaskStatus.PENDING,

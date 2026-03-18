@@ -55,7 +55,7 @@ async def get_async_redis_client():
                 password=os.getenv("REDIS_PASSWORD") or None,
                 db=int(os.getenv("REDIS_DB", "0")),
                 socket_connect_timeout=2,
-                socket_timeout=2,
+                socket_timeout=5,  # Must be > blmove timeout (2s) to avoid false timeouts
                 decode_responses=True,
             )
             await client.ping()
@@ -82,6 +82,7 @@ def meeting_stream_channel(workspace_id: str) -> str:
 async def publish_meeting_chunk(
     workspace_id: str,
     chunk: Dict[str, Any],
+    thread_id: str,
 ) -> bool:
     """Publish a meeting streaming chunk to Redis.
 
@@ -90,6 +91,8 @@ async def publish_meeting_chunk(
     client = await get_async_redis_client()
     if not client:
         return False
+
+    chunk["thread_id"] = thread_id
 
     channel = meeting_stream_channel(workspace_id)
     try:

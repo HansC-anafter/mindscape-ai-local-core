@@ -39,7 +39,7 @@ def upgrade() -> None:
     # Note: vector type needs to be created via raw SQL
     op.execute(
         """
-        CREATE TABLE mindscape_personal (
+        CREATE TABLE IF NOT EXISTS mindscape_personal (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             user_id TEXT NOT NULL DEFAULT 'default_user',
             source_type TEXT NOT NULL,
@@ -57,21 +57,15 @@ def upgrade() -> None:
     )
 
     # Indexes for mindscape_personal
-    op.create_index("idx_mindscape_personal_user", "mindscape_personal", ["user_id"])
-    op.create_index(
-        "idx_mindscape_personal_source", "mindscape_personal", ["source_type"]
-    )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_mindscape_personal_user ON mindscape_personal (user_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_mindscape_personal_source ON mindscape_personal (source_type)")
     op.create_index(
         "idx_mindscape_personal_updated_at",
         "mindscape_personal",
         [sa.text("updated_at DESC")],
     )
-    op.create_index(
-        "idx_mindscape_personal_metadata",
-        "mindscape_personal",
-        ["metadata"],
-        postgresql_using="gin",
-    )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_mindscape_personal_metadata ON mindscape_personal USING gin (metadata)")
+
 
     # mindscape_suggestions table
     op.create_table(
