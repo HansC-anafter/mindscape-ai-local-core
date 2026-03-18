@@ -8,9 +8,7 @@ from sqlalchemy import text
 
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.stores.tasks_store import TasksStore
-from backend.app.services.stores.postgres.runner_locks_store import (
-    PostgresRunnerLocksStore,
-)
+from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.utils import _env_int, _parse_utc_iso, _utc_now
@@ -141,93 +139,96 @@ def _reap_stale_running_tasks(tasks_store: TasksStore, runner_id: str) -> None:
             logger.warning(f"Failed to reap stale task {getattr(t,'id',None)}: {e}")
 
 
-def _reap_stale_runner_locks(
-    tasks_store: TasksStore, locks_store: PostgresRunnerLocksStore, runner_id: str
-) -> None:
-    stale_seconds = _env_int("LOCAL_CORE_RUNNER_STALE_LOCK_SECONDS", 300)
-    now = _utc_now()
-    threshold = now - timedelta(seconds=stale_seconds)
 
-    active_runner_ids = set()
+async def _reap_redis_queues(tasks_store: TasksStore, redis_queue: RedisRunnerQueueStore) -> None:
+    """Orchestrator background loop for Redis Queue reliability guarantees."""
     try:
-        running = tasks_store.list_running_playbook_execution_tasks(
-            workspace_id=None, limit=500
-        )
-        for t in running:
-            ctx = t.execution_context if isinstance(t.execution_context, dict) else {}
-            rid = ctx.get("runner_id")
-            hb = _parse_utc_iso(ctx.get("heartbeat_at"))
-            if rid and hb and hb > threshold:
-                active_runner_ids.add(rid)
-    except Exception:
-        pass
+        client = await redis_queue._get_client()
+        if not client:
+            return
+            
+        now_ts = redis_queue._utc_now_timestamp()
+        
+        # 1. Delayed Queue Mover
+        delayed_items = await client.zrangebyscore(redis_queue.q_delayed, "-inf", now_ts)
+        for task_id in delayed_items:
+            try:
+                pipe = client.pipeline()
+                pipe.lpush(redis_queue.q_pending, task_id)
+                pipe.zrem(redis_queue.q_delayed, task_id)
+                await pipe.execute()
+                logger.info(f"[Bridge] Moved task {task_id} from delayed to pending queue.")
+            except Exception as e:
+                logger.warning(f"Failed to move delayed task {task_id}: {e}")
 
-    # Table is managed by Alembic; no ensure_table() needed.
-
-    try:
-        with locks_store.get_connection() as conn:
-            from sqlalchemy import text as _sa_text
-
-            result = conn.execute(
-                _sa_text(
-                    "SELECT lock_key, owner_id, expires_at, updated_at FROM runner_locks"
+        # 2. Visibility Timeout Recycler
+        stale_items = await client.zrangebyscore(redis_queue.q_processing, "-inf", now_ts)
+        for task_id in stale_items:
+            try:
+                import asyncio
+                t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
+                if not t_data:
+                    await redis_queue.ack_task(task_id)
+                    continue
+                
+                # Check actual DB Truth
+                if t_data.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
+                    await redis_queue.ack_task(task_id)
+                    continue
+                
+                ctx = t_data.execution_context if isinstance(t_data.execution_context, dict) else {}
+                ctx_heartbeat = _parse_utc_iso(ctx.get('heartbeat_at'))
+                stale_limit = _utc_now() - timedelta(seconds=_env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180))
+                
+                if ctx_heartbeat and ctx_heartbeat > stale_limit:
+                    # DB heartbeat is fresh, touching visibility and skipping
+                    await redis_queue.touch_visibility_timeout(task_id, 180)
+                    continue
+                
+                # Genuinely abandoned
+                logger.warning(f"[Bridge] Task {task_id} visibility timeout expired. Reverting to queue.")
+                ctx2 = dict(ctx)
+                ctx2.pop('runner_id', None)
+                ctx2.pop('heartbeat_at', None)
+                ctx2["status"] = "queued"
+                await asyncio.to_thread(
+                    tasks_store.update_task, 
+                    task_id, 
+                    execution_context=ctx2, 
+                    status=TaskStatus.PENDING, 
+                    started_at=None
                 )
-            )
-            rows = result.fetchall()
-    except Exception:
-        return
+                
+                pipe = client.pipeline()
+                pipe.lpush(redis_queue.q_pending, task_id)
+                pipe.zrem(redis_queue.q_processing, task_id)
+                await pipe.execute()
+                
+            except Exception as e:
+                logger.error(f"Failed to recycle visibility task {task_id}: {e}")
 
-    for row in rows or []:
+        # 3. DB Bridge Sync (Eventual Consistency Repair)
         try:
-            lock_key = (
-                row[0] if not hasattr(row, "_mapping") else row._mapping["lock_key"]
-            )
-            owner_id = (
-                row[1] if not hasattr(row, "_mapping") else row._mapping["owner_id"]
-            )
-            expires_at_raw = (
-                row[2] if not hasattr(row, "_mapping") else row._mapping["expires_at"]
-            )
-            updated_at_raw = (
-                row[3] if not hasattr(row, "_mapping") else row._mapping["updated_at"]
-            )
-            expires_at = (
-                _parse_utc_iso(expires_at_raw)
-                if isinstance(expires_at_raw, str)
-                else expires_at_raw
-            )
-            updated_at = (
-                _parse_utc_iso(updated_at_raw)
-                if isinstance(updated_at_raw, str)
-                else updated_at_raw
-            )
-
-            if not lock_key or not owner_id:
-                continue
-            if owner_id == runner_id:
-                continue
-            if owner_id in active_runner_ids:
-                continue
-
-            # Expired locks: delete eagerly regardless of updated_at
-            expired = expires_at and expires_at < now
-            # Non-expired but stale heartbeat: also delete
-            stale = updated_at and updated_at < threshold
-
-            if not expired and not stale:
-                continue
-
-            from sqlalchemy import text as _sa_text2
-
-            with locks_store.transaction() as conn:
-                conn.execute(
-                    _sa_text2("DELETE FROM runner_locks WHERE lock_key = :lk"),
-                    {"lk": lock_key},
-                )
-            logger.warning(
-                f"Reaped stale runner lock lock_key={lock_key} owner_id={owner_id} "
-                f"expires_at={expires_at_raw} expired={expired} stale={stale}"
-            )
+            import asyncio
+            pending_tasks = await asyncio.to_thread(
+                tasks_store.list_runnable_playbook_execution_tasks, limit=500
+            ) # list_runnable_playbook_execution_tasks filters by PENDING status
+            
+            for t in pending_tasks:
+                task_id = t.id
+                # Check all queues (O(1) / O(N) operations via LPOS)
+                in_pending = await client.lpos(redis_queue.q_pending, task_id)
+                if in_pending is not None: continue
+                
+                if await client.zscore(redis_queue.q_processing, task_id) is not None: continue
+                if await client.zscore(redis_queue.q_delayed, task_id) is not None: continue
+                
+                logger.warning(f"[Bridge] PENDING DB Task {task_id} missing from all Redis queues. Best-effort repair Enqueueing.")
+                await redis_queue.enqueue_task(task_id)
+                
         except Exception as e:
-            logger.warning(f"Failed to reap lock {row}: {e}")
-            continue
+            logger.error(f"[Bridge] DB Bridge sync failed: {e}")
+
+    except Exception as e:
+        logger.error(f"Failed to reap Redis queues: {e}", exc_info=True)
+

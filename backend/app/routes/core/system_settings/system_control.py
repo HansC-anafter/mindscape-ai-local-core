@@ -196,3 +196,14 @@ async def get_service_health():
     except Exception as e:
         logger.error(f"Failed to get health status: {e}", exc_info=True)
         return {"status": "unknown", "error": str(e)}
+
+@router.get("/health/queue/metrics", response_model=Dict[str, Any])
+async def get_queue_metrics():
+    """Get Redis Runner Queue lengths and distribution across capabilities."""
+    try:
+        from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
+        metrics = await RedisRunnerQueueStore.get_all_queue_metrics()
+        return metrics
+    except Exception as e:
+        logger.error(f"Failed to get Redis queue metrics: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)}

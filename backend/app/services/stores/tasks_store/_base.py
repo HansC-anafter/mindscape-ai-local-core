@@ -82,23 +82,40 @@ class TasksStoreCrudMixin:
             query = text(
                 """
                 INSERT INTO tasks (
-                    id, workspace_id, message_id, execution_id, project_id, pack_id,
+                    id, workspace_id, message_id, execution_id, parent_execution_id,
+                    project_id, pack_id,
                     task_type, status, params, result, execution_context,
                     meeting_session_id,
                     storyline_tags, created_at, started_at, completed_at, error
                 ) VALUES (
-                    :id, :workspace_id, :message_id, :execution_id, :project_id, :pack_id,
+                    :id, :workspace_id, :message_id, :execution_id, :parent_execution_id,
+                    :project_id, :pack_id,
                     :task_type, :status, :params, :result, :execution_context,
                     :meeting_session_id,
                     :storyline_tags, :created_at, :started_at, :completed_at, :error
                 )
             """
             )
+            # Auto-inject parent_execution_id from ContextVar if not set
+            resolved_parent_id = getattr(task, "parent_execution_id", None)
+            if not resolved_parent_id:
+                try:
+                    from backend.app.services.parameter_adapter.context import (
+                        active_parent_execution_id,
+                    )
+                    ctx_parent = active_parent_execution_id.get()
+                    # Pre-mortem guard: prevent self-parenting
+                    if ctx_parent and ctx_parent != task.execution_id:
+                        resolved_parent_id = ctx_parent
+                except Exception:
+                    pass  # ContextVar not available — safe to ignore
+
             params = {
                 "id": task.id,
                 "workspace_id": task.workspace_id,
                 "message_id": task.message_id,
                 "execution_id": task.execution_id,
+                "parent_execution_id": resolved_parent_id,
                 "project_id": project_id,
                 "pack_id": task.pack_id,
                 "task_type": task.task_type,
@@ -124,6 +141,22 @@ class TasksStoreCrudMixin:
                 task.workspace_id,
                 task.pack_id,
             )
+            
+            # Best-Effort Enqueue to Redis for Runner
+            try:
+                if task.status == TaskStatus.PENDING and task.task_type in ("playbook_execution", "tool_execution"):
+                    from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
+                    
+                    # Ensure queue prefix aligns with actual pack_id or default logic if none
+                    q_store = RedisRunnerQueueStore(pack_id=task.pack_id or "default")
+                    
+                    # Sync enqueue prevents blocking the SQLAlchemy transaction/router thread
+                    success = q_store.enqueue_task_sync(task.id)
+                    if not success:
+                        logger.warning(f"[DB Bridge] Failed inline enqueue for task {task.id}. Will rely on Reaper Sync.")
+            except Exception as e:
+                logger.error(f"[DB Bridge] Exception during inline enqueue for task {task.id}: {e}")
+
             return task
 
     def get_task(self, task_id: str) -> Optional[Task]:
@@ -348,7 +381,7 @@ class TasksStoreCrudMixin:
             except Exception:
                 pass
 
-            logger.info("Updated task %s", task_id)
+            logger.debug("Updated task %s", task_id)
             updated_task = self.get_task(task_id)
 
         # Activity stream: push terminal status change
@@ -393,6 +426,7 @@ class TasksStoreCrudMixin:
             workspace_id=row.workspace_id,
             message_id=row.message_id,
             execution_id=row.execution_id,
+            parent_execution_id=getattr(row, "parent_execution_id", None),
             project_id=project_id,
             pack_id=row.pack_id,
             task_type=row.task_type,
@@ -412,7 +446,11 @@ class TasksStoreCrudMixin:
 def _publish_terminal_event(
     task_id: str, status_raw: str, task_obj: Optional["Task"] = None
 ) -> None:
-    """Fire-and-forget publish to activity stream on terminal status."""
+    """Fire-and-forget publish to activity stream on terminal status.
+
+    Uses sync Redis because this function is called from sync DB threads
+    where asyncio event loops are not running.
+    """
     _TERMINAL = {
         "completed",
         "succeeded",
@@ -424,27 +462,50 @@ def _publish_terminal_event(
     if status_raw.lower() not in _TERMINAL:
         return
     try:
-        import asyncio
-
-        from backend.app.services.cache.async_redis import publish_meeting_chunk
+        import json
+        import os
 
         ws_id = task_obj.workspace_id if task_obj else ""
         if not ws_id:
             return
-        coro = publish_meeting_chunk(
-            ws_id,
-            {
-                "type": "task_completed",
-                "task_id": task_id,
-                "execution_id": task_obj.execution_id if task_obj else None,
-                "status": status_raw,
-                "pack_id": task_obj.pack_id if task_obj else None,
-            },
+
+        enabled = os.getenv("REDIS_ENABLED", "true").lower() == "true"
+        if not enabled:
+            return
+
+        thread_id = ""
+        if task_obj and task_obj.execution_context:
+            thread_id = task_obj.execution_context.get("thread_id", "")
+        if not thread_id and task_obj and task_obj.meeting_session_id:
+            thread_id = task_obj.meeting_session_id
+
+        payload = {
+            "type": "task_completed",
+            "task_id": task_id,
+            "execution_id": task_obj.execution_id if task_obj else None,
+            "status": status_raw,
+            "pack_id": task_obj.pack_id if task_obj else None,
+            "thread_id": thread_id,
+        }
+
+        channel = f"workspace:{ws_id}:stream"
+        message = json.dumps(payload, ensure_ascii=False)
+
+        # Use sync Redis — we're already in a sync thread
+        from redis import Redis
+
+        client = Redis(
+            host=os.getenv("REDIS_HOST", "redis"),
+            port=int(os.getenv("REDIS_PORT", "6379")),
+            password=os.getenv("REDIS_PASSWORD") or None,
+            db=int(os.getenv("REDIS_DB", "0")),
+            socket_connect_timeout=2,
+            socket_timeout=2,
         )
         try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(coro)
-        except RuntimeError:
-            pass  # no event loop
+            client.publish(channel, message)
+        finally:
+            client.close()
     except Exception:
         pass  # non-fatal
+
