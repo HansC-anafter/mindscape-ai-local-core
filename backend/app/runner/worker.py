@@ -247,10 +247,14 @@ async def run_forever() -> None:
                         ctx2 = dict(lock_ctx)
                         ctx2["runner_skip_reason"] = "concurrency_locked"
                         ctx2["runner_skip_lock_key"] = lock_key
-                        # We NO LONGER update `resume_after` to the database per poll.
-                        # Send it silently into Redis delayed ZSET.
                         await asyncio.to_thread(
                             tasks_store.update_task, t_data.id, execution_context=ctx2
+                        )
+                    else:
+                        # Still locked — refresh resume_after so UI shows fresh "last evaluated"
+                        await asyncio.to_thread(
+                            tasks_store.update_task, t_data.id,
+                            resume_after=_utc_now(),
                         )
 
                     await redis_queue.nack_task_to_delayed(task_id, delay_sec=30)
