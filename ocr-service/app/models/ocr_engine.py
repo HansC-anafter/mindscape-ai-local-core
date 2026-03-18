@@ -94,7 +94,6 @@ class OCREngine:
 
             try:
                 self.ocr = PaddleOCR(
-                    use_angle_cls=True,
                     lang=self.lang,
                 )
                 self._initialized = True
@@ -104,7 +103,6 @@ class OCREngine:
                     logger.warning(f"GPU initialization failed: {gpu_error}, retrying with CPU")
                     self.use_gpu = False
                     self.ocr = PaddleOCR(
-                        use_angle_cls=True,
                         lang=self.lang,
                     )
                     self._initialized = True
@@ -138,7 +136,7 @@ class OCREngine:
             raise FileNotFoundError(f"Image file not found: {image_path}")
 
         try:
-            result = self.ocr.ocr(image_path, cls=True)
+            result = self.ocr.ocr(image_path)
 
             if not result or not result[0]:
                 return {
