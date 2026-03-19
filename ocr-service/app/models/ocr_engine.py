@@ -147,18 +147,36 @@ class OCREngine:
 
             blocks = []
             text_parts = []
+            page_result = result[0]
 
-            for line in result[0]:
-                if not line:
-                    continue
-
-                bbox, (text, confidence) = line
-                blocks.append({
-                    "text": text,
-                    "confidence": float(confidence),
-                    "bbox": [float(coord) for coord in bbox]
-                })
-                text_parts.append(text)
+            # PaddleOCR v3 returns OCRResult object with rec_texts, rec_scores, dt_polys
+            if hasattr(page_result, 'rec_texts'):
+                texts = page_result.rec_texts or []
+                scores = page_result.rec_scores or []
+                polys = getattr(page_result, 'dt_polys', []) or []
+                for i, text in enumerate(texts):
+                    if not text:
+                        continue
+                    confidence = float(scores[i]) if i < len(scores) else 0.0
+                    bbox = polys[i].tolist() if i < len(polys) else []
+                    blocks.append({
+                        "text": text,
+                        "confidence": confidence,
+                        "bbox": bbox,
+                    })
+                    text_parts.append(text)
+            # Legacy PaddleOCR v2 format: list of [bbox, (text, confidence)]
+            elif isinstance(page_result, list):
+                for line in page_result:
+                    if not line:
+                        continue
+                    bbox, (text, confidence) = line
+                    blocks.append({
+                        "text": text,
+                        "confidence": float(confidence),
+                        "bbox": [float(coord) for coord in bbox]
+                    })
+                    text_parts.append(text)
 
             full_text = "\n".join(text_parts)
 
