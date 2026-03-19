@@ -75,6 +75,49 @@ __all__ = [
 
 
 # ============================================================
+#  Startup backfill — Redis has no persistence, so after a
+#  reboot / container restart every pending task vanishes from
+#  the queue.  This one-shot function reads Postgres and re-
+#  enqueues anything that is still PENDING.
+# ============================================================
+
+
+async def _backfill_pending_to_redis(
+    tasks_store: TasksStore, redis_queue: RedisRunnerQueueStore
+) -> None:
+    """Re-enqueue all Postgres PENDING tasks into Redis (idempotent)."""
+    try:
+        pending = await asyncio.to_thread(
+            tasks_store.list_tasks, status=TaskStatus.PENDING, limit=5000
+        )
+        if not pending:
+            logger.info("[Backfill] No pending tasks in DB — nothing to enqueue.")
+            return
+
+        client = await redis_queue._get_client()
+        if not client:
+            logger.warning("[Backfill] Redis unavailable, skipping backfill.")
+            return
+
+        enqueued = 0
+        for t in pending:
+            tid = str(t.id)
+            # Only enqueue if not already present in pending, processing, or delayed
+            in_processing = await client.zscore(redis_queue.q_processing, tid)
+            in_delayed = await client.zscore(redis_queue.q_delayed, tid)
+            if in_processing is not None or in_delayed is not None:
+                continue
+            await client.lpush(redis_queue.q_pending, tid)
+            enqueued += 1
+
+        logger.info(
+            f"[Backfill] Enqueued {enqueued}/{len(pending)} pending tasks into Redis."
+        )
+    except Exception as e:
+        logger.warning(f"[Backfill] Failed: {e}", exc_info=True)
+
+
+# ============================================================
 #  Main runner loop
 # ============================================================
 
@@ -102,6 +145,9 @@ async def run_forever() -> None:
         tasks_store.ensure_runner_heartbeats_table()
     except Exception:
         pass
+
+    # ── Startup backfill: recover pending tasks lost during restart ──
+    await _backfill_pending_to_redis(tasks_store, redis_queue)
 
     inflight: set[asyncio.Task] = set()
     last_reap_at: Optional[datetime] = None
@@ -252,9 +298,12 @@ async def run_forever() -> None:
                         )
                     else:
                         # Still locked — refresh resume_after so UI shows fresh "last evaluated"
+                        # resume_after lives inside execution_context JSON, NOT as a DB column.
+                        ctx2 = dict(lock_ctx)
+                        ctx2["resume_after"] = _utc_now().isoformat()
                         await asyncio.to_thread(
                             tasks_store.update_task, t_data.id,
-                            resume_after=_utc_now(),
+                            execution_context=ctx2,
                         )
 
                     await redis_queue.nack_task_to_delayed(task_id, delay_sec=30)
