@@ -249,10 +249,12 @@ class UnifiedToolExecutor:
                     from backend.app.services.tools.registry import (
                         register_workspace_tools,
                         register_filesystem_tools,
+                        register_mindscape_graph_tools,
                     )
 
                     register_workspace_tools()
                     register_filesystem_tools()
+                    register_mindscape_graph_tools()
                 except Exception:
                     pass
                 tool = get_mindscape_tool(tool_name)

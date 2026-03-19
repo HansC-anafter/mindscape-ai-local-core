@@ -207,6 +207,7 @@ class ToolListService:
                 get_all_mindscape_tools,
                 register_workspace_tools,
                 register_filesystem_tools,
+                register_mindscape_graph_tools,
             )
 
             # Ensure both workspace and filesystem tools are registered.
@@ -219,6 +220,8 @@ class ToolListService:
                 register_workspace_tools()
             if "filesystem_list_files" not in builtin_tools:
                 register_filesystem_tools()
+            if "mindscape_graph.overview" not in builtin_tools:
+                register_mindscape_graph_tools()
             builtin_tools = get_all_mindscape_tools()
 
             result = []

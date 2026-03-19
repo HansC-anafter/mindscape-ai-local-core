@@ -517,6 +517,24 @@ def register_content_vault_tools(vault_path: Optional[str] = None):
     return tools
 
 
+def register_mindscape_graph_tools() -> List[MindscapeTool]:
+    """
+    Register all Mindscape Graph tools (builtin, no connection required)
+
+    Returns:
+        List of registered tools
+    """
+    from backend.app.services.tools.mindscape_graph import get_all_tools
+
+    tools = get_all_tools()
+
+    for tool in tools:
+        tool_id = tool.metadata.name
+        register_mindscape_tool(tool_id, tool)
+
+    return tools
+
+
 def register_external_agent_tools() -> List[MindscapeTool]:
     """
     Register all external agent tools (builtin)
