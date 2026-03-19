@@ -11,13 +11,55 @@ from backend.app.models.workspace import TaskStatus
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
+from backend.app.runner.concurrency import _resolve_lock_key
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.utils import _env_int, _parse_utc_iso, _utc_now
 
 logger = logging.getLogger(__name__)
 
 
-def _reap_stale_running_tasks(tasks_store: TasksStore, runner_id: str) -> None:
+def _force_release_lock(
+    task_ctx: dict,
+    pack_id: str,
+    redis_queue: Optional[RedisRunnerQueueStore],
+) -> None:
+    """Force-delete the concurrency lock for a reaped task.
+
+    The owning runner is dead, so we can't use compare-and-delete.
+    We just DEL the key directly.
+    Called from sync code inside an async event loop.
+    """
+    if not redis_queue:
+        return
+    lock_key = _resolve_lock_key(task_ctx, pack_id)
+    if not lock_key:
+        return
+    try:
+        loop = asyncio.get_event_loop()
+        loop.create_task(_async_force_release(redis_queue, lock_key))
+    except Exception as e:
+        logger.warning(f"[Reaper] Failed to schedule lock release for {lock_key}: {e}")
+
+
+async def _async_force_release(
+    redis_queue: RedisRunnerQueueStore, lock_key: str
+) -> None:
+    """Async helper to force-delete a lock key."""
+    try:
+        client = await redis_queue._get_client()
+        if client:
+            deleted = await client.delete(lock_key)
+            if deleted:
+                logger.info(f"[Reaper] Force-released lock {lock_key}")
+    except Exception as e:
+        logger.warning(f"[Reaper] Failed to force-release lock {lock_key}: {e}")
+
+
+def _reap_stale_running_tasks(
+    tasks_store: TasksStore,
+    runner_id: str,
+    redis_queue: Optional[RedisRunnerQueueStore] = None,
+) -> None:
     stale_seconds = _env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180)
     threshold = _utc_now() - timedelta(seconds=stale_seconds)
 
@@ -93,6 +135,7 @@ def _reap_stale_running_tasks(tasks_store: TasksStore, runner_id: str) -> None:
                         status=TaskStatus.PENDING,
                         error=None,
                     )
+                    _force_release_lock(ctx, t.pack_id, redis_queue)
                     logger.warning(
                         f"Re-queued stale runner task task_id={t.id} (attempt {requeue_count + 1}/3) ({msg})"
                     )
@@ -133,6 +176,7 @@ def _reap_stale_running_tasks(tasks_store: TasksStore, runner_id: str) -> None:
                         error=msg,
                     )
                     logger.warning(f"Reaped stale running task task_id={t.id} ({msg})")
+                    _force_release_lock(ctx, t.pack_id, redis_queue)
             logger.info(
                 f"Reaper checked task_id={t.id} - status={t.status} - heartbeat_at={ctx.get('heartbeat_at')} - Threshold={threshold.isoformat()}"
             )

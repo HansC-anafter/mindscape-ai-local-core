@@ -162,7 +162,7 @@ async def run_forever() -> None:
             if (last_reap_at is None) or (
                 (now - last_reap_at).total_seconds() >= reap_interval_seconds
             ):
-                _reap_stale_running_tasks(tasks_store, runner_id=runner_id)
+                _reap_stale_running_tasks(tasks_store, runner_id=runner_id, redis_queue=redis_queue)
                 await _reap_redis_queues(tasks_store, redis_queue)
                 last_reap_at = now
         except Exception as e:
@@ -343,7 +343,7 @@ def main() -> None:
         store = MindscapeStore()
         tasks_store = TasksStore()
         rid = _runner_id()
-        _reap_stale_running_tasks(tasks_store, runner_id=rid)
+        _reap_stale_running_tasks(tasks_store, runner_id=rid, redis_queue=RedisRunnerQueueStore())
 
     except Exception:
         pass
