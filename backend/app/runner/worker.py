@@ -132,6 +132,7 @@ async def run_forever() -> None:
         "LOCAL_CORE_RUNNER_POLL_BATCH_LIMIT", max(50, max_inflight * 10)
     )
     runner_id = _runner_id()
+    lock_ttl = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 3600)
 
     store = MindscapeStore()
     tasks_store = TasksStore()
@@ -283,7 +284,7 @@ async def run_forever() -> None:
             if lock_key:
                 # Try acquire Lock exclusively on Redis
                 acquired = await redis_queue.acquire_lock(
-                    lock_key, runner_id, ttl_seconds=120
+                    lock_key, runner_id, ttl_seconds=lock_ttl
                 )
                 if not acquired:
                     # Concurrency locked -> Backoff defer directly into delayed queue
