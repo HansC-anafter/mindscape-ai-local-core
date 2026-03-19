@@ -132,7 +132,6 @@ async def run_forever() -> None:
         "LOCAL_CORE_RUNNER_POLL_BATCH_LIMIT", max(50, max_inflight * 10)
     )
     runner_id = _runner_id()
-    lock_ttl = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 3600)
 
     store = MindscapeStore()
     tasks_store = TasksStore()
@@ -232,8 +231,6 @@ async def run_forever() -> None:
         if not task_id:
             continue
 
-        logger.info(f"[Worker] Dequeued task_id={task_id!r} type={type(task_id).__name__}")
-
         from datetime import datetime, timedelta, timezone
 
         try:
@@ -262,7 +259,6 @@ async def run_forever() -> None:
             )
             playbook_code = lock_ctx.get("playbook_code") or t_data.pack_id or ""
             unmet = await dep_checker.check_playbook_deps(playbook_code)
-            logger.info(f"[Worker] task={task_id[:8]} dep_check unmet={unmet} playbook={playbook_code}")
 
             if unmet:
                 # Dependency unmet. Put back to delayed queue for 30 seconds.
@@ -284,13 +280,11 @@ async def run_forever() -> None:
 
             # ── 2. Lock BEFORE Claim ──
             lock_key = _resolve_lock_key(lock_ctx, t_data.pack_id)
-            logger.info(f"[Worker] task={task_id[:8]} lock_key={lock_key}")
             if lock_key:
                 # Try acquire Lock exclusively on Redis
                 acquired = await redis_queue.acquire_lock(
-                    lock_key, runner_id, ttl_seconds=lock_ttl
+                    lock_key, runner_id, ttl_seconds=120
                 )
-                logger.info(f"[Worker] task={task_id[:8]} lock acquired={acquired}")
                 if not acquired:
                     # Concurrency locked -> Backoff defer directly into delayed queue
                     if (
