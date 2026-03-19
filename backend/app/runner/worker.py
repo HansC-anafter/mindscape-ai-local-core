@@ -88,7 +88,8 @@ async def _backfill_pending_to_redis(
     """Re-enqueue all Postgres PENDING tasks into Redis (idempotent)."""
     try:
         pending = await asyncio.to_thread(
-            tasks_store.list_tasks, status=TaskStatus.PENDING, limit=5000
+            tasks_store.list_tasks_by_workspace,
+            workspace_id=None, status=TaskStatus.PENDING, limit=5000
         )
         if not pending:
             logger.info("[Backfill] No pending tasks in DB — nothing to enqueue.")
