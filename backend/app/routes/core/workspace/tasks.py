@@ -610,6 +610,11 @@ async def get_execution_progress_snapshot(
 
         ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
 
+        # Fallback to execution_context directly if progress not found in artifacts
+        if not progress:
+            ctx_prog = ctx.get("progress")
+            progress = ctx_prog if isinstance(ctx_prog, dict) else None
+
         # Refresh queue cache for position data
         _QUEUE_CACHE.refresh_if_stale(tasks_store)
 
@@ -630,6 +635,7 @@ async def get_execution_progress_snapshot(
                 "execution_backend_hint": ctx.get("execution_backend_hint"),
                 "inputs": ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {},
                 "dependency_hold": ctx.get("dependency_hold"),
+                "steps": ctx.get("steps") if isinstance(ctx.get("steps"), list) else [],
             },
         }
     except HTTPException:

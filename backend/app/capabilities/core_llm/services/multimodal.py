@@ -510,7 +510,7 @@ async def _route_mlx_server(
         except Exception as e:
             logger.warning(
                 "[MultimodalAnalyze] MLX server call failed for %s: %s",
-                main_shortcode, e,
+                main_shortcode, e, exc_info=True,
             )
 
     if not results:
