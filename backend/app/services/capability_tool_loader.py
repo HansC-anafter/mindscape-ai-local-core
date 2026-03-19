@@ -159,7 +159,8 @@ def load_capability_tool(
             if module_path.startswith("app.capabilities."):
                 # Try direct import first
                 try:
-                    logger.error(f"START IMPORT: {module_path}"); module = importlib.import_module(module_path); logger.error(f"END IMPORT: {module_path}")
+                    logger.debug(f"Importing module: {module_path}")
+                    module = importlib.import_module(module_path)
                 except ImportError:
                     # Try with hyphen-to-underscore conversion in directory name
                     # e.g., app.capabilities.mindscape_cloud_integration -> app.capabilities.mindscape-cloud-integration
@@ -196,12 +197,32 @@ def load_capability_tool(
                 try:
                     module = importlib.import_module(app_module_path)
                 except ImportError:
-                    logger.error(f"START IMPORT: {module_path}"); module = importlib.import_module(module_path); logger.error(f"END IMPORT: {module_path}")
+                    logger.debug(f"Importing module: {module_path}")
+                    module = importlib.import_module(module_path)
             else:
-                logger.error(f"START IMPORT: {module_path}"); module = importlib.import_module(module_path); logger.error(f"END IMPORT: {module_path}")
+                logger.debug(f"Importing module: {module_path}")
+                module = importlib.import_module(module_path)
 
-            # Get the function
-            tool_func = getattr(module, func_name, None)
+            # Get the function — support dotted names like ClassName.method_name
+            if "." in func_name:
+                parts = func_name.split(".")
+                obj = module
+                for i, part in enumerate(parts):
+                    next_obj = getattr(obj, part, None)
+                    if next_obj is None:
+                        logger.warning(f"Attribute '{part}' not found when resolving {func_name} in {module_path}")
+                        return None
+                    # If this is a class (not the final part), instantiate it
+                    if i < len(parts) - 1 and inspect.isclass(next_obj):
+                        try:
+                            next_obj = next_obj()
+                        except Exception as e:
+                            logger.warning(f"Failed to instantiate {part} in {module_path}: {e}")
+                            return None
+                    obj = next_obj
+                tool_func = obj
+            else:
+                tool_func = getattr(module, func_name, None)
             if not tool_func:
                 logger.warning(f"Function {func_name} not found in {module_path}")
                 return None
