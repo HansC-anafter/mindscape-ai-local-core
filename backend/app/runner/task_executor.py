@@ -107,7 +107,7 @@ def _child_execute_playbook(payload: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _mark_task_failed(
+async def _mark_task_failed(
     tasks_store: TasksStore,
     task_id: str,
     runner_id: str,
@@ -142,8 +142,6 @@ def _mark_task_failed(
             ctxf["status"] = "failed" if is_deadletter else "queued"
 
             # Invoke on_fail hook (best-effort, may create follow-up tasks).
-            # Hook result is logged and if True, it gates the DB status update because
-            # the hook takes over lifecycle responsibility (such as creating a replacement task).
             hook_invoked = False
             try:
                 hook_invoked = _invoke_on_fail_hook(ctxf, msg, latest.id)
@@ -154,7 +152,7 @@ def _mark_task_failed(
                 logger.info(f"on_fail hook handled failure for task {task_id}. Skipping native requeue.")
                 if redis_queue:
                     try:
-                        asyncio.run(redis_queue.ack_task(latest.id))
+                        await redis_queue.ack_task(latest.id)
                     except Exception as e:
                         logger.error(f"Failed to ack task {task_id} after hook invocation: {e}")
                 return
@@ -170,19 +168,18 @@ def _mark_task_failed(
 
             # 2. Redis Transport resolution
             if redis_queue:
-                import asyncio
                 if is_deadletter:
                     logger.warning(f"Task {task_id} reached max_attempts ({max_attempts}). Sending to Deadletter.")
-                    asyncio.run(redis_queue.move_to_deadletter(task_id))
-                    asyncio.run(redis_queue.ack_task(task_id)) # Clean up from processing
+                    await redis_queue.move_to_deadletter(task_id)
+                    await redis_queue.ack_task(task_id)  # Clean up from processing
                 else:
                     logger.warning(f"Task {task_id} failed transiently (attempt {retry_count}). NACKing to delayed queue.")
-                    asyncio.run(redis_queue.nack_task_to_delayed(task_id, delay_sec=15))
+                    await redis_queue.nack_task_to_delayed(task_id, delay_sec=15)
     except Exception as e:
         logger.error(f"Failed to mark task {task_id} as failed: {e}", exc_info=True)
 
 
-def _mark_task_succeeded(
+async def _mark_task_succeeded(
     tasks_store: TasksStore,
     task_id: str,
     runner_id: str,
@@ -230,8 +227,7 @@ def _mark_task_succeeded(
             
         # 2. Redis Ack MUST ALWAYS happen even if DB state was skipped
         if redis_queue:
-            import asyncio
-            asyncio.run(redis_queue.ack_task(task_id))
+            await redis_queue.ack_task(task_id)
     except Exception as e:
         logger.error(f"Failed to mark task {task_id} as succeeded: {e}", exc_info=True)
 
@@ -287,6 +283,11 @@ async def _run_single_task(
     # Heartbeat/lock renew must keep ticking even if the main async task blocks (e.g. Playwright hanging).
     stop_event = threading.Event()
 
+    # Capture the main event loop so daemon threads can schedule coroutines on it
+    # instead of calling asyncio.run() (which creates a NEW loop and conflicts
+    # with the Redis client's asyncio.Lock bound to the main loop).
+    main_loop = asyncio.get_running_loop()
+
     # proc reference will be set before heartbeat starts checking it
     proc_ref = [None]  # Use list for mutable reference in closure
 
@@ -307,7 +308,11 @@ async def _run_single_task(
                 tasks_store.update_task_heartbeat(task.id, runner_id=runner_id)
                 # Touch Redis queue visibility timeout to prevent ghosting by Reaper
                 if redis_queue:
-                    asyncio.run(redis_queue.touch_visibility_timeout(task.id, added_time_sec=180))
+                    fut = asyncio.run_coroutine_threadsafe(
+                        redis_queue.touch_visibility_timeout(task.id, added_time_sec=180),
+                        main_loop,
+                    )
+                    fut.result(timeout=10)
             except Exception as e:
                 logger.error(f"Error updating heartbeat in heartbeat thread for task {task.id}: {e}", exc_info=True)
             stop_event.wait(interval_s)
@@ -322,13 +327,15 @@ async def _run_single_task(
             interval_s = max(5.0, hb_interval_ms / 1000.0)
             while not stop_event.is_set():
                 try:
-                    asyncio.run(
+                    fut = asyncio.run_coroutine_threadsafe(
                         redis_queue.renew_lock(
                             lock_key=lock_key,
                             owner_id=runner_id,
                             ttl_seconds=lock_ttl_seconds,
-                        )
+                        ),
+                        main_loop,
                     )
+                    fut.result(timeout=10)
                 except Exception:
                     pass
                 stop_event.wait(interval_s)
@@ -477,7 +484,7 @@ async def _run_single_task(
             msg = (
                 f"Runner task timeout ({task_timeout_seconds}s) - subprocess terminated"
             )
-            _mark_task_failed(tasks_store, task.id, runner_id, msg, redis_queue)
+            await _mark_task_failed(tasks_store, task.id, runner_id, msg, redis_queue)
         else:
             # --- Process finished ---
             cancel_task.cancel()
@@ -493,9 +500,9 @@ async def _run_single_task(
             exitcode = await exec_task
             if exitcode != 0:
                 msg = f"Runner subprocess exited non-zero (exitcode={exitcode})"
-                _mark_task_failed(tasks_store, task.id, runner_id, msg, redis_queue)
+                await _mark_task_failed(tasks_store, task.id, runner_id, msg, redis_queue)
             else:
-                _mark_task_succeeded(tasks_store, task.id, runner_id, result_file, redis_queue)
+                await _mark_task_succeeded(tasks_store, task.id, runner_id, result_file, redis_queue)
     finally:
         # Clean up result temp file regardless of outcome
         try:
@@ -515,7 +522,7 @@ async def _run_single_task(
                     proc.kill()
                     proc.join(timeout=1.0)
                     # Mark killed task as FAILED to prevent reaper re-queue loop
-                    _mark_task_failed(
+                    await _mark_task_failed(
                         tasks_store, task.id, runner_id,
                         f"Runner subprocess killed after join timeout (pid={proc.pid})",
                         redis_queue
