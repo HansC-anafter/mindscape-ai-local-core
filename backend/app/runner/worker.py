@@ -123,6 +123,39 @@ async def _backfill_pending_to_redis(
 # ============================================================
 
 
+async def _cleanup_stale_locks(
+    redis_queue: RedisRunnerQueueStore, current_runner_id: str
+) -> None:
+    """Delete any concurrency locks not owned by the current runner.
+
+    On restart, the previous runner's locks are stale (it's dead).
+    We force-delete them so tasks aren't permanently blocked.
+    """
+    try:
+        client = await redis_queue._get_client()
+        if not client:
+            return
+
+        # Scan for all lock keys
+        cleaned = 0
+        for pattern in ["concurrency:*", "ig_profile:*"]:
+            keys = []
+            async for key in client.scan_iter(match=pattern):
+                keys.append(key)
+            for key in keys:
+                owner = await client.get(key)
+                if owner and owner != current_runner_id:
+                    await client.delete(key)
+                    cleaned += 1
+                    logger.info(
+                        f"[Startup] Cleaned stale lock {key} (owner={owner}, current={current_runner_id})"
+                    )
+        if cleaned:
+            logger.info(f"[Startup] Cleaned {cleaned} stale lock(s)")
+    except Exception as e:
+        logger.warning(f"[Startup] Failed to cleanup stale locks: {e}")
+
+
 async def run_forever() -> None:
     poll_interval_ms = _env_int("LOCAL_CORE_RUNNER_POLL_INTERVAL_MS", 1000)
     max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
@@ -149,6 +182,9 @@ async def run_forever() -> None:
 
     # ── Startup backfill: recover pending tasks lost during restart ──
     await _backfill_pending_to_redis(tasks_store, redis_queue)
+
+    # ── Startup lock cleanup: remove locks from dead runner instances ──
+    await _cleanup_stale_locks(redis_queue, runner_id)
 
     inflight: set[asyncio.Task] = set()
     last_reap_at: Optional[datetime] = None
