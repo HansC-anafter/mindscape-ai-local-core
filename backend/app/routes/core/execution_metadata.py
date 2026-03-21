@@ -94,6 +94,64 @@ def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:
     return meta
 
 
+def should_route_through_runner(
+    playbook_run,
+    requested_backend: Optional[str],
+    env_execution_mode: Optional[str],
+) -> bool:
+    """Decide whether a workflow should use runner dispatch.
+
+    ``auto`` normally follows ``LOCAL_CORE_EXECUTION_MODE``. However, if a
+    playbook declares runner-only metadata such as concurrency locks,
+    lifecycle hooks, or long-running browser timeouts, we must route it
+    through the runner queue so those controls can take effect.
+    """
+    backend = (requested_backend or "auto").strip().lower()
+    env_mode = (env_execution_mode or "in_process").strip().lower()
+    runner_meta = resolve_runner_metadata(playbook_run)
+    requires_runner = _has_runner_only_metadata(runner_meta)
+
+    if backend == "runner":
+        return True
+    if backend == "remote":
+        return False
+    if backend == "in_process":
+        return requires_runner
+
+    if backend != "auto":
+        return env_mode == "runner"
+
+    if requires_runner:
+        return True
+
+    return env_mode == "runner"
+
+
+def _has_runner_only_metadata(runner_meta: Dict[str, Any]) -> bool:
+    """Detect metadata that only works correctly when dispatched via runner."""
+    if not isinstance(runner_meta, dict):
+        return False
+
+    if runner_meta.get("concurrency"):
+        return True
+
+    if runner_meta.get("lifecycle_hooks"):
+        return True
+
+    timeout = runner_meta.get("runner_timeout_seconds")
+    if isinstance(timeout, int) and timeout > 0:
+        return True
+
+    resource_class = runner_meta.get("resource_class")
+    if isinstance(resource_class, str) and resource_class in {
+        RESOURCE_CLASS_BROWSER,
+        RESOURCE_CLASS_API,
+    }:
+        return True
+
+    return False
+
+
 def _resolve_resource_class_from_profile(ep: Optional[Dict[str, Any]]) -> str:
     """Determine resource_class from execution_profile dict.
 
