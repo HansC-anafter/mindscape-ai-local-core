@@ -64,6 +64,15 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(workspace_groups_router, tags=["workspace-groups"])
     app.include_router(playbook.router, tags=["playbook"])
     app.include_router(playbook_execution.router, tags=["playbook"])
+    try:
+        from backend.app.routes.core.remote_execution_callbacks import (
+            router as remote_execution_callbacks_router,
+        )
+
+        app.include_router(remote_execution_callbacks_router, tags=["remote-execution"])
+        logger.info("Remote execution callback routes registered")
+    except Exception as e:
+        logger.warning(f"Failed to register remote execution callback routes: {e}")
     app.include_router(config.router, tags=["config"])
     app.include_router(system_settings_router, tags=["system"])
     app.include_router(settings_extensions_router)

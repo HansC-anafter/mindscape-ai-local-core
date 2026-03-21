@@ -153,7 +153,7 @@ class ArtifactRegistryService:
         self.store = store
         self.registry_store = PostgresArtifactRegistryStore()
 
-    async def register_artifact(
+    def register_artifact_sync(
         self,
         project_id: str,
         artifact_id: str,
@@ -195,7 +195,25 @@ class ArtifactRegistryService:
 
         return entry
 
-    async def get_artifact(
+    async def register_artifact(
+        self,
+        project_id: str,
+        artifact_id: str,
+        path: str,
+        artifact_type: str,
+        created_by: str,
+        dependencies: Optional[List[str]] = None,
+    ) -> ArtifactRegistry:
+        return self.register_artifact_sync(
+            project_id=project_id,
+            artifact_id=artifact_id,
+            path=path,
+            artifact_type=artifact_type,
+            created_by=created_by,
+            dependencies=dependencies,
+        )
+
+    def get_artifact_sync(
         self, project_id: str, artifact_id: str
     ) -> Optional[ArtifactRegistry]:
         """
@@ -209,6 +227,11 @@ class ArtifactRegistryService:
             ArtifactRegistry entry or None if not found
         """
         return self.registry_store.get_artifact_entry(project_id, artifact_id)
+
+    async def get_artifact(
+        self, project_id: str, artifact_id: str
+    ) -> Optional[ArtifactRegistry]:
+        return self.get_artifact_sync(project_id, artifact_id)
 
     async def list_artifacts(
         self, project_id: str, limit: int = 100

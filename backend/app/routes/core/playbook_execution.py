@@ -4,6 +4,7 @@ Handles real-time Playbook execution with LLM conversations and structured workf
 """
 
 import asyncio
+import json
 import logging
 import os
 import uuid
@@ -18,6 +19,7 @@ def _utc_now():
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Body
 from fastapi.responses import FileResponse
+from sqlalchemy import text
 
 from .execution_schemas import (
     ContinueExecutionRequest,
@@ -33,6 +35,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbook-execution"])
 
 from .execution_hooks import invoke_lifecycle_hook, async_invoke_lifecycle_hook
+from .execution_status_utils import trim_execution_context_for_status
 
 
 def _safe_screenshot_basename(value: str) -> str:
@@ -52,6 +55,8 @@ def _safe_screenshot_basename(value: str) -> str:
             continue
         raise HTTPException(status_code=400, detail="Invalid file name")
     return name
+
+
 
 
 @router.get("/execute/{execution_id}/debug/screenshot")
@@ -78,6 +83,7 @@ from .execution_dispatch import (
     resolve_and_acquire_backend,
     release_backend,
 )
+from .execution_metadata import resolve_runner_metadata, should_route_through_runner
 
 
 @router.post("/execute/start")
@@ -124,6 +130,15 @@ async def start_playbook_execution(
             request.target_language if request else None
         )
         final_variant_id = variant_id or (request.variant_id if request else None)
+        final_remote_job_type = (
+            request.remote_job_type
+            if request and request.remote_job_type
+            else (
+                inputs.get("remote_job_type")
+                if isinstance(inputs, dict) and inputs.get("remote_job_type")
+                else "playbook"
+            )
+        )
 
         # Auto-assign variant if not explicitly provided
         if not final_variant_id:
@@ -197,6 +212,11 @@ async def start_playbook_execution(
                     inputs=inputs,
                     workspace_id=final_workspace_id,
                     profile_id=profile_id,
+                    project_id=final_project_id,
+                    tenant_id=request.tenant_id if request else None,
+                    execution_id=request.execution_id if request else None,
+                    trace_id=request.trace_id if request else None,
+                    remote_job_type=final_remote_job_type,
                 )
             finally:
                 release_backend(pool_acquired_backend)
@@ -232,18 +252,26 @@ async def start_playbook_execution(
                 f"Failed to update user_meta for playbook {playbook_code}: {e}"
             )
 
-        exec_mode = get_execution_mode()
-        prefer_runner = final_execution_backend == "runner" or (
-            final_execution_backend == "auto" and exec_mode == "runner"
+        playbook_run = await playbook_executor.playbook_service.load_playbook_run(
+            playbook_code=playbook_code,
+            locale="zh-TW",
+            workspace_id=final_workspace_id,
         )
-        force_in_process = final_execution_backend == "in_process"
-
-        if prefer_runner and not force_in_process:
-            playbook_run = await playbook_executor.playbook_service.load_playbook_run(
-                playbook_code=playbook_code,
-                locale="zh-TW",
-                workspace_id=final_workspace_id,
+        runner_metadata = resolve_runner_metadata(playbook_run)
+        exec_mode = get_execution_mode()
+        prefer_runner = should_route_through_runner(
+            playbook_run=playbook_run,
+            requested_backend=final_execution_backend,
+            env_execution_mode=exec_mode,
+        )
+        if prefer_runner and final_execution_backend == "in_process":
+            logger.warning(
+                "Ignoring execution_backend=in_process for runner-only playbook %s",
+                playbook_code,
             )
+            final_execution_backend = "runner"
+
+        if prefer_runner:
             if (
                 playbook_run
                 and playbook_run.get_execution_mode() == "workflow"
@@ -279,43 +307,6 @@ async def start_playbook_execution(
                     else playbook_code
                 )
 
-                # Extract concurrency policy from playbook.json (if declared)
-                concurrency_config = None
-                if (
-                    playbook_run.playbook_json
-                    and playbook_run.playbook_json.concurrency
-                ):
-                    c = playbook_run.playbook_json.concurrency
-                    concurrency_config = {
-                        "lock_key_input": c.lock_key_input,
-                        "max_parallel": c.max_parallel,
-                        "lock_scope": c.lock_scope,
-                    }
-
-                # Extract runner_timeout_seconds from execution_profile (if declared)
-                runner_timeout_seconds = None
-                if (
-                    playbook_run.playbook_json
-                    and playbook_run.playbook_json.execution_profile
-                ):
-                    ep = playbook_run.playbook_json.execution_profile
-                    raw_timeout = ep.get("runner_timeout_seconds")
-                    if isinstance(raw_timeout, (int, float)) and raw_timeout > 0:
-                        max_ceiling = int(
-                            os.environ.get(
-                                "LOCAL_CORE_RUNNER_MAX_TIMEOUT_SECONDS", "43200"
-                            )
-                        )
-                        runner_timeout_seconds = min(int(raw_timeout), max_ceiling)
-
-                # Extract lifecycle_hooks from playbook spec (if declared)
-                lifecycle_hooks_config = None
-                if (
-                    playbook_run.playbook_json
-                    and playbook_run.playbook_json.lifecycle_hooks
-                ):
-                    lifecycle_hooks_config = playbook_run.playbook_json.lifecycle_hooks
-
                 await asyncio.to_thread(
                     tasks_store.create_task,
                     Task(
@@ -340,21 +331,7 @@ async def start_playbook_execution(
                             "profile_id": profile_id,
                             "total_steps": total_steps,
                             "current_step_index": 0,
-                            **(
-                                {"concurrency": concurrency_config}
-                                if concurrency_config
-                                else {}
-                            ),
-                            **(
-                                {"runner_timeout_seconds": runner_timeout_seconds}
-                                if runner_timeout_seconds
-                                else {}
-                            ),
-                            **(
-                                {"lifecycle_hooks": lifecycle_hooks_config}
-                                if lifecycle_hooks_config
-                                else {}
-                            ),
+                            **runner_metadata,
                         },
                         created_at=_utc_now(),
                         started_at=None,
@@ -362,13 +339,9 @@ async def start_playbook_execution(
                 )
 
                 # Invoke on_queue lifecycle hook (if declared in playbook spec)
-                if (
-                    playbook_run.playbook_json
-                    and playbook_run.playbook_json.lifecycle_hooks
-                ):
-                    on_queue = playbook_run.playbook_json.lifecycle_hooks.get(
-                        "on_queue"
-                    )
+                lifecycle_hooks_config = runner_metadata.get("lifecycle_hooks")
+                if isinstance(lifecycle_hooks_config, dict):
+                    on_queue = lifecycle_hooks_config.get("on_queue")
                     if on_queue and isinstance(on_queue, dict):
                         try:
                             await async_invoke_lifecycle_hook(
@@ -575,20 +548,77 @@ async def get_playbook_status(execution_id: str):
     """
     try:
         from backend.app.services.stores.tasks_store import TasksStore
-        from backend.app.services.mindscape_store import MindscapeStore
 
-        store = MindscapeStore()
         tasks_store = TasksStore()
-        task = await asyncio.to_thread(
-            tasks_store.get_task_by_execution_id, execution_id
-        )
-        if not task:
+
+        def _load_status_payload() -> Optional[Dict[str, Any]]:
+            with tasks_store.get_connection() as conn:
+                row = conn.execute(
+                    text(
+                        """
+                        SELECT
+                            execution_id,
+                            status,
+                            CASE
+                                WHEN execution_context IS NULL THEN NULL
+                                ELSE (
+                                    execution_context::jsonb
+                                    - 'result'
+                                    - 'workflow_result'
+                                    - 'step_outputs'
+                                    - 'outputs'
+                                    - 'conversation_state'
+                                )::json
+                            END AS execution_context
+                        FROM tasks
+                        WHERE execution_id = :execution_id OR id = :execution_id
+                        ORDER BY CASE WHEN execution_id = :execution_id THEN 0 ELSE 1 END, created_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"execution_id": execution_id},
+                ).fetchone()
+
+            if not row:
+                return None
+
+            raw_ctx = getattr(row, "execution_context", None)
+            if raw_ctx is None and hasattr(row, "_mapping"):
+                raw_ctx = row._mapping.get("execution_context")
+
+            execution_context: Dict[str, Any] = {}
+            if isinstance(raw_ctx, dict):
+                execution_context = raw_ctx
+            elif isinstance(raw_ctx, str):
+                try:
+                    parsed = json.loads(raw_ctx)
+                    execution_context = parsed if isinstance(parsed, dict) else {}
+                except Exception:
+                    execution_context = {}
+
+            task_status = getattr(row, "status", None)
+            if task_status is None and hasattr(row, "_mapping"):
+                task_status = row._mapping.get("status")
+            payload_execution_id = getattr(row, "execution_id", None)
+            if payload_execution_id is None and hasattr(row, "_mapping"):
+                payload_execution_id = row._mapping.get("execution_id")
+
+            return {
+                "execution_id": payload_execution_id or execution_id,
+                "task_status": task_status,
+                "execution_context": trim_execution_context_for_status(
+                    execution_context
+                ),
+            }
+
+        payload = await asyncio.to_thread(_load_status_payload)
+        if not payload:
             raise HTTPException(status_code=404, detail="Execution not found")
-        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        ctx = payload["execution_context"]
         return {
-            "execution_id": execution_id,
-            "task_status": task.status,
-            "status": ctx.get("status") or task.status,
+            "execution_id": payload["execution_id"],
+            "task_status": payload["task_status"],
+            "status": ctx.get("status") or payload["task_status"],
             "execution_context": ctx,
         }
     except HTTPException:
@@ -924,15 +954,25 @@ async def get_global_executions(
                 query_parts.append("AND LOWER(t.status) = ANY(:statuses)")
                 params["statuses"] = statuses
 
-        query_parts.append("ORDER BY t.created_at DESC")
+        from backend.app.routes.core.execution_ordering import (
+            build_execution_order_clause,
+        )
+
+        query_parts.append(
+            build_execution_order_clause(
+                "created_at",
+                "desc",
+                status_expr="t.status",
+                column_prefix="t.",
+            )
+        )
         query_parts.append("LIMIT :limit")
         params["limit"] = limit
 
         with tasks_store.get_connection() as conn:
             rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
 
-        # Import shared queue cache (process-wide singleton from tasks route)
-        from backend.app.routes.core.workspace.tasks import _QUEUE_CACHE
+        from backend.app.services.queue_position_cache import QUEUE_CACHE as _QUEUE_CACHE
 
         _QUEUE_CACHE.refresh_if_stale(tasks_store)
 
@@ -945,12 +985,11 @@ async def get_global_executions(
             ).get("playbook_code")
             d["execution_id"] = d.get("execution_id") or d.get("id")
             d["workspace_name"] = row.workspace_name if hasattr(row, "workspace_name") else None
-            d["queue_position"] = _QUEUE_CACHE.get_position(d.get("id") or "")
-            d["queue_total"] = _QUEUE_CACHE.total
+            d["queue_position"] = _QUEUE_CACHE.get_position(tasks_store, task)
+            d["queue_total"] = _QUEUE_CACHE.get_total(d.get("queue_shard") or "default")
             executions.append(d)
 
         return {"executions": executions}
     except Exception as e:
         logger.error(f"Failed to get global executions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-

@@ -191,12 +191,6 @@ async def execute_playbook_for_execution_mode(
                 },
             }
 
-            # Auto-configure image handling for ig_post_generation playbook
-            if playbook_code == "ig_post_generation":
-                inputs = await _prepare_ig_post_inputs(
-                    inputs, files, workspace_id, store
-                )
-
             # Execute playbook
             try:
                 execution_result = await playbook_service.execute_playbook(
@@ -377,10 +371,6 @@ async def execute_playbook_for_hybrid_mode(
             },
         }
 
-        # Auto-configure image handling for ig_post_generation playbook
-        if playbook_code == "ig_post_generation":
-            inputs = await _prepare_ig_post_inputs(inputs, files, workspace_id, store)
-
         # Execute playbook
         execution_result = await playbook_service.execute_playbook(
             playbook_code=playbook_code,
@@ -407,92 +397,3 @@ async def execute_playbook_for_hybrid_mode(
             exc_info=True,
         )
         return None
-
-
-async def _prepare_ig_post_inputs(
-    inputs: Dict[str, Any],
-    files: Optional[List[str]],
-    workspace_id: str,
-    store: MindscapeStore,
-) -> Dict[str, Any]:
-    """
-    Prepare inputs for ig_post_generation playbook with automatic image handling
-
-    Logic:
-    1. If user provided image files, use them as reference_image_path
-    2. If no images provided, automatically enable Unsplash image search
-
-    Args:
-        inputs: Base inputs dict
-        files: List of uploaded file IDs/paths
-        workspace_id: Workspace ID
-        store: MindscapeStore instance
-
-    Returns:
-        Updated inputs dict with image configuration
-    """
-    import os
-    from pathlib import Path
-
-    # Check for image files
-    image_files = []
-    if files:
-        uploads_dir = os.getenv("UPLOADS_DIR", "data/uploads")
-        workspace_uploads_dir = Path(uploads_dir) / workspace_id
-
-        for file_id_or_path in files:
-            try:
-                file_path = None
-
-                # If it's already a path, use it directly
-                if (
-                    os.path.exists(file_id_or_path)
-                    or Path(file_id_or_path).is_absolute()
-                ):
-                    file_path = file_id_or_path
-                else:
-                    # Assume it's a file_id, try to find the file in uploads directory
-                    # Files are stored as {file_id}{ext} in workspace uploads dir
-                    if workspace_uploads_dir.exists():
-                        for uploaded_file in workspace_uploads_dir.glob(
-                            f"{file_id_or_path}*"
-                        ):
-                            if uploaded_file.is_file():
-                                file_path = str(uploaded_file.resolve())
-                                break
-
-                if file_path:
-                    # Check if file is an image
-                    image_extensions = {
-                        ".jpg",
-                        ".jpeg",
-                        ".png",
-                        ".gif",
-                        ".webp",
-                        ".bmp",
-                        ".svg",
-                    }
-                    if Path(file_path).suffix.lower() in image_extensions:
-                        # Resolve absolute path
-                        abs_path = Path(file_path).resolve()
-                        if abs_path.exists():
-                            image_files.append(str(abs_path))
-                            logger.info(f"[IGPost] Found image file: {file_path}")
-            except Exception as e:
-                logger.warning(
-                    f"[IGPost] Failed to process file {file_id_or_path}: {e}"
-                )
-
-    # Configure image handling
-    if image_files:
-        # User provided images - use first image as reference
-        inputs["reference_image_path"] = image_files[0]
-        logger.info(f"[IGPost] Using user-provided image: {image_files[0]}")
-    else:
-        # No images provided - automatically enable Unsplash search
-        inputs["enable_image_search"] = True
-        logger.info(
-            f"[IGPost] No images provided, enabling automatic Unsplash image search"
-        )
-
-    return inputs

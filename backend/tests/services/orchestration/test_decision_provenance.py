@@ -42,11 +42,19 @@ class StubEngine(MeetingEventsMixin):
 
 @dataclass
 class FakeTurnResult:
-    agent_id: str
-    agent_role: str
+    role_id: str
+    role_name: str
     round_number: int
     content: str
     converged: bool = False
+
+    @property
+    def agent_id(self) -> str:
+        return self.role_id
+
+    @property
+    def agent_role(self) -> str:
+        return self.role_name
 
 
 class TestEmitTurnProvenance:

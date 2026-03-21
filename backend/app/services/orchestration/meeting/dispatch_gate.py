@@ -118,6 +118,9 @@ class DispatchGate:
         self.signals = signals or SupervisionSignals()
         self.confidence_threshold = confidence_threshold
         self.compound_word_limit = compound_word_limit
+        self.correctness_shrink_threshold = 0.75
+        self.correctness_defer_threshold = 0.4
+        self.correctness_defer_acceptance_threshold = 0.5
 
     def evaluate(
         self,
@@ -187,7 +190,12 @@ class DispatchGate:
                 reason="high_failure_rate_no_retries",
             )
 
-        # Rule 6 (OP-3): Budget pressure + low priority → SHRINK_SCOPE
+        # Rule 6 (P5): correctness recovery loop → trim/defer new low-priority work
+        correctness_decision = self._evaluate_correctness_feedback(intent)
+        if correctness_decision is not None:
+            return correctness_decision
+
+        # Rule 7 (OP-3): Budget pressure + low priority → SHRINK_SCOPE
         if self.signals.budget_pressure_high:
             priority = getattr(intent, "priority", None) or "medium"
             if priority == "low":
@@ -212,3 +220,69 @@ class DispatchGate:
             IntentConfidence.HIGH: 2,
         }
         return order.get(confidence, 0) < order.get(self.confidence_threshold, 1)
+
+    def _evaluate_correctness_feedback(
+        self,
+        intent: ActionIntent,
+    ) -> Optional[IntentDecision]:
+        """Apply conservative correctness-loop feedback to new dispatches.
+
+        The goal is not to hard-stop the session after a failed eval. Instead:
+        - first remediation round: shrink low-priority expansion work
+        - repeated remediation with poor quality: defer non-high-priority work
+        """
+        if self.signals.remediation_round <= 0:
+            return None
+
+        priority = self._normalize_priority(getattr(intent, "priority", None))
+        quality_score = self.signals.quality_score
+        acceptance_pass_rate = self.signals.acceptance_pass_rate
+
+        if (
+            priority == "low"
+            and (
+                quality_score < self.correctness_shrink_threshold
+                or acceptance_pass_rate < self.correctness_shrink_threshold
+            )
+        ):
+            return IntentDecision(
+                intent_id=intent.intent_id,
+                decision=GateDecision.SHRINK_SCOPE,
+                reason=(
+                    "correctness_feedback_low_priority:"
+                    f"quality={quality_score:.2f}:"
+                    f"acceptance={acceptance_pass_rate:.2f}:"
+                    f"round={self.signals.remediation_round}"
+                ),
+            )
+
+        if (
+            priority != "high"
+            and self.signals.remediation_round >= 2
+            and (
+                quality_score < self.correctness_defer_threshold
+                or acceptance_pass_rate < self.correctness_defer_acceptance_threshold
+            )
+        ):
+            return IntentDecision(
+                intent_id=intent.intent_id,
+                decision=GateDecision.DEFER,
+                reason=(
+                    "correctness_recovery_in_progress:"
+                    f"quality={quality_score:.2f}:"
+                    f"acceptance={acceptance_pass_rate:.2f}:"
+                    f"round={self.signals.remediation_round}"
+                ),
+            )
+
+        return None
+
+    @staticmethod
+    def _normalize_priority(priority: Optional[str]) -> str:
+        """Normalize free-form intent priorities into gate buckets."""
+        if not isinstance(priority, str):
+            return "medium"
+        normalized = priority.strip().lower()
+        if normalized in {"high", "medium", "low"}:
+            return normalized
+        return "medium"
