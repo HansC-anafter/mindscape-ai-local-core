@@ -342,8 +342,6 @@ python scripts/validate_router_prefix.py capabilities/example_capability
 ## Related Documentation
 
 - [Capability Pack Development Guide](./capability-pack-development-guide.md)
-- [Capability Installation Guide](../docs-internal/CAPABILITY_INSTALLATION_GUIDE.md) (Internal)
-- [Developer Guide](../docs-internal/DEVELOPER_GUIDE_MINDSCAPE_AI.md) (Internal)
 
 ---
 

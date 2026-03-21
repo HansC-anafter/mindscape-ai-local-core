@@ -278,10 +278,45 @@ properties:
                 description: "自訂檢查清單項目"
               execution_params:
                 type: object
-                description: "執行參數覆寫"
+                description: "Execution parameter overrides"
               conditions:
                 type: object
-                description: "自動選擇條件（risk_level、locale 等）"
+                description: "Automatic selection conditions (for example risk_level or locale)"
+
+        consumes:
+          type: array
+          description: "Input data types required by this playbook"
+          items:
+            oneOf:
+              - type: string
+                description: "Backward-compatible bare string format (for example ig_following_profiles)"
+              - type: object
+                required: [type]
+                properties:
+                  type:
+                    type: string
+                    description: "Data type identifier"
+                  label:
+                    type: string
+                    description: "Display label"
+
+        produces:
+          type: array
+          description: "Data types produced by this playbook"
+          items:
+            type: object
+            required: [type]
+            properties:
+              type:
+                type: string
+                description: "Data type identifier"
+              label:
+                type: string
+                description: "Display label"
+              storage:
+                type: string
+                enum: [file, db, api]
+                description: "Storage backend"
 
   # ============================================================================
   # Tool 定義
