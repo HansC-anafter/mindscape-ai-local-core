@@ -85,6 +85,21 @@ def _discover_and_import_capability_models():
 
 _discover_and_import_capability_models()
 
+# Also import top-level model files in app/models/ (not in subdirectories).
+# The dynamic discovery above only scans subdirectories, so top-level models
+# like handoff_registry.py would be missed.
+_top_level_models_dir = backend_dir / "app" / "models"
+if _top_level_models_dir.exists():
+    for _py_file in _top_level_models_dir.glob("*.py"):
+        if _py_file.name.startswith("_"):
+            continue
+        _module_path = f"app.models.{_py_file.stem}"
+        try:
+            importlib.import_module(_module_path)
+            logger.debug(f"Imported top-level model: {_module_path}")
+        except (ImportError, Exception) as _e:
+            logger.debug(f"Skipped top-level model {_module_path}: {_e}")
+
 target_metadata = Base.metadata
 
 # ===== Use PostgreSQL URL =====
@@ -105,16 +120,6 @@ try:
     )
 
     locations = [common_versions, postgres_versions]
-
-    # Dynamically discover capability migration paths
-    capabilities_dir = backend_dir / "app" / "capabilities"
-    if capabilities_dir.exists():
-        for cap_dir in capabilities_dir.iterdir():
-            if cap_dir.is_dir() and not cap_dir.name.startswith("_"):
-                cap_migrations = cap_dir / "migrations" / "versions"
-                if cap_migrations.exists():
-                    locations.append(str(cap_migrations.absolute()))
-                    logger.debug(f"Added capability migration path: {cap_migrations}")
 
     # Use os.pathsep to combine (alembic.ini sets version_path_separator = os)
     config.set_main_option(

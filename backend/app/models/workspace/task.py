@@ -62,6 +62,30 @@ class Task(BaseModel):
     created_at: datetime = Field(
         default_factory=_utc_now, description="Creation timestamp"
     )
+    next_eligible_at: datetime = Field(
+        default_factory=_utc_now,
+        description="Earliest time the scheduler may re-enqueue this task",
+    )
+    blocked_reason: Optional[str] = Field(
+        None, description="Scheduler parking reason for pending tasks"
+    )
+    blocked_payload: Optional[Dict[str, Any]] = Field(
+        None, description="Structured scheduler parking metadata"
+    )
+    queue_shard: str = Field(
+        default="default",
+        description="Scheduler shard hint used to separate hot queues by workload",
+    )
+    concurrency_key: Optional[str] = Field(
+        None, description="Derived concurrency key used for queue parking and locks"
+    )
+    frontier_state: str = Field(
+        default="cold",
+        description="Queue frontier state: cold, ready, running, or done",
+    )
+    frontier_enqueued_at: Optional[datetime] = Field(
+        None, description="Timestamp when the task entered the ready frontier"
+    )
     started_at: Optional[datetime] = Field(None, description="Task start timestamp")
     completed_at: Optional[datetime] = Field(
         None, description="Task completion timestamp"

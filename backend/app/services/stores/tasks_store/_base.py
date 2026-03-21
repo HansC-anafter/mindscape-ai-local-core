@@ -13,14 +13,185 @@ from app.models.workspace import Task, TaskStatus
 
 logger = logging.getLogger(__name__)
 
+_RUNNER_TASK_TYPES = {"playbook_execution", "tool_execution"}
+_IG_ANALYSIS_PACKS = {"ig_analyze_pinned_reference"}
+_IG_BROWSER_PACKS = {"ig_batch_pin_references", "ig_analyze_following"}
+_TERMINAL_TASK_STATUSES = {
+    TaskStatus.SUCCEEDED.value,
+    TaskStatus.FAILED.value,
+    TaskStatus.CANCELLED_BY_USER.value,
+    TaskStatus.EXPIRED.value,
+}
+
 
 def _utc_now() -> datetime:
     """Return timezone-aware UTC now. Fixes Postgres timestamptz offset bug."""
     return datetime.now(timezone.utc)
 
 
+def _coerce_task_status(status: Any) -> str:
+    if hasattr(status, "value"):
+        return str(status.value)
+    return str(status)
+
+
+def _parse_resume_after(raw_value: Any) -> Optional[datetime]:
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(raw_value)
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _resolve_queue_shard(pack_id: str) -> str:
+    if pack_id in _IG_ANALYSIS_PACKS:
+        return "ig_analysis"
+    if pack_id in _IG_BROWSER_PACKS:
+        return "ig_browser"
+    return "default"
+
+
+def _resolve_concurrency_key(
+    execution_context: Optional[Dict[str, Any]], pack_id: str
+) -> Optional[str]:
+    try:
+        from backend.app.runner.concurrency import _resolve_lock_key
+
+        return _resolve_lock_key(execution_context, pack_id)
+    except Exception:
+        return None
+
+
+def _derive_blocked_payload(
+    execution_context: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(execution_context, dict):
+        return None
+
+    payload: Dict[str, Any] = {}
+
+    dependency_hold = execution_context.get("dependency_hold")
+    if isinstance(dependency_hold, dict) and dependency_hold:
+        payload["dependency_hold"] = dependency_hold
+
+    if execution_context.get("runner_skip_lock_key"):
+        payload["lock_key"] = execution_context.get("runner_skip_lock_key")
+    if execution_context.get("runner_skip_conflict_lock_key"):
+        payload["conflicting_lock_key"] = execution_context.get(
+            "runner_skip_conflict_lock_key"
+        )
+
+    return payload or None
+
+
+def _derive_scheduler_fields(task: Task) -> Dict[str, Any]:
+    ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+    now = _utc_now()
+    status_value = _coerce_task_status(task.status)
+    explicit_fields = getattr(task, "model_fields_set", set()) or set()
+
+    next_eligible_at = (
+        (task.next_eligible_at if "next_eligible_at" in explicit_fields else None)
+        or _parse_resume_after(ctx.get("resume_after"))
+        or task.created_at
+        or now
+    )
+
+    blocked_reason = (task.blocked_reason if "blocked_reason" in explicit_fields else None) or ctx.get(
+        "runner_skip_reason"
+    )
+    if not blocked_reason and isinstance(ctx.get("dependency_hold"), dict):
+        blocked_reason = "dependency_hold"
+
+    blocked_payload = task.blocked_payload if "blocked_payload" in explicit_fields else None
+    if blocked_payload is None:
+        blocked_payload = _derive_blocked_payload(ctx)
+
+    queue_shard = (
+        task.queue_shard if "queue_shard" in explicit_fields and task.queue_shard else None
+    ) or _resolve_queue_shard(task.pack_id)
+    concurrency_key = (
+        task.concurrency_key
+        if "concurrency_key" in explicit_fields and task.concurrency_key
+        else None
+    ) or _resolve_concurrency_key(
+        ctx, task.pack_id
+    )
+
+    frontier_state = (
+        task.frontier_state
+        if "frontier_state" in explicit_fields and task.frontier_state
+        else None
+    )
+    if not frontier_state:
+        if status_value == TaskStatus.RUNNING.value:
+            frontier_state = "running"
+        elif status_value in _TERMINAL_TASK_STATUSES:
+            frontier_state = "done"
+        elif (
+            blocked_reason
+            or next_eligible_at > now
+            or task.task_type not in _RUNNER_TASK_TYPES
+        ):
+            frontier_state = "cold"
+        else:
+            frontier_state = "ready"
+
+    frontier_enqueued_at = (
+        task.frontier_enqueued_at
+        if "frontier_enqueued_at" in explicit_fields
+        else None
+    )
+    if frontier_enqueued_at is None and frontier_state == "ready":
+        frontier_enqueued_at = task.created_at or now
+
+    return {
+        "next_eligible_at": next_eligible_at,
+        "blocked_reason": blocked_reason,
+        "blocked_payload": blocked_payload,
+        "queue_shard": queue_shard,
+        "concurrency_key": concurrency_key,
+        "frontier_state": frontier_state,
+        "frontier_enqueued_at": frontier_enqueued_at,
+    }
+
+
 class TasksStoreCrudMixin:
     """CRUD operations and private helpers for TasksStore."""
+
+    def _enqueue_runner_task_after_commit(self, task: Task) -> None:
+        """Best-effort Redis enqueue after the DB transaction has committed."""
+        if task.status != TaskStatus.PENDING:
+            return
+        if task.task_type not in ("playbook_execution", "tool_execution"):
+            return
+        if getattr(task, "frontier_state", "ready") != "ready":
+            return
+        if getattr(task, "next_eligible_at", None) and task.next_eligible_at > _utc_now():
+            return
+
+        try:
+            from backend.app.services.stores.redis.runner_queue_store import (
+                RedisRunnerQueueStore,
+            )
+
+            q_store = RedisRunnerQueueStore(
+                pack_id=getattr(task, "queue_shard", None) or "default"
+            )
+            success = q_store.enqueue_task_sync(task.id)
+            if not success:
+                logger.warning(
+                    f"[DB Bridge] Failed post-commit enqueue for task {task.id}. "
+                    "Will rely on Reaper Sync."
+                )
+        except Exception as e:
+            logger.error(
+                f"[DB Bridge] Exception during post-commit enqueue for task {task.id}: {e}"
+            )
 
     def _sync_playbook_execution_status(
         self,
@@ -72,6 +243,10 @@ class TasksStoreCrudMixin:
         Returns:
             Created task
         """
+        scheduler_fields = _derive_scheduler_fields(task)
+        for key, value in scheduler_fields.items():
+            setattr(task, key, value)
+
         with self.transaction() as conn:
             project_id = task.project_id
             if not project_id and task.execution_context:
@@ -86,13 +261,17 @@ class TasksStoreCrudMixin:
                     project_id, pack_id,
                     task_type, status, params, result, execution_context,
                     meeting_session_id,
-                    storyline_tags, created_at, started_at, completed_at, error
+                    storyline_tags, created_at, next_eligible_at, blocked_reason,
+                    blocked_payload, queue_shard, concurrency_key, frontier_state,
+                    frontier_enqueued_at, started_at, completed_at, error
                 ) VALUES (
                     :id, :workspace_id, :message_id, :execution_id, :parent_execution_id,
                     :project_id, :pack_id,
                     :task_type, :status, :params, :result, :execution_context,
                     :meeting_session_id,
-                    :storyline_tags, :created_at, :started_at, :completed_at, :error
+                    :storyline_tags, :created_at, :next_eligible_at, :blocked_reason,
+                    :blocked_payload, :queue_shard, :concurrency_key, :frontier_state,
+                    :frontier_enqueued_at, :started_at, :completed_at, :error
                 )
             """
             )
@@ -130,6 +309,13 @@ class TasksStoreCrudMixin:
                 "meeting_session_id": task.meeting_session_id,
                 "storyline_tags": self.serialize_json(task.storyline_tags),
                 "created_at": task.created_at,
+                "next_eligible_at": task.next_eligible_at,
+                "blocked_reason": task.blocked_reason,
+                "blocked_payload": self.serialize_json(task.blocked_payload),
+                "queue_shard": task.queue_shard,
+                "concurrency_key": task.concurrency_key,
+                "frontier_state": task.frontier_state,
+                "frontier_enqueued_at": task.frontier_enqueued_at,
                 "started_at": task.started_at,
                 "completed_at": task.completed_at,
                 "error": task.error,
@@ -141,23 +327,9 @@ class TasksStoreCrudMixin:
                 task.workspace_id,
                 task.pack_id,
             )
-            
-            # Best-Effort Enqueue to Redis for Runner
-            try:
-                if task.status == TaskStatus.PENDING and task.task_type in ("playbook_execution", "tool_execution"):
-                    from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
-                    
-                    # Ensure queue prefix aligns with actual pack_id or default logic if none
-                    q_store = RedisRunnerQueueStore(pack_id=task.pack_id or "default")
-                    
-                    # Sync enqueue prevents blocking the SQLAlchemy transaction/router thread
-                    success = q_store.enqueue_task_sync(task.id)
-                    if not success:
-                        logger.warning(f"[DB Bridge] Failed inline enqueue for task {task.id}. Will rely on Reaper Sync.")
-            except Exception as e:
-                logger.error(f"[DB Bridge] Exception during inline enqueue for task {task.id}: {e}")
 
-            return task
+        self._enqueue_runner_task_after_commit(task)
+        return task
 
     def get_task(self, task_id: str) -> Optional[Task]:
         """
@@ -242,6 +414,27 @@ class TasksStoreCrudMixin:
         """
         updates = ["status = :status"]
         params: Dict[str, Any] = {"status": status.value, "task_id": task_id}
+
+        if status == TaskStatus.RUNNING:
+            updates.extend(
+                [
+                    "blocked_reason = NULL",
+                    "blocked_payload = NULL",
+                    "frontier_state = :frontier_state",
+                    "frontier_enqueued_at = NULL",
+                ]
+            )
+            params["frontier_state"] = "running"
+        elif status.value in _TERMINAL_TASK_STATUSES:
+            updates.extend(
+                [
+                    "blocked_reason = NULL",
+                    "blocked_payload = NULL",
+                    "frontier_state = :frontier_state",
+                    "frontier_enqueued_at = NULL",
+                ]
+            )
+            params["frontier_state"] = "done"
 
         if result is not None:
             updates.append("result = :result")
@@ -333,13 +526,19 @@ class TasksStoreCrudMixin:
             params["project_id"] = project_id
 
         for key, value in kwargs.items():
-            if key in ["params", "result", "storyline_tags"]:
+            if key in ["params", "result", "storyline_tags", "blocked_payload"]:
                 updates.append(f"{key} = :{key}")
                 params[key] = self.serialize_json(value)
             elif key in ["status"]:
                 updates.append(f"{key} = :{key}")
                 params[key] = value.value if hasattr(value, "value") else value
-            elif key in ["started_at", "completed_at", "created_at"]:
+            elif key in [
+                "started_at",
+                "completed_at",
+                "created_at",
+                "next_eligible_at",
+                "frontier_enqueued_at",
+            ]:
                 updates.append(f"{key} = :{key}")
                 params[key] = value
             else:
@@ -420,6 +619,13 @@ class TasksStoreCrudMixin:
             storyline_tags = []
 
         project_id = getattr(row, "project_id", None)
+        blocked_payload = None
+        try:
+            raw_blocked_payload = getattr(row, "blocked_payload", None)
+            if raw_blocked_payload is not None:
+                blocked_payload = self.deserialize_json(raw_blocked_payload, None)
+        except Exception:
+            blocked_payload = None
 
         return Task(
             id=row.id,
@@ -437,6 +643,19 @@ class TasksStoreCrudMixin:
             meeting_session_id=getattr(row, "meeting_session_id", None),
             storyline_tags=storyline_tags,
             created_at=self._coerce_datetime(row.created_at),
+            next_eligible_at=self._coerce_datetime(
+                getattr(row, "next_eligible_at", None)
+            )
+            or self._coerce_datetime(row.created_at)
+            or _utc_now(),
+            blocked_reason=getattr(row, "blocked_reason", None),
+            blocked_payload=blocked_payload,
+            queue_shard=getattr(row, "queue_shard", "default") or "default",
+            concurrency_key=getattr(row, "concurrency_key", None),
+            frontier_state=getattr(row, "frontier_state", "cold") or "cold",
+            frontier_enqueued_at=self._coerce_datetime(
+                getattr(row, "frontier_enqueued_at", None)
+            ),
             started_at=self._coerce_datetime(row.started_at),
             completed_at=self._coerce_datetime(row.completed_at),
             error=row.error,
@@ -508,4 +727,3 @@ def _publish_terminal_event(
             client.close()
     except Exception:
         pass  # non-fatal
-

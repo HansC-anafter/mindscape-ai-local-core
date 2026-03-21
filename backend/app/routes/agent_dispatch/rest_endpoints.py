@@ -107,7 +107,9 @@ async def submit_agent_result(body: AgentResultRequest):
     # Best-effort: persist result to workspace filesystem + DB
     if not ctx.get("duplicate"):
         try:
-            from app.services.task_result_landing import TaskResultLandingService
+            from backend.app.services.orchestration.governance_engine import (
+                GovernanceEngine,
+            )
             from app.services.stores.postgres.workspaces_store import (
                 PostgresWorkspacesStore,
             )
@@ -119,8 +121,8 @@ async def submit_agent_result(body: AgentResultRequest):
                 storage_base = getattr(ws, "storage_base_path", None) if ws else None
                 artifacts_dir = getattr(ws, "artifacts_dir", None) or "artifacts"
 
-                landing = TaskResultLandingService()
-                landing.land_result(
+                governance = GovernanceEngine()
+                governance.process_completion(
                     workspace_id=workspace_id,
                     execution_id=body.execution_id,
                     result_data=result_data,
@@ -131,13 +133,13 @@ async def submit_agent_result(body: AgentResultRequest):
                     task_id=ctx.get("task_id"),
                 )
                 logger.info(
-                    "[AgentWS] Result landed for %s (storage=%s)",
+                    "[AgentWS] Result landed via GovernanceEngine for %s (storage=%s)",
                     body.execution_id,
                     storage_base or "DB-only",
                 )
         except Exception:
             logger.exception(
-                "[AgentWS] Result landing failed for %s (non-blocking)",
+                "[AgentWS] GovernanceEngine landing failed for %s (non-blocking)",
                 body.execution_id,
             )
 
