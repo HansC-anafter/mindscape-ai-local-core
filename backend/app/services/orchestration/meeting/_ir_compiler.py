@@ -88,6 +88,12 @@ class MeetingIRCompilerMixin:
                     "risk_notes": getattr(handoff_in, "risk_notes", None) or []
                 },
                 handoff_id=getattr(handoff_in, "handoff_id", None),
+                # Pass through provenance fields from the handoff payload.
+                trace_id=getattr(handoff_in, "trace_id", None),
+                human_instructions=getattr(handoff_in, "human_instructions", None),
+                context_attachments=getattr(handoff_in, "context_attachments", None),
+                governance_constraints=getattr(handoff_in, "governance_constraints", None),
+                requested_output_type=getattr(handoff_in, "requested_output_type", None),
             )
 
             constraints = getattr(handoff_in, "constraints", None)

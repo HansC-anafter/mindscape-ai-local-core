@@ -83,6 +83,25 @@ class SupervisionSignals(BaseModel):
         description="Number of UNKNOWN_PLAYBOOK blocks in this session",
     )
 
+    # Acceptance evaluation signals
+    quality_score: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Quality score from AcceptanceEvaluator (1.0 = perfect, 0.0 = all checks failed)",
+    )
+    acceptance_pass_rate: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of acceptance checks that passed (1.0 = all passed)",
+    )
+    remediation_round: int = Field(
+        default=0,
+        ge=0,
+        description="Number of remediation rounds triggered for this session",
+    )
+
     # Custom signals from L5 plugins
     custom: Dict[str, Any] = Field(
         default_factory=dict,

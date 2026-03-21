@@ -20,6 +20,10 @@ class StartExecutionRequest(BaseModel):
     """Request to start playbook execution"""
 
     inputs: Optional[dict] = None
+    tenant_id: Optional[str] = None
+    execution_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    remote_job_type: Optional[Literal["playbook", "tool", "chain"]] = None
     target_language: Optional[str] = None
     variant_id: Optional[str] = None
     auto_execute: Optional[bool] = (

@@ -15,7 +15,6 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 import uuid
-import re
 
 from ...models.workspace import (
     Task,
@@ -44,48 +43,6 @@ from .special_pack_executors import SpecialPackExecutors
 
 logger = logging.getLogger(__name__)
 
-
-_IG_PROFILE_PATH_BLOCKLIST = {
-    "p",
-    "reel",
-    "reels",
-    "tv",
-    "stories",
-    "explore",
-    "accounts",
-    "about",
-    "help",
-}
-
-
-def _extract_instagram_username(text: str) -> Optional[str]:
-    """
-    Extract an Instagram username from a user message.
-
-    Supports:
-    - https://www.instagram.com/<username>/
-    - instagram.com/<username>
-    - @<username>
-    """
-    s = (text or "").strip()
-    if not s:
-        return None
-
-    m = re.search(
-        r"(?:https?://)?(?:www\.)?instagram\.com/([^/?#\s]+)/?",
-        s,
-        flags=re.IGNORECASE,
-    )
-    if m:
-        candidate = (m.group(1) or "").strip().strip("/")
-        if candidate and candidate.lower() not in _IG_PROFILE_PATH_BLOCKLIST:
-            return candidate
-
-    m2 = re.search(r"@([A-Za-z0-9._]{1,30})", s)
-    if m2:
-        return m2.group(1)
-
-    return None
 
 
 class CoordinatorFacade:
@@ -611,25 +568,6 @@ class CoordinatorFacade:
             # Prepare inputs
             playbook_inputs = playbook_context.copy()
             playbook_inputs["workspace_id"] = ctx.workspace_id
-
-            # Best-effort parameter hydration for playbooks that require structured inputs.
-            # Prevents running a workflow with missing required inputs and failing deep inside tools.
-            if playbook_code == "ig_analyze_following":
-                existing = str(playbook_inputs.get("target_username") or "").strip()
-                if not existing:
-                    inferred = _extract_instagram_username(
-                        str(playbook_inputs.get("message") or "")
-                    )
-                    if inferred:
-                        playbook_inputs["target_username"] = inferred
-                        logger.info(
-                            f"CoordinatorFacade: Inferred ig_analyze_following.target_username={inferred}"
-                        )
-                if not str(playbook_inputs.get("target_username") or "").strip():
-                    raise ValueError(
-                        "ig_analyze_following requires target_username. Provide an Instagram profile URL like "
-                        "'https://www.instagram.com/<username>/' or a handle like '@username'."
-                    )
 
             # Load project metadata if project_id is provided
             project_meta = None

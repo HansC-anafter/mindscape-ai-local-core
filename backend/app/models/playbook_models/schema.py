@@ -28,6 +28,14 @@ class PlaybookOutput(BaseModel):
     description: Optional[str] = Field(None, description="Output description")
     source: str = Field(..., description="Source path (e.g., step.ocr.ocr_text)")
 
+    # Optional provenance metadata for structured outputs.
+    provenance_schema_version: Optional[str] = Field(
+        None, description="Schema version of the provenance payload"
+    )
+    context_attachments: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Directly embedded evidence attachments"
+    )
+
 
 class ToolPolicy(BaseModel):
     """Tool execution policy constraints."""
@@ -208,5 +216,24 @@ class PlaybookJson(BaseModel):
         None,
         description="Declarative lifecycle hooks (on_queue/on_start/on_complete/on_fail).",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def hoist_legacy_execution_context_fields(cls, values: Any) -> Any:
+        """Support legacy capability specs that nested runner fields under execution_context."""
+        if not isinstance(values, dict):
+            return values
+
+        execution_context = values.get("execution_context")
+        if not isinstance(execution_context, dict):
+            return values
+
+        normalized = dict(values)
+        if normalized.get("concurrency") is None:
+            legacy_concurrency = execution_context.get("concurrency")
+            if isinstance(legacy_concurrency, dict):
+                normalized["concurrency"] = legacy_concurrency
+
+        return normalized
 
     model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})

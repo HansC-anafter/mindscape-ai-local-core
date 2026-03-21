@@ -5,10 +5,44 @@ Tests _build_asset_map_context() and its injection into _build_turn_prompt
 as the === Workspace Asset Map === block.
 """
 
+from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock, patch
 
 from backend.app.services.orchestration.meeting._prompts import MeetingPromptsMixin
+
+
+def _make_workspace_card(
+    ws_id,
+    title,
+    *,
+    persona=None,
+    goals=None,
+    suggestion_titles=None,
+    data_sources=None,
+):
+    blueprint = None
+    if persona or goals:
+        blueprint = SimpleNamespace(
+            instruction=SimpleNamespace(
+                persona=persona or "",
+                goals=list(goals or []),
+            )
+        )
+
+    suggestion_history = []
+    if suggestion_titles:
+        suggestion_history = [
+            {"suggestions": [{"title": item} for item in suggestion_titles]}
+        ]
+
+    return SimpleNamespace(
+        id=ws_id,
+        title=title,
+        workspace_blueprint=blueprint,
+        suggestion_history=suggestion_history,
+        data_sources=data_sources or {},
+    )
 
 
 class StubEngine(MeetingPromptsMixin):
@@ -71,32 +105,25 @@ class TestBuildAssetMapContext:
         engine.workspace.group_id = None
         engine.workspace.id = "ws-dispatch"
 
-        disco_ws = MagicMock()
-        disco_ws.id = "ws-shared-db"
-        disco_ws.title = "Shared Database"
-
-        disco_binding = MagicMock()
-        disco_binding.resource_id = "shared-pg"
-        disco_binding.overrides = {
-            "display_name": "Shared PostgreSQL",
-            "asset_type": "database",
-        }
+        disco_ws = _make_workspace_card(
+            "ws-shared-db",
+            "Shared Database",
+            persona="Shared data workspace",
+            goals=["Serve shared warehouse access"],
+            data_sources={
+                "postgres_sync": {
+                    "total_runs": 3,
+                    "last_run": "2026-03-19T12:00:00Z",
+                    "produces": [{"label": "Shared PostgreSQL"}],
+                }
+            },
+        )
 
         with patch(
             "backend.app.services.stores.postgres.workspaces_store"
             ".PostgresWorkspacesStore"
-        ) as ws_cls, patch(
-            "backend.app.services.stores.workspace_resource_binding_store"
-            ".WorkspaceResourceBindingStore"
-        ) as bs_cls:
+        ) as ws_cls:
             ws_cls.return_value.list_discoverable_workspaces.return_value = [disco_ws]
-
-            def list_bindings(ws_id, resource_type=None):
-                if ws_id == "ws-shared-db":
-                    return [disco_binding]
-                return []
-
-            bs_cls.return_value.list_bindings_by_workspace.side_effect = list_bindings
 
             result = engine._build_asset_map_context()
 
@@ -114,13 +141,14 @@ class TestBuildAssetMapContext:
         ".PostgresWorkspaceGroupStore"
     )
     @patch(
-        "backend.app.services.stores.workspace_resource_binding_store"
-        ".WorkspaceResourceBindingStore"
+        "backend.app.services.stores.postgres.workspaces_store"
+        ".PostgresWorkspacesStore"
     )
-    def test_returns_empty_when_group_not_found(self, mock_binding_cls, mock_group_cls):
+    def test_returns_empty_when_group_not_found(self, mock_ws_cls, mock_group_cls):
         engine = StubEngine()
         engine.workspace.group_id = "grp-001"
         mock_group_cls.return_value.get.return_value = None
+        mock_ws_cls.return_value.list_discoverable_workspaces.return_value = []
         assert engine._build_asset_map_context() == ""
 
     def test_builds_context_with_assets(self):
@@ -128,49 +156,55 @@ class TestBuildAssetMapContext:
         engine.workspace.group_id = "grp-001"
         engine.workspace.workspace_role = "dispatch"
 
-        # Mock workspace group
-        mock_group = MagicMock()
-        mock_group.id = "grp-001"
-        mock_group.display_name = "My Project Group"
-        mock_group.role_map = {
-            "ws-dispatch": "dispatch",
-            "ws-data": "cell",
+        mock_group = SimpleNamespace(
+            id="grp-001",
+            display_name="My Project Group",
+            role_map={
+                "ws-dispatch": "dispatch",
+                "ws-data": "cell",
+            },
+        )
+        ws_lookup = {
+            "ws-dispatch": _make_workspace_card(
+                "ws-dispatch",
+                "Dispatch Workspace",
+                persona="Dispatch coordinator",
+                goals=["Route work across workspaces"],
+            ),
+            "ws-data": _make_workspace_card(
+                "ws-data",
+                "Data Workspace",
+                persona="Data operations workspace",
+                goals=["Maintain reusable datasets"],
+                data_sources={
+                    "ig_followers": {
+                        "total_runs": 4,
+                        "last_run": "2026-03-19T08:30:00Z",
+                        "produces": [
+                            {"label": "IG Followers DB"},
+                            {"label": "Content Library"},
+                        ],
+                    }
+                },
+            ),
         }
+        running_loop = MagicMock()
+        running_loop.is_running.return_value = True
 
         with patch(
             "backend.app.services.stores.postgres.workspace_group_store"
             ".PostgresWorkspaceGroupStore"
         ) as pg_cls, patch(
-            "backend.app.services.stores.workspace_resource_binding_store"
-            ".WorkspaceResourceBindingStore"
-        ) as bs_cls, patch(
             "backend.app.services.stores.postgres.workspaces_store"
             ".PostgresWorkspacesStore"
-        ) as ws_cls:
+        ) as ws_cls, patch(
+            "asyncio.get_event_loop", return_value=running_loop
+        ):
             pg_cls.return_value.get.return_value = mock_group
             ws_cls.return_value.list_discoverable_workspaces.return_value = []
-
-            # Mock bindings: ws-data has 2 assets, ws-dispatch has none
-            binding_1 = MagicMock()
-            binding_1.resource_id = "ig-followers-db"
-            binding_1.overrides = {
-                "display_name": "IG Followers DB",
-                "asset_type": "database",
-            }
-
-            binding_2 = MagicMock()
-            binding_2.resource_id = "content-library"
-            binding_2.overrides = {
-                "display_name": "Content Library",
-                "asset_type": "storage",
-            }
-
-            def list_bindings(ws_id, resource_type=None):
-                if ws_id == "ws-data":
-                    return [binding_1, binding_2]
-                return []
-
-            bs_cls.return_value.list_bindings_by_workspace.side_effect = list_bindings
+            ws_cls.return_value.get_workspace_sync.side_effect = (
+                lambda ws_id: ws_lookup[ws_id]
+            )
 
             result = engine._build_asset_map_context()
 
@@ -179,17 +213,22 @@ class TestBuildAssetMapContext:
         assert "ws-dispatch" in result
         assert "(current)" in result
         assert "ws-data" in result
+        assert "Identity: Dispatch coordinator" in result
+        assert "Identity: Data operations workspace" in result
+        assert "Data assets (completed):" in result
         assert "IG Followers DB" in result
         assert "Content Library" in result
-        assert "database" in result
-        assert "(no assets registered)" in result
+        assert "(identity lookup unavailable)" not in result
 
     def test_returns_empty_on_exception(self):
         engine = StubEngine()
         engine.workspace.group_id = "grp-001"
-        # Importing will trigger an exception in the try block
-        # since we're not patching the stores; this tests graceful degradation
-        result = engine._build_asset_map_context()
+        with patch(
+            "backend.app.services.stores.postgres.workspaces_store"
+            ".PostgresWorkspacesStore",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = engine._build_asset_map_context()
         assert result == ""
 
     def test_empty_group_no_error(self):
@@ -225,42 +264,34 @@ class TestBuildAssetMapContext:
         engine = StubEngine()
         engine.workspace.group_id = "grp-001"
 
-        mock_group = MagicMock()
-        mock_group.id = "grp-001"
-        mock_group.display_name = "Test Group"
-        mock_group.role_map = {"ws-dispatch": "dispatch"}
+        mock_group = SimpleNamespace(
+            id="grp-001",
+            display_name="Test Group",
+            role_map={"ws-dispatch": "dispatch"},
+        )
 
-        # Discoverable workspace outside the group
-        disco_ws = MagicMock()
-        disco_ws.id = "ws-shared-db"
-        disco_ws.title = "Shared Database"
-
-        disco_binding = MagicMock()
-        disco_binding.resource_id = "shared-pg"
-        disco_binding.overrides = {
-            "display_name": "Shared PostgreSQL",
-            "asset_type": "database",
-        }
+        disco_ws = _make_workspace_card(
+            "ws-shared-db",
+            "Shared Database",
+            persona="Shared data workspace",
+            data_sources={
+                "shared_pg": {
+                    "total_runs": 2,
+                    "last_run": "2026-03-18T09:00:00Z",
+                    "produces": [{"label": "Shared PostgreSQL"}],
+                }
+            },
+        )
 
         with patch(
             "backend.app.services.stores.postgres.workspace_group_store"
             ".PostgresWorkspaceGroupStore"
         ) as pg_cls, patch(
-            "backend.app.services.stores.workspace_resource_binding_store"
-            ".WorkspaceResourceBindingStore"
-        ) as bs_cls, patch(
             "backend.app.services.stores.postgres.workspaces_store"
             ".PostgresWorkspacesStore"
         ) as ws_cls:
             pg_cls.return_value.get.return_value = mock_group
             ws_cls.return_value.list_discoverable_workspaces.return_value = [disco_ws]
-
-            def list_bindings(ws_id, resource_type=None):
-                if ws_id == "ws-shared-db":
-                    return [disco_binding]
-                return []
-
-            bs_cls.return_value.list_bindings_by_workspace.side_effect = list_bindings
 
             result = engine._build_asset_map_context()
 

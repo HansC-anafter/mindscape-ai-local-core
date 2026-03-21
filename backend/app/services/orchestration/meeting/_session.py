@@ -280,12 +280,13 @@ class MeetingSessionMixin:
                                         code = pb.get("code", "")
                                         if not code or code in seen:
                                             continue
-                                        # Check consumes match
+                                        # Check consumes match (supports both
+                                        # bare string and dict {type: ...} forms)
                                         consumes = pb.get("consumes") or []
                                         consumes_types = {
-                                            c.get("type", "")
+                                            (c.get("type", "") if isinstance(c, dict) else c)
                                             for c in consumes
-                                            if isinstance(c, dict)
+                                            if c
                                         }
                                         if consumes_types & available_types:
                                             desc = (pb.get("description") or code)[:60]

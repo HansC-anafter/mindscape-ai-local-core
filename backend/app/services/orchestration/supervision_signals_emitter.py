@@ -45,6 +45,7 @@ class SupervisionSignalsEmitter:
         attempts: List[PhaseAttempt],
         session_start: Optional[datetime] = None,
         historical_stats: Optional[Dict[str, Any]] = None,
+        session_metadata: Optional[Dict[str, Any]] = None,
     ) -> SupervisionSignals:
         """Compute signals from current PhaseAttempt state.
 
@@ -52,6 +53,7 @@ class SupervisionSignalsEmitter:
             attempts: All PhaseAttempts for the current session/TaskIR.
             session_start: When the session started (for age computation).
             historical_stats: Optional dict with 'failure_rate' and 'avg_time_s'.
+            session_metadata: Optional MeetingSession.metadata aggregate.
 
         Returns:
             SupervisionSignals snapshot.
@@ -96,6 +98,35 @@ class SupervisionSignalsEmitter:
             and "UNKNOWN_PLAYBOOK" in (a.error or "")
         )
 
+        metadata = session_metadata if isinstance(session_metadata, dict) else {}
+        policy_gate_meta = (
+            metadata.get("policy_gate")
+            if isinstance(metadata.get("policy_gate"), dict)
+            else {}
+        )
+        try:
+            policy_blocked = max(
+                policy_blocked, int(policy_gate_meta.get("blocked_count", 0) or 0)
+            )
+        except Exception:
+            pass
+
+        correctness_meta = (
+            metadata.get("correctness_signals")
+            if isinstance(metadata.get("correctness_signals"), dict)
+            else {}
+        )
+
+        quality_score = self._coerce_float(
+            correctness_meta.get("quality_score"), default=1.0
+        )
+        acceptance_pass_rate = self._coerce_float(
+            correctness_meta.get("acceptance_pass_rate"), default=1.0
+        )
+        remediation_round = self._coerce_int(
+            correctness_meta.get("remediation_round"), default=0
+        )
+
         return SupervisionSignals(
             risk_budget_remaining=round(risk_remaining, 3),
             retry_budget_remaining=retry_remaining,
@@ -107,4 +138,23 @@ class SupervisionSignalsEmitter:
             session_budget_s=self.session_budget_s,
             policy_blocked_count=policy_blocked,
             unknown_playbook_count=unknown_playbook,
+            quality_score=quality_score,
+            acceptance_pass_rate=acceptance_pass_rate,
+            remediation_round=remediation_round,
         )
+
+    @staticmethod
+    def _coerce_float(value: Any, *, default: float) -> float:
+        """Best-effort float coercion with bounded fallback."""
+        try:
+            return float(value)
+        except Exception:
+            return default
+
+    @staticmethod
+    def _coerce_int(value: Any, *, default: int) -> int:
+        """Best-effort int coercion with bounded fallback."""
+        try:
+            return int(value)
+        except Exception:
+            return default

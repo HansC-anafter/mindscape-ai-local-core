@@ -457,8 +457,8 @@ class TestLayerCProduction:
         assert len(engine._rag_tool_cache) == 2  # existing + t-new1
         # Result should be the improved retry list
         assert result[1]["tool_name"] == "content.gen"
-        # _build_action_items (retry) should have been called
-        engine._build_action_items.assert_awaited_once()
+        # Current Layer-C retries both tool and playbook gap-fill passes
+        assert engine._build_action_items.await_count == 2
 
     @pytest.mark.asyncio
     async def test_skips_when_no_gaps(self):

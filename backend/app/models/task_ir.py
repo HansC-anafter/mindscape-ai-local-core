@@ -93,6 +93,26 @@ class ArtifactReference(BaseModel):
         default_factory=datetime.utcnow, description="Creation timestamp"
     )
 
+    # Optional provenance and evaluation metadata.
+    compiled_prompt_hash: Optional[str] = Field(
+        None, description="Hash of the compiled prompt used to produce this artifact"
+    )
+    output_hash: Optional[str] = Field(
+        None, description="Content hash for deduplication / change detection"
+    )
+    eval_summary: Optional[Dict[str, Any]] = Field(
+        None, description="AcceptanceEvaluator result summary"
+    )
+    provenance_schema_version: Optional[str] = Field(
+        None, description="Schema version of the provenance payload"
+    )
+    approved_by: Optional[str] = Field(
+        None, description="Approver ID (human or automated judge)"
+    )
+    context_attachments: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Evidence provenance attachments from pack pipeline"
+    )
+
     model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
@@ -176,7 +196,7 @@ class PhaseIR(BaseModel):
         description="Indices of action items that must complete before this phase",
     )
 
-    # Phase 2: DispatchOrchestrator attempt tracking
+    # Dispatch attempt tracking.
     latest_attempt_id: Optional[str] = Field(
         None,
         description="ID of the latest PhaseAttempt for this phase",
@@ -218,6 +238,13 @@ class GovernanceContext(BaseModel):
     lens_snapshot_ref: Optional[str] = None
     memory_refs: Optional[List[str]] = None
     handoff_id: Optional[str] = None
+
+    # Optional governance transport fields.
+    trace_id: Optional[str] = None
+    governance_constraints: Optional[Dict[str, Any]] = None
+    requested_output_type: Optional[str] = None
+    human_instructions: Optional[str] = None
+    context_attachments: Optional[List[Dict[str, Any]]] = None
 
 
 class ExecutionMetadata(BaseModel):

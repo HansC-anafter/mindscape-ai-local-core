@@ -16,7 +16,7 @@ def _utc_now():
 
 import uuid
 
-from app.database.config import get_vector_postgres_config
+from backend.app.database.config import get_vector_postgres_config
 from backend.app.models.mindscape import IntentCard, IntentStatus, PriorityLevel
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.mindscape_onboarding import MindscapeOnboardingService
@@ -60,6 +60,7 @@ class PlaybookWebhookHandler:
             "execution_id": execution_id,
             "created_resources": {},
         }
+        post_landing_hook_ran = False
 
         try:
             # Check if this is an onboarding playbook
@@ -76,29 +77,60 @@ class PlaybookWebhookHandler:
                     )
                 )
             else:
-                # Regular playbook completion
+                post_landing_hook_ran = True
                 result.update(
-                    await self._handle_regular_playbook(
-                        execution_id, playbook_code, user_id, output_data
+                    await self.handle_post_landing_completion(
+                        execution_id=execution_id,
+                        playbook_code=playbook_code,
+                        user_id=user_id,
+                        output_data=output_data,
                     )
                 )
 
-            # Observe habits from webhook completion (background, don't block response)
-            try:
-                await self._observe_habits_from_webhook(
-                    profile_id=user_id,
-                    playbook_code=playbook_code,
-                    execution_id=execution_id,
-                    output_data=output_data,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to observe habits from webhook: {e}")
+            if not post_landing_hook_ran:
+                try:
+                    await self._observe_habits_from_webhook(
+                        profile_id=user_id,
+                        playbook_code=playbook_code,
+                        execution_id=execution_id,
+                        output_data=output_data,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to observe habits from webhook: {e}")
 
             return result
 
         except Exception as e:
             logger.error(f"Failed to handle playbook completion: {e}")
             return {"success": False, "error": str(e)}
+
+    async def handle_post_landing_completion(
+        self,
+        *,
+        execution_id: str,
+        playbook_code: str,
+        user_id: str,
+        output_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Run legacy webhook side effects after GovernanceEngine landing."""
+        result = await self._handle_regular_playbook_post_landing(
+            execution_id=execution_id,
+            playbook_code=playbook_code,
+            user_id=user_id,
+            output_data=output_data,
+        )
+
+        try:
+            await self._observe_habits_from_webhook(
+                profile_id=user_id,
+                playbook_code=playbook_code,
+                execution_id=execution_id,
+                output_data=output_data,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to observe habits from webhook: {e}")
+
+        return result
 
     async def _handle_task2_completion(
         self, execution_id: str, user_id: str, output_data: Dict[str, Any]
@@ -207,24 +239,22 @@ class PlaybookWebhookHandler:
             ),
         }
 
-    async def _handle_regular_playbook(
+    async def _handle_regular_playbook_post_landing(
         self,
         execution_id: str,
         playbook_code: str,
         user_id: str,
         output_data: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Handle regular (non-onboarding) playbook completion"""
-        logger.info(f"Handling regular playbook: {playbook_code}")
-
-        # TODO: Implement regular playbook handling
-        # - Extract seeds from output
-        # - Create/update intent cards if needed
-        # - Generate suggestions
+        """Legacy post-landing hook for regular playbooks."""
+        logger.info(
+            "Handling legacy post-landing hook for regular playbook: %s",
+            playbook_code,
+        )
 
         return {
             "created_resources": {},
-            "message": "Regular playbook handling not yet implemented",
+            "message": "Regular playbook post-landing hook is currently a no-op adapter",
         }
 
     async def _create_seeds_from_insights(

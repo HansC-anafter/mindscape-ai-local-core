@@ -22,6 +22,7 @@ from .execution_dispatch import (
     resolve_and_acquire_backend,
     release_backend,
 )
+from .execution_metadata import resolve_runner_metadata, should_route_through_runner
 
 logger = logging.getLogger(__name__)
 
@@ -160,18 +161,27 @@ async def rerun_playbook_execution(
                 )
             finally:
                 release_backend(pool_acquired_backend)
+        playbook_run = await playbook_executor.playbook_service.load_playbook_run(
+            playbook_code=playbook_code,
+            locale="zh-TW",
+            workspace_id=workspace_id,
+        )
+        runner_metadata = resolve_runner_metadata(playbook_run)
+
         # If backend is configured for runner (or caller explicitly prefers runner), enqueue workflow-json playbooks.
         exec_mode = get_execution_mode()
-        prefer_runner = final_execution_backend == "runner" or (
-            final_execution_backend == "auto" and exec_mode == "runner"
+        prefer_runner = should_route_through_runner(
+            playbook_run=playbook_run,
+            requested_backend=final_execution_backend,
+            env_execution_mode=exec_mode,
         )
-        force_in_process = final_execution_backend == "in_process"
-        if prefer_runner and not force_in_process:
-            playbook_run = await playbook_executor.playbook_service.load_playbook_run(
-                playbook_code=playbook_code,
-                locale="zh-TW",
-                workspace_id=workspace_id,
+        if prefer_runner and final_execution_backend == "in_process":
+            logger.warning(
+                "Ignoring execution_backend=in_process for runner-only playbook %s rerun",
+                playbook_code,
             )
+            final_execution_backend = "runner"
+        if prefer_runner:
             if (
                 playbook_run
                 and playbook_run.get_execution_mode() == "workflow"
@@ -189,39 +199,6 @@ async def rerun_playbook_execution(
                     normalized_inputs["project_id"] = project_id
                 if profile_id and "profile_id" not in normalized_inputs:
                     normalized_inputs["profile_id"] = profile_id
-
-                # ── Extract spec-level configs (mirrors playbook_execution.py) ──
-                concurrency_config = None
-                if (
-                    playbook_run.playbook_json
-                    and playbook_run.playbook_json.concurrency
-                ):
-                    c = playbook_run.playbook_json.concurrency
-                    if isinstance(c, dict) and c.get("lock_key_input"):
-                        concurrency_config = c
-
-                runner_timeout_seconds = None
-                import os as _os
-                if (
-                    playbook_run.playbook_json
-                    and playbook_run.playbook_json.execution_profile
-                ):
-                    ep = playbook_run.playbook_json.execution_profile
-                    raw_timeout = ep.get("runner_timeout_seconds")
-                    if isinstance(raw_timeout, (int, float)) and raw_timeout > 0:
-                        max_ceiling = int(
-                            _os.environ.get(
-                                "LOCAL_CORE_RUNNER_MAX_TIMEOUT_SECONDS", "43200"
-                            )
-                        )
-                        runner_timeout_seconds = min(int(raw_timeout), max_ceiling)
-
-                lifecycle_hooks_config = None
-                if (
-                    playbook_run.playbook_json
-                    and playbook_run.playbook_json.lifecycle_hooks
-                ):
-                    lifecycle_hooks_config = playbook_run.playbook_json.lifecycle_hooks
 
                 from backend.app.models.workspace import Task, TaskStatus
 
@@ -260,21 +237,7 @@ async def rerun_playbook_execution(
                             "project_id": project_id,
                             "profile_id": profile_id,
                             "total_steps": total_steps,
-                            **(
-                                {"concurrency": concurrency_config}
-                                if concurrency_config
-                                else {}
-                            ),
-                            **(
-                                {"runner_timeout_seconds": runner_timeout_seconds}
-                                if runner_timeout_seconds
-                                else {}
-                            ),
-                            **(
-                                {"lifecycle_hooks": lifecycle_hooks_config}
-                                if lifecycle_hooks_config
-                                else {}
-                            ),
+                            **runner_metadata,
                         },
                         created_at=_utc_now(),
                         started_at=None,

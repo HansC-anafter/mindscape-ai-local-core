@@ -36,7 +36,10 @@ from backend.app.services.playbook_service import PlaybookService
 from backend.app.services.playbook_initializer import PlaybookInitializer
 from backend.app.services.playbook_checkpoint_manager import PlaybookCheckpointManager
 from backend.app.services.playbook_phase_manager import PlaybookPhaseManager
-from backend.app.models.execution_metadata import ExecutionMetadata
+from backend.app.models.execution_metadata import (
+    ExecutionMetadata,
+    extract_governance_payload,
+)
 from backend.app.models.workspace import PlaybookExecution
 from backend.app.services.runtime.runtime_factory import RuntimeFactory
 from backend.app.services.runtime.simple_runtime import SimpleRuntime
@@ -562,6 +565,24 @@ class PlaybookRunExecutor:
                             result if isinstance(result, dict) else None,
                         )
 
+                        canonical_workflow_result = (
+                            result
+                            if isinstance(result, dict)
+                            else {
+                                "status": (
+                                    "failed"
+                                    if workflow_failed
+                                    else (
+                                        runtime_result.status
+                                        if runtime_result
+                                        else "failed"
+                                    )
+                                ),
+                                "step_outputs": step_outputs_payload,
+                                "outputs": outputs_payload,
+                            }
+                        )
+
                         execution_context_dict = {
                             "playbook_code": playbook_code,
                             "playbook_name": playbook_name,
@@ -587,22 +608,7 @@ class PlaybookRunExecutor:
                             "workspace_id": workspace_id,
                             "project_id": project_id,
                             "profile_id": profile_id,
-                            "step_outputs": step_outputs_payload,
-                            "outputs": outputs_payload,
-                            "result": result,
-                            "workflow_result": {
-                                "status": (
-                                    "failed"
-                                    if workflow_failed
-                                    else (
-                                        runtime_result.status
-                                        if runtime_result
-                                        else "failed"
-                                    )
-                                ),
-                                "step_outputs": step_outputs_payload,
-                                "outputs": outputs_payload,
-                            },
+                            "workflow_result": canonical_workflow_result,
                         }
                         try:
                             backend_hint = (
@@ -1138,8 +1144,13 @@ class PlaybookRunExecutor:
             else 1
         )
 
+        governance_payload = (
+            extract_governance_payload(inputs) if isinstance(inputs, dict) else None
+        )
+
         execution_metadata = ExecutionMetadata()
         execution_metadata.set_execution_context(playbook_code=playbook_code)
+        execution_metadata.set_governance(governance_payload)
 
         if self.executions_store:
             execution_record = PlaybookExecution(
@@ -1207,6 +1218,8 @@ class PlaybookRunExecutor:
             ),
             "thread_id": inputs.get("thread_id") if isinstance(inputs, dict) else None,
         }
+        if governance_payload:
+            execution_context["governance"] = dict(governance_payload)
         if execution_backend_hint:
             execution_context["execution_backend_hint"] = execution_backend_hint
 
@@ -1298,7 +1311,6 @@ class PlaybookRunExecutor:
                         if isinstance(result.get("checkpoint"), dict)
                         else None
                     )
-                    execution_context["result"] = result
                     existing = tasks_store.get_task(task.id)
                     merged_ctx = (
                         dict(existing.execution_context)
@@ -1322,9 +1334,6 @@ class PlaybookRunExecutor:
                 execution_context["status"] = "failed" if workflow_failed else "completed"
                 execution_context["current_step_index"] = total_steps
                 execution_context["workflow_result"] = result
-                execution_context["step_outputs"] = result.get("step_outputs", {})
-                execution_context["outputs"] = result.get("outputs", {})
-                execution_context["result"] = result
                 completed_at = _utc_now()
                 existing = tasks_store.get_task(task.id)
                 merged_ctx = (
@@ -1344,10 +1353,10 @@ class PlaybookRunExecutor:
                         else None
                     ),
                 )
-                # Land result artifacts (result.json + summary.md) to disk
+                # Land result artifacts through GovernanceEngine.
                 try:
-                    from backend.app.services.task_result_landing import (
-                        TaskResultLandingService,
+                    from backend.app.services.orchestration.governance_engine import (
+                        GovernanceEngine,
                     )
                     from backend.app.services.mindscape_store import MindscapeStore
 
@@ -1356,20 +1365,21 @@ class PlaybookRunExecutor:
                     storage_path = (
                         getattr(ws, "storage_base_path", None) if ws else None
                     )
-                    landing = TaskResultLandingService()
-                    landing.land_result(
+                    governance = GovernanceEngine()
+                    governance.process_completion(
                         workspace_id=workspace_id,
                         execution_id=execution_id,
                         result_data=result or {},
                         storage_base_path=storage_path,
                         project_id=project_id,
+                        playbook_code=playbook_code,
                     )
                     logger.info(
-                        f"PlaybookRunExecutor: Landed result artifacts for {execution_id}"
+                        f"PlaybookRunExecutor: Landed result via GovernanceEngine for {execution_id}"
                     )
                 except Exception as land_err:
                     logger.warning(
-                        f"PlaybookRunExecutor: Result landing failed (non-fatal): {land_err}"
+                        f"PlaybookRunExecutor: GovernanceEngine landing failed (non-fatal): {land_err}"
                     )
             except Exception as e:
                 from backend.app.shared.error_handler import parse_api_error

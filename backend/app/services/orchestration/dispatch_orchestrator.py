@@ -1,8 +1,8 @@
 """
 DispatchOrchestrator — DAG walker with dependency gating.
 
-Replaces BridgeDispatcher (Phase 1) with a proper DAG-walking dispatcher
-that tracks PhaseAttempts, respects dependency ordering, and writes
+Replaces BridgeDispatcher with a proper DAG-walking dispatcher that
+tracks PhaseAttempts, respects dependency ordering, and writes
 projection records for backward-compatible task queries.
 
 Design:
@@ -57,6 +57,8 @@ class DispatchOrchestrator:
         skip_policy: str = "skip_on_dep_failure",
         on_wave_complete=None,
         lens_injector=None,
+        handoff_registry_store=None,
+        pack_dispatch_adapter=None,
     ):
         self.execution_launcher = execution_launcher
         self.tasks_store = tasks_store
@@ -65,18 +67,24 @@ class DispatchOrchestrator:
         self.project_id = project_id
         self.skip_policy = skip_policy
 
-        # G3: Optional supervisor callback after each wave
+        # Optional supervisor callback after each wave.
         # Signature: async (wave_summary, task_ir) -> Optional[List[PhaseIR]]
         self._on_wave_complete = on_wave_complete
 
-        # PhaseAttempt tracking (phase_id → latest attempt)
+        # PhaseAttempt tracking (phase_id -> latest attempt).
         self._attempts: Dict[str, PhaseAttempt] = {}
 
-        # G1: Phase result tracking for artifact pipeline
+        # Result tracking for the artifact pipeline.
         self._phase_results: Dict[str, Dict[str, Any]] = {}
 
-        # G4: Optional lens injector for per-phase persona context
+        # Optional lens injector for per-phase persona context.
         self._lens_injector = lens_injector
+
+        # Optional idempotency registry (fail-open if unavailable).
+        self._handoff_registry_store = handoff_registry_store
+
+        # Optional spec-aware dispatch adapter.
+        self._pack_dispatch_adapter = pack_dispatch_adapter
 
     # ------------------------------------------------------------------
     # Public API
@@ -316,6 +324,24 @@ class DispatchOrchestrator:
         """Dispatch a single phase, creating a PhaseAttempt."""
         attempt = self._create_attempt(phase, task_ir_id)
 
+        # Idempotency guard runs before mark_dispatched() to keep
+        # attempt state clean.
+        if self._handoff_registry_store:
+            registered = self._handoff_registry_store.register_attempt(
+                idempotency_key=attempt.idempotency_key,
+                task_ir_id=attempt.task_ir_id,
+                phase_id=attempt.phase_id,
+                attempt_number=attempt.attempt_number,
+            )
+            if not registered:
+                attempt.mark_skipped("duplicate_dispatch_intercepted")
+                logger.warning(
+                    "Dispatch for %s blocked by idempotency guard (key=%s)",
+                    phase.id,
+                    attempt.idempotency_key,
+                )
+                return {"status": "skipped", "reason": "idempotency_conflict"}
+
         # G1: Inject upstream phase results into downstream phase
         if phase.depends_on:
             upstream_context = {}
@@ -536,6 +562,22 @@ class DispatchOrchestrator:
         if isinstance(extra_params, dict):
             inputs.update(extra_params)
 
+        # Apply spec-aware field mapping through PackDispatchAdapter.
+        if self._pack_dispatch_adapter:
+            try:
+                inputs = self._pack_dispatch_adapter.prepare_handoff(
+                    playbook_code=playbook_code,
+                    raw_inputs=inputs,
+                    phase=None,  # phase object not passed to this method
+                    action_item=action_item,
+                    session=self.session,
+                    profile_id=self.profile_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "PackDispatchAdapter.prepare_handoff failed (non-fatal): %s", exc
+                )
+
         # v3.1: Resolve per-agent model from capability_profile
         _cap_profile = action_item.get("capability_profile")
         if _cap_profile:
@@ -563,6 +605,11 @@ class DispatchOrchestrator:
             actor_id=self.profile_id,
             workspace_id=target_workspace_id,
         )
+        trace_id = (
+            inputs.get("trace_id")
+            if isinstance(inputs.get("trace_id"), str) and inputs.get("trace_id")
+            else str(_uuid.uuid4())
+        )
 
         try:
             result = await self.execution_launcher.launch(
@@ -570,7 +617,7 @@ class DispatchOrchestrator:
                 inputs=inputs,
                 ctx=ctx,
                 project_id=self.project_id,
-                trace_id=str(_uuid.uuid4()),
+                trace_id=trace_id,
             )
 
             execution_id = result.get("execution_id")

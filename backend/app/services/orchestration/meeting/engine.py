@@ -215,6 +215,41 @@ class MeetingEngine(
                 route_decision=None,  # caller can pass via execution_context
             )
 
+    def _get_handoff_registry_store(self):
+        """Lazily instantiate HandoffRegistryStore for idempotency guard.
+
+        Returns None if the store cannot be imported (fail-open at
+        construction time — the store itself is fail-close at INSERT time).
+        """
+        try:
+            from backend.app.services.stores.handoff_registry_store import (
+                HandoffRegistryStore,
+            )
+            return HandoffRegistryStore()
+        except Exception as exc:
+            logger.warning(
+                "MeetingEngine: HandoffRegistryStore unavailable, "
+                "idempotency guard disabled: %s",
+                exc,
+            )
+            return None
+
+    def _get_pack_dispatch_adapter(self):
+        """Lazily instantiate PackDispatchAdapter for spec-aware dispatch.
+
+        Returns None if the adapter cannot be imported.
+        """
+        try:
+            from backend.app.services.orchestration.pack_dispatch_adapter import (
+                PackDispatchAdapter,
+            )
+            return PackDispatchAdapter()
+        except Exception as exc:
+            logger.warning(
+                "MeetingEngine: PackDispatchAdapter unavailable: %s", exc
+            )
+            return None
+
     async def _emit_meeting_stage(self, stage: str, message: str) -> None:
         """Publish a meeting stage indicator via Redis for frontend display."""
         try:
@@ -641,14 +676,23 @@ class MeetingEngine(
                 WorkspaceResourceBindingStore,
             )
 
-            check_dispatch_policy(
+            policy_gate_report = check_dispatch_policy(
                 action_items,
                 workspace_id=self.session.workspace_id,
                 available_playbooks_cache=getattr(
                     self, "_available_playbooks_cache", ""
                 ),
                 binding_store=WorkspaceResourceBindingStore(),
+                workspace_data_sources=(
+                    getattr(getattr(self, "workspace", None), "data_sources", None)
+                    or {}
+                ),
+                contract_gate_mode=getattr(self, "_contract_gate_mode", "auto"),
+                session_metadata=self.session.metadata,
             )
+            if self.session.metadata is None:
+                self.session.metadata = {}
+            self.session.metadata["policy_gate"] = policy_gate_report
         except Exception as exc:
             logger.warning("Policy gate check failed (non-fatal): %s", exc)
 
@@ -703,13 +747,18 @@ class MeetingEngine(
             real_signals = emitter.compute(
                 attempts=session_attempts,
                 session_start=session_start,
+                session_metadata=self.session.metadata or {},
             )
             logger.debug(
                 "L5→L3 signals: risk_remaining=%.2f retries=%d failure_rate=%.2f "
+                "quality=%.2f acceptance=%.2f remediation_round=%d "
                 "session_age=%.0fs budget_pressure=%s",
                 real_signals.risk_budget_remaining,
                 real_signals.retry_budget_remaining,
                 real_signals.historical_failure_rate,
+                real_signals.quality_score,
+                real_signals.acceptance_pass_rate,
+                real_signals.remediation_round,
                 real_signals.session_age_s,
                 real_signals.budget_pressure_high,
             )
@@ -823,6 +872,8 @@ class MeetingEngine(
             profile_id=self.profile_id,
             project_id=self.project_id,
             on_wave_complete=_on_wave_complete,
+            handoff_registry_store=self._get_handoff_registry_store(),
+            pack_dispatch_adapter=self._get_pack_dispatch_adapter(),
         )
         dispatch_result = await orchestrator.execute(
             task_ir=compiled_ir,
