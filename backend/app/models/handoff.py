@@ -53,8 +53,23 @@ class HandoffIn(BaseModel):
     non_goals: Optional[List[str]] = None
     deliverables: List[DeliverableSpec] = Field(default_factory=list)
     constraints: Optional[HandoffConstraints] = None
-    acceptance_tests: Optional[List[str]] = None
+    acceptance_tests: Optional[List[str]] = None  # Deprecated: use GovernanceContext.acceptance_tests
     risk_notes: Optional[List[str]] = None
+
+    # Optional governance transport fields.
+    trace_id: Optional[str] = Field(None, description="End-to-end trace identifier")
+    governance_constraints: Optional[Dict[str, Any]] = Field(
+        None, description="Typed governance constraints for downstream engines"
+    )
+    requested_output_type: Optional[str] = Field(
+        None, description="Expected output MIME type (e.g. text/markdown)"
+    )
+    human_instructions: Optional[str] = Field(
+        None, description="Free-form human instructions for the pack"
+    )
+    context_attachments: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Evidence / provenance attachments passed to downstream"
+    )
     deadline: Optional[datetime] = None
     assets: List[str] = Field(
         default_factory=list, description="Input artifact references"

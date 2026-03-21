@@ -42,9 +42,20 @@ class MigrationScanner:
                 with open(migrations_yaml, 'r') as f:
                     data = yaml.safe_load(f)
 
+                db_type = data.get('db')
+                if not db_type:
+                    # Older capability metadata omitted `db`; runtime only supports
+                    # PostgreSQL-backed capability migrations today, so default
+                    # explicitly instead of failing the whole scan.
+                    db_type = 'postgres'
+                    logger.warning(
+                        "migrations.yaml missing db for %s; defaulting to postgres",
+                        capability_dir.name,
+                    )
+
                 metadata = MigrationMetadata(
                     capability_code=capability_dir.name,
-                    db_type=data['db'],
+                    db_type=db_type,
                     revisions=data.get('revisions', []),
                     depends_on=data.get('depends_on', []),
                     migration_paths=data.get('migration_paths', [])
@@ -73,4 +84,3 @@ class MigrationScanner:
             pass
 
         return migration_files
-

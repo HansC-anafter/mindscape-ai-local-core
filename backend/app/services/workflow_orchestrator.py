@@ -1105,32 +1105,32 @@ class WorkflowOrchestrator:
                 # Don't fail the execution if artifact creation fails
 
             # Preserve sandbox_id in execution_context if available
-            logger.error(
-                f"🔍 Preserve sandbox_id check: sandbox_id={sandbox_id}, execution_id={execution_id}, workspace_id={workspace_id}"
+            logger.debug(
+                f"Preserve sandbox_id check: sandbox_id={sandbox_id}, execution_id={execution_id}, workspace_id={workspace_id}"
             )
             if sandbox_id and execution_id and workspace_id:
                 try:
                     from backend.app.services.stores.tasks_store import TasksStore
 
                     tasks_store = TasksStore()
-                    logger.error(f"🔍 Getting task by execution_id: {execution_id}")
+                    logger.debug(f"Getting task by execution_id: {execution_id}")
                     task = tasks_store.get_task_by_execution_id(execution_id)
-                    logger.error(f"🔍 Task found: {task is not None}")
+                    logger.debug(f"Task found: {task is not None}")
                     if task:
                         execution_context = task.execution_context or {}
                         execution_context["sandbox_id"] = sandbox_id
-                        logger.error(
-                            f"🔍 Updating task {task.id} with sandbox_id={sandbox_id}"
+                        logger.debug(
+                            f"Updating task {task.id} with sandbox_id={sandbox_id}"
                         )
                         tasks_store.update_task(
                             task.id, execution_context=execution_context
                         )
-                        logger.error(
-                            f"🔍 WorkflowOrchestrator: Preserved sandbox_id={sandbox_id} in execution_context for execution {execution_id}"
+                        logger.debug(
+                            f"WorkflowOrchestrator: Preserved sandbox_id={sandbox_id} in execution_context for execution {execution_id}"
                         )
                     else:
-                        logger.error(
-                            f"🔍 Task not found for execution_id: {execution_id}"
+                        logger.debug(
+                            f"Task not found for execution_id: {execution_id}"
                         )
                 except Exception as e:
                     logger.error(
@@ -1138,7 +1138,7 @@ class WorkflowOrchestrator:
                         exc_info=True,
                     )
             else:
-                logger.error(
+                logger.debug(
                     f"🔍 Skipping sandbox_id preservation: sandbox_id={sandbox_id}, execution_id={execution_id}, workspace_id={workspace_id}"
                 )
 

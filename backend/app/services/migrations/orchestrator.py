@@ -4,9 +4,12 @@ import logging
 import subprocess
 import os
 import sys
-from typing import List, Dict, Optional
+from typing import List, Dict
 from pathlib import Path
 from enum import Enum
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from .scanner import MigrationScanner, MigrationMetadata
 from .dependency_resolver import DependencyResolver
@@ -54,14 +57,26 @@ class MigrationOrchestrator:
         except ValueError as e:
             return {"status": "error", "error": str(e)}
 
-        # Get current revision from Alembic
-        current_revision = self._get_current_revision(db_type)
+        # Alembic stores current heads in alembic_version, not every historical
+        # revision that has already been traversed. Build the full applied
+        # ancestry from the current heads before deciding what is still pending.
+        current_revisions = set(self._get_current_revisions(db_type))
+        applied_revisions = self._get_applied_revisions(db_type, current_revisions)
+        runtime_known_revisions = self._get_runtime_known_revisions(db_type)
 
         # Build migration plan
         plan = []
+        ignored = []
         for metadata in sorted_metadata:
             for revision in metadata.revisions:
-                if revision != current_revision:
+                if runtime_known_revisions and revision not in runtime_known_revisions:
+                    ignored.append({
+                        "capability": metadata.capability_code,
+                        "revision": revision,
+                        "status": "not_in_runtime_scripts",
+                    })
+                    continue
+                if revision not in applied_revisions:
                     plan.append({
                         "capability": metadata.capability_code,
                         "revision": revision,
@@ -70,8 +85,11 @@ class MigrationOrchestrator:
 
         return {
             "status": "success",
-            "current_revision": current_revision,
-            "migrations": plan
+            "current_revision": self._format_current_revisions(current_revisions),
+            "current_revisions": sorted(current_revisions),
+            "applied_revisions": sorted(applied_revisions),
+            "migrations": plan,
+            "ignored_migrations": ignored,
         }
 
     def apply(self, db_type: str, dry_run: bool = False) -> Dict:
@@ -131,67 +149,126 @@ class MigrationOrchestrator:
 
     def status(self, db_type: str) -> Dict:
         """Get migration status for a database type."""
-        current_revision = self._get_current_revision(db_type)
+        current_revisions = set(self._get_current_revisions(db_type))
         plan_result = self.dry_run(db_type)
 
         return {
             "db_type": db_type,
-            "current_revision": current_revision,
+            "current_revision": self._format_current_revisions(current_revisions),
+            "current_revisions": sorted(current_revisions),
             "pending_migrations": len(plan_result.get("migrations", [])),
             "migration_plan": plan_result
         }
 
-    def _get_current_revision(self, db_type: str) -> Optional[str]:
-        """Get current Alembic revision for a database."""
-        alembic_config = self.alembic_configs[db_type]
+    def _format_current_revisions(self, revisions: set[str]) -> str | None:
+        if not revisions:
+            return None
+        if len(revisions) == 1:
+            return next(iter(revisions))
+        return ", ".join(sorted(revisions))
+
+    def _get_current_revisions(self, db_type: str) -> list[str]:
+        """Get live Alembic revisions from the target database."""
         try:
-            # Use Python API instead of command line
-            import sys
-            import site
-            import importlib.util
-            from pathlib import Path
+            from sqlalchemy import create_engine, text
 
-            # Remove /app/backend from path to avoid local alembic directory conflict
-            original_path = sys.path[:]
-            backend_path = str(Path(alembic_config).parent)
+            if db_type == "postgres":
+                from app.database.config import get_postgres_url_core
 
-            while backend_path in sys.path:
-                sys.path.remove(backend_path)
+                db_url = get_postgres_url_core()
+            elif db_type == "sqlite":
+                backend_dir = Path(__file__).parent.parent.parent.parent
+                db_url = f"sqlite:///{(backend_dir.parent / 'data' / 'mindscape.db').absolute()}"
+            else:
+                logger.warning(f"Unsupported db_type for revision lookup: {db_type}")
+                return []
 
-            # Ensure site-packages is first
-            site_packages = site.getsitepackages()
-            for sp in site_packages:
-                if sp in sys.path:
-                    sys.path.remove(sp)
-                sys.path.insert(0, sp)
-
-            # Also ensure backend is in path for app imports in env.py
-            if backend_path not in sys.path:
-                sys.path.insert(0, backend_path)
-
-            try:
-                spec = importlib.util.find_spec('alembic')
-                if spec and spec.origin and '/app/backend/alembic' not in spec.origin:
-                    from alembic.config import Config
-                    from alembic.script import ScriptDirectory
-
-                    import os
-                    old_cwd = os.getcwd()
-                    os.chdir(str(Path(alembic_config).parent))
-                    try:
-                        config = Config(str(alembic_config))
-                        script = ScriptDirectory.from_config(config)
-                        current = script.get_current_head()
-                    finally:
-                        os.chdir(old_cwd)
-
-                    return current
-                else:
-                    raise ImportError(f"Could not find alembic in site-packages")
-            finally:
-                sys.path[:] = original_path
+            engine = create_engine(db_url)
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    text("SELECT version_num FROM alembic_version ORDER BY version_num")
+                ).fetchall()
+            return [str(row[0]) for row in rows]
         except Exception as e:
-            logger.warning(f"Could not get current revision for {db_type}: {e}")
+            logger.warning(f"Could not get current revisions for {db_type}: {e}")
+            return []
+
+    def _get_runtime_known_revisions(self, db_type: str) -> set[str]:
+        script_dir = self._load_script_directory(db_type)
+        if script_dir is None:
+            return set()
+
+        try:
+            return {
+                rev.revision
+                for rev in script_dir.walk_revisions()
+                if getattr(rev, "revision", None)
+            }
+        except Exception as e:
+            logger.warning(f"Could not enumerate runtime revisions for {db_type}: {e}")
+            return set()
+
+    def _get_applied_revisions(self, db_type: str, current_heads: set[str] | None = None) -> set[str]:
+        current_heads = set(current_heads or self._get_current_revisions(db_type))
+        if not current_heads:
+            return set()
+
+        script_dir = self._load_script_directory(db_type)
+        if script_dir is None:
+            return current_heads
+
+        applied: set[str] = set()
+        for head in current_heads:
+            try:
+                for rev in script_dir.iterate_revisions(head, "base"):
+                    revision = getattr(rev, "revision", None)
+                    if revision:
+                        applied.add(revision)
+            except Exception as e:
+                logger.warning(
+                    "Could not resolve revision ancestry for %s head %s: %s",
+                    db_type,
+                    head,
+                    e,
+                )
+                applied.add(head)
+        return applied
+
+    def _load_script_directory(self, db_type: str) -> ScriptDirectory | None:
+        alembic_config = self.alembic_configs.get(db_type)
+        if alembic_config is None:
+            logger.warning(f"No alembic config registered for db_type {db_type}")
+            return None
+
+        try:
+            config = Config(alembic_config.as_posix())
+
+            script_location = config.get_main_option("script_location")
+            if script_location and not Path(script_location).is_absolute():
+                config.set_main_option(
+                    "script_location",
+                    (alembic_config.parent / script_location).resolve().as_posix(),
+                )
+
+            version_locations = config.get_main_option("version_locations")
+            if version_locations:
+                resolved_locations = []
+                for location in version_locations.split(os.pathsep):
+                    location = location.strip()
+                    if not location:
+                        continue
+                    if Path(location).is_absolute():
+                        resolved_locations.append(location)
+                    else:
+                        resolved_locations.append(
+                            (alembic_config.parent / location).resolve().as_posix()
+                        )
+                if resolved_locations:
+                    config.set_main_option("version_locations", os.pathsep.join(resolved_locations))
+
+            return ScriptDirectory.from_config(config)
+        except Exception as e:
+            logger.warning(f"Could not load script directory for {db_type}: {e}")
             return None
 
     def _run_alembic_upgrade(self, alembic_config: Path, revision: str) -> bool:

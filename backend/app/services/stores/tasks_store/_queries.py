@@ -360,7 +360,10 @@ class TasksStoreQueryMixin:
             return [self._row_to_task(row) for row in rows]
 
     def list_runnable_playbook_execution_tasks(
-        self, workspace_id: Optional[str] = None, limit: int = 1
+        self,
+        workspace_id: Optional[str] = None,
+        limit: int = 500,
+        queue_shard: Optional[str] = None,
     ) -> List[Task]:
         from datetime import timezone
         query_parts = [
@@ -369,8 +372,7 @@ class TasksStoreQueryMixin:
             FROM tasks
             WHERE task_type IN (:task_type_pb, :task_type_tool)
             AND status = :status
-            AND (execution_context->>'resume_after' IS NULL 
-                 OR CAST(execution_context->>'resume_after' AS timestamptz) <= :now)
+            AND next_eligible_at <= :now
             """
         ]
         params: Dict[str, Any] = {
@@ -384,7 +386,11 @@ class TasksStoreQueryMixin:
             query_parts.append("AND workspace_id = :workspace_id")
             params["workspace_id"] = workspace_id
 
-        query_parts.append("ORDER BY created_at ASC, id ASC")
+        if queue_shard:
+            query_parts.append("AND COALESCE(queue_shard, 'default') = :queue_shard")
+            params["queue_shard"] = queue_shard
+
+        query_parts.append("ORDER BY next_eligible_at ASC, created_at ASC, id ASC")
         query_parts.append("LIMIT :limit")
         params["limit"] = limit
 

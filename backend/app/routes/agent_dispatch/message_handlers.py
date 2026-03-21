@@ -300,15 +300,9 @@ class MessageHandlersMixin:
         except Exception:
             logger.exception(f"[AgentWS] DB write failed for WS result {execution_id}")
 
-        # Land result to workspace filesystem (best-effort)
+        # Land result to workspace filesystem via GovernanceEngine (best-effort)
         try:
-            from app.services.task_result_landing import TaskResultLandingService
-            from app.services.stores.postgres.workspaces_store import (
-                PostgresWorkspacesStore,
-            )
-
             if workspace_id:
-                ws_store = PostgresWorkspacesStore()
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
                     # Schedule as a background task
@@ -377,9 +371,11 @@ class MessageHandlersMixin:
         thread_id: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> None:
-        """Land WS result to workspace filesystem (async helper)."""
+        """Land a WebSocket result via GovernanceEngine."""
         try:
-            from app.services.task_result_landing import TaskResultLandingService
+            from backend.app.services.orchestration.governance_engine import (
+                GovernanceEngine,
+            )
             from app.services.stores.postgres.workspaces_store import (
                 PostgresWorkspacesStore,
             )
@@ -389,8 +385,8 @@ class MessageHandlersMixin:
             storage_base = getattr(ws, "storage_base_path", None) if ws else None
             artifacts_dir = getattr(ws, "artifacts_dir", None) or "artifacts"
 
-            landing = TaskResultLandingService()
-            landing.land_result(
+            governance = GovernanceEngine()
+            governance.process_completion(
                 workspace_id=workspace_id,
                 execution_id=execution_id,
                 result_data=result,
@@ -400,13 +396,13 @@ class MessageHandlersMixin:
                 project_id=project_id,
             )
             logger.info(
-                f"[AgentWS] WS result landed for {execution_id} "
+                f"[AgentWS] WS result landed via GovernanceEngine for {execution_id} "
                 f"(storage={storage_base or 'DB-only'}, "
                 f"thread_id={thread_id or 'none'}, "
                 f"project_id={project_id or 'none'})"
             )
         except Exception:
             logger.exception(
-                f"[AgentWS] WS result landing failed for {execution_id} "
+                f"[AgentWS] GovernanceEngine WS result landing failed for {execution_id} "
                 f"(non-blocking)"
             )

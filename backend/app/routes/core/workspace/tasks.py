@@ -6,52 +6,6 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional, Any
 
-from sqlalchemy import text as _sa_text
-
-
-# ── Queue Position Cache (process-wide singleton) ──
-
-_QUEUE_RANK_SQL = """
-SELECT id,
-       COALESCE(pack_id, 'default') as pack_group,
-       ROW_NUMBER() OVER (PARTITION BY COALESCE(pack_id, 'default') ORDER BY created_at ASC, id ASC) as queue_position,
-       COUNT(*) OVER (PARTITION BY COALESCE(pack_id, 'default')) as queue_total
-FROM tasks
-WHERE status = 'pending'
-  AND task_type IN ('playbook_execution', 'tool_execution')
-  AND (execution_context->>'resume_after' IS NULL
-       OR CAST(execution_context->>'resume_after' AS timestamptz) <= NOW())
-"""
-
-
-class _QueuePositionCache:
-    """Process-wide cache for queue positions. Shared across all SSE pollers."""
-    def __init__(self):
-        self._positions: dict[str, int] = {}
-        self._totals: dict[str, int] = {}
-        self._updated: float = 0.0
-
-    def refresh_if_stale(self, tasks_store, max_age: float = 3.0) -> None:
-        if time.monotonic() - self._updated < max_age:
-            return
-        try:
-            with tasks_store.get_connection() as conn:
-                rows = conn.execute(_sa_text(_QUEUE_RANK_SQL)).fetchall()
-                self._positions = {str(r[0]): int(r[2]) for r in rows}
-                self._totals = {str(r[1]): int(r[3]) for r in rows if r[1]}
-                self._updated = time.monotonic()
-        except Exception:
-            pass  # Keep stale cache on error
-
-    def get_position(self, task_id: str) -> Optional[int]:
-        return self._positions.get(task_id)
-
-    def get_total(self, pack_id: str) -> int:
-        return self._totals.get(pack_id, 0)
-
-
-_QUEUE_CACHE = _QueuePositionCache()
-
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -63,8 +17,10 @@ from fastapi import (
 from pydantic import BaseModel, Field
 
 from ....services.mindscape_store import MindscapeStore
+from ....services.queue_position_cache import QUEUE_CACHE as _QUEUE_CACHE
 from ....services.stores.tasks_store import TasksStore
 from ....services.stores.task_feedback_store import TaskFeedbackStore
+from ..execution_ordering import build_execution_order_clause
 from ....models.workspace import (
     TaskFeedback,
     TaskFeedbackAction,
@@ -255,8 +211,8 @@ async def _execution_stream_poller(
                 "type": "progress",
                 "status": task.status,
                 "progress": progress,
-                "queue_position": _QUEUE_CACHE.get_position(task.id or ""),
-                "queue_total": _QUEUE_CACHE.get_total(task.pack_id or ""),
+                "queue_position": _QUEUE_CACHE.get_position(tasks_store, task),
+                "queue_total": _QUEUE_CACHE.get_total(task.queue_shard or "default"),
                 "dependency_hold": ctx.get("dependency_hold"),
                 "heartbeat_at": ctx.get("heartbeat_at"),
                 "runner_id": ctx.get("runner_id"),
@@ -450,15 +406,10 @@ async def get_workspace_executions(
             query_parts.append("AND pack_id LIKE :pack_prefix")
             params["pack_prefix"] = f"{playbook_code_prefix}%"
 
-        safe_order = "DESC" if order.lower() == "desc" else "ASC"
-        safe_col = "created_at"
-        if order_by in ("created_at", "started_at", "completed_at", "status"):
-            safe_col = order_by
-        # Running and pending tasks sort first so they're never buried by old completed ones
-        query_parts.append(
-            f"ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, "
-            f"{safe_col} {safe_order}"
-        )
+        # Active executions must sort ahead of older completed history even when
+        # the response is grouped by parent, otherwise live runs disappear from
+        # the top-card data source once newer pending child tasks arrive.
+        query_parts.append(build_execution_order_clause(order_by, order))
 
         query_parts.append("LIMIT :limit")
         params["limit"] = limit
@@ -481,8 +432,8 @@ async def get_workspace_executions(
                 d.get("execution_context") or {}
             ).get("playbook_code")
             d["execution_id"] = d.get("execution_id") or d.get("id")
-            d["queue_position"] = _QUEUE_CACHE.get_position(d.get("id") or "")
-            d["queue_total"] = _QUEUE_CACHE.get_total(d.get("pack_id") or "")
+            d["queue_position"] = _QUEUE_CACHE.get_position(tasks_store, task)
+            d["queue_total"] = _QUEUE_CACHE.get_total(d.get("queue_shard") or "default")
             d["parent_execution_id"] = d.get("parent_execution_id")
             executions.append(d)
 
@@ -620,8 +571,8 @@ async def get_execution_progress_snapshot(
             "artifact_id": artifact_id,
             "artifact_updated_at": artifact_updated_at,
             "progress": progress if isinstance(progress, dict) else None,
-            "queue_position": _QUEUE_CACHE.get_position(task.id or ""),
-            "queue_total": _QUEUE_CACHE.get_total(task.pack_id or ""),
+            "queue_position": _QUEUE_CACHE.get_position(tasks_store, task),
+            "queue_total": _QUEUE_CACHE.get_total(task.queue_shard or "default"),
             "artifact_metadata": artifact_metadata,
             "content_metadata": content_metadata,
             "execution_context": {
