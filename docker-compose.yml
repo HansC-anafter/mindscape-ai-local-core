@@ -289,7 +289,10 @@ services:
     environment:
       - OCR_USE_GPU=${OCR_USE_GPU:-false}
       - OCR_LANG=${OCR_LANG:-ch}
+      - OMP_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
       - TZ=${TZ:-UTC}
+      - PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
     volumes:
       - ./data:/app/data:ro
     networks:

@@ -315,10 +315,18 @@ class SimpleRuntime(RuntimePort):
                 task = tasks_store.get_task(execution_id)
                 if task:
                     status = "completed" if task.status.value == "succeeded" else "failed" if task.status.value == "failed" else "running"
+                    ctx = task.execution_context or {}
+                    outputs = {}
+                    if isinstance(ctx, dict):
+                        outputs = ctx.get("outputs", {})
+                        if not outputs:
+                            workflow_result = ctx.get("workflow_result")
+                            if isinstance(workflow_result, dict):
+                                outputs = workflow_result.get("outputs", {}) or {}
                     return ExecutionResult(
                         status=status,
                         execution_id=execution_id,
-                        outputs=task.execution_context.get("outputs", {}) if task.execution_context else {},
+                        outputs=outputs,
                         error=task.error,
                         metadata={"runtime": "simple"}
                     )

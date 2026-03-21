@@ -3,7 +3,12 @@
 import os
 import socket
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
+
+
+_PLAYBOOK_INPUT_LOCK_PACKS = {
+    "ig_batch_pin_references",
+}
 
 
 def _runner_id() -> str:
@@ -48,9 +53,19 @@ def _resolve_lock_key(
     if isinstance(concurrency, dict):
         lock_key_input = concurrency.get("lock_key_input")
         lock_scope = concurrency.get("lock_scope", "input")
-        if lock_key_input and lock_scope == "input":
+        if lock_key_input and lock_scope in ("input", "playbook_input"):
             val = inputs.get(lock_key_input)
             if isinstance(val, str) and val.strip():
+                if (
+                    lock_scope == "playbook_input"
+                    or (
+                        pack_id in _PLAYBOOK_INPUT_LOCK_PACKS
+                        and lock_key_input == "user_data_dir"
+                    )
+                ):
+                    return (
+                        f"concurrency:playbook_input:{pack_id}:{val.strip()}"
+                    )
                 return f"concurrency:{lock_key_input}:{val.strip()}"
         elif lock_scope == "playbook":
             return f"concurrency:playbook:{pack_id}"
@@ -71,6 +86,41 @@ def _resolve_lock_key(
         return f"concurrency:playbook:{playbook_code}"
 
     return None
+
+
+def _resolve_lock_keys(
+    task_ctx: Optional[Dict[str, Any]],
+    pack_id: str,
+) -> List[str]:
+    """Resolve the primary concurrency key plus backward-compatible aliases.
+
+    During the IG lock migration, older tasks may still hold the legacy
+    ``ig_profile:<user_data_dir>`` key while newer tasks use the explicit
+    ``concurrency:user_data_dir:<user_data_dir>`` key. Treat both as the same
+    logical mutex so same-profile runs cannot bypass each other.
+    """
+    primary = _resolve_lock_key(task_ctx, pack_id)
+    if not primary:
+        return []
+
+    keys: list[str] = [primary]
+
+    if primary.startswith("concurrency:user_data_dir:"):
+        profile_ref = primary[len("concurrency:user_data_dir:") :]
+        if profile_ref:
+            keys.append(f"ig_profile:{profile_ref}")
+    elif primary.startswith("ig_profile:"):
+        profile_ref = primary[len("ig_profile:") :]
+        if profile_ref:
+            keys.append(f"concurrency:user_data_dir:{profile_ref}")
+
+    deduped: list[str] = []
+    seen = set()
+    for key in keys:
+        if key and key not in seen:
+            deduped.append(key)
+            seen.add(key)
+    return deduped
 
 
 def _build_inputs(

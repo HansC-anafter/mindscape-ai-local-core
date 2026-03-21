@@ -15,7 +15,7 @@ from backend.app.services.playbook_run_executor import PlaybookRunExecutor
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
-from backend.app.runner.concurrency import _build_inputs, _resolve_lock_key
+from backend.app.runner.concurrency import _build_inputs, _resolve_lock_keys
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.utils import _env_int, _utc_now
 
@@ -255,7 +255,7 @@ async def _run_single_task(
     inflight_files = set()
 
     ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
-    lock_key = _resolve_lock_key(ctx, task.pack_id)
+    lock_keys = _resolve_lock_keys(ctx, task.pack_id)
     lock_ttl_seconds = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
     
     # Lock has ALREADY been acquired by runner/worker.py in the Redis store.
@@ -321,21 +321,22 @@ async def _run_single_task(
     hb_thread.start()
 
     lock_renew_thread = None
-    if redis_queue and lock_key:
+    if redis_queue and lock_keys:
 
         def _renew_thread() -> None:
             interval_s = max(5.0, hb_interval_ms / 1000.0)
             while not stop_event.is_set():
                 try:
-                    fut = asyncio.run_coroutine_threadsafe(
-                        redis_queue.renew_lock(
-                            lock_key=lock_key,
-                            owner_id=runner_id,
-                            ttl_seconds=lock_ttl_seconds,
-                        ),
-                        main_loop,
-                    )
-                    fut.result(timeout=10)
+                    for held_key in lock_keys:
+                        fut = asyncio.run_coroutine_threadsafe(
+                            redis_queue.renew_lock(
+                                lock_key=held_key,
+                                owner_id=runner_id,
+                                ttl_seconds=lock_ttl_seconds,
+                            ),
+                            main_loop,
+                        )
+                        fut.result(timeout=10)
                 except Exception:
                     pass
                 stop_event.wait(interval_s)
@@ -540,9 +541,10 @@ async def _run_single_task(
                 pass
         # Release lock
         ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
-        lock_key = _resolve_lock_key(ctx, task.pack_id)
-        if redis_queue and lock_key:
-            try:
-                await redis_queue.release_lock(lock_key=lock_key, owner_id=runner_id)
-            except Exception:
-                pass
+        lock_keys = _resolve_lock_keys(ctx, task.pack_id)
+        if redis_queue and lock_keys:
+            for held_key in lock_keys:
+                try:
+                    await redis_queue.release_lock(lock_key=held_key, owner_id=runner_id)
+                except Exception:
+                    pass

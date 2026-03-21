@@ -14,11 +14,10 @@ Usage from worker.py:
 import asyncio
 import logging
 import os
+import socket
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-
-import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -90,24 +89,35 @@ class DependencyChecker:
         return result.available
 
     async def _check_mlx(self) -> tuple[bool, Optional[str]]:
-        """Ping MLX VLM server at /v1/models."""
+        """Check MLX liveness with a cheap TCP connect.
+
+        `/v1/models` can stall while the single-worker MLX server is busy with
+        inference, which would incorrectly hold queued tasks in dependency
+        backoff. For runner scheduling we only need to know whether the service
+        is reachable at all; actual per-task serialization is handled by the
+        playbook concurrency lock.
+        """
         port = os.getenv("MLX_PORT", "8210")
         # Inside Docker → host.docker.internal; on host → localhost
         host = os.getenv(
             "MLX_HOST_FROM_RUNNER",
             "host.docker.internal"
         )
-        url = f"http://{host}:{port}/v1/models"
 
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(url)
-                if resp.status_code == 200:
-                    return True, None
-                return False, f"HTTP {resp.status_code}"
-        except httpx.ConnectError:
-            return False, "connection refused"
-        except httpx.TimeoutException:
-            return False, "timeout"
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, int(port)),
+                timeout=1.0,
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return True, None
+        except TimeoutError:
+            return False, "tcp timeout"
+        except (ConnectionRefusedError, socket.gaierror, OSError) as e:
+            return False, str(e)
         except Exception as e:
             return False, str(e)

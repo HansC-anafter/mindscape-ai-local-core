@@ -11,11 +11,46 @@ from backend.app.models.workspace import TaskStatus
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
-from backend.app.runner.concurrency import _resolve_lock_key
+from backend.app.runner.concurrency import _resolve_lock_keys
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.utils import _env_int, _parse_utc_iso, _utc_now
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_task_id(raw_value: object) -> str:
+    if isinstance(raw_value, bytes):
+        return raw_value.decode()
+    return str(raw_value)
+
+
+async def _mark_frontier_ready(
+    tasks_store: TasksStore,
+    task_ids: list[str],
+    *,
+    queue_shard: str,
+) -> None:
+    """Mirror Redis ready-enqueue into DB scheduler fields for observability."""
+    if not task_ids:
+        return
+
+    enqueued_at = _utc_now()
+    for task_id in task_ids:
+        try:
+            await asyncio.to_thread(
+                tasks_store.update_task,
+                task_id,
+                blocked_reason=None,
+                blocked_payload=None,
+                queue_shard=queue_shard,
+                frontier_state="ready",
+                frontier_enqueued_at=enqueued_at,
+                next_eligible_at=enqueued_at,
+            )
+        except Exception as e:
+            logger.warning(
+                f"[Bridge] Failed to mirror ready frontier state for task {task_id}: {e}"
+            )
 
 
 def _force_release_lock(
@@ -31,14 +66,15 @@ def _force_release_lock(
     """
     if not redis_queue:
         return
-    lock_key = _resolve_lock_key(task_ctx, pack_id)
-    if not lock_key:
+    lock_keys = _resolve_lock_keys(task_ctx, pack_id)
+    if not lock_keys:
         return
     try:
         loop = asyncio.get_event_loop()
-        loop.create_task(_async_force_release(redis_queue, lock_key))
+        for lock_key in lock_keys:
+            loop.create_task(_async_force_release(redis_queue, lock_key))
     except Exception as e:
-        logger.warning(f"[Reaper] Failed to schedule lock release for {lock_key}: {e}")
+        logger.warning(f"[Reaper] Failed to schedule lock release for {lock_keys}: {e}")
 
 
 async def _async_force_release(
@@ -85,7 +121,15 @@ def _reap_stale_running_tasks(
                 continue
 
             if heartbeat_at and heartbeat_at > threshold:
-                continue
+                # Even if heartbeat is fresh, if runner_id doesn't match
+                # current runner, this task may be orphaned.  Give it a
+                # grace period (half stale window) to avoid killing tasks
+                # during rolling restarts.
+                if ctx_runner_id == runner_id:
+                    continue
+                grace_threshold = _utc_now() - timedelta(seconds=stale_seconds // 2)
+                if heartbeat_at > grace_threshold:
+                    continue
 
             msg = f"Runner heartbeat stale (previous_runner_id={ctx_runner_id}, heartbeat_at={ctx.get('heartbeat_at')})"
             ctx2 = dict(ctx)
@@ -185,7 +229,13 @@ def _reap_stale_running_tasks(
 
 
 
-async def _reap_redis_queues(tasks_store: TasksStore, redis_queue: RedisRunnerQueueStore) -> None:
+async def _reap_redis_queues(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    ready_target_override: Optional[int] = None,
+    all_queues: Optional[list[RedisRunnerQueueStore]] = None,
+) -> None:
     """Orchestrator background loop for Redis Queue reliability guarantees."""
     try:
         client = await redis_queue._get_client()
@@ -193,11 +243,15 @@ async def _reap_redis_queues(tasks_store: TasksStore, redis_queue: RedisRunnerQu
             return
             
         now_ts = redis_queue._utc_now_timestamp()
+        ready_target = ready_target_override or _env_int("LOCAL_CORE_RUNNER_READY_TARGET", 64)
+        delayed_move_limit = _env_int("LOCAL_CORE_RUNNER_DELAYED_MOVE_LIMIT", 100)
         
         # 1. Delayed Queue Mover — move in small pipeline batches to avoid
         #    blocking Redis single-threaded processing (SLOWLOG showed 17ms for 688-item pipeline).
         _PIPELINE_BATCH = 100
-        delayed_items = await client.zrangebyscore(redis_queue.q_delayed, "-inf", now_ts)
+        delayed_items = await client.zrangebyscore(
+            redis_queue.q_delayed, "-inf", now_ts, start=0, num=delayed_move_limit
+        )
         if delayed_items:
             try:
                 moved = 0
@@ -212,6 +266,11 @@ async def _reap_redis_queues(tasks_store: TasksStore, redis_queue: RedisRunnerQu
                     # Yield so Redis can serve other clients between batches
                     if i + _PIPELINE_BATCH < len(delayed_items):
                         await asyncio.sleep(0)
+                await _mark_frontier_ready(
+                    tasks_store,
+                    [str(task_id) for task_id in delayed_items],
+                    queue_shard=redis_queue.pack_id,
+                )
                 logger.info(f"[Bridge] Moved {moved} tasks from delayed to pending queue.")
             except Exception as e:
                 logger.warning(f"Failed to batch move delayed tasks: {e}")
@@ -250,7 +309,12 @@ async def _reap_redis_queues(tasks_store: TasksStore, redis_queue: RedisRunnerQu
                     task_id, 
                     execution_context=ctx2, 
                     status=TaskStatus.PENDING, 
-                    started_at=None
+                    started_at=None,
+                    next_eligible_at=_utc_now(),
+                    blocked_reason=None,
+                    blocked_payload=None,
+                    frontier_state="ready",
+                    frontier_enqueued_at=_utc_now(),
                 )
                 
                 pipe = client.pipeline()
@@ -262,26 +326,46 @@ async def _reap_redis_queues(tasks_store: TasksStore, redis_queue: RedisRunnerQu
                 logger.error(f"Failed to recycle visibility task {task_id}: {e}")
 
         # 3. DB Bridge Sync (Eventual Consistency Repair)
-        #    Batch-read all Redis queues into Python sets first (O(N) total),
-        #    then check membership in O(1) per task.
-        #    Previous approach did per-task LPOS (O(N) each × M tasks = O(N×M)),
-        #    which blocked Redis single-threaded processing and caused timeouts.
+        #    Keep only a bounded ready frontier in Redis. Do not materialize
+        #    the full runnable backlog into the hot queue.
         try:
+            ready_depth = await client.llen(redis_queue.q_pending)
+            refill_limit = max(0, ready_target - ready_depth)
+            if refill_limit <= 0:
+                return
 
-            # Snapshot all Redis queues into Python sets — 3 Redis calls total
-            pending_members = set(await client.lrange(redis_queue.q_pending, 0, -1))
-            processing_members = set(await client.zrange(redis_queue.q_processing, 0, -1))
-            delayed_members = set(await client.zrange(redis_queue.q_delayed, 0, -1))
-            all_queued = pending_members | processing_members | delayed_members
+            queue_family = all_queues or [redis_queue]
+            all_queued = set()
+            for queue_store in queue_family:
+                queue_client = client if queue_store is redis_queue else await queue_store._get_client()
+                if not queue_client:
+                    continue
+                pending_members = await queue_client.lrange(queue_store.q_pending, 0, -1)
+                processing_members = await queue_client.zrange(
+                    queue_store.q_processing, 0, -1
+                )
+                delayed_members = await queue_client.zrange(
+                    queue_store.q_delayed, 0, -1
+                )
+                all_queued.update(_normalize_task_id(task_id) for task_id in pending_members)
+                all_queued.update(
+                    _normalize_task_id(task_id) for task_id in processing_members
+                )
+                all_queued.update(_normalize_task_id(task_id) for task_id in delayed_members)
 
             pending_tasks = await asyncio.to_thread(
-                tasks_store.list_runnable_playbook_execution_tasks
+                tasks_store.list_runnable_playbook_execution_tasks,
+                None,
+                max(refill_limit * 4, refill_limit),
+                redis_queue.pack_id,
             )
 
             missing_tasks = []
             for t in pending_tasks:
                 if t.id not in all_queued:
                     missing_tasks.append(t.id)
+                if len(missing_tasks) >= refill_limit:
+                    break
 
             if missing_tasks:
                 for i in range(0, len(missing_tasks), _PIPELINE_BATCH):
@@ -292,8 +376,13 @@ async def _reap_redis_queues(tasks_store: TasksStore, redis_queue: RedisRunnerQu
                     await pipe.execute()
                     if i + _PIPELINE_BATCH < len(missing_tasks):
                         await asyncio.sleep(0)
+                await _mark_frontier_ready(
+                    tasks_store,
+                    [str(task_id) for task_id in missing_tasks],
+                    queue_shard=redis_queue.pack_id,
+                )
                 logger.warning(
-                    f"[Bridge] Repaired {len(missing_tasks)} PENDING DB tasks missing from Redis queues."
+                    f"[Bridge] Refilled ready frontier with {len(missing_tasks)} task(s) (ready_depth={ready_depth}, ready_target={ready_target})."
                 )
                 
         except Exception as e:
@@ -301,4 +390,3 @@ async def _reap_redis_queues(tasks_store: TasksStore, redis_queue: RedisRunnerQu
 
     except Exception as e:
         logger.error(f"Failed to reap Redis queues: {e}", exc_info=True)
-

@@ -16,6 +16,8 @@ export interface RunnerTaskCardProps {
   status: string;
   /** Playbook code (e.g. ig_analyze_pinned_reference) */
   playbookCode?: string;
+  /** Explicit title override */
+  title?: string | null;
   /** Queue position (1-based) */
   queuePosition?: number | null;
   /** Total tasks in queue */
@@ -43,6 +45,10 @@ export interface RunnerTaskCardProps {
   createdAt?: string | null;
   /** Capability-specific extension content */
   extensionSlot?: ReactNode;
+  /** Custom status/action row shown under the title */
+  statusSlot?: ReactNode;
+  /** Optional top-right tools area aligned with the title row */
+  headerRight?: ReactNode;
 }
 
 function formatAge(isoStr: string | null | undefined): string {
@@ -71,9 +77,21 @@ const STATUS_STYLES: Record<string, string> = {
   cancelled: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border-gray-200 dark:border-gray-700',
 };
 
+function formatTaskTitle(playbookCode?: string): string {
+  const raw = (playbookCode || '').toString().trim();
+  if (!raw) return '';
+  return raw
+    .replace(/^ig_/, '')
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 export function RunnerTaskCard({
   status,
   playbookCode,
+  title,
   queuePosition,
   queueTotal,
   dependencyHold,
@@ -85,38 +103,53 @@ export function RunnerTaskCard({
   error,
   createdAt,
   extensionSlot,
+  statusSlot,
+  headerRight,
 }: RunnerTaskCardProps) {
   const statusLower = (status || 'unknown').toLowerCase();
   const isPending = statusLower === 'pending';
   const isRunning = statusLower === 'running';
   const isFailed = statusLower === 'failed';
   const statusStyle = STATUS_STYLES[statusLower] || STATUS_STYLES.pending;
+  const displayTitle = (title || '').toString().trim() || formatTaskTitle(playbookCode);
 
   return (
     <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-xs space-y-2">
-      {/* Header: playbook + status */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          {playbookCode && (
-            <span className="font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider truncate">
-              {playbookCode.replace(/^ig_/, '').replace(/_/g, ' ')}
+      {/* Header */}
+      <div className="space-y-2">
+        {(displayTitle || headerRight) && (
+          <div className="min-h-[2.5rem] flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              {displayTitle && (
+                <div className="font-semibold text-sm text-gray-900 dark:text-gray-100 tracking-wide leading-tight break-words max-h-10 overflow-hidden">
+                  {displayTitle}
+                </div>
+              )}
+            </div>
+            {headerRight ? <div className="shrink-0 flex items-start">{headerRight}</div> : null}
+          </div>
+        )}
+
+        {statusSlot ? (
+          <div>{statusSlot}</div>
+        ) : (
+          <div className="flex items-center justify-between gap-2">
+            <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase border flex items-center gap-1 ${statusStyle}`}>
+              {(isPending || isRunning) && <Loader2 className="w-3 h-3 animate-spin opacity-70" />}
+              {statusLower}
             </span>
-          )}
-          <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase border flex items-center gap-1 ${statusStyle}`}>
-            {(isPending || isRunning) && <Loader2 className="w-3 h-3 animate-spin opacity-70" />}
-            {statusLower}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {isConnected !== undefined && (
-            isConnected
-              ? <Wifi className="w-3 h-3 text-green-500" />
-              : <WifiOff className="w-3 h-3 text-gray-400" />
-          )}
-          {createdAt && (
-            <span className="text-[10px] text-gray-400">{formatAge(createdAt)}</span>
-          )}
-        </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {isConnected !== undefined && (
+                isConnected
+                  ? <Wifi className="w-3 h-3 text-green-500" />
+                  : <WifiOff className="w-3 h-3 text-gray-400" />
+              )}
+              {createdAt && (
+                <span className="text-[10px] text-gray-400">{formatAge(createdAt)}</span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Queue position (pending only) */}

@@ -62,6 +62,25 @@ class RedisRunnerQueueStore:
             logger.error(f"[Redis Queue] Failed to enqueue {task_id}: {e}")
             return False
 
+    async def _move_to_processing(
+        self,
+        client,
+        temp_list: str,
+        task_id: str,
+        visibility_timeout_sec: int,
+    ) -> Optional[str]:
+        """Promote a temp-list task into the processing ZSET with a lease."""
+        try:
+            deadline = self._utc_now_timestamp() + visibility_timeout_sec
+            pipe = client.pipeline()
+            pipe.zadd(self.q_processing, {task_id: deadline})
+            pipe.lrem(temp_list, 1, task_id)
+            await pipe.execute()
+            return task_id
+        except Exception as e:
+            logger.error(f"[Redis Queue] Failed to promote {task_id} into processing: {e}")
+            return None
+
     def enqueue_task_sync(self, task_id: str) -> bool:
         """Synchronous enqueue for use inside SQLAlchemy commits."""
         cache = get_cache_service()
@@ -97,22 +116,44 @@ class RedisRunnerQueueStore:
             if not item:
                 return None
                 
-            task_id = item
-            
-            # Step 2: ZADD to processing with visibility timeout
-            deadline = self._utc_now_timestamp() + visibility_timeout_sec
-            
-            # Transaction block to move from temp to Processing ZSET
-            pipe = client.pipeline()
-            pipe.zadd(self.q_processing, {task_id: deadline})
-            pipe.lrem(temp_list, 1, task_id)
-            await pipe.execute()
-            
-            return task_id
+            return await self._move_to_processing(
+                client,
+                temp_list,
+                item,
+                visibility_timeout_sec,
+            )
 
         except Exception as e:
             logger.error(f"[Redis Queue] Failed dequeue: {e}")
             await asyncio.sleep(timeout)
+            return None
+
+    async def dequeue_task_nowait(
+        self, visibility_timeout_sec: int = 180
+    ) -> Optional[str]:
+        """Fetch a task without blocking; used to round-robin across shards."""
+        client = await self._get_client()
+        if not client:
+            return None
+
+        temp_list = f"mindscape:queue:temp:{self.pack_id}"
+        try:
+            item = await client.lmove(
+                self.q_pending,
+                temp_list,
+                "RIGHT",
+                "LEFT",
+            )
+            if not item:
+                return None
+            return await self._move_to_processing(
+                client,
+                temp_list,
+                item,
+                visibility_timeout_sec,
+            )
+        except Exception as e:
+            logger.error(f"[Redis Queue] Failed non-blocking dequeue: {e}")
             return None
 
     async def ack_task(self, task_id: str) -> bool:
