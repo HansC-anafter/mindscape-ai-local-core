@@ -110,6 +110,14 @@ def _get_tool_registry() -> ToolRegistryService:
     return registry
 
 
+@functools.lru_cache(maxsize=1)
+def _get_playbook_service():
+    """Reuse a single PlaybookService so registry lazy-loading survives across requests."""
+    from backend.app.services.playbook_service import PlaybookService
+
+    return PlaybookService()
+
+
 def _collect_all_tools(
     registry: ToolRegistryService,
     enabled_only: bool = True,
@@ -238,6 +246,7 @@ def _deterministic_sort_key(tool: RegisteredTool) -> tuple:
 async def list_filtered_tools(
     body: FilteredToolsRequest,
     registry: ToolRegistryService = Depends(_get_tool_registry),
+    playbook_service=Depends(_get_playbook_service),
 ):
     """Return a filtered, right-sized tool set for MCP gateway consumption.
 
@@ -359,10 +368,7 @@ async def list_filtered_tools(
     result_playbooks: List[dict] = []
     if body.include_playbooks:
         try:
-            from backend.app.services.playbook_service import PlaybookService
-
-            pb_service = PlaybookService()
-            all_playbooks = await pb_service.list_playbooks()
+            all_playbooks = await playbook_service.list_playbooks()
 
             # Effective pack filter: RAG matches + dispatch recommendations
             effective_packs = set(pack_codes) | set(body.recommended_pack_codes)

@@ -391,4 +391,3 @@ If vault exists but subdirectories are missing:
 
 - [Playbook Development Guide](./playbook-development/README.md)
 - [Tool Development Guide](./contributor-guide/README.md)
-- Internal: `docs-internal/implementation/architecture-refactoring-2025-12-24/CONTENT_VAULT_BOOTSTRAP.md`
