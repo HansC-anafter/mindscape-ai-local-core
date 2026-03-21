@@ -4,8 +4,6 @@ import os
 import sys
 from unittest.mock import MagicMock
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 import pytest
 
 _repo_root = os.path.abspath(
@@ -81,7 +79,8 @@ def _make_task():
     )
 
 
-def test_remote_terminal_route_delegates_to_governance_engine(monkeypatch):
+@pytest.mark.asyncio
+async def test_remote_terminal_route_delegates_to_governance_engine(monkeypatch):
     route_module = _load_module(
         "test_remote_execution_callbacks_module",
         "backend/app/routes/core/remote_execution_callbacks.py",
@@ -97,29 +96,28 @@ def test_remote_terminal_route_delegates_to_governance_engine(monkeypatch):
     monkeypatch.setenv("LOCAL_CORE_REMOTE_CALLBACK_SECRET", "secret-1")
     monkeypatch.setattr(route_module, "GovernanceEngine", StubGovernanceEngine)
 
-    app = FastAPI()
-    app.include_router(route_module.router)
-    client = TestClient(app)
-
-    response = client.post(
-        "/api/v1/executions/remote-terminal-events",
-        headers={"Authorization": "Bearer secret-1"},
-        json={
-            "tenant_id": "tenant-1",
-            "workspace_id": "ws-1",
-            "execution_id": "exec-1",
-            "trace_id": "trace-1",
-            "playbook_code": "ig_batch_pin_references",
-            "status": "succeeded",
-            "result_payload": {"outputs": {"artifact": "x"}},
-            "provider_metadata": {"device_id": "gpu-1"},
-        },
+    response = await route_module.remote_terminal_event_callback(
+        body=route_module.RemoteTerminalEventRequest(
+            tenant_id="tenant-1",
+            workspace_id="ws-1",
+            execution_id="exec-1",
+            trace_id="trace-1",
+            job_type="tool",
+            capability_code="ig",
+            playbook_code="ig_batch_pin_references",
+            status="succeeded",
+            result_payload={"outputs": {"artifact": "x"}},
+            provider_metadata={"device_id": "gpu-1"},
+        ),
+        authorization="Bearer secret-1",
+        x_callback_secret=None,
     )
 
-    assert response.status_code == 200
-    assert response.json()["execution_id"] == "exec-1"
+    assert response["execution_id"] == "exec-1"
     assert captured["workspace_id"] == "ws-1"
     assert captured["trace_id"] == "trace-1"
+    assert captured["job_type"] == "tool"
+    assert captured["capability_code"] == "ig"
 
 
 def test_remote_terminal_success_delegates_to_process_completion():
@@ -143,6 +141,8 @@ def test_remote_terminal_success_delegates_to_process_completion():
         status="succeeded",
         result_payload={"outputs": {"artifact": "x"}},
         error_message=None,
+        job_type="tool",
+        capability_code="ig",
         playbook_code="ig_batch_pin_references",
         provider_metadata={"device_id": "gpu-1"},
     )
@@ -157,6 +157,8 @@ def test_remote_terminal_success_delegates_to_process_completion():
     )
     assert result["artifact_id"] == "art-1"
     assert store.updated_contexts[-1]["remote_execution"]["trace_id"] == "trace-1"
+    assert store.updated_contexts[-1]["remote_execution"]["job_type"] == "tool"
+    assert store.updated_contexts[-1]["remote_execution"]["capability_code"] == "ig"
 
 
 def test_remote_terminal_failure_does_not_call_process_completion():
@@ -179,6 +181,8 @@ def test_remote_terminal_failure_does_not_call_process_completion():
         status="failed",
         result_payload=None,
         error_message="gpu failed",
+        job_type="tool",
+        capability_code="ig",
         playbook_code="ig_batch_pin_references",
         provider_metadata={"device_id": "gpu-1"},
     )
@@ -186,4 +190,6 @@ def test_remote_terminal_failure_does_not_call_process_completion():
     engine.process_completion.assert_not_called()
     assert store.status_updates[-1]["status"] == workspace_models.TaskStatus.FAILED
     assert store.updated_contexts[-1]["trace_id"] == "trace-1"
+    assert store.updated_contexts[-1]["remote_execution"]["job_type"] == "tool"
+    assert store.updated_contexts[-1]["remote_execution"]["capability_code"] == "ig"
     assert result["artifact_id"] is None

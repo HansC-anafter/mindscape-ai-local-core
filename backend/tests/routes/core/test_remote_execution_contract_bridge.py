@@ -128,6 +128,8 @@ async def test_cloud_terminal_callback_matches_local_core_schema(monkeypatch):
         workspace_id="ws-1",
         execution_id="11111111-1111-4111-8111-111111111111",
         trace_id="trace-1",
+        job_type="tool",
+        capability_code="ig",
         playbook_code="ig_batch_pin_references",
         status="succeeded",
         result_payload={"outputs": {"artifact": "x"}},
@@ -147,4 +149,6 @@ async def test_cloud_terminal_callback_matches_local_core_schema(monkeypatch):
     assert result["execution_id"] == "11111111-1111-4111-8111-111111111111"
     assert validated.execution_id == "11111111-1111-4111-8111-111111111111"
     assert validated.trace_id == "trace-1"
+    assert validated.job_type == "tool"
+    assert validated.capability_code == "ig"
     assert validated.status == "succeeded"

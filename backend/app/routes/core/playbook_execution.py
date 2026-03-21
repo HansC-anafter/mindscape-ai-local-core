@@ -139,6 +139,25 @@ async def start_playbook_execution(
                 else "playbook"
             )
         )
+        final_remote_request_payload = (
+            request.remote_request_payload
+            if request and isinstance(request.remote_request_payload, dict)
+            else (
+                inputs.get("remote_request_payload")
+                if isinstance(inputs, dict)
+                and isinstance(inputs.get("remote_request_payload"), dict)
+                else None
+            )
+        )
+        final_remote_capability_code = (
+            request.remote_capability_code
+            if request and request.remote_capability_code
+            else (
+                inputs.get("remote_capability_code")
+                if isinstance(inputs, dict) and inputs.get("remote_capability_code")
+                else None
+            )
+        )
 
         # Auto-assign variant if not explicitly provided
         if not final_variant_id:
@@ -217,6 +236,8 @@ async def start_playbook_execution(
                     execution_id=request.execution_id if request else None,
                     trace_id=request.trace_id if request else None,
                     remote_job_type=final_remote_job_type,
+                    remote_request_payload=final_remote_request_payload,
+                    capability_code=final_remote_capability_code,
                 )
             finally:
                 release_backend(pool_acquired_backend)

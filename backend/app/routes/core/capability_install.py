@@ -26,8 +26,8 @@ from fastapi import (
     UploadFile,
 )
 from pydantic import BaseModel, Field
-from typing import Dict, Any
 
+from app.services.pack_activation_service import PackActivationService
 from app.services.stores.installed_packs_store import InstalledPacksStore
 from app.services.restart_webhook import get_restart_webhook_service
 
@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/capability-packs", tags=["Capability Packs"])
 
 installed_packs_store = InstalledPacksStore()
+pack_activation_service = PackActivationService()
 
 
 def _utc_now():
@@ -99,6 +100,7 @@ class InstallPipelineResult:
     hot_reload_result: Any = None
     webhook_result: Any = None
     pack_metadata: Dict[str, Any] = field(default_factory=dict)
+    activation: Optional[Dict[str, Any]] = None
 
 
 async def run_install_pipeline(
@@ -276,6 +278,7 @@ async def run_install_pipeline(
 
         # 4. Reload capability registry
         hot_reload_performed = False
+        activation_error: Optional[str] = None
         try:
             from app.services.capability_registry import get_registry, load_capabilities
             from app.services.capability_reload_manager import (
@@ -302,8 +305,9 @@ async def run_install_pipeline(
                 load_capabilities(reset=True)
                 logger.info(f"Reloaded capability registry for {capability_code}")
         except Exception as exc:
+            activation_error = f"Failed to reload capability registry/routes: {exc}"
             logger.warning(f"Failed to reload capability registry/routes: {exc}")
-            result.add_warning(f"Failed to reload capability registry/routes: {exc}")
+            result.add_warning(activation_error)
             try:
                 from app.services.capability_registry import load_capabilities
 
@@ -377,6 +381,24 @@ async def run_install_pipeline(
             )
         except Exception as exc:
             logger.warning(f"Failed to register pack in database: {exc}")
+            result.add_warning(f"Failed to register pack in database: {exc}")
+
+        try:
+            pipeline.activation = pack_activation_service.record_install_outcome(
+                pack_id=capability_code,
+                manifest=manifest,
+                install_result=result,
+                enabled=True,
+                hot_reload_performed=hot_reload_performed,
+                restart_required=pipeline.restart_required,
+                manifest_path=installed_manifest_path
+                if installed_manifest_path.exists()
+                else None,
+                activation_error=activation_error,
+            )
+        except Exception as exc:
+            logger.warning("Failed to persist pack activation state: %s", exc)
+            result.add_warning(f"Failed to persist pack activation state: {exc}")
 
         # Step 6.5 — re-index tool embeddings in background (non-fatal, non-blocking)
         import asyncio as _asyncio
@@ -512,6 +534,7 @@ async def install_from_file(
             "version": result.version,
             "message": f"Successfully installed {result.capability_code} v{result.version}",
             "warnings": result.warnings,
+            "activation": result.activation,
             "restart_required": result.restart_required,
             "restart_triggered": result.restart_triggered,
             "hot_reload": result.hot_reload_result,
@@ -627,6 +650,7 @@ async def install_from_cloud(
                 "version": result.pack_metadata.get("version", "1.0.0"),
                 "message": f"Successfully installed {result.capability_code} from {request.provider_id}",
                 "warnings": result.warnings,
+                "activation": result.activation,
                 "provider_id": request.provider_id,
                 "pack_ref": request.pack_ref,
                 "restart_required": result.restart_required,
