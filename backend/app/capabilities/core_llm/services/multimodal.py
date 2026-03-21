@@ -449,9 +449,9 @@ async def _route_mlx_server(
     messages = [
         {
             "role": "system",
-            "content": "/no_think\nYou are a vision analysis API. "
+            "content": "/think\nYou are a vision analysis API. "
                        "Output ONLY the raw JSON object. "
-                       "No thinking, no explanation, no markdown. "
+                       "No explanation, no markdown. "
                        "Start your response with '{' immediately.",
         },
         {
@@ -494,6 +494,15 @@ async def _route_mlx_server(
             # pick whichever looks like JSON (starts with '{').
             resp_content = (msg.get("content") or "").strip()
             reasoning = (msg.get("reasoning") or "").strip()
+
+            # Extract <think> tags from content if present
+            # (some MLX configs put everything in content)
+            import re
+            think_match = re.search(r'<think>(.*?)</think>', resp_content, flags=re.DOTALL)
+            if think_match and not reasoning:
+                reasoning = think_match.group(1).strip()
+                resp_content = re.sub(r'<think>.*?</think>', '', resp_content, flags=re.DOTALL).strip()
+
             if resp_content and resp_content.startswith("{"):
                 text = resp_content
             elif reasoning and reasoning.startswith("{"):
@@ -502,11 +511,19 @@ async def _route_mlx_server(
                 text = resp_content or reasoning
                 
             if text:
-                results.append({"shortcode": main_shortcode, "description": text})
-                logger.info(
-                    "[MultimodalAnalyze] MLX analysis OK for %s (%d chars)",
-                    main_shortcode, len(text),
-                )
+                result_entry = {"shortcode": main_shortcode, "description": text}
+                if reasoning:
+                    result_entry["thinking"] = reasoning
+                    logger.info(
+                        "[MultimodalAnalyze] MLX analysis OK for %s (%d chars, thinking=%d chars)",
+                        main_shortcode, len(text), len(reasoning),
+                    )
+                else:
+                    logger.info(
+                        "[MultimodalAnalyze] MLX analysis OK for %s (%d chars)",
+                        main_shortcode, len(text),
+                    )
+                results.append(result_entry)
         except Exception as e:
             logger.warning(
                 "[MultimodalAnalyze] MLX server call failed for %s: %s",
