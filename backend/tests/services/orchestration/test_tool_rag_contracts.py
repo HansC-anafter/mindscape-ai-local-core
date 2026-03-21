@@ -7,8 +7,12 @@ Covers:
 """
 
 import asyncio
+from pathlib import Path
 from unittest.mock import MagicMock
 import pytest
+
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[3]
 
 
 # ── Contract 1: MeetingEngine uploaded_files attribute ──
@@ -21,8 +25,11 @@ class TestMeetingEngineUploadedFiles:
         """Verify __init__ signature includes uploaded_files parameter."""
         import ast
 
-        with open("backend/app/services/orchestration/meeting/engine.py") as f:
-            tree = ast.parse(f.read())
+        tree = ast.parse(
+            (
+                _BACKEND_ROOT / "app/services/orchestration/meeting/engine.py"
+            ).read_text(encoding="utf-8")
+        )
 
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and node.name == "__init__":
@@ -64,8 +71,9 @@ class TestMeetingEngineUploadedFiles:
         """Verify __init__ body assigns self._uploaded_files = list(...)."""
         import ast
 
-        with open("backend/app/services/orchestration/meeting/engine.py") as f:
-            source = f.read()
+        source = (
+            _BACKEND_ROOT / "app/services/orchestration/meeting/engine.py"
+        ).read_text(encoding="utf-8")
 
         assert (
             "self._uploaded_files" in source
@@ -225,8 +233,9 @@ class TestHandoffUploadedFiles:
         """Verify MeetingEngine() call in handoff includes uploaded_files kwarg."""
         import ast
 
-        with open("backend/app/services/handoff_bundle_service.py", "r") as f:
-            source = f.read()
+        source = (_BACKEND_ROOT / "app/services/handoff_bundle_service.py").read_text(
+            encoding="utf-8"
+        )
 
         tree = ast.parse(source)
         found = False

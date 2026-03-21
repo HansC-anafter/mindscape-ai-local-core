@@ -1,6 +1,6 @@
 """
-PaddleOCR Engine Wrapper
-Encapsulates PaddleOCR initialization and processing logic
+EasyOCR Engine Wrapper
+Encapsulates EasyOCR initialization and processing logic.
 """
 
 import logging
@@ -13,122 +13,87 @@ logger = logging.getLogger(__name__)
 
 class OCREngine:
     """
-    PaddleOCR engine wrapper
-    Initializes OCR engine once and reuses across requests
+    EasyOCR engine wrapper.
+    Initializes OCR engine once and reuses across requests.
     """
 
     def __init__(self, use_gpu: Optional[bool] = None, lang: str = "ch"):
         """
-        Initialize PaddleOCR engine
+        Initialize EasyOCR engine.
 
         Args:
-            use_gpu: Enable GPU acceleration (None = auto-detect, True = force GPU, False = force CPU)
-            lang: Language code (default: "ch" for Chinese-English mixed)
-                Common codes: "ch" (Chinese-English), "en" (English only),
-                "chinese_cht" (Traditional Chinese), "japan", "korean", etc.
-                See PaddleOCR docs for full list
+            use_gpu: Enable GPU acceleration (None = auto-detect)
+            lang: Language code — maps to EasyOCR language list
         """
         self.lang = lang
-        self.ocr = None
+        self.reader = None
         self._initialized = False
         self._gpu_available = None
         self.use_gpu = self._detect_gpu(use_gpu)
 
     def _detect_gpu(self, use_gpu: Optional[bool]) -> bool:
-        """
-        Auto-detect GPU availability
-
-        Args:
-            use_gpu: User preference (None = auto, True = force GPU, False = force CPU)
-
-        Returns:
-            Whether to use GPU
-        """
+        """Auto-detect GPU availability via PyTorch."""
         if use_gpu is False:
             return False
         if use_gpu is True:
             return True
-
-        import platform
-        system = platform.system()
-        machine = platform.machine()
-
-        if system == "Darwin":
-            logger.info("macOS detected: PaddlePaddle does not support GPU on macOS (no Metal support), using CPU")
-            self._gpu_available = False
-            return False
-
         try:
-            import paddle
-            if hasattr(paddle, 'device') and paddle.device.is_compiled_with_cuda():
-                try:
-                    paddle.device.set_device('gpu')
-                    self._gpu_available = True
-                    logger.info("NVIDIA GPU detected and available")
-                    return True
-                except Exception:
-                    logger.warning("GPU compiled but not available, falling back to CPU")
-                    self._gpu_available = False
-                    return False
+            import torch
+            available = torch.cuda.is_available()
+            if available:
+                logger.info("CUDA GPU detected")
             else:
-                logger.info("GPU not compiled in PaddlePaddle, using CPU")
-                self._gpu_available = False
-                return False
-        except ImportError:
-            logger.warning("PaddlePaddle not installed yet, will auto-detect during initialization")
-            return False
+                logger.info("No GPU available, using CPU")
+            return available
         except Exception as e:
-            logger.warning(f"GPU detection failed: {e}, falling back to CPU")
-            self._gpu_available = False
+            logger.warning("GPU detection failed: %s, using CPU", e)
             return False
+
+    @staticmethod
+    def _map_languages(lang: str) -> List[str]:
+        """Map internal language code to EasyOCR language list."""
+        mapping = {
+            "ch": ["ch_tra", "en"],          # Traditional Chinese + English
+            "ch_sim": ["ch_sim", "en"],       # Simplified Chinese + English
+            "en": ["en"],                     # English only
+            "japan": ["ja", "en"],            # Japanese + English
+            "korean": ["ko", "en"],           # Korean + English
+        }
+        return mapping.get(lang, ["ch_tra", "en"])
 
     def _initialize(self):
-        """Lazy initialization of PaddleOCR"""
+        """Lazy initialization of EasyOCR reader."""
         if self._initialized:
             return
 
         try:
-            from paddleocr import PaddleOCR
+            import easyocr
 
-            logger.info(f"Initializing PaddleOCR (GPU: {self.use_gpu}, Lang: {self.lang})")
+            langs = self._map_languages(self.lang)
+            logger.info("Initializing EasyOCR with languages: %s (gpu=%s)", langs, self.use_gpu)
 
-            try:
-                self.ocr = PaddleOCR(
-                    lang=self.lang,
-                )
-                self._initialized = True
-                logger.info(f"PaddleOCR initialized successfully (GPU: {self.use_gpu})")
-            except Exception as gpu_error:
-                if self.use_gpu:
-                    logger.warning(f"GPU initialization failed: {gpu_error}, retrying with CPU")
-                    self.use_gpu = False
-                    self.ocr = PaddleOCR(
-                        lang=self.lang,
-                    )
-                    self._initialized = True
-                    logger.info("PaddleOCR initialized with CPU fallback")
-                else:
-                    raise
+            self.reader = easyocr.Reader(
+                langs,
+                gpu=self.use_gpu,
+                verbose=False,
+            )
 
-        except ImportError:
-            logger.error("PaddleOCR not installed. Install with: pip install paddleocr")
-            raise Exception("PaddleOCR library not available")
+            self._initialized = True
+            logger.info("EasyOCR initialized successfully")
+
         except Exception as e:
-            logger.error(f"Failed to initialize PaddleOCR: {e}")
+            logger.error("Failed to initialize EasyOCR: %s", e)
             raise
 
     def process_image(self, image_path: str) -> Dict[str, Any]:
         """
-        Process single image file
+        Process single image file.
 
         Args:
             image_path: Path to image file
 
         Returns:
-            Dict containing:
-                - text: Full extracted text
-                - blocks: List of text blocks with confidence and bbox
-                - page: Page number (always 1 for images)
+            Dict with text, blocks (bbox + text + confidence), page number
         """
         self._initialize()
 
@@ -136,71 +101,42 @@ class OCREngine:
             raise FileNotFoundError(f"Image file not found: {image_path}")
 
         try:
-            result = self.ocr.ocr(image_path)
-
-            if not result or not result[0]:
-                return {
-                    "text": "",
-                    "blocks": [],
-                    "page": 1
-                }
+            # EasyOCR returns list of (bbox, text, confidence)
+            results = self.reader.readtext(image_path)
 
             blocks = []
             text_parts = []
-            page_result = result[0]
 
-            # PaddleOCR v3 returns OCRResult object with rec_texts, rec_scores, dt_polys
-            if hasattr(page_result, 'rec_texts'):
-                texts = page_result.rec_texts or []
-                scores = page_result.rec_scores or []
-                polys = getattr(page_result, 'dt_polys', []) or []
-                for i, text in enumerate(texts):
-                    if not text:
-                        continue
-                    confidence = float(scores[i]) if i < len(scores) else 0.0
-                    bbox = polys[i].tolist() if i < len(polys) else []
-                    blocks.append({
-                        "text": text,
-                        "confidence": confidence,
-                        "bbox": bbox,
-                    })
-                    text_parts.append(text)
-            # Legacy PaddleOCR v2 format: list of [bbox, (text, confidence)]
-            elif isinstance(page_result, list):
-                for line in page_result:
-                    if not line:
-                        continue
-                    bbox, (text, confidence) = line
-                    blocks.append({
-                        "text": text,
-                        "confidence": float(confidence),
-                        "bbox": [float(coord) for coord in bbox]
-                    })
-                    text_parts.append(text)
+            for bbox, text, confidence in results:
+                if not text.strip():
+                    continue
+                
+                # Convert bbox coordinates from numpy.int32 to native Python int
+                clean_bbox = [[int(coord) for coord in point] for point in bbox]
+                
+                blocks.append({
+                    "text": text,
+                    "confidence": float(confidence),
+                    "bbox": clean_bbox,
+                })
+                text_parts.append(text)
 
             full_text = "\n".join(text_parts)
+            logger.info(
+                "EasyOCR extracted %d text blocks from %s: %s",
+                len(blocks), image_path,
+                full_text[:200] + "..." if len(full_text) > 200 else full_text,
+            )
 
-            return {
-                "text": full_text,
-                "blocks": blocks,
-                "page": 1
-            }
+            return {"text": full_text, "blocks": blocks, "page": 1}
 
         except Exception as e:
-            logger.error(f"OCR processing failed for {image_path}: {e}")
+            logger.exception("OCR processing failed for %s", image_path)
             raise
 
     def process_pdf(self, pdf_path: str, dpi: int = 300) -> Dict[str, Any]:
         """
-        Process PDF file (convert to images and process each page)
-
-        Args:
-            pdf_path: Path to PDF file
-            dpi: DPI for PDF to image conversion (default: 300)
-
-        Returns:
-            Dict containing:
-                - pages: List of page results
+        Process PDF file (convert to images and OCR each page).
         """
         self._initialize()
 
@@ -210,65 +146,35 @@ class OCREngine:
         try:
             from pdf2image import convert_from_path
 
-            logger.info(f"Converting PDF to images: {pdf_path} (DPI: {dpi})")
+            logger.info("Converting PDF to images: %s (DPI: %d)", pdf_path, dpi)
             images = convert_from_path(pdf_path, dpi=dpi)
 
             pages = []
             for page_num, image in enumerate(images, start=1):
-                logger.info(f"Processing PDF page {page_num}/{len(images)}")
-
-                # Save temporary image
-                temp_image_path = f"/tmp/pdf_page_{page_num}.png"
-                image.save(temp_image_path, "PNG")
-
+                temp_path = f"/tmp/pdf_page_{page_num}.png"
+                image.save(temp_path, "PNG")
                 try:
-                    page_result = self.process_image(temp_image_path)
+                    page_result = self.process_image(temp_path)
                     page_result["page"] = page_num
                     pages.append(page_result)
                 finally:
-                    # Clean up temporary image
-                    if Path(temp_image_path).exists():
-                        os.remove(temp_image_path)
+                    if Path(temp_path).exists():
+                        os.remove(temp_path)
 
-            return {
-                "pages": pages,
-                "total_pages": len(pages)
-            }
+            return {"pages": pages, "total_pages": len(pages)}
 
-        except ImportError:
-            logger.error("pdf2image not installed. Install with: pip install pdf2image")
-            raise Exception("PDF processing library not available")
         except Exception as e:
-            logger.error(f"PDF OCR processing failed for {pdf_path}: {e}")
+            logger.error("PDF OCR failed for %s: %s", pdf_path, e)
             raise
 
     def check_gpu_available(self) -> bool:
-        """
-        Check if GPU is available for PaddleOCR
-
-        Returns:
-            True if GPU is available, False otherwise
-        """
+        """Check if GPU is available."""
         if self._gpu_available is not None:
             return self._gpu_available
-
         try:
-            import paddle
-            if hasattr(paddle, 'device') and paddle.device.is_compiled_with_cuda():
-                try:
-                    paddle.device.set_device('gpu')
-                    self._gpu_available = True
-                    return True
-                except Exception:
-                    self._gpu_available = False
-                    return False
-            else:
-                self._gpu_available = False
-                return False
+            import torch
+            self._gpu_available = torch.cuda.is_available()
+            return self._gpu_available
         except Exception:
             self._gpu_available = False
             return False
-
-
-
-

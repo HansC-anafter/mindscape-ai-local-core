@@ -15,18 +15,18 @@ echo "Platform: $OS $ARCH"
 if [ "$OS" = "Darwin" ]; then
     echo "macOS detected: PaddlePaddle only supports CPU on macOS (no Metal/GPU support)"
     echo "Installing paddlepaddle (CPU)..."
-    pip install paddlepaddle
+    pip install paddlepaddle==2.6.2
 # Linux with NVIDIA GPU
 elif command -v nvidia-smi &> /dev/null; then
     echo "NVIDIA GPU detected, attempting paddlepaddle-gpu..."
-    pip install paddlepaddle-gpu || {
+    pip install paddlepaddle-gpu==2.6.2 || {
         echo "GPU version failed, falling back to CPU..."
-        pip install paddlepaddle
+        pip install paddlepaddle==2.6.2
     }
 # Linux without GPU or other platforms
 else
     echo "No GPU detected or unsupported platform, installing paddlepaddle (CPU)..."
-    pip install paddlepaddle
+    pip install paddlepaddle==2.6.2
 fi
 
 echo "PaddlePaddle installation completed"

@@ -283,6 +283,41 @@ properties:
                 type: object
                 description: "自動選擇條件（risk_level、locale 等）"
 
+        consumes:
+          type: array
+          description: "此 playbook 所需的輸入資料型別"
+          items:
+            oneOf:
+              - type: string
+                description: "向下相容 bare string 格式 (e.g., ig_following_profiles)"
+              - type: object
+                required: [type]
+                properties:
+                  type:
+                    type: string
+                    description: "資料型別識別碼"
+                  label:
+                    type: string
+                    description: "顯示標籤"
+
+        produces:
+          type: array
+          description: "此 playbook 產出的資料型別"
+          items:
+            type: object
+            required: [type]
+            properties:
+              type:
+                type: string
+                description: "資料型別識別碼"
+              label:
+                type: string
+                description: "顯示標籤"
+              storage:
+                type: string
+                enum: [file, db, api]
+                description: "資料儲存方式"
+
   # ============================================================================
   # Tool 定義
   # ============================================================================

@@ -321,5 +321,3 @@ Meeting asset maps dynamically query workspaces with `visibility=discoverable` a
 | Other orchestration | 16 | Pass |
 | **Total** | **174+** | |
 
-> [!NOTE]
-> New test suites will be added per phase: RouteDecision schema, IngressRouter, ActionIntent, SemanticNormalizer, bridge dispatcher, DispatchOrchestrator, DispatchGate, RuntimeSupervisor. See [implementation backlog](../../.gemini/antigravity/brain/2be854ef-8873-4bbd-a425-5764d01207d0/implementation_plan.md) for full test matrix.

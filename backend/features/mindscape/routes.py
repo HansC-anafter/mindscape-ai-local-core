@@ -20,16 +20,16 @@ from backend.app.models.mindscape import (
 )
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.mindscape_onboarding import MindscapeOnboardingService
-from backend.app.services.playbook_webhook import PlaybookWebhookHandler
+from backend.app.services.orchestration.governance_engine import GovernanceEngine
 from backend.app.services.intent_analyzer import IntentPipeline
 from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
 
 router = APIRouter(tags=["mindscape"])
 
-# Initialize store, onboarding service, and webhook handler
+# Initialize store, onboarding service, and completion ingress façade
 store = MindscapeStore()
 onboarding_service = MindscapeOnboardingService(store)
-webhook_handler = PlaybookWebhookHandler(store)
+governance_engine = GovernanceEngine()
 
 
 # ============================================================================
@@ -147,7 +147,7 @@ async def playbook_completion_webhook(
     - Updating onboarding state
     """
     try:
-        result = await webhook_handler.handle_playbook_completion(
+        result = await governance_engine.process_playbook_webhook(
             execution_id=execution_id,
             playbook_code=playbook_code,
             user_id=user_id,

@@ -73,8 +73,11 @@ async def ocr_image(
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
+    except HTTPException:
+        # Don't catch our own HTTPExceptions in the generic handler
+        raise
     except Exception as e:
-        logger.error(f"Image OCR processing failed: {e}")
+        logger.exception("Image OCR processing failed")
         raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
 
 

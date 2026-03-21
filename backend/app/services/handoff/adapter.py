@@ -380,8 +380,28 @@ class HandoffAdapter:
                     }
                 )
 
+            # Phase 0: Inject idempotency registry
+            try:
+                from backend.app.services.stores.handoff_registry_store import (
+                    HandoffRegistryStore,
+                )
+                _registry_store = HandoffRegistryStore()
+            except Exception:
+                _registry_store = None
+
+            # Phase 2: Inject spec-aware dispatch adapter
+            try:
+                from backend.app.services.orchestration.pack_dispatch_adapter import (
+                    PackDispatchAdapter,
+                )
+                _dispatch_adapter = PackDispatchAdapter()
+            except Exception:
+                _dispatch_adapter = None
+
             orchestrator = DispatchOrchestrator(
                 project_id=payload_json.get("project_id"),
+                handoff_registry_store=_registry_store,
+                pack_dispatch_adapter=_dispatch_adapter,
             )
             result = await orchestrator.execute(
                 task_ir=task_ir,

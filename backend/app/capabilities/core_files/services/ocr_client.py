@@ -48,16 +48,7 @@ class OCRClient:
 
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 with open(file_path, "rb") as f:
-                    # Guess content type from suffix
-                    suffix = path.suffix.lower()
-                    content_type = {
-                        ".png": "image/png",
-                        ".jpg": "image/jpeg",
-                        ".jpeg": "image/jpeg",
-                        ".tiff": "image/tiff",
-                        ".bmp": "image/bmp",
-                    }.get(suffix, "image/png")
-                    files = {"file": (path.name, f, content_type)}
+                    files = {"file": (path.name, f, "image/png")}
                     response = await client.post(
                         f"{self.service_url}/ocr/image",
                         files=files,
@@ -92,10 +83,11 @@ class OCRClient:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 with open(file_path, "rb") as f:
                     files = {"file": (path.name, f, "application/pdf")}
+                    data = {"dpi": dpi}
                     response = await client.post(
                         f"{self.service_url}/ocr/pdf",
-                        data={"dpi": str(dpi)},
                         files=files,
+                        data=data,
                         timeout=self.timeout
                     )
                     response.raise_for_status()

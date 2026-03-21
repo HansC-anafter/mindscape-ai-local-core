@@ -67,6 +67,7 @@ class ToolSourceType(str, Enum):
     LANGCHAIN = "langchain"  # LangChain community tools
     MCP = "mcp"  # MCP protocol tools
     CUSTOM = "custom"  # Custom tools
+    CAPABILITY = "capability"  # Mindpack capability tools
 
 
 class ToolCategory(str, Enum):
@@ -77,6 +78,9 @@ class ToolCategory(str, Enum):
     AUTOMATION = "automation"  # Automation/scripting
     COMMUNICATION = "communication"  # Communication/notification
     ANALYSIS = "analysis"  # Analysis/computation
+    AI = "analysis"  # Legacy alias; older tools still reference ToolCategory.AI
+    SEARCH = "data"  # Legacy alias used by older adapters
+    WRITE = "automation"  # Legacy alias used by older graph tools
 
 
 class ToolDangerLevel(str, Enum):

@@ -54,7 +54,11 @@ class TasksStoreRunnerMixin:
                     UPDATE tasks
                     SET status = :running_status,
                         started_at = :started_at,
-                        execution_context = :execution_context
+                        execution_context = :execution_context,
+                        blocked_reason = NULL,
+                        blocked_payload = NULL,
+                        frontier_state = :frontier_state,
+                        frontier_enqueued_at = NULL
                     WHERE id = :task_id AND status = :pending_status
                 """
                 ),
@@ -63,6 +67,7 @@ class TasksStoreRunnerMixin:
                     "pending_status": TaskStatus.PENDING.value,
                     "started_at": now,
                     "execution_context": self.serialize_json(ctx),
+                    "frontier_state": "running",
                     "task_id": task_id,
                 },
             )

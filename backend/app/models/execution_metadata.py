@@ -9,6 +9,33 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 
 
+GOVERNANCE_PAYLOAD_FIELDS = (
+    "acceptance_tests",
+    "trace_id",
+    "governance_constraints",
+    "requested_output_type",
+    "human_instructions",
+    "context_attachments",
+)
+
+
+def extract_governance_payload(data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Extract governance payload from nested or legacy flat metadata."""
+    if not isinstance(data, dict) or not data:
+        return None
+
+    nested = data.get("governance")
+    if isinstance(nested, dict) and nested:
+        return dict(nested)
+
+    extracted = {
+        field_name: data[field_name]
+        for field_name in GOVERNANCE_PAYLOAD_FIELDS
+        if field_name in data and data[field_name] is not None
+    }
+    return extracted or None
+
+
 class ExecutionMetadata(BaseModel):
     """
     Standardized execution metadata structure
@@ -33,6 +60,11 @@ class ExecutionMetadata(BaseModel):
     cloud: Optional[Dict[str, str]] = Field(
         None,
         description="Cloud-related IDs: {tenant_id, cloud_workspace_id, job_id}"
+    )
+
+    governance: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Governance payload propagated across launch/runtime/completion"
     )
 
     @classmethod
@@ -85,7 +117,8 @@ class ExecutionMetadata(BaseModel):
         return cls(
             intent=intent_data if intent_data else None,
             execution=execution_data if execution_data else None,
-            cloud=cloud_data if cloud_data else None
+            cloud=cloud_data if cloud_data else None,
+            governance=extract_governance_payload(data),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -108,6 +141,9 @@ class ExecutionMetadata(BaseModel):
 
         if self.cloud:
             result.update(self.cloud)
+
+        if self.governance:
+            result["governance"] = dict(self.governance)
 
         return result
 
@@ -147,6 +183,10 @@ class ExecutionMetadata(BaseModel):
         """Get job ID"""
         return self.cloud.get("job_id") if self.cloud else None
 
+    def get_governance(self) -> Optional[Dict[str, Any]]:
+        """Get governance payload."""
+        return dict(self.governance) if self.governance else None
+
     def set_intent_context(self, intent_id: str, intent_instance_id: Optional[str] = None) -> None:
         """Set intent context"""
         if not self.intent:
@@ -166,6 +206,10 @@ class ExecutionMetadata(BaseModel):
         if not self.cloud:
             self.cloud = {}
         self.cloud.update(kwargs)
+
+    def set_governance(self, governance: Optional[Dict[str, Any]]) -> None:
+        """Set governance payload."""
+        self.governance = dict(governance) if isinstance(governance, dict) and governance else None
 
     def is_cloud_execution(self) -> bool:
         """Check if this is a cloud execution"""

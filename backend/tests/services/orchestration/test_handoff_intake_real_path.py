@@ -3,8 +3,12 @@ Unit tests for handoff intake meeting path:
 Pre-1 lens_id injection via EffectiveLensResolver fallback.
 """
 
+from pathlib import Path
 import pytest
 from unittest.mock import MagicMock
+
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[3]
 
 
 class TestHandoffBundleLensInjection:
@@ -13,16 +17,18 @@ class TestHandoffBundleLensInjection:
 
     def test_handoff_bundle_imports_resolver(self):
         """Verify the resolver import path exists in handoff_bundle_service source."""
-        with open("backend/app/services/handoff_bundle_service.py") as f:
-            source = f.read()
+        source = (
+            _BACKEND_ROOT / "app/services/handoff_bundle_service.py"
+        ).read_text(encoding="utf-8")
         assert "EffectiveLensResolver" in source
         assert "GraphStore" in source
         assert "InMemorySessionStore" in source
 
     def test_handoff_bundle_does_not_use_metadata_active_lens(self):
         """Verify the old metadata.active_lens_id pattern was removed."""
-        with open("backend/app/services/handoff_bundle_service.py") as f:
-            source = f.read()
+        source = (
+            _BACKEND_ROOT / "app/services/handoff_bundle_service.py"
+        ).read_text(encoding="utf-8")
         assert "active_lens_id" not in source
 
 
@@ -31,15 +37,17 @@ class TestPipelineMeetingLensInjection:
 
     def test_pipeline_meeting_imports_resolver(self):
         """Verify pipeline_meeting has EffectiveLensResolver wiring."""
-        with open("backend/app/services/conversation/pipeline_meeting.py") as f:
-            source = f.read()
+        source = (
+            _BACKEND_ROOT / "app/services/conversation/pipeline_meeting.py"
+        ).read_text(encoding="utf-8")
         assert "EffectiveLensResolver" in source
         assert "GraphStore" in source
 
     def test_session_store_update_no_execution_id_in_decisions(self):
         """Verify session.decisions is NOT polluted with execution_id."""
-        with open("backend/app/services/conversation/pipeline_meeting.py") as f:
-            source = f.read()
+        source = (
+            _BACKEND_ROOT / "app/services/conversation/pipeline_meeting.py"
+        ).read_text(encoding="utf-8")
         # The old pattern should be commented out / removed
         assert "session.decisions.append(result.execution_id)" not in source
         assert "session.decisions.append(execution_id)" not in source
@@ -62,8 +70,9 @@ class TestMeetingSessionsAPILensInjection:
 
     def test_api_route_has_resolver_fallback(self):
         """Verify meeting_sessions API route resolves lens_id when missing."""
-        with open("backend/app/routes/meeting_sessions.py") as f:
-            source = f.read()
+        source = (_BACKEND_ROOT / "app/routes/meeting_sessions.py").read_text(
+            encoding="utf-8"
+        )
         assert "EffectiveLensResolver" in source
         assert "lens_id = body.lens_id" in source
 

@@ -477,6 +477,9 @@ class CloudConnector:
         request_payload: Dict[str, Any],
         workspace_id: Optional[str] = None,
         capability_code: Optional[str] = None,
+        execution_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
+        callback_payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Dispatch execution request to cloud control plane via HTTP.
 
@@ -501,11 +504,14 @@ class CloudConnector:
             "/api/v1/executions",
             json={
                 "tenant_id": tenant_id,
+                "execution_id": execution_id,
+                "trace_id": trace_id,
                 "playbook_code": playbook_code,
                 "request_payload": request_payload,
                 "workspace_id": workspace_id,
                 "capability_code": capability_code,
                 "device_id": self._device_id,
+                "callback_payload": callback_payload,
             },
         )
         response.raise_for_status()
