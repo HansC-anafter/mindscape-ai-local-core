@@ -10,7 +10,7 @@ Install endpoints have been extracted to ``capability_install.py``.
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import logging
 import os
 from datetime import datetime, timezone
@@ -18,6 +18,7 @@ from pathlib import Path
 
 import yaml
 
+from app.services.pack_activation_service import PackActivationService
 from app.services.stores.installed_packs_store import InstalledPacksStore
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/capability-packs", tags=["Capability Packs"])
 
 installed_packs_store = InstalledPacksStore()
+pack_activation_service = PackActivationService()
 
 
 def _utc_now():
@@ -173,6 +175,21 @@ class PackResponse(BaseModel):
     installed_at: Optional[str] = None
 
 
+class PackActivationStateResponse(BaseModel):
+    pack_id: str
+    pack_family: str
+    enabled: bool
+    install_state: str
+    migration_state: str
+    activation_state: str
+    activation_mode: str
+    manifest_hash: Optional[str] = None
+    registered_prefixes: List[str] = Field(default_factory=list)
+    last_error: Optional[str] = None
+    activated_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 @router.get("/", response_model=List[PackResponse])
 def list_packs():
     """
@@ -293,6 +310,15 @@ async def enable_pack(pack_id: str):
                 )
 
         await anyio.to_thread.run_sync(_do_db_enable)
+        await anyio.to_thread.run_sync(
+            lambda: pack_activation_service.record_enabled(
+                pack_id=pack_id,
+                manifest=pack_meta,
+                manifest_path=Path(pack_meta["_file_path"])
+                if pack_meta.get("_file_path")
+                else None,
+            )
+        )
 
         # Rebuild tool embeddings for re-enabled pack (background, non-fatal)
         import asyncio as _asyncio
@@ -348,11 +374,14 @@ async def disable_pack(pack_id: str):
     """
     import anyio
     try:
-        updated = await anyio.to_thread.run_sync(installed_packs_store.set_enabled, pack_id, False)
+        updated = await anyio.to_thread.run_sync(
+            installed_packs_store.set_enabled, pack_id, False
+        )
         if not updated:
             raise HTTPException(
                 status_code=404, detail=f"Pack '{pack_id}' is not installed"
             )
+        await anyio.to_thread.run_sync(pack_activation_service.record_disabled, pack_id)
 
         # Remove tool embeddings for disabled pack (background, non-fatal)
         import asyncio as _asyncio
@@ -403,6 +432,18 @@ async def disable_pack(pack_id: str):
 def list_installed_packs():
     """List all installed pack IDs"""
     return installed_packs_store.list_installed_pack_ids()
+
+
+@router.get("/{pack_id}/activation", response_model=PackActivationStateResponse)
+def get_pack_activation_state(pack_id: str):
+    """Return persisted activation/install state for a pack."""
+    state = pack_activation_service.get_state(pack_id)
+    if state is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Activation state for pack '{pack_id}' not found",
+        )
+    return PackActivationStateResponse(**state)
 
 
 @router.get("/enabled", response_model=List[str])

@@ -92,6 +92,58 @@ async def test_local_core_remote_dispatch_matches_cloud_start_schema(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_local_core_tool_dispatch_matches_cloud_start_schema(monkeypatch):
+    connector_module = importlib.import_module(
+        "backend.app.services.cloud_connector.connector"
+    )
+    cloud_execution_control = importlib.import_module("api.v1.execution_control")
+
+    captured = {}
+
+    class StubClient:
+        async def post(self, url, json):
+            captured["url"] = url
+            captured["json"] = json
+            return _StubResponse({"id": json["execution_id"], "state": "pending"})
+
+    connector = connector_module.CloudConnector(
+        cloud_ws_url="ws://cloud.test/api/v1/executor/ws",
+        device_id="gpu-vm-01",
+        tenant_id="tenant-1",
+    )
+    monkeypatch.setattr(connector, "_get_http_client", lambda: StubClient())
+
+    result = await connector.start_remote_execution(
+        tenant_id="tenant-1",
+        playbook_code="ig_batch_pin_references",
+        request_payload={
+            "tool_name": "ig.batch_vision",
+            "inputs": {"batch_items": [{"image_url": "https://example.com/a.jpg"}]},
+        },
+        workspace_id="ws-1",
+        capability_code="ig",
+        execution_id="11111111-1111-4111-8111-111111111111",
+        trace_id="trace-1",
+        job_type="tool",
+        callback_payload={"mode": "local_core_terminal_event"},
+    )
+
+    validated = cloud_execution_control.StartExecutionRequest.model_validate(
+        captured["json"]
+    )
+
+    assert captured["url"] == "/api/v1/executions"
+    assert result["id"] == "11111111-1111-4111-8111-111111111111"
+    assert validated.tenant_id == "tenant-1"
+    assert validated.execution_id == "11111111-1111-4111-8111-111111111111"
+    assert validated.trace_id == "trace-1"
+    assert validated.job_type == "tool"
+    assert validated.capability_code == "ig"
+    assert validated.request_payload["tool_name"] == "ig.batch_vision"
+    assert validated.callback_payload["mode"] == "local_core_terminal_event"
+
+
+@pytest.mark.asyncio
 async def test_cloud_terminal_callback_matches_local_core_schema(monkeypatch):
     local_callback_module = _load_module(
         "test_remote_execution_callbacks_contract_module",
@@ -128,6 +180,8 @@ async def test_cloud_terminal_callback_matches_local_core_schema(monkeypatch):
         workspace_id="ws-1",
         execution_id="11111111-1111-4111-8111-111111111111",
         trace_id="trace-1",
+        job_type="tool",
+        capability_code="ig",
         playbook_code="ig_batch_pin_references",
         status="succeeded",
         result_payload={"outputs": {"artifact": "x"}},
@@ -147,4 +201,6 @@ async def test_cloud_terminal_callback_matches_local_core_schema(monkeypatch):
     assert result["execution_id"] == "11111111-1111-4111-8111-111111111111"
     assert validated.execution_id == "11111111-1111-4111-8111-111111111111"
     assert validated.trace_id == "trace-1"
+    assert validated.job_type == "tool"
+    assert validated.capability_code == "ig"
     assert validated.status == "succeeded"

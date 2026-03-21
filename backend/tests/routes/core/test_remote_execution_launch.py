@@ -133,3 +133,51 @@ def test_start_execution_request_exposes_remote_governance_fields():
     assert "execution_id" in fields
     assert "trace_id" in fields
     assert "remote_job_type" in fields
+    assert "remote_request_payload" in fields
+    assert "remote_capability_code" in fields
+
+
+@pytest.mark.asyncio
+async def test_dispatch_remote_execution_passes_through_generic_tool_payload(monkeypatch):
+    dispatch = _load_module(
+        "test_execution_dispatch_module_tool_payload",
+        "backend/app/routes/core/execution_dispatch.py",
+    )
+    tasks_store_module = importlib.import_module(
+        "backend.app.services.stores.tasks_store"
+    )
+
+    store = StubTasksStore()
+    connector = StubConnector()
+
+    monkeypatch.setattr(tasks_store_module, "TasksStore", lambda: store)
+    monkeypatch.setattr(dispatch, "get_cloud_connector", lambda: connector)
+
+    result = await dispatch.dispatch_remote_execution(
+        playbook_code="ig_batch_pin_references",
+        inputs={"batch_id": "b-1"},
+        workspace_id="ws-1",
+        profile_id="user-1",
+        project_id="proj-1",
+        tenant_id="tenant-1",
+        execution_id="exec-123",
+        trace_id="trace-123",
+        remote_job_type="tool",
+        capability_code="ig",
+        remote_request_payload={
+            "tool_name": "ig.batch_vision",
+            "inputs": {"batch_items": [{"image_url": "https://example.com/a.jpg"}]},
+        },
+    )
+
+    assert result["job_type"] == "tool"
+    assert connector.calls[0]["job_type"] == "tool"
+    assert connector.calls[0]["capability_code"] == "ig"
+    request_payload = connector.calls[0]["request_payload"]
+    assert request_payload["tool_name"] == "ig.batch_vision"
+    assert request_payload["inputs"]["batch_items"] == [
+        {"image_url": "https://example.com/a.jpg"}
+    ]
+    assert request_payload["inputs"]["execution_id"] == "exec-123"
+    assert request_payload["inputs"]["trace_id"] == "trace-123"
+    assert request_payload["inputs"]["workspace_id"] == "ws-1"

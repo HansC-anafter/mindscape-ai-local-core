@@ -275,6 +275,8 @@ class GovernanceEngine:
         status: str,
         result_payload: Optional[Dict[str, Any]],
         error_message: Optional[str],
+        job_type: Optional[str] = None,
+        capability_code: Optional[str] = None,
         playbook_code: Optional[str] = None,
         provider_metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -327,6 +329,10 @@ class GovernanceEngine:
                 "provider_metadata": provider_metadata or {},
             }
         )
+        if job_type:
+            remote_execution["job_type"] = job_type
+        if capability_code:
+            remote_execution["capability_code"] = capability_code
         if error_message:
             remote_execution["error"] = error_message
         ctx.update(
@@ -336,6 +342,10 @@ class GovernanceEngine:
                 "remote_execution": remote_execution,
             }
         )
+        if job_type and not ctx.get("job_type"):
+            ctx["job_type"] = job_type
+        if capability_code and not ctx.get("capability_code"):
+            ctx["capability_code"] = capability_code
         self.tasks_store.update_task(task.id, execution_context=ctx)
 
         if normalized_status in success_statuses:

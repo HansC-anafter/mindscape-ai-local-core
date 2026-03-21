@@ -24,6 +24,8 @@ class StartExecutionRequest(BaseModel):
     execution_id: Optional[str] = None
     trace_id: Optional[str] = None
     remote_job_type: Optional[Literal["playbook", "tool", "chain"]] = None
+    remote_request_payload: Optional[dict] = None
+    remote_capability_code: Optional[str] = None
     target_language: Optional[str] = None
     variant_id: Optional[str] = None
     auto_execute: Optional[bool] = (
