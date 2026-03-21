@@ -7,31 +7,88 @@ After login, the profile is saved and can be used for automated analysis.
 
 Usage:
     python scripts/ig_login_helper.py
+    python scripts/ig_login_helper.py --profile-name client-a
+    python scripts/ig_login_helper.py --user-data-dir /absolute/path/to/profile
 
-The browser profile will be saved to: data/ig-browser-profiles/default
+The browser profile will be saved to the selected profile directory.
 """
 
 import asyncio
+import argparse
 import os
+import re
 from pathlib import Path
 
-# Check playwright is installed
-try:
-    from playwright.async_api import async_playwright
-except ImportError:
-    print("Playwright not installed. Installing...")
-    os.system("pip install playwright && playwright install chromium")
-    from playwright.async_api import async_playwright
+def load_async_playwright():
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        print("Playwright not installed. Installing...")
+        os.system("pip install playwright && playwright install chromium")
+        from playwright.async_api import async_playwright
+    return async_playwright
+
+
+def normalize_profile_name(raw: str) -> str:
+    trimmed = (raw or "").strip().lower()
+    if not trimmed:
+        return "default"
+    normalized = re.sub(r"\s+", "-", trimmed)
+    normalized = re.sub(r"[^a-z0-9._-]+", "-", normalized)
+    normalized = re.sub(r"-{2,}", "-", normalized)
+    normalized = normalized.strip("-.")
+    return normalized or "default"
+
+
+def resolve_profile_dir(profile_name: str, user_data_dir: str | None) -> tuple[Path, str]:
+    repo_root = Path(__file__).parent.parent
+    if user_data_dir:
+        raw_path = Path(user_data_dir).expanduser()
+        if raw_path.is_absolute():
+            profile_dir = raw_path
+        else:
+            profile_dir = (repo_root / raw_path).resolve()
+        profile_label = profile_dir.name or normalize_profile_name(profile_name)
+        return profile_dir, profile_label
+
+    normalized_name = normalize_profile_name(profile_name)
+    profile_dir = repo_root / "data" / "ig-browser-profiles" / normalized_name
+    return profile_dir, normalized_name
+
+
+def to_app_profile_path(profile_dir: Path) -> str:
+    repo_data_root = (Path(__file__).parent.parent / "data").resolve()
+    try:
+        relative = profile_dir.resolve().relative_to(repo_data_root)
+    except ValueError:
+        return str(profile_dir.resolve())
+    return f"/app/data/{relative.as_posix()}"
 
 
 async def main():
-    profile_dir = Path(__file__).parent.parent / "data" / "ig-browser-profiles" / "default"
+    parser = argparse.ArgumentParser(description="Create or update an IG browser profile session")
+    parser.add_argument(
+        "--profile-name",
+        default="default",
+        help="Named IG browser profile under data/ig-browser-profiles (default: default)",
+    )
+    parser.add_argument(
+        "--user-data-dir",
+        default="",
+        help="Optional explicit profile directory. Overrides --profile-name when provided.",
+    )
+    args = parser.parse_args()
+
+    profile_dir, profile_label = resolve_profile_dir(args.profile_name, (args.user_data_dir or "").strip() or None)
     profile_dir.mkdir(parents=True, exist_ok=True)
+    app_profile_path = to_app_profile_path(profile_dir)
 
     print("=" * 60)
     print("IG Login Helper")
     print("=" * 60)
+    print(f"Access profile: {profile_label}")
     print(f"Browser profile will be saved to: {profile_dir}")
+    print(f"Container path: {app_profile_path}")
     print()
     print("Instructions:")
     print("1. A browser window will open to Instagram")
@@ -41,6 +98,7 @@ async def main():
     print("=" * 60)
     print()
 
+    async_playwright = load_async_playwright()
     async with async_playwright() as p:
         # Launch persistent context (saves cookies/session)
         context = await p.chromium.launch_persistent_context(
@@ -114,10 +172,11 @@ async def main():
     print()
     print("=" * 60)
     print("Login session saved!")
+    print(f"Access profile: {profile_label}")
     print(f"Profile location: {profile_dir}")
     print()
     print("You can now use the IG Following Analyzer with this profile.")
-    print("The profile path to use: /app/data/ig-browser-profiles/default")
+    print(f"The profile path to use: {app_profile_path}")
     print("=" * 60)
 
 
