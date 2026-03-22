@@ -38,9 +38,16 @@ The GPU executor node does **not** run:
 - a GPU VM with the required CUDA / model-serving stack already prepared
 - a reachable `site-hub` execution control plane
 - a valid connector auth token for websocket registration
+- a checkout of [`sitehub-execution-protocol`](https://github.com/HansC-anafter/sitehub-execution-protocol) on the VM
 - `.mindpack` artifacts copied onto the VM
 
 Use a **dedicated `local-core` checkout on the GPU VM**. This compose file writes runtime state to local `./data` and `./logs`, so it should not share a workstation checkout or database volume root.
+
+Phase A also expects the protocol repo to be present on the VM and mounted into the backend container:
+
+```bash
+git clone git@github.com:HansC-anafter/sitehub-execution-protocol.git /opt/sitehub-execution-protocol
+```
 
 Phase A required pack set:
 
@@ -62,6 +69,7 @@ Set at least:
 - `DEVICE_ID`
 - `CLOUD_PROVIDER_TOKEN` or `CLOUD_API_TOKEN`
 - `RUNTIME_ENCRYPTION_KEY`
+- `SITEHUB_PROTOCOL_PATH`
 - `VISION_MODEL_BASE_URL`
 
 Notes:
@@ -70,6 +78,7 @@ Notes:
 - `EXECUTION_CONTROL_WS_URL` is optional; if empty, `CloudConnector` derives it from the API URL.
 - `DEVICE_ID` should be stable per VM so routing and audit trails remain readable.
 - `RUNTIME_ENCRYPTION_KEY` must be a valid Fernet key because runtime auth services are imported during backend startup even on a headless executor node.
+- `SITEHUB_PROTOCOL_PATH` should point at the checked-out `sitehub-execution-protocol` repo root on the VM.
 
 ## 2. Start the Headless Stack
 

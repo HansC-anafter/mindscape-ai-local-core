@@ -9,7 +9,7 @@ services:
     ports:
       - "127.0.0.1:${GPU_EXECUTOR_PORT:-8200}:8200"
     environment:
-      - PYTHONPATH=/app:/app/backend:/app/backend/app
+      - PYTHONPATH=/app:/app/backend:/app/backend/app:/app/sitehub-execution-protocol
       - ENVIRONMENT=production
       - HOST=0.0.0.0
       - PORT=8200
@@ -64,6 +64,7 @@ services:
       - ./backend:/app/backend:rw
       - ./web-console:/app/web-console:rw
       - ./scripts:/app/scripts:rw
+      - ${SITEHUB_PROTOCOL_PATH:-../sitehub-execution-protocol}:/app/sitehub-execution-protocol:ro
       - ./data:/app/data:rw
       - ./data/secrets:/root/.mindscape:rw
       - ./logs:/app/logs:rw
