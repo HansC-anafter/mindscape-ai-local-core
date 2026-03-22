@@ -288,12 +288,14 @@ class CloudConnector:
                 self.cloud_ws_url,
             )
 
-            # Force HTTP/1.1 via ALPN — GCP Load Balancer defaults to H2
-            # which breaks WebSocket upgrade semantics (Connection: Upgrade)
-            import ssl
+            ssl_context = None
+            if self.cloud_ws_url.startswith("wss://"):
+                # Force HTTP/1.1 via ALPN — GCP Load Balancer defaults to H2
+                # which breaks WebSocket upgrade semantics (Connection: Upgrade)
+                import ssl
 
-            ssl_context = ssl.create_default_context()
-            ssl_context.set_alpn_protocols(["http/1.1"])
+                ssl_context = ssl.create_default_context()
+                ssl_context.set_alpn_protocols(["http/1.1"])
 
             self.websocket = await websockets.connect(
                 ws_url,
