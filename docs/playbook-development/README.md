@@ -62,6 +62,7 @@ Playbooks are reusable, inspectable multi-step workflows that extend Mindscape A
 - [Publishing](./deployment/publishing.md) - How to publish your playbook
 - [Versioning](./deployment/versioning.md) - Version management
 - [Checklist](./deployment/checklist.md) - Publishing checklist
+- [GPU Executor Node](./deployment/gpu-executor-node.md) - Deploy a headless GPU runtime for remote tool execution
 
 ### API Reference
 - [Frontend API](./api-reference/frontend.md) - Frontend API reference
@@ -112,4 +113,3 @@ For questions and support:
 ---
 
 **Last Updated**: 2025-12-05
-

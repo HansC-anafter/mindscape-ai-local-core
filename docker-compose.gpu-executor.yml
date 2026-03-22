@@ -1,0 +1,145 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: mindscape-ai-gpu-executor-backend
+    shm_size: "2gb"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${GPU_EXECUTOR_PORT:-8200}:8200"
+    environment:
+      - PYTHONPATH=/app:/app/backend:/app/backend/app
+      - ENVIRONMENT=production
+      - HOST=0.0.0.0
+      - PORT=8200
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=${TZ:-UTC}
+      - REDIS_ENABLED=true
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_gpu_executor}
+      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_gpu_executor_vectors}
+      - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_gpu_executor}
+      - POSTGRES_CORE_HOST=postgres
+      - POSTGRES_CORE_PORT=5432
+      - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_gpu_executor}
+      - POSTGRES_CORE_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_CORE_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      - POSTGRES_VECTOR_HOST=postgres
+      - POSTGRES_VECTOR_PORT=5432
+      - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_gpu_executor_vectors}
+      - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_USER:-mindscape}
+      - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_gpu_executor}
+      - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      - LOCAL_AUTH_SECRET=${LOCAL_AUTH_SECRET:-gpu-executor-change-me}
+      - CLOUD_CONNECTOR_ENABLED=${CLOUD_CONNECTOR_ENABLED:-true}
+      - EXECUTION_CONTROL_API_URL=${EXECUTION_CONTROL_API_URL:-}
+      - EXECUTION_CONTROL_WS_URL=${EXECUTION_CONTROL_WS_URL:-}
+      - SITE_HUB_API_URL=${SITE_HUB_API_URL:-}
+      - SITE_HUB_WS_URL=${SITE_HUB_WS_URL:-}
+      - SITE_KEY=${SITE_KEY:-}
+      - TENANT_ID=${TENANT_ID:-local}
+      - DEVICE_ID=${DEVICE_ID:-}
+      - CLOUD_PROVIDER_TOKEN=${CLOUD_PROVIDER_TOKEN:-}
+      - CLOUD_API_TOKEN=${CLOUD_API_TOKEN:-}
+      - PLAYBOOK_DISABLE_LEGACY=${PLAYBOOK_DISABLE_LEGACY:-1}
+      - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-false}
+      - VISION_MODEL_BASE_URL=${VISION_MODEL_BASE_URL:-}
+      - VLM_BASE_URL=${VLM_BASE_URL:-}
+      - MLX_SERVER_HOST=${MLX_SERVER_HOST:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - HUGGINGFACE_API_TOKEN=${HUGGINGFACE_API_TOKEN:-}
+      - HF_HOME=/root/.cache/huggingface
+      - HOST_PROJECT_PATH=/app
+    volumes:
+      - ./backend:/app/backend:rw
+      - ./web-console:/app/web-console:rw
+      - ./scripts:/app/scripts:rw
+      - ./data:/app/data:rw
+      - ./data/secrets:/root/.mindscape:rw
+      - ./logs:/app/logs:rw
+      - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface:rw
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mindscape-gpu-executor
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8200/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mindscape-ai-gpu-executor-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_gpu_executor}
+      - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_gpu_executor}
+      - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_gpu_executor_vectors}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - TZ=${TZ:-UTC}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./docker/postgres/init-dual-dbs.sh:/docker-entrypoint-initdb.d/00-init-dual-dbs.sh:ro
+    networks:
+      - mindscape-gpu-executor
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_CORE_USER:-mindscape} -d ${POSTGRES_CORE_DB:-mindscape_gpu_executor}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    container_name: mindscape-ai-gpu-executor-redis
+    restart: unless-stopped
+    command:
+      - sh
+      - -lc
+      - |
+        if [ -n "${REDIS_PASSWORD:-}" ]; then
+          exec redis-server --appendonly yes --save 60 1000 --requirepass "${REDIS_PASSWORD}"
+        fi
+        exec redis-server --appendonly yes --save 60 1000
+    volumes:
+      - ./data/redis:/data
+    networks:
+      - mindscape-gpu-executor
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "if [ -n \"${REDIS_PASSWORD:-}\" ]; then redis-cli -a \"${REDIS_PASSWORD}\" ping; else redis-cli ping; fi",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+networks:
+  mindscape-gpu-executor:
+    driver: bridge

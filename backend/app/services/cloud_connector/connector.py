@@ -1,8 +1,9 @@
 """
 Cloud Connector - Connection Management
 
-Manages WebSocket connection to Cloud, handles reconnection with exponential backoff,
-and coordinates transport and heartbeat components.
+Manages WebSocket connection to the remote execution control plane, handles
+reconnection with exponential backoff, and coordinates transport and heartbeat
+components.
 """
 
 import asyncio
@@ -11,7 +12,7 @@ import logging
 import os
 import uuid
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import websockets
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 class CloudConnector:
     """
-    Cloud Connector for Local-Core to Cloud communication.
+    Cloud Connector for Local-Core to execution-control communication.
 
     Manages WebSocket connection, automatic reconnection, and coordinates
     transport and heartbeat components.
@@ -72,9 +73,9 @@ class CloudConnector:
     @staticmethod
     def _resolve_cloud_base_url() -> Optional[str]:
         """
-        Read cloud base URL from RuntimeEnvironment DB (config_url field).
+        Read execution-control base URL from RuntimeEnvironment DB (config_url field).
 
-        Falls back to CLOUD_API_URL env var. Returns None if not configured.
+        Falls back to explicit environment overrides. Returns None if not configured.
         """
         try:
             from app.database import get_db_postgres
@@ -104,27 +105,40 @@ class CloudConnector:
 
         return None
 
+    @staticmethod
+    def _resolve_execution_control_base_url() -> Optional[str]:
+        """Resolve execution-control base URL from env or RuntimeEnvironment."""
+        return (
+            os.getenv("EXECUTION_CONTROL_API_URL")
+            or os.getenv("SITE_HUB_API_URL")
+            or os.getenv("CLOUD_API_URL")
+            or CloudConnector._resolve_cloud_base_url()
+        )
+
     def _resolve_ws_url(self) -> str:
         """
-        Resolve WebSocket URL: DB → env var → error.
+        Resolve WebSocket URL: explicit env → derived base URL → warning.
 
-        Derives WSS URL from the cloud base URL stored in the runtime DB.
+        Derives WSS URL from the execution-control base URL stored in the runtime DB.
         """
-        # Priority 1: env var override (for testing / docker-compose)
-        env_ws = os.getenv("CLOUD_WS_URL")
+        env_ws = (
+            os.getenv("EXECUTION_CONTROL_WS_URL")
+            or os.getenv("SITE_HUB_WS_URL")
+            or os.getenv("CLOUD_WS_URL")
+        )
         if env_ws:
             return env_ws
 
-        # Priority 2: derive from DB cloud base URL
-        base = self._resolve_cloud_base_url()
+        base = self._resolve_execution_control_base_url()
         if base:
             scheme = "wss" if base.startswith("https") else "ws"
             host = base.split("://", 1)[-1]
             return f"{scheme}://{host}/api/v1/executor/ws"
 
         logger.warning(
-            "Cloud WS URL not configured. "
-            "Set it in Settings → Runtime Environments or via CLOUD_WS_URL env var."
+            "Execution-control WS URL not configured. "
+            "Set Runtime Environments config_url or "
+            "EXECUTION_CONTROL_WS_URL / SITE_HUB_WS_URL / CLOUD_WS_URL."
         )
         return ""
 
@@ -269,7 +283,10 @@ class CloudConnector:
                 "X-Tenant-Id": self.tenant_id,
             }
 
-            logger.info(f"Connecting to Cloud WebSocket: {self.cloud_ws_url}")
+            logger.info(
+                "Connecting to execution-control WebSocket: %s",
+                self.cloud_ws_url,
+            )
 
             # Force HTTP/1.1 via ALPN — GCP Load Balancer defaults to H2
             # which breaks WebSocket upgrade semantics (Connection: Upgrade)
@@ -295,7 +312,7 @@ class CloudConnector:
             self._reconnect_attempts = 0
             self._reconnect_delay = 1.0
 
-            logger.info("Connected to Cloud WebSocket")
+            logger.info("Connected to execution-control WebSocket")
 
             self.transport_handler = TransportHandler(self.websocket, self.device_id)
             self.heartbeat_monitor = HeartbeatMonitor(self.websocket)
@@ -314,7 +331,7 @@ class CloudConnector:
         except Exception as e:
             self._is_connecting = False
             self._is_connected = False
-            logger.error(f"Failed to connect to Cloud: {e}")
+            logger.error(f"Failed to connect to execution control plane: {e}")
             if self._should_reconnect:
                 await self._schedule_reconnect()
 
@@ -342,7 +359,7 @@ class CloudConnector:
 
         self._is_connected = False
         self.websocket = None
-        logger.info("Disconnected from Cloud")
+        logger.info("Disconnected from execution control plane")
 
     async def _message_loop(self) -> None:
         """
@@ -446,22 +463,20 @@ class CloudConnector:
     # ------------------------------------------------------------------
 
     def _get_http_client(self) -> httpx.AsyncClient:
-        """Lazy-init an httpx client pointed at the Cloud REST API."""
+        """Lazy-init an httpx client pointed at the execution-control REST API."""
         if not getattr(self, "_http_client", None):
-            cloud_api_url = (
-                os.getenv("CLOUD_API_URL")
-                or self._resolve_cloud_base_url()
-            )
-            if not cloud_api_url:
+            control_plane_api_url = self._resolve_execution_control_base_url()
+            if not control_plane_api_url:
                 raise ConnectionError(
-                    "Cloud API URL not configured. "
-                    "Set it in Settings → Runtime Environments or via CLOUD_API_URL env var."
+                    "Execution control API URL not configured. "
+                    "Set Runtime Environments config_url or "
+                    "EXECUTION_CONTROL_API_URL / SITE_HUB_API_URL / CLOUD_API_URL."
                 )
             api_key = os.getenv("CLOUD_API_KEY", "") or os.getenv(
                 "CLOUD_PROVIDER_TOKEN", ""
             )
             self._http_client: Optional[httpx.AsyncClient] = httpx.AsyncClient(
-                base_url=cloud_api_url,
+                base_url=control_plane_api_url,
                 headers={
                     "X-Device-Id": self._device_id,
                     "Authorization": f"Bearer {api_key}",
@@ -481,26 +496,37 @@ class CloudConnector:
         trace_id: Optional[str] = None,
         job_type: str = "playbook",
         callback_payload: Optional[Dict[str, Any]] = None,
+        target_device_id: Optional[str] = None,
+        site_key: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Dispatch execution request to cloud control plane via HTTP.
+        """Dispatch execution request to the execution control plane via HTTP.
 
         Called by execution_dispatch.dispatch_remote_execution().
 
         Args:
-            tenant_id: Tenant identifier for cloud routing
+            tenant_id: Tenant identifier for control-plane routing
             playbook_code: Playbook to execute
             request_payload: Execution input data
             workspace_id: Optional workspace context
             capability_code: Optional capability identifier
 
         Returns:
-            Cloud execution record with id and state
+            Execution record with id and state
 
         Raises:
             ConnectionError: If HTTP client cannot be initialised
             httpx.HTTPStatusError: On API failure
         """
         client = self._get_http_client()
+        governance = (
+            request_payload.get("_governance", {})
+            if isinstance(request_payload, dict)
+            and isinstance(request_payload.get("_governance"), dict)
+            else {}
+        )
+        resolved_site_key = site_key or governance.get("site_key") or os.getenv(
+            "SITE_KEY"
+        ) or tenant_id
         response = await client.post(
             "/api/v1/executions",
             json={
@@ -512,9 +538,79 @@ class CloudConnector:
                 "request_payload": request_payload,
                 "workspace_id": workspace_id,
                 "capability_code": capability_code,
-                "device_id": self._device_id,
+                "device_id": target_device_id,
+                "site_key": resolved_site_key,
                 "callback_payload": callback_payload,
             },
         )
         response.raise_for_status()
         return response.json()
+
+    async def get_remote_execution(
+        self,
+        execution_id: str,
+        *,
+        tenant_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch remote execution status from the execution control plane."""
+        client = self._get_http_client()
+        params = {"tenant_id": tenant_id} if tenant_id else None
+        response = await client.get(f"/api/v1/executions/{execution_id}", params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_remote_execution_result(
+        self,
+        execution_id: str,
+        *,
+        tenant_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch remote execution terminal payload from the execution control plane."""
+        client = self._get_http_client()
+        params = {"tenant_id": tenant_id} if tenant_id else None
+        response = await client.get(
+            f"/api/v1/executions/{execution_id}/result",
+            params=params,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def wait_for_remote_execution_terminal_result(
+        self,
+        execution_id: str,
+        *,
+        tenant_id: Optional[str] = None,
+        timeout_seconds: float = 900.0,
+        poll_interval_seconds: float = 2.0,
+    ) -> Dict[str, Any]:
+        """Poll the execution control plane until a remote execution is terminal."""
+        terminal_states = {"completed", "failed", "cancelled", "timeout"}
+        started_at = datetime.now(timezone.utc)
+
+        while True:
+            execution = await self.get_remote_execution(
+                execution_id,
+                tenant_id=tenant_id,
+            )
+            state = str(execution.get("state") or "").strip().lower()
+            if state in terminal_states:
+                result = await self.get_remote_execution_result(
+                    execution_id,
+                    tenant_id=tenant_id,
+                )
+                return {
+                    "status": state,
+                    "execution": execution,
+                    "result_payload": result.get("result_payload"),
+                    "error_message": result.get("error_message"),
+                    "completed_at": result.get("completed_at"),
+                }
+
+            elapsed_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
+            if elapsed_seconds >= max(1.0, float(timeout_seconds)):
+                raise TimeoutError(
+                    f"Timed out waiting for remote execution {execution_id} "
+                    f"after {timeout_seconds:.1f}s"
+                )
+
+            await asyncio.sleep(max(0.1, float(poll_interval_seconds)))
