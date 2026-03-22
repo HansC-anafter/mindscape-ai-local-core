@@ -61,6 +61,7 @@ Set at least:
 - `TENANT_ID`
 - `DEVICE_ID`
 - `CLOUD_PROVIDER_TOKEN` or `CLOUD_API_TOKEN`
+- `RUNTIME_ENCRYPTION_KEY`
 - `VISION_MODEL_BASE_URL`
 
 Notes:
@@ -68,6 +69,7 @@ Notes:
 - `VISION_MODEL_BASE_URL` should point to an **OpenAI-compatible** multimodal endpoint.
 - `EXECUTION_CONTROL_WS_URL` is optional; if empty, `CloudConnector` derives it from the API URL.
 - `DEVICE_ID` should be stable per VM so routing and audit trails remain readable.
+- `RUNTIME_ENCRYPTION_KEY` must be a valid Fernet key because runtime auth services are imported during backend startup even on a headless executor node.
 
 ## 2. Start the Headless Stack
 
