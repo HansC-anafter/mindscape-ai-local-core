@@ -70,7 +70,7 @@ def upgrade():
                 END,
                 blocked_payload = CASE
                     WHEN execution_context->>'dependency_hold' IS NOT NULL THEN
-                        jsonb_build_object(
+                        json_build_object(
                             'dependency_hold',
                             execution_context->'dependency_hold'
                         )
