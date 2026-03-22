@@ -53,7 +53,11 @@ class CloudConnector:
             tenant_id: Tenant identifier (default: from env or "local")
         """
         self.cloud_ws_url = cloud_ws_url or self._resolve_ws_url()
-        self.device_id = device_id or self._get_or_create_device_id()
+        self.device_id = (
+            device_id
+            or (os.getenv("DEVICE_ID", "") or "").strip()
+            or self._get_or_create_device_id()
+        )
         self.tenant_id = tenant_id or os.getenv("TENANT_ID", "local")
 
         self.device_token: Optional[str] = None

@@ -84,6 +84,7 @@ test_*.yaml
 !backend/tests/test_app_bootstrap.py
 !backend/tests/test_system_control_restart_api.py
 !backend/tests/test_runner_time_tzinfo.py
+!backend/tests/services/test_cloud_connector_device_id.py
 !backend/tests/routes/test_agent_dispatch_pubsub.py
 !web-console/src/lib/__tests__/time.test.ts
 !backend/tests/test_workspace_instruction_chat_merge.py
