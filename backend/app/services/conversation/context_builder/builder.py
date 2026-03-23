@@ -20,6 +20,7 @@ from .summary_policy import SummaryPolicy
 from .memory_retriever import MemoryRetriever
 from .conversation_history import ConversationHistoryManager
 from .side_chain_handler import SideChainHandler
+from .tool_context import build_tool_context_section
 
 logger = logging.getLogger(__name__)
 
@@ -196,46 +197,12 @@ class ContextBuilder:
         except Exception as e:
             logger.debug(f"Failed to get long-term memory context: {e}")
 
-        # Tool context via RAG (respects workspace TOOL binding allowlist)
-        try:
-            from backend.app.services.tool_rag import retrieve_relevant_tools
-
-            tool_matches = await retrieve_relevant_tools(
-                message, top_k=12, workspace_id=workspace_id
+        context_parts.extend(
+            await build_tool_context_section(
+                message=message,
+                workspace_id=workspace_id,
             )
-
-            # Backfill explicit allowlist tools missed by RAG
-            if workspace_id:
-                from backend.app.services.stores.workspace_resource_binding_store import (
-                    WorkspaceResourceBindingStore,
-                )
-                from backend.app.models.workspace_resource_binding import ResourceType
-
-                store = WorkspaceResourceBindingStore()
-                bindings = store.list_bindings_by_workspace(
-                    workspace_id, resource_type=ResourceType.TOOL
-                )
-                if bindings:
-                    rag_ids = {t["tool_id"] for t in tool_matches}
-                    for b in bindings:
-                        if b.resource_id not in rag_ids:
-                            tool_matches.append(
-                                {
-                                    "tool_id": b.resource_id,
-                                    "display_name": (b.overrides or {}).get(
-                                        "display_name", b.resource_id
-                                    ),
-                                }
-                            )
-            if tool_matches:
-                tool_lines = "\n".join(
-                    f"- {t['tool_id']}: {t['display_name']}" for t in tool_matches
-                )
-                context_parts.append("\n## Available Tools (relevant to your request):")
-                context_parts.append(tool_lines)
-                logger.info("Injected %d RAG tools into QA context", len(tool_matches))
-        except Exception as e:
-            logger.debug("Tool RAG context injection failed: %s", e)
+        )
 
         return "\n".join(context_parts) if context_parts else ""
 
@@ -913,48 +880,12 @@ class ContextBuilder:
                 f"Failed to build workspace side-chain for planning context: {e}"
             )
 
-        # Tool context via RAG (respects workspace TOOL binding allowlist)
-        try:
-            from backend.app.services.tool_rag import retrieve_relevant_tools
-
-            tool_matches = await retrieve_relevant_tools(
-                message, top_k=12, workspace_id=workspace_id
+        context_parts.extend(
+            await build_tool_context_section(
+                message=message,
+                workspace_id=workspace_id,
             )
-
-            # Backfill explicit allowlist tools missed by RAG
-            if workspace_id:
-                from backend.app.services.stores.workspace_resource_binding_store import (
-                    WorkspaceResourceBindingStore,
-                )
-                from backend.app.models.workspace_resource_binding import ResourceType
-
-                store = WorkspaceResourceBindingStore()
-                bindings = store.list_bindings_by_workspace(
-                    workspace_id, resource_type=ResourceType.TOOL
-                )
-                if bindings:
-                    rag_ids = {t["tool_id"] for t in tool_matches}
-                    for b in bindings:
-                        if b.resource_id not in rag_ids:
-                            tool_matches.append(
-                                {
-                                    "tool_id": b.resource_id,
-                                    "display_name": (b.overrides or {}).get(
-                                        "display_name", b.resource_id
-                                    ),
-                                }
-                            )
-            if tool_matches:
-                tool_lines = "\n".join(
-                    f"- {t['tool_id']}: {t['display_name']}" for t in tool_matches
-                )
-                context_parts.append("\n## Available Tools (relevant to your request):")
-                context_parts.append(tool_lines)
-                logger.info(
-                    "Injected %d RAG tools into planning context", len(tool_matches)
-                )
-        except Exception as e:
-            logger.debug("Tool RAG context injection failed: %s", e)
+        )
 
         planning_context = "\n".join(context_parts) if context_parts else ""
 

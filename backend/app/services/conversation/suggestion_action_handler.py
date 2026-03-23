@@ -15,12 +15,18 @@ def _utc_now():
 import uuid
 
 from ...models.workspace import ExecutionPlan, TaskPlan
-from ...models.mindscape import MindEvent, EventType, EventActor
 from ...services.mindscape_store import MindscapeStore
 from ...services.playbook_service import PlaybookService, ExecutionMode as PlaybookExecutionMode
 from ...services.intent_infra import IntentInfraService
 from ...services.capability_registry import get_registry
 from ...core.domain_context import LocalDomainContext
+from .suggestion_action_handler_core import (
+    build_empty_action_response,
+    create_user_event,
+    handle_add_to_mindscape,
+    handle_create_intent,
+    handle_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -353,124 +359,13 @@ class SuggestionActionHandler:
 
         This is similar to add_to_intents but handles the action from suggestion tasks
         """
-        try:
-            # Extract intents from action_params
-            intents = action_params.get('intents', [])
-            themes = action_params.get('themes', [])
-
-            if not intents:
-                raise ValueError("No intents provided in action_params")
-
-            from ...models.mindscape import IntentCard, IntentStatus, PriorityLevel
-            from datetime import datetime, timezone
-            import uuid
-
-            intents_added = []
-            for intent_item in intents[:10]:  # Limit to 10 intents
-                # Handle both string and dict formats
-                if isinstance(intent_item, str):
-                    intent_text = intent_item
-                    intent_title = intent_item
-                elif isinstance(intent_item, dict):
-                    intent_text = intent_item.get('text') or intent_item.get('title') or intent_item.get('intent', '')
-                    intent_title = intent_item.get('title') or intent_text
-                else:
-                    continue
-
-                if not intent_text or not intent_text.strip():
-                    continue
-
-                # Check if intent already exists
-                existing_intents = self.store.list_intents(
-                    profile_id=ctx.actor_id
-                )
-                intent_exists = any(
-                    existing.title == intent_text or existing.title == intent_title
-                    for existing in existing_intents
-                )
-
-                if not intent_exists:
-                    # Create new intent
-                    new_intent = IntentCard(
-                        id=str(uuid.uuid4()),
-                        profile_id=ctx.actor_id,
-                        title=intent_title,
-                        description=f"Added from suggestion action: add_to_mindscape",
-                        status=IntentStatus.ACTIVE,
-                        priority=PriorityLevel.MEDIUM,
-                        tags=[],
-                        category="suggestion_action",
-                        progress_percentage=0,
-                        created_at=_utc_now(),
-                        updated_at=_utc_now(),
-                        started_at=None,
-                        completed_at=None,
-                        due_date=None,
-                        parent_intent_id=None,
-                        child_intent_ids=[],
-                        metadata={
-                            "source": "suggestion_action",
-                            "action": "add_to_mindscape",
-                            "workspace_id": ctx.workspace_id
-                        }
-                    )
-                    self.store.create_intent(new_intent)
-                    intents_added.append(intent_title)
-                    logger.info(f"Created intent from add_to_mindscape: {intent_title[:50]}")
-
-            # Create timeline item for the action
-            from ...models.workspace import TimelineItem, TimelineItemType
-            from backend.app.services.stores.postgres.timeline_items_store import PostgresTimelineItemsStore
-
-            timeline_items_store = PostgresTimelineItemsStore()
-
-            timeline_item = TimelineItem(
-                id=str(uuid.uuid4()),
-                workspace_id=ctx.workspace_id,
-                message_id=message_id or str(uuid.uuid4()),
-                task_id=None,
-                type=TimelineItemType.INTENT_SEEDS,
-                title=f"Added {len(intents_added)} intent(s) to Mindscape",
-                summary=f"Successfully added {len(intents_added)} intent(s) from suggestion",
-                data={
-                    "action": "add_to_mindscape",
-                    "intents_added": intents_added,
-                    "themes": themes
-                },
-                cta=None,
-                created_at=_utc_now()
-            )
-            timeline_items_store.create_timeline_item(timeline_item)
-
-            # Record metrics for Phase 0: Intent Layer v2 refactoring
-            # Track manual confirmation count (Add to Mindscape action)
-            logger.info(
-                f"INTENT_METRICS: manual_confirmation, action=add_to_mindscape, "
-                f"workspace_id={ctx.workspace_id}, profile_id={ctx.actor_id}, "
-                f"intents_added={len(intents_added)}, message_id={message_id}, "
-                f"timestamp={_utc_now().isoformat()}"
-            )
-
-            # Create success response
-            from ...services.i18n_service import get_i18n_service
-            i18n = get_i18n_service(default_locale=self.default_locale)
-
-            success_message = i18n.t(
-                "conversation_orchestrator",
-                "suggestion.add_to_mindscape"
-            ) + f" Added {len(intents_added)} intent(s)."
-
-            return {
-                "workspace_id": ctx.workspace_id,
-                "display_events": [],
-                "triggered_playbook": None,
-                "pending_tasks": [],
-                "message": success_message
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to handle add_to_mindscape action: {e}", exc_info=True)
-            raise ValueError(f"Failed to add intents to Mindscape: {str(e)}")
+        return handle_add_to_mindscape(
+            store=self.store,
+            default_locale=self.default_locale,
+            ctx=ctx,
+            action_params=action_params,
+            message_id=message_id,
+        )
 
     def _handle_create_intent(
         self,
@@ -480,134 +375,21 @@ class SuggestionActionHandler:
         message_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Handle create_intent action"""
-        from ...models.mindscape import IntentCard, IntentStatus, PriorityLevel
-        from datetime import datetime, timezone
-        import uuid
-
-        title = action_params.get("title") or action_params.get("intent_title")
-        description = action_params.get("description") or action_params.get("intent_description")
-
-        if not title:
-            from ...services.i18n_service import get_i18n_service
-            i18n = get_i18n_service(default_locale=self.default_locale)
-            title = i18n.t("conversation_orchestrator", "create_intent_card_title", default="New Intent")
-
-        if not description:
-            from ...services.i18n_service import get_i18n_service
-            i18n = get_i18n_service(default_locale=self.default_locale)
-            description = i18n.t("conversation_orchestrator", "create_intent_card_description", default="Start tracking your long-term goals and tasks")
-
-        new_intent = IntentCard(
-            id=str(uuid.uuid4()),
-            profile_id=ctx.actor_id,
-            title=title,
-            description=description,
-            priority=PriorityLevel.MEDIUM,
-            status=IntentStatus.ACTIVE,
-            tags=action_params.get("tags", []),
-            category=action_params.get("category"),
-            progress_percentage=0.0,
-            created_at=_utc_now(),
-            updated_at=_utc_now(),
-            started_at=None,
-            completed_at=None,
-            due_date=None,
-            parent_intent_id=None,
-            child_intent_ids=[],
-            metadata={}
+        return handle_create_intent(
+            store=self.store,
+            default_locale=self.default_locale,
+            ctx=ctx,
+            action_params=action_params,
+            project_id=project_id,
         )
-
-        try:
-            created_intent = self.store.create_intent(new_intent)
-            logger.info(f"_handle_create_intent: Created intent card {created_intent.id} for user {ctx.actor_id}")
-
-            from ...models.mindscape import MindEvent, EventType, EventActor
-            is_high_priority = created_intent.priority in [PriorityLevel.HIGH, PriorityLevel.CRITICAL]
-            intent_event = MindEvent(
-                id=str(uuid.uuid4()),
-                timestamp=_utc_now(),
-                actor=EventActor.USER,
-                channel="local_workspace",
-                profile_id=ctx.actor_id,
-                project_id=project_id,
-                workspace_id=ctx.workspace_id,
-                event_type=EventType.INTENT_CREATED,
-                payload={
-                    "intent_id": created_intent.id,
-                    "title": created_intent.title,
-                    "description": created_intent.description,
-                    "status": created_intent.status.value,
-                    "priority": created_intent.priority.value
-                },
-                entity_ids=[created_intent.id],
-                metadata={
-                    "should_embed": is_high_priority,
-                    "is_artifact": is_high_priority
-                }
-            )
-            self.store.create_event(intent_event, generate_embedding=is_high_priority)
-
-            from ...services.i18n_service import get_i18n_service
-            i18n = get_i18n_service(default_locale=self.default_locale)
-            success_message = i18n.t(
-                "conversation_orchestrator",
-                "intent.created",
-                intent_title=created_intent.title,
-                default=f"Intent card '{created_intent.title}' created successfully"
-            )
-
-            return {
-                "workspace_id": ctx.workspace_id,
-                "display_events": [{
-                    "type": "message",
-                    "content": success_message,
-                    "timestamp": _utc_now().isoformat()
-                }],
-                "triggered_playbook": None,
-                "pending_tasks": [],
-                "created_intent": {
-                    "id": created_intent.id,
-                    "title": created_intent.title
-                }
-            }
-        except Exception as e:
-            logger.error(f"_handle_create_intent: Failed to create intent: {e}", exc_info=True)
-            from ...services.i18n_service import get_i18n_service
-            i18n = get_i18n_service(default_locale=self.default_locale)
-            error_message = i18n.t(
-                "conversation_orchestrator",
-                "intent.create_failed",
-                error=str(e),
-                default=f"Failed to create intent card: {str(e)}"
-            )
-            return {
-                "workspace_id": ctx.workspace_id,
-                "display_events": [{
-                    "type": "error",
-                    "content": error_message,
-                    "timestamp": _utc_now().isoformat()
-                }],
-                "triggered_playbook": None,
-                "pending_tasks": []
-            }
 
     def _handle_start_chat(self, workspace_id: str) -> Dict[str, Any]:
         """Handle start_chat action"""
-        return {
-            "workspace_id": workspace_id,
-            "display_events": [],
-            "triggered_playbook": None,
-            "pending_tasks": []
-        }
+        return build_empty_action_response(workspace_id)
 
     def _handle_upload_file(self, workspace_id: str) -> Dict[str, Any]:
         """Handle upload_file action"""
-        return {
-            "workspace_id": workspace_id,
-            "display_events": [],
-            "triggered_playbook": None,
-            "pending_tasks": []
-        }
+        return build_empty_action_response(workspace_id)
 
     async def _handle_execute_pack(
         self,
@@ -1018,12 +800,7 @@ class SuggestionActionHandler:
                 logger.error(f"Pack {pack_id} execution failed - no valid result or only suggestion cards returned")
                 raise ValueError(f"Pack {pack_id} execution failed: no valid result")
 
-            return {
-                "workspace_id": ctx.workspace_id,
-                "display_events": [],
-                "triggered_playbook": None,
-                "pending_tasks": []
-            }
+            return build_empty_action_response(ctx.workspace_id)
 
         except Exception as e:
             error_message = f"Failed to execute pack {pack_id}: {str(e)}"
@@ -1061,34 +838,14 @@ class SuggestionActionHandler:
         error_message: str
     ) -> Dict[str, Any]:
         """Handle error case"""
-        # Use i18n for error message
-        from ...services.i18n_service import get_i18n_service
-        i18n = get_i18n_service(default_locale=self.default_locale)
-        error_msg = i18n.t("conversation_orchestrator", "error.execute_action_failed", error=error_message)
-
-        error_event = MindEvent(
-            id=str(uuid.uuid4()),
-            timestamp=_utc_now(),
-            actor=EventActor.SYSTEM,
-            channel="local_workspace",
+        return handle_error(
+            store=self.store,
+            default_locale=self.default_locale,
+            workspace_id=workspace_id,
             profile_id=profile_id,
             project_id=project_id,
-            workspace_id=workspace_id,
-            event_type=EventType.MESSAGE,
-            payload={
-                "message": error_msg
-            },
-            entity_ids=[],
-            metadata={}
+            error_message=error_message,
         )
-        self.store.create_event(error_event)
-
-        return {
-            "workspace_id": workspace_id,
-            "display_events": [],
-            "triggered_playbook": None,
-            "pending_tasks": []
-        }
 
     async def _execute_via_plan(
         self,
@@ -1142,21 +899,12 @@ class SuggestionActionHandler:
         action_params: Dict[str, Any]
     ):
         """Create user message event for action"""
-        user_event = MindEvent(
-            id=str(uuid.uuid4()),
-            timestamp=_utc_now(),
-            actor=EventActor.USER,
-            channel="local_workspace",
+        create_user_event(
+            store=self.store,
+            workspace_id=workspace_id,
             profile_id=profile_id,
             project_id=project_id,
-            workspace_id=workspace_id,
-            event_type=EventType.MESSAGE,
-            payload={
-                "message": message,
-                "action": action,
-                "action_params": action_params
-            },
-            entity_ids=[],
-            metadata={}
+            message=message,
+            action=action,
+            action_params=action_params,
         )
-        self.store.create_event(user_event)

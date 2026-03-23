@@ -17,6 +17,13 @@ from .playbook_resolver import PlaybookResolver
 from .execution_launcher import ExecutionLauncher
 from .task_events_emitter import TaskEventsEmitter
 from .error_policy import ErrorPolicy
+from .plan_executor_core import (
+    ExecutionOrchestrationState,
+    advance_execution_orchestration,
+    cleanup_execution_orchestration,
+    initialize_execution_orchestration,
+    register_execution_with_orchestrator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,24 +97,6 @@ class PlanExecutor:
         Returns:
             Dict with execution results
         """
-        """
-        Execute execution plan based on side_effect_level
-
-        Args:
-            execution_plan: Execution plan with tasks
-            ctx: Execution context
-            message_id: Message/event ID
-            files: List of file IDs
-            message: User message
-            project_id: Optional project ID
-            event_emitter: TaskEventsEmitter instance
-            workspace: Workspace instance
-            prevent_suggestion_creation: Whether to prevent suggestion creation
-            suggestion_creator: Optional SuggestionCardCreator instance
-
-        Returns:
-            Dict with execution results
-        """
         results = {
             "executed_tasks": [],
             "suggestion_cards": [],
@@ -151,181 +140,29 @@ class PlanExecutor:
         retry_count = 0
         error_count = 0
 
-        # Phase 2: Multi-Agent Orchestration Setup
-        multi_agent_orchestrator = None
-        registered_execution_ids = []  # Track all registered execution_ids for cleanup
-        primary_execution_id = None  # Track primary execution_id for event association
+        orchestration_state = await initialize_execution_orchestration(
+            execution_plan=execution_plan,
+            ctx=ctx,
+            workspace=workspace,
+            runtime_profile=runtime_profile,
+            stop_conditions=stop_conditions,
+            message_id=message_id,
+            resolve_playbook=self.playbook_resolver.resolve,
+        )
 
         # Use try-finally to ensure cleanup even on exceptions (P3: Recycling Mechanism)
         try:
-            if runtime_profile and runtime_profile.topology_routing:
-                try:
-                    from backend.app.services.orchestration.multi_agent_orchestrator import (
-                        MultiAgentOrchestrator,
-                    )
-                    from backend.app.services.orchestration.topology_validator import (
-                        TopologyValidator,
-                        TopologyValidationError,
-                    )
-
-                    # Collect agent_roster from all playbooks in execution plan
-                    agent_roster = {}
-                    for task_plan in execution_plan.tasks:
-                        try:
-                            resolved_playbook = await self.playbook_resolver.resolve(
-                                pack_id=task_plan.pack_id, ctx=ctx
-                            )
-                            if (
-                                resolved_playbook
-                                and resolved_playbook.playbook
-                                and resolved_playbook.playbook.agent_roster
-                            ):
-                                # Merge agent rosters (later playbooks override earlier ones if agent_id conflicts)
-                                agent_roster.update(
-                                    resolved_playbook.playbook.agent_roster
-                                )
-                        except Exception as e:
-                            logger.debug(
-                                f"Failed to load agent_roster from playbook {task_plan.pack_id}: {e}"
-                            )
-
-                    # Validate topology - fail-fast if topology is configured but roster is missing
-                    validator = TopologyValidator()
-                    if not agent_roster:
-                        # If topology is configured but no agent_roster found, fail-fast
-                        raise ValueError(
-                            f"Topology routing is configured but no agent_roster found in playbooks. "
-                            f"Please ensure playbooks define agent_roster when using topology_routing."
-                        )
-
-                    try:
-                        validator.validate(
-                            runtime_profile.topology_routing, agent_roster
-                        )
-                        logger.info(
-                            f"Topology validated successfully: {len(agent_roster)} agents in roster"
-                        )
-                    except TopologyValidationError as e:
-                        logger.error(f"Topology validation failed: {e}")
-                        # Fail-fast: raise error if topology is invalid
-                        raise ValueError(f"Invalid topology configuration: {e}")
-
-                    # Get event store for event recording
-                    from backend.app.services.stores.postgres.events_store import (
-                        PostgresEventsStore,
-                    )
-
-                    db_path = getattr(self.tasks_store, "db_path", None)
-                    event_store = PostgresEventsStore()
-
-                    # Initialize MultiAgentOrchestrator (execution_id will be set later when available)
-                    multi_agent_orchestrator = MultiAgentOrchestrator(
-                        agent_roster=agent_roster,
-                        topology=runtime_profile.topology_routing,
-                        loop_budget=(
-                            runtime_profile.loop_budget if runtime_profile else None
-                        ),
-                        stop_conditions=stop_conditions,
-                        workspace_id=workspace.id if workspace else None,
-                        profile_id=getattr(runtime_profile, "profile_id", None),
-                        event_store=event_store,
-                    )
-                    logger.info(
-                        f"MultiAgentOrchestrator initialized with {len(agent_roster)} agents"
-                    )
-
-                    # Phase 2: Register orchestrator in global registry for tool_executor access
-                    from backend.app.services.orchestration.orchestrator_registry import (
-                        get_orchestrator_registry,
-                    )
-
-                    orchestrator_registry = get_orchestrator_registry()
-                    # Use message_id as execution_id for registration (will be updated when we get actual execution_id)
-                    orchestrator_registry.register(message_id, multi_agent_orchestrator)
-
-                    # Phase 2: Initialize agent flow - get initial agent(s)
-                    initial_agents = multi_agent_orchestrator.get_next_agents(
-                        current_agent_id=None
-                    )
-                    if initial_agents:
-                        # Set first agent as current
-                        multi_agent_orchestrator.set_current_agent(initial_agents[0])
-                        logger.info(
-                            f"MultiAgentOrchestrator: Starting with agent '{initial_agents[0]}'"
-                        )
-                    else:
-                        logger.warning(
-                            "MultiAgentOrchestrator: No initial agents found"
-                        )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to initialize MultiAgentOrchestrator: {e}",
-                        exc_info=True,
-                    )
-                    # Don't fail execution if orchestration setup fails, but log warning
-
             from backend.app.shared.execution_thresholds import (
                 get_threshold,
                 should_auto_execute_readonly,
             )
 
-            # Phase 2: Track current agent for multi-agent orchestration
-            current_agent_id = None
-            task_index = 0
-
-            for task_plan in execution_plan.tasks:
-                task_index += 1
-
-                # Phase 2: Multi-Agent Orchestration - determine which agent should handle this task
-                if multi_agent_orchestrator:
-                    # Check if we should transition to next agent based on topology
-                    next_agents = multi_agent_orchestrator.get_next_agents(
-                        current_agent_id=current_agent_id
-                    )
-
-                    if next_agents and current_agent_id != next_agents[0]:
-                        # Transition to next agent
-                        new_agent_id = next_agents[0]
-                        multi_agent_orchestrator.set_current_agent(new_agent_id)
-                        current_agent_id = new_agent_id
-                        logger.info(
-                            f"MultiAgentOrchestrator: Transitioned to agent '{current_agent_id}'"
-                        )
-
-                        # Record turn when switching agents (conversation turn)
-                        multi_agent_orchestrator.record_turn()
-                    elif current_agent_id is None and next_agents:
-                        # First task - set initial agent
-                        current_agent_id = next_agents[0]
-                        multi_agent_orchestrator.set_current_agent(current_agent_id)
-                        logger.info(
-                            f"MultiAgentOrchestrator: Starting with agent '{current_agent_id}'"
-                        )
-
-                    # Record iteration at start of each task (if this is a new iteration)
-                    # For sequential pattern, each task is a step; for loop pattern, we track iterations separately
-                    if multi_agent_orchestrator.topology.default_pattern == "loop":
-                        # In loop pattern, record iteration when starting a new cycle
-                        if task_index == 1 or (
-                            task_index > 1
-                            and current_agent_id
-                            == multi_agent_orchestrator.state.visited_agents[0]
-                            if multi_agent_orchestrator.state.visited_agents
-                            else False
-                        ):
-                            multi_agent_orchestrator.record_iteration()
-
-                    # Check MultiAgentOrchestrator stop conditions before processing task
-                    if multi_agent_orchestrator.should_stop():
-                        logger.warning(
-                            f"MultiAgentOrchestrator: Stop conditions met. "
-                            f"State: iteration={multi_agent_orchestrator.state.iteration_count}, "
-                            f"turn={multi_agent_orchestrator.state.turn_count}, "
-                            f"step={multi_agent_orchestrator.state.step_count}, "
-                            f"tool_call={multi_agent_orchestrator.state.tool_call_count}, "
-                            f"error={multi_agent_orchestrator.state.error_count}"
-                        )
-                        break
+            for task_index, task_plan in enumerate(execution_plan.tasks, start=1):
+                if not advance_execution_orchestration(
+                    orchestration_state,
+                    task_index,
+                ):
+                    break
 
                 # Check StopConditions before processing each task (Phase 2)
                 if stop_conditions:
@@ -360,16 +197,17 @@ class PlanExecutor:
                 logger.info(
                     f"PlanExecutor: Processing task_plan {task_plan.pack_id}, "
                     f"side_effect_level={side_effect_level}, auto_execute={should_auto_execute}, "
-                    f"current_agent={current_agent_id if multi_agent_orchestrator else None}"
+                    "current_agent="
+                    f"{orchestration_state.current_agent_id if orchestration_state.orchestrator else None}"
                 )
 
                 if (
                     should_auto_execute
                     and side_effect_level == SideEffectLevel.READONLY
                 ):
-                    # Phase 2: Record step in MultiAgentOrchestrator
-                    if multi_agent_orchestrator:
-                        multi_agent_orchestrator.record_step()
+                    # Track step progress for StopConditions-driven orchestration.
+                    if orchestration_state.orchestrator:
+                        orchestration_state.orchestrator.record_step()
 
                     result = await self._execute_readonly_task(
                         task_plan=task_plan,
@@ -380,10 +218,12 @@ class PlanExecutor:
                         project_id=project_id,
                         event_emitter=event_emitter,
                         execution_plan=execution_plan,
-                        multi_agent_orchestrator=multi_agent_orchestrator,  # Pass orchestrator for tool call tracking
-                        registered_execution_ids=registered_execution_ids,  # Pass for tracking registered IDs
+                        orchestration_state=orchestration_state,
                     )
                     if result:
+                        orchestration_state.remember_primary_execution_id(
+                            result.get("execution_id")
+                        )
                         results["executed_tasks"].append(result)
                         logger.info(
                             f"PlanExecutor: READONLY task {task_plan.pack_id} completed"
@@ -392,9 +232,9 @@ class PlanExecutor:
                         error_count += (
                             1  # Track error count for StopConditions (Phase 2)
                         )
-                        # Phase 2: Record error in MultiAgentOrchestrator
-                        if multi_agent_orchestrator:
-                            multi_agent_orchestrator.record_error()
+                        # Track orchestration errors for StopConditions evaluation.
+                        if orchestration_state.orchestrator:
+                            orchestration_state.orchestrator.record_error()
 
                         # Apply RecoveryPolicy if available (Phase 2)
                         if runtime_profile and runtime_profile.recovery_policy:
@@ -420,8 +260,7 @@ class PlanExecutor:
                                         project_id=project_id,
                                         event_emitter=event_emitter,
                                         execution_plan=execution_plan,
-                                        multi_agent_orchestrator=multi_agent_orchestrator,
-                                        registered_execution_ids=registered_execution_ids,
+                                        orchestration_state=orchestration_state,
                                     )
 
                                 recovery_result = await recovery_handler.handle_error(
@@ -641,7 +480,9 @@ class PlanExecutor:
 
                     # Use primary execution_id (from first task launch) for event association
                     # This ensures quality gate events are properly associated with the execution
-                    execution_id_for_quality = primary_execution_id
+                    execution_id_for_quality = (
+                        orchestration_state.primary_execution_id
+                    )
                     if not execution_id_for_quality and results.get("executed_tasks"):
                         # Fallback: try to get from first task if primary_execution_id not available
                         first_task = results["executed_tasks"][0]
@@ -695,31 +536,7 @@ class PlanExecutor:
                     )
 
         finally:
-            # P3: Recycling Mechanism - Ensure cleanup even on exceptions
-            # This finally block ensures orchestrator is cleaned up whether execution succeeds or fails
-            if multi_agent_orchestrator:
-                try:
-                    from backend.app.services.orchestration.orchestrator_registry import (
-                        get_orchestrator_registry,
-                    )
-
-                    orchestrator_registry = get_orchestrator_registry()
-
-                    # Use unregister_by_orchestrator to clean up all keys for this orchestrator instance
-                    # This is safer than unregistering individual keys, as it handles duplicate registrations
-                    # and ensures all keys (execution_id, message_id, trace_id) are cleaned up
-                    orchestrator_registry.unregister_by_orchestrator(
-                        multi_agent_orchestrator
-                    )
-                    logger.debug(
-                        f"OrchestratorRegistry: Cleaned up orchestrator registrations "
-                        f"(was registered with {len(registered_execution_ids)} keys: {registered_execution_ids})"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to cleanup orchestrator registrations: {e}",
-                        exc_info=True,
-                    )
+            cleanup_execution_orchestration(orchestration_state)
 
         return results
 
@@ -803,12 +620,7 @@ class PlanExecutor:
         project_id: Optional[str],
         event_emitter: TaskEventsEmitter,
         execution_plan: Optional[ExecutionPlan] = None,
-        multi_agent_orchestrator: Optional[
-            Any
-        ] = None,  # Phase 2: MultiAgentOrchestrator for tracking
-        registered_execution_ids: Optional[
-            List[str]
-        ] = None,  # Phase 2: Track registered execution IDs
+        orchestration_state: Optional[ExecutionOrchestrationState] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Execute readonly task using coordination modules
@@ -884,66 +696,17 @@ class PlanExecutor:
                     logger.error(f"Failed to launch execution: {e}", exc_info=True)
                     raise
 
-                    execution_id = launch_result.get("execution_id")
+                execution_id = launch_result.get("execution_id")
                 if not execution_id:
                     self.error_policy.handle_missing_execution_id(
                         resolved_playbook.code, launch_result.get("raw_result")
                     )
 
-                # Track primary execution_id (from first task) for event association
-                if execution_id and primary_execution_id is None:
-                    primary_execution_id = execution_id
-
-                # Phase 2: Update orchestrator registration with actual execution_id
-                if execution_id and multi_agent_orchestrator:
-                    # Update orchestrator with execution_id for event recording
-                    multi_agent_orchestrator.execution_id = execution_id
-
-                    from backend.app.services.orchestration.orchestrator_registry import (
-                        get_orchestrator_registry,
-                    )
-
-                    orchestrator_registry = get_orchestrator_registry()
-
-                    # Register with actual execution_id (primary key)
-                    # Only register if not already registered with this key (avoid duplicate registration)
-                    if execution_id not in registered_execution_ids:
-                        orchestrator_registry.register(
-                            execution_id, multi_agent_orchestrator
-                        )
-                        registered_execution_ids.append(execution_id)
-                        logger.info(
-                            f"OrchestratorRegistry: Registered orchestrator for execution_id={execution_id} "
-                            f"(tool_executor will use this key for tool_call counting)"
-                        )
-                    else:
-                        logger.debug(
-                            f"OrchestratorRegistry: execution_id={execution_id} already registered, skipping duplicate"
-                        )
-
-                    # Also register with message_id as fallback (if not already registered)
-                    # This ensures backward compatibility if some code paths use message_id
-                    if message_id and message_id not in registered_execution_ids:
-                        orchestrator_registry.register(
-                            message_id, multi_agent_orchestrator
-                        )
-                        registered_execution_ids.append(message_id)
-                        logger.debug(
-                            f"OrchestratorRegistry: Also registered with message_id={message_id} as fallback"
-                        )
-
-                    # Register trace_id if available (for tool_executor fallback)
-                    trace_id = (
-                        message_id  # Use message_id as trace_id (as per launch call)
-                    )
-                    if trace_id and trace_id not in registered_execution_ids:
-                        orchestrator_registry.register(
-                            trace_id, multi_agent_orchestrator
-                        )
-                        registered_execution_ids.append(trace_id)
-                        logger.debug(
-                            f"OrchestratorRegistry: Also registered with trace_id={trace_id} as fallback"
-                        )
+                register_execution_with_orchestrator(
+                    orchestration_state,
+                    execution_id,
+                    message_id,
+                )
 
                 if execution_id:
                     task = self.tasks_store.get_task_by_execution_id(execution_id)

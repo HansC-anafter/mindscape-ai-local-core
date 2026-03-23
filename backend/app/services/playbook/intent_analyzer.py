@@ -11,7 +11,6 @@ Two-phase design:
 
 import logging
 from typing import List, Dict, Optional, Any
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 
@@ -22,28 +21,15 @@ import json
 import re
 
 from backend.app.core.trace import get_trace_recorder, TraceNodeType, TraceStatus
+from .intent_analyzer_core import (
+    ToolRelevanceResult,
+    ToolSlotAnalysisResult,
+    format_candidate_tools,
+    format_tool_list,
+    parse_llm_response,
+)
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ToolRelevanceResult:
-    """Tool relevance analysis result"""
-    tool_slot: str
-    relevance_score: float  # 0.0-1.0
-    reasoning: Optional[str] = None
-    confidence: float = 0.0  # 0.0-1.0
-
-
-@dataclass
-class ToolSlotAnalysisResult:
-    """Tool slot analysis result"""
-    relevant_tools: List[ToolRelevanceResult]  # 1-3 most relevant tools
-    overall_reasoning: Optional[str] = None
-    needs_confirmation: bool = False  # Whether user confirmation is needed when multiple tools are suitable
-    confidence: float = 0.0  # Overall confidence (0.0-1.0)
-    escalation_required: bool = False  # Whether strong precision stage is required
-    reasons: Optional[List[str]] = None  # Escalation reasons
 
 
 class ToolSlotIntentAnalyzer:
@@ -793,15 +779,7 @@ Return JSON format:
             return ToolSlotAnalysisResult(relevant_tools=[])
 
     def _format_candidate_tools(self, candidate_tools: List[ToolRelevanceResult]) -> str:
-        """Format candidate tools for LLM prompt (precision stage)"""
-        lines = []
-        for i, result in enumerate(candidate_tools, 1):
-            lines.append(f"{i}. {result.tool_slot}")
-            lines.append(f"   Previous relevance: {result.relevance_score:.2f}")
-            if result.reasoning:
-                lines.append(f"   Previous reasoning: {result.reasoning[:100]}")
-            lines.append("")
-        return "\n".join(lines)
+        return format_candidate_tools(candidate_tools)
 
     async def _llm_analyze_relevance(
         self,
@@ -831,205 +809,12 @@ Return JSON format:
             model_name=None,  # Will use default
             emphasis="balanced"
         )
-        # Build conversation summary with SOP stage context (design requirement: derive intent from Playbook SOP stage)
-        conversation_summary = ""
-        sop_stage_context = ""
-
-        # Try to extract SOP stage from conversation history or playbook context
-        # This is a simplified version - full implementation would parse playbook.md SOP structure
-        if conversation_history:
-            # Extract last few messages for context (increased from 4 to 6 for better context)
-            recent_messages = conversation_history[-6:] if len(conversation_history) > 6 else conversation_history
-            conversation_summary = "\n".join([
-                f"{msg.get('role', 'user')}: {msg.get('content', '')[:200]}"
-                for msg in recent_messages
-            ])
-
-            # Try to infer stage from conversation patterns (simplified heuristic)
-            # Full implementation should parse playbook.md SOP structure to get explicit stages
-            conversation_text = " ".join([msg.get('content', '') for msg in recent_messages]).lower()
-            if any(keyword in conversation_text for keyword in ['analyze', 'read', 'view', 'check', 'explore']):
-                sop_stage_context = "Stage: Analysis/Reading phase - tools for reading/viewing content are more relevant."
-            elif any(keyword in conversation_text for keyword in ['create', 'generate', 'write', 'draft', 'compose']):
-                sop_stage_context = "Stage: Creation/Generation phase - tools for creating/generating content are more relevant."
-            elif any(keyword in conversation_text for keyword in ['publish', 'deploy', 'update', 'apply', 'push']):
-                sop_stage_context = "Stage: Publishing/Deployment phase - tools for publishing/updating are more relevant."
-
-        # Combine conversation summary with SOP stage context
-        if sop_stage_context:
-            conversation_summary = f"{sop_stage_context}\n\n{conversation_summary}"
-
-        # Format tool list
-        tool_list_str = self._format_tool_list(available_tools)
-
-        # Build prompt (design requirement: return 1-3 most relevant tools + needs_confirmation)
-        prompt = f"""You are a tool selection assistant. Analyze which tools are relevant to the user's intent and select the 1-3 most relevant tools.
-
-User Message:
-{user_message}
-
-Conversation History Summary:
-{conversation_summary if conversation_summary else "None"}
-
-Available Tools List (sorted by priority):
-{tool_list_str}
-
-**Selection Strategy**:
-1. If only one tool clearly fits → select it directly
-2. If multiple tools are suitable → select the most precise ones (1-3 tools), or indicate they can be combined
-3. If uncertain → set needs_confirmation=true to ask user
-
-Please analyze the user's intent and return:
-- The most relevant tool slots (1-3 tools)
-- Relevance scores (0.0-1.0) for each
-- Reasoning for each tool
-- Whether user confirmation is needed (if multiple tools are suitable and hard to distinguish)
-
-**Scoring Criteria**:
-- 1.0: Perfectly matches user needs
-- 0.7-0.9: Highly relevant
-- 0.4-0.6: Partially relevant
-- 0.0-0.3: Not relevant
-
-Return JSON format:
-```json
-{{
-  "relevant_tools": [
-    {{
-      "tool_slot": "tool_slot_name",
-      "relevance_score": 0.95,
-      "reasoning": "Why this tool is relevant"
-    }}
-  ],
-  "overall_reasoning": "Overall analysis",
-  "needs_confirmation": false
-}}
-```
-
-**Important**: Return only 1-3 most relevant tools. Return only JSON, no other text."""
-
-        try:
-            # Get LLM provider (use PlaybookLLMProviderManager if available)
-            if not self.llm_provider_manager:
-                try:
-                    from backend.app.services.config_store import ConfigStore
-                    from backend.app.services.playbook.llm_provider_manager import PlaybookLLMProviderManager
-                    config_store = ConfigStore()
-                    self.llm_provider_manager = PlaybookLLMProviderManager(config_store)
-                except Exception as e:
-                    logger.warning(f"Failed to initialize LLM provider manager: {e}, skipping intent analysis")
-                    return ToolSlotAnalysisResult(relevant_tools=[])
-
-            try:
-                # Get LLM manager and provider
-                profile_id = self.profile_id or "default-user"
-                llm_manager = self.llm_provider_manager.get_llm_manager(profile_id)
-                provider = self.llm_provider_manager.get_llm_provider(llm_manager)
-            except Exception as e:
-                logger.warning(f"Failed to get LLM provider: {e}, skipping intent analysis")
-                return ToolSlotAnalysisResult(relevant_tools=[])
-
-            # Call LLM
-            messages = [
-                {"role": "system", "content": "You are a tool selection assistant specialized in analyzing tool relevance to user intent."},
-                {"role": "user", "content": prompt}
-            ]
-
-            response = await provider.chat_completion(messages, max_tokens=2000)
-
-            # Parse JSON response
-            result = self._parse_llm_response(response)
-
-            return result
-
-        except Exception as e:
-            logger.error(f"LLM analysis failed: {e}", exc_info=True)
-            # Return empty result, will fallback to all tools
-            return ToolSlotAnalysisResult(relevant_tools=[])
 
     def _format_tool_list(self, tools: List[Any]) -> str:
-        """Format tool list for LLM prompt (include tags and priority for context)"""
-        lines = []
-        # Sort tools by priority first for display
-        sorted_tools = sorted(tools, key=lambda x: x.priority, reverse=True)
-
-        for i, tool in enumerate(sorted_tools, 1):
-            tool_desc = tool.description or tool.mapped_tool_description or tool.slot
-            policy_info = ""
-            if tool.policy:
-                policy_info = f" (risk: {tool.policy.risk_level}, env: {tool.policy.env})"
-
-            tags_info = ""
-            if tool.tags:
-                tags_info = f" [tags: {', '.join(tool.tags)}]"
-
-            lines.append(f"{i}. {tool.slot} (priority: {tool.priority})")
-            lines.append(f"   Description: {tool_desc}{policy_info}{tags_info}")
-            if tool.mapped_tool_id:
-                lines.append(f"   Mapped to: {tool.mapped_tool_id}")
-            lines.append("")
-
-        return "\n".join(lines)
+        return format_tool_list(tools)
 
     def _parse_llm_response(self, response: str) -> ToolSlotAnalysisResult:
-        """Parse LLM JSON response"""
-        try:
-            # Extract JSON from response
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                data = json.loads(json_str)
-
-                # Parse relevant tools (design requirement: 1-3 tools + needs_confirmation)
-                relevant_tools = []
-                for tool_data in data.get("relevant_tools", []):
-                    relevant_tools.append(ToolRelevanceResult(
-                        tool_slot=tool_data.get("tool_slot", ""),
-                        relevance_score=float(tool_data.get("relevance_score", 0.0)),
-                        reasoning=tool_data.get("reasoning"),
-                        confidence=float(tool_data.get("confidence", 0.0))
-                    ))
-
-                # Enforce 1-3 tools limit at parsing layer (design requirement: hard limit, not just prompt reminder)
-                if len(relevant_tools) > 3:
-                    logger.warning(f"LLM returned {len(relevant_tools)} tools, truncating to 3 per design requirement")
-                    relevant_tools = relevant_tools[:3]
-                elif len(relevant_tools) == 0:
-                    logger.warning("LLM returned no tools, this should not happen")
-                    # Keep empty list, will fallback to all tools
-
-                # Parse needs_confirmation (support both keys for backward compatibility during transition)
-                # Design uses "needs_confirmation", but check "needs_user_confirmation" for any legacy responses
-                needs_confirmation = data.get("needs_confirmation", False) or data.get("needs_user_confirmation", False)
-
-                # Parse confidence (from overall or individual tools)
-                overall_confidence = data.get("confidence", 0.0)
-                if isinstance(overall_confidence, (int, float)):
-                    confidence = float(overall_confidence)
-                elif relevant_tools:
-                    # Calculate from individual tool confidences if available
-                    confidences = [t.confidence for t in relevant_tools if t.confidence > 0]
-                    confidence = sum(confidences) / len(confidences) if confidences else 0.0
-                else:
-                    confidence = 0.0
-
-                return ToolSlotAnalysisResult(
-                    relevant_tools=relevant_tools,
-                    overall_reasoning=data.get("overall_reasoning"),
-                    needs_confirmation=needs_confirmation,
-                    confidence=confidence
-                )
-            else:
-                logger.warning("No JSON found in LLM response")
-                return ToolSlotAnalysisResult(relevant_tools=[])
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM JSON response: {e}")
-            logger.debug(f"Response: {response}")
-            return ToolSlotAnalysisResult(relevant_tools=[])
-        except Exception as e:
-            logger.error(f"Failed to parse LLM response: {e}", exc_info=True)
-            return ToolSlotAnalysisResult(relevant_tools=[])
+        return parse_llm_response(response)
 
 
 # Global instance
@@ -1080,4 +865,3 @@ def get_intent_analyzer(llm_provider_manager=None, profile_id=None) -> ToolSlotI
         stacklevel=2
     )
     return get_tool_slot_intent_analyzer(llm_provider_manager=llm_provider_manager, profile_id=profile_id)
-

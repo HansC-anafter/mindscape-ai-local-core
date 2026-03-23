@@ -5,7 +5,6 @@ Generates execution plans based on user messages and determines side_effect leve
 """
 
 import logging
-import os
 import asyncio
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
@@ -15,13 +14,26 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 
-
 from ...models.workspace import SideEffectLevel, ExecutionPlan, TaskPlan
+from ...services.conversation.plan_builder_core.pack_policy import (
+    check_pack_tools_configured as check_pack_tools_configured_helper,
+    determine_side_effect_level as determine_side_effect_level_helper,
+    get_pack_id_from_playbook_code as get_pack_id_from_playbook_code_helper,
+    is_pack_available as is_pack_available_helper,
+)
+from ...services.conversation.plan_builder_core.rule_based import (
+    build_rule_based_task_plans,
+    collect_effective_playbook_codes,
+    resolve_available_packs,
+)
+from ...services.conversation.plan_builder_core.runtime import (
+    ensure_external_backend_loaded as ensure_external_backend_loaded_helper,
+    finalize_execution_plan,
+    select_model_for_plan as select_model_for_plan_helper,
+)
 from ...services.capability_registry import get_registry
 from backend.app.services.pack_info_collector import PackInfoCollector
-from backend.app.services.stores.installed_packs_store import InstalledPacksStore
 from backend.app.services.external_backend import (
-    load_external_backend,
     validate_mindscape_boundary,
     filter_mindscape_results,
 )
@@ -32,11 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 class PlanBuilder:
-    """
-    Builds execution plans based on user messages and file inputs
-
-    Determines side_effect_level for packs and generates TaskPlan objects.
-    """
+    """Build execution plans and determine pack side-effect policy."""
 
     def __init__(
         self,
@@ -46,16 +54,7 @@ class PlanBuilder:
         stage_router: Optional[Any] = None,
         model_name: Optional[str] = None,
     ):
-        """
-        Initialize PlanBuilder
-
-        Args:
-            store: MindscapeStore instance (for db_path access)
-            default_locale: Default locale for i18n
-            capability_profile: Capability profile override (optional)
-            stage_router: Stage router instance (optional)
-            model_name: Direct model name override (highest priority, optional)
-        """
+        """Initialize PlanBuilder."""
         self.store = store
         self.default_locale = default_locale
         self.capability_profile = capability_profile
@@ -72,201 +71,16 @@ class PlanBuilder:
     def _select_model_for_plan(
         self, risk_level: str = "read", profile_id: Optional[str] = None
     ) -> str:
-        """
-        Select model for plan generation stage
-
-        Priority:
-        1. Direct model_name (highest priority)
-        2. stage_router selection
-        3. capability_profile selection
-        4. SystemSettings selection
-        5. chat_model fallback (final fallback)
-
-        Args:
-            risk_level: Risk level ("read", "write", "publish")
-            profile_id: Profile ID for LLM provider
-
-        Returns:
-            Model name
-        """
-        # 1. Direct model_name (highest priority)
-        if self.model_name:
-            return self.model_name
-
-        # 2. stage_router selection
-        if self.stage_router:
-            try:
-                from backend.app.services.conversation.capability_profile import (
-                    CapabilityProfileRegistry,
-                )
-
-                profile = self.stage_router.get_profile_for_stage(
-                    "plan_generation", risk_level=risk_level
-                )
-                registry = CapabilityProfileRegistry()
-                # Get or reuse cached LLMProviderManager
-                cache_key = profile_id or "default-user"
-                if cache_key not in self._llm_manager_cache:
-                    from backend.app.shared.llm_provider_helper import (
-                        create_llm_provider_manager,
-                    )
-
-                    config = self.config_store.get_or_create_config(cache_key)
-                    self._llm_manager_cache[cache_key] = create_llm_provider_manager(
-                        openai_key=config.agent_backend.openai_api_key,
-                        anthropic_key=config.agent_backend.anthropic_api_key,
-                        vertex_api_key=config.agent_backend.vertex_api_key,
-                        vertex_project_id=config.agent_backend.vertex_project_id,
-                        vertex_location=config.agent_backend.vertex_location,
-                    )
-                llm_manager = self._llm_manager_cache[cache_key]
-                model_name = registry.select_model(
-                    profile, llm_manager, profile_id=profile_id
-                )
-                if model_name:
-                    return model_name
-            except Exception as e:
-                logger.debug(f"Failed to use stage_router: {e}, trying next option")
-
-        # 3. capability_profile selection
-        if self.capability_profile:
-            try:
-                from backend.app.services.conversation.capability_profile import (
-                    CapabilityProfile,
-                    CapabilityProfileRegistry,
-                )
-
-                profile = CapabilityProfile(self.capability_profile)
-                registry = CapabilityProfileRegistry()
-                # Reuse cached LLMProviderManager
-                cache_key = profile_id or "default-user"
-                if cache_key not in self._llm_manager_cache:
-                    from backend.app.shared.llm_provider_helper import (
-                        create_llm_provider_manager,
-                    )
-
-                    config = self.config_store.get_or_create_config(cache_key)
-                    self._llm_manager_cache[cache_key] = create_llm_provider_manager(
-                        openai_key=config.agent_backend.openai_api_key,
-                        anthropic_key=config.agent_backend.anthropic_api_key,
-                        vertex_api_key=config.agent_backend.vertex_api_key,
-                        vertex_project_id=config.agent_backend.vertex_project_id,
-                        vertex_location=config.agent_backend.vertex_location,
-                    )
-                llm_manager = self._llm_manager_cache[cache_key]
-                model_name = registry.select_model(
-                    profile, llm_manager, profile_id=profile_id
-                )
-                if model_name:
-                    return model_name
-            except Exception as e:
-                logger.debug(
-                    f"Failed to use capability_profile: {e}, trying next option"
-                )
-
-        # 4. SystemSettings selection
-        try:
-            from backend.app.services.system_settings_store import SystemSettingsStore
-            from backend.app.services.conversation.capability_profile import (
-                CapabilityProfile,
-                CapabilityProfileRegistry,
-            )
-
-            settings_store = SystemSettingsStore()
-            mapping = settings_store.get_capability_profile_mapping()
-            profile_name = mapping.get("plan_generation", "precise")
-            profile = CapabilityProfile(profile_name)
-            registry = CapabilityProfileRegistry()
-            # Reuse cached LLMProviderManager
-            cache_key = profile_id or "default-user"
-            if cache_key not in self._llm_manager_cache:
-                from backend.app.shared.llm_provider_helper import (
-                    create_llm_provider_manager,
-                )
-
-                config = self.config_store.get_or_create_config(cache_key)
-                self._llm_manager_cache[cache_key] = create_llm_provider_manager(
-                    openai_key=config.agent_backend.openai_api_key,
-                    anthropic_key=config.agent_backend.anthropic_api_key,
-                    vertex_api_key=config.agent_backend.vertex_api_key,
-                    vertex_project_id=config.agent_backend.vertex_project_id,
-                    vertex_location=config.agent_backend.vertex_location,
-                )
-            llm_manager = self._llm_manager_cache[cache_key]
-            model_name = registry.select_model(
-                profile, llm_manager, profile_id=profile_id
-            )
-            if model_name:
-                return model_name
-        except Exception as e:
-            logger.debug(f"Failed to use SystemSettings: {e}, trying next option")
-
-        # 5. chat_model fallback (final fallback)
-        from backend.app.shared.llm_provider_helper import (
-            get_model_name_from_chat_model,
+        """Delegate model selection to the extracted runtime helper."""
+        return select_model_for_plan_helper(
+            self,
+            risk_level=risk_level,
+            profile_id=profile_id,
         )
-
-        model_name = get_model_name_from_chat_model()
-        if model_name:
-            logger.debug(f"Using chat_model fallback: {model_name}")
-            return model_name
-
-        # All model selection methods failed -- fail-loud, no silent gpt-4
-        logger.error(
-            "PlanBuilder: All model selection methods failed. "
-            "Configure chat_model in system settings."
-        )
-        raise ValueError("No chat model configured. Set chat_model in system settings.")
 
     async def _ensure_external_backend_loaded(self, profile_id: Optional[str] = None):
-        """
-        Load ExternalBackend if configured (lazy loading)
-
-        Args:
-            profile_id: Optional profile ID for loading from user config
-        """
-        if self._external_backend_loaded:
-            return
-
-        self._external_backend_loaded = True
-
-        try:
-            # Try to load from user config first
-            if profile_id:
-                config = self.config_store.get_or_create_config(profile_id)
-                external_config = getattr(config, "external_backend", None)
-
-                if external_config and isinstance(external_config, dict):
-                    self.external_backend = await load_external_backend(external_config)
-                    if self.external_backend:
-                        logger.info(
-                            f"Loaded external backend from user config for profile {profile_id}"
-                        )
-                        return
-
-            driver = os.getenv("EXTERNAL_BACKEND_DRIVER")
-            if driver:
-                options = {
-                    "base_url": os.getenv("EXTERNAL_BACKEND_URL"),
-                    "api_key": os.getenv("EXTERNAL_BACKEND_API_KEY"),
-                    "timeout": float(os.getenv("EXTERNAL_BACKEND_TIMEOUT", "1.5")),
-                }
-                self.external_backend = await load_external_backend(
-                    {"driver": driver, "options": options}
-                )
-                if self.external_backend:
-                    logger.info("Loaded external backend from environment variables")
-                    return
-
-            logger.debug(
-                "No external backend configured, will skip cloud-enhanced retrieval"
-            )
-
-        except Exception as e:
-            logger.warning(
-                f"Failed to load external backend: {e}, will skip cloud-enhanced retrieval"
-            )
-            self.external_backend = None
+        """Delegate external backend loading to the extracted runtime helper."""
+        await ensure_external_backend_loaded_helper(self, profile_id=profile_id)
 
     async def _create_or_link_phase(
         self,
@@ -275,174 +89,30 @@ class PlanBuilder:
         message_id: str,
         project_assignment_decision: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """
-        Create or link phase for execution plan
+        """Retained facade for compatibility with callers/tests."""
+        from ...services.conversation.plan_builder_core.runtime import (
+            create_or_link_phase as create_or_link_phase_helper,
+        )
 
-        Args:
-            execution_plan: ExecutionPlan object
-            project_id: Project ID
-            message_id: Message ID
-            project_assignment_decision: Project assignment decision metadata
-        """
-        try:
-            from backend.app.services.project.project_phase_manager import (
-                ProjectPhaseManager,
-            )
-
-            phase_manager = ProjectPhaseManager(store=self.store)
-
-            assignment_relation = (
-                project_assignment_decision.get("relation")
-                if project_assignment_decision
-                else None
-            )
-            phase_kind = (
-                "revision" if assignment_relation == "same_project" else "initial_brief"
-            )
-
-            phase = await phase_manager.create_phase(
-                project_id=project_id,
-                message_id=message_id,
-                summary=execution_plan.plan_summary
-                or execution_plan.user_request_summary
-                or "",
-                kind=phase_kind,
-                workspace_id=execution_plan.workspace_id,
-                execution_plan_id=execution_plan.id,
-            )
-
-            execution_plan.phase_id = phase.id
-            execution_plan.project_id = project_id
-
-            logger.info(
-                f"Created phase {phase.id} for project {project_id}, "
-                f"kind={phase_kind}, message_id={message_id}"
-            )
-
-        except Exception as e:
-            logger.warning(
-                f"Failed to create phase for execution plan: {e}", exc_info=True
-            )
-            # Don't fail execution plan creation if phase creation fails
-            pass
+        await create_or_link_phase_helper(
+            self,
+            execution_plan=execution_plan,
+            project_id=project_id,
+            message_id=message_id,
+            project_assignment_decision=project_assignment_decision,
+        )
 
     def is_pack_available(self, pack_id: str) -> bool:
-        """
-        Check if a pack is installed and available
-
-        Args:
-            pack_id: Pack identifier (capability code)
-
-        Returns:
-            True if pack is installed and available, False otherwise
-        """
-        try:
-            store = InstalledPacksStore()
-            if store.get_pack(pack_id):
-                return True
-
-            registry = get_registry()
-            capability_info = registry.capabilities.get(pack_id)
-            if capability_info:
-                # Pack exists in registry, consider it available
-                # (installation check is optional for built-in packs)
-                return True
-
-            return False
-
-        except Exception as e:
-            logger.warning(f"Failed to check pack availability for {pack_id}: {e}")
-            return False
+        """Delegate pack availability checks to the extracted helper."""
+        return is_pack_available_helper(pack_id)
 
     def check_pack_tools_configured(self, pack_id: str) -> bool:
-        """
-        Check if required tools for a pack are configured
-
-        Args:
-            pack_id: Pack identifier (capability code)
-
-        Returns:
-            True if all required tools are configured, False otherwise
-        """
-        try:
-            registry = get_registry()
-            capability_info = registry.capabilities.get(pack_id)
-            if not capability_info:
-                return False
-
-            manifest = capability_info.get("manifest", {})
-            tools = manifest.get("tools", [])
-
-            # For now, assume tools are available if pack is in registry
-            # In the future, we can check specific tool configurations
-            # (e.g., WordPress API keys, Notion tokens, etc.)
-            if tools:
-                # Basic check: if pack has tools defined, assume they're available
-                # More sophisticated checks can be added later
-                return True
-
-            return True  # Pack has no tools, so it's available
-
-        except Exception as e:
-            logger.warning(f"Failed to check pack tools for {pack_id}: {e}")
-            return False
+        """Delegate tool-configuration checks to the extracted helper."""
+        return check_pack_tools_configured_helper(pack_id)
 
     def determine_side_effect_level(self, pack_id: str) -> SideEffectLevel:
-        """
-        Determine side effect level for a pack
-
-        Conservative default: if not specified, treat as readonly
-
-        Priority:
-        1. Load from installed_packs table metadata (if installed)
-        2. Load from capability registry manifest.yaml
-        3. Default to READONLY (conservative)
-
-        Args:
-            pack_id: Pack identifier (capability code)
-
-        Returns:
-            SideEffectLevel enum value
-        """
-        try:
-            # Try to load from installed_packs table first
-            store = InstalledPacksStore()
-            row = store.get_pack(pack_id)
-            metadata = row.get("metadata") if row else None
-            if isinstance(metadata, dict) and "side_effect_level" in metadata:
-                level_str = metadata["side_effect_level"]
-                try:
-                    return SideEffectLevel(level_str)
-                except ValueError:
-                    logger.warning(
-                        f"Invalid side_effect_level '{level_str}' for pack {pack_id}, using default"
-                    )
-
-            # Try to load from capability registry manifest
-            registry = get_registry()
-            capability_info = registry.capabilities.get(pack_id)
-            if capability_info:
-                manifest = capability_info.get("manifest", {})
-                if "side_effect_level" in manifest:
-                    level_str = manifest["side_effect_level"]
-                    try:
-                        return SideEffectLevel(level_str)
-                    except ValueError:
-                        logger.warning(
-                            f"Invalid side_effect_level '{level_str}' for pack {pack_id}, using default"
-                        )
-
-            # Conservative default: readonly
-            logger.debug(
-                f"No side_effect_level found for pack {pack_id}, defaulting to readonly"
-            )
-            return SideEffectLevel.READONLY
-
-        except Exception as e:
-            logger.warning(
-                f"Failed to determine side_effect_level for pack {pack_id}: {e}, using default"
-            )
-            return SideEffectLevel.READONLY
+        """Delegate side-effect policy lookup to the extracted helper."""
+        return determine_side_effect_level_helper(pack_id)
 
     async def _generate_llm_plan(
         self,
@@ -1203,27 +873,7 @@ Message analysis hints:
         routing_decision: Optional[Any] = None,  # IntentRoutingDecision
         thread_id: Optional[str] = None,
     ) -> ExecutionPlan:
-        """
-        Generate execution plan for message
-
-        Priority: LLM-based planning (if use_llm=True), falls back to rule-based planning if LLM fails.
-        Checks side_effect_level and pack availability for each pack.
-
-        Args:
-            message: User message
-            files: List of file IDs
-            workspace_id: Workspace ID
-            profile_id: User profile ID
-            message_id: Message/event ID (optional)
-            use_llm: Whether to use LLM-based planning as primary (default: True, falls back to rule-based if LLM fails)
-            effective_playbooks: Pre-resolved effective playbooks (from PlaybookScopeResolver)
-            available_playbooks: Available playbooks (deprecated, kept for backward compatibility)
-            thread_id: Optional thread ID for thread-scoped context
-
-        Returns:
-            ExecutionPlan object with planned tasks
-        """
-        from datetime import datetime, timezone
+        """Generate an execution plan using LLM-first, rule-based fallback."""
         import uuid
 
         playbooks_to_use = (
@@ -1240,18 +890,12 @@ Message analysis hints:
 
         task_plans = []
 
-        registry = get_registry()
-        available_packs = list(registry.capabilities.keys())
-        available_packs = [
-            pack_id for pack_id in available_packs if self.is_pack_available(pack_id)
-        ]
+        available_packs = resolve_available_packs(self.is_pack_available)
 
         if playbooks_to_use:
-            effective_playbook_codes = {
-                pb.get("playbook_code")
-                for pb in playbooks_to_use
-                if pb.get("playbook_code")
-            }
+            effective_playbook_codes = collect_effective_playbook_codes(
+                playbooks_to_use
+            )
             logger.info(
                 f"PlanBuilder: Using {len(effective_playbook_codes)} effective playbooks: {list(effective_playbook_codes)[:5]}..."
             )
@@ -1282,29 +926,14 @@ Message analysis hints:
                             project_id=project_id,
                             project_assignment_decision=project_assignment_decision,
                         )
-
-                        if project_id and execution_plan:
-                            await self._create_or_link_phase(
-                                execution_plan=execution_plan,
-                                project_id=project_id,
-                                message_id=message_id or execution_plan.message_id,
-                                project_assignment_decision=project_assignment_decision,
-                            )
-
-                        if playbooks_to_use is not None:
-                            # Store effective playbooks in a way that to_event_payload can access
-                            # ExecutionPlan.to_event_payload() uses getattr(self, "metadata", None)
-                            # So we store it as a private attribute that can be accessed via getattr
-                            if not hasattr(execution_plan, "_metadata"):
-                                execution_plan._metadata = {}
-                            execution_plan._metadata["effective_playbooks"] = (
-                                playbooks_to_use
-                            )
-                            execution_plan._metadata["effective_playbooks_count"] = len(
-                                playbooks_to_use
-                            )
-
-                        return execution_plan
+                        return await finalize_execution_plan(
+                            self,
+                            execution_plan=execution_plan,
+                            project_id=project_id,
+                            message_id=message_id or execution_plan.message_id,
+                            project_assignment_decision=project_assignment_decision,
+                            playbooks_to_use=playbooks_to_use,
+                        )
                 else:
                     logger.info(
                         "PlanBuilder: LLM planning returned no plans, falling back to rule-based"
@@ -1314,130 +943,13 @@ Message analysis hints:
                     f"PlanBuilder: LLM planning failed: {e}, falling back to rule-based"
                 )
 
-        if files:
-            pack_id = "semantic_seeds"
-            if not self.is_pack_available(pack_id):
-                logger.warning(f"Pack {pack_id} is not available, skipping")
-            elif not self.check_pack_tools_configured(pack_id):
-                logger.warning(f"Pack {pack_id} tools are not configured, skipping")
-            else:
-                level = self.determine_side_effect_level(pack_id)
-
-                if level == SideEffectLevel.READONLY:
-                    task_plans.append(
-                        TaskPlan(
-                            pack_id=pack_id,
-                            task_type="extract_intents",
-                            params={"files": files},
-                            side_effect_level=level.value,
-                            auto_execute=True,
-                            requires_cta=False,
-                        )
-                    )
-                elif level == SideEffectLevel.SOFT_WRITE:
-                    task_plans.append(
-                        TaskPlan(
-                            pack_id=pack_id,
-                            task_type="extract_intents",
-                            params={"files": files},
-                            side_effect_level=level.value,
-                            auto_execute=False,
-                            requires_cta=True,
-                        )
-                    )
-                elif level == SideEffectLevel.EXTERNAL_WRITE:
-                    task_plans.append(
-                        TaskPlan(
-                            pack_id=pack_id,
-                            task_type="extract_intents",
-                            params={"files": files},
-                            side_effect_level=level.value,
-                            auto_execute=False,
-                            requires_cta=True,
-                        )
-                    )
-
-        planning_keywords = [
-            "task",
-            "plan",
-            "todo",
-            "planning",
-            "schedule",
-            "待辦",
-            "任務",
-            "計劃",
-        ]
-        if any(keyword in message.lower() for keyword in planning_keywords):
-            pack_id = "daily_planning"
-            if not self.is_pack_available(pack_id):
-                logger.warning(f"Pack {pack_id} is not available, skipping")
-            elif not self.check_pack_tools_configured(pack_id):
-                logger.warning(f"Pack {pack_id} tools are not configured, skipping")
-            else:
-                level = self.determine_side_effect_level(pack_id)
-
-                if level == SideEffectLevel.READONLY:
-                    task_plans.append(
-                        TaskPlan(
-                            pack_id=pack_id,
-                            task_type="generate_tasks",
-                            params={"source": "message"},
-                            side_effect_level=level.value,
-                            auto_execute=True,
-                            requires_cta=False,
-                        )
-                    )
-                elif level == SideEffectLevel.SOFT_WRITE:
-                    task_plans.append(
-                        TaskPlan(
-                            pack_id=pack_id,
-                            task_type="generate_tasks",
-                            params={"source": "message"},
-                            side_effect_level=level.value,
-                            auto_execute=False,
-                            requires_cta=True,
-                        )
-                    )
-                elif level == SideEffectLevel.EXTERNAL_WRITE:
-                    task_plans.append(
-                        TaskPlan(
-                            pack_id=pack_id,
-                            task_type="generate_tasks",
-                            params={"source": "message"},
-                            side_effect_level=level.value,
-                            auto_execute=False,
-                            requires_cta=True,
-                        )
-                    )
-
-        summary_keywords = ["summary", "summarize", "summary of", "摘要", "總結"]
-        draft_keywords = ["draft", "草稿", "寫", "generate", "create"]
-        if any(
-            keyword in message.lower() for keyword in summary_keywords + draft_keywords
-        ):
-            pack_id = "content_drafting"
-            if not self.is_pack_available(pack_id):
-                logger.warning(f"Pack {pack_id} is not available, skipping")
-            elif not self.check_pack_tools_configured(pack_id):
-                logger.warning(f"Pack {pack_id} tools are not configured, skipping")
-            else:
-                level = self.determine_side_effect_level(pack_id)
-                output_type = (
-                    "summary"
-                    if any(keyword in message.lower() for keyword in summary_keywords)
-                    else "draft"
-                )
-
-                task_plans.append(
-                    TaskPlan(
-                        pack_id=pack_id,
-                        task_type=f"generate_{output_type}",
-                        params={"source": "message", "output_type": output_type},
-                        side_effect_level=level.value,
-                        auto_execute=False,
-                        requires_cta=True,
-                    )
-                )
+        task_plans.extend(
+            build_rule_based_task_plans(
+                builder=self,
+                message=message,
+                files=files,
+            )
+        )
 
         execution_plan = ExecutionPlan(
             message_id=message_id or str(uuid.uuid4()),
@@ -1448,95 +960,15 @@ Message analysis hints:
             project_assignment_decision=project_assignment_decision,
         )
 
-        if project_id and execution_plan:
-            await self._create_or_link_phase(
-                execution_plan=execution_plan,
-                project_id=project_id,
-                message_id=message_id or execution_plan.message_id,
-                project_assignment_decision=project_assignment_decision,
-            )
-
-        if playbooks_to_use is not None:
-            # Store effective playbooks in a way that to_event_payload can access
-            # ExecutionPlan.to_event_payload() uses getattr(self, "metadata", None)
-            # So we store it as a private attribute that can be accessed via getattr
-            if not hasattr(execution_plan, "_metadata"):
-                execution_plan._metadata = {}
-            execution_plan._metadata["effective_playbooks"] = playbooks_to_use
-            execution_plan._metadata["effective_playbooks_count"] = len(
-                playbooks_to_use
-            )
-
-        return execution_plan
+        return await finalize_execution_plan(
+            self,
+            execution_plan=execution_plan,
+            project_id=project_id,
+            message_id=message_id or execution_plan.message_id,
+            project_assignment_decision=project_assignment_decision,
+            playbooks_to_use=playbooks_to_use,
+        )
 
     def _get_pack_id_from_playbook_code(self, playbook_code: str) -> Optional[str]:
-        """
-        Get pack_id from playbook_code
-
-        Strategy:
-        1. Check if playbook_code contains pack prefix (e.g., "ig.ig_complete_workflow")
-        2. If not, scan all capability packs' manifest.yaml to find which pack contains this playbook
-        3. Fallback: check playbook metadata for capability_tags
-
-        Args:
-            playbook_code: Playbook code (e.g., "ig_complete_workflow")
-
-        Returns:
-            Pack ID (capability_code) if found, None otherwise
-        """
-        from backend.app.services.capability_registry import get_registry
-
-        registry = get_registry()
-
-        # Strategy 1: If playbook_code contains pack prefix (e.g., "ig.ig_complete_workflow")
-        if "." in playbook_code:
-            pack_id, _ = playbook_code.split(".", 1)
-            if pack_id in registry.list_capabilities():
-                return pack_id
-
-        # Strategy 2: Scan all capability packs' manifest.yaml
-        for capability_code in registry.list_capabilities():
-            capability = registry.get_capability(capability_code)
-            if not capability:
-                continue
-
-            # Get playbooks list from manifest
-            playbooks = registry.get_capability_playbooks(capability_code)
-
-            # Check if playbook_code matches any playbook in this pack
-            # Note: get_capability_playbooks returns file names, we need to match against playbook_code
-            # Playbook codes are typically the file name without extension
-            for playbook_file in playbooks:
-                # Remove .json or .yaml extension if present
-                playbook_name = playbook_file.replace(".json", "").replace(".yaml", "")
-                if playbook_name == playbook_code:
-                    return capability_code
-
-        # Strategy 3: Try to find from playbook service (if playbook is loaded)
-        try:
-            from backend.app.services.playbook_service import PlaybookService
-            from backend.app.services.mindscape_store import MindscapeStore
-
-            store = MindscapeStore()
-            playbook_service = PlaybookService(store)
-
-            # Try to load playbook and check its metadata
-            # Note: This might be slow, so we use it as fallback
-            playbook_run = playbook_service.load_playbook_run_sync(
-                playbook_code, workspace_id=None
-            )
-            if playbook_run and playbook_run.playbook:
-                # Check if playbook metadata has capability_tags or owner_type
-                metadata = playbook_run.playbook.metadata
-                if hasattr(metadata, "capability_tags") and metadata.capability_tags:
-                    # First capability_tag might indicate the pack
-                    for tag in metadata.capability_tags:
-                        if tag in registry.list_capabilities():
-                            return tag
-        except Exception as e:
-            logger.debug(
-                f"Failed to get pack_id from playbook service for {playbook_code}: {e}"
-            )
-
-        logger.warning(f"Could not find pack_id for playbook_code: {playbook_code}")
-        return None
+        """Delegate playbook-to-pack resolution to the extracted helper."""
+        return get_pack_id_from_playbook_code_helper(playbook_code)
