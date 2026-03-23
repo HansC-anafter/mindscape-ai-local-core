@@ -10,7 +10,14 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-from backend.app.models.mindscape import EventType
+from backend.app.services.orchestration.meeting._prompt_context import (
+    append_workspace_identity,
+    build_asset_map_context,
+    build_lens_context,
+    build_previous_decisions_context,
+    build_project_context,
+    format_workspace_identity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -205,13 +212,35 @@ class MeetingPromptsMixin:
             return ""
 
     def _has_workspace_tool_bindings(self) -> bool:
-        """Return True iff tools or playbooks are available for this workspace.
+        """Return True when this workspace has actionable tool context.
 
-        Checks RAG caches (tools + playbooks) instead of admin-configured
-        bindings.  Any workspace with RAG-discovered tools/playbooks will
-        trigger the MANDATORY constraint requiring the executor to map
-        action items to available tools/playbooks.
+        Compatibility rules:
+          1. Explicit TOOL bindings still count as the strongest signal.
+          2. RAG-discovered tools or playbooks also count, so null-tool
+             gating still works for RAG-only workspaces.
+          3. Manifest fallback alone does not count.
         """
+        workspace = getattr(self, "workspace", None)
+        workspace_id = getattr(workspace, "id", None) or getattr(
+            getattr(self, "session", None), "workspace_id", None
+        )
+
+        if workspace_id:
+            try:
+                from backend.app.services.stores.workspace_resource_binding_store import (
+                    WorkspaceResourceBindingStore,
+                )
+                from backend.app.models.workspace_resource_binding import ResourceType
+
+                store = WorkspaceResourceBindingStore()
+                bindings = store.list_bindings_by_workspace(
+                    workspace_id, resource_type=ResourceType.TOOL
+                )
+                if bindings:
+                    return True
+            except Exception as exc:
+                logger.debug("_has_workspace_tool_bindings check failed: %s", exc)
+
         has_rag_tools = bool(getattr(self, "_rag_tool_cache", []))
         playbooks_cache = getattr(self, "_available_playbooks_cache", "")
         has_playbooks = bool(
@@ -297,359 +326,30 @@ class MeetingPromptsMixin:
 
     def _build_project_context(self) -> str:
         """Fetch project data and recent activity to provide meeting context."""
-        if not self.project_id:
-            return ""
-
-        parts: List[str] = []
-        try:
-            project = self.store.get_project(self.project_id)
-            if project:
-                parts.append(f"Project: {getattr(project, 'title', self.project_id)}")
-                ptype = getattr(project, "type", None)
-                if ptype:
-                    parts.append(f"Type: {ptype}")
-                pstate = getattr(project, "state", None)
-                if pstate:
-                    parts.append(f"State: {pstate}")
-                pmeta = getattr(project, "metadata", None)
-                if pmeta and isinstance(pmeta, dict):
-                    summary_keys = [
-                        "goal",
-                        "goals",
-                        "description",
-                        "brief",
-                        "scope",
-                        "deliverables",
-                        "requirements",
-                    ]
-                    for key in summary_keys:
-                        val = pmeta.get(key)
-                        if val:
-                            parts.append(f"{key.capitalize()}: {val}")
-        except Exception as exc:
-            logger.warning("Failed to fetch project for meeting context: %s", exc)
-
-        try:
-            recent_events = self.store.get_events_by_project(self.project_id, limit=10)
-            if recent_events:
-                activity_lines = []
-                for ev in recent_events[:5]:
-                    ev_type = getattr(ev, "event_type", "")
-                    ev_type_str = (
-                        ev_type.value if hasattr(ev_type, "value") else str(ev_type)
-                    )
-                    channel = str(getattr(ev, "channel", "") or "").lower()
-                    if channel == "meeting" or ev_type_str in {
-                        "meeting_start",
-                        "meeting_round",
-                        "meeting_end",
-                        "state_vector_computed",
-                        "decision_required",
-                        "action_item",
-                        "agent_turn",
-                        "decision_proposal",
-                        "decision_final",
-                    }:
-                        continue
-                    payload = getattr(ev, "payload", {}) or {}
-                    summary = (
-                        payload.get("message") or payload.get("title") or str(ev_type)
-                    )
-                    if not isinstance(summary, str):
-                        summary = str(summary)
-                    if (
-                        "Meeting Minutes" in summary
-                        or "Awaiting user confirmation" in summary
-                        or "HIGH risk level" in summary
-                    ):
-                        continue
-                    if len(summary) > 120:
-                        summary = summary[:120] + "..."
-                    activity_lines.append(f"  - {summary}")
-                if activity_lines:
-                    parts.append(
-                        "Recent project activity:\n" + "\n".join(activity_lines)
-                    )
-        except Exception as exc:
-            logger.warning("Failed to fetch project events for meeting: %s", exc)
-
-        return "\n".join(parts) if parts else ""
+        return build_project_context(self)
 
     def _build_asset_map_context(self) -> str:
-        """Build workspace group asset map for cross-workspace dispatch routing.
-
-        Queries all discoverable workspaces and injects their identity
-        (blueprint persona + goals + recent capabilities) so the planner
-        knows which workspace to route data-dependent tasks to.
-
-        No longer depends on WorkspaceResourceBindingStore — uses
-        workspace_blueprint and suggestion_history instead.
-        """
-        workspace = getattr(self, "workspace", None)
-        if not workspace:
-            return ""
-
-        try:
-            from backend.app.services.stores.postgres.workspaces_store import (
-                PostgresWorkspacesStore,
-            )
-
-            parts: List[str] = []
-            seen_ws_ids = set()
-            current_ws_id = getattr(workspace, "id", None)
-
-            # --- Path A: Group members (conditional on group_id) ---
-            group_id = getattr(workspace, "group_id", None)
-            if group_id:
-                from backend.app.services.stores.postgres.workspace_group_store import (
-                    PostgresWorkspaceGroupStore,
-                )
-
-                group_store = PostgresWorkspaceGroupStore()
-                group = group_store.get(group_id)
-                if group:
-                    parts.append(f"Workspace Group: {group.display_name} ({group.id})")
-
-                    workspace_role = (
-                        getattr(workspace, "workspace_role", None) or "cell"
-                    )
-                    parts.append(f"Current workspace role: {workspace_role}")
-
-                    ws_store = PostgresWorkspacesStore()
-                    for ws_id, role in group.role_map.items():
-                        seen_ws_ids.add(ws_id)
-                        ws_label = f"  [{role}] {ws_id}"
-                        if ws_id == current_ws_id:
-                            ws_label += " (current)"
-                        parts.append(ws_label)
-                        self._append_workspace_identity(ws_store, ws_id, parts)
-
-            # --- Path B: Discoverable workspaces (always runs) ---
-            ws_store = PostgresWorkspacesStore()
-            discoverable = ws_store.list_discoverable_workspaces(
-                visibility="discoverable"
-            )
-            extra = [
-                ws
-                for ws in discoverable
-                if ws.id not in seen_ws_ids and ws.id != current_ws_id
-            ]
-            if extra:
-                parts.append("")
-                parts.append("Discoverable Workspaces (outside group):")
-                for ws in extra:
-                    parts.append(f"  [discoverable] {ws.id} — {ws.title}")
-                    self._format_workspace_identity(ws, parts)
-
-            if not parts:
-                return ""
-            return "\n".join(parts)
-        except Exception as exc:
-            logger.warning("Failed to build asset map context: %s", exc)
-            return ""
+        """Build workspace group asset map for cross-workspace dispatch routing."""
+        return build_asset_map_context(self)
 
     @staticmethod
     def _format_workspace_identity(ws: Any, parts: List[str]) -> None:
-        """Append workspace identity lines from blueprint + suggestions.
-
-        Uses workspace_blueprint (persona + goals) and suggestion_history
-        to describe what the workspace is and what capabilities it has used.
-        """
-        has_identity = False
-        bp = getattr(ws, "workspace_blueprint", None)
-        if bp:
-            instr = getattr(bp, "instruction", None)
-            if instr:
-                persona = getattr(instr, "persona", "") or ""
-                if persona:
-                    parts.append(f"    Identity: {persona[:120]}")
-                    has_identity = True
-                goals = getattr(instr, "goals", []) or []
-                if goals:
-                    parts.append(f"    Goals: {'; '.join(g[:60] for g in goals[:3])}")
-                    has_identity = True
-
-        hist = getattr(ws, "suggestion_history", []) or []
-        if hist:
-            latest = hist[-1] if hist else {}
-            suggestions = latest.get("suggestions", [])[:3]
-            if suggestions:
-                titles = [s.get("title", "?")[:50] for s in suggestions]
-                parts.append(f"    Recent capabilities: {', '.join(titles)}")
-
-        # Data assets from completed executions (write-time aggregated)
-        ds = getattr(ws, "data_sources", None) or {}
-        if ds and isinstance(ds, dict):
-            asset_lines = []
-            for pack, info in sorted(
-                ds.items(), key=lambda x: x[1].get("last_run", ""), reverse=True
-            ):
-                runs = info.get("total_runs", 0)
-                last = (info.get("last_run") or "")[:10]
-                produces = info.get("produces", [])
-                if produces and isinstance(produces, list):
-                    # Show structured asset labels
-                    for p in produces:
-                        label = p.get("label", p.get("type", pack))
-                        line = f"      - {label}: {runs} runs"
-                        if last:
-                            line += f", last {last}"
-                        asset_lines.append(line)
-                else:
-                    # Fallback: show pack_id
-                    summary = info.get("last_result_summary", "")
-                    line = f"      - {pack}: {runs} runs"
-                    if last:
-                        line += f", last {last}"
-                    if summary:
-                        line += f" ({summary[:60]})"
-                    asset_lines.append(line)
-            if asset_lines:
-                parts.append("    Data assets (completed):")
-                parts.extend(asset_lines[:10])
-                has_identity = True
-
-        # Fallback if nothing was added
-        if not has_identity:
-            parts.append("    (no identity info available)")
+        """Append workspace identity lines from blueprint + suggestions."""
+        format_workspace_identity(ws, parts)
 
     def _append_workspace_identity(
         self, ws_store: Any, ws_id: str, parts: List[str]
     ) -> None:
         """Look up a workspace by ID and append its identity card."""
-        try:
-            import asyncio
-
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Sync fallback: use run_in_executor with blocking get
-                from concurrent.futures import Future
-
-                ws = None
-                try:
-                    ws = ws_store.get_workspace_sync(ws_id)
-                except AttributeError:
-                    pass
-
-                if ws:
-                    self._format_workspace_identity(ws, parts)
-                    return
-
-            parts.append("    (identity lookup unavailable)")
-        except Exception:
-            parts.append("    (identity lookup failed)")
+        append_workspace_identity(self, ws_store, ws_id, parts)
 
     def _build_lens_context(self) -> str:
-        """Build lens context block for prompt injection.
-
-        Uses the EffectiveLens resolved at engine init. Returns a concise
-        summary of non-OFF lens dimensions suitable for prompt injection.
-        """
-        lens = getattr(self, "_effective_lens", None)
-        if not lens:
-            return ""
-
-        parts: List[str] = []
-        try:
-            parts.append(f"Active Lens: {lens.global_preset_name}")
-            parts.append(f"Lens Hash: {lens.hash}")
-            # LensNodeState values: OFF, KEEP, EMPHASIZE (not 'active')
-            engaged_nodes = [n for n in lens.nodes if n.state.value != "off"]
-            emphasized = [n for n in lens.nodes if n.state.value == "emphasize"]
-            if emphasized:
-                parts.append("Emphasized dimensions:")
-                for node in emphasized[:10]:
-                    parts.append(
-                        f"  - {node.node_label} (scope: {node.effective_scope})"
-                    )
-            if engaged_nodes:
-                parts.append(f"Total active dimensions: {len(engaged_nodes)}")
-        except Exception as exc:
-            logger.warning("Failed to build lens context: %s", exc)
-
-        return "\n".join(parts) if parts else ""
+        """Build lens context block for prompt injection."""
+        return build_lens_context(self)
 
     def _build_previous_decisions_context(self) -> str:
-        """Build previous meeting decisions context from DECISION_FINAL events.
-
-        Queries the event store for DECISION_FINAL events from the most recent
-        closed session, avoiding semantic pollution from session.decisions.
-        """
-        if not self.project_id:
-            return ""
-
-        parts: List[str] = []
-        try:
-            workspace_id = (
-                getattr(self.workspace, "id", None) or self.session.workspace_id
-            )
-
-            session_store = getattr(self, "session_store", None)
-            if not session_store:
-                return ""
-
-            previous_sessions = session_store.list_by_workspace(
-                workspace_id=workspace_id,
-                project_id=self.project_id,
-                limit=2,
-            )
-            # Skip current session, take the most recent closed one
-            prev = None
-            for s in previous_sessions:
-                if s.id != self.session.id and not s.is_active:
-                    prev = s
-                    break
-
-            if not prev:
-                return ""
-
-            # Query DECISION_FINAL events from the event store
-            decision_events = []
-            try:
-                all_session_events = self.store.get_events_by_meeting_session(
-                    meeting_session_id=prev.id,
-                    limit=50,
-                )
-                decision_events = [
-                    e
-                    for e in (all_session_events or [])
-                    if (
-                        getattr(e, "event_type", None) == EventType.DECISION_FINAL
-                        or getattr(getattr(e, "event_type", None), "value", None)
-                        == "decision_final"
-                    )
-                ][:10]
-            except Exception:
-                # Store may not support meeting session query
-                pass
-
-            if decision_events:
-                parts.append("Previous meeting decisions:")
-                for evt in decision_events[:5]:
-                    payload = getattr(evt, "payload", {}) or {}
-                    decision_text = payload.get("decision", "")
-                    if decision_text:
-                        round_num = payload.get("round_number", "?")
-                        parts.append(f"  - [R{round_num}] {decision_text[:200]}")
-            elif prev.minutes_md:
-                # Fallback to minutes_md if no DECISION_FINAL events found
-                minutes_snippet = prev.minutes_md[:800]
-                if len(prev.minutes_md) > 800:
-                    minutes_snippet += "\n... (truncated)"
-                parts.append("Previous meeting summary:")
-                parts.append(minutes_snippet)
-
-            if prev.action_items:
-                parts.append("Previous action items:")
-                for item in prev.action_items[:5]:
-                    title = item.get("title", "Untitled")
-                    status = item.get("status", "pending")
-                    parts.append(f"  - {title} [{status}]")
-
-        except Exception as exc:
-            logger.warning("Failed to build previous decisions context: %s", exc)
-
-        return "\n".join(parts) if parts else ""
+        """Build previous meeting decisions context from DECISION_FINAL events."""
+        return build_previous_decisions_context(self)
 
     def _build_turn_prompt(
         self,
@@ -677,6 +377,9 @@ class MeetingPromptsMixin:
         locale_directive = (
             f"IMPORTANT: All your responses MUST be in {locale_label}. "
             f"Do not mix languages.\n\n"
+        )
+        project_id = getattr(self, "project_id", None) or getattr(
+            self.session, "project_id", None
         )
 
         project_block = ""
@@ -738,7 +441,7 @@ class MeetingPromptsMixin:
         common += (
             f"Meeting session: {self.session.id}\n"
             f"Workspace ID: {self.session.workspace_id}\n"
-            f"Project ID: {self.project_id or getattr(self.session, 'project_id', None) or '(none)'}\n"
+            f"Project ID: {project_id or '(none)'}\n"
             f"Round: {round_num}/{max(1, self.session.max_rounds)}\n"
             f"Agenda:\n{agenda_text}\n\n"
             f"User request:\n{user_message}\n\n"
@@ -764,7 +467,7 @@ class MeetingPromptsMixin:
             try:
                 intents = self.store.list_intents(
                     self.profile_id,
-                    project_id=self.project_id,
+                    project_id=project_id,
                 )
                 active = [i for i in intents if i.id in intent_ids]
                 if active:

@@ -14,14 +14,19 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
-
-
-def _utc_now():
-    """Return timezone-aware UTC now."""
-    return datetime.now(timezone.utc)
+from datetime import datetime
 
 from backend.app.core.runtime_port import ExecutionProfile
+from backend.app.services.decision.coordinator_support import (
+    build_governance_decision_payload,
+    emit_branch_proposed_event,
+    emit_decision_required_event,
+    record_governance_decisions,
+    serialize_conflict,
+    serialize_governance_contribution,
+    serialize_playbook_contribution,
+    store_decision_to_intent_log,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -694,196 +699,32 @@ class UnifiedDecisionCoordinator:
         memory_recommendation: Optional[Any],
         policy_decision: Optional[Any]
     ):
-        """
-        Store UnifiedDecisionResult to IntentLog.final_decision
-
-        Actual implementation: includes existence check and retry
-        """
-        from backend.app.models.mindscape import IntentLog
-        from backend.app.services.mindscape_store import MindscapeStore
-
-        store = MindscapeStore()
-
-        # Check if decision_id already exists (actual check)
-        log_id = decision_result.decision_id
-        max_retries = 3
-        retry_count = 0
-
-        while retry_count < max_retries:
-            existing_log = store.get_intent_log(log_id)
-            if existing_log:
-                logger.warning(
-                    f"IntentLog with decision_id {log_id} already exists, "
-                    f"generating new UUID (retry {retry_count + 1}/{max_retries})"
-                )
-                log_id = str(uuid.uuid4())
-                decision_result.decision_id = log_id  # Update decision_id
-                retry_count += 1
-            else:
-                break
-
-        if retry_count >= max_retries:
-            logger.error(
-                f"Failed to generate unique IntentLog.id after {max_retries} retries, "
-                f"using final attempt: {log_id}. This should be extremely rare (UUID collision)."
-            )
-
-        # Serialize UnifiedDecisionResult
-        final_decision_dict = {
-            # Final decision
-            "selected_playbook_code": decision_result.selected_playbook_code,
-            "execution_profile": decision_result.execution_profile.model_dump() if hasattr(decision_result.execution_profile, 'model_dump') else decision_result.execution_profile.__dict__,
-
-            # Intent layer contribution (use IntentRoutingDecision.to_dict())
-            "intent_contribution": decision_result.intent_contribution.to_dict() if hasattr(decision_result.intent_contribution, 'to_dict') else {
-                "decision_id": getattr(decision_result.intent_contribution, 'decision_id', decision_result.decision_id),
-                "suggested_playbook": {
-                    "playbook_code": decision_result.intent_contribution.suggested_playbook.playbook_code if hasattr(decision_result.intent_contribution, 'suggested_playbook') and decision_result.intent_contribution.suggested_playbook else None,
-                    "confidence": decision_result.intent_contribution.suggested_playbook.confidence if hasattr(decision_result.intent_contribution, 'suggested_playbook') and decision_result.intent_contribution.suggested_playbook else 0.0,
-                    "rationale": decision_result.intent_contribution.suggested_playbook.rationale if hasattr(decision_result.intent_contribution, 'suggested_playbook') and decision_result.intent_contribution.suggested_playbook else "",
-                    "is_orchestration": decision_result.intent_contribution.suggested_playbook.is_orchestration if hasattr(decision_result.intent_contribution, 'suggested_playbook') and decision_result.intent_contribution.suggested_playbook else False,
-                    "orchestration_steps": decision_result.intent_contribution.suggested_playbook.orchestration_steps if hasattr(decision_result.intent_contribution, 'suggested_playbook') and decision_result.intent_contribution.suggested_playbook else [],
-                } if hasattr(decision_result.intent_contribution, 'suggested_playbook') and decision_result.intent_contribution.suggested_playbook else None,
-                "alternatives": [
-                    {
-                        "playbook_code": alt.playbook_code,
-                        "confidence": alt.confidence,
-                        "rationale": alt.rationale,
-                        "is_orchestration": alt.is_orchestration,
-                    }
-                    for alt in (getattr(decision_result.intent_contribution, 'alternatives', []) if hasattr(decision_result.intent_contribution, 'alternatives') else [])
-                ],
-                "confidence": getattr(decision_result.intent_contribution, 'confidence', 0.0),
-                "rationale": getattr(decision_result.intent_contribution, 'rationale', ""),
-                "decision_method": getattr(decision_result.intent_contribution, 'decision_method', "unified_decision_coordinator"),
-                "execution_profile_hint": getattr(decision_result.intent_contribution, 'execution_profile_hint', "fast"),
-            },
-
-            # Playbook layer contribution (handle None and minimum required fields)
-            "playbook_contribution": self._serialize_playbook_contribution(decision_result.playbook_contribution) if decision_result.playbook_contribution else None,
-
-            # Other governance layer contributions (handle None)
-            "node_governance_contribution": self._serialize_governance_contribution(decision_result.node_governance_contribution),
-            "cost_governance_contribution": self._serialize_governance_contribution(decision_result.cost_governance_contribution),
-            "memory_contribution": self._serialize_governance_contribution(decision_result.memory_contribution),
-            "policy_contribution": self._serialize_governance_contribution(decision_result.policy_contribution),
-
-            # Conflicts and resolution
-            "conflicts": [self._serialize_conflict(c) for c in decision_result.conflicts] if decision_result.conflicts else [],
-            "resolution_strategy": decision_result.resolution_strategy,
-
-            # Execution flags
-            "can_auto_execute": decision_result.can_auto_execute,
-            "requires_user_approval": decision_result.requires_user_approval,
-        }
-
-        intent_log = IntentLog(
-            id=log_id,  # Use decision_id as log_id (checked for conflicts)
-            timestamp=decision_result.timestamp,
-            raw_input=user_input,
-            channel="api",
-            profile_id=user_id or "",
-            project_id=project_id,
+        return await store_decision_to_intent_log(
+            self,
+            decision_result=decision_result,
+            user_input=user_input,
             workspace_id=workspace_id,
-            pipeline_steps={
-                "intent_analysis": getattr(intent_result, 'pipeline_steps', {}) if hasattr(intent_result, 'pipeline_steps') else {},
-                "playbook_preflight": playbook_preflight_result.__dict__ if playbook_preflight_result else None,
-                "node_governance": node_governance_decision.__dict__ if node_governance_decision else None,
-                "cost_governance": cost_governance_decision.__dict__ if cost_governance_decision else None,
-                "policy": policy_decision.__dict__ if policy_decision else None,
-            },
-            final_decision=final_decision_dict,  # Serialized UnifiedDecisionResult
-            user_override=None,  # Initially None, updated when user overrides
-            metadata={
-                "decision_id": decision_result.decision_id,  # Backup decision_id
-                "decision_method": "unified_decision_coordinator",
-                "version": "1.0"  # For future compatibility
-            }
+            project_id=project_id,
+            user_id=user_id,
+            intent_result=intent_result,
+            playbook_preflight_result=playbook_preflight_result,
+            node_governance_decision=node_governance_decision,
+            cost_governance_decision=cost_governance_decision,
+            memory_recommendation=memory_recommendation,
+            policy_decision=policy_decision,
         )
 
-        try:
-            store.create_intent_log(intent_log)
-            logger.info(f"Successfully stored UnifiedDecisionResult to IntentLog: {log_id}")
-
-            # Emit BRANCH_PROPOSED event if there are alternatives (ToT)
-            # Check if there are multiple playbook alternatives
-            has_alternatives = (
-                decision_result.intent_contribution.alternatives and
-                len(decision_result.intent_contribution.alternatives) > 0
-            )
-
-            if has_alternatives:
-                self._emit_branch_proposed_event(
-                    store=store,
-                    intent_decision=decision_result.intent_contribution,
-                    intent_result=None,  # Not needed here
-                    workspace_id=workspace_id,
-                    project_id=project_id,
-                    user_id=user_id
-                )
-
-            # Emit DECISION_REQUIRED event if user approval is required (ReAct: Ask Human)
-            if decision_result.requires_user_approval:
-                self._emit_decision_required_event(
-                    store=store,
-                    decision_result=decision_result,
-                    intent_log=intent_log,
-                    workspace_id=workspace_id,
-                    project_id=project_id,
-                    user_id=user_id
-                )
-        except Exception as e:
-            logger.error(f"Failed to store UnifiedDecisionResult to IntentLog: {e}", exc_info=True)
-            raise
-
     def _serialize_playbook_contribution(self, playbook_contribution: Any) -> Optional[Dict[str, Any]]:
-        """Serialize PlaybookPreflightResult (handle None and minimum required fields)"""
-        if not playbook_contribution:
-            return None
-
-        # Minimum required fields: playbook_code, status, accepted
-        result = {
-            "playbook_code": getattr(playbook_contribution, 'playbook_code', None),
-            "status": getattr(playbook_contribution.status, 'value', None) if hasattr(playbook_contribution, 'status') and playbook_contribution.status else (
-                getattr(playbook_contribution, 'status', None) if isinstance(getattr(playbook_contribution, 'status', None), str) else None
-            ),
-            "accepted": getattr(playbook_contribution, 'accepted', False),
-        }
-
-        # Optional fields
-        if hasattr(playbook_contribution, 'missing_inputs'):
-            result["missing_inputs"] = playbook_contribution.missing_inputs or []
-        if hasattr(playbook_contribution, 'clarification_questions'):
-            result["clarification_questions"] = playbook_contribution.clarification_questions or []
-        if hasattr(playbook_contribution, 'rejection_reason'):
-            result["rejection_reason"] = playbook_contribution.rejection_reason
-        if hasattr(playbook_contribution, 'recommended_alternatives'):
-            result["recommended_alternatives"] = playbook_contribution.recommended_alternatives or []
-        if hasattr(playbook_contribution, 'recommended_orchestration'):
-            result["recommended_orchestration"] = playbook_contribution.recommended_orchestration
-
-        return result
+        """Serialize PlaybookPreflightResult (handle None and minimum required fields)."""
+        return serialize_playbook_contribution(playbook_contribution)
 
     def _serialize_governance_contribution(self, contribution: Any) -> Optional[Dict[str, Any]]:
-        """Serialize governance layer contribution (handle None)"""
-        if not contribution:
-            return None
-
-        # Use __dict__ but handle possible errors
-        try:
-            return contribution.__dict__ if hasattr(contribution, '__dict__') else None
-        except Exception as e:
-            logger.warning(f"Failed to serialize governance contribution: {e}")
-            return None
+        """Serialize governance layer contribution (handle None)."""
+        return serialize_governance_contribution(contribution)
 
     def _serialize_conflict(self, conflict: Any) -> Dict[str, Any]:
-        """Serialize conflict (handle different types)"""
-        if hasattr(conflict, '__dict__'):
-            return conflict.__dict__
-        elif isinstance(conflict, dict):
-            return conflict
-        else:
-            return {"type": str(type(conflict)), "value": str(conflict)}
+        """Serialize conflict (handle different types)."""
+        return serialize_conflict(conflict)
 
     def _emit_decision_required_event(
         self,
@@ -894,241 +735,23 @@ class UnifiedDecisionCoordinator:
         project_id: Optional[str],
         user_id: Optional[str]
     ) -> None:
-        """
-        Emit DECISION_REQUIRED event for Human-in-the-loop (ReAct: Ask Human)
-
-        This event is projected to the right panel as a blocker card.
-        """
-        from backend.app.models.mindscape import MindEvent, EventType, EventActor
-
-        # Collect missing inputs and clarification questions
-        missing_inputs = [
-            ...(decision_result.intent_contribution.missing_inputs or []),
-            ...(decision_result.playbook_contribution.missing_inputs or [] if decision_result.playbook_contribution else []),
-        ]
-        clarification_questions = (
-            decision_result.playbook_contribution.clarification_questions or []
-            if decision_result.playbook_contribution else []
+        """Emit DECISION_REQUIRED event for Human-in-the-loop (ReAct: Ask Human)."""
+        emit_decision_required_event(
+            self,
+            store=store,
+            decision_result=decision_result,
+            intent_log=intent_log,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            user_id=user_id,
         )
-
-        # Calculate blocked steps (if execution plan is available)
-        # Note: Execution plan may not be available at decision time
-        # If available, we can extract step IDs that depend on this decision
-        blocked_step_ids: List[str] = []
-
-        # Try to get execution plan from intent_log metadata or pipeline_steps
-        if intent_log and hasattr(intent_log, 'metadata') and intent_log.metadata:
-            execution_plan = intent_log.metadata.get("execution_plan")
-            if execution_plan and isinstance(execution_plan, dict):
-                # Extract step IDs from execution plan
-                tasks = execution_plan.get("tasks", [])
-                if isinstance(tasks, list):
-                    # If decision blocks execution, all steps are blocked
-                    # Otherwise, identify steps that require the missing inputs
-                    if missing_inputs or clarification_questions or decision_result.requires_user_approval:
-                        blocked_step_ids = [
-                            task.get("id") or f"step-{i}"
-                            for i, task in enumerate(tasks)
-                            if isinstance(task, dict)
-                        ]
-
-        # Determine card type
-        card_type = "decision"
-        if missing_inputs:
-            card_type = "input"
-        elif clarification_questions:
-            card_type = "review"
-        elif decision_result.conflicts:
-            card_type = "review"
-
-        # Determine priority
-        priority = "blocker" if decision_result.requires_user_approval else "normal"
-        if decision_result.conflicts:
-            priority = "high"
-
-        # Build governance_decision payload if any governance layer rejected
-        governance_decision = None
-        if (
-            decision_result.node_governance_contribution and not decision_result.node_governance_contribution.approved
-        ) or (
-            decision_result.cost_governance_contribution and not decision_result.cost_governance_contribution.approved
-        ) or (
-            decision_result.policy_contribution and not decision_result.policy_contribution.approved
-        ) or (
-            decision_result.playbook_contribution and not decision_result.playbook_contribution.accepted
-        ):
-            governance_decision = self._build_governance_decision_payload(decision_result)
-
-        try:
-            event = MindEvent(
-                id=str(uuid.uuid4()),
-                timestamp=_utc_now(),
-                actor=EventActor.AGENT,
-                channel="api",
-                profile_id=user_id or "",
-                project_id=project_id,
-                workspace_id=workspace_id,
-                event_type=EventType.DECISION_REQUIRED,
-                payload={
-                    "decision_id": decision_result.decision_id,
-                    "intent_log_id": intent_log.id,
-                    "requires_user_approval": decision_result.requires_user_approval,
-                    "can_auto_execute": decision_result.can_auto_execute,
-                    "missing_inputs": missing_inputs,
-                    "clarification_questions": clarification_questions,
-                    "conflicts": [self._serialize_conflict(c) for c in decision_result.conflicts] if decision_result.conflicts else [],
-                    "blocking_steps": blocked_step_ids,
-                    "card_type": card_type if not governance_decision else "governance",
-                    "priority": priority,
-                    "selected_playbook_code": decision_result.selected_playbook_code,
-                    "rationale": decision_result.intent_contribution.rationale,
-                    "governance_decision": governance_decision,
-                },
-                entity_ids={
-                    "decision_id": decision_result.decision_id,
-                    "intent_log_id": intent_log.id,
-                },
-                metadata={
-                    "decision_method": decision_result.intent_contribution.decision_method,
-                    "playbook_code": decision_result.selected_playbook_code,
-                }
-            )
-            store.create_event(event)
-            logger.info(f"Emitted DECISION_REQUIRED event for decision {decision_result.decision_id}")
-        except Exception as e:
-            logger.error(f"Failed to emit DECISION_REQUIRED event: {e}", exc_info=True)
 
     def _build_governance_decision_payload(
         self,
         decision_result: UnifiedDecisionResult
     ) -> Optional[Dict[str, Any]]:
-        """
-        Build governance_decision payload for event
-
-        Args:
-            decision_result: Unified decision result
-
-        Returns:
-            Governance decision payload or None
-        """
-        # Determine which governance layer rejected
-        if decision_result.cost_governance_contribution and not decision_result.cost_governance_contribution.approved:
-            cost_gov = decision_result.cost_governance_contribution
-            workspace_id = decision_result.workspace_id
-
-            # Get quota settings from cost governance service
-            quota_limit = 0.0
-            current_usage = 0.0
-            downgrade_suggestion = None
-
-            if hasattr(self, 'cost_governance') and self.cost_governance:
-                try:
-                    quota_settings = self.cost_governance._get_quota_settings(workspace_id or "")
-                    quota_limit = quota_settings.get("daily_quota", 0.0)
-                    current_usage = self.cost_governance._get_today_usage(workspace_id or "")
-
-                    # Extract downgrade suggestion from reason if present
-                    if cost_gov.reason and "consider" in cost_gov.reason.lower():
-                        downgrade_suggestion = cost_gov.reason
-                except Exception:
-                    pass
-
-            return {
-                "type": "cost_exceeded",
-                "layer": "cost",
-                "approved": False,
-                "reason": cost_gov.reason,
-                "cost_governance": {
-                    "estimated_cost": cost_gov.estimated_cost or 0.0,
-                    "quota_limit": quota_limit,
-                    "current_usage": current_usage,
-                    "downgrade_suggestion": downgrade_suggestion,
-                }
-            }
-
-        if decision_result.node_governance_contribution and not decision_result.node_governance_contribution.approved:
-            node_gov = decision_result.node_governance_contribution
-            reason_lower = (node_gov.reason or "").lower()
-
-            # Determine rejection reason from actual reason text
-            if "blacklist" in reason_lower:
-                rejection_reason = "blacklist"
-            elif "whitelist" in reason_lower:
-                rejection_reason = "whitelist"
-            elif "risk" in reason_lower or "label" in reason_lower:
-                rejection_reason = "risk_label"
-            elif "throttle" in reason_lower or "limit" in reason_lower:
-                rejection_reason = "throttle"
-            else:
-                rejection_reason = "unknown"
-
-            return {
-                "type": "node_rejected",
-                "layer": "node",
-                "approved": False,
-                "reason": node_gov.reason,
-                "node_governance": {
-                    "rejection_reason": rejection_reason,
-                    "affected_playbooks": [decision_result.selected_playbook_code] if decision_result.selected_playbook_code else [],
-                    "alternatives": [],
-                }
-            }
-
-        if decision_result.policy_contribution and not decision_result.policy_contribution.approved:
-            policy = decision_result.policy_contribution
-            reason_lower = (policy.reason or "").lower()
-
-            # Determine violation type from actual reason text
-            if "role" in reason_lower:
-                violation_type = "role"
-            elif "domain" in reason_lower or "data" in reason_lower:
-                violation_type = "data_domain"
-            elif "pii" in reason_lower:
-                violation_type = "pii"
-            else:
-                violation_type = "unknown"
-
-            return {
-                "type": "policy_violation",
-                "layer": "policy",
-                "approved": False,
-                "reason": policy.reason,
-                "policy_violation": {
-                    "violation_type": violation_type,
-                    "policy_id": None,
-                    "violation_items": [policy.reason] if policy.reason else [],
-                    "request_permission_url": None,
-                }
-            }
-
-        if decision_result.playbook_contribution and not decision_result.playbook_contribution.accepted:
-            preflight = decision_result.playbook_contribution
-
-            # Extract missing credentials and environment issues from rejection reason
-            missing_credentials = []
-            environment_issues = []
-
-            if preflight.rejection_reason:
-                reason_lower = preflight.rejection_reason.lower()
-                if "credential" in reason_lower or "api key" in reason_lower or "key" in reason_lower:
-                    missing_credentials = [preflight.rejection_reason]
-                elif "environment" in reason_lower or "sandbox" in reason_lower or "repo" in reason_lower:
-                    environment_issues = [preflight.rejection_reason]
-
-            return {
-                "type": "preflight_failed",
-                "layer": "preflight",
-                "approved": False,
-                "reason": preflight.rejection_reason,
-                "preflight_failure": {
-                    "missing_inputs": preflight.missing_inputs or [],
-                    "missing_credentials": missing_credentials,
-                    "environment_issues": environment_issues,
-                    "recommended_alternatives": preflight.recommended_alternatives or [],
-                }
-            }
-
-        return None
+        """Build governance_decision payload for event."""
+        return build_governance_decision_payload(self, decision_result)
 
     async def _record_governance_decisions(
         self,
@@ -1140,81 +763,16 @@ class UnifiedDecisionCoordinator:
         playbook_preflight_result: Optional[PlaybookPreflightResult],
         playbook_code: Optional[str]
     ) -> None:
-        """
-        Record governance decisions to database (Cloud environment)
-
-        Args:
-            workspace_id: Workspace ID
-            execution_id: Execution ID (optional)
-            node_governance_decision: Node governance decision
-            cost_governance_decision: Cost governance decision
-            policy_decision: Policy decision
-            playbook_preflight_result: Playbook preflight result
-            playbook_code: Playbook code
-        """
-        try:
-            from backend.app.services.governance.decision_recorder import GovernanceDecisionRecorder
-            recorder = GovernanceDecisionRecorder()
-
-            # Record each governance layer decision
-            if node_governance_decision:
-                await recorder.record_decision(
-                    workspace_id=workspace_id,
-                    execution_id=execution_id,
-                    layer="node",
-                    approved=node_governance_decision.approved,
-                    reason=node_governance_decision.reason,
-                    playbook_code=playbook_code
-                )
-
-            if cost_governance_decision:
-                await recorder.record_decision(
-                    workspace_id=workspace_id,
-                    execution_id=execution_id,
-                    layer="cost",
-                    approved=cost_governance_decision.approved,
-                    reason=cost_governance_decision.reason,
-                    playbook_code=playbook_code,
-                    metadata={
-                        "estimated_cost": cost_governance_decision.estimated_cost
-                    }
-                )
-                # Also record cost usage if approved
-                if cost_governance_decision.approved and cost_governance_decision.estimated_cost:
-                    await recorder.record_cost_usage(
-                        workspace_id=workspace_id,
-                        execution_id=execution_id,
-                        cost=cost_governance_decision.estimated_cost,
-                        playbook_code=playbook_code
-                    )
-
-            if policy_decision:
-                await recorder.record_decision(
-                    workspace_id=workspace_id,
-                    execution_id=execution_id,
-                    layer="policy",
-                    approved=policy_decision.approved,
-                    reason=policy_decision.reason,
-                    playbook_code=playbook_code
-                )
-
-            if playbook_preflight_result:
-                await recorder.record_decision(
-                    workspace_id=workspace_id,
-                    execution_id=execution_id,
-                    layer="preflight",
-                    approved=playbook_preflight_result.accepted,
-                    reason=playbook_preflight_result.rejection_reason,
-                    playbook_code=playbook_code,
-                    metadata={
-                        "missing_inputs": playbook_preflight_result.missing_inputs,
-                        "clarification_questions": playbook_preflight_result.clarification_questions,
-                    }
-                )
-
-        except Exception as e:
-            logger.warning(f"Failed to record governance decisions: {e}", exc_info=True)
-            # Don't fail the decision if recording fails
+        """Record governance decisions to database (Cloud environment)."""
+        await record_governance_decisions(
+            workspace_id=workspace_id,
+            execution_id=execution_id,
+            node_governance_decision=node_governance_decision,
+            cost_governance_decision=cost_governance_decision,
+            policy_decision=policy_decision,
+            playbook_preflight_result=playbook_preflight_result,
+            playbook_code=playbook_code,
+        )
 
     def _emit_branch_proposed_event(
         self,
@@ -1225,107 +783,11 @@ class UnifiedDecisionCoordinator:
         project_id: Optional[str],
         user_id: Optional[str]
     ) -> None:
-        """
-        Emit BRANCH_PROPOSED event for Tree of Thoughts (ToT)
-
-        This event is projected to the right panel as a branch choice card.
-        """
-        from backend.app.models.mindscape import MindEvent, EventType, EventActor
-
-        # Collect alternatives and calculate differences
-        alternatives = []
-        if intent_decision.alternatives:
-            # Calculate differences between alternatives
-            for i, alt in enumerate(intent_decision.alternatives):
-                differences = []
-
-                # Compare with other alternatives
-                for j, other_alt in enumerate(intent_decision.alternatives):
-                    if i == j:
-                        continue
-
-                    # Compare playbook codes
-                    if alt.playbook_code != other_alt.playbook_code:
-                        differences.append(f"Different playbook: {alt.playbook_code} vs {other_alt.playbook_code}")
-
-                    # Compare confidence levels
-                    confidence_diff = abs(alt.confidence - other_alt.confidence)
-                    if confidence_diff > 0.1:  # Significant difference
-                        if alt.confidence > other_alt.confidence:
-                            differences.append(f"Higher confidence ({alt.confidence:.2f} vs {other_alt.confidence:.2f})")
-                        else:
-                            differences.append(f"Lower confidence ({alt.confidence:.2f} vs {other_alt.confidence:.2f})")
-
-                    # Compare required inputs
-                    alt_inputs = set(alt.required_inputs or [])
-                    other_inputs = set(other_alt.required_inputs or [])
-                    if alt_inputs != other_inputs:
-                        unique_inputs = alt_inputs - other_inputs
-                        if unique_inputs:
-                            differences.append(f"Requires additional inputs: {', '.join(unique_inputs)}")
-                        missing_inputs = other_inputs - alt_inputs
-                        if missing_inputs:
-                            differences.append(f"Missing inputs compared to others: {', '.join(missing_inputs)}")
-
-                # Limit differences to top 3 most significant
-                differences = differences[:3]
-
-                alternatives.append({
-                    "playbook_code": alt.playbook_code,
-                    "confidence": alt.confidence,
-                    "rationale": alt.rationale,
-                    "differences": differences,
-                })
-        elif intent_decision.suggested_playbook:
-            # If no explicit alternatives, create from suggested playbook
-            alternatives = [{
-                "playbook_code": intent_decision.suggested_playbook.playbook_code,
-                "confidence": intent_decision.suggested_playbook.confidence,
-                "rationale": intent_decision.suggested_playbook.rationale,
-                "differences": [],
-            }]
-
-        # Determine recommended branch
-        recommended_branch = None
-        if intent_decision.suggested_playbook:
-            recommended_branch = intent_decision.suggested_playbook.playbook_code
-        elif alternatives:
-            # Use highest confidence alternative
-            recommended_branch = max(alternatives, key=lambda a: a["confidence"])["playbook_code"]
-
-        branch_id = f"branch-{intent_decision.decision_id}"
-
-        try:
-            # Note: store will be available when decision is stored
-            # For now, we'll emit the event when storing the decision
-            # Store event data in a way that can be emitted later
-            if store:
-                event = MindEvent(
-                    id=str(uuid.uuid4()),
-                    timestamp=_utc_now(),
-                    actor=EventActor.AGENT,
-                    channel="api",
-                    profile_id=user_id or "",
-                    project_id=project_id,
-                    workspace_id=workspace_id,
-                    event_type=EventType.BRANCH_PROPOSED,
-                    payload={
-                        "branch_id": branch_id,
-                        "decision_id": intent_decision.decision_id,
-                        "alternatives": alternatives,
-                        "recommended_branch": recommended_branch,
-                        "context": f"Multiple playbook options available. Recommended: {recommended_branch}",
-                        "rationale": intent_decision.rationale,
-                    },
-                    entity_ids={
-                        "branch_id": branch_id,
-                        "decision_id": intent_decision.decision_id,
-                    },
-                    metadata={
-                        "decision_method": intent_decision.decision_method,
-                    }
-                )
-                store.create_event(event)
-                logger.info(f"Emitted BRANCH_PROPOSED event for branch {branch_id}")
-        except Exception as e:
-            logger.error(f"Failed to emit BRANCH_PROPOSED event: {e}", exc_info=True)
+        """Emit BRANCH_PROPOSED event for Tree of Thoughts (ToT)."""
+        emit_branch_proposed_event(
+            store=store,
+            intent_decision=intent_decision,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            user_id=user_id,
+        )

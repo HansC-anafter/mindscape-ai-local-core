@@ -5,12 +5,6 @@ Handles Playbook execution with real LLM-powered conversations
 
 import logging
 import uuid
-from datetime import datetime, timezone
-
-
-def _utc_now():
-    """Return timezone-aware UTC now."""
-    return datetime.now(timezone.utc)
 
 
 from typing import Dict, List, Optional, Any
@@ -33,183 +27,24 @@ from backend.app.services.playbook import (
 from backend.app.services.story_thread.context_injector import (
     StoryThreadContextInjector,
 )
+from backend.app.services.execution_core.clock import utc_now as _utc_now
+from backend.app.services.playbook_runner_core.bootstrap import (
+    load_playbook_bundle as runner_load_playbook_bundle,
+    resolve_project_execution_context as runner_resolve_project_execution_context,
+    resolve_variant as runner_resolve_variant,
+)
+from backend.app.services.playbook_runner_core.run_state import (
+    build_run_state_changed_event as _build_run_state_changed_event,
+)
+from backend.app.services.playbook_runner_core.session_state import (
+    cleanup_execution as runner_cleanup_execution,
+    get_playbook_execution_result as runner_get_playbook_execution_result,
+    get_or_restore_conversation_manager as runner_get_or_restore_conversation_manager,
+    list_active_execution_ids as runner_list_active_execution_ids,
+    preserve_sandbox_id_in_execution_context as runner_preserve_sandbox_id_in_execution_context,
+)
 
 logger = logging.getLogger(__name__)
-
-IG_PLAYBOOK_REFRESH_HINTS = {
-    "ig_analyze_following": ["sources", "targets", "run_logs"],
-    "ig_capture_account_snapshot": ["captures", "run_logs"],
-    "ig_analyze_pinned_reference": ["references", "run_logs"],
-    "ig_batch_pin_references": ["references", "run_logs"],
-}
-
-
-def _normalize_optional_text(value: Any) -> Optional[str]:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _normalize_optional_handle(value: Any) -> Optional[str]:
-    text = _normalize_optional_text(value)
-    if not text:
-        return None
-    return text[1:] if text.startswith("@") else text
-
-
-def _derive_pack_id(playbook_code: str) -> Optional[str]:
-    return "ig" if isinstance(playbook_code, str) and playbook_code.startswith("ig_") else None
-
-
-def _derive_refresh_hint(playbook_code: str) -> List[str]:
-    if not isinstance(playbook_code, str):
-        return []
-    if playbook_code in IG_PLAYBOOK_REFRESH_HINTS:
-        return list(IG_PLAYBOOK_REFRESH_HINTS[playbook_code])
-    if playbook_code.startswith("ig_"):
-        return ["run_logs"]
-    return []
-
-
-def _derive_ui_surface(refresh_hint: List[str]) -> str:
-    if "references" in refresh_hint:
-        return "references"
-    if any(hint in {"sources", "targets", "captures"} for hint in refresh_hint):
-        return "discovery"
-    return "workbench"
-
-
-def _build_run_state_context(
-    playbook_code: str,
-    execution_id: str,
-    new_state: str,
-    inputs: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    ctx = inputs if isinstance(inputs, dict) else {}
-    refresh_hint = _derive_refresh_hint(playbook_code)
-    target_username = _normalize_optional_handle(
-        ctx.get("target_username") or ctx.get("target_handle")
-    )
-    reference_id = _normalize_optional_text(
-        ctx.get("reference_id") or ctx.get("ref_id")
-    )
-    user_data_dir = _normalize_optional_text(ctx.get("user_data_dir"))
-    terminal = new_state in {"DONE", "FAILED", "CANCELLED"}
-    pack_id = _derive_pack_id(playbook_code)
-
-    return {
-        "pack_id": pack_id,
-        "execution_id": execution_id,
-        "lifecycle_state": new_state,
-        "terminal": terminal,
-        "ui_surface": _derive_ui_surface(refresh_hint),
-        "refresh_hint": refresh_hint,
-        "target_username": target_username,
-        "target_handle": target_username,
-        "reference_id": reference_id,
-        "user_data_dir": user_data_dir,
-    }
-
-
-def _build_run_state_payload(
-    previous_state: str,
-    new_state: str,
-    reason: str,
-    playbook_code: str,
-    execution_id: str,
-    inputs: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    payload = {
-        "execution_id": execution_id,
-        "previous_state": previous_state,
-        "new_state": new_state,
-        "reason": reason,
-        "playbook_code": playbook_code,
-        "blocker_count": 0,
-    }
-
-    ctx = _build_run_state_context(playbook_code, execution_id, new_state, inputs)
-    for key in (
-        "pack_id",
-        "lifecycle_state",
-        "terminal",
-        "refresh_hint",
-        "target_username",
-        "target_handle",
-        "reference_id",
-        "user_data_dir",
-        "ui_surface",
-    ):
-        value = ctx.get(key)
-        if value is None:
-            continue
-        if isinstance(value, list) and not value:
-            continue
-        payload[key] = value
-    return payload
-
-
-def _build_run_state_metadata(
-    playbook_code: str,
-    execution_id: str,
-    new_state: str,
-    reason: str,
-    inputs: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    metadata = {
-        "playbook_code": playbook_code,
-        "reason": reason,
-    }
-    for key, value in _build_run_state_context(
-        playbook_code, execution_id, new_state, inputs
-    ).items():
-        if value is None:
-            continue
-        if isinstance(value, list) and not value:
-            continue
-        metadata[key] = value
-    return metadata
-
-
-def _build_run_state_changed_event(
-    *,
-    profile_id: str,
-    project_id: Optional[str],
-    workspace_id: Optional[str],
-    execution_id: str,
-    previous_state: str,
-    new_state: str,
-    reason: str,
-    playbook_code: str,
-    inputs: Optional[Dict[str, Any]] = None,
-) -> MindEvent:
-    return MindEvent(
-        id=str(uuid.uuid4()),
-        timestamp=_utc_now(),
-        actor=EventActor.AGENT,
-        channel="playbook",
-        profile_id=profile_id,
-        project_id=project_id,
-        workspace_id=workspace_id,
-        event_type=EventType.RUN_STATE_CHANGED,
-        payload=_build_run_state_payload(
-            previous_state=previous_state,
-            new_state=new_state,
-            reason=reason,
-            playbook_code=playbook_code,
-            execution_id=execution_id,
-            inputs=inputs,
-        ),
-        entity_ids=[execution_id] if execution_id else [],
-        metadata=_build_run_state_metadata(
-            playbook_code=playbook_code,
-            execution_id=execution_id,
-            new_state=new_state,
-            reason=reason,
-            inputs=inputs,
-        ),
-    )
 
 
 class PlaybookRunner:
@@ -306,127 +141,88 @@ class PlaybookRunner:
                     inputs=inputs,
                 )
 
-            # Use PlaybookService to get playbook
-            locale = inputs.get("locale") if inputs else None
-            if not locale and workspace_id:
-                try:
-                    workspace = await self.store.get_workspace(workspace_id)
-                    locale = workspace.default_locale if workspace else None
-                except Exception:
-                    pass
-            if not locale:
-                locale = "zh-TW"
-
-            playbook = await self.playbook_service.get_playbook(
-                playbook_code=playbook_code, locale=locale, workspace_id=workspace_id
-            )
-            if not playbook:
-                raise ValueError(f"Playbook not found: {playbook_code}")
-
-            # Get playbook.run to check for playbook.json
             from backend.app.services.playbook_loaders.json_loader import (
                 PlaybookJsonLoader,
             )
 
-            playbook_json = PlaybookJsonLoader.load_playbook_json(playbook_code)
-
-            # Determine total_steps from playbook.json if available
-            total_steps = 1  # Default to 1 for conversation mode
-            if playbook_json and playbook_json.steps:
-                total_steps = len(playbook_json.steps)
-                logger.info(
-                    f"PlaybookRunner: Playbook {playbook_code} has JSON with {total_steps} steps"
+            playbook, playbook_json, locale, total_steps = (
+                await runner_load_playbook_bundle(
+                    playbook_code=playbook_code,
+                    workspace_id=workspace_id,
+                    inputs=inputs,
+                    get_workspace_fn=self.store.get_workspace,
+                    get_playbook_fn=self.playbook_service.get_playbook,
+                    load_playbook_json_fn=PlaybookJsonLoader.load_playbook_json,
                 )
-            else:
-                logger.info(
-                    f"PlaybookRunner: Playbook {playbook_code} using conversation mode (no JSON)"
-                )
+            )
 
             # Look up personalized variant via PlaybookRegistry
-            variant = None
-            if variant_id:
-                variant = self.playbook_service.registry.get_variant(
-                    playbook_code, variant_id
-                )
-                if not variant:
-                    logger.warning(
-                        f"Variant '{variant_id}' not found for {playbook_code}"
-                    )
+            variant = runner_resolve_variant(
+                registry=self.playbook_service.registry,
+                playbook_code=playbook_code,
+                variant_id=variant_id,
+            )
             # Note: skip_steps and custom_checklist will be handled during execution
 
             profile = self.store.get_profile(profile_id)
 
-            project_obj = None
-            project_sandbox_path = None
-            if project_id:
-                from backend.app.services.project.project_manager import ProjectManager
-                from backend.app.services.sandbox.playbook_integration import (
-                    SandboxPlaybookAdapter,
+            from backend.app.services.project.project_manager import ProjectManager
+            from backend.app.services.project.project_sandbox_manager import (
+                ProjectSandboxManager,
+            )
+            from backend.app.services.sandbox.playbook_integration import (
+                SandboxPlaybookAdapter,
+            )
+
+            project_manager = ProjectManager(self.store)
+            sandbox_adapter = SandboxPlaybookAdapter(self.store)
+            legacy_sandbox_manager = ProjectSandboxManager(self.store)
+
+            async def _get_project(*, project_id: str, workspace_id: Optional[str]):
+                return await project_manager.get_project(
+                    project_id,
+                    workspace_id=workspace_id,
                 )
 
-                project_manager = ProjectManager(self.store)
-                project_obj = await project_manager.get_project(
-                    project_id, workspace_id=workspace_id
+            async def _get_unified_sandbox(
+                *, project_id: str, workspace_id: Optional[str]
+            ):
+                sandbox_id = await sandbox_adapter.get_or_create_sandbox_for_project(
+                    project_id=project_id,
+                    workspace_id=workspace_id,
                 )
-                if project_obj:
-                    logger.info(f"Playbook execution in Project mode: {project_id}")
-                    sandbox_adapter = SandboxPlaybookAdapter(self.store)
-                    try:
-                        sandbox_id = (
-                            await sandbox_adapter.get_or_create_sandbox_for_project(
-                                project_id=project_id, workspace_id=workspace_id
-                            )
-                        )
-                        project_sandbox_path = (
-                            await sandbox_adapter.get_sandbox_path_for_compatibility(
-                                project_id=project_id, workspace_id=workspace_id
-                            )
-                        )
-                        logger.info(
-                            f"Using unified sandbox {sandbox_id} for project {project_id}: {project_sandbox_path}"
-                        )
-                        context["sandbox_id"] = sandbox_id
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to get unified sandbox, falling back to legacy: {e}"
-                        )
-                        from backend.app.services.project.project_sandbox_manager import (
-                            ProjectSandboxManager,
-                        )
+                project_sandbox_path = (
+                    await sandbox_adapter.get_sandbox_path_for_compatibility(
+                        project_id=project_id,
+                        workspace_id=workspace_id,
+                    )
+                )
+                return sandbox_id, project_sandbox_path
 
-                        sandbox_manager = ProjectSandboxManager(self.store)
-                        try:
-                            project_sandbox_path = (
-                                await sandbox_manager.get_sandbox_path(
-                                    project_id, workspace_id
-                                )
-                            )
-                            logger.info(
-                                f"Using legacy project sandbox: {project_sandbox_path}"
-                            )
-                        except Exception as e2:
-                            logger.warning(f"Failed to get project sandbox: {e2}")
-                else:
-                    logger.warning(
-                        f"Project {project_id} not found, continuing without Project mode"
-                    )
-            elif inputs and "project_id" in inputs:
-                # Support legacy project_id in inputs
-                project_id_from_inputs = inputs.get("project_id")
-                if project_id_from_inputs:
-                    from backend.app.services.project.project_manager import (
-                        ProjectManager,
-                    )
+            async def _get_legacy_sandbox_path(
+                *, project_id: str, workspace_id: Optional[str]
+            ):
+                return await legacy_sandbox_manager.get_sandbox_path(
+                    project_id,
+                    workspace_id,
+                )
 
-                    project_manager = ProjectManager(self.store)
-                    project_obj = await project_manager.get_project(
-                        project_id_from_inputs, workspace_id=workspace_id
-                    )
-                    if project_obj:
-                        project_id = project_id_from_inputs
-                        logger.info(
-                            f"Playbook execution in Project mode (from inputs): {project_id}"
-                        )
+            project_context = await runner_resolve_project_execution_context(
+                project_id=project_id,
+                inputs=inputs,
+                workspace_id=workspace_id,
+                get_project_fn=_get_project,
+                get_unified_sandbox_fn=_get_unified_sandbox,
+                get_legacy_sandbox_path_fn=_get_legacy_sandbox_path,
+            )
+            project_id = project_context["project_id"]
+            project_obj = project_context["project_obj"]
+            project_sandbox_path = project_context["project_sandbox_path"]
+            sandbox_id = project_context["sandbox_id"]
+            if sandbox_id:
+                if inputs is None:
+                    inputs = {}
+                inputs["sandbox_id"] = sandbox_id
 
             execution_id = str(uuid.uuid4())
 
@@ -712,13 +508,15 @@ class PlaybookRunner:
                     from backend.app.services.stores.tasks_store import TasksStore
 
                     tasks_store = TasksStore()
-                    task = tasks_store.get_task_by_execution_id(execution_id)
-                    if task:
-                        execution_context = task.execution_context or {}
-                        execution_context["sandbox_id"] = sandbox_id
-                        tasks_store.update_task(
-                            task.id, execution_context=execution_context
-                        )
+                    if runner_preserve_sandbox_id_in_execution_context(
+                        execution_id=execution_id,
+                        sandbox_id=sandbox_id,
+                        get_task_by_execution_id_fn=tasks_store.get_task_by_execution_id,
+                        update_task_fn=lambda task_id, execution_context: tasks_store.update_task(
+                            task_id,
+                            execution_context=execution_context,
+                        ),
+                    ):
                         logger.info(
                             f"Preserved sandbox_id={sandbox_id} in execution_context for execution {execution_id}"
                         )
@@ -797,26 +595,14 @@ class PlaybookRunner:
     ) -> Dict[str, Any]:
         """Continue an ongoing Playbook execution"""
         try:
-            # Get conversation manager from memory first
-            conv_manager = self.active_conversations.get(execution_id)
-
-            # If not in memory, try to restore from database
-            if not conv_manager:
-                logger.info(
-                    f"Execution {execution_id} not in memory, attempting to restore from database"
-                )
-                conv_manager = await self.state_store.restore_execution_state(
-                    execution_id, self.playbook_service
-                )
-
-                if conv_manager:
-                    # Restore to memory for future interactions
-                    self.active_conversations[execution_id] = conv_manager
-                    logger.info(
-                        f"Successfully restored execution {execution_id} from database"
-                    )
-                else:
-                    raise ValueError(f"Execution not found: {execution_id}")
+            conv_manager = await runner_get_or_restore_conversation_manager(
+                execution_id=execution_id,
+                active_conversations=self.active_conversations,
+                restore_execution_state_fn=lambda execution_id: self.state_store.restore_execution_state(
+                    execution_id,
+                    self.playbook_service,
+                ),
+            )
 
             # Add user message
             conv_manager.add_user_message(user_message)
@@ -1038,26 +824,14 @@ class PlaybookRunner:
             from backend.app.models.mindscape import EventType
             from backend.app.services.stores.tasks_store import TasksStore
 
-            # Get conversation manager from memory first
-            conv_manager = self.active_conversations.get(execution_id)
-
-            # If not in memory, try to restore from database
-            if not conv_manager:
-                logger.info(
-                    f"Execution {execution_id} not in memory, attempting to restore from database"
-                )
-                conv_manager = await self.state_store.restore_execution_state(
-                    execution_id, self.playbook_service
-                )
-
-                if conv_manager:
-                    # Restore to memory for future interactions
-                    self.active_conversations[execution_id] = conv_manager
-                    logger.info(
-                        f"Successfully restored execution {execution_id} from database"
-                    )
-                else:
-                    raise ValueError(f"Execution not found: {execution_id}")
+            conv_manager = await runner_get_or_restore_conversation_manager(
+                execution_id=execution_id,
+                active_conversations=self.active_conversations,
+                restore_execution_state_fn=lambda execution_id: self.state_store.restore_execution_state(
+                    execution_id,
+                    self.playbook_service,
+                ),
+            )
 
             # Get execution context to preserve sandbox_id
             tasks_store = TasksStore()
@@ -1208,29 +982,18 @@ class PlaybookRunner:
         self, execution_id: str
     ) -> Optional[Dict[str, Any]]:
         """Get the final structured output from a completed execution"""
-        conv_manager = self.active_conversations.get(execution_id)
-        if not conv_manager:
-            # Execution is not in active_conversations
-            # This means it was cleaned up, which happens when execution completes
-            # Return a completion status to indicate the execution finished
-            return {
-                "status": "completed",
-                "execution_id": execution_id,
-                "note": "Execution completed (conversation mode, no structured output)",
-            }
-
-        # If execution is still active but has extracted_data, return it
-        if conv_manager.extracted_data:
-            return conv_manager.extracted_data
-
-        # Execution is active but no structured output yet
-        return None
+        return runner_get_playbook_execution_result(
+            execution_id=execution_id,
+            active_conversations=self.active_conversations,
+        )
 
     def cleanup_execution(self, execution_id: str):
         """Clean up completed execution from memory"""
-        if execution_id in self.active_conversations:
-            del self.active_conversations[execution_id]
+        runner_cleanup_execution(
+            execution_id=execution_id,
+            active_conversations=self.active_conversations,
+        )
 
     def list_active_executions(self) -> List[str]:
         """List all active execution IDs"""
-        return list(self.active_conversations.keys())
+        return runner_list_active_execution_ids(self.active_conversations)
