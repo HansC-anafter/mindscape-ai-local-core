@@ -6,14 +6,8 @@ Used by execution_status_query playbook.
 """
 
 import logging
-import re
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta, timezone
-
-
-def _utc_now():
-    """Return timezone-aware UTC now."""
-    return datetime.now(timezone.utc)
+from datetime import datetime
 
 
 from backend.app.services.mindscape_store import MindscapeStore
@@ -28,18 +22,17 @@ from backend.app.services.tools.schemas import (
     ToolInputSchema,
     ToolCategory,
 )
+from backend.app.services.tools.workspace_tools_core import (
+    parse_table_refs,
+    select_recent_candidates,
+    strip_sql_comments,
+    strip_sql_string_literals,
+    task_to_payload,
+    utc_now,
+    validate_workspace_query,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def _task_to_payload(task: Any) -> Dict[str, Any]:
-    if hasattr(task, "model_dump"):
-        return task.model_dump(mode="json")
-    if isinstance(task, dict):
-        return dict(task)
-    if hasattr(task, "__dict__"):
-        return dict(task.__dict__)
-    return {}
 
 
 class WorkspaceGetExecutionTool(MindscapeTool):
@@ -273,11 +266,11 @@ class WorkspaceListChildExecutionsTool(MindscapeTool):
             task for task in candidates if task.parent_execution_id == parent_execution_id
         ]
         child_tasks.sort(
-            key=lambda task: getattr(task, "created_at", _utc_now()), reverse=True
+            key=lambda task: getattr(task, "created_at", utc_now()), reverse=True
         )
         return [
             project_execution_for_api(
-                _task_to_payload(task),
+                task_to_payload(task),
                 queue_position=None,
                 queue_total=None,
             )
@@ -315,7 +308,7 @@ class WorkspaceGetExecutionRemoteSummaryTool(MindscapeTool):
         if task.workspace_id != workspace_id:
             raise PermissionError("Execution belongs to different workspace")
 
-        payload = _task_to_payload(task)
+        payload = task_to_payload(task)
         return {
             "execution_id": payload.get("execution_id") or payload.get("id"),
             "workspace_id": workspace_id,
@@ -518,24 +511,7 @@ class WorkspacePickRelevantExecutionTool(MindscapeTool):
             if len(filtered_candidates) > 1:
                 candidates = filtered_candidates
 
-        now = _utc_now()
-        recent_threshold = now - timedelta(minutes=5)
-
-        recent_candidates = []
-        for c in candidates:
-            created_at = c.get("created_at")
-            if created_at:
-                try:
-                    if isinstance(created_at, str):
-                        created_dt = datetime.fromisoformat(
-                            created_at.replace("Z", "+00:00")
-                        )
-                    else:
-                        created_dt = created_at
-                    if created_dt > recent_threshold:
-                        recent_candidates.append(c)
-                except Exception:
-                    pass
+        recent_candidates = select_recent_candidates(candidates, now=utc_now())
 
         if len(recent_candidates) == 1:
             return {
@@ -711,11 +687,7 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
 
     def _strip_comments(self, sql: str) -> str:
         """Remove SQL comments to prevent injection via comments."""
-        # Remove single-line comments (-- ...)
-        sql = re.sub(r"--[^\n]*", "", sql)
-        # Remove multi-line comments (/* ... */)
-        sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
-        return sql.strip()
+        return strip_sql_comments(sql)
 
     @staticmethod
     def _strip_string_literals(sql: str) -> str:
@@ -724,7 +696,7 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
         Prevents false positives when forbidden keywords appear inside
         quoted string values (e.g. WHERE bio LIKE '%copy%').
         """
-        return re.sub(r"'[^']*'", "'__STR__'", sql)
+        return strip_sql_string_literals(sql)
 
     @staticmethod
     def _parse_table_refs(sql: str) -> list:
@@ -737,43 +709,7 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
             FROM ig_accounts_flat a        -> [("ig_accounts_flat", "a")]
             JOIN ig_posts p ON ...         -> [("ig_posts", "p")]
         """
-        # Match: FROM/JOIN table [AS] [alias]
-        # alias is a single word that is NOT a SQL keyword
-        sql_keywords = {
-            "ON",
-            "WHERE",
-            "SET",
-            "AND",
-            "OR",
-            "LEFT",
-            "RIGHT",
-            "INNER",
-            "OUTER",
-            "CROSS",
-            "FULL",
-            "JOIN",
-            "GROUP",
-            "ORDER",
-            "HAVING",
-            "LIMIT",
-            "OFFSET",
-            "UNION",
-            "SELECT",
-            "FROM",
-            "AS",
-            "NATURAL",
-        }
-        pattern = r"(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*))?"
-        refs = []
-        for m in re.finditer(pattern, sql, re.IGNORECASE):
-            table = m.group(1).lower()
-            alias_candidate = m.group(2)
-            if alias_candidate and alias_candidate.upper() not in sql_keywords:
-                alias = alias_candidate
-            else:
-                alias = table
-            refs.append((table, alias))
-        return refs
+        return parse_table_refs(sql)
 
     def _validate_query(self, sql_query: str, workspace_id: str) -> str:
         """Validate and sanitize the SQL query.
@@ -781,124 +717,13 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
         Raises ValueError for disallowed operations or tables.
         Returns the sanitized query with workspace_id filter and LIMIT enforced.
         """
-        if not workspace_id or not workspace_id.strip():
-            raise ValueError("workspace_id is required for data isolation")
-
-        # Strip comments first to prevent injection
-        cleaned = self._strip_comments(sql_query)
-
-        # Strip trailing semicolon (valid single-statement SQL) before
-        # checking for multi-statement injection attempts
-        cleaned = cleaned.rstrip(";").strip()
-        if ";" in cleaned:
-            raise ValueError("Multi-statement queries are not allowed")
-
-        normalized = cleaned.strip()
-        upper = normalized.upper()
-
-        # Only SELECT is allowed
-        if not upper.startswith("SELECT"):
-            raise ValueError("Only SELECT queries are allowed")
-
-        # Strip string literals before keyword checking to avoid false positives
-        # e.g. WHERE bio LIKE '%copy%' should NOT trigger COPY block
-        sanitized_for_check = self._strip_string_literals(normalized).upper()
-
-        # Block write operations (checked against string-literal-stripped version)
-        forbidden = (
-            "INSERT",
-            "UPDATE",
-            "DELETE",
-            "DROP",
-            "ALTER",
-            "CREATE",
-            "TRUNCATE",
-            "GRANT",
-            "REVOKE",
-            "EXEC",
-            "EXECUTE",
-            "COPY",
-            "VACUUM",
-            "REINDEX",
-            "CLUSTER",
+        return validate_workspace_query(
+            sql_query,
+            workspace_id,
+            allowed_tables=self.ALLOWED_TABLES,
+            workspace_scoped_tables=self.WORKSPACE_SCOPED_TABLES,
+            max_rows=self.MAX_ROWS,
         )
-        for keyword in forbidden:
-            if re.search(rf"\b{keyword}\b", sanitized_for_check):
-                raise ValueError(f"Forbidden SQL keyword: {keyword}")
-
-        # Block system catalog access (checked against stripped version)
-        system_patterns = (
-            r"\bpg_",
-            r"\binformation_schema\b",
-            r"\bpg_catalog\b",
-        )
-        for pattern in system_patterns:
-            if re.search(pattern, sanitized_for_check, re.IGNORECASE):
-                raise ValueError("Access to system catalogs is not allowed")
-
-        # Parse table references with aliases
-        table_refs = self._parse_table_refs(normalized)
-        referenced_tables = {t for t, _ in table_refs}
-
-        if not referenced_tables:
-            raise ValueError("Query must reference at least one allowed table")
-
-        disallowed = referenced_tables - self.ALLOWED_TABLES
-        if disallowed:
-            raise ValueError(
-                f"Disallowed table(s): {', '.join(sorted(disallowed))}. "
-                f"Allowed: {', '.join(sorted(self.ALLOWED_TABLES))}"
-            )
-
-        # Build workspace_id filters for ALL scoped tables (not just first)
-        # Uses alias when present so JOINed queries work correctly
-        scoped_refs = [
-            (table, alias)
-            for table, alias in table_refs
-            if table in self.WORKSPACE_SCOPED_TABLES
-        ]
-        if scoped_refs:
-            # Escape existing % in user SQL to %% before injecting %s placeholders
-            # Prevents psycopg2 from treating user % (e.g. LIKE '%foo%') as format specs
-            normalized = normalized.replace("%", "%%")
-
-            ws_conditions = [f"{alias}.workspace_id = %s" for _, alias in scoped_refs]
-            ws_filter = " AND ".join(ws_conditions)
-
-            if " WHERE " in normalized.upper():
-                normalized = re.sub(
-                    r"\bWHERE\b",
-                    f"WHERE {ws_filter} AND",
-                    normalized,
-                    count=1,
-                    flags=re.IGNORECASE,
-                )
-            else:
-                insert_point = len(normalized)
-                for clause in ("ORDER BY", "GROUP BY", "HAVING", "LIMIT"):
-                    idx = normalized.upper().find(clause)
-                    if idx != -1 and idx < insert_point:
-                        insert_point = idx
-                normalized = (
-                    normalized[:insert_point].rstrip()
-                    + f" WHERE {ws_filter} "
-                    + normalized[insert_point:]
-                )
-
-        # Enforce LIMIT
-        if "LIMIT" not in normalized.upper():
-            normalized += f" LIMIT {self.MAX_ROWS}"
-        else:
-            limit_match = re.search(r"LIMIT\s+(\d+)", normalized, re.IGNORECASE)
-            if limit_match and int(limit_match.group(1)) > self.MAX_ROWS:
-                normalized = re.sub(
-                    r"LIMIT\s+\d+",
-                    f"LIMIT {self.MAX_ROWS}",
-                    normalized,
-                    flags=re.IGNORECASE,
-                )
-
-        return normalized
 
     async def execute(self, sql_query: str, workspace_id: str = "") -> Dict[str, Any]:
         """Execute a read-only SQL query and return results."""
