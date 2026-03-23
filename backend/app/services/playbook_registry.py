@@ -19,7 +19,29 @@ from backend.app.models.playbook import (
 )
 from backend.app.services.playbook_loaders import (
     PlaybookFileLoader,
-    PlaybookDatabaseLoader,
+)
+from backend.app.services.playbook_registry_core.cache import (
+    invalidate_registry_cache,
+)
+from backend.app.services.playbook_registry_core.lookup import (
+    cache_capability_playbook as cache_capability_playbook_entry,
+    find_capability_dir_for_playbook,
+    get_variant as get_playbook_variant,
+    get_cached_capability_playbook,
+    list_variants as list_playbook_variants,
+    load_direct_capability_playbook,
+    load_direct_system_playbook,
+    parse_variants as parse_playbook_variants,
+)
+from backend.app.services.playbook_registry_core.metadata import (
+    enrich_playbook_metadata,
+    load_user_playbooks,
+    matches_filters,
+)
+from backend.app.services.playbook_registry_core.search import (
+    collect_playbook_metadata,
+    lookup_local_playbook,
+    resolve_playbook_lookup_request,
 )
 
 logger = logging.getLogger(__name__)
@@ -356,62 +378,14 @@ class PlaybookRegistry:
     def _parse_variants(
         self, playbook_config: dict, capability_code: str, playbook_code: str
     ) -> None:
-        """Parse variants from a manifest playbook entry.
-
-        Called by both _load_playbooks_from_directory (full-load) and
-        _load_single_capability (lazy-load) to ensure consistent behavior.
-
-        Stores parsed variants in self._playbook_variants keyed by
-        full playbook code (capability_code.playbook_code).
-        """
-        full_code = f"{capability_code}.{playbook_code}"
-        variants_raw = playbook_config.get("variants", [])
-        if not variants_raw or not isinstance(variants_raw, list):
-            # Clear any previously cached variants for this playbook
-            self._playbook_variants.pop(full_code, None)
-            self._playbook_variants.pop(playbook_code, None)
-            return
-
-        from backend.app.models.playbook_models.playbook_variant import (
-            PlaybookVariant,
+        """Parse variants from a manifest playbook entry."""
+        parse_playbook_variants(
+            self._playbook_variants,
+            playbook_config,
+            capability_code,
+            playbook_code,
+            logger=logger,
         )
-
-        # full_code already computed above
-        parsed = []
-        for v in variants_raw:
-            if not isinstance(v, dict) or "variant_id" not in v:
-                continue
-            try:
-                variant = PlaybookVariant(
-                    variant_id=v["variant_id"],
-                    playbook_code=full_code,
-                    name=v.get("name", v["variant_id"]),
-                    description=v.get("description"),
-                    skip_steps=v.get("skip_steps", []),
-                    custom_checklist=v.get("custom_checklist", []),
-                    execution_params=v.get("execution_params", {}),
-                    conditions=v.get("conditions"),
-                )
-                parsed.append(variant.to_runner_dict())
-                # Also store variant_id for lookup
-                parsed[-1]["variant_id"] = variant.variant_id
-                parsed[-1]["name"] = variant.name
-            except Exception as e:
-                logger.warning(
-                    f"Failed to parse variant '{v.get('variant_id')}' "
-                    f"for {full_code}: {e}"
-                )
-
-        if parsed:
-            # Store under both dotted and plain keys so lookups work
-            # regardless of whether caller uses "cap.playbook" or "playbook"
-            self._playbook_variants[full_code] = parsed
-            self._playbook_variants[playbook_code] = parsed
-            logger.info(f"Loaded {len(parsed)} variant(s) for playbook {full_code}")
-        else:
-            # All entries were invalid; clear stale cache
-            self._playbook_variants.pop(full_code, None)
-            self._playbook_variants.pop(playbook_code, None)
 
     def _load_single_capability(self, capability_dir: Path):
         """
@@ -531,28 +505,12 @@ class PlaybookRegistry:
         playbook_code: str,
         locale: str,
     ) -> Optional[Playbook]:
-        playbooks = self.capability_playbooks.get(capability_code)
-        if not playbooks:
-            return None
-
-        full_code_locale_key = f"{capability_code}.{playbook_code}:{locale}"
-        if full_code_locale_key in playbooks:
-            return playbooks[full_code_locale_key]
-
-        locale_key = f"{playbook_code}:{locale}"
-        if locale_key in playbooks:
-            return playbooks[locale_key]
-
-        full_code = f"{capability_code}.{playbook_code}"
-        found_playbook = playbooks.get(full_code)
-        if found_playbook and found_playbook.metadata.locale == locale:
-            return found_playbook
-
-        found_playbook = playbooks.get(playbook_code)
-        if found_playbook and found_playbook.metadata.locale == locale:
-            return found_playbook
-
-        return None
+        return get_cached_capability_playbook(
+            self.capability_playbooks,
+            capability_code,
+            playbook_code,
+            locale,
+        )
 
     def _cache_capability_playbook(
         self,
@@ -561,43 +519,22 @@ class PlaybookRegistry:
         locale: str,
         playbook: Playbook,
     ) -> None:
-        if capability_code not in self.capability_playbooks:
-            self.capability_playbooks[capability_code] = {}
-
-        full_code = f"{capability_code}.{playbook_code}"
-        locale_key = f"{playbook_code}:{locale}"
-        full_code_locale_key = f"{full_code}:{locale}"
-        self.capability_playbooks[capability_code][full_code] = playbook
-        self.capability_playbooks[capability_code][locale_key] = playbook
-        self.capability_playbooks[capability_code][full_code_locale_key] = playbook
-
-        if playbook_code not in self.capability_playbooks[capability_code]:
-            self.capability_playbooks[capability_code][playbook_code] = playbook
-            return
-
-        existing = self.capability_playbooks[capability_code][playbook_code]
-        locale_priority = {"zh-TW": 3, "en": 2, "ja": 1}
-        if locale_priority.get(locale, 0) > locale_priority.get(
-            existing.metadata.locale, 0
-        ):
-            self.capability_playbooks[capability_code][playbook_code] = playbook
+        cache_capability_playbook_entry(
+            self.capability_playbooks,
+            capability_code,
+            playbook_code,
+            locale,
+            playbook,
+        )
 
     def _find_capability_dir_for_playbook(
         self, playbook_code: str, locale: str
     ) -> Optional[Path]:
-        capabilities_dir = self._get_capabilities_dir()
-        if not capabilities_dir.exists():
-            return None
-
-        for capability_dir in capabilities_dir.iterdir():
-            if not capability_dir.is_dir():
-                continue
-            playbook_path = (
-                capability_dir / "playbooks" / locale / f"{playbook_code}.md"
-            )
-            if playbook_path.exists():
-                return capability_dir
-        return None
+        return find_capability_dir_for_playbook(
+            self._get_capabilities_dir(),
+            playbook_code,
+            locale,
+        )
 
     def _load_direct_capability_playbook(
         self,
@@ -605,83 +542,29 @@ class PlaybookRegistry:
         playbook_code: str,
         locale: str,
     ) -> Optional[Playbook]:
-        import yaml
-
-        manifest_path = capability_dir / "manifest.yaml"
-        if not manifest_path.exists():
-            return None
-
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                manifest = yaml.safe_load(f) or {}
-        except Exception as e:
-            logger.debug(f"Failed to parse manifest {manifest_path}: {e}")
-            return None
-
-        capability_code = manifest.get("code") or capability_dir.name
-        playbooks_config = manifest.get("playbooks", []) or []
-        for playbook_config in playbooks_config:
-            configured_code = playbook_config.get("code")
-            if configured_code != playbook_code:
-                continue
-
-            path_template = playbook_config.get("path", "playbooks/{locale}/{code}.md")
-            playbook_path = capability_dir / path_template.format(
-                locale=locale,
-                code=playbook_code,
-            )
-            if not playbook_path.exists():
-                return None
-
-            playbook = PlaybookFileLoader.load_playbook_from_file(playbook_path)
-            if not playbook:
-                return None
-
-            playbook.metadata.locale = locale
-            playbook.metadata.capability_code = capability_code
-            playbook.metadata.owner_type = PlaybookOwnerType.SYSTEM
-            playbook.metadata.owner_id = "system"
-            playbook.metadata.visibility = PlaybookVisibility.WORKSPACE_SHARED
-
-            self._enrich_playbook_metadata(
-                playbook, capability_dir, playbook_code, locale
-            )
-            self._cache_capability_playbook(
-                capability_code=capability_code,
-                playbook_code=playbook_code,
-                locale=locale,
-                playbook=playbook,
-            )
-            self._parse_variants(playbook_config, capability_code, playbook_code)
-            self._loaded_capabilities.add(capability_code)
-            return playbook
-
-        return None
+        return load_direct_capability_playbook(
+            capability_dir=capability_dir,
+            playbook_code=playbook_code,
+            locale=locale,
+            capability_playbooks=self.capability_playbooks,
+            loaded_capabilities=self._loaded_capabilities,
+            enrich_playbook_metadata=self._enrich_playbook_metadata,
+            cache_playbook=self._cache_capability_playbook,
+            parse_variants_fn=self._parse_variants,
+            logger=logger,
+        )
 
     def _load_direct_system_playbook(
         self, playbook_code: str, locale: str
     ) -> Optional[Playbook]:
-        if locale in self.system_playbooks and playbook_code in self.system_playbooks[locale]:
-            return self.system_playbooks[locale][playbook_code]
-
         base_dir = Path(__file__).parent.parent.parent.parent
-        playbook_path = base_dir / "backend" / "i18n" / "playbooks" / locale / f"{playbook_code}.md"
-        if not playbook_path.exists():
-            return None
-
-        playbook = PlaybookFileLoader.load_playbook_from_file(playbook_path)
-        if not playbook:
-            return None
-
-        playbook.metadata.locale = locale
-        playbook.metadata.owner_type = PlaybookOwnerType.SYSTEM
-        playbook.metadata.owner_id = "system"
-        playbook.metadata.visibility = PlaybookVisibility.WORKSPACE_SHARED
-
-        if locale not in self.system_playbooks:
-            self.system_playbooks[locale] = {}
-        self.system_playbooks[locale][playbook_code] = playbook
-        return playbook
+        i18n_dir = base_dir / "backend" / "i18n" / "playbooks"
+        return load_direct_system_playbook(
+            system_playbooks=self.system_playbooks,
+            i18n_dir=i18n_dir,
+            playbook_code=playbook_code,
+            locale=locale,
+        )
 
     def _load_playbooks_from_directory(self, capabilities_dir: Path):
         """Load playbooks from a capabilities directory"""
@@ -808,93 +691,22 @@ class PlaybookRegistry:
     def _enrich_playbook_metadata(
         self, playbook, capability_dir: Path, playbook_code: str, locale: str
     ):
-        """Try to enrich playbook metadata from coordinate JSON spec file"""
-        import json
-
-        possible_json_paths = [
-            capability_dir / "playbooks" / "specs" / f"{playbook_code}.json",
-            capability_dir / "playbooks" / f"{playbook_code}.json",
-            capability_dir / "specs" / f"{playbook_code}.json",  # For system playbooks
-            capability_dir / f"{playbook_code}.json",  # For system playbooks
-        ]
-
-        for json_path in possible_json_paths:
-            if json_path.exists():
-                try:
-                    with open(json_path, "r", encoding="utf-8") as f:
-                        spec = json.load(f)
-
-                    # Extract display name for the locale
-                    display_names = spec.get("display_name", {})
-                    if isinstance(display_names, dict):
-                        # Try current locale, then fallback to en, then first available
-                        name = (
-                            display_names.get(locale)
-                            or display_names.get("en")
-                            or next(iter(display_names.values()))
-                            if display_names
-                            else None
-                        )
-                        if name:
-                            playbook.metadata.name = name
-
-                    # Extract description
-                    description = spec.get("description")
-                    if description:
-                        # If description is localized (dict), handle it similarly
-                        if isinstance(description, dict):
-                            description = (
-                                description.get(locale)
-                                or description.get("en")
-                                or next(iter(description.values()))
-                                if description
-                                else None
-                            )
-
-                        if description:
-                            playbook.metadata.description = description
-
-                    logger.debug(
-                        f"Enriched metadata for {playbook_code} from {json_path.name}"
-                    )
-                    return
-                except Exception as e:
-                    logger.debug(f"Failed to enrich metadata from {json_path}: {e}")
+        """Try to enrich playbook metadata from a JSON spec file."""
+        enrich_playbook_metadata(
+            playbook,
+            capability_dir,
+            playbook_code,
+            locale,
+            logger=logger,
+        )
 
     def _load_user_playbooks(self):
-        """Load user-defined playbooks from database"""
-        if not self.store:
-            return
-
-        try:
-            # Get database path from store
-            db_path = self.store.db_path if hasattr(self.store, "db_path") else None
-            if not db_path:
-                logger.warning("Cannot load user playbooks: store has no db_path")
-                return
-
-            # Load playbooks directly from database
-            db_playbooks = PlaybookDatabaseLoader.load_playbooks_from_db(db_path)
-
-            for playbook in db_playbooks:
-                workspace_key = "default"
-
-                if workspace_key not in self.user_playbooks:
-                    self.user_playbooks[workspace_key] = {}
-
-                playbook_code = playbook.metadata.playbook_code
-                locale = playbook.metadata.locale
-
-                self.user_playbooks[workspace_key][playbook_code] = playbook
-                logger.debug(
-                    f"Loaded user playbook: {playbook_code} (locale: {locale})"
-                )
-
-            logger.info(
-                f"Loaded {sum(len(pbs) for pbs in self.user_playbooks.values())} user playbooks from database"
-            )
-        except Exception as e:
-            logger.warning(f"Failed to load user playbooks: {e}", exc_info=True)
+        """Load user-defined playbooks from the configured store."""
+        load_user_playbooks(
+            store=self.store,
+            user_playbooks=self.user_playbooks,
+            logger=logger,
+        )
 
     async def get_playbook(
         self,
@@ -919,48 +731,20 @@ class PlaybookRegistry:
             capability_code: Capability pack code (optional, for cloud playbooks)
                             If not provided and playbook_code contains ".", will be extracted from playbook_code
         """
-        requested_playbook_code = playbook_code
-
-        # Progressive Disclosure: if capability_code is known (directly or
-        # from dotted format), load only that capability instead of everything.
-        resolved_capability = capability_code
-        if not resolved_capability and "." in playbook_code:
-            resolved_capability, playbook_code = playbook_code.split(".", 1)
-        if resolved_capability and not capability_code:
-            capability_code = resolved_capability
+        (
+            requested_playbook_code,
+            playbook_code,
+            capability_code,
+            resolved_capability,
+        ) = resolve_playbook_lookup_request(
+            playbook_code=playbook_code,
+            capability_code=capability_code,
+            capability_playbooks=self.capability_playbooks,
+            logger=logger,
+        )
 
         if workspace_id:
             await self._ensure_user_playbooks_loaded()
-
-        # Support capability_code.playbook_code format
-        # If playbook_code contains ".", try to extract capability_code
-        if "." in playbook_code:
-            parts = playbook_code.split(".", 1)
-            if len(parts) == 2:
-                potential_capability_code = parts[0]
-                actual_playbook_code = parts[1]
-                # Check if this looks like a capability code (not just a dot in the name)
-                # Simple heuristic: if the first part matches a known capability pack, use it
-                if potential_capability_code in self.capability_playbooks:
-                    # If capability_code was not provided, use extracted one
-                    # If capability_code was provided, verify it matches and use actual_playbook_code
-                    if not capability_code:
-                        capability_code = potential_capability_code
-                        playbook_code = actual_playbook_code
-                        logger.debug(
-                            f"Extracted capability_code={capability_code}, playbook_code={playbook_code} from combined code"
-                        )
-                    elif capability_code == potential_capability_code:
-                        # Capability code matches, use the extracted playbook_code
-                        playbook_code = actual_playbook_code
-                        logger.debug(
-                            f"Extracted playbook_code={playbook_code} from combined code (capability_code already provided)"
-                        )
-                    else:
-                        # Capability code mismatch, keep original playbook_code
-                        logger.debug(
-                            f"Capability code mismatch: provided={capability_code}, extracted={potential_capability_code}, keeping original playbook_code"
-                        )
 
         if resolved_capability:
             cached = self._get_cached_capability_playbook(
@@ -1007,92 +791,18 @@ class PlaybookRegistry:
         )
         logger.debug(f"Available user workspaces: {list(self.user_playbooks.keys())}")
 
-        # 1. Check user playbooks
-        if workspace_id and workspace_id in self.user_playbooks:
-            if playbook_code in self.user_playbooks[workspace_id]:
-                logger.debug(
-                    f"Found playbook {playbook_code} in user playbooks for workspace {workspace_id}"
-                )
-                return self.user_playbooks[workspace_id][playbook_code]
-
-        # 2. Check local capability playbooks
-        # If capability_code is specified, check that specific capability first
-        if capability_code and capability_code in self.capability_playbooks:
-            # First try locale-specific key with full_code (keys stored as cap.code:locale)
-            full_code_locale_key = f"{capability_code}.{playbook_code}:{locale}"
-            if full_code_locale_key in self.capability_playbooks[capability_code]:
-                logger.debug(
-                    f"Found playbook {playbook_code} ({locale}) via full_code locale key in capability {capability_code}"
-                )
-                return self.capability_playbooks[capability_code][full_code_locale_key]
-            # Then try locale-specific key with plain playbook_code
-            locale_key = f"{playbook_code}:{locale}"
-            if locale_key in self.capability_playbooks[capability_code]:
-                logger.debug(
-                    f"Found playbook {playbook_code} ({locale}) in capability {capability_code}"
-                )
-                return self.capability_playbooks[capability_code][locale_key]
-            # Then try full_code
-            full_code = f"{capability_code}.{playbook_code}"
-            if full_code in self.capability_playbooks[capability_code]:
-                found_playbook = self.capability_playbooks[capability_code][full_code]
-                # Check if locale matches
-                if found_playbook.metadata.locale == locale:
-                    logger.debug(
-                        f"Found playbook {full_code} ({locale}) in capability {capability_code}"
-                    )
-                    return found_playbook
-            # Fallback to playbook_code without locale
-            if playbook_code in self.capability_playbooks[capability_code]:
-                found_playbook = self.capability_playbooks[capability_code][
-                    playbook_code
-                ]
-                # Check if locale matches
-                if found_playbook.metadata.locale == locale:
-                    logger.debug(
-                        f"Found playbook {playbook_code} ({locale}) in capability {capability_code}"
-                    )
-                    return found_playbook
-        # Otherwise, check all capabilities
-        for cap_code, playbooks in self.capability_playbooks.items():
-            # Try locale-specific key first
-            locale_key = f"{playbook_code}:{locale}"
-            if locale_key in playbooks:
-                logger.debug(
-                    f"Found playbook {playbook_code} ({locale}) in capability {cap_code}"
-                )
-                return playbooks[locale_key]
-            # Then try full_code
-            full_code = f"{cap_code}.{playbook_code}"
-            if full_code in playbooks:
-                found_playbook = playbooks[full_code]
-                if found_playbook.metadata.locale == locale:
-                    logger.debug(
-                        f"Found playbook {full_code} ({locale}) in capability {cap_code}"
-                    )
-                    return found_playbook
-            # Fallback to playbook_code
-            if playbook_code in playbooks:
-                found_playbook = playbooks[playbook_code]
-                if found_playbook.metadata.locale == locale:
-                    logger.debug(
-                        f"Found playbook {playbook_code} ({locale}) in capability {cap_code}"
-                    )
-                    return found_playbook
-
-        # 3. Check system playbooks
-        if locale in self.system_playbooks:
-            if playbook_code in self.system_playbooks[locale]:
-                logger.debug(
-                    f"Found playbook {playbook_code} in system playbooks for locale {locale}"
-                )
-                return self.system_playbooks[locale][playbook_code]
-            else:
-                logger.debug(
-                    f"Playbook {playbook_code} not found in system playbooks for locale {locale}, available codes: {list(self.system_playbooks[locale].keys())}"
-                )
-        else:
-            logger.debug(f"Locale {locale} not found in system playbooks")
+        local_playbook = lookup_local_playbook(
+            system_playbooks=self.system_playbooks,
+            capability_playbooks=self.capability_playbooks,
+            user_playbooks=self.user_playbooks,
+            playbook_code=playbook_code,
+            locale=locale,
+            workspace_id=workspace_id,
+            capability_code=capability_code,
+            logger=logger,
+        )
+        if local_playbook:
+            return local_playbook
 
         # 4. Try cloud playbook if capability_code provided
         if capability_code and self.cloud_extension_manager:
@@ -1155,50 +865,17 @@ class PlaybookRegistry:
         """
         await self._ensure_loaded()
 
-        playbooks_map: Dict[str, PlaybookMetadata] = {}
-        locales_to_check = [locale] if locale else ["zh-TW", "en", "ja"]
-
-        # 1. Capability Playbooks FIRST (they have enriched descriptions from JSON specs)
-        if (
-            not source
-            or source == PlaybookSource.CAPABILITY
-            or source == PlaybookSource.SYSTEM
-        ):
-            for playbooks_dict in self.capability_playbooks.values():
-                for playbook in playbooks_dict.values():
-                    if self._matches_filters(playbook, category, tags):
-                        # Filter by requested locale if necessary
-                        if locale and playbook.metadata.locale != locale:
-                            continue
-
-                        key = f"{playbook.metadata.playbook_code}:{playbook.metadata.locale}"
-                        if key not in playbooks_map:
-                            playbooks_map[key] = playbook.metadata
-
-        # 2. System Playbooks (from i18n dir, may have less metadata)
-        # Only add if not already loaded from capability packs
-        if not source or source == PlaybookSource.SYSTEM:
-            for loc in locales_to_check:
-                if loc in self.system_playbooks:
-                    for playbook in self.system_playbooks[loc].values():
-                        if self._matches_filters(playbook, category, tags):
-                            # Dedupe by playbook_code and locale
-                            key = f"{playbook.metadata.playbook_code}:{playbook.metadata.locale}"
-                            if key not in playbooks_map:
-                                playbooks_map[key] = playbook.metadata
-
-        # 3. User Playbooks
-        if not source or source == PlaybookSource.USER:
-            if workspace_id and workspace_id in self.user_playbooks:
-                for playbook in self.user_playbooks[workspace_id].values():
-                    if self._matches_filters(playbook, category, tags):
-                        if locale and playbook.metadata.locale != locale:
-                            continue
-                        key = f"{playbook.metadata.playbook_code}:{playbook.metadata.locale}"
-                        if key not in playbooks_map:
-                            playbooks_map[key] = playbook.metadata
-
-        return list(playbooks_map.values())
+        return collect_playbook_metadata(
+            capability_playbooks=self.capability_playbooks,
+            system_playbooks=self.system_playbooks,
+            user_playbooks=self.user_playbooks,
+            workspace_id=workspace_id,
+            locale=locale,
+            category=category,
+            source_value=source.value if source else None,
+            tags=tags,
+            matches_filters_fn=self._matches_filters,
+        )
 
     def _matches_filters(
         self,
@@ -1206,16 +883,8 @@ class PlaybookRegistry:
         category: Optional[str] = None,
         tags: Optional[List[str]] = None,
     ) -> bool:
-        """Check if playbook matches the given filters"""
-        if category:
-            if category not in playbook.metadata.tags:
-                return False
-
-        if tags:
-            if not any(tag in playbook.metadata.tags for tag in tags):
-                return False
-
-        return True
+        """Check whether a playbook matches the requested filters."""
+        return matches_filters(playbook, category=category, tags=tags)
 
     def invalidate_cache(
         self,
@@ -1231,71 +900,20 @@ class PlaybookRegistry:
             locale: Specific locale to invalidate (optional, if None invalidates all locales)
             capability_code: Specific capability to invalidate (optional, granular cache clear)
         """
-        if capability_code:
-            # Granular: invalidate a single capability's cache
-            if capability_code in self.capability_playbooks:
-                del self.capability_playbooks[capability_code]
-            # Clear variants belonging to this capability.
-            # Dotted key format: "capability.playbook".
-            # Plain key format: "playbook" (alias).
-            prefix = f"{capability_code}."
-            stale_keys = [k for k in self._playbook_variants if k.startswith(prefix)]
-            for k in stale_keys:
-                variant_payload = self._playbook_variants.get(k)
-                plain_key = k[len(prefix) :]
-                # Only clear plain alias if it points to this dotted payload.
-                # This avoids removing aliases from other capabilities.
-                if self._playbook_variants.get(plain_key) is variant_payload:
-                    self._playbook_variants.pop(plain_key, None)
-                self._playbook_variants.pop(k, None)
-            self._loaded_capabilities.discard(capability_code)
-            logger.info(f"Invalidated cache for capability {capability_code}")
-        elif playbook_code:
-            # Invalidate specific playbook
-            if locale:
-                if (
-                    locale in self.system_playbooks
-                    and playbook_code in self.system_playbooks[locale]
-                ):
-                    del self.system_playbooks[locale][playbook_code]
-                    logger.info(
-                        f"Invalidated cache for playbook {playbook_code} (locale: {locale})"
-                    )
-            else:
-                # Invalidate for all locales
-                for loc in self.system_playbooks:
-                    if playbook_code in self.system_playbooks[loc]:
-                        del self.system_playbooks[loc][playbook_code]
-                logger.info(
-                    f"Invalidated cache for playbook {playbook_code} (all locales)"
-                )
-            # Clear variant cache for this playbook (both plain and dotted forms).
-            if "." in playbook_code:
-                # Input is dotted format: "capability.playbook"
-                variant_payload = self._playbook_variants.get(playbook_code)
-                plain_key = playbook_code.split(".", 1)[1]
-                if self._playbook_variants.get(plain_key) is variant_payload:
-                    self._playbook_variants.pop(plain_key, None)
-                self._playbook_variants.pop(playbook_code, None)
-            else:
-                # Input is plain format: "playbook"
-                self._playbook_variants.pop(playbook_code, None)
-                suffix = f".{playbook_code}"
-                dotted_keys = [
-                    key for key in self._playbook_variants if key.endswith(suffix)
-                ]
-                for key in dotted_keys:
-                    self._playbook_variants.pop(key, None)
-        else:
-            # Invalidate all caches
+        reset_loaded = invalidate_registry_cache(
+            system_playbooks=self.system_playbooks,
+            capability_playbooks=self.capability_playbooks,
+            user_playbooks=self.user_playbooks,
+            playbook_variants=self._playbook_variants,
+            loaded_capabilities=self._loaded_capabilities,
+            capability_locks=self._capability_locks,
+            logger=logger,
+            playbook_code=playbook_code,
+            locale=locale,
+            capability_code=capability_code,
+        )
+        if reset_loaded:
             self._loaded = False
-            self._loaded_capabilities.clear()
-            self._capability_locks.clear()
-            self.system_playbooks.clear()
-            self.capability_playbooks.clear()
-            self.user_playbooks.clear()
-            self._playbook_variants.clear()
-            logger.info("Invalidated all playbook caches")
 
     async def reload_playbook(self, playbook_code: str, locale: str = "zh-TW"):
         """
@@ -1345,18 +963,14 @@ class PlaybookRegistry:
 
         This is a playbook-level API, separate from GraphVariantRegistry.
         """
-        variants = self._playbook_variants.get(playbook_code, [])
-        for v in variants:
-            if v.get("variant_id") == variant_id:
-                return v
-        return None
+        return get_playbook_variant(self._playbook_variants, playbook_code, variant_id)
 
     def list_variants(self, playbook_code: str) -> List[Dict[str, Any]]:
         """List all variants for a playbook.
 
         Returns list of runner-compatible dicts.
         """
-        return list(self._playbook_variants.get(playbook_code, []))
+        return list_playbook_variants(self._playbook_variants, playbook_code)
 
 
 # Global singleton instance
