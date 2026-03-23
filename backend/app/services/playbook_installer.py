@@ -19,6 +19,30 @@ logger = logging.getLogger(__name__)
 class PlaybookInstaller:
     """Install and validate playbooks (specs + markdown + tool call tests)."""
 
+    def __init__(
+        self,
+        local_core_root: Path | None = None,
+        capabilities_dir: Path | None = None,
+        specs_dir: Path | None = None,
+        i18n_dir: Path | None = None,
+    ):
+        """
+        Initialize default installation paths for direct callers.
+
+        The deprecated capability installer adapter still overrides these
+        attributes explicitly, but route-level callers instantiate this class
+        directly and require stable defaults.
+        """
+        resolved_local_core_root = local_core_root or Path(__file__).resolve().parents[3]
+        backend_dir = resolved_local_core_root / "backend"
+
+        self.local_core_root = resolved_local_core_root
+        self.capabilities_dir = capabilities_dir or (
+            backend_dir / "app" / "capabilities"
+        )
+        self.specs_dir = specs_dir or (backend_dir / "playbooks" / "specs")
+        self.i18n_base_dir = i18n_dir or (backend_dir / "i18n" / "playbooks")
+
     def _install_playbooks(
         self, cap_dir: Path, capability_code: str, manifest: Dict, result: InstallResult
     ):
