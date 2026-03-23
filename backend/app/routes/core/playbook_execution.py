@@ -4,7 +4,6 @@ Handles real-time Playbook execution with LLM conversations and structured workf
 """
 
 import asyncio
-import json
 import logging
 import os
 import uuid
@@ -19,7 +18,6 @@ def _utc_now():
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Body
 from fastapi.responses import FileResponse
-from sqlalchemy import text
 
 from .execution_schemas import (
     ContinueExecutionRequest,
@@ -35,7 +33,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbook-execution"])
 
 from .execution_hooks import invoke_lifecycle_hook, async_invoke_lifecycle_hook
-from .execution_status_utils import trim_execution_context_for_status
+from .execution_query_helpers import (
+    load_execution_status_payload,
+    load_global_execution_rows,
+    serialize_global_execution,
+)
 
 
 def _safe_screenshot_basename(value: str) -> str:
@@ -589,67 +591,11 @@ async def get_playbook_status(execution_id: str):
 
         tasks_store = TasksStore()
 
-        def _load_status_payload() -> Optional[Dict[str, Any]]:
-            with tasks_store.get_connection() as conn:
-                row = conn.execute(
-                    text(
-                        """
-                        SELECT
-                            execution_id,
-                            status,
-                            CASE
-                                WHEN execution_context IS NULL THEN NULL
-                                ELSE (
-                                    execution_context::jsonb
-                                    - 'result'
-                                    - 'workflow_result'
-                                    - 'step_outputs'
-                                    - 'outputs'
-                                    - 'conversation_state'
-                                )::json
-                            END AS execution_context
-                        FROM tasks
-                        WHERE execution_id = :execution_id OR id = :execution_id
-                        ORDER BY CASE WHEN execution_id = :execution_id THEN 0 ELSE 1 END, created_at DESC
-                        LIMIT 1
-                        """
-                    ),
-                    {"execution_id": execution_id},
-                ).fetchone()
-
-            if not row:
-                return None
-
-            raw_ctx = getattr(row, "execution_context", None)
-            if raw_ctx is None and hasattr(row, "_mapping"):
-                raw_ctx = row._mapping.get("execution_context")
-
-            execution_context: Dict[str, Any] = {}
-            if isinstance(raw_ctx, dict):
-                execution_context = raw_ctx
-            elif isinstance(raw_ctx, str):
-                try:
-                    parsed = json.loads(raw_ctx)
-                    execution_context = parsed if isinstance(parsed, dict) else {}
-                except Exception:
-                    execution_context = {}
-
-            task_status = getattr(row, "status", None)
-            if task_status is None and hasattr(row, "_mapping"):
-                task_status = row._mapping.get("status")
-            payload_execution_id = getattr(row, "execution_id", None)
-            if payload_execution_id is None and hasattr(row, "_mapping"):
-                payload_execution_id = row._mapping.get("execution_id")
-
-            return {
-                "execution_id": payload_execution_id or execution_id,
-                "task_status": task_status,
-                "execution_context": trim_execution_context_for_status(
-                    execution_context
-                ),
-            }
-
-        payload = await asyncio.to_thread(_load_status_payload)
+        payload = await asyncio.to_thread(
+            load_execution_status_payload,
+            tasks_store,
+            execution_id,
+        )
         if not payload:
             raise HTTPException(status_code=404, detail="Execution not found")
         ctx = payload["execution_context"]
@@ -974,71 +920,15 @@ async def get_global_executions(
     to a different workspace.
     """
     try:
-        from sqlalchemy import text
         from backend.app.services.stores.tasks_store import TasksStore
 
         tasks_store = TasksStore()
-
-        query_parts = [
-            """
-            SELECT
-                t.id,
-                t.workspace_id,
-                t.message_id,
-                t.execution_id,
-                t.project_id,
-                t.pack_id,
-                t.task_type,
-                t.status,
-                t.params,
-                t.result,
-                (
-                    t.execution_context::jsonb
-                    - 'result'
-                    - 'workflow_result'
-                    - 'step_outputs'
-                    - 'outputs'
-                )::json AS execution_context,
-                t.storyline_tags,
-                t.created_at,
-                t.started_at,
-                t.completed_at,
-                t.error,
-                w.title AS workspace_name
-            FROM tasks t
-            LEFT JOIN workspaces w ON w.id = t.workspace_id
-            WHERE 1=1
-            """
-        ]
-        params: dict = {}
-
-        if playbook_code_prefix:
-            query_parts.append("AND t.pack_id LIKE :pack_prefix")
-            params["pack_prefix"] = f"{playbook_code_prefix}%"
-
-        if status_filter:
-            statuses = [s.strip().lower() for s in status_filter.split(",") if s.strip()]
-            if statuses:
-                query_parts.append("AND LOWER(t.status) = ANY(:statuses)")
-                params["statuses"] = statuses
-
-        from backend.app.routes.core.execution_ordering import (
-            build_execution_order_clause,
+        rows = load_global_execution_rows(
+            tasks_store,
+            limit=limit,
+            playbook_code_prefix=playbook_code_prefix,
+            status_filter=status_filter,
         )
-
-        query_parts.append(
-            build_execution_order_clause(
-                "created_at",
-                "desc",
-                status_expr="t.status",
-                column_prefix="t.",
-            )
-        )
-        query_parts.append("LIMIT :limit")
-        params["limit"] = limit
-
-        with tasks_store.get_connection() as conn:
-            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
 
         from backend.app.services.queue_position_cache import QUEUE_CACHE as _QUEUE_CACHE
 
@@ -1047,15 +937,14 @@ async def get_global_executions(
         executions = []
         for row in rows:
             task = tasks_store._row_to_task(row)
-            d = task.model_dump()
-            d["playbook_code"] = d.get("pack_id") or (
-                d.get("execution_context") or {}
-            ).get("playbook_code")
-            d["execution_id"] = d.get("execution_id") or d.get("id")
-            d["workspace_name"] = row.workspace_name if hasattr(row, "workspace_name") else None
-            d["queue_position"] = _QUEUE_CACHE.get_position(tasks_store, task)
-            d["queue_total"] = _QUEUE_CACHE.get_total(d.get("queue_shard") or "default")
-            executions.append(d)
+            executions.append(
+                serialize_global_execution(
+                    tasks_store,
+                    task,
+                    row,
+                    _QUEUE_CACHE,
+                )
+            )
 
         return {"executions": executions}
     except Exception as e:
