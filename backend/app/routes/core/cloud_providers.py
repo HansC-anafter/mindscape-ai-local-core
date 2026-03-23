@@ -6,69 +6,25 @@ Manage cloud playbook providers (add, edit, delete, test)
 import logging
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel, Field
 
 from ...services.cloud_extension_manager import CloudExtensionManager
 from ...services.system_settings_store import SystemSettingsStore
-# OfficialCloudProvider removed - use GenericHttpProvider instead
-from ...services.cloud_providers.generic_http import GenericHttpProvider
 from ...models.system_settings import SettingType
+from .cloud_providers_core import (
+    ProviderActionRequired,
+    ProviderConfig,
+    ProviderResponse,
+    TestConnectionResponse,
+    build_provider_response,
+    create_provider_instance,
+    get_provider_settings,
+    parse_action_required,
+    sync_enabled_providers,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/cloud-providers", tags=["cloud-providers"])
-
-
-class ProviderConfig(BaseModel):
-    """Provider configuration model"""
-    provider_id: str = Field(..., description="Unique provider identifier")
-    provider_type: str = Field(..., description="Provider type: official, generic_http, or custom")
-    enabled: bool = Field(True, description="Whether provider is enabled")
-    config: Dict[str, Any] = Field(..., description="Provider-specific configuration")
-
-
-class ProviderResponse(BaseModel):
-    """Provider response model"""
-    provider_id: str
-    provider_type: str
-    enabled: bool
-    configured: bool
-    name: str
-    description: str
-    config: Dict[str, Any]
-
-
-class ProviderAction(BaseModel):
-    """
-    Provider action link (neutral contract)
-
-    Hard Rule: This is part of Provider Contract, not site-hub specific.
-    local-core does not need to know if it's site-hub, green world, or WooCommerce.
-    """
-    type: str  # e.g., "BROWSER_AUTH", "MANAGE", "DOCS"
-    label: str  # Display label for UI
-    rel: str  # Enum: "purchase" | "manage" | "login" | "docs"
-    url: str  # Action URL (must be in allowed_domains)
-    expires_at: Optional[str] = None  # ISO 8601 timestamp
-
-
-class ProviderActionRequired(BaseModel):
-    """
-    Provider action required response (neutral contract)
-
-    Hard Rule: This is Provider Contract, not site-hub specific.
-    """
-    state: str  # e.g., "ACTION_REQUIRED"
-    reason: str  # e.g., "ENTITLEMENT_REQUIRED"
-    actions: List[ProviderAction]  # List of available actions
-    retry_after_sec: Optional[int] = None  # Seconds to wait before retry
-
-
-class TestConnectionResponse(BaseModel):
-    """Test connection response model"""
-    success: bool
-    message: str
-    action_required: Optional[ProviderActionRequired] = None
 
 
 def get_settings_store() -> SystemSettingsStore:
@@ -80,35 +36,12 @@ def get_cloud_manager() -> CloudExtensionManager:
     """Dependency to get cloud extension manager"""
     try:
         manager = CloudExtensionManager.instance()
-        # Always reload providers from system settings to ensure consistency
-        # This ensures providers are loaded even if manager was initialized before providers were configured
         settings_store = SystemSettingsStore()
-        providers_config = settings_store.get("cloud_providers", default=[])
-        if isinstance(providers_config, list):
-            # Get currently registered provider IDs
-            registered_ids = set(manager.providers.keys())
-            for provider_config in providers_config:
-                if not isinstance(provider_config, dict):
-                    continue
-                provider_id = provider_config.get("provider_id")
-                provider_type = provider_config.get("provider_type")
-                enabled = provider_config.get("enabled", False)
-                config = provider_config.get("config", {})
-                if provider_id and enabled:
-                    # Only register if not already registered or if config changed
-                    if provider_id not in registered_ids:
-                        try:
-                            provider_instance = _create_provider_instance(
-                                provider_id,
-                                provider_type,
-                                config,
-                                settings_store
-                            )
-                            if provider_instance:
-                                manager.register_provider(provider_instance)
-                                logger.info(f"Loaded provider {provider_id} from settings")
-                        except Exception as e:
-                            logger.warning(f"Failed to load provider {provider_id}: {e}", exc_info=True)
+        sync_enabled_providers(
+            manager=manager,
+            settings_store=settings_store,
+            logger=logger,
+        )
         return manager
     except Exception as e:
         logger.error(f"Failed to get cloud extension manager: {e}", exc_info=True)
@@ -124,13 +57,7 @@ async def list_providers(
     List all configured cloud providers
     """
     try:
-        # Get providers config - use get() with default empty list
-        providers_config = settings_store.get("cloud_providers", default=[])
-
-        # Ensure providers_config is a list
-        if not isinstance(providers_config, list):
-            logger.warning(f"cloud_providers setting is not a list: {type(providers_config)}, resetting to empty list")
-            providers_config = []
+        providers_config = get_provider_settings(settings_store, logger)
 
         result = []
         for provider_config in providers_config:
@@ -149,27 +76,15 @@ async def list_providers(
 
             # Get provider instance to check status
             provider = cloud_manager.get_provider(provider_id)
-            if provider:
-                result.append({
-                    "provider_id": provider_id,
-                    "provider_type": provider_type,
-                    "enabled": enabled,
-                    "configured": provider.is_configured(),
-                    "name": provider.get_provider_name(),
-                    "description": provider.get_provider_description(),
-                    "config": config
-                })
-            else:
-                # Provider not registered yet (might be disabled or not loaded)
-                result.append({
-                    "provider_id": provider_id,
-                    "provider_type": provider_type,
-                    "enabled": enabled,
-                    "configured": False,
-                    "name": provider_id,
-                    "description": f"{provider_type} provider",
-                    "config": config
-                })
+            result.append(
+                build_provider_response(
+                    provider_id=provider_id,
+                    provider_type=provider_type,
+                    enabled=enabled,
+                    config=config,
+                    provider=provider,
+                )
+            )
 
         return result
     except HTTPException:
@@ -212,11 +127,11 @@ async def create_provider(
             )
 
         # Create provider instance to validate configuration
-        provider_instance = _create_provider_instance(
+        provider_instance = create_provider_instance(
             provider.provider_id,
             provider.provider_type,
             provider.config,
-            settings_store
+            logger,
         )
 
         if provider_instance:
@@ -278,9 +193,7 @@ async def update_provider(
                 detail="Provider ID in path must match provider ID in body"
             )
 
-        providers_config = settings_store.get("cloud_providers")
-        if providers_config is None:
-            providers_config = []
+        providers_config = settings_store.get("cloud_providers") or []
 
         # Find and update provider
         found = False
@@ -292,11 +205,11 @@ async def update_provider(
                     cloud_manager.unregister_provider(provider_id)
 
                 # Create new provider instance
-                provider_instance = _create_provider_instance(
+                provider_instance = create_provider_instance(
                     provider.provider_id,
                     provider.provider_type,
                     provider.config,
-                    settings_store
+                    logger,
                 )
 
                 if provider_instance:
@@ -357,9 +270,7 @@ async def delete_provider(
     Delete a cloud provider
     """
     try:
-        providers_config = settings_store.get("cloud_providers")
-        if providers_config is None:
-            providers_config = []
+        providers_config = settings_store.get("cloud_providers") or []
 
         # Find and remove provider
         found = False
@@ -420,7 +331,7 @@ async def test_provider_connection(
         catalog = await _get_packs_catalog(provider)
 
         if isinstance(catalog, dict) and catalog.get("state") == "ACTION_REQUIRED":
-            action_required = _parse_action_required(catalog)
+            action_required = parse_action_required(catalog)
             return {
                 "success": False,
                 "message": f"Action required: {catalog.get('reason', 'UNKNOWN')}",
@@ -469,7 +380,7 @@ async def install_default_packs(
 
         # Check if response indicates action required (neutral Provider Contract)
         if isinstance(packs_catalog, dict) and packs_catalog.get("state") == "ACTION_REQUIRED":
-            action_required = _parse_action_required(packs_catalog)
+            action_required = parse_action_required(packs_catalog)
             raise HTTPException(
                 status_code=403,
                 detail={
@@ -698,7 +609,7 @@ async def list_provider_packs(
 
         # Check if response indicates action required (neutral Provider Contract)
         if isinstance(catalog, dict) and catalog.get("state") == "ACTION_REQUIRED":
-            action_required = _parse_action_required(catalog)
+            action_required = parse_action_required(catalog)
             return {
                 "action_required": action_required.model_dump() if action_required else None,
                 "packs": []
@@ -744,7 +655,7 @@ async def get_provider_actions(
         catalog = await _get_packs_catalog(provider)
 
         if isinstance(catalog, dict) and catalog.get("state") == "ACTION_REQUIRED":
-            action_required = _parse_action_required(catalog)
+            action_required = parse_action_required(catalog)
             return action_required.model_dump() if action_required else {
                 "state": "ACTION_REQUIRED",
                 "reason": "UNKNOWN",
@@ -900,100 +811,3 @@ async def _get_packs_catalog(provider, bundle: str = "default") -> Dict:
                             "retry_after_sec": 5
                         }
             raise
-
-
-def _parse_action_required(data: Dict) -> Optional[ProviderActionRequired]:
-    """
-    Parse action_required from provider response (neutral Provider Contract)
-    """
-    if not isinstance(data, dict) or data.get("state") != "ACTION_REQUIRED":
-        return None
-
-    actions = []
-    for action_data in data.get("actions", []):
-        if isinstance(action_data, dict):
-            actions.append(ProviderAction(
-                type=action_data.get("type", "BROWSER_AUTH"),
-                label=action_data.get("label", "Action"),
-                rel=action_data.get("rel", "purchase"),
-                url=action_data.get("url", ""),
-                expires_at=action_data.get("expires_at")
-            ))
-
-    return ProviderActionRequired(
-        state=data.get("state", "ACTION_REQUIRED"),
-        reason=data.get("reason", "UNKNOWN"),
-        actions=actions,
-        retry_after_sec=data.get("retry_after_sec")
-    )
-
-
-
-
-def _create_provider_instance(
-    provider_id: str,
-    provider_type: str,
-    config: Dict[str, Any],
-    settings_store: SystemSettingsStore
-):
-    """
-    Create a provider instance from configuration
-
-    Returns:
-        CloudProvider instance or None if type is not supported
-    """
-    try:
-        if provider_type == "official":
-            # Official provider type is deprecated - use generic_http instead
-            # Convert to generic_http configuration for backward compatibility
-            logger.warning(
-                f"Provider type 'official' is deprecated. "
-                f"Converting '{provider_id}' to generic_http configuration."
-            )
-            return GenericHttpProvider(
-                provider_id=provider_id,
-                provider_name=config.get("name", "Mindscape AI Cloud"),
-                api_url=config.get("api_url"),
-                auth_config={
-                    "auth_type": "api_key",
-                    "api_key": config.get("license_key")
-                },
-                api_path_template=config.get(
-                    "api_path_template",
-                    "/api/v1/playbooks/{capability_code}/{playbook_code}"
-                ),
-                pack_download_path=config.get("pack_download_path")
-            )
-        elif provider_type == "generic_http":
-            # Build auth_config from config
-            auth_config = config.get("auth", {})
-            if not auth_config:
-                # Fallback: build auth_config from flat config keys
-                auth_type = config.get("auth_type", "bearer")
-                auth_config = {"auth_type": auth_type}
-                if auth_type == "bearer":
-                    auth_config["token"] = config.get("token")
-                elif auth_type == "api_key":
-                    auth_config["api_key"] = config.get("api_key")
-                elif auth_type == "oauth":
-                    auth_config["client_id"] = config.get("client_id")
-                    auth_config["client_secret"] = config.get("client_secret")
-
-            return GenericHttpProvider(
-                provider_id=provider_id,
-                provider_name=config.get("name", provider_id),
-                api_url=config.get("api_url"),
-                auth_config=auth_config,
-                api_path_template=config.get(
-                    "api_path_template",
-                    "/api/v1/playbooks/{capability_code}/{playbook_code}"
-                ),
-                pack_download_path=config.get("pack_download_path")
-            )
-        else:
-            logger.warning(f"Provider type '{provider_type}' not supported for instantiation")
-            return None
-    except Exception as e:
-        logger.error(f"Failed to create provider instance: {e}", exc_info=True)
-        return None
-
