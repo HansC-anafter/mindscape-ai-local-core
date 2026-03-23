@@ -1,14 +1,22 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { t } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { InlineAlert } from '../InlineAlert';
-
-interface PlaybookStorageConfig {
-  base_path?: string;
-  artifacts_dir?: string;
-}
+import { DirectorySelectionSection } from './localFilesystemManager/DirectorySelectionSection';
+import { PathInputDialog } from './localFilesystemManager/PathInputDialog';
+import {
+  extractUsername,
+  getCommonDirectories,
+  getFilteredCommonDirectories,
+} from './localFilesystemManager/pathUtils';
+import {
+  CommonDirectory,
+  ConfiguredDirectory,
+  DirectoryConfig,
+  PlaybookStorageConfig,
+} from './localFilesystemManager/types';
 
 export interface LocalFilesystemManagerContentProps {
   onClose?: () => void;
@@ -21,129 +29,6 @@ export interface LocalFilesystemManagerContentProps {
   initialArtifactsDir?: string;
   initialPlaybookStorageConfig?: Record<string, PlaybookStorageConfig>;
   showHeader?: boolean;
-}
-
-interface DirectoryConfig {
-  path: string;
-  allowWrite: boolean;
-}
-
-interface ConfiguredDirectory {
-  name: string;
-  allowed_directories: string[];
-  allow_write: boolean;
-  enabled?: boolean;
-  directory_configs?: Array<{ path: string; allow_write: boolean }>;
-}
-
-// Detect platform for common directories
-const getCommonDirectories = () => {
-  const commonDirs = [
-    { label: 'Documents', path: '~/Documents', icon: '', platform: 'all' },
-    { label: 'Downloads', path: '~/Downloads', icon: '', platform: 'all' },
-    { label: 'Desktop', path: '~/Desktop', icon: '', platform: 'all' },
-    { label: 'Pictures', path: '~/Pictures', icon: '', platform: 'all' },
-    { label: 'Music', path: '~/Music', icon: '', platform: 'all' },
-    { label: 'Videos', path: '~/Videos', icon: '', platform: 'all' },
-    { label: 'Documents (Win)', path: '%USERPROFILE%\\Documents', icon: '', platform: 'windows' },
-    { label: 'Downloads (Win)', path: '%USERPROFILE%\\Downloads', icon: '', platform: 'windows' },
-    { label: 'Data Directory', path: './data', icon: '', platform: 'all' },
-    { label: 'Data Documents', path: './data/documents', icon: '', platform: 'all' },
-  ];
-  return commonDirs;
-};
-
-// Helper component for empty path input with workspace name button
-function EmptyPathInputWithWorkspaceName({
-  workspaceTitle,
-  isWindows,
-  initialStorageBasePath,
-  onPathChange,
-  currentPath
-}: {
-  workspaceTitle?: string;
-  isWindows: boolean;
-  initialStorageBasePath?: string;
-  onPathChange: (path: string) => void;
-  currentPath?: string;
-}) {
-  const [inputValue, setInputValue] = useState(currentPath || '');
-
-  useEffect(() => {
-    if (currentPath !== undefined && currentPath !== inputValue && currentPath.trim() !== '') {
-      setInputValue(currentPath);
-    }
-  }, [currentPath]);
-
-  const sanitizeWorkspaceTitle = (title: string): string => {
-    return title
-      .replace(/[\/\\:*?"<>|\x00-\x1F\x7F]/g, '')
-      .trim()
-      .replace(/[-\s]+/g, '-');
-  };
-
-  const appendWorkspaceTitle = (currentPath: string): string => {
-    if (!workspaceTitle) return currentPath;
-    const sanitized = sanitizeWorkspaceTitle(workspaceTitle);
-    if (!sanitized) return currentPath;
-
-    const trimmedPath = currentPath.trim();
-    if (!trimmedPath) return sanitized;
-
-    const separator = isWindows ? '\\' : '/';
-    if (trimmedPath.endsWith(separator + sanitized) ||
-      trimmedPath.endsWith('/' + sanitized) ||
-      trimmedPath.endsWith('\\' + sanitized)) {
-      return trimmedPath;
-    }
-
-    const pathEndsWithSeparator = trimmedPath.endsWith(separator) ||
-      trimmedPath.endsWith('/') ||
-      trimmedPath.endsWith('\\');
-    return pathEndsWithSeparator
-      ? `${trimmedPath}${sanitized}`
-      : `${trimmedPath}${separator}${sanitized}`;
-  };
-
-  const handleAppendWorkspaceName = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const newPath = appendWorkspaceTitle(inputValue);
-    setInputValue(newPath);
-    onPathChange(newPath);
-  };
-
-  return (
-    <div className="flex items-center space-x-2 p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md">
-      <input
-        type="text"
-        value={inputValue}
-        onChange={(e) => {
-          const value = e.target.value;
-          setInputValue(value);
-          onPathChange(value);
-        }}
-        className="flex-1 px-2 py-1 text-sm text-gray-700 dark:text-gray-300 font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400 focus:border-transparent placeholder-gray-400 dark:placeholder-gray-500"
-        placeholder={initialStorageBasePath || (isWindows ? "C:\\Users\\...\\Documents\\..." : "/Users/.../Documents/...")}
-      />
-      {workspaceTitle ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            handleAppendWorkspaceName(e);
-          }}
-          className="px-3 py-1 text-xs bg-green-100 text-green-700 border border-green-300 rounded hover:bg-green-200 transition-colors whitespace-nowrap"
-          title={t('appendWorkspaceNameTooltip', { workspaceTitle: workspaceTitle || '' })}
-        >
-          {t('appendWorkspaceName' as any)}
-        </button>
-      ) : (
-        <div className="text-xs text-red-500">No workspaceTitle!</div>
-      )}
-    </div>
-  );
 }
 
 export function LocalFilesystemManagerContent({
@@ -170,7 +55,7 @@ export function LocalFilesystemManagerContent({
   const [selectedCommonDirs, setSelectedCommonDirs] = useState<Set<string>>(new Set());
   const [savedStorageBasePath, setSavedStorageBasePath] = useState<string | undefined>(initialStorageBasePath);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [commonDirectories] = useState(() => getCommonDirectories());
+  const [commonDirectories] = useState<CommonDirectory[]>(() => getCommonDirectories());
   const isWindows = typeof window !== 'undefined' && navigator.platform.toLowerCase().includes('win');
   const [showPathInputDialog, setShowPathInputDialog] = useState(false);
   const [selectedDirName, setSelectedDirName] = useState('');
@@ -182,46 +67,13 @@ export function LocalFilesystemManagerContent({
   const [usedPlaybooks, setUsedPlaybooks] = useState<string[]>([]);
   const [loadingPlaybooks, setLoadingPlaybooks] = useState(false);
 
-  const extractUsername = (path?: string): string | null => {
-    if (!path) return null;
-
-    if (path.includes('\\')) {
-      const winParts = path.split('\\');
-      if (winParts.length >= 3 && winParts[0].match(/^[A-Za-z]:$/) && winParts[1] === 'Users') {
-        return winParts[2];
-      }
-    } else {
-      const pathParts = path.split('/');
-      if (pathParts.length >= 3 && pathParts[0] === '' && pathParts[1] === 'Users') {
-        return pathParts[2];
-      }
-    }
-    return null;
-  };
-
   const actualUsername = extractUsername(initialStorageBasePath);
-
-  let filteredCommonDirs = commonDirectories.filter(dir =>
-    dir.platform === 'all' || (dir.platform === 'windows' && isWindows)
-  );
-
-  if (workspaceMode) {
-    if (actualUsername) {
-      const absolutePathOptions = isWindows ? [
-        { label: 'Documents', path: `C:\\Users\\${actualUsername}\\Documents`, icon: '', platform: 'windows' },
-        { label: 'Downloads', path: `C:\\Users\\${actualUsername}\\Downloads`, icon: '', platform: 'windows' },
-        { label: 'Desktop', path: `C:\\Users\\${actualUsername}\\Desktop`, icon: '', platform: 'windows' },
-      ] : [
-        { label: 'Documents', path: `/Users/${actualUsername}/Documents`, icon: '', platform: 'all' },
-        { label: 'Downloads', path: `/Users/${actualUsername}/Downloads`, icon: '', platform: 'all' },
-        { label: 'Desktop', path: `/Users/${actualUsername}/Desktop`, icon: '', platform: 'all' },
-        { label: 'Home', path: `/Users/${actualUsername}`, icon: '', platform: 'all' },
-      ];
-      filteredCommonDirs = absolutePathOptions;
-    } else {
-      filteredCommonDirs = [];
-    }
-  }
+  const filteredCommonDirs = getFilteredCommonDirectories({
+    actualUsername,
+    commonDirectories,
+    isWindows,
+    workspaceMode,
+  });
 
   useEffect(() => {
     if (workspaceMode) {
@@ -244,9 +96,18 @@ export function LocalFilesystemManagerContent({
     } else {
       loadConfiguredDirectories();
     }
-  }, [workspaceMode, initialStorageBasePath, initialArtifactsDir, initialPlaybookStorageConfig, workspaceId, apiUrl]);
+  }, [
+    apiUrl,
+    initialArtifactsDir,
+    initialPlaybookStorageConfig,
+    initialStorageBasePath,
+    loadConfiguredDirectories,
+    loadUsedPlaybooks,
+    workspaceId,
+    workspaceMode,
+  ]);
 
-  const loadUsedPlaybooks = async () => {
+  const loadUsedPlaybooks = useCallback(async () => {
     if (!workspaceId || apiUrl == null) return;
 
     setLoadingPlaybooks(true);
@@ -269,9 +130,9 @@ export function LocalFilesystemManagerContent({
     } finally {
       setLoadingPlaybooks(false);
     }
-  };
+  }, [apiUrl, workspaceId]);
 
-  const loadConfiguredDirectories = async () => {
+  const loadConfiguredDirectories = useCallback(async () => {
     try {
       setLoading(true);
       const data = await settingsApi.get<{ connections?: ConfiguredDirectory[] }>(
@@ -303,7 +164,7 @@ export function LocalFilesystemManagerContent({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const handleAddDirectory = () => {
     const trimmed = newDirectory.trim();
@@ -712,60 +573,20 @@ export function LocalFilesystemManagerContent({
 
   return (
     <>
-      {/* Path Input Dialog */}
       {showPathInputDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60]">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-              Enter Full Path
-            </h3>
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                Selected directory: <span className="font-medium">"{selectedDirName}"</span>
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                Please enter the full absolute path
-              </p>
-              <input
-                type="text"
-                value={pathInputValue}
-                onChange={(e) => setPathInputValue(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handlePathInputConfirm()}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400 focus:border-transparent"
-                placeholder={initialStorageBasePath || (isWindows ? "C:\\Users\\...\\Documents\\..." : "/Users/.../Documents/...")}
-                autoFocus
-              />
-              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                Example: {isWindows
-                  ? `C:\\Users\\...\\Documents\\${selectedDirName}`
-                  : `/Users/.../Documents/${selectedDirName}`}
-              </p>
-            </div>
-            {error && (
-              <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
-              </div>
-            )}
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={handlePathInputCancel}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
-              >
-                {t('cancel' as any)}
-              </button>
-              <button
-                onClick={handlePathInputConfirm}
-                className="px-4 py-2 bg-accent dark:bg-blue-700 text-white rounded-md hover:bg-accent/90 dark:hover:bg-blue-600"
-              >
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
+        <PathInputDialog
+          error={error}
+          initialStorageBasePath={initialStorageBasePath}
+          isWindows={isWindows}
+          pathInputValue={pathInputValue}
+          selectedDirName={selectedDirName}
+          onCancel={handlePathInputCancel}
+          onConfirm={handlePathInputConfirm}
+          onPathInputValueChange={setPathInputValue}
+        />
       )}
 
       <div className="relative">
-        {/* Overlay for workspace mode when no path selected */}
         {workspaceMode && !hasSelectedPath && (
           <div className="absolute inset-0 bg-white dark:bg-gray-800 bg-opacity-95 dark:bg-opacity-95 rounded-lg z-10 flex flex-col items-center justify-center p-8">
             <div className="text-center max-w-md w-full">
@@ -875,293 +696,27 @@ export function LocalFilesystemManagerContent({
         )}
 
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {workspaceMode ? t('workspaceStoragePath' as any) : t('allowedDirectories' as any)}
-            </label>
-            {workspaceMode && (
-              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                {t('workspaceStoragePathDescription' as any)}
-                <br />
-                <span className="text-orange-600 dark:text-orange-400 font-medium">
-                  {t('workspaceStoragePathAbsolutePathHint', { example: initialStorageBasePath || (isWindows ? 'C:\\Users\\...\\Documents' : '/Users/.../Documents') })}
-                </span>
-              </p>
-            )}
-
-            <div className="mb-4">
-              {workspaceMode && (
-                <div className="mb-3 p-3 bg-accent-10 dark:bg-blue-900/20 border border-accent/30 dark:border-blue-800 rounded-lg">
-                  <p className="text-sm font-medium text-accent dark:text-blue-300 mb-2">
-                    {t('selectProjectRootDirectory' as any)}
-                  </p>
-                  <p className="text-xs text-accent dark:text-blue-400">
-                    {t('selectProjectRootDirectoryDescription' as any)}
-                  </p>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={handleDirectoryPicker}
-                className={`px-6 py-3 ${workspaceMode ? 'bg-accent hover:bg-accent/90 text-lg font-medium' : 'px-4 py-2 bg-accent hover:bg-accent/90 text-sm'} text-white rounded-md flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md`}
-                title={typeof window !== 'undefined' && 'showDirectoryPicker' in window
-                  ? t('browseDirectoryChromeEdge' as any)
-                  : t('browseDirectoryNotAvailable' as any)}
-              >
-                <span>{t('browseDirectory' as any)} {typeof window !== 'undefined' && 'showDirectoryPicker' in window ? `(${t('browseDirectoryChromeEdge' as any).replace('Browse Directory ', '')})` : `(${t('browseDirectoryNotAvailable' as any).replace('Browse Directory ', '')})`}</span>
-              </button>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {workspaceMode ? (
-                  t('browseDirectoryDescription' as any)
-                ) : (
-                  typeof window !== 'undefined' && 'showDirectoryPicker' in window
-                    ? t('browseDirectoryWorkspaceDescription' as any)
-                    : t('browseDirectoryNotAvailable' as any)
-                )}
-              </p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                {...({ webkitdirectory: '' } as any)}
-                {...({ directory: '' } as any)}
-                multiple
-                style={{ display: 'none' }}
-                onChange={handleFileInputChange}
-              />
-            </div>
-
-            {workspaceMode && (
-              <div className="mb-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">{t('orUseQuickSelect' as any)}</p>
-              </div>
-            )}
-            <div className="mb-4">
-              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                {workspaceMode ? (
-                  <>
-                    {t('quickSelectWorkspaceStoragePath' as any)}
-                    {!actualUsername && (
-                      <>
-                        <br />
-                      </>
-                    )}
-                  </>
-                ) : (
-                  `Quick Select Common Directories (${isWindows ? 'Windows' : 'Mac/Linux'}):`
-                )}
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {filteredCommonDirs.map((commonDir) => {
-                  const existingPaths = directories.map(d => d.path);
-                  const isSelected = selectedCommonDirs.has(commonDir.path) || existingPaths.includes(commonDir.path);
-                  return (
-                    <button
-                      key={commonDir.path}
-                      type="button"
-                      onClick={() => handleToggleCommonDirectory(commonDir.path)}
-                      className={`
-                        flex items-center space-x-2 px-3 py-2 rounded-md border text-sm
-                        transition-colors
-                        ${isSelected
-                          ? 'bg-gray-100 dark:bg-gray-700 border-gray-500 dark:border-gray-500 text-gray-700 dark:text-gray-200'
-                          : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-                        }
-                      `}
-                    >
-                      <span className="truncate">{commonDir.label}</span>
-                      {isSelected && <span className="text-gray-600 dark:text-gray-300">✓</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {!workspaceMode && (
-              <div className="mb-4">
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Or Enter Custom Path:</p>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={newDirectory}
-                    onChange={(e) => setNewDirectory(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleAddDirectory()}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400 focus:border-transparent"
-                    placeholder={isWindows
-                      ? "e.g., C:\\Users\\...\\Documents or .\\data"
-                      : "e.g., ~/Documents or ./data/documents"}
-                  />
-                  <button
-                    onClick={handleAddDirectory}
-                    disabled={!newDirectory.trim()}
-                    className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                  >
-                    {t('add' as any)}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {(directories.length > 0 || workspaceMode) && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{workspaceMode ? t('workspaceStoragePathLabel' as any) : "Selected Directories:"}</p>
-                  {workspaceMode && savedStorageBasePath && directories.length > 0 && directories[0]?.path === savedStorageBasePath && (
-                    <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
-                      <span>✓</span>
-                      {t('configured' as any)}
-                    </span>
-                  )}
-                </div>
-                {workspaceMode && directories.length === 0 ? (
-                  <EmptyPathInputWithWorkspaceName
-                    workspaceTitle={workspaceTitle}
-                    isWindows={isWindows}
-                    initialStorageBasePath={initialStorageBasePath}
-                    currentPath=""
-                    onPathChange={(path) => {
-                      const trimmedPath = path.trim();
-                      if (trimmedPath) {
-                        setDirectories([{ path: trimmedPath, allowWrite: false }]);
-                      } else {
-                        setDirectories([]);
-                      }
-                      setError(null);
-                    }}
-                  />
-                ) : (
-                  directories.map((dir, index) => {
-                    const sanitizeWorkspaceTitle = (title: string): string => {
-                      return title
-                        .replace(/[\/\\:*?"<>|\x00-\x1F\x7F]/g, '')
-                        .trim()
-                        .replace(/[-\s]+/g, '-');
-                    };
-
-                    const appendWorkspaceTitle = (currentPath: string): string => {
-                      if (!workspaceTitle) return currentPath;
-                      const sanitized = sanitizeWorkspaceTitle(workspaceTitle);
-                      if (!sanitized) return currentPath;
-
-                      const trimmedPath = currentPath.trim();
-                      if (!trimmedPath) return sanitized;
-
-                      const separator = isWindows ? '\\' : '/';
-                      if (trimmedPath.endsWith(separator + sanitized) || trimmedPath.endsWith('/' + sanitized) || trimmedPath.endsWith('\\' + sanitized)) {
-                        return trimmedPath;
-                      }
-
-                      const pathEndsWithSeparator = trimmedPath.endsWith(separator) || trimmedPath.endsWith('/') || trimmedPath.endsWith('\\');
-                      return pathEndsWithSeparator
-                        ? `${trimmedPath}${sanitized}`
-                        : `${trimmedPath}${separator}${sanitized}`;
-                    };
-
-                    return (
-                      <div key={index} className="flex items-center space-x-2 p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md">
-                        {workspaceMode ? (
-                          <>
-                            <input
-                              type="text"
-                              value={dir.path}
-                              onChange={(e) => {
-                                const newDirs = [...directories];
-                                newDirs[index] = { ...newDirs[index], path: e.target.value };
-                                setDirectories(newDirs);
-                                setError(null);
-                              }}
-                              className="flex-1 px-2 py-1 text-sm text-gray-700 dark:text-gray-300 font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-blue-400 focus:border-transparent placeholder-gray-400 dark:placeholder-gray-500"
-                              placeholder={initialStorageBasePath || (isWindows ? "C:\\Users\\...\\Documents\\..." : "/Users/.../Documents/...")}
-                            />
-                            {workspaceTitle ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  const newDirs = [...directories];
-                                  const newPath = appendWorkspaceTitle(dir.path);
-                                  newDirs[index] = { ...newDirs[index], path: newPath };
-                                  setDirectories(newDirs);
-                                  setError(null);
-                                }}
-                                className="px-3 py-1 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700 rounded hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors whitespace-nowrap"
-                                title={t('appendWorkspaceNameTooltip', { workspaceTitle: workspaceTitle || '' })}
-                              >
-                                {t('appendWorkspaceName' as any)}
-                              </button>
-                            ) : (
-                              <div className="text-xs text-red-500 dark:text-red-400">No title</div>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 font-mono">{dir.path}</span>
-                            <label className="flex items-center space-x-1 text-xs text-gray-600 dark:text-gray-400">
-                              <input
-                                type="checkbox"
-                                checked={dir.allowWrite}
-                                onChange={(e) => {
-                                  const newDirs = [...directories];
-                                  newDirs[index] = { ...newDirs[index], allowWrite: e.target.checked };
-                                  setDirectories(newDirs);
-                                }}
-                                className="rounded"
-                                title={t('allowWriteOperations' as any)}
-                              />
-                              <span>{t('allowWriteOperations' as any)}</span>
-                            </label>
-                          </>
-                        )}
-                        {!workspaceMode && (
-                          <button
-                            onClick={() => handleRemoveDirectory(index)}
-                            className="px-2 py-1 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm"
-                            title="Remove"
-                          >
-                            ×
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            )}
-
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              {workspaceMode ? (
-                <>
-                  Supported formats (must use absolute path):{' '}
-                  {isWindows ? (
-                    <>
-                      <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">C:\Users\...\Documents</code>
-                    </>
-                  ) : (
-                    <>
-                      <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">/Users/.../Documents</code>
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  Supported formats:{' '}
-                  {isWindows ? (
-                    <>
-                      <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">C:\Users\...\Documents</code>,{' '}
-                      <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">%USERPROFILE%\Documents</code>,{' '}
-                      <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">.\data</code>
-                    </>
-                  ) : (
-                    <>
-                      <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">~/Documents</code>,{' '}
-                      <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">./data</code>,{' '}
-                      <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">/Users/.../Documents</code>
-                    </>
-                  )}
-                </>
-              )}
-            </p>
-          </div>
+          <DirectorySelectionSection
+            actualUsername={actualUsername}
+            directories={directories}
+            fileInputRef={fileInputRef}
+            filteredCommonDirs={filteredCommonDirs}
+            handleAddDirectory={handleAddDirectory}
+            handleDirectoryPicker={handleDirectoryPicker}
+            handleFileInputChange={handleFileInputChange}
+            handleRemoveDirectory={handleRemoveDirectory}
+            handleToggleCommonDirectory={handleToggleCommonDirectory}
+            initialStorageBasePath={initialStorageBasePath}
+            isWindows={isWindows}
+            newDirectory={newDirectory}
+            savedStorageBasePath={savedStorageBasePath}
+            selectedCommonDirs={selectedCommonDirs}
+            setDirectories={setDirectories}
+            setError={setError}
+            setNewDirectory={setNewDirectory}
+            workspaceMode={workspaceMode}
+            workspaceTitle={workspaceTitle}
+          />
 
           {workspaceMode && (
             <div className="border-t dark:border-gray-700 pt-4">
@@ -1366,4 +921,3 @@ export function LocalFilesystemManagerContent({
     </>
   );
 }
-
