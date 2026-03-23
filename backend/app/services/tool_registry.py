@@ -26,11 +26,44 @@ import logging
 from sqlalchemy import text
 
 from backend.app.models.tool_registry import RegisteredTool, ToolConnectionModel
+from backend.app.services.tool_registry_core.discovery import (
+    build_dynamic_tool_connection,
+    build_registered_tool,
+    upsert_discovery_connection,
+)
+from backend.app.services.tool_registry_core.persistence import (
+    load_registry_from_database,
+    load_registry_from_json,
+    save_registry_to_database,
+    save_registry_to_json,
+)
 from backend.app.services.tools.discovery_provider import (
     ToolDiscoveryProvider,
     ToolConfig,
     DiscoveredTool,
     GenericHTTPToolProvider,
+)
+from backend.app.services.tool_registry_core.connections import (
+    create_connection as create_tool_connection,
+    create_connection_legacy as create_tool_connection_legacy,
+    delete_connection as delete_tool_connection,
+    export_as_templates as export_connection_templates,
+    get_connection as get_tool_connection,
+    get_connections as get_all_tool_connections,
+    get_connections_by_profile as get_tool_connections_by_profile,
+    get_connections_by_role as get_tool_connections_by_role,
+    get_connections_by_tool_type as get_tool_connections_by_type,
+    record_connection_usage as record_tool_connection_usage,
+    update_connection as update_tool_connection,
+    update_validation_status as update_tool_connection_validation_status,
+)
+from backend.app.services.tool_registry_core.tools import (
+    get_available_provider_metadata,
+    get_tool as get_registered_tool,
+    get_tools as get_registered_tools,
+    get_tools_for_agent_role as get_registered_tools_for_agent_role,
+    infer_side_effect_level,
+    update_tool as update_registered_tool,
 )
 from backend.app.services.tools.base import ToolConnection
 from backend.app.services.stores.postgres_base import PostgresStoreBase
@@ -110,7 +143,7 @@ class ToolRegistryService(PostgresStoreBase):
             self._load_registry()
             ToolRegistryService._registry_loaded = True
 
-        # Register default providers (built-in) — only once per process
+        # Register default providers (built-in) only once per process
         if not ToolRegistryService._providers_registered:
             self._register_default_providers()
             ToolRegistryService._providers_registered = True
@@ -139,363 +172,56 @@ class ToolRegistryService(PostgresStoreBase):
 
     def _load_registry(self):
         """Load tool registry from PostgreSQL database"""
-
-        def _coerce_datetime(value: Optional[Any]) -> Optional[datetime]:
-            if value is None:
-                return None
-            if isinstance(value, datetime):
-                return value
-            return self.from_isoformat(value)
-
         try:
-            with self.factory.get_connection(role=self.db_role) as conn:
-                rows = conn.execute(text("SELECT * FROM tool_registry")).fetchall()
-                for row in rows:
-                    try:
-                        tool_data = {
-                            "tool_id": row.tool_id,
-                            "site_id": row.site_id,
-                            "provider": row.provider,
-                            "display_name": row.display_name,
-                            "origin_capability_id": row.origin_capability_id,
-                            "category": row.category,
-                            "description": row.description,
-                            "endpoint": row.endpoint,
-                            "methods": self.deserialize_json(row.methods, []),
-                            "danger_level": row.danger_level,
-                            "input_schema": self.deserialize_json(row.input_schema, {}),
-                            "enabled": (
-                                bool(row.enabled) if row.enabled is not None else True
-                            ),
-                            "read_only": (
-                                bool(row.read_only)
-                                if row.read_only is not None
-                                else False
-                            ),
-                            "allowed_agent_roles": self.deserialize_json(
-                                row.allowed_agent_roles, []
-                            ),
-                            "side_effect_level": row.side_effect_level,
-                            "capability_code": row.capability_code or "",
-                            "risk_class": row.risk_class or "readonly",
-                            "created_at": _coerce_datetime(row.created_at)
-                            or _utc_now(),
-                            "updated_at": _coerce_datetime(row.updated_at)
-                            or _utc_now(),
-                            "scope": row.scope or "profile",
-                            "tenant_id": row.tenant_id,
-                            "owner_profile_id": row.owner_profile_id,
-                        }
-                        self._tools[row.tool_id] = RegisteredTool(**tool_data)
-                    except Exception as e:
-                        logger.warning(f"Error loading tool {row.tool_id}: {e}")
-
-            with self.factory.get_connection(role=self.db_role) as conn:
-                rows = conn.execute(text("SELECT * FROM tool_connections")).fetchall()
-                for row in rows:
-                    try:
-                        conn_data = {
-                            "id": row.id,
-                            "profile_id": row.profile_id,
-                            "tool_type": row.tool_type,
-                            "connection_type": row.connection_type,
-                            "name": row.name,
-                            "description": row.description,
-                            "icon": row.icon,
-                            "api_key": row.api_key,
-                            "api_secret": row.api_secret,
-                            "oauth_token": row.oauth_token,
-                            "oauth_refresh_token": row.oauth_refresh_token,
-                            "base_url": row.base_url,
-                            "wp_url": getattr(row, "wp_url", None),
-                            "wp_username": getattr(row, "wp_username", None),
-                            "wp_application_password": getattr(
-                                row, "wp_application_password", None
-                            ),
-                            "remote_cluster_url": row.remote_cluster_url,
-                            "remote_connection_id": row.remote_connection_id,
-                            "config": self.deserialize_json(row.config, {}),
-                            "associated_roles": self.deserialize_json(
-                                row.associated_roles, []
-                            ),
-                            "enabled": (
-                                bool(row.enabled) if row.enabled is not None else True
-                            ),
-                            "is_active": (
-                                bool(row.is_active)
-                                if row.is_active is not None
-                                else True
-                            ),
-                            "is_validated": (
-                                bool(row.is_validated)
-                                if row.is_validated is not None
-                                else False
-                            ),
-                            "last_validated_at": _coerce_datetime(
-                                row.last_validated_at
-                            ),
-                            "validation_error": row.validation_error,
-                            "usage_count": row.usage_count or 0,
-                            "last_used_at": _coerce_datetime(row.last_used_at),
-                            "last_discovery": _coerce_datetime(
-                                getattr(row, "last_discovery", None)
-                            ),
-                            "discovery_method": getattr(row, "discovery_method", None),
-                            "x_platform": self.deserialize_json(
-                                getattr(row, "x_platform", None), None
-                            ),
-                            "created_at": _coerce_datetime(row.created_at)
-                            or _utc_now(),
-                            "updated_at": _coerce_datetime(row.updated_at)
-                            or _utc_now(),
-                        }
-                        connection = ToolConnectionModel(**conn_data)
-                        self._connections[(row.profile_id, row.id)] = connection
-                    except Exception as e:
-                        logger.warning(f"Error loading connection {row.id}: {e}")
-
+            load_registry_from_database(
+                factory=self.factory,
+                db_role=self.db_role,
+                deserialize_json=self.deserialize_json,
+                from_isoformat=self.from_isoformat,
+                tools_by_id=self._tools,
+                connections_by_key=self._connections,
+                utc_now=_utc_now,
+                logger=logger,
+            )
             logger.info(
                 f"Loaded {len(self._tools)} tools and {len(self._connections)} connections from database"
             )
-
         except Exception as e:
             logger.error(f"Error loading registry from database: {e}")
             self._load_registry_from_json()
 
     def _load_registry_from_json(self):
         """Load tool registry from JSON files (migration fallback)"""
-        if self.registry_file.exists():
-            try:
-                with open(self.registry_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    self._tools = {
-                        tool_id: RegisteredTool(**tool_data)
-                        for tool_id, tool_data in data.items()
-                    }
-            except Exception as e:
-                logger.error(f"Error loading tool registry from JSON: {e}")
-                self._tools = {}
-
-        if self.connections_file.exists():
-            try:
-                with open(self.connections_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    self._connections = {}
-                    for key, conn_data in data.items():
-                        try:
-                            conn = ToolConnectionModel(**conn_data)
-                            profile_id = (
-                                conn.profile_id
-                                if hasattr(conn, "profile_id") and conn.profile_id
-                                else "default-user"
-                            )
-                            self._connections[(profile_id, conn.id)] = conn
-
-                            # Remote tools are now registered via system capability packs in cloud repo
-
-                        except Exception as e:
-                            logger.warning(f"Error loading connection {key}: {e}")
-            except Exception as e:
-                logger.error(f"Error loading connections from JSON: {e}")
-                self._connections = {}
+        load_registry_from_json(
+            registry_file=self.registry_file,
+            connections_file=self.connections_file,
+            tools_by_id=self._tools,
+            connections_by_key=self._connections,
+            logger=logger,
+        )
 
     def _save_registry(self):
         """Save tool registry to PostgreSQL database"""
         try:
-            with self.transaction() as conn:
-                for tool_id, tool in self._tools.items():
-                    conn.execute(
-                        text(
-                            """
-                            INSERT INTO tool_registry (
-                                tool_id, site_id, provider, display_name, origin_capability_id,
-                                category, description, endpoint, methods, danger_level,
-                                input_schema, enabled, read_only, allowed_agent_roles,
-                                side_effect_level, scope, tenant_id, owner_profile_id,
-                                capability_code, risk_class, created_at, updated_at
-                            ) VALUES (
-                                :tool_id, :site_id, :provider, :display_name, :origin_capability_id,
-                                :category, :description, :endpoint, :methods, :danger_level,
-                                :input_schema, :enabled, :read_only, :allowed_agent_roles,
-                                :side_effect_level, :scope, :tenant_id, :owner_profile_id,
-                                :capability_code, :risk_class, :created_at, :updated_at
-                            )
-                            ON CONFLICT (tool_id) DO UPDATE SET
-                                site_id = EXCLUDED.site_id,
-                                provider = EXCLUDED.provider,
-                                display_name = EXCLUDED.display_name,
-                                origin_capability_id = EXCLUDED.origin_capability_id,
-                                category = EXCLUDED.category,
-                                description = EXCLUDED.description,
-                                endpoint = EXCLUDED.endpoint,
-                                methods = EXCLUDED.methods,
-                                danger_level = EXCLUDED.danger_level,
-                                input_schema = EXCLUDED.input_schema,
-                                enabled = EXCLUDED.enabled,
-                                read_only = EXCLUDED.read_only,
-                                allowed_agent_roles = EXCLUDED.allowed_agent_roles,
-                                side_effect_level = EXCLUDED.side_effect_level,
-                                scope = EXCLUDED.scope,
-                                tenant_id = EXCLUDED.tenant_id,
-                                owner_profile_id = EXCLUDED.owner_profile_id,
-                                capability_code = EXCLUDED.capability_code,
-                                risk_class = EXCLUDED.risk_class,
-                                created_at = EXCLUDED.created_at,
-                                updated_at = EXCLUDED.updated_at
-                        """
-                        ),
-                        {
-                            "tool_id": tool.tool_id,
-                            "site_id": tool.site_id,
-                            "provider": tool.provider,
-                            "display_name": tool.display_name,
-                            "origin_capability_id": tool.origin_capability_id,
-                            "category": tool.category,
-                            "description": tool.description,
-                            "endpoint": tool.endpoint,
-                            "methods": self.serialize_json(tool.methods),
-                            "danger_level": tool.danger_level,
-                            "input_schema": self.serialize_json(
-                                tool.input_schema.model_dump()
-                            ),
-                            "enabled": tool.enabled,
-                            "read_only": tool.read_only,
-                            "allowed_agent_roles": self.serialize_json(
-                                tool.allowed_agent_roles
-                            ),
-                            "side_effect_level": tool.side_effect_level,
-                            "scope": tool.scope or "profile",
-                            "tenant_id": tool.tenant_id,
-                            "owner_profile_id": tool.owner_profile_id,
-                            "capability_code": tool.capability_code,
-                            "risk_class": tool.risk_class,
-                            "created_at": tool.created_at,
-                            "updated_at": tool.updated_at,
-                        },
-                    )
-
-                for (profile_id, conn_id), connection in self._connections.items():
-                    conn.execute(
-                        text(
-                            """
-                            INSERT INTO tool_connections (
-                                id, profile_id, tool_type, connection_type, name, description, icon,
-                                api_key, api_secret, oauth_token, oauth_refresh_token, base_url,
-                                wp_url, wp_username, wp_application_password,
-                                remote_cluster_url, remote_connection_id, config, associated_roles,
-                                enabled, is_active, is_validated, last_validated_at, validation_error,
-                                usage_count, last_used_at, last_discovery, discovery_method,
-                                x_platform, created_at, updated_at
-                            ) VALUES (
-                                :id, :profile_id, :tool_type, :connection_type, :name, :description, :icon,
-                                :api_key, :api_secret, :oauth_token, :oauth_refresh_token, :base_url,
-                                :wp_url, :wp_username, :wp_application_password,
-                                :remote_cluster_url, :remote_connection_id, :config, :associated_roles,
-                                :enabled, :is_active, :is_validated, :last_validated_at, :validation_error,
-                                :usage_count, :last_used_at, :last_discovery, :discovery_method,
-                                :x_platform, :created_at, :updated_at
-                            )
-                            ON CONFLICT (profile_id, id) DO UPDATE SET
-                                tool_type = EXCLUDED.tool_type,
-                                connection_type = EXCLUDED.connection_type,
-                                name = EXCLUDED.name,
-                                description = EXCLUDED.description,
-                                icon = EXCLUDED.icon,
-                                api_key = EXCLUDED.api_key,
-                                api_secret = EXCLUDED.api_secret,
-                                oauth_token = EXCLUDED.oauth_token,
-                                oauth_refresh_token = EXCLUDED.oauth_refresh_token,
-                                base_url = EXCLUDED.base_url,
-                                wp_url = EXCLUDED.wp_url,
-                                wp_username = EXCLUDED.wp_username,
-                                wp_application_password = EXCLUDED.wp_application_password,
-                                remote_cluster_url = EXCLUDED.remote_cluster_url,
-                                remote_connection_id = EXCLUDED.remote_connection_id,
-                                config = EXCLUDED.config,
-                                associated_roles = EXCLUDED.associated_roles,
-                                enabled = EXCLUDED.enabled,
-                                is_active = EXCLUDED.is_active,
-                                is_validated = EXCLUDED.is_validated,
-                                last_validated_at = EXCLUDED.last_validated_at,
-                                validation_error = EXCLUDED.validation_error,
-                                usage_count = EXCLUDED.usage_count,
-                                last_used_at = EXCLUDED.last_used_at,
-                                last_discovery = EXCLUDED.last_discovery,
-                                discovery_method = EXCLUDED.discovery_method,
-                                x_platform = EXCLUDED.x_platform,
-                                created_at = EXCLUDED.created_at,
-                                updated_at = EXCLUDED.updated_at
-                        """
-                        ),
-                        {
-                            "id": connection.id,
-                            "profile_id": connection.profile_id,
-                            "tool_type": connection.tool_type,
-                            "connection_type": connection.connection_type,
-                            "name": connection.name,
-                            "description": connection.description,
-                            "icon": connection.icon,
-                            "api_key": connection.api_key,
-                            "api_secret": connection.api_secret,
-                            "oauth_token": connection.oauth_token,
-                            "oauth_refresh_token": connection.oauth_refresh_token,
-                            "base_url": connection.base_url,
-                            "wp_url": connection.wp_url,
-                            "wp_username": connection.wp_username,
-                            "wp_application_password": connection.wp_application_password,
-                            "remote_cluster_url": connection.remote_cluster_url,
-                            "remote_connection_id": connection.remote_connection_id,
-                            "config": self.serialize_json(connection.config),
-                            "associated_roles": self.serialize_json(
-                                connection.associated_roles
-                            ),
-                            "enabled": connection.enabled,
-                            "is_active": connection.is_active,
-                            "is_validated": connection.is_validated,
-                            "last_validated_at": connection.last_validated_at,
-                            "validation_error": connection.validation_error,
-                            "usage_count": connection.usage_count,
-                            "last_used_at": connection.last_used_at,
-                            "last_discovery": connection.last_discovery,
-                            "discovery_method": connection.discovery_method,
-                            "x_platform": self.serialize_json(connection.x_platform),
-                            "created_at": connection.created_at,
-                            "updated_at": connection.updated_at,
-                        },
-                    )
-
+            save_registry_to_database(
+                transaction=self.transaction,
+                serialize_json=self.serialize_json,
+                tools_by_id=self._tools,
+                connections_by_key=self._connections,
+            )
         except Exception as e:
             logger.error(f"Error saving registry to database: {e}")
             self._save_registry_to_json()
 
     def _save_registry_to_json(self):
         """Save tool registry to JSON files (migration fallback)"""
-        try:
-            with open(self.registry_file, "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        tool_id: tool.model_dump()
-                        for tool_id, tool in self._tools.items()
-                    },
-                    f,
-                    indent=2,
-                    ensure_ascii=False,
-                    default=str,
-                )
-        except Exception as e:
-            logger.error(f"Error saving tool registry to JSON: {e}")
-
-        try:
-            with open(self.connections_file, "w", encoding="utf-8") as f:
-                connections_dict = {
-                    f"{profile_id}:{conn_id}": conn.model_dump()
-                    for (profile_id, conn_id), conn in self._connections.items()
-                }
-                json.dump(
-                    connections_dict, f, indent=2, ensure_ascii=False, default=str
-                )
-        except Exception as e:
-            logger.error(f"Error saving connections to JSON: {e}")
+        save_registry_to_json(
+            registry_file=self.registry_file,
+            connections_file=self.connections_file,
+            tools_by_id=self._tools,
+            connections_by_key=self._connections,
+            logger=logger,
+        )
 
     def register_discovery_provider(self, provider: ToolDiscoveryProvider):
         """
@@ -786,91 +512,36 @@ class ToolRegistryService(PostgresStoreBase):
                 # TODO: When DataSource is fully integrated, check data_source_type
                 # and set scope accordingly (tenant vs profile)
 
-            # Determine capability_code and risk_class for Runtime Profile support
-            # capability_code defaults to origin_capability_id (e.g., "wp" for WordPress tools)
-            capability_code = (
-                discovered_tool.tool_id.split(".")[0]
-                if "." in discovered_tool.tool_id
-                else discovered_tool.tool_id
-            )
-
-            # risk_class maps from side_effect_level
-            risk_class_mapping = {
-                "readonly": "readonly",
-                "soft_write": "soft_write",
-                "external_write": "external_write",
-            }
-            risk_class = risk_class_mapping.get(side_effect_level, "readonly")
-
-            registered_tool = RegisteredTool(
+            registered_tool = build_registered_tool(
                 tool_id=tool_id,
-                site_id=connection_id,
-                provider=provider_name,
-                display_name=discovered_tool.display_name,
-                origin_capability_id=discovered_tool.tool_id,
-                category=discovered_tool.category,
-                description=discovered_tool.description,
-                endpoint=discovered_tool.endpoint,
-                methods=discovered_tool.methods,
-                danger_level=discovered_tool.danger_level,
-                input_schema=discovered_tool.input_schema,
-                enabled=True,
-                read_only=(discovered_tool.danger_level == "high"),
+                connection_id=connection_id,
+                provider_name=provider_name,
+                discovered_tool=discovered_tool,
                 side_effect_level=side_effect_level,
-                scope=tool_scope,
-                tenant_id=tool_tenant_id,
-                owner_profile_id=tool_owner_profile_id,
-                capability_code=capability_code,  # Runtime Profile support
-                risk_class=risk_class,  # Runtime Profile support
+                tool_scope=tool_scope,
+                tool_tenant_id=tool_tenant_id,
+                tool_owner_profile_id=tool_owner_profile_id,
             )
-
             self._tools[tool_id] = registered_tool
 
             # Register in dynamic tool registry
-            tool_connection = ToolConnection(
-                id=connection_id,
-                tool_type=config.tool_type,
-                connection_type=config.connection_type,
-                api_key=config.api_key,
-                api_secret=config.api_secret,
-                base_url=config.base_url,
-                name=discovered_tool.display_name,
+            tool_connection = build_dynamic_tool_connection(
+                connection_id=connection_id,
+                config=config,
+                display_name=discovered_tool.display_name,
             )
             register_dynamic_tool(tool_id, tool_connection)
 
             registered_tools.append(registered_tool.model_dump())
 
-        # Update/Create connection record
-        key = (profile_id, connection_id)
-        if key in self._connections:
-            conn = self._connections[key]
-            # Update config with new configuration
-            if config.custom_config:
-                conn.config.update(config.custom_config)
-            conn.last_discovery = _utc_now()
-            conn.updated_at = _utc_now()
-            self._save_registry()
-        else:
-            conn = ToolConnectionModel(
-                id=connection_id,
-                profile_id=profile_id,
-                name=f"{provider_name} - {connection_id}",
-                tool_type=config.tool_type,
-                connection_type=config.connection_type,
-                base_url=config.base_url,
-                api_key=config.api_key,
-                api_secret=config.api_secret,
-                # Legacy WordPress fields for backward compatibility
-                wp_url=config.base_url if config.tool_type == "wordpress" else None,
-                wp_username=config.api_key if config.tool_type == "wordpress" else None,
-                wp_application_password=(
-                    config.api_secret if config.tool_type == "wordpress" else None
-                ),
-                config=config.custom_config.copy() if config.custom_config else {},
-                last_discovery=_utc_now(),
-                discovery_method=provider_name,
-            )
-            self._connections[key] = conn
+        upsert_discovery_connection(
+            self._connections,
+            profile_id=profile_id,
+            connection_id=connection_id,
+            provider_name=provider_name,
+            config=config,
+            utc_now=_utc_now,
+        )
 
         # Save to disk
         self._save_registry()
@@ -910,10 +581,7 @@ class ToolRegistryService(PostgresStoreBase):
             #     }
             # ]
         """
-        return [
-            provider.get_discovery_metadata()
-            for provider in self._discovery_providers.values()
-        ]
+        return get_available_provider_metadata(self._discovery_providers)
 
     def get_tools(
         self,
@@ -940,51 +608,20 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             List of RegisteredTool objects (with overlay applied if workspace_id provided)
         """
-        tools = list(self._tools.values())
-
-        if site_id:
-            tools = [t for t in tools if t.site_id == site_id]
-
-        if category:
-            tools = [t for t in tools if t.category == category]
-
-        if enabled_only:
-            tools = [t for t in tools if t.enabled]
-
-        # Scope filtering
-        if scope:
-            tools = [t for t in tools if t.scope == scope]
-
-        if tenant_id:
-            tools = [t for t in tools if t.tenant_id == tenant_id]
-
-        if profile_id:
-            # Include tools that are accessible to this profile:
-            # - system scope (no owner)
-            # - tenant scope (same tenant)
-            # - profile scope (same profile)
-            tools = [
-                t
-                for t in tools
-                if (
-                    t.scope == "system"
-                    or (t.scope == "tenant" and t.tenant_id == tenant_id)
-                    or (t.scope == "profile" and t.owner_profile_id == profile_id)
-                )
-            ]
-
-        # Apply workspace overlay if workspace_id is provided
-        if workspace_id:
-            from backend.app.services.tool_overlay_service import ToolOverlayService
-
-            overlay_service = ToolOverlayService()
-            tools = overlay_service.apply_tools_overlay(tools, workspace_id)
-
-        return tools
+        return get_registered_tools(
+            self._tools,
+            site_id=site_id,
+            category=category,
+            enabled_only=enabled_only,
+            scope=scope,
+            tenant_id=tenant_id,
+            profile_id=profile_id,
+            workspace_id=workspace_id,
+        )
 
     def get_tool(self, tool_id: str) -> Optional[RegisteredTool]:
         """Get a specific tool by ID"""
-        return self._tools.get(tool_id)
+        return get_registered_tool(self._tools, tool_id)
 
     def update_tool(
         self,
@@ -994,21 +631,14 @@ class ToolRegistryService(PostgresStoreBase):
         allowed_agent_roles: Optional[List[str]] = None,
     ) -> Optional[RegisteredTool]:
         """Update tool settings"""
-        tool = self._tools.get(tool_id)
-        if not tool:
-            return None
-
-        if enabled is not None:
-            tool.enabled = enabled
-        if read_only is not None:
-            tool.read_only = read_only
-        if allowed_agent_roles is not None:
-            tool.allowed_agent_roles = allowed_agent_roles
-
-        tool.updated_at = datetime.now()
-        self._save_registry()
-
-        return tool
+        return update_registered_tool(
+            self._tools,
+            save_registry=self._save_registry,
+            tool_id=tool_id,
+            enabled=enabled,
+            read_only=read_only,
+            allowed_agent_roles=allowed_agent_roles,
+        )
 
     def get_connections(
         self, profile_id: Optional[str] = None
@@ -1022,13 +652,7 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             List of tool connections
         """
-        if profile_id:
-            return [
-                conn
-                for (pid, _), conn in self._connections.items()
-                if pid == profile_id
-            ]
-        return list(self._connections.values())
+        return get_all_tool_connections(self._connections, profile_id=profile_id)
 
     def get_connection(
         self, connection_id: Optional[str] = None, profile_id: Optional[str] = None
@@ -1043,17 +667,12 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             Tool connection if found, DB connection context manager if None, None otherwise
         """
-        if connection_id is None:
-            return super().get_connection()
-
-        if profile_id:
-            return self._connections.get((profile_id, connection_id))
-
-        # Backward compatibility: search across all profiles
-        for (pid, cid), conn in self._connections.items():
-            if cid == connection_id:
-                return conn
-        return None
+        return get_tool_connection(
+            self._connections,
+            connection_id=connection_id,
+            profile_id=profile_id,
+            get_db_connection=super().get_connection,
+        )
 
     def create_connection(
         self,
@@ -1068,14 +687,12 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             Created connection
         """
-        connection.updated_at = _utc_now()
-        if not connection.created_at:
-            connection.created_at = _utc_now()
-
-        # Store with (profile_id, connection_id) as key
-        self._connections[(connection.profile_id, connection.id)] = connection
-        self._save_registry()
-        return connection
+        return create_tool_connection(
+            self._connections,
+            connection=connection,
+            save_registry=self._save_registry,
+            utc_now=_utc_now,
+        )
 
     def create_connection_legacy(
         self,
@@ -1100,20 +717,15 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             Created connection
         """
-        conn = ToolConnectionModel(
-            id=connection_id,
-            profile_id=profile_id,
+        return create_tool_connection_legacy(
+            create_connection_fn=self.create_connection,
+            connection_id=connection_id,
             name=name,
-            tool_type="wordpress",
-            connection_type="local",
             wp_url=wp_url,
             wp_username=wp_username,
             wp_application_password=wp_application_password,
-            base_url=wp_url,
-            api_key=wp_username,
-            api_secret=wp_application_password,
+            profile_id=profile_id,
         )
-        return self.create_connection(conn)
 
     def delete_connection(
         self, connection_id: str, profile_id: Optional[str] = None
@@ -1128,48 +740,14 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             True if deleted, False if not found
         """
-        deleted = False
-
-        if profile_id:
-            key = (profile_id, connection_id)
-            if key in self._connections:
-                # Remove all tools for this connection
-                tool_ids_to_remove = [
-                    tool_id
-                    for tool_id, tool in self._tools.items()
-                    if tool.site_id == connection_id
-                ]
-                for tool_id in tool_ids_to_remove:
-                    del self._tools[tool_id]
-                    unregister_dynamic_tool(tool_id)
-
-                del self._connections[key]
-                deleted = True
-        else:
-            # Backward compatibility: search and delete across all profiles
-            keys_to_delete = [
-                key
-                for key, conn in self._connections.items()
-                if conn.id == connection_id
-            ]
-            for key in keys_to_delete:
-                # Remove all tools for this connection
-                tool_ids_to_remove = [
-                    tool_id
-                    for tool_id, tool in self._tools.items()
-                    if tool.site_id == connection_id
-                ]
-                for tool_id in tool_ids_to_remove:
-                    del self._tools[tool_id]
-                    unregister_dynamic_tool(tool_id)
-
-                del self._connections[key]
-                deleted = True
-
-        if deleted:
-            self._save_registry()
-
-        return deleted
+        return delete_tool_connection(
+            self._connections,
+            self._tools,
+            connection_id=connection_id,
+            profile_id=profile_id,
+            save_registry=self._save_registry,
+            unregister_dynamic_tool_fn=unregister_dynamic_tool,
+        )
 
     def get_connections_by_profile(
         self, profile_id: str, active_only: bool = True
@@ -1184,16 +762,11 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             List of tool connections
         """
-        connections = [
-            conn for (pid, _), conn in self._connections.items() if pid == profile_id
-        ]
-
-        if active_only:
-            connections = [conn for conn in connections if conn.is_active]
-
-        # Sort by usage_count descending, then name ascending
-        connections.sort(key=lambda c: (-c.usage_count, c.name))
-        return connections
+        return get_tool_connections_by_profile(
+            self._connections,
+            profile_id=profile_id,
+            active_only=active_only,
+        )
 
     def get_connections_by_tool_type(
         self, profile_id: str, tool_type: str
@@ -1208,15 +781,11 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             List of tool connections
         """
-        connections = [
-            conn
-            for (pid, _), conn in self._connections.items()
-            if pid == profile_id and conn.tool_type == tool_type and conn.is_active
-        ]
-
-        # Sort by usage_count descending, then name ascending
-        connections.sort(key=lambda c: (-c.usage_count, c.name))
-        return connections
+        return get_tool_connections_by_type(
+            self._connections,
+            profile_id=profile_id,
+            tool_type=tool_type,
+        )
 
     def get_connections_by_role(
         self, profile_id: str, role_id: str
@@ -1231,8 +800,11 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             List of tool connections
         """
-        connections = self.get_connections_by_profile(profile_id, active_only=True)
-        return [conn for conn in connections if role_id in conn.associated_roles]
+        return get_tool_connections_by_role(
+            get_connections_by_profile_fn=self.get_connections_by_profile,
+            profile_id=profile_id,
+            role_id=role_id,
+        )
 
     def update_connection(self, connection: ToolConnectionModel) -> ToolConnectionModel:
         """
@@ -1244,10 +816,12 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             Updated connection
         """
-        connection.updated_at = _utc_now()
-        self._connections[(connection.profile_id, connection.id)] = connection
-        self._save_registry()
-        return connection
+        return update_tool_connection(
+            self._connections,
+            connection=connection,
+            save_registry=self._save_registry,
+            utc_now=_utc_now,
+        )
 
     def record_connection_usage(self, connection_id: str, profile_id: str):
         """
@@ -1257,13 +831,13 @@ class ToolRegistryService(PostgresStoreBase):
             connection_id: Connection ID
             profile_id: Profile ID
         """
-        key = (profile_id, connection_id)
-        if key in self._connections:
-            conn = self._connections[key]
-            conn.usage_count += 1
-            conn.last_used_at = _utc_now()
-            conn.updated_at = _utc_now()
-            self._save_registry()
+        record_tool_connection_usage(
+            self._connections,
+            connection_id=connection_id,
+            profile_id=profile_id,
+            save_registry=self._save_registry,
+            utc_now=_utc_now,
+        )
 
     def update_validation_status(
         self,
@@ -1281,14 +855,15 @@ class ToolRegistryService(PostgresStoreBase):
             is_valid: Whether connection is valid
             error_message: Optional error message
         """
-        key = (profile_id, connection_id)
-        if key in self._connections:
-            conn = self._connections[key]
-            conn.is_validated = is_valid
-            conn.last_validated_at = _utc_now()
-            conn.validation_error = error_message
-            conn.updated_at = _utc_now()
-            self._save_registry()
+        update_tool_connection_validation_status(
+            self._connections,
+            connection_id=connection_id,
+            profile_id=profile_id,
+            is_valid=is_valid,
+            error_message=error_message,
+            save_registry=self._save_registry,
+            utc_now=_utc_now,
+        )
 
     def export_as_templates(self, profile_id: str) -> List[Dict[str, Any]]:
         """
@@ -1300,56 +875,10 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             List of connection templates
         """
-        from backend.app.models.tool_connection import ToolConnectionTemplate
-
-        connections = self.get_connections_by_profile(profile_id, active_only=True)
-
-        templates = []
-        for conn in connections:
-            # Generate config schema without actual values
-            config_schema = {"connection_type": conn.connection_type, "fields": {}}
-
-            if conn.connection_type == "local":
-                if conn.api_key:
-                    config_schema["fields"]["api_key"] = {
-                        "type": "string",
-                        "required": True,
-                        "sensitive": True,
-                    }
-                if conn.api_secret:
-                    config_schema["fields"]["api_secret"] = {
-                        "type": "string",
-                        "required": True,
-                        "sensitive": True,
-                    }
-                if conn.oauth_token:
-                    config_schema["fields"]["oauth_token"] = {
-                        "type": "string",
-                        "required": True,
-                        "sensitive": True,
-                    }
-                if conn.base_url:
-                    config_schema["fields"]["base_url"] = {
-                        "type": "string",
-                        "required": True,
-                        "example": conn.base_url,
-                    }
-
-            # Extract required permissions from config
-            required_permissions = conn.config.get("required_permissions", [])
-
-            template = ToolConnectionTemplate(
-                tool_type=conn.tool_type,
-                name=conn.name,
-                description=conn.description,
-                icon=conn.icon,
-                config_schema=config_schema,
-                required_permissions=required_permissions,
-                associated_roles=conn.associated_roles,
-            )
-            templates.append(template.model_dump())
-
-        return templates
+        return export_connection_templates(
+            get_connections_by_profile_fn=self.get_connections_by_profile,
+            profile_id=profile_id,
+        )
 
     def get_tools_for_agent_role(
         self,
@@ -1370,25 +899,13 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             List of tools available for the agent role (with overlay applied if workspace_id provided)
         """
-        # Get tools with scope filtering
-        tools = self.get_tools(
-            enabled_only=True,
+        return get_registered_tools_for_agent_role(
+            get_tools_fn=self.get_tools,
+            agent_role=agent_role,
             profile_id=profile_id,
             tenant_id=tenant_id,
             workspace_id=workspace_id,
         )
-
-        # Filter by agent role
-        filtered_tools = []
-        for tool in tools:
-            # If tool has allowed_agent_roles, check if role is allowed
-            if tool.allowed_agent_roles:
-                if agent_role not in tool.allowed_agent_roles:
-                    continue
-
-            filtered_tools.append(tool)
-
-        return filtered_tools
 
     def _infer_side_effect_level(
         self, provider_name: str, danger_level: str, tool_id: str, methods: List[str]
@@ -1412,41 +929,7 @@ class ToolRegistryService(PostgresStoreBase):
         Returns:
             side_effect_level: "readonly", "soft_write", or "external_write"
         """
-        # Rule 1: GET-only methods = readonly
-        read_only_methods = ["GET"]
-        if methods and all(m.upper() in read_only_methods for m in methods):
-            return "readonly"
-
-        # Rule 2: Provider-based rules
-        provider_lower = provider_name.lower()
-
-        # External providers (WordPress, Notion, Google Drive)
-        if provider_lower in ["wordpress", "notion", "google_drive"]:
-            # Read operations (list, read, search) = readonly
-            if any(
-                keyword in tool_id.lower()
-                for keyword in ["read", "list", "search", "get"]
-            ):
-                return "readonly"
-            # Write operations = external_write
-            return "external_write"
-
-        # Local filesystem provider
-        if provider_lower == "local_filesystem":
-            # Read operations = readonly
-            if any(
-                keyword in tool_id.lower() for keyword in ["read", "list", "search"]
-            ):
-                return "readonly"
-            # Write operations = external_write (writes to local files)
-            return "external_write"
-
-        # Rule 3: High danger level = external_write (conservative)
-        if danger_level == "high":
-            return "external_write"
-
-        # Rule 4: Default = soft_write (conservative, requires CTA)
-        return "soft_write"
+        return infer_side_effect_level(provider_name, danger_level, tool_id, methods)
 
     async def discover_wordpress_capabilities(
         self,
