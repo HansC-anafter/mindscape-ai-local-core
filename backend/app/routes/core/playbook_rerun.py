@@ -344,7 +344,10 @@ async def rerun_playbook_execution(
                     else 1
                 )
 
-                executions_store = store.playbook_executions
+                from backend.app.services.mindscape_store import MindscapeStore
+
+                rerun_store = MindscapeStore()
+                executions_store = rerun_store.playbook_executions
                 if executions_store and workspace_id:
                     await asyncio.to_thread(
                         executions_store.create_execution,

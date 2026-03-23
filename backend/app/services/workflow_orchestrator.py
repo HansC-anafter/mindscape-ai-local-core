@@ -1217,6 +1217,7 @@ class WorkflowOrchestrator:
 
                     step_result = await self._execute_single_step(
                         step,
+                        playbook_json,
                         playbook_inputs,
                         step_outputs,
                         playbook_json.inputs,
@@ -1579,6 +1580,7 @@ class WorkflowOrchestrator:
     async def _execute_single_step_iteration(
         self,
         step: Any,
+        playbook_json: Any,
         playbook_inputs: Dict[str, Any],
         step_outputs: Dict[str, Dict[str, Any]],
         playbook_input_defs: Dict[str, Any],
@@ -1594,6 +1596,7 @@ class WorkflowOrchestrator:
         try:
             return await self._execute_single_step(
                 step,
+                playbook_json,
                 playbook_inputs,
                 step_outputs,
                 playbook_input_defs,
@@ -1611,6 +1614,7 @@ class WorkflowOrchestrator:
     async def _execute_single_step(
         self,
         step: Any,
+        playbook_json: Any,
         playbook_inputs: Dict[str, Any],
         step_outputs: Dict[str, Dict[str, Any]],
         playbook_input_defs: Dict[str, Any],
@@ -1658,6 +1662,7 @@ class WorkflowOrchestrator:
                 return await self.step_loop.execute_step_with_loop(
                     step,
                     self._execute_single_step_iteration,
+                    playbook_json,
                     playbook_inputs,
                     step_outputs,
                     playbook_input_defs,

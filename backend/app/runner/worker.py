@@ -361,6 +361,51 @@ async def _cleanup_stale_locks(
         logger.warning(f"[Startup] Failed to cleanup stale locks: {e}")
 
 
+async def _run_maintenance_cycle(
+    tasks_store: TasksStore,
+    *,
+    runner_id: str,
+    redis_queue: RedisRunnerQueueStore,
+    ready_queues: dict[str, RedisRunnerQueueStore],
+    ready_targets: dict[str, int],
+    queue_cycle: list[RedisRunnerQueueStore],
+) -> None:
+    """Keep the ready frontier warm even when the dequeue loop is idle."""
+    _reap_stale_running_tasks(tasks_store, runner_id=runner_id, redis_queue=redis_queue)
+    for shard_name in _RUNNER_READY_QUEUE_ORDER:
+        await _reap_redis_queues(
+            tasks_store,
+            ready_queues[shard_name],
+            ready_target_override=ready_targets.get(shard_name, 0),
+            all_queues=queue_cycle,
+        )
+
+
+async def _maintenance_loop(
+    tasks_store: TasksStore,
+    *,
+    runner_id: str,
+    redis_queue: RedisRunnerQueueStore,
+    ready_queues: dict[str, RedisRunnerQueueStore],
+    ready_targets: dict[str, int],
+    queue_cycle: list[RedisRunnerQueueStore],
+    reap_interval_seconds: int,
+) -> None:
+    while True:
+        try:
+            await _run_maintenance_cycle(
+                tasks_store,
+                runner_id=runner_id,
+                redis_queue=redis_queue,
+                ready_queues=ready_queues,
+                ready_targets=ready_targets,
+                queue_cycle=queue_cycle,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to run runner maintenance cycle: {e}")
+        await asyncio.sleep(reap_interval_seconds)
+
+
 async def run_forever() -> None:
     poll_interval_ms = _env_int("LOCAL_CORE_RUNNER_POLL_INTERVAL_MS", 1000)
     max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
@@ -403,29 +448,35 @@ async def run_forever() -> None:
     await _cleanup_stale_locks(redis_queue, runner_id)
 
     inflight: set[asyncio.Task] = set()
-    last_reap_at: Optional[datetime] = None
     reap_interval_seconds = _env_int("LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS", 60)
     dep_checker = DependencyChecker(cache_ttl=5.0)
 
-    while True:
-        # Periodic reaping for runner restarts / orphaned tasks.
-        try:
-            now = _utc_now()
-            if (last_reap_at is None) or (
-                (now - last_reap_at).total_seconds() >= reap_interval_seconds
-            ):
-                _reap_stale_running_tasks(tasks_store, runner_id=runner_id, redis_queue=redis_queue)
-                for shard_name in _RUNNER_READY_QUEUE_ORDER:
-                    await _reap_redis_queues(
-                        tasks_store,
-                        ready_queues[shard_name],
-                        ready_target_override=ready_targets.get(shard_name, 0),
-                        all_queues=queue_cycle,
-                    )
-                last_reap_at = now
-        except Exception as e:
-            logger.warning(f"Failed to reap: {e}")
+    # Kick the bridge once on startup so overdue cold tasks become runnable
+    # even if the dequeue loop stays otherwise idle.
+    await _run_maintenance_cycle(
+        tasks_store,
+        runner_id=runner_id,
+        redis_queue=redis_queue,
+        ready_queues=ready_queues,
+        ready_targets=ready_targets,
+        queue_cycle=queue_cycle,
+    )
+    asyncio.create_task(
+        _maintenance_loop(
+            tasks_store,
+            runner_id=runner_id,
+            redis_queue=redis_queue,
+            ready_queues=ready_queues,
+            ready_targets=ready_targets,
+            queue_cycle=queue_cycle,
+            reap_interval_seconds=reap_interval_seconds,
+        )
+    )
+    logger.info(
+        "Runner maintenance loop started (interval=%ss)", reap_interval_seconds
+    )
 
+    while True:
         # Runner liveness heartbeat via shared PostgreSQL.
         try:
             tasks_store.upsert_runner_heartbeat(runner_id)
