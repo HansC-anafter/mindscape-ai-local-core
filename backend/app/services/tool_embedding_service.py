@@ -8,50 +8,30 @@ and stores embeddings in the vector DB (mindscape_vectors).
 
 import logging
 import json
+from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
 
 from app.database.config import get_vector_postgres_config
+from app.services.tool_embedding_service_core import (
+    CREATE_TABLE_SQL,
+    IndexableEntry,
+    MultiModelIndexingError,
+    NOMIC_MODELS,
+    RAG_ERROR,
+    RAG_HIT,
+    RAG_MISS,
+    ToolMatch,
+    build_embed_text,
+    discover_embed_models,
+    filter_mapping_rows_by_score,
+    fuse_ranked_tool_matches,
+    get_capability_manifest_context,
+    get_current_embedding_model,
+    tuple_row_to_tool_match,
+    vector_to_pg_literal,
+)
 
 logger = logging.getLogger(__name__)
-
-
-# Return type for search results
-@dataclass
-class ToolMatch:
-    """A tool matched by embedding similarity search"""
-
-    tool_id: str
-    display_name: str
-    description: str
-    category: str
-    capability_code: Optional[str]
-    similarity: float
-
-
-# Rag status constants
-RAG_HIT = "hit"  # Search succeeded, found >= 1 match
-RAG_MISS = "miss"  # Search succeeded, 0 matches above threshold
-RAG_ERROR = "error"  # Embedding generation or DB query failed
-
-
-_CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS tool_embeddings (
-    id              SERIAL PRIMARY KEY,
-    tool_id         TEXT NOT NULL,
-    display_name    TEXT,
-    description     TEXT NOT NULL,
-    category        TEXT,
-    capability_code TEXT,
-    embedding       vector,
-    embedding_model TEXT NOT NULL,
-    embedding_dim   INTEGER NOT NULL,
-    affordance      JSONB DEFAULT '{}',
-    created_at      TIMESTAMPTZ DEFAULT now(),
-    updated_at      TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (tool_id, embedding_model)
-);
-"""
 
 
 class ToolEmbeddingService:
@@ -72,65 +52,7 @@ class ToolEmbeddingService:
         Priority: frontend ollama_embed_model setting → OLLAMA_EMBED_MODEL env var
                   → bge-m3 (if Ollama has it) → nomic-embed-text → OpenAI model.
         """
-        import os
-        import requests
-
-        # 1. Frontend-managed setting (takes absolute priority)
-        try:
-            from backend.app.services.system_settings_store import SystemSettingsStore
-
-            store = SystemSettingsStore()
-            fe_setting = store.get_setting("ollama_embed_model")
-            if fe_setting and fe_setting.value and str(fe_setting.value).strip():
-                return str(fe_setting.value).strip()
-        except Exception:
-            pass
-
-        # 2. Env var override
-        preferred = os.getenv("OLLAMA_EMBED_MODEL", "").strip()
-
-        # 3. Probe Ollama (same resolution order as VectorSearchService._get_ollama_url)
-        ollama_candidates = []
-        env_host = os.getenv("OLLAMA_HOST", "").strip()
-        if env_host:
-            ollama_candidates.append(env_host)
-        ollama_candidates += [
-            "http://host.docker.internal:11434",
-            "http://ollama:11434",
-        ]
-
-        for base_url in ollama_candidates:
-            try:
-                resp = requests.get(f"{base_url}/api/tags", timeout=2)
-                if resp.status_code == 200:
-                    if preferred:
-                        return preferred
-                    # Auto-select: bge-m3 preferred
-                    model_names = [
-                        m["name"].split(":")[0] for m in resp.json().get("models", [])
-                    ]
-                    if "bge-m3" in model_names:
-                        return "bge-m3"
-                    if "nomic-embed-text" in model_names:
-                        return "nomic-embed-text"
-                    break  # Ollama reachable but no known embed model
-            except Exception:
-                continue
-
-        # 4. Fallback: OpenAI model from settings
-        try:
-            from backend.app.services.system_settings_store import SystemSettingsStore
-
-            store = SystemSettingsStore()
-            setting = store.get_setting("embedding_model")
-            if setting and setting.value:
-                return str(setting.value)
-        except Exception:
-            pass
-        return "text-embedding-3-small"
-
-    # Nomic v1.5 models requiring task prefix
-    _NOMIC_MODELS = {"nomic-embed-text", "nomic-embed-text-v1.5"}
+        return get_current_embedding_model()
 
     async def _generate_embedding(
         self, text: str, *, is_query: bool = True
@@ -177,7 +99,7 @@ class ToolEmbeddingService:
         # Nomic task prefix (independent httpx path, same logic as VectorSearchService)
         prompt_text = text
         base_model = model_name.split(":")[0].lower()
-        if base_model in self._NOMIC_MODELS:
+        if base_model in NOMIC_MODELS:
             prefix = "search_query" if is_query else "search_document"
             prompt_text = f"{prefix}: {text}"
 
@@ -221,7 +143,7 @@ class ToolEmbeddingService:
             conn = self._get_connection()
             try:
                 with conn.cursor() as cur:
-                    cur.execute(_CREATE_TABLE_SQL)
+                    cur.execute(CREATE_TABLE_SQL)
                     # BM25 migration: add tsvector column + GIN index for lexical search
                     cur.execute(
                         """
@@ -268,46 +190,11 @@ class ToolEmbeddingService:
         Returns a string with display_name_zh + Chinese description (if present)
         for embedding enrichment.  Results are cached per-process.
         """
-        if capability_code in self._manifest_cache:
-            return self._manifest_cache[capability_code]
-
-        import os
-        import yaml
-
-        manifest_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "capabilities",
-            capability_code,
-            "manifest.yaml",
+        return get_capability_manifest_context(
+            cache=self._manifest_cache,
+            capability_code=capability_code,
+            services_dir=Path(__file__).resolve().parent,
         )
-        if not os.path.isfile(manifest_path):
-            self._manifest_cache[capability_code] = None
-            return None
-
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-        except Exception:
-            self._manifest_cache[capability_code] = None
-            return None
-
-        parts: list[str] = []
-        zh_name = data.get("display_name_zh")
-        if zh_name:
-            parts.append(str(zh_name))
-        desc = data.get("description", "")
-        if desc and not desc.isascii():
-            # Only append if description contains non-ASCII (likely CJK)
-            parts.append(str(desc)[:200])
-        elif zh_name:
-            # If no CJK description but has zh_name, append English desc too
-            eng_desc = data.get("description", "")
-            if eng_desc:
-                parts.append(str(eng_desc)[:120])
-
-        result = " ".join(parts) if parts else None
-        self._manifest_cache[capability_code] = result
-        return result
 
     async def index_tool(
         self,
@@ -322,7 +209,7 @@ class ToolEmbeddingService:
 
         Returns True on success, False on failure.
         """
-        embed_text = f"{display_name}: {description}"
+        embed_text = build_embed_text(display_name, description)
         # Enrich with capability-level metadata for cross-lingual RAG recall.
         # Reads display_name_zh / description from the capability's manifest.yaml
         # so that Chinese queries can match English tool descriptions.
@@ -330,7 +217,11 @@ class ToolEmbeddingService:
             try:
                 cap_meta = self._get_capability_manifest_context(capability_code)
                 if cap_meta:
-                    embed_text = f"{embed_text}. {cap_meta}"
+                    embed_text = build_embed_text(
+                        display_name,
+                        description,
+                        capability_context=cap_meta,
+                    )
             except Exception:
                 pass  # non-fatal: proceed with English-only embed_text
 
@@ -342,7 +233,7 @@ class ToolEmbeddingService:
             return False
 
         embedding_dim = len(embedding)
-        embedding_str = "[" + ",".join(str(v) for v in embedding) + "]"
+        embedding_str = vector_to_pg_literal(embedding)
 
         try:
             conn = self._get_connection()
@@ -386,9 +277,9 @@ class ToolEmbeddingService:
             logger.error(f"Failed to index tool {tool_id}: {e}")
             return False
 
-    async def _collect_indexable_entries(self) -> List[Dict[str, Any]]:
+    async def _collect_indexable_entries(self) -> List[IndexableEntry]:
         """Return the shared tool/playbook corpus used for embedding indexing."""
-        entries: List[Dict[str, Any]] = []
+        entries: List[IndexableEntry] = []
 
         try:
             from app.services.tool_list_service import ToolListService
@@ -487,36 +378,10 @@ class ToolEmbeddingService:
         Returns total number of newly indexed (tool, model) rows; 0 if already
         up to date.
         """
-        import os
-        import requests as req
-
-        # --- Discover available Ollama embed models ---
-        EMBED_KEYWORDS = ("embed", "bge", "nomic", "e5", "gte")
-        ollama_candidates = []
-        env_host = os.getenv("OLLAMA_HOST", "").strip()
-        if env_host:
-            ollama_candidates.append(env_host)
-        ollama_candidates += [
-            "http://host.docker.internal:11434",
-            "http://ollama:11434",
-        ]
-
-        ollama_models: List[str] = []
-        for base_url in ollama_candidates:
-            try:
-                resp = req.get(f"{base_url}/api/tags", timeout=2)
-                if resp.status_code == 200:
-                    for m in resp.json().get("models", []):
-                        name = m["name"].split(":")[0]
-                        if any(kw in name.lower() for kw in EMBED_KEYWORDS):
-                            if name not in ollama_models:
-                                ollama_models.append(name)
-                    break
-            except Exception:
-                continue
+        primary = self._get_current_model()
+        ollama_models = discover_embed_models() or [primary]
 
         # Fallback: at least use the primary model
-        primary = self._get_current_model()
         if not ollama_models:
             ollama_models = [primary]
 
@@ -572,7 +437,7 @@ class ToolEmbeddingService:
         # the Ollama embedding path completely failed (e.g., Ollama is unavailable).
         # We raise here so callers can gracefully fallback to base index_all_tools().
         if stale_models and expected > 0 and total == 0:
-            raise RuntimeError("Ollama multi-model indexing failed completely")
+            raise MultiModelIndexingError("Ollama multi-model indexing failed completely")
 
         return total
 
@@ -681,7 +546,7 @@ class ToolEmbeddingService:
         if query_embedding is None or model_name is None:
             return [], RAG_ERROR
 
-        embedding_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
+        embedding_str = vector_to_pg_literal(query_embedding)
 
         try:
             conn = self._get_connection()
@@ -713,20 +578,7 @@ class ToolEmbeddingService:
             return [], RAG_ERROR
 
         # Filter by min_score
-        matches = []
-        for row in rows:
-            sim = float(row["similarity"])
-            if sim >= min_score:
-                matches.append(
-                    ToolMatch(
-                        tool_id=row["tool_id"],
-                        display_name=row["display_name"] or "",
-                        description=row["description"],
-                        category=row["category"] or "",
-                        capability_code=row["capability_code"],
-                        similarity=sim,
-                    )
-                )
+        matches = filter_mapping_rows_by_score(rows, min_score=min_score)
 
         if matches:
             logger.info(
@@ -762,7 +614,7 @@ class ToolEmbeddingService:
         min_score: float = 0.0,
     ) -> List[ToolMatch]:
         """Vector search restricted to one embedding_model. Returns raw results (no threshold filter)."""
-        embedding_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
+        embedding_str = vector_to_pg_literal(query_embedding)
         try:
             conn = self._get_connection()
             try:
@@ -792,18 +644,7 @@ class ToolEmbeddingService:
             logger.warning(f"_search_single_model({model_name}) failed: {e}")
             return []
 
-        return [
-            ToolMatch(
-                tool_id=row["tool_id"],
-                display_name=row["display_name"] or "",
-                description=row["description"],
-                category=row["category"] or "",
-                capability_code=row["capability_code"],
-                similarity=float(row["similarity"]),
-            )
-            for row in rows
-            if float(row["similarity"]) >= min_score
-        ]
+        return filter_mapping_rows_by_score(rows, min_score=min_score)
 
     async def search_bm25(
         self,
@@ -833,17 +674,7 @@ class ToolEmbeddingService:
                         (query, query, top_k),
                     )
                     rows = cur.fetchall()
-                    return [
-                        ToolMatch(
-                            tool_id=row[0],
-                            display_name=row[1] or row[0],
-                            description=row[2],
-                            category=row[3] or "",
-                            capability_code=row[4],
-                            similarity=float(row[5]),
-                        )
-                        for row in rows
-                    ]
+                    return [tuple_row_to_tool_match(row) for row in rows]
             finally:
                 conn.close()
         except Exception as exc:
@@ -921,43 +752,13 @@ class ToolEmbeddingService:
             logger.debug("BM25 path skipped in RRF: %s", exc)
 
         # 5. Reciprocal Rank Fusion (vector models + BM25)
-        rrf_scores: dict[str, float] = {}
-        tool_meta: dict[str, ToolMatch] = {}  # keeps last-seen metadata
-        best_sim: dict[str, float] = {}  # track best single-model similarity
-
-        for ranked_list in per_model_results:
-            for rank, match in enumerate(ranked_list):
-                tid = match.tool_id
-                rrf_scores[tid] = rrf_scores.get(tid, 0.0) + 1.0 / (rrf_k + rank + 1)
-                tool_meta[tid] = match
-                best_sim[tid] = max(best_sim.get(tid, 0.0), match.similarity)
-
-        # BM25 contributes to RRF on equal footing
-        for rank, match in enumerate(bm25_results):
-            tid = match.tool_id
-            rrf_scores[tid] = rrf_scores.get(tid, 0.0) + 1.0 / (rrf_k + rank + 1)
-            if tid not in tool_meta:
-                tool_meta[tid] = match
-                best_sim[tid] = 0.0  # BM25-only matches have no vector sim
-            # BM25 match boosts confidence — don't apply min_score penalty
-            best_sim[tid] = max(best_sim.get(tid, 0.0), min_score)
-
-        # 6. Sort by RRF score and apply min_score filter on best single-model sim
-        sorted_ids = sorted(rrf_scores, key=lambda t: rrf_scores[t], reverse=True)
-        matches: List[ToolMatch] = []
-        for tid in sorted_ids[:top_k]:
-            if best_sim.get(tid, 0.0) >= min_score:
-                meta = tool_meta[tid]
-                matches.append(
-                    ToolMatch(
-                        tool_id=meta.tool_id,
-                        display_name=meta.display_name,
-                        description=meta.description,
-                        category=meta.category,
-                        capability_code=meta.capability_code,
-                        similarity=rrf_scores[tid],  # RRF-fused score
-                    )
-                )
+        matches = fuse_ranked_tool_matches(
+            per_model_results=per_model_results,
+            bm25_results=bm25_results,
+            top_k=top_k,
+            min_score=min_score,
+            rrf_k=rrf_k,
+        )
 
         n_paths = len(search_model_names) + (1 if bm25_results else 0)
         if matches:
@@ -1010,18 +811,7 @@ class ToolEmbeddingService:
                         tuple(params),
                     )
                     rows = cur.fetchall()
-                    matches = []
-                    for row in rows:
-                        matches.append(
-                            ToolMatch(
-                                tool_id=row[0],
-                                display_name=row[1] or row[0],
-                                description=row[2],
-                                category=row[3] or "",
-                                capability_code=row[4],
-                                similarity=1.0,  # Exact structural match
-                            )
-                        )
+                    matches = [tuple_row_to_tool_match(row, similarity=1.0) for row in rows]
                     logger.info(
                         "Structured search found %d playbooks for consumes_types=%s",
                         len(matches),
@@ -1044,34 +834,7 @@ class ToolEmbeddingService:
         Each (tool_id, model) pair is upserted independently (UNIQUE constraint).
         Returns the total number of (tool, model) rows successfully indexed.
         """
-        import os
-        import requests as req
-
-        # Discover available Ollama embed models (same probe logic as _get_current_model)
-        EMBED_MODEL_KEYWORDS = ("embed", "bge", "nomic", "e5", "gte")
-        ollama_candidates = []
-        env_host = os.getenv("OLLAMA_HOST", "").strip()
-        if env_host:
-            ollama_candidates.append(env_host)
-        ollama_candidates += [
-            "http://host.docker.internal:11434",
-            "http://ollama:11434",
-        ]
-
-        embed_models: List[str] = []
-        for base_url in ollama_candidates:
-            try:
-                resp = req.get(f"{base_url}/api/tags", timeout=2)
-                if resp.status_code == 200:
-                    for m in resp.json().get("models", []):
-                        name = m["name"].split(":")[0]
-                        if any(kw in name.lower() for kw in EMBED_MODEL_KEYWORDS):
-                            if name not in embed_models:
-                                embed_models.append(name)
-                    break
-            except Exception:
-                continue
-
+        embed_models = discover_embed_models()
         if not embed_models:
             logger.info(
                 "index_all_tools_multimodel: no Ollama embed models found, using single-model path"
@@ -1095,14 +858,18 @@ class ToolEmbeddingService:
         entries = await self._collect_indexable_entries()
         count = 0
         for entry in entries:
-            embed_text = f"{entry['display_name']}: {entry['description']}"
+            embed_text = build_embed_text(entry["display_name"], entry["description"])
             if entry["capability_code"]:
                 try:
                     cap_meta = self._get_capability_manifest_context(
                         entry["capability_code"]
                     )
                     if cap_meta:
-                        embed_text = f"{embed_text}. {cap_meta}"
+                        embed_text = build_embed_text(
+                            entry["display_name"],
+                            entry["description"],
+                            capability_context=cap_meta,
+                        )
                 except Exception:
                     pass
             emb, used_model = await self._generate_embedding_for_model(
@@ -1114,7 +881,7 @@ class ToolEmbeddingService:
                 )
                 continue
 
-            embedding_str = "[" + ",".join(str(v) for v in emb) + "]"
+            embedding_str = vector_to_pg_literal(emb)
             embedding_dim = len(emb)
             try:
                 conn = self._get_connection()
