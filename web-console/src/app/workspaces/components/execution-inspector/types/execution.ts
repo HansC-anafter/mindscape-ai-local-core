@@ -18,6 +18,47 @@ export interface ExecutionSession {
   [key: string]: any;
 }
 
+export interface RemoteExecutionSummary {
+  job_type?: string | null;
+  capability_code?: string | null;
+  tool_name?: string | null;
+  workflow_step_id?: string | null;
+  result_ingress_mode?: string | null;
+  cloud_dispatch_state?: string | null;
+  cloud_execution_id?: string | null;
+  cloud_state?: string | null;
+  target_device_id?: string | null;
+  lineage_root_execution_id?: string | null;
+  replay_of_execution_id?: string | null;
+  latest_replay_execution_id?: string | null;
+  replay_children_execution_ids?: string[];
+  replay_children_count?: number;
+  replay_requested_at?: string | null;
+  is_workflow_step_child?: boolean;
+  is_replay_attempt?: boolean;
+  is_superseded_by_replay?: boolean;
+  has_replays?: boolean;
+}
+
+export interface RemoteChildExecution {
+  id?: string;
+  execution_id: string;
+  parent_execution_id?: string | null;
+  status: string;
+  created_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  playbook_code?: string;
+  remote_execution_summary?: RemoteExecutionSummary | null;
+}
+
+export interface RemoteExecutionAggregate {
+  totalRemoteChildren: number;
+  replayAttempts: number;
+  supersededByReplay: number;
+  uniqueTargetDevices: string[];
+}
+
 export interface ExecutionStep {
   id: string;
   execution_id: string;

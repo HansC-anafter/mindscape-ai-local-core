@@ -239,6 +239,9 @@ class PlaybookService:
                 tags=source_playbook.metadata.tags.copy(),
                 language_strategy=source_playbook.metadata.language_strategy,
                 supports_execution_chat=source_playbook.metadata.supports_execution_chat,
+                execution_chat_mode=source_playbook.metadata.execution_chat_mode,
+                execution_chat_tool_groups=source_playbook.metadata.execution_chat_tool_groups.copy(),
+                execution_chat_max_tool_iterations=source_playbook.metadata.execution_chat_max_tool_iterations,
                 discussion_agent=source_playbook.metadata.discussion_agent,
                 supported_locales=source_playbook.metadata.supported_locales.copy(),
                 default_locale=source_playbook.metadata.default_locale,
@@ -262,6 +265,11 @@ class PlaybookService:
                 runtime_handler=source_playbook.metadata.runtime_handler,
                 runtime_tier=source_playbook.metadata.runtime_tier,
                 runtime=source_playbook.metadata.runtime,
+                x_platform=(
+                    source_playbook.metadata.x_platform.copy()
+                    if isinstance(source_playbook.metadata.x_platform, dict)
+                    else source_playbook.metadata.x_platform
+                ),
             )
 
             forked_playbook = Playbook(

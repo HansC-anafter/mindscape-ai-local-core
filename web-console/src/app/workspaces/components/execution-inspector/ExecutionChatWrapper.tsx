@@ -21,7 +21,12 @@ export default function ExecutionChatWrapper({
   executionStatus,
   runNumber,
 }: ExecutionChatWrapperProps) {
-  if (!playbookMetadata?.supports_execution_chat) {
+  const supportsExecutionChat = Boolean(
+    playbookMetadata?.supports_execution_chat ??
+      playbookMetadata?.metadata?.supports_execution_chat
+  );
+
+  if (!supportsExecutionChat) {
     return null;
   }
 
@@ -32,7 +37,7 @@ export default function ExecutionChatWrapper({
         executionId={executionId}
         workspaceId={workspaceId}
         apiUrl={apiUrl}
-        playbookMetadata={playbookMetadata}
+        playbookMetadata={playbookMetadata ?? undefined}
         executionStatus={executionStatus}
         runNumber={runNumber}
         collapsible={true}

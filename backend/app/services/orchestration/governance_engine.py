@@ -14,6 +14,7 @@ Internally it:
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from backend.app.models.execution_metadata import extract_governance_payload
@@ -275,6 +276,8 @@ class GovernanceEngine:
         status: str,
         result_payload: Optional[Dict[str, Any]],
         error_message: Optional[str],
+        job_type: Optional[str] = None,
+        capability_code: Optional[str] = None,
         playbook_code: Optional[str] = None,
         provider_metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -327,6 +330,10 @@ class GovernanceEngine:
                 "provider_metadata": provider_metadata or {},
             }
         )
+        if job_type:
+            remote_execution["job_type"] = job_type
+        if capability_code:
+            remote_execution["capability_code"] = capability_code
         if error_message:
             remote_execution["error"] = error_message
         ctx.update(
@@ -336,7 +343,53 @@ class GovernanceEngine:
                 "remote_execution": remote_execution,
             }
         )
+        if job_type and not ctx.get("job_type"):
+            ctx["job_type"] = job_type
+        if capability_code and not ctx.get("capability_code"):
+            ctx["capability_code"] = capability_code
         self.tasks_store.update_task(task.id, execution_context=ctx)
+
+        result_ingress_mode = str(
+            remote_execution.get("result_ingress_mode")
+            or ctx.get("remote_result_mode")
+            or ""
+        ).strip().lower()
+        is_workflow_step_child = result_ingress_mode == "workflow_step_child"
+
+        if is_workflow_step_child:
+            if normalized_status in success_statuses:
+                task_status = TaskStatus.SUCCEEDED
+            elif normalized_status == "cancelled":
+                task_status = TaskStatus.CANCELLED_BY_USER
+            else:
+                task_status = TaskStatus.FAILED
+
+            child_result = {
+                "remote_terminal_status": normalized_status,
+                "provider_metadata": provider_metadata or {},
+                "result_payload": result_payload,
+            }
+            self.tasks_store.update_task_status(
+                task.id,
+                task_status,
+                result=child_result,
+                error=(
+                    None
+                    if task_status == TaskStatus.SUCCEEDED
+                    else error_message or f"remote execution {normalized_status}"
+                ),
+                completed_at=datetime.now(timezone.utc),
+            )
+            return {
+                "success": True,
+                "execution_id": execution_id,
+                "task_id": task.id,
+                "task_status": task_status.value,
+                "remote_terminal_status": normalized_status,
+                "artifact_id": None,
+                "result_payload": result_payload,
+                "result_ingress_mode": result_ingress_mode,
+            }
 
         if normalized_status in success_statuses:
             completion_result = self.process_completion(

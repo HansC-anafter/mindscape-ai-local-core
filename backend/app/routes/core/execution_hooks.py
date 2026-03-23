@@ -95,6 +95,49 @@ def _resolve_backend_ref(tool_slot: str) -> Optional[str]:
     return backend_ref
 
 
+def resolve_inputs_map(
+    inputs_map: Dict[str, Any],
+    normalized_inputs: Dict[str, Any],
+    execution_context: Dict[str, Any],
+    step_outputs: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Public wrapper for resolving templated tool inputs."""
+    return _resolve_inputs_map(
+        inputs_map, normalized_inputs, execution_context, step_outputs
+    )
+
+
+def invoke_tool_slot(tool_slot: str, resolved_inputs: Dict[str, Any]) -> Any:
+    """Invoke a resolved tool slot synchronously and return the tool result."""
+    backend_ref = _resolve_backend_ref(tool_slot)
+    if not backend_ref:
+        raise ValueError(f"Tool slot '{tool_slot}' not found in capability registry")
+
+    module_path, func_name = backend_ref.rsplit(":", 1)
+    mod = importlib.import_module(module_path)
+    func = getattr(mod, func_name)
+    if inspect.iscoroutinefunction(func):
+        raise RuntimeError(
+            f"Tool slot '{tool_slot}' is async; use async_invoke_tool_slot instead"
+        )
+    return func(**resolved_inputs)
+
+
+async def async_invoke_tool_slot(tool_slot: str, resolved_inputs: Dict[str, Any]) -> Any:
+    """Invoke a resolved tool slot and return the tool result."""
+    backend_ref = _resolve_backend_ref(tool_slot)
+    if not backend_ref:
+        raise ValueError(f"Tool slot '{tool_slot}' not found in capability registry")
+
+    module_path, func_name = backend_ref.rsplit(":", 1)
+    mod = importlib.import_module(module_path)
+    func = getattr(mod, func_name)
+
+    if inspect.iscoroutinefunction(func):
+        return await func(**resolved_inputs)
+    return await asyncio.to_thread(func, **resolved_inputs)
+
+
 def invoke_lifecycle_hook(
     hook_name: str,
     hook_spec: Dict[str, Any],
@@ -119,25 +162,16 @@ def invoke_lifecycle_hook(
     if not tool_slot:
         return
 
-    resolved = _resolve_inputs_map(inputs_map, normalized_inputs, execution_context)
+    resolved = resolve_inputs_map(inputs_map, normalized_inputs, execution_context)
 
     try:
-        backend_ref = _resolve_backend_ref(tool_slot)
-        if not backend_ref:
-            logger.warning(
-                f"Lifecycle hook '{hook_name}': tool_slot '{tool_slot}' not found "
-                f"in capability registry"
-            )
-            return
-
-        module_path, func_name = backend_ref.rsplit(":", 1)
-        mod = importlib.import_module(module_path)
-        func = getattr(mod, func_name)
-        func(**resolved)
+        invoke_tool_slot(tool_slot, resolved)
         logger.info(
             f"Lifecycle hook '{hook_name}' invoked: {tool_slot} "
             f"with {list(resolved.keys())}"
         )
+    except ValueError as e:
+        logger.warning(f"Lifecycle hook '{hook_name}' skipped (non-fatal): {e}")
     except Exception as e:
         logger.warning(f"Lifecycle hook '{hook_name}' failed (non-fatal): {e}")
 
@@ -166,32 +200,17 @@ async def async_invoke_lifecycle_hook(
     if not tool_slot:
         return
 
-    resolved = _resolve_inputs_map(
+    resolved = resolve_inputs_map(
         inputs_map, normalized_inputs, execution_context, step_outputs
     )
 
     try:
-        backend_ref = _resolve_backend_ref(tool_slot)
-        if not backend_ref:
-            logger.warning(
-                f"Lifecycle hook '{hook_name}': tool_slot '{tool_slot}' not found "
-                f"in capability registry"
-            )
-            return
-
-        module_path, func_name = backend_ref.rsplit(":", 1)
-        mod = importlib.import_module(module_path)
-        func = getattr(mod, func_name)
-
-        # Handle both sync and async functions
-        if inspect.iscoroutinefunction(func):
-            await func(**resolved)
-        else:
-            await asyncio.to_thread(func, **resolved)
-
+        await async_invoke_tool_slot(tool_slot, resolved)
         logger.info(
             f"Lifecycle hook '{hook_name}' invoked (async): {tool_slot} "
             f"with {list(resolved.keys())}"
         )
+    except ValueError as e:
+        logger.warning(f"Lifecycle hook '{hook_name}' skipped (non-fatal): {e}")
     except Exception as e:
         logger.warning(f"Lifecycle hook '{hook_name}' failed (non-fatal): {e}")

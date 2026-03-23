@@ -572,6 +572,7 @@ class DispatchOrchestrator:
                     action_item=action_item,
                     session=self.session,
                     profile_id=self.profile_id,
+                    project_id=self.project_id,
                 )
             except Exception as exc:
                 logger.warning(

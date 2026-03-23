@@ -737,6 +737,8 @@ class MeetingPromptsMixin:
 
         common += (
             f"Meeting session: {self.session.id}\n"
+            f"Workspace ID: {self.session.workspace_id}\n"
+            f"Project ID: {self.project_id or getattr(self.session, 'project_id', None) or '(none)'}\n"
             f"Round: {round_num}/{max(1, self.session.max_rounds)}\n"
             f"Agenda:\n{agenda_text}\n\n"
             f"User request:\n{user_message}\n\n"

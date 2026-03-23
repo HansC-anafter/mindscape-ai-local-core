@@ -1,7 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, Suspense } from 'react';
-import type { ExecutionStep, ToolCall, StepEvent, PlaybookStepDefinition, Artifact } from './types/execution';
+import type {
+  ExecutionStep,
+  ToolCall,
+  StepEvent,
+  PlaybookStepDefinition,
+  Artifact,
+  RemoteChildExecution,
+} from './types/execution';
 import { deriveAllSteps } from './utils/execution-inspector';
 import { getStepStatusColor, getEffectiveStepStatus } from './utils/execution-inspector';
 import { loadCapabilityUIComponent, artifactsMatchComponent } from '@/lib/capability-ui-loader';
@@ -16,6 +23,7 @@ export interface StepDetailPanelProps {
   stepEvents: StepEvent[];
   executionStatus?: string;
   artifacts?: Artifact[];
+  remoteChildExecutions?: RemoteChildExecution[];
   workspaceId?: string;
   apiUrl?: string;
   onViewArtifact?: (artifact: Artifact) => void;
@@ -31,6 +39,7 @@ export default function StepDetailPanel({
   stepEvents,
   executionStatus,
   artifacts = [],
+  remoteChildExecutions = [],
   workspaceId,
   apiUrl,
   onViewArtifact,
@@ -112,6 +121,26 @@ export default function StepDetailPanel({
   const executedStepsMap = new Map(steps.map(s => [s.step_index, s]));
   const currentStep = executedStepsMap.get(currentStepIndex) || allSteps.find(s => s.step_index === currentStepIndex)?.executed;
   const currentStepInfo = allSteps.find(s => s.step_index === currentStepIndex);
+  const currentStepNameCandidates = [
+    currentStepInfo?.step_name,
+    currentStep?.step_name,
+    currentStep?.id,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.trim().toLowerCase());
+  const relatedRemoteChildren = remoteChildExecutions.filter((child) => {
+    const workflowStepId = child.remote_execution_summary?.workflow_step_id;
+    if (!workflowStepId) {
+      return remoteChildExecutions.length === 1;
+    }
+    return currentStepNameCandidates.includes(workflowStepId.trim().toLowerCase());
+  });
+  const remoteChildrenToShow =
+    relatedRemoteChildren.length > 0
+      ? relatedRemoteChildren
+      : remoteChildExecutions.length === 1
+        ? remoteChildExecutions
+        : [];
 
   if (!currentStepInfo) {
     return (
@@ -154,6 +183,62 @@ export default function StepDetailPanel({
           </p>
         )}
       </div>
+
+      {remoteChildrenToShow.length > 0 && (
+        <div className="mb-3">
+          <h4 className="text-xs font-medium text-gray-900 dark:text-gray-100 mb-1.5">
+            Remote Execution
+          </h4>
+          <div className="space-y-2">
+            {remoteChildrenToShow.map((child) => {
+              const summary = child.remote_execution_summary;
+              if (!summary) return null;
+              return (
+                <div
+                  key={child.execution_id}
+                  className="rounded border border-blue-200 bg-blue-50/60 p-2 text-xs dark:border-blue-800 dark:bg-blue-950/20"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-blue-900 dark:text-blue-200">
+                      {summary.tool_name || child.playbook_code || child.execution_id}
+                    </span>
+                    {summary.target_device_id && (
+                      <span className="rounded bg-white/80 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                        VM {summary.target_device_id}
+                      </span>
+                    )}
+                    {summary.is_replay_attempt && (
+                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                        replay
+                      </span>
+                    )}
+                    {summary.is_superseded_by_replay && (
+                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                        superseded
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 space-y-0.5 text-gray-700 dark:text-gray-300">
+                    {summary.workflow_step_id && (
+                      <div>step: {summary.workflow_step_id}</div>
+                    )}
+                    <div>status: {child.status}</div>
+                    {summary.replay_of_execution_id && (
+                      <div>replay of: {summary.replay_of_execution_id}</div>
+                    )}
+                    {summary.latest_replay_execution_id && (
+                      <div>latest replay: {summary.latest_replay_execution_id}</div>
+                    )}
+                    {summary.lineage_root_execution_id && (
+                      <div>lineage root: {summary.lineage_root_execution_id}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Event Stream - Only show if there are events */}
       {stepEvents.length > 0 && (

@@ -23,9 +23,63 @@ from ...models.mindscape import MindEvent, EventType, EventActor
 from ...services.mindscape_store import MindscapeStore
 from ...services.stores.tasks_store import TasksStore
 from ...capabilities.core_llm.services.generate import run as generate_text
+from ...services.conversation.execution_chat_config import (
+    resolve_execution_chat_config,
+)
 from ...services.system_settings_store import SystemSettingsStore
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_execution_chat_speaker(
+    playbook_metadata: Optional[PlaybookMetadata] = None,
+) -> str:
+    """Resolve the assistant speaker label for execution chat."""
+    config = resolve_execution_chat_config(playbook_metadata)
+    if config.discussion_agent:
+        return config.discussion_agent
+    return "assistant"
+
+
+def persist_execution_chat_reply(
+    *,
+    execution_id: str,
+    ctx: LocalDomainContext,
+    assistant_content: str,
+    playbook_metadata: Optional[PlaybookMetadata] = None,
+    step_id: Optional[str] = None,
+    message_type: str = "question",
+    extra_metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Persist an assistant execution-chat message and return its view model."""
+    store = MindscapeStore()
+    metadata = {"is_execution_chat": True}
+    if isinstance(extra_metadata, dict):
+        metadata.update(extra_metadata)
+
+    assistant_event = MindEvent(
+        id=str(uuid.uuid4()),
+        timestamp=_utc_now(),
+        actor=EventActor.SYSTEM,
+        channel="workspace",
+        profile_id=ctx.actor_id,
+        workspace_id=ctx.workspace_id,
+        event_type=EventType.EXECUTION_CHAT,
+        payload={
+            "execution_id": execution_id,
+            "step_id": step_id,
+            "role": "assistant",
+            "speaker": resolve_execution_chat_speaker(playbook_metadata),
+            "content": assistant_content,
+            "message_type": message_type,
+        },
+        entity_ids=[execution_id] + ([step_id] if step_id else []),
+        metadata=metadata,
+    )
+
+    store.create_event(assistant_event)
+    assistant_message = ExecutionChatMessage.from_mind_event(assistant_event)
+    return {"message": assistant_message, "event": assistant_event}
 
 
 def detect_language_from_text(text: str) -> str:
@@ -178,7 +232,8 @@ def build_execution_chat_prompt(
     Returns:
         LLM prompt string
     """
-    agent_persona = discussion_agent or (playbook_metadata.discussion_agent if playbook_metadata else None) or "assistant"
+    config = resolve_execution_chat_config(playbook_metadata)
+    agent_persona = discussion_agent or config.discussion_agent or "assistant"
 
     prompt = f"""You are a {agent_persona} agent helping the driver (user) optimize and refine the current playbook execution.
 
@@ -276,7 +331,7 @@ async def generate_execution_chat_reply(
             execution_context=execution_context_str,
             execution_id=execution_id,
             playbook_metadata=playbook_metadata,
-            discussion_agent=playbook_metadata.discussion_agent if playbook_metadata else None
+            discussion_agent=resolve_execution_chat_config(playbook_metadata).discussion_agent
         )
 
         # Detect language from user message
@@ -293,40 +348,14 @@ async def generate_execution_chat_reply(
         # Extract text from result dict
         assistant_content = result.get("text", "")
 
-        # Create assistant message MindEvent (add profile_id)
-        assistant_event = MindEvent(
-            id=str(uuid.uuid4()),
-            timestamp=_utc_now(),
-            actor=EventActor.SYSTEM,
-            channel="workspace",
-            profile_id=ctx.actor_id,  # ⭐ Add profile_id (required by MindEvent)
-            workspace_id=ctx.workspace_id,
-            event_type=EventType.EXECUTION_CHAT,
-            payload={
-                "execution_id": execution_id,
-                "step_id": None,  # Can be set based on current step
-                "role": "assistant",
-                "speaker": playbook_metadata.discussion_agent if playbook_metadata and playbook_metadata.discussion_agent else "assistant",
-                "content": assistant_content,
-                "message_type": "question",  # Or determine based on content
-            },
-            entity_ids=[execution_id],
-            metadata={
-                "is_execution_chat": True
-            }
+        return persist_execution_chat_reply(
+            execution_id=execution_id,
+            ctx=ctx,
+            assistant_content=assistant_content,
+            playbook_metadata=playbook_metadata,
+            message_type="question",
         )
-
-        # Save and return
-        store.create_event(assistant_event)
-
-        assistant_message = ExecutionChatMessage.from_mind_event(assistant_event)
-
-        return {
-            "message": assistant_message,
-            "event": assistant_event
-        }
 
     except Exception as e:
         logger.error(f"Failed to generate execution chat reply: {e}", exc_info=True)
         raise
-

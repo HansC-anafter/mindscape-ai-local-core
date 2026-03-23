@@ -53,12 +53,23 @@ class PlaybookDatabaseLoader(PostgresStoreBase):
                 name=row.get("name") or "",
                 description=row.get("description") or "",
                 tags=cls._deserialize_json(row.get("tags"), []),
+                supports_execution_chat=bool(row.get("supports_execution_chat", False)),
+                execution_chat_mode=row.get("execution_chat_mode") or "discussion",
+                execution_chat_tool_groups=cls._deserialize_json(
+                    row.get("execution_chat_tool_groups"), []
+                ),
+                execution_chat_max_tool_iterations=row.get(
+                    "execution_chat_max_tool_iterations"
+                )
+                or 5,
+                discussion_agent=row.get("discussion_agent"),
                 entry_agent_type=row.get("entry_agent_type"),
                 onboarding_task=row.get("onboarding_task"),
                 icon=row.get("icon"),
                 required_tools=cls._deserialize_json(row.get("required_tools"), []),
                 scope=cls._deserialize_json(row.get("scope"), None),
                 owner=cls._deserialize_json(row.get("owner"), None),
+                x_platform=cls._deserialize_json(row.get("x_platform"), None),
                 created_at=cls._to_datetime(row.get("created_at")),
                 updated_at=cls._to_datetime(row.get("updated_at")),
             ),

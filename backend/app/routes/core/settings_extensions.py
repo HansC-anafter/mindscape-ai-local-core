@@ -15,6 +15,7 @@ from sqlalchemy import text
 
 from backend.app.database.session import get_db_postgres as get_db
 from backend.app.models.runtime_environment import RuntimeEnvironment
+from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def get_installed_capabilities() -> List[str]:
         return []
 
     for cap_dir in caps_dir.iterdir():
-        if not cap_dir.is_dir() or cap_dir.name.startswith("_"):
+        if not cap_dir.is_dir() or is_ignored_runtime_pack_dir(cap_dir.name):
             continue
         manifest_path = cap_dir / "manifest.yaml"
         if manifest_path.exists():

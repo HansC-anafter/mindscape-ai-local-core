@@ -10,6 +10,10 @@ from sqlalchemy import text
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
+from backend.app.services.task_admission_service import (
+    ADMISSION_DEFERRED_REASON,
+    TASK_ADMISSION_SERVICE,
+)
 
 from backend.app.runner.concurrency import _resolve_lock_keys
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
@@ -325,11 +329,19 @@ async def _reap_redis_queues(
             except Exception as e:
                 logger.error(f"Failed to recycle visibility task {task_id}: {e}")
 
+        ready_depth = await client.llen(redis_queue.q_pending)
+        release_limit = max(0, ready_target - ready_depth)
+        released_count = await _release_admission_deferred_tasks(
+            tasks_store,
+            redis_queue,
+            release_limit=release_limit,
+        )
+        ready_depth += released_count
+
         # 3. DB Bridge Sync (Eventual Consistency Repair)
         #    Keep only a bounded ready frontier in Redis. Do not materialize
         #    the full runnable backlog into the hot queue.
         try:
-            ready_depth = await client.llen(redis_queue.q_pending)
             refill_limit = max(0, ready_target - ready_depth)
             if refill_limit <= 0:
                 return
@@ -390,3 +402,90 @@ async def _reap_redis_queues(
 
     except Exception as e:
         logger.error(f"Failed to reap Redis queues: {e}", exc_info=True)
+
+
+async def _release_admission_deferred_tasks(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    release_limit: int,
+) -> int:
+    if release_limit <= 0:
+        return 0
+
+    due_tasks = await asyncio.to_thread(
+        tasks_store.list_due_admission_deferred_tasks,
+        queue_shard=redis_queue.pack_id,
+        limit=max(release_limit * 4, release_limit),
+    )
+    if not due_tasks:
+        return 0
+
+    client = await redis_queue._get_client()
+    if not client:
+        return 0
+
+    now = _utc_now()
+    released_task_ids: list[str] = []
+
+    for task in due_tasks:
+        if len(released_task_ids) >= release_limit:
+            break
+
+        try:
+            decision = await asyncio.to_thread(
+                TASK_ADMISSION_SERVICE.evaluate_on_release,
+                tasks_store,
+                task,
+            )
+            if decision.allow:
+                await asyncio.to_thread(
+                    tasks_store.update_task,
+                    task.id,
+                    execution_context=decision.execution_context,
+                    next_eligible_at=now,
+                    blocked_reason=None,
+                    blocked_payload=None,
+                    queue_shard=decision.queue_shard or redis_queue.pack_id,
+                    frontier_state="ready",
+                    frontier_enqueued_at=now,
+                )
+                released_task_ids.append(task.id)
+                continue
+
+            await asyncio.to_thread(
+                tasks_store.update_task,
+                task.id,
+                execution_context=decision.execution_context,
+                next_eligible_at=decision.next_eligible_at,
+                blocked_reason=ADMISSION_DEFERRED_REASON,
+                blocked_payload=decision.blocked_payload,
+                queue_shard=decision.queue_shard or redis_queue.pack_id,
+                frontier_state="cold",
+                frontier_enqueued_at=None,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[Admission] Failed to evaluate deferred task %s on shard %s: %s",
+                getattr(task, "id", None),
+                redis_queue.pack_id,
+                exc,
+            )
+
+    if not released_task_ids:
+        return 0
+
+    try:
+        pipe = client.pipeline()
+        for task_id in released_task_ids:
+            pipe.lpush(redis_queue.q_pending, task_id)
+        await pipe.execute()
+    except Exception as exc:
+        logger.warning(
+            "[Admission] Failed to enqueue %d released task(s) for shard %s: %s",
+            len(released_task_ids),
+            redis_queue.pack_id,
+            exc,
+        )
+
+    return len(released_task_ids)

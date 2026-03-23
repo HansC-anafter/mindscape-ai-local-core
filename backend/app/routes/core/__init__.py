@@ -1,23 +1,7 @@
 """
-Core routes module
+Core routes package.
 
-Layer 0: Kernel routes that must be hardcoded in the core system.
-These routes provide the fundamental OS-level functionality.
+Keep this module import-light. Importing concrete route modules here eagerly
+pulls large parts of the backend service graph into any caller that only needs
+one submodule, which can block app startup.
 """
-
-from . import (
-    agents,
-    workspace,
-    playbook,
-    playbook_execution,
-    config,
-    system_settings,
-    tools,
-    vector_db,
-    vector_search,
-    capability_packs,
-    capability_suites,
-    sandbox,
-    deployment,
-    blueprint,
-)

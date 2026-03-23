@@ -184,7 +184,13 @@ async def _backfill_pending_to_redis(
         logger.warning(f"[Backfill] Failed: {e}", exc_info=True)
 
 
-def _resolve_task_queue_shard(pack_id: str) -> str:
+def _resolve_task_queue_shard(
+    pack_id: str, task_ctx: Optional[dict] = None
+) -> str:
+    if isinstance(task_ctx, dict):
+        explicit_queue_shard = task_ctx.get("queue_shard")
+        if isinstance(explicit_queue_shard, str) and explicit_queue_shard.strip():
+            return explicit_queue_shard.strip()
     return _RUNNER_READY_SHARDS.get(pack_id, "default")
 
 
@@ -311,7 +317,9 @@ def _build_parked_task_update(
         "blocked_payload": blocked_payload or None,
         "frontier_state": "cold",
         "frontier_enqueued_at": None,
-        "queue_shard": _resolve_task_queue_shard(ctx2.get("playbook_code") or ""),
+        "queue_shard": _resolve_task_queue_shard(
+            ctx2.get("playbook_code") or "", ctx2
+        ),
     }
 
 
@@ -525,7 +533,7 @@ async def run_forever() -> None:
                     dependency_hold=dep_hold,
                 )
                 parked_update["queue_shard"] = _resolve_task_queue_shard(
-                    t_data.pack_id
+                    t_data.pack_id, lock_ctx
                 )
                 await asyncio.to_thread(
                     tasks_store.update_task,
@@ -565,7 +573,7 @@ async def run_forever() -> None:
                         conflicting_lock_key=conflicting_key,
                     )
                     parked_update["queue_shard"] = _resolve_task_queue_shard(
-                        t_data.pack_id
+                        t_data.pack_id, lock_ctx
                     )
                     await asyncio.to_thread(
                         tasks_store.update_task,

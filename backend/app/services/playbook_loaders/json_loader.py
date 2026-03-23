@@ -17,6 +17,33 @@ class PlaybookJsonLoader:
     """Loads playbook.json files"""
 
     @staticmethod
+    def _build_capability_spec_paths(
+        base_dir: Path,
+        playbook_code: str,
+        capability_code: Optional[str] = None,
+    ) -> list[Path]:
+        """Return candidate capability spec paths for a playbook code."""
+        capability_roots = [
+            base_dir / "app" / "capabilities",
+            Path("data") / "capabilities",
+        ]
+        paths: list[Path] = []
+
+        for root in capability_roots:
+            if capability_code:
+                paths.append(
+                    root / capability_code / "playbooks" / "specs" / f"{playbook_code}.json"
+                )
+                continue
+
+            if not root.exists():
+                continue
+            for spec_path in sorted(root.glob(f"*/playbooks/specs/{playbook_code}.json")):
+                paths.append(spec_path)
+
+        return paths
+
+    @staticmethod
     def load_playbook_json(playbook_code: str, capability_code: Optional[str] = None) -> Optional[PlaybookJson]:
         """
         Load playbook.json file for a given playbook code
@@ -110,6 +137,13 @@ class PlaybookJsonLoader:
             possible_paths.append(
                 base_dir / "i18n" / "playbooks" / locale / f"{playbook_code}.json"
             )
+        possible_paths.extend(
+            PlaybookJsonLoader._build_capability_spec_paths(
+                base_dir=base_dir,
+                playbook_code=playbook_code,
+                capability_code=capability_code,
+            )
+        )
 
         for playbook_json_path in possible_paths:
             if playbook_json_path.exists():
@@ -167,4 +201,3 @@ class PlaybookJsonLoader:
         except Exception as e:
             logger.error(f"Failed to save playbook.json for {playbook_code} to {save_path}: {e}")
             return False
-

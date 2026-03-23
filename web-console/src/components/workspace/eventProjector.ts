@@ -583,12 +583,45 @@ interface SharedStream {
   eventSource: EventSource;
   subscribers: Set<StreamSubscriber>;
   url: string;
+  key: string;
 }
 
 const sharedStreams = new Map<string, SharedStream>();
 
+function stripTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function resolveEventStreamBaseUrl(apiUrl: string): string {
+  const explicit = apiUrl.trim();
+  if (explicit) {
+    return stripTrailingSlash(explicit);
+  }
+
+  const configuredDirectUrl = (
+    process.env.NEXT_PUBLIC_LOCAL_CORE_API_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    ''
+  ).trim();
+  if (configuredDirectUrl.startsWith('http')) {
+    return stripTrailingSlash(configuredDirectUrl);
+  }
+
+  const fallback = getApiBaseUrl().trim();
+  if (fallback) {
+    return stripTrailingSlash(fallback);
+  }
+
+  if (typeof window !== 'undefined') {
+    return stripTrailingSlash(window.location.origin);
+  }
+
+  return 'http://localhost:8200';
+}
+
 function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
-  const key = `${apiUrl}::${workspaceId}`;
+  const baseUrl = resolveEventStreamBaseUrl(apiUrl);
+  const key = `${baseUrl}::${workspaceId}`;
   const existing = sharedStreams.get(key);
   if (existing && existing.eventSource.readyState !== EventSource.CLOSED) {
     return existing;
@@ -600,14 +633,13 @@ function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
   }
 
   // SSE requires direct backend connection; Next.js rewrites buffer chunked responses.
-  const baseUrl = apiUrl || getApiBaseUrl();
   // Subscribe to ALL event types; client-side filtering per subscriber
   const url = `${baseUrl}/api/v1/workspaces/${workspaceId}/events/stream`;
 
   console.log('[EventStream] Opening shared connection:', url);
 
   const eventSource = new EventSource(url);
-  const stream: SharedStream = { eventSource, subscribers: new Set(), url };
+  const stream: SharedStream = { eventSource, subscribers: new Set(), url, key };
 
   const dispatch = (data: any) => {
     if (data.type === 'connected' || data.type === 'error') {
@@ -776,9 +808,8 @@ export function subscribeEventStream(
 
     // If no subscribers remain, close the shared connection
     if (stream.subscribers.size === 0) {
-      const key = `${apiUrl}::${workspaceId}`;
       stream.eventSource.close();
-      sharedStreams.delete(key);
+      sharedStreams.delete(stream.key);
       console.log('[EventStream] Closed shared connection (no subscribers):', stream.url);
     }
   };

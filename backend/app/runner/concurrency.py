@@ -7,7 +7,12 @@ from typing import Any, Dict, Optional, List
 
 
 _PLAYBOOK_INPUT_LOCK_PACKS = {
+    "ig_analyze_following",
     "ig_batch_pin_references",
+}
+
+_LEGACY_PROFILE_ALIAS_PACKS = {
+    "ig_analyze_following",
 }
 
 
@@ -26,6 +31,22 @@ def _is_ig_playbook(playbook_code: str) -> bool:
     """DEPRECATED: Legacy IG playbook detection. Retained for lock key fallback only."""
     code = (playbook_code or "").strip().lower()
     return code.startswith("ig_") or code.startswith("ig.")
+
+
+def _normalize_lock_scope(
+    pack_id: str,
+    lock_scope: Optional[str],
+    lock_key_input: Optional[str],
+) -> str:
+    """Normalize concurrency scope for packs migrating to playbook-scoped profile locks."""
+    normalized_scope = (lock_scope or "input").strip().lower()
+    if (
+        normalized_scope == "input"
+        and lock_key_input == "user_data_dir"
+        and pack_id in _PLAYBOOK_INPUT_LOCK_PACKS
+    ):
+        return "playbook_input"
+    return normalized_scope
 
 
 def _resolve_lock_key(
@@ -52,17 +73,15 @@ def _resolve_lock_key(
     concurrency = task_ctx.get("concurrency")
     if isinstance(concurrency, dict):
         lock_key_input = concurrency.get("lock_key_input")
-        lock_scope = concurrency.get("lock_scope", "input")
+        lock_scope = _normalize_lock_scope(
+            pack_id,
+            concurrency.get("lock_scope", "input"),
+            lock_key_input,
+        )
         if lock_key_input and lock_scope in ("input", "playbook_input"):
             val = inputs.get(lock_key_input)
             if isinstance(val, str) and val.strip():
-                if (
-                    lock_scope == "playbook_input"
-                    or (
-                        pack_id in _PLAYBOOK_INPUT_LOCK_PACKS
-                        and lock_key_input == "user_data_dir"
-                    )
-                ):
+                if lock_scope == "playbook_input":
                     return (
                         f"concurrency:playbook_input:{pack_id}:{val.strip()}"
                     )
@@ -95,9 +114,11 @@ def _resolve_lock_keys(
     """Resolve the primary concurrency key plus backward-compatible aliases.
 
     During the IG lock migration, older tasks may still hold the legacy
-    ``ig_profile:<user_data_dir>`` key while newer tasks use the explicit
-    ``concurrency:user_data_dir:<user_data_dir>`` key. Treat both as the same
-    logical mutex so same-profile runs cannot bypass each other.
+    ``ig_profile:<user_data_dir>`` key while newer tasks may use either the
+    explicit ``concurrency:user_data_dir:<user_data_dir>`` key or the
+    playbook-scoped ``concurrency:playbook_input:<pack_id>:<user_data_dir>``
+    key. Treat all of these as the same logical mutex during migration so
+    same-profile runs cannot bypass each other.
     """
     primary = _resolve_lock_key(task_ctx, pack_id)
     if not primary:
@@ -105,14 +126,18 @@ def _resolve_lock_keys(
 
     keys: list[str] = [primary]
 
+    profile_ref: Optional[str] = None
+    playbook_prefix = f"concurrency:playbook_input:{pack_id}:"
     if primary.startswith("concurrency:user_data_dir:"):
         profile_ref = primary[len("concurrency:user_data_dir:") :]
-        if profile_ref:
-            keys.append(f"ig_profile:{profile_ref}")
     elif primary.startswith("ig_profile:"):
         profile_ref = primary[len("ig_profile:") :]
-        if profile_ref:
-            keys.append(f"concurrency:user_data_dir:{profile_ref}")
+    elif primary.startswith(playbook_prefix):
+        profile_ref = primary[len(playbook_prefix) :]
+
+    if profile_ref and pack_id in _LEGACY_PROFILE_ALIAS_PACKS:
+        keys.append(f"concurrency:user_data_dir:{profile_ref}")
+        keys.append(f"ig_profile:{profile_ref}")
 
     deduped: list[str] = []
     seen = set()

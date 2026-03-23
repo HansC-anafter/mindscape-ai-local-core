@@ -30,6 +30,8 @@ def check_dispatch_policy(
     workspace_data_sources: Optional[Dict[str, Any]] = None,
     contract_gate_mode: str = AUTO_GATE_MODE,
     session_metadata: Optional[Dict[str, Any]] = None,
+    meeting_session_id: Optional[str] = None,
+    project_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run policy checks on action items before dispatch.
 
@@ -184,6 +186,8 @@ def check_dispatch_policy(
             workspace_id=workspace_id,
             playbook_spec=playbook_spec,
             request_contract=request_contract,
+            meeting_session_id=meeting_session_id,
+            project_id=project_id,
         )
 
         warnings: List[Dict[str, Any]] = []
@@ -455,6 +459,8 @@ def _build_contract_payload(
     workspace_id: str,
     playbook_spec: Optional[Dict[str, Any]],
     request_contract: Optional[Dict[str, Any]],
+    meeting_session_id: Optional[str],
+    project_id: Optional[str],
 ) -> Dict[str, Any]:
     """Build the effective payload shape seen by contract validation."""
     payload = {}
@@ -473,6 +479,10 @@ def _build_contract_payload(
     resolved_workspace_id = item.get("target_workspace_id") or workspace_id
     if resolved_workspace_id and "workspace_id" not in payload:
         payload["workspace_id"] = resolved_workspace_id
+    if meeting_session_id and "meeting_session_id" not in payload:
+        payload["meeting_session_id"] = meeting_session_id
+    if project_id and "project_id" not in payload:
+        payload["project_id"] = project_id
 
     for gov_field in GOVERNANCE_PAYLOAD_FIELDS:
         if gov_field in item and item[gov_field] is not None and gov_field not in payload:

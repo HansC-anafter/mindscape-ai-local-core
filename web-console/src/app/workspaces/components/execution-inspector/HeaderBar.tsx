@@ -2,7 +2,11 @@
 
 import React from 'react';
 import ExecutionHeader from '../ExecutionHeader';
-import type { ExecutionSession, ExecutionStats } from './types/execution';
+import type {
+  ExecutionSession,
+  ExecutionStats,
+  RemoteExecutionAggregate,
+} from './types/execution';
 
 export interface HeaderBarProps {
   execution: ExecutionSession;
@@ -13,6 +17,7 @@ export interface HeaderBarProps {
   stats?: ExecutionStats;
   totalSteps: number;
   sandboxId: string | null;
+  remoteExecutionAggregate?: RemoteExecutionAggregate;
   isStopping: boolean;
   isReloading: boolean;
   onStop?: () => void;
@@ -31,6 +36,7 @@ export default function HeaderBar({
   stats,
   totalSteps,
   sandboxId,
+  remoteExecutionAggregate,
   isStopping,
   isReloading,
   onStop,
@@ -53,6 +59,7 @@ export default function HeaderBar({
             projectName={projectName}
             executionRunNumber={executionRunNumber}
             stats={stats}
+            remoteExecutionAggregate={remoteExecutionAggregate}
             onRetry={execution.status === 'failed' ? () => {
               // TODO: Implement retry functionality
             } : undefined}

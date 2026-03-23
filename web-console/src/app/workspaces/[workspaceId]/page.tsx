@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import WorkspaceChat from '../../../components/WorkspaceChat';
 import ExecutionInspector from '../components/ExecutionInspector';
@@ -80,25 +80,6 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
   // Workspace loading is handled by WorkspaceDataContext
   const loadWorkspace = contextData.refreshWorkspace;
-
-  // Listen for open-execution-inspector event - navigate to dedicated execution page
-  useEffect(() => {
-    const handleOpenExecutionInspector = (event: CustomEvent) => {
-      const { executionId, workspaceId: eventWorkspaceId } = event.detail;
-      // Only handle events for current workspace
-      if (executionId && (!eventWorkspaceId || eventWorkspaceId === workspaceId)) {
-        // Navigate to dedicated execution page
-        const executionUrl = `/workspaces/${workspaceId}/executions/${executionId}`;
-        console.log('[WorkspacePage] Navigating to execution page:', executionUrl);
-        router.push(executionUrl);
-      }
-    };
-
-    window.addEventListener('open-execution-inspector', handleOpenExecutionInspector as EventListener);
-    return () => {
-      window.removeEventListener('open-execution-inspector', handleOpenExecutionInspector as EventListener);
-    };
-  }, [workspaceId, router]);
 
   if (loading) {
     return (

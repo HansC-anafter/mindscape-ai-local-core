@@ -18,6 +18,19 @@ class PlaybookFileLoader:
     """Loads playbooks from file system"""
 
     @staticmethod
+    def _extract_x_platform(frontmatter: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Extract platform overlay config from frontmatter."""
+        x_platform = frontmatter.get("x_platform")
+        if isinstance(x_platform, dict):
+            return x_platform
+
+        x_local_core = frontmatter.get("x_local_core")
+        if isinstance(x_local_core, dict):
+            return {"local_core": x_local_core}
+
+        return None
+
+    @staticmethod
     def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
         """
         Parse YAML frontmatter from Markdown content
@@ -95,6 +108,11 @@ class PlaybookFileLoader:
                 tags=frontmatter.get('tags', []),
                 kind=kind,
                 language_strategy=frontmatter.get('language_strategy', 'model_native'),
+                supports_execution_chat=frontmatter.get('supports_execution_chat', False),
+                execution_chat_mode=frontmatter.get('execution_chat_mode', 'discussion'),
+                execution_chat_tool_groups=frontmatter.get('execution_chat_tool_groups', []),
+                execution_chat_max_tool_iterations=frontmatter.get('execution_chat_max_tool_iterations', 5),
+                discussion_agent=frontmatter.get('discussion_agent'),
                 entry_agent_type=frontmatter.get('entry_agent_type'),
                 onboarding_task=frontmatter.get('onboarding_task'),
                 icon=frontmatter.get('icon'),
@@ -106,6 +124,7 @@ class PlaybookFileLoader:
                 runtime_tier=frontmatter.get('runtime_tier'),
                 runtime=frontmatter.get('runtime'),
                 capability_code=frontmatter.get('capability_code'),
+                x_platform=PlaybookFileLoader._extract_x_platform(frontmatter),
             )
 
             playbook = Playbook(
@@ -172,6 +191,11 @@ class PlaybookFileLoader:
                 tags=frontmatter.get('tags', []),
                 kind=kind,
                 language_strategy=frontmatter.get('language_strategy', 'model_native'),
+                supports_execution_chat=frontmatter.get('supports_execution_chat', False),
+                execution_chat_mode=frontmatter.get('execution_chat_mode', 'discussion'),
+                execution_chat_tool_groups=frontmatter.get('execution_chat_tool_groups', []),
+                execution_chat_max_tool_iterations=frontmatter.get('execution_chat_max_tool_iterations', 5),
+                discussion_agent=frontmatter.get('discussion_agent'),
                 entry_agent_type=frontmatter.get('entry_agent_type'),
                 onboarding_task=frontmatter.get('onboarding_task'),
                 icon=frontmatter.get('icon'),
@@ -183,6 +207,7 @@ class PlaybookFileLoader:
                 runtime_tier=frontmatter.get('runtime_tier'),
                 runtime=frontmatter.get('runtime'),
                 capability_code=frontmatter.get('capability_code'),
+                x_platform=PlaybookFileLoader._extract_x_platform(frontmatter),
             )
 
             playbook = Playbook(
@@ -195,4 +220,3 @@ class PlaybookFileLoader:
         except Exception as e:
             logger.error(f"Failed to load playbook from content: {e}")
             return None
-

@@ -3,6 +3,7 @@ Playbook Tool Executor Facade
 Orchestrates the detached pipeline components (Normalization, Policy, Events, Loop)
 """
 import logging
+import uuid
 from typing import Dict, List, Optional, Any, Callable, Awaitable, Tuple
 
 from backend.app.shared.tool_executor import execute_tool as shared_execute_tool

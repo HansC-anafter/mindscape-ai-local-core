@@ -9,6 +9,7 @@ import { useExecutionSteps } from './execution-inspector/hooks/useExecutionSteps
 import { usePlaybookMetadata } from './execution-inspector/hooks/usePlaybookMetadata';
 import { useWorkflowData } from './execution-inspector/hooks/useWorkflowData';
 import { useExecutionActions } from './execution-inspector/hooks/useExecutionActions';
+import { useRemoteChildExecutions } from './execution-inspector/hooks/useRemoteChildExecutions';
 import { calculateTotalSteps, extractArtifacts } from './execution-inspector/utils/execution-inspector';
 import HeaderBar from './execution-inspector/HeaderBar';
 import SummaryBar from './execution-inspector/SummaryBar';
@@ -47,6 +48,11 @@ export default function ExecutionInspector({
     apiUrl
   );
   const workflowData = useWorkflowData(executionId, workspaceId, apiUrl);
+  const remoteChildExecutions = useRemoteChildExecutions(
+    executionId,
+    workspaceId,
+    apiUrl
+  );
 
   // Stable callbacks for actions
   const handleStepIndexUpdate = useCallback((stepIndex: number) => {
@@ -216,7 +222,10 @@ export default function ExecutionInspector({
   }, []);
 
   const loading = executionCore.loading || executionSteps.loading || playbookMetadata.loading;
-  const showExecutionChat = !!playbookMetadata.playbookMetadata?.supports_execution_chat;
+  const showExecutionChat = Boolean(
+    playbookMetadata.playbookMetadata?.supports_execution_chat ??
+      playbookMetadata.playbookMetadata?.metadata?.supports_execution_chat
+  );
   const showRightSidebar = showExecutionChat; // Only show right sidebar for execution chat, artifacts are shown in StepDetailPanel below
 
   return (
@@ -232,6 +241,7 @@ export default function ExecutionInspector({
           stats={executionCore.executionStats}
           totalSteps={totalSteps}
           sandboxId={executionCore.sandboxId}
+          remoteExecutionAggregate={remoteChildExecutions.aggregate}
           isStopping={actions.isStopping}
           isReloading={actions.isReloading}
           onStop={actions.cancelExecution}
@@ -304,6 +314,7 @@ export default function ExecutionInspector({
                         stepEvents={executionSteps.stepEvents}
                         executionStatus={executionCore.execution?.status}
                         artifacts={currentStepArtifacts}
+                        remoteChildExecutions={remoteChildExecutions.remoteChildren}
                         workspaceId={workspaceId}
                         onViewArtifact={handleArtifactView}
                         t={t as any}

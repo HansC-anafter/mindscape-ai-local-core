@@ -4,7 +4,7 @@ import json
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 
 from fastapi import (
     APIRouter,
@@ -27,6 +27,15 @@ from ....models.workspace import (
     TaskFeedbackReasonCode,
 )
 from ....services.task_status_fix import TaskStatusFixService
+from ....services.remote_step_resend_service import (
+    extract_remote_step_resend_payload,
+    resend_remote_workflow_step_child_task,
+)
+from ....services.task_execution_projection import (
+    build_execution_group_summary,
+    project_execution_for_api,
+)
+from ..execution_dispatch import get_or_create_cloud_connector
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -109,6 +118,22 @@ def _build_terminal_payload(task_obj: Any) -> str:
             "execution_context": ctx,
         }
     )
+
+
+def _build_admission_state(task_obj: Any, ctx: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    blocked_reason = getattr(task_obj, "blocked_reason", None)
+    if blocked_reason != "admission_deferred":
+        return None
+
+    admission_ctx = ctx.get("admission") if isinstance(ctx.get("admission"), dict) else {}
+    return {
+        "state": "deferred",
+        "reason": admission_ctx.get("reason"),
+        "defer_until": admission_ctx.get("defer_until"),
+        "visibility": admission_ctx.get("visibility"),
+        "producer_kind": admission_ctx.get("producer_kind"),
+        "queue_shard": admission_ctx.get("queue_shard") or getattr(task_obj, "queue_shard", None),
+    }
 
 
 async def _execution_stream_poller(
@@ -213,6 +238,13 @@ async def _execution_stream_poller(
                 "progress": progress,
                 "queue_position": _QUEUE_CACHE.get_position(tasks_store, task),
                 "queue_total": _QUEUE_CACHE.get_total(task.queue_shard or "default"),
+                "blocked_reason": task.blocked_reason,
+                "blocked_payload": task.blocked_payload,
+                "frontier_state": task.frontier_state,
+                "next_eligible_at": (
+                    task.next_eligible_at.isoformat() if task.next_eligible_at else None
+                ),
+                "admission_state": _build_admission_state(task, ctx),
                 "dependency_hold": ctx.get("dependency_hold"),
                 "heartbeat_at": ctx.get("heartbeat_at"),
                 "runner_id": ctx.get("runner_id"),
@@ -341,6 +373,10 @@ async def get_workspace_executions(
     playbook_code: Optional[str] = Query(
         None, description="Filter by exact playbook code"
     ),
+    parent_execution_id: Optional[str] = Query(
+        None,
+        description="Filter child executions by exact parent execution ID",
+    ),
     order_by: str = Query("created_at", description="Field to order by"),
     order: str = Query("desc", description="Sort order: asc or desc"),
     include_execution_context: bool = Query(
@@ -406,6 +442,10 @@ async def get_workspace_executions(
             query_parts.append("AND pack_id LIKE :pack_prefix")
             params["pack_prefix"] = f"{playbook_code_prefix}%"
 
+        if parent_execution_id:
+            query_parts.append("AND parent_execution_id = :parent_execution_id")
+            params["parent_execution_id"] = parent_execution_id
+
         # Active executions must sort ahead of older completed history even when
         # the response is grouped by parent, otherwise live runs disappear from
         # the top-card data source once newer pending child tasks arrive.
@@ -427,15 +467,16 @@ async def get_workspace_executions(
         # Enrich with fields the UI expects (RunLogCard reads playbook_code, not pack_id)
         executions = []
         for task in tasks:
-            d = task.model_dump()
-            d["playbook_code"] = d.get("pack_id") or (
-                d.get("execution_context") or {}
-            ).get("playbook_code")
-            d["execution_id"] = d.get("execution_id") or d.get("id")
-            d["queue_position"] = _QUEUE_CACHE.get_position(tasks_store, task)
-            d["queue_total"] = _QUEUE_CACHE.get_total(d.get("queue_shard") or "default")
-            d["parent_execution_id"] = d.get("parent_execution_id")
-            executions.append(d)
+            task_payload = task.model_dump()
+            executions.append(
+                project_execution_for_api(
+                    task_payload,
+                    queue_position=_QUEUE_CACHE.get_position(tasks_store, task),
+                    queue_total=_QUEUE_CACHE.get_total(
+                        task_payload.get("queue_shard") or "default"
+                    ),
+                )
+            )
 
         if group_by_parent:
             groups = {}
@@ -449,17 +490,10 @@ async def get_workspace_executions(
             
             group_summaries = []
             for pid, tasks_list in groups.items():
-                statuses = [t.get("status", "") for t in tasks_list]
                 group_summaries.append({
                     "parent_execution_id": pid,
                     "tasks": tasks_list,
-                    "summary": {
-                        "total": len(tasks_list),
-                        "succeeded": sum(1 for s in statuses if s in ("succeeded", "completed")),
-                        "failed": sum(1 for s in statuses if s == "failed"),
-                        "running": sum(1 for s in statuses if s == "running"),
-                        "pending": sum(1 for s in statuses if s == "pending"),
-                    }
+                    "summary": build_execution_group_summary(tasks_list),
                 })
             return {"groups": group_summaries, "ungrouped": ungrouped}
 
@@ -573,6 +607,13 @@ async def get_execution_progress_snapshot(
             "progress": progress if isinstance(progress, dict) else None,
             "queue_position": _QUEUE_CACHE.get_position(tasks_store, task),
             "queue_total": _QUEUE_CACHE.get_total(task.queue_shard or "default"),
+            "blocked_reason": task.blocked_reason,
+            "blocked_payload": task.blocked_payload,
+            "frontier_state": task.frontier_state,
+            "next_eligible_at": (
+                task.next_eligible_at.isoformat() if task.next_eligible_at else None
+            ),
+            "admission_state": _build_admission_state(task, ctx),
             "artifact_metadata": artifact_metadata,
             "content_metadata": content_metadata,
             "execution_context": {
@@ -581,6 +622,12 @@ async def get_execution_progress_snapshot(
                 "execution_backend_hint": ctx.get("execution_backend_hint"),
                 "inputs": ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {},
                 "dependency_hold": ctx.get("dependency_hold"),
+                "admission_policy": (
+                    ctx.get("admission_policy")
+                    if isinstance(ctx.get("admission_policy"), dict)
+                    else None
+                ),
+                "admission": ctx.get("admission") if isinstance(ctx.get("admission"), dict) else None,
             },
         }
     except HTTPException:
@@ -648,6 +695,15 @@ class RejectTaskRequest(BaseModel):
     reason_code: Optional[str] = Field(None, description="Rejection reason code")
     comment: Optional[str] = Field(
         None, description="Optional comment explaining rejection"
+    )
+
+
+class ResendRemoteStepTaskRequest(BaseModel):
+    """Request model for resending a remote workflow step child task."""
+
+    target_device_id: Optional[str] = Field(
+        None,
+        description="Optional override target GPU VM / executor device ID",
     )
 
 
@@ -730,6 +786,46 @@ async def cancel_task(
     except Exception as e:
         logger.error(f"Failed to cancel task: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{workspace_id}/tasks/{task_id}/resend-remote-step")
+async def resend_remote_step_task(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    task_id: str = PathParam(..., description="Task ID"),
+    request: Optional[ResendRemoteStepTaskRequest] = Body(None),
+):
+    """Resend a remote workflow-step child task using its stored request payload."""
+    try:
+        tasks_store = TasksStore()
+        task = tasks_store.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if task.workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=403, detail="Task does not belong to this workspace"
+            )
+
+        extract_remote_step_resend_payload(task, workspace_id=workspace_id)
+        connector = get_or_create_cloud_connector()
+        if connector is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Cloud Connector not available for remote step resend",
+            )
+        return await resend_remote_workflow_step_child_task(
+            task=task,
+            workspace_id=workspace_id,
+            connector=connector,
+            target_device_id=request.target_device_id if request else None,
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        status_code = 503 if "Cloud Connector" in str(e) else 409
+        raise HTTPException(status_code=status_code, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to resend remote step task: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Cloud dispatch failed: {e}")
 
 
 @router.post("/{workspace_id}/fix-task-status")

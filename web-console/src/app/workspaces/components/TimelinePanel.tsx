@@ -11,6 +11,7 @@ import ArchivedTimelineItem from './ArchivedTimelineItem';
 import ExecutionInspector from './ExecutionInspector';
 import OutcomesPanel from '../[workspaceId]/components/OutcomesPanel';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
+import { useRouter } from 'next/navigation';
 
 // Fade-in blink animation styles
 const fadeInBlinkStyle = `
@@ -138,6 +139,7 @@ export default function TimelinePanel({
   showArchivedOnly = false,
   onArtifactClick
 }: TimelinePanelProps) {
+  const router = useRouter();
   // Use context data if available (when inside WorkspaceDataProvider)
   const contextData = useWorkspaceDataOptional();
 
@@ -185,9 +187,7 @@ export default function TimelinePanel({
 
   // Handle execution click - emit event to parent to show ExecutionInspector in main area
   const handleExecutionClick = (executionId: string) => {
-    window.dispatchEvent(new CustomEvent('open-execution-inspector', {
-      detail: { executionId, workspaceId }
-    }));
+    router.push(`/workspaces/${workspaceId}/executions/${executionId}`);
   };
 
   // Track if initial load has been done to prevent duplicate loads

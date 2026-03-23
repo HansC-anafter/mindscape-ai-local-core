@@ -268,8 +268,9 @@ class WorkspaceAgentExecutor:
             from backend.app.services.memory.workspace_core_memory import (
                 WorkspaceCoreMemoryService,
             )
+            from backend.app.services.mindscape_store import MindscapeStore
 
-            memory_service = WorkspaceCoreMemoryService()
+            memory_service = WorkspaceCoreMemoryService(store=MindscapeStore())
             core_memory = await memory_service.get_core_memory(self.workspace.id)
 
             if core_memory:

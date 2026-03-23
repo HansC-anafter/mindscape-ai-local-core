@@ -7,6 +7,9 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query
 
 from ....models.playbook import Playbook
+from ....services.conversation.execution_chat_config import (
+    build_execution_chat_payload,
+)
 from ._shared import _utc_now, mindscape_store, playbook_service
 from .utils import (
     determine_preferred_locale,
@@ -294,6 +297,8 @@ async def get_playbook(
         except Exception as e:
             logger.warning(f"Failed to fetch execution status: {e}")
 
+        execution_chat_payload = build_execution_chat_payload(playbook.metadata)
+
         return {
             "metadata": {
                 "playbook_code": playbook.metadata.playbook_code,
@@ -308,7 +313,11 @@ async def get_playbook(
                 "required_tools": playbook.metadata.required_tools,
                 "scope": playbook.metadata.scope,
                 "owner": playbook.metadata.owner,
+                "x_platform": playbook.metadata.x_platform,
+                **execution_chat_payload,
             },
+            "x_platform": playbook.metadata.x_platform,
+            **execution_chat_payload,
             "sop_content": playbook.sop_content,
             "steps": playbook_steps,
             "user_notes": playbook.user_notes,

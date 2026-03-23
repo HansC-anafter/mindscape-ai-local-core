@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import type { CurrentExecution } from '@/components/workspace/CurrentExecutionBar';
 
 interface ExecutionStartedEvent {
@@ -48,6 +49,7 @@ type ExecutionSSEEvent =
   | ExecutionFailedEvent;
 
 export function useCurrentExecution(workspaceId: string, apiUrl: string = '') {
+  const router = useRouter();
   const [currentExecution, setCurrentExecution] = useState<CurrentExecution | null>(null);
   const executionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -140,14 +142,9 @@ export function useCurrentExecution(workspaceId: string, apiUrl: string = '') {
 
   const handleViewDetail = useCallback(() => {
     if (currentExecution) {
-      window.dispatchEvent(new CustomEvent('open-execution-inspector', {
-        detail: {
-          executionId: currentExecution.executionId,
-          workspaceId,
-        },
-      }));
+      router.push(`/workspaces/${workspaceId}/executions/${currentExecution.executionId}`);
     }
-  }, [currentExecution, workspaceId]);
+  }, [currentExecution, router, workspaceId]);
 
   const handlePause = useCallback(async () => {
     if (!currentExecution || apiUrl == null) return;
@@ -190,4 +187,3 @@ export function useCurrentExecution(workspaceId: string, apiUrl: string = '') {
     handleCancel,
   };
 }
-

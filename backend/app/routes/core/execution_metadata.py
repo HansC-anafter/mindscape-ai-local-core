@@ -39,6 +39,7 @@ def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:
       - runner_timeout_seconds: int
       - lifecycle_hooks: dict
       - resource_class: str  ("browser" | "compute" | "api")
+      - queue_shard: str
       - capability_code: str
 
     Both playbook_execution.py and playbook_rerun.py must call this
@@ -90,6 +91,9 @@ def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:
 
     # --- resource_class ---
     meta["resource_class"] = _resolve_resource_class_from_profile(ep)
+    queue_shard = _resolve_queue_shard_from_profile(ep)
+    if queue_shard:
+        meta["queue_shard"] = queue_shard
 
     return meta
 
@@ -175,6 +179,19 @@ def _resolve_resource_class_from_profile(ep: Optional[Dict[str, Any]]) -> str:
 
     # 3. Conservative default
     return DEFAULT_RESOURCE_CLASS
+
+
+def _resolve_queue_shard_from_profile(ep: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Return explicit queue_shard from execution_profile when declared."""
+    if not isinstance(ep, dict):
+        return None
+
+    declared = ep.get("queue_shard")
+    if isinstance(declared, str):
+        normalized = declared.strip()
+        if normalized:
+            return normalized
+    return None
 
 
 def resolve_resource_class_from_task(task) -> str:

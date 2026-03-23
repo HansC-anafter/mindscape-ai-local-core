@@ -11,6 +11,7 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
 from backend.app.models.tool_registry import RegisteredTool
+from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
 from backend.app.services.tool_registry import ToolRegistryService
 from backend.app.services.tools.discovery_provider import ToolConfig
 from pathlib import Path
@@ -74,7 +75,7 @@ def _load_capability_tools_from_installed_manifests() -> List[RegisteredTool]:
 
         results: List[RegisteredTool] = []
         for cap_dir in capabilities_dir.iterdir():
-            if not cap_dir.is_dir():
+            if not cap_dir.is_dir() or is_ignored_runtime_pack_dir(cap_dir.name):
                 continue
             manifest_path = cap_dir / "manifest.yaml"
             if not manifest_path.exists():

@@ -3,12 +3,15 @@ from typing import Any, Optional
 
 from sqlalchemy import text as _sa_text
 
+from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
+
 
 _QUEUE_TOTALS_SQL = """
 SELECT COALESCE(queue_shard, 'default') AS queue_shard,
        COUNT(*) AS pending_total,
        COUNT(*) FILTER (
            WHERE next_eligible_at <= NOW()
+             AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
        ) AS eligible_total
 FROM tasks
 WHERE status = 'pending'
@@ -23,6 +26,7 @@ WHERE status = 'pending'
   AND task_type IN ('playbook_execution', 'tool_execution')
   AND COALESCE(queue_shard, 'default') = :queue_shard
   AND next_eligible_at <= NOW()
+  AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
   AND next_eligible_at < :cutoff
 """
 
@@ -41,7 +45,10 @@ class QueuePositionCache:
             return
         try:
             with tasks_store.get_connection() as conn:
-                rows = conn.execute(_sa_text(_QUEUE_TOTALS_SQL)).fetchall()
+                rows = conn.execute(
+                    _sa_text(_QUEUE_TOTALS_SQL),
+                    {"admission_blocked_reason": ADMISSION_DEFERRED_REASON},
+                ).fetchall()
                 self._positions = {}
                 self._pending_totals = {str(r[0]): int(r[1]) for r in rows if r[0]}
                 self._eligible_totals = {str(r[0]): int(r[2]) for r in rows if r[0]}
@@ -82,6 +89,7 @@ class QueuePositionCache:
                     {
                         "queue_shard": queue_shard,
                         "cutoff": cutoff,
+                        "admission_blocked_reason": ADMISSION_DEFERRED_REASON,
                     },
                 ).scalar()
             position = int(ahead or 0) + 1

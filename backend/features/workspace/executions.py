@@ -27,6 +27,12 @@ from backend.app.services.stores.tool_calls_store import ToolCallsStore
 from backend.app.services.stores.stage_results_store import StageResultsStore
 from backend.app.core.ports.identity_port import IdentityPort
 from backend.app.routes.workspace_dependencies import get_identity_port_or_default
+from backend.app.services.conversation.execution_chat_agent_service import (
+    handle_execution_chat_agent_turn,
+)
+from backend.app.services.conversation.execution_chat_config import (
+    resolve_execution_chat_config,
+)
 from backend.app.services.conversation.execution_chat_service import (
     generate_execution_chat_reply,
 )
@@ -1247,7 +1253,35 @@ async def post_execution_chat(
         async def handle_execution_response():
             """Async task to either continue execution or generate chat reply"""
             try:
-                if should_continue_execution:
+                chat_config = resolve_execution_chat_config(playbook_metadata)
+                chat_mode = chat_config.mode
+
+                if chat_mode == "agent":
+                    logger.info(
+                        f"Handling execution chat for {execution_id} via agent mode"
+                    )
+                    try:
+                        await handle_execution_chat_agent_turn(
+                            execution_id=execution_id,
+                            ctx=ctx,
+                            user_message=request.content,
+                            user_message_id=user_event.id,
+                            playbook_metadata=playbook_metadata,
+                            profile_id=profile_id,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Execution chat agent failed for {execution_id}: {e}",
+                            exc_info=True,
+                        )
+                        await generate_execution_chat_reply(
+                            execution_id=execution_id,
+                            ctx=ctx,
+                            user_message=request.content,
+                            user_message_id=user_event.id,
+                            playbook_metadata=playbook_metadata,
+                        )
+                elif should_continue_execution:
                     # Scenario A: Continue execution
                     logger.info(
                         f"Auto-continuing execution {execution_id} via execution chat"

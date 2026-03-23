@@ -689,6 +689,8 @@ class MeetingEngine(
                 ),
                 contract_gate_mode=getattr(self, "_contract_gate_mode", "auto"),
                 session_metadata=self.session.metadata,
+                meeting_session_id=self.session.id,
+                project_id=self.project_id,
             )
             if self.session.metadata is None:
                 self.session.metadata = {}

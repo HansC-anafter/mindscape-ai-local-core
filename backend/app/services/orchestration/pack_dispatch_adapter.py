@@ -62,6 +62,7 @@ class PackDispatchAdapter:
         action_item: Optional[Dict[str, Any]] = None,
         session: Any = None,
         profile_id: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Enrich launch inputs using the playbook's field-level spec.
 
@@ -121,6 +122,18 @@ class PackDispatchAdapter:
             for k, v in phase.input_params.items():
                 if k not in inputs:
                     inputs[k] = v
+
+        # Execution context autofill for meeting-dispatched playbooks.
+        if session is not None:
+            meeting_session_id = getattr(session, "id", None)
+            if meeting_session_id and "meeting_session_id" not in inputs:
+                inputs["meeting_session_id"] = meeting_session_id
+            thread_id = getattr(session, "thread_id", None)
+            if thread_id and "thread_id" not in inputs:
+                inputs["thread_id"] = thread_id
+
+        if project_id and "project_id" not in inputs:
+            inputs["project_id"] = project_id
 
         # --- 3. Governance fields injection ---
         if action_item:

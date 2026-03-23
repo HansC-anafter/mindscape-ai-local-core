@@ -24,6 +24,7 @@ async def get_capability_profiles():
         return {
             "capability_profile_mapping": settings_store.get_capability_profile_mapping(),
             "profile_model_map": settings_store.get_profile_model_map(),
+            "profile_model_bindings": settings_store.get_profile_model_bindings(),
             "custom_model_provider_mapping": settings_store.get_custom_model_provider_mapping(),
         }
     except Exception as e:
@@ -41,6 +42,11 @@ async def update_capability_profiles(
     profile_model_map: Optional[Dict[str, str]] = Body(
         None, description="Profile to model mapping (single model per profile)"
     ),
+    profile_model_bindings: Optional[Dict[str, Dict[str, str]]] = Body(
+        None,
+        description="Deployment-scoped profile to model mapping "
+        "(e.g. {local: {...}, cloud: {...}})",
+    ),
     custom_model_provider_mapping: Optional[Dict[str, str]] = Body(
         None, description="Custom model to provider mapping"
     ),
@@ -53,6 +59,8 @@ async def update_capability_profiles(
 
         if capability_profile_mapping is not None:
             settings_store.set_capability_profile_mapping(capability_profile_mapping)
+        if profile_model_bindings is not None:
+            settings_store.set_profile_model_bindings(profile_model_bindings)
         if profile_model_map is not None:
             settings_store.set_profile_model_map(profile_model_map)
         if custom_model_provider_mapping is not None:
@@ -64,6 +72,7 @@ async def update_capability_profiles(
             "status": "success",
             "capability_profile_mapping": settings_store.get_capability_profile_mapping(),
             "profile_model_map": settings_store.get_profile_model_map(),
+            "profile_model_bindings": settings_store.get_profile_model_bindings(),
             "custom_model_provider_mapping": settings_store.get_custom_model_provider_mapping(),
         }
     except Exception as e:

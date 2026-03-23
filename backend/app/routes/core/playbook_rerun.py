@@ -15,12 +15,17 @@ from typing import Optional, Dict, Any
 from fastapi import HTTPException, Query, Body
 
 from .execution_schemas import RerunExecutionRequest
-from .execution_shared import playbook_executor
+from .execution_shared import playbook_executor, playbook_service
 from .execution_dispatch import (
     get_execution_mode,
     dispatch_remote_execution,
     resolve_and_acquire_backend,
     release_backend,
+)
+from .execution_hooks import (
+    async_invoke_lifecycle_hook,
+    async_invoke_tool_slot,
+    resolve_inputs_map,
 )
 from .execution_metadata import resolve_runner_metadata, should_route_through_runner
 
@@ -68,6 +73,142 @@ def _infer_target_username_from_artifacts(
     return None
 
 
+def _normalize_rerun_spec(playbook_run) -> Dict[str, Any]:
+    """Return playbook rerun metadata as a plain dict."""
+    pj = getattr(playbook_run, "playbook_json", None)
+    if pj is None:
+        return {}
+
+    rerun_spec = getattr(pj, "rerun", None)
+    if rerun_spec is None:
+        return {}
+    if isinstance(rerun_spec, dict):
+        return rerun_spec
+    if hasattr(rerun_spec, "model_dump"):
+        dumped = rerun_spec.model_dump(exclude_none=True)
+        return dumped if isinstance(dumped, dict) else {}
+    return {}
+
+
+def _has_required_input_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _collect_missing_required_inputs(
+    merged_inputs: Dict[str, Any], required_inputs: Any
+) -> list[str]:
+    if not isinstance(required_inputs, list):
+        return []
+
+    missing: list[str] = []
+    for key in required_inputs:
+        if not isinstance(key, str) or not key.strip():
+            continue
+        normalized_key = key.strip()
+        if not _has_required_input_value(merged_inputs.get(normalized_key)):
+            missing.append(normalized_key)
+    return missing
+
+
+def _extract_resolved_input_updates(resolver_result: Any) -> Dict[str, Any]:
+    """Normalize resolver output into a flat input patch dict."""
+    if isinstance(resolver_result, dict):
+        nested_inputs = resolver_result.get("inputs")
+        if isinstance(nested_inputs, dict):
+            return nested_inputs
+        return resolver_result
+    return {}
+
+
+async def _resolve_rerun_inputs(
+    *,
+    playbook_run,
+    playbook_code: str,
+    original_execution_id: str,
+    original_execution_context: Dict[str, Any],
+    workspace_id: Optional[str],
+    project_id: Optional[str],
+    profile_id: Optional[str],
+    merged_inputs: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Backfill missing required rerun inputs via declarative resolver or legacy fallback."""
+    normalized_inputs = dict(merged_inputs) if isinstance(merged_inputs, dict) else {}
+    rerun_spec = _normalize_rerun_spec(playbook_run)
+    required_inputs = rerun_spec.get("required_inputs") or []
+    missing_inputs = _collect_missing_required_inputs(normalized_inputs, required_inputs)
+
+    input_resolver = rerun_spec.get("input_resolver")
+    if missing_inputs and isinstance(input_resolver, dict):
+        tool_slot = input_resolver.get("tool_slot")
+        if tool_slot:
+            try:
+                resolver_inputs = resolve_inputs_map(
+                    input_resolver.get("inputs_map", {}),
+                    normalized_inputs,
+                    {
+                        **original_execution_context,
+                        "execution_id": original_execution_id,
+                        "original_execution_id": original_execution_id,
+                        "playbook_code": playbook_code,
+                        "workspace_id": workspace_id,
+                        "project_id": project_id,
+                        "profile_id": profile_id,
+                        "inputs": normalized_inputs,
+                    },
+                )
+                resolver_result = await async_invoke_tool_slot(
+                    tool_slot, resolver_inputs
+                )
+                resolved_updates = _extract_resolved_input_updates(resolver_result)
+                if resolved_updates:
+                    normalized_inputs.update(resolved_updates)
+                missing_inputs = _collect_missing_required_inputs(
+                    normalized_inputs, required_inputs
+                )
+            except Exception as exc:
+                logger.warning(
+                    "rerun input_resolver failed for %s execution %s: %s",
+                    playbook_code,
+                    original_execution_id,
+                    exc,
+                )
+
+    if missing_inputs and playbook_code == "ig_analyze_following":
+        workspace_id_for_infer = (workspace_id or "").strip()
+        inferred = (
+            _infer_target_username_from_artifacts(
+                workspace_id_for_infer, original_execution_id
+            )
+            if workspace_id_for_infer
+            else None
+        )
+        if inferred:
+            logger.warning(
+                "Using legacy ig_analyze_following rerun fallback for execution %s",
+                original_execution_id,
+            )
+            normalized_inputs["target_username"] = inferred
+            missing_inputs = _collect_missing_required_inputs(
+                normalized_inputs, required_inputs
+            )
+
+    if missing_inputs:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Cannot rerun {playbook_code}: missing required inputs "
+                f"{', '.join(missing_inputs)}. "
+                "Provide override_inputs or configure rerun.input_resolver."
+            ),
+        )
+
+    return normalized_inputs
+
+
 async def rerun_playbook_execution(
     execution_id: str,
     request: Optional[RerunExecutionRequest] = Body(None),
@@ -79,9 +220,7 @@ async def rerun_playbook_execution(
     """Rerun a playbook execution using original inputs with optional overrides."""
     try:
         from backend.app.services.stores.tasks_store import TasksStore
-        from backend.app.services.mindscape_store import MindscapeStore
 
-        store = MindscapeStore()
         tasks_store = TasksStore()
         task = await asyncio.to_thread(
             tasks_store.get_task_by_execution_id, execution_id
@@ -107,28 +246,6 @@ async def rerun_playbook_execution(
             merged_inputs = merged_inputs or {}
             merged_inputs.update(request.override_inputs)
 
-        if playbook_code == "ig_analyze_following":
-            if not merged_inputs:
-                merged_inputs = {}
-            if not str(merged_inputs.get("target_username") or "").strip():
-                workspace_id_for_infer = (
-                    ctx.get("workspace_id") or task.workspace_id or ""
-                ).strip()
-                inferred = (
-                    _infer_target_username_from_artifacts(
-                        workspace_id_for_infer, execution_id
-                    )
-                    if workspace_id_for_infer
-                    else None
-                )
-                if inferred:
-                    merged_inputs["target_username"] = inferred
-            if not str(merged_inputs.get("target_username") or "").strip():
-                raise HTTPException(
-                    status_code=409,
-                    detail="Cannot rerun ig_analyze_following: missing target_username. Provide override_inputs.target_username.",
-                )
-
         final_execution_backend = (execution_backend or "auto").strip().lower()
         if final_execution_backend not in {"auto", "runner", "in_process", "remote"}:
             final_execution_backend = "auto"
@@ -149,6 +266,21 @@ async def rerun_playbook_execution(
         profile_id = (
             ctx.get("profile_id") or getattr(task, "profile_id", None) or "default-user"
         )
+        playbook_run = await playbook_service.load_playbook_run(
+            playbook_code=playbook_code,
+            locale="zh-TW",
+            workspace_id=workspace_id,
+        )
+        merged_inputs = await _resolve_rerun_inputs(
+            playbook_run=playbook_run,
+            playbook_code=playbook_code,
+            original_execution_id=execution_id,
+            original_execution_context=ctx,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            profile_id=profile_id,
+            merged_inputs=merged_inputs,
+        )
 
         # Remote backend: dispatch rerun to cloud
         if final_execution_backend == "remote":
@@ -161,11 +293,6 @@ async def rerun_playbook_execution(
                 )
             finally:
                 release_backend(pool_acquired_backend)
-        playbook_run = await playbook_executor.playbook_service.load_playbook_run(
-            playbook_code=playbook_code,
-            locale="zh-TW",
-            workspace_id=workspace_id,
-        )
         runner_metadata = resolve_runner_metadata(playbook_run)
 
         # If backend is configured for runner (or caller explicitly prefers runner), enqueue workflow-json playbooks.
@@ -200,7 +327,11 @@ async def rerun_playbook_execution(
                 if profile_id and "profile_id" not in normalized_inputs:
                     normalized_inputs["profile_id"] = profile_id
 
-                from backend.app.models.workspace import Task, TaskStatus
+                from backend.app.models.workspace import (
+                    PlaybookExecution,
+                    Task,
+                    TaskStatus,
+                )
 
                 playbook_name = (
                     playbook_run.playbook.metadata.name
@@ -212,6 +343,38 @@ async def rerun_playbook_execution(
                     if playbook_run.playbook_json and playbook_run.playbook_json.steps
                     else 1
                 )
+
+                executions_store = store.playbook_executions
+                if executions_store and workspace_id:
+                    await asyncio.to_thread(
+                        executions_store.create_execution,
+                        PlaybookExecution(
+                            id=new_execution_id,
+                            workspace_id=workspace_id,
+                            playbook_code=playbook_code,
+                            thread_id=(
+                                normalized_inputs.get("thread_id")
+                                if isinstance(normalized_inputs, dict)
+                                else None
+                            ),
+                            intent_instance_id=None,
+                            status="running",
+                            phase="queue",
+                            last_checkpoint=None,
+                            progress_log_path=None,
+                            feature_list_path=None,
+                            metadata={
+                                "execution_mode": "runner",
+                                "execution_backend_hint": final_execution_backend,
+                                "playbook_name": playbook_name,
+                                "queue_shard": runner_metadata.get("queue_shard")
+                                or "default",
+                                "rerun_of": execution_id,
+                            },
+                            created_at=_utc_now(),
+                            updated_at=_utc_now(),
+                        ),
+                    )
 
                 await asyncio.to_thread(
                     tasks_store.create_task,
@@ -225,6 +388,7 @@ async def rerun_playbook_execution(
                         pack_id=playbook_code,
                         task_type="playbook_execution",
                         status=TaskStatus.PENDING,
+                        queue_shard=runner_metadata.get("queue_shard") or "default",
                         execution_context={
                             "playbook_code": playbook_code,
                             "playbook_name": playbook_name,
@@ -243,6 +407,23 @@ async def rerun_playbook_execution(
                         started_at=None,
                     ),
                 )
+                lifecycle_hooks_config = runner_metadata.get("lifecycle_hooks")
+                if isinstance(lifecycle_hooks_config, dict):
+                    on_queue = lifecycle_hooks_config.get("on_queue")
+                    if on_queue and isinstance(on_queue, dict):
+                        asyncio.create_task(
+                            async_invoke_lifecycle_hook(
+                                hook_name="on_queue",
+                                hook_spec=on_queue,
+                                normalized_inputs=normalized_inputs,
+                                execution_context={
+                                    "execution_id": new_execution_id,
+                                    "workspace_id": workspace_id,
+                                    "playbook_code": playbook_code,
+                                    "original_execution_id": execution_id,
+                                },
+                            )
+                        )
 
                 return {
                     "status": "rerun_queued",

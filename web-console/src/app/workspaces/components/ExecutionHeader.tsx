@@ -5,6 +5,7 @@ import { useT } from '@/lib/i18n';
 import { parseServerTimestamp } from '@/lib/time';
 import { RunProvenanceChips, ExecutionProvenance } from './RunProvenanceChips';
 import { useParams } from 'next/navigation';
+import type { RemoteExecutionAggregate } from './execution-inspector/types/execution';
 
 interface ExecutionSession {
   execution_id: string;
@@ -31,6 +32,7 @@ interface ExecutionHeaderProps {
     waitingConfirmation: number;
     completed: number;
   };
+  remoteExecutionAggregate?: RemoteExecutionAggregate;
   onRetry?: () => void;
   onStop?: () => void | Promise<void>;
   onEditPlaybook?: () => void;
@@ -44,6 +46,7 @@ export default function ExecutionHeader({
   projectName,
   executionRunNumber,
   stats,
+  remoteExecutionAggregate,
   onRetry,
   onStop,
   onEditPlaybook,
@@ -159,10 +162,10 @@ export default function ExecutionHeader({
           </div>
         </div>
 
-        <div className="flex items-center gap-4 ml-4">
+        <div className="ml-4 flex flex-wrap items-center justify-end gap-2">
           {/* Summary stats */}
           {stats && (
-            <div className="flex items-center gap-3 text-xs text-secondary dark:text-gray-400">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-secondary dark:text-gray-400">
               {stats.concurrent > 0 && (
                 <span className="flex items-center gap-1">
                   <span>🔄</span>
@@ -179,6 +182,21 @@ export default function ExecutionHeader({
                 <span className="flex items-center gap-1">
                   <span>✅</span>
                   <span>{stats.completed} {t('completed' as any) || 'completed'}</span>
+                </span>
+              )}
+            </div>
+          )}
+
+          {remoteExecutionAggregate && remoteExecutionAggregate.totalRemoteChildren > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-secondary dark:text-gray-400">
+              <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+                <span>GPU</span>
+                <span>{remoteExecutionAggregate.totalRemoteChildren}</span>
+              </span>
+              {remoteExecutionAggregate.replayAttempts > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                  <span>Replay</span>
+                  <span>{remoteExecutionAggregate.replayAttempts}</span>
                 </span>
               )}
             </div>
@@ -232,4 +250,3 @@ export default function ExecutionHeader({
     </div>
   );
 }
-

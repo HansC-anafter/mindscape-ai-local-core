@@ -36,6 +36,181 @@ from backend.app.services.story_thread.context_injector import (
 
 logger = logging.getLogger(__name__)
 
+IG_PLAYBOOK_REFRESH_HINTS = {
+    "ig_analyze_following": ["sources", "targets", "run_logs"],
+    "ig_capture_account_snapshot": ["captures", "run_logs"],
+    "ig_analyze_pinned_reference": ["references", "run_logs"],
+    "ig_batch_pin_references": ["references", "run_logs"],
+}
+
+
+def _normalize_optional_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _normalize_optional_handle(value: Any) -> Optional[str]:
+    text = _normalize_optional_text(value)
+    if not text:
+        return None
+    return text[1:] if text.startswith("@") else text
+
+
+def _derive_pack_id(playbook_code: str) -> Optional[str]:
+    return "ig" if isinstance(playbook_code, str) and playbook_code.startswith("ig_") else None
+
+
+def _derive_refresh_hint(playbook_code: str) -> List[str]:
+    if not isinstance(playbook_code, str):
+        return []
+    if playbook_code in IG_PLAYBOOK_REFRESH_HINTS:
+        return list(IG_PLAYBOOK_REFRESH_HINTS[playbook_code])
+    if playbook_code.startswith("ig_"):
+        return ["run_logs"]
+    return []
+
+
+def _derive_ui_surface(refresh_hint: List[str]) -> str:
+    if "references" in refresh_hint:
+        return "references"
+    if any(hint in {"sources", "targets", "captures"} for hint in refresh_hint):
+        return "discovery"
+    return "workbench"
+
+
+def _build_run_state_context(
+    playbook_code: str,
+    execution_id: str,
+    new_state: str,
+    inputs: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    ctx = inputs if isinstance(inputs, dict) else {}
+    refresh_hint = _derive_refresh_hint(playbook_code)
+    target_username = _normalize_optional_handle(
+        ctx.get("target_username") or ctx.get("target_handle")
+    )
+    reference_id = _normalize_optional_text(
+        ctx.get("reference_id") or ctx.get("ref_id")
+    )
+    user_data_dir = _normalize_optional_text(ctx.get("user_data_dir"))
+    terminal = new_state in {"DONE", "FAILED", "CANCELLED"}
+    pack_id = _derive_pack_id(playbook_code)
+
+    return {
+        "pack_id": pack_id,
+        "execution_id": execution_id,
+        "lifecycle_state": new_state,
+        "terminal": terminal,
+        "ui_surface": _derive_ui_surface(refresh_hint),
+        "refresh_hint": refresh_hint,
+        "target_username": target_username,
+        "target_handle": target_username,
+        "reference_id": reference_id,
+        "user_data_dir": user_data_dir,
+    }
+
+
+def _build_run_state_payload(
+    previous_state: str,
+    new_state: str,
+    reason: str,
+    playbook_code: str,
+    execution_id: str,
+    inputs: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    payload = {
+        "execution_id": execution_id,
+        "previous_state": previous_state,
+        "new_state": new_state,
+        "reason": reason,
+        "playbook_code": playbook_code,
+        "blocker_count": 0,
+    }
+
+    ctx = _build_run_state_context(playbook_code, execution_id, new_state, inputs)
+    for key in (
+        "pack_id",
+        "lifecycle_state",
+        "terminal",
+        "refresh_hint",
+        "target_username",
+        "target_handle",
+        "reference_id",
+        "user_data_dir",
+        "ui_surface",
+    ):
+        value = ctx.get(key)
+        if value is None:
+            continue
+        if isinstance(value, list) and not value:
+            continue
+        payload[key] = value
+    return payload
+
+
+def _build_run_state_metadata(
+    playbook_code: str,
+    execution_id: str,
+    new_state: str,
+    reason: str,
+    inputs: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    metadata = {
+        "playbook_code": playbook_code,
+        "reason": reason,
+    }
+    for key, value in _build_run_state_context(
+        playbook_code, execution_id, new_state, inputs
+    ).items():
+        if value is None:
+            continue
+        if isinstance(value, list) and not value:
+            continue
+        metadata[key] = value
+    return metadata
+
+
+def _build_run_state_changed_event(
+    *,
+    profile_id: str,
+    project_id: Optional[str],
+    workspace_id: Optional[str],
+    execution_id: str,
+    previous_state: str,
+    new_state: str,
+    reason: str,
+    playbook_code: str,
+    inputs: Optional[Dict[str, Any]] = None,
+) -> MindEvent:
+    return MindEvent(
+        id=str(uuid.uuid4()),
+        timestamp=_utc_now(),
+        actor=EventActor.AGENT,
+        channel="playbook",
+        profile_id=profile_id,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        event_type=EventType.RUN_STATE_CHANGED,
+        payload=_build_run_state_payload(
+            previous_state=previous_state,
+            new_state=new_state,
+            reason=reason,
+            playbook_code=playbook_code,
+            execution_id=execution_id,
+            inputs=inputs,
+        ),
+        entity_ids=[execution_id] if execution_id else [],
+        metadata=_build_run_state_metadata(
+            playbook_code=playbook_code,
+            execution_id=execution_id,
+            new_state=new_state,
+            reason=reason,
+            inputs=inputs,
+        ),
+    )
+
 
 class PlaybookRunner:
     """Main Playbook execution service"""
@@ -119,6 +294,8 @@ class PlaybookRunner:
             target_language: Target language for output
             variant_id: Optional personalized variant ID to use
         """
+        execution_id = ""
+        last_run_state = "UNKNOWN"
         try:
             # Inject Story Thread context if thread_id is provided
             thread_id = inputs.get("thread_id") if inputs else None
@@ -255,33 +432,19 @@ class PlaybookRunner:
 
             # Emit RUN_STATE_CHANGED event: UNKNOWN → READY
             try:
-                from backend.app.models.mindscape import (
-                    MindEvent,
-                    EventType,
-                    EventActor,
-                )
-
-                ready_event = MindEvent(
-                    id=str(uuid.uuid4()),
-                    timestamp=_utc_now(),
-                    actor=EventActor.AGENT,
-                    channel="playbook",
+                ready_event = _build_run_state_changed_event(
                     profile_id=profile_id,
                     project_id=project_id,
                     workspace_id=workspace_id,
-                    event_type=EventType.RUN_STATE_CHANGED,
-                    payload={
-                        "execution_id": execution_id,
-                        "previous_state": "UNKNOWN",
-                        "new_state": "READY",
-                        "reason": "playbook_execution_started",
-                        "playbook_code": playbook_code,
-                        "blocker_count": 0,
-                    },
-                    entity_ids={"execution_id": execution_id},
-                    metadata={"playbook_code": playbook_code},
+                    execution_id=execution_id,
+                    previous_state="UNKNOWN",
+                    new_state="READY",
+                    reason="playbook_execution_started",
+                    playbook_code=playbook_code,
+                    inputs=inputs,
                 )
                 self.store.create_event(ready_event)
+                last_run_state = "READY"
                 logger.info(
                     f"Emitted RUN_STATE_CHANGED event: UNKNOWN → READY for execution {execution_id}"
                 )
@@ -415,33 +578,19 @@ class PlaybookRunner:
 
             # Emit RUN_STATE_CHANGED event: READY → RUNNING
             try:
-                from backend.app.models.mindscape import (
-                    MindEvent,
-                    EventType,
-                    EventActor,
-                )
-
-                running_event = MindEvent(
-                    id=str(uuid.uuid4()),
-                    timestamp=_utc_now(),
-                    actor=EventActor.AGENT,
-                    channel="playbook",
+                running_event = _build_run_state_changed_event(
                     profile_id=profile_id,
                     project_id=project_id,
                     workspace_id=workspace_id,
-                    event_type=EventType.RUN_STATE_CHANGED,
-                    payload={
-                        "execution_id": execution_id,
-                        "previous_state": "READY",
-                        "new_state": "RUNNING",
-                        "reason": "tool_execution_started",
-                        "playbook_code": playbook_code,
-                        "blocker_count": 0,
-                    },
-                    entity_ids={"execution_id": execution_id},
-                    metadata={"playbook_code": playbook_code},
+                    execution_id=execution_id,
+                    previous_state="READY",
+                    new_state="RUNNING",
+                    reason="tool_execution_started",
+                    playbook_code=playbook_code,
+                    inputs=inputs,
                 )
                 self.store.create_event(running_event)
+                last_run_state = "RUNNING"
                 logger.info(
                     f"Emitted RUN_STATE_CHANGED event: READY → RUNNING for execution {execution_id}"
                 )
@@ -524,31 +673,16 @@ class PlaybookRunner:
 
                 # Emit RUN_STATE_CHANGED event: RUNNING → DONE
                 try:
-                    from backend.app.models.mindscape import (
-                        MindEvent,
-                        EventType,
-                        EventActor,
-                    )
-
-                    done_event = MindEvent(
-                        id=str(uuid.uuid4()),
-                        timestamp=_utc_now(),
-                        actor=EventActor.AGENT,
-                        channel="playbook",
+                    done_event = _build_run_state_changed_event(
                         profile_id=profile_id,
                         project_id=project_id,
                         workspace_id=workspace_id,
-                        event_type=EventType.RUN_STATE_CHANGED,
-                        payload={
-                            "execution_id": execution_id,
-                            "previous_state": "RUNNING",
-                            "new_state": "DONE",
-                            "reason": "execution_completed",
-                            "playbook_code": playbook_code,
-                            "blocker_count": 0,
-                        },
-                        entity_ids={"execution_id": execution_id},
-                        metadata={"playbook_code": playbook_code},
+                        execution_id=execution_id,
+                        previous_state="RUNNING",
+                        new_state="DONE",
+                        reason="execution_completed",
+                        playbook_code=playbook_code,
+                        inputs=inputs,
                     )
                     self.store.create_event(done_event)
                     logger.info(
@@ -633,6 +767,29 @@ class PlaybookRunner:
             # Update task status to FAILED if task was created
             if workspace_id:
                 self.task_manager.update_task_status_to_failed(execution_id, str(e))
+            if execution_id:
+                try:
+                    failed_event = _build_run_state_changed_event(
+                        profile_id=profile_id,
+                        project_id=project_id,
+                        workspace_id=workspace_id,
+                        execution_id=execution_id,
+                        previous_state=last_run_state,
+                        new_state="FAILED",
+                        reason="execution_failed",
+                        playbook_code=playbook_code,
+                        inputs=inputs,
+                    )
+                    self.store.create_event(failed_event)
+                    logger.info(
+                        "Emitted RUN_STATE_CHANGED event: RUNNING → FAILED for execution %s",
+                        execution_id,
+                    )
+                except Exception as emit_error:
+                    logger.warning(
+                        "Failed to emit FAILED RUN_STATE_CHANGED event: %s",
+                        emit_error,
+                    )
             raise
 
     async def continue_playbook_execution(
