@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 class TaskDispatchMixin:
     """Mixin: core task dispatch, pending queue, and flush."""
 
+    @staticmethod
+    def _resolve_surface_type(message: Dict[str, Any]) -> Optional[str]:
+        return message.get("agent_id") or message.get("surface_type")
+
     async def dispatch_and_wait(
         self,
         workspace_id: str,
@@ -56,12 +60,16 @@ class TaskDispatchMixin:
             }
 
         client = None
+        surface_type = self._resolve_surface_type(message)
+
         if target_client_id:
-            # Find specific client
-            ws_clients = self._clients.get(workspace_id, {})
-            client = ws_clients.get(target_client_id)
+            client = self.get_client(
+                workspace_id,
+                target_client_id,
+                surface_type=surface_type,
+            )
         else:
-            client = self.get_client(workspace_id)
+            client = self.get_client(workspace_id, surface_type=surface_type)
 
         if not client:
             logger.info(
@@ -74,6 +82,7 @@ class TaskDispatchMixin:
                 execution_id,
                 timeout,
                 target_client_id=target_client_id,
+                surface_type=surface_type,
             )
 
         # Create future for result
@@ -202,8 +211,16 @@ class TaskDispatchMixin:
         remaining = []
 
         for task in queue:
+            task_surface_type = task.payload.get("agent_id") or task.payload.get(
+                "surface_type"
+            )
+
             # Skip if targeted to a different client
             if task.target_client_id and task.target_client_id != client.client_id:
+                remaining.append(task)
+                continue
+
+            if task_surface_type and task_surface_type != client.surface_type:
                 remaining.append(task)
                 continue
 

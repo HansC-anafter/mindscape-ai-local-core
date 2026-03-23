@@ -161,13 +161,14 @@ if ($detected -eq 0) {
 
 # --- Environment ---
 $env:PYTHONPATH = "$ProjectDir;$($ProjectDir)\backend;$($env:PYTHONPATH)"
-$env:GEMINI_CLI_RUNTIME_CMD = "python $BridgeScript"
+$env:MINDSCAPE_CLI_RUNTIME_CMD = "python $BridgeScript"
+$env:GEMINI_CLI_RUNTIME_CMD = $env:MINDSCAPE_CLI_RUNTIME_CMD
 $env:MINDSCAPE_WORKSPACE_ROOT = if ($env:MINDSCAPE_WORKSPACE_ROOT) { $env:MINDSCAPE_WORKSPACE_ROOT } else { $ProjectDir }
 $env:MINDSCAPE_BACKEND_API_URL = if ($env:MINDSCAPE_BACKEND_API_URL) { $env:MINDSCAPE_BACKEND_API_URL } else { $BackendHttp }
 
 # --- Start bridge ---
 Write-Info "Surface:   $Surface"
-Write-Info "Runtime:   $($env:GEMINI_CLI_RUNTIME_CMD)"
+Write-Info "Runtime:   $($env:MINDSCAPE_CLI_RUNTIME_CMD)"
 Write-Host ""
 Write-Info "Press Ctrl+C to stop"
 Write-Host ""
@@ -179,6 +180,7 @@ foreach ($wsId in $wsIds) {
         param($PythonPath, $ClientScript, $WsId, $Host_, $Surface, $WorkspaceRoot,
               $RuntimeCmd, $BackendUrl, $ProjectDir)
         $env:PYTHONPATH = $PythonPath
+        $env:MINDSCAPE_CLI_RUNTIME_CMD = $RuntimeCmd
         $env:GEMINI_CLI_RUNTIME_CMD = $RuntimeCmd
         $env:MINDSCAPE_BACKEND_API_URL = $BackendUrl
         $env:MINDSCAPE_WORKSPACE_ROOT = $WorkspaceRoot

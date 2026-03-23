@@ -267,7 +267,11 @@ class ConnectionMixin:
 
         logger.info(f"[AgentWS] Client {cid} disconnected from workspace {ws_id}")
 
-    def has_connections(self, workspace_id: Optional[str] = None) -> bool:
+    def has_connections(
+        self,
+        workspace_id: Optional[str] = None,
+        surface_type: Optional[str] = None,
+    ) -> bool:
         """Check if there are any authenticated connections (cross-worker).
 
         Queries the PostgreSQL ws_connections table so that ALL uvicorn
@@ -275,25 +279,42 @@ class ConnectionMixin:
         check if the DB query fails.
         """
         try:
-            return self._db_has_connections(workspace_id)
+            return self._db_has_connections(
+                workspace_id=workspace_id,
+                surface_type=surface_type,
+            )
         except Exception:
             # Fallback to local in-memory check on DB failure
             if workspace_id:
                 clients = self._clients.get(workspace_id, {})
-                return any(c.authenticated for c in clients.values())
+                return any(
+                    c.authenticated
+                    and (not surface_type or c.surface_type == surface_type)
+                    for c in clients.values()
+                )
             return any(
                 c.authenticated
+                and (not surface_type or c.surface_type == surface_type)
                 for ws_clients in self._clients.values()
                 for c in ws_clients.values()
             )
 
-    def has_local_connections(self, workspace_id: Optional[str] = None) -> bool:
+    def has_local_connections(
+        self,
+        workspace_id: Optional[str] = None,
+        surface_type: Optional[str] = None,
+    ) -> bool:
         """Check in-memory only (current worker). Used for local dispatch."""
         if workspace_id:
             clients = self._clients.get(workspace_id, {})
-            return any(c.authenticated for c in clients.values())
+            return any(
+                c.authenticated
+                and (not surface_type or c.surface_type == surface_type)
+                for c in clients.values()
+            )
         return any(
             c.authenticated
+            and (not surface_type or c.surface_type == surface_type)
             for ws_clients in self._clients.values()
             for c in ws_clients.values()
         )
@@ -310,6 +331,7 @@ class ConnectionMixin:
         self,
         workspace_id: str,
         client_id: Optional[str] = None,
+        surface_type: Optional[str] = None,
     ) -> Optional[AgentClient]:
         """
         Get a specific client, or the best available client for a workspace.
@@ -322,12 +344,20 @@ class ConnectionMixin:
 
         if client_id:
             client = ws_clients.get(client_id)
-            if client and client.authenticated:
+            if (
+                client
+                and client.authenticated
+                and (not surface_type or client.surface_type == surface_type)
+            ):
                 return client
             return None
 
         # Find best available: most recent heartbeat
-        authenticated = [c for c in ws_clients.values() if c.authenticated]
+        authenticated = [
+            c
+            for c in ws_clients.values()
+            if c.authenticated and (not surface_type or c.surface_type == surface_type)
+        ]
         if not authenticated:
             return None
 
@@ -449,20 +479,40 @@ class ConnectionMixin:
             conn.close()
 
     @staticmethod
-    def _db_has_connections(workspace_id: Optional[str] = None) -> bool:
+    def _db_has_connections(
+        workspace_id: Optional[str] = None,
+        surface_type: Optional[str] = None,
+    ) -> bool:
         """Query PostgreSQL for live WS connections."""
         conn = _get_core_db_connection()
         if not conn:
             raise RuntimeError("No core DB connection")
         try:
             with conn.cursor() as cur:
-                if workspace_id:
+                if workspace_id and surface_type:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM ws_connections "
+                        "WHERE workspace_id = %s "
+                        "AND surface_type = %s "
+                        "AND authenticated = TRUE "
+                        "AND last_heartbeat > NOW() - INTERVAL '90 seconds'",
+                        (workspace_id, surface_type),
+                    )
+                elif workspace_id:
                     cur.execute(
                         "SELECT COUNT(*) FROM ws_connections "
                         "WHERE workspace_id = %s "
                         "AND authenticated = TRUE "
                         "AND last_heartbeat > NOW() - INTERVAL '90 seconds'",
                         (workspace_id,),
+                    )
+                elif surface_type:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM ws_connections "
+                        "WHERE surface_type = %s "
+                        "AND authenticated = TRUE "
+                        "AND last_heartbeat > NOW() - INTERVAL '90 seconds'",
+                        (surface_type,),
                     )
                 else:
                     cur.execute(
@@ -536,6 +586,7 @@ class ConnectionMixin:
     def _db_get_dispatch_target(
         workspace_id: str,
         client_id: Optional[str] = None,
+        surface_type: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Return the freshest authenticated connection for a workspace."""
         conn = _get_core_db_connection()
@@ -543,7 +594,21 @@ class ConnectionMixin:
             return None
         try:
             with conn.cursor() as cur:
-                if client_id:
+                if client_id and surface_type:
+                    cur.execute(
+                        "SELECT client_id, worker_pid, worker_instance_id, "
+                        "surface_type "
+                        "FROM ws_connections "
+                        "WHERE workspace_id = %s "
+                        "AND client_id = %s "
+                        "AND surface_type = %s "
+                        "AND authenticated = TRUE "
+                        "AND last_heartbeat > NOW() - INTERVAL '90 seconds' "
+                        "ORDER BY last_heartbeat DESC "
+                        "LIMIT 1",
+                        (workspace_id, client_id, surface_type),
+                    )
+                elif client_id:
                     cur.execute(
                         "SELECT client_id, worker_pid, worker_instance_id, "
                         "surface_type "
@@ -555,6 +620,19 @@ class ConnectionMixin:
                         "ORDER BY last_heartbeat DESC "
                         "LIMIT 1",
                         (workspace_id, client_id),
+                    )
+                elif surface_type:
+                    cur.execute(
+                        "SELECT client_id, worker_pid, worker_instance_id, "
+                        "surface_type "
+                        "FROM ws_connections "
+                        "WHERE workspace_id = %s "
+                        "AND surface_type = %s "
+                        "AND authenticated = TRUE "
+                        "AND last_heartbeat > NOW() - INTERVAL '90 seconds' "
+                        "ORDER BY last_heartbeat DESC "
+                        "LIMIT 1",
+                        (workspace_id, surface_type),
                     )
                 else:
                     cur.execute(

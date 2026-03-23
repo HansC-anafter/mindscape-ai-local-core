@@ -132,7 +132,10 @@ class DbFallbackMixin:
                         ws_id,
                     )
 
-                    client = self.get_client(ws_id)
+                    surface_type = payload.get("agent_id") or payload.get(
+                        "surface_type"
+                    )
+                    client = self.get_client(ws_id, surface_type=surface_type)
                     if not client:
                         had_no_client = True
                         logger.warning(

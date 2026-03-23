@@ -541,7 +541,10 @@ def main():
         TaskExecutor,
     )
 
-    executor = TaskExecutor(workspace_root=args.workspace_root)
+    executor = TaskExecutor(
+        workspace_root=args.workspace_root,
+        runtime_surface=args.surface,
+    )
 
     client = GeminiCLIWSClient(
         workspace_id=args.workspace_id,

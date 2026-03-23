@@ -95,15 +95,16 @@ print_banner
 # --- Pre-flight checks ---
 
 # 1. Check Python
-if ! command -v python3 &>/dev/null; then
+PYTHON_BIN="${MINDSCAPE_PYTHON_BIN:-$(command -v python3 || true)}"
+if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
     log_error "python3 not found. Please install Python 3.8+"
     exit 1
 fi
 
 # 2. Check websockets package
-if ! python3 -c "import websockets" 2>/dev/null; then
+if ! "$PYTHON_BIN" -c "import websockets" 2>/dev/null; then
     log_warn "'websockets' package not found. Installing..."
-    pip3 install websockets --quiet
+    "$PYTHON_BIN" -m pip install websockets --quiet
     log_info "websockets installed"
 fi
 
@@ -212,7 +213,8 @@ fi
 
 # --- Environment for TaskExecutor ---
 export PYTHONPATH="$PROJECT_DIR:$PROJECT_DIR/backend:${PYTHONPATH:-}"
-export GEMINI_CLI_RUNTIME_CMD="python3 $PROJECT_DIR/scripts/gemini_cli_runtime_bridge.py"
+export MINDSCAPE_CLI_RUNTIME_CMD="$PYTHON_BIN $PROJECT_DIR/scripts/gemini_cli_runtime_bridge.py"
+export GEMINI_CLI_RUNTIME_CMD="$MINDSCAPE_CLI_RUNTIME_CMD"
 export MINDSCAPE_WORKSPACE_ROOT="${MINDSCAPE_WORKSPACE_ROOT:-$PROJECT_DIR}"
 
 # --- Gemini auth (resolved by backend /api/v1/auth/cli-token) ---
@@ -223,7 +225,7 @@ export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$BACKEND_H
 if [[ "$ALL_MODE" == "true" ]]; then
     log_info "Starting bridge with workspace watcher..."
     log_info "Surface:   $SURFACE"
-    log_info "Runtime:   $GEMINI_CLI_RUNTIME_CMD"
+    log_info "Runtime:   ${MINDSCAPE_CLI_RUNTIME_CMD:-$GEMINI_CLI_RUNTIME_CMD}"
     echo ""
     log_info "Press Ctrl+C to stop all bridges"
     echo ""
@@ -250,7 +252,7 @@ if [[ "$ALL_MODE" == "true" ]]; then
     spawn_bridge() {
         local ws_id="$1"
         log_info "  Spawning bridge for workspace: $ws_id"
-        python3 "$CLIENT_SCRIPT" \
+        "$PYTHON_BIN" "$CLIENT_SCRIPT" \
             --workspace-id "$ws_id" \
             --host "$BACKEND_HOST" \
             --surface "$SURFACE" \
@@ -355,12 +357,12 @@ else
     log_info "Connecting to backend at ws://$BACKEND_HOST"
     log_info "Workspace: $WORKSPACE_ID"
     log_info "Surface:   $SURFACE"
-    log_info "Runtime:   $GEMINI_CLI_RUNTIME_CMD"
+    log_info "Runtime:   ${MINDSCAPE_CLI_RUNTIME_CMD:-$GEMINI_CLI_RUNTIME_CMD}"
     echo ""
     log_info "Press Ctrl+C to stop"
     echo ""
 
-    exec python3 "$CLIENT_SCRIPT" \
+    exec "$PYTHON_BIN" "$CLIENT_SCRIPT" \
         --workspace-id "$WORKSPACE_ID" \
         --host "$BACKEND_HOST" \
         --surface "$SURFACE" \

@@ -68,10 +68,15 @@ class PubSubHandlersMixin:
         target_client_id = envelope.get("client_id")
         origin_worker_id = envelope.get("origin_worker_id")
         payload = envelope.get("payload") or {}
+        surface_type = payload.get("agent_id") or payload.get("surface_type")
 
-        client = self.get_client(workspace_id, target_client_id)
+        client = self.get_client(
+            workspace_id,
+            target_client_id,
+            surface_type=surface_type,
+        )
         if not client and not target_client_id:
-            client = self.get_client(workspace_id)
+            client = self.get_client(workspace_id, surface_type=surface_type)
 
         if not client:
             await self._publish_pubsub_message(

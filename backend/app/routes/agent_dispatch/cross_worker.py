@@ -74,6 +74,7 @@ class CrossWorkerMixin(
         execution_id: str,
         timeout: float,
         target_client_id: Optional[str] = None,
+        surface_type: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Try Redis pub/sub dispatch to the worker that owns the WS client."""
         if not self._redis_pubsub_enabled():
@@ -84,6 +85,7 @@ class CrossWorkerMixin(
             self._db_get_dispatch_target,
             workspace_id,
             target_client_id,
+            surface_type,
         )
         if not target:
             return None
@@ -144,6 +146,7 @@ class CrossWorkerMixin(
         execution_id: str,
         timeout: float = 600.0,
         target_client_id: Optional[str] = None,
+        surface_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Dispatch a task via Redis pub/sub, falling back to DB polling."""
         result = await self._try_pubsub_dispatch(
@@ -152,6 +155,7 @@ class CrossWorkerMixin(
             execution_id=execution_id,
             timeout=timeout,
             target_client_id=target_client_id,
+            surface_type=surface_type,
         )
         if result is not None:
             return result
