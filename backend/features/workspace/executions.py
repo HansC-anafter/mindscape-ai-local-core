@@ -11,7 +11,6 @@ from typing import Dict, Any, Optional, AsyncGenerator
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Path, Depends, Query, Body
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 
 from backend.app.models.workspace import (
     ExecutionSession,
@@ -36,99 +35,20 @@ from backend.app.services.conversation.execution_chat_config import (
 from backend.app.services.conversation.execution_chat_service import (
     generate_execution_chat_reply,
 )
+from backend.features.workspace.executions_core import (
+    ExecutionChatRequest,
+    ExecutionStreamEvent,
+    get_execution_payload,
+    get_execution_chat_payload,
+    list_execution_stage_results_payload,
+    list_execution_steps_payload,
+    list_execution_tool_calls_payload,
+    list_executions_payload,
+    list_executions_with_steps_payload,
+)
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspace-executions"])
 logger = logging.getLogger(__name__)
-
-
-# Event type definitions matching SCHEMA_CONVERGENCE.md
-class ExecutionStreamEvent:
-    """Execution stream event model"""
-
-    @staticmethod
-    def execution_update(execution: ExecutionSession) -> Dict[str, Any]:
-        """Create execution_update event"""
-        if hasattr(execution, "model_dump"):
-            exec_dict = execution.model_dump(mode="json")
-            # Flatten task into execution dict
-            if "task" in exec_dict and isinstance(exec_dict["task"], dict):
-                task_dict = exec_dict.pop("task")
-                exec_dict.update({f"task_{k}": v for k, v in task_dict.items()})
-        else:
-            exec_dict = execution if isinstance(execution, dict) else {}
-        return {"type": "execution_update", "execution": exec_dict}
-
-    @staticmethod
-    def step_update(
-        step: PlaybookExecutionStep, current_step_index: int
-    ) -> Dict[str, Any]:
-        """Create step_update event"""
-        if hasattr(step, "model_dump"):
-            step_dict = step.model_dump(mode="json")
-        elif hasattr(step, "__dict__"):
-            step_dict = step.__dict__
-        else:
-            step_dict = step if isinstance(step, dict) else {}
-        return {
-            "type": "step_update",
-            "step": step_dict,
-            "current_step_index": current_step_index,
-        }
-
-    @staticmethod
-    def tool_call_update(tool_call: Any) -> Dict[str, Any]:
-        """Create tool_call_update event"""
-        if hasattr(tool_call, "__dict__"):
-            # Convert datetime objects to ISO format
-            tool_dict = {}
-            for k, v in tool_call.__dict__.items():
-                if isinstance(v, datetime):
-                    tool_dict[k] = v.isoformat()
-                else:
-                    tool_dict[k] = v
-        else:
-            tool_dict = tool_call if isinstance(tool_call, dict) else {}
-        return {"type": "tool_call_update", "tool_call": tool_dict}
-
-    @staticmethod
-    def collaboration_update(collaboration: Dict[str, Any]) -> Dict[str, Any]:
-        """Create collaboration_update event"""
-        return {"type": "collaboration_update", "collaboration": collaboration}
-
-    @staticmethod
-    def stage_result(stage_result: Any) -> Dict[str, Any]:
-        """Create stage_result event"""
-        if hasattr(stage_result, "__dict__"):
-            # Convert datetime objects to ISO format
-            result_dict = {}
-            for k, v in stage_result.__dict__.items():
-                if isinstance(v, datetime):
-                    result_dict[k] = v.isoformat()
-                elif isinstance(v, dict):
-                    result_dict[k] = v
-                else:
-                    result_dict[k] = v
-        else:
-            result_dict = stage_result if isinstance(stage_result, dict) else {}
-        return {"type": "stage_result", "stage_result": result_dict}
-
-    @staticmethod
-    def execution_completed(execution_id: str, final_status: str) -> Dict[str, Any]:
-        """Create execution_completed event"""
-        return {
-            "type": "execution_completed",
-            "execution_id": execution_id,
-            "final_status": final_status,
-        }
-
-    @staticmethod
-    def execution_chat(message: ExecutionChatMessage) -> Dict[str, Any]:
-        """Create execution_chat event"""
-        if hasattr(message, "model_dump"):
-            message_dict = message.model_dump(mode="json")
-        else:
-            message_dict = message if isinstance(message, dict) else {}
-        return {"type": "execution_chat", "message": message_dict}
 
 
 @router.get("/{workspace_id}/executions/{execution_id}/stream")
@@ -622,57 +542,20 @@ async def get_execution(
     try:
         store = MindscapeStore()
         tasks_store = TasksStore(db_path=store.db_path)
-
-        task = tasks_store.get_task_by_execution_id(execution_id)
-        if not task:
-            raise HTTPException(status_code=404, detail="Execution not found")
-
-        if task.workspace_id != workspace_id:
-            raise HTTPException(
-                status_code=403, detail="Execution belongs to different workspace"
-            )
-
-        execution = ExecutionSession.from_task(task)
-        execution_dict = (
-            execution.model_dump() if hasattr(execution, "model_dump") else execution
+        return get_execution_payload(
+            store=store,
+            tasks_store=tasks_store,
+            workspace_id=workspace_id,
+            execution_id=execution_id,
+            logger=logger,
         )
-
-        # Add status from task
-        if isinstance(execution_dict, dict):
-            execution_dict["status"] = task.status.value
-
-            # Add current_step information if available
-            execution_context = task.execution_context or {}
-            current_step_index = execution_context.get("current_step_index", 0)
-
-            # Get current step from PLAYBOOK_STEP events
-            events = store.get_events_by_workspace(workspace_id=workspace_id, limit=200)
-            playbook_step_events = [
-                e
-                for e in events
-                if e.event_type == EventType.PLAYBOOK_STEP
-                and isinstance(e.payload, dict)
-                and e.payload.get("execution_id") == execution_id
-                and e.payload.get("step_index") == current_step_index
-            ]
-
-            if playbook_step_events:
-                try:
-                    current_step = PlaybookExecutionStep.from_mind_event(
-                        playbook_step_events[0]
-                    )
-                    execution_dict["current_step"] = (
-                        current_step.model_dump()
-                        if hasattr(current_step, "model_dump")
-                        else current_step
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to create current_step from event: {e}")
-
-        return execution_dict
 
     except HTTPException:
         raise
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to get execution: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -690,30 +573,12 @@ async def list_execution_steps(
     """
     try:
         store = MindscapeStore()
-
-        # Get all PLAYBOOK_STEP events for this execution
-        events = store.get_events_by_workspace(workspace_id=workspace_id, limit=1000)
-        playbook_step_events = [
-            e
-            for e in events
-            if e.event_type == EventType.PLAYBOOK_STEP
-            and e.payload.get("execution_id") == execution_id
-        ]
-
-        # Sort by step_index
-        playbook_step_events.sort(key=lambda e: e.payload.get("step_index", 0))
-
-        steps = []
-        for event in playbook_step_events:
-            try:
-                step = PlaybookExecutionStep.from_mind_event(event)
-                steps.append(step.model_dump() if hasattr(step, "model_dump") else step)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to create PlaybookExecutionStep from event {event.id}: {e}"
-                )
-
-        return {"steps": steps, "count": len(steps)}
+        return list_execution_steps_payload(
+            store=store,
+            workspace_id=workspace_id,
+            execution_id=execution_id,
+            logger=logger,
+        )
 
     except Exception as e:
         logger.error(f"Failed to list execution steps: {e}", exc_info=True)
@@ -734,59 +599,11 @@ async def list_execution_tool_calls(
     try:
         store = MindscapeStore()
         tool_calls_store = ToolCallsStore(db_path=store.db_path)
-
-        # Get tool calls for this execution
-        tool_calls = tool_calls_store.list_tool_calls(
-            execution_id=execution_id, step_id=step_id, limit=1000
+        return list_execution_tool_calls_payload(
+            tool_calls_store=tool_calls_store,
+            execution_id=execution_id,
+            step_id=step_id,
         )
-
-        # Convert to dict format
-        tool_calls_data = []
-        for tool_call in tool_calls:
-            if hasattr(tool_call, "model_dump"):
-                tool_calls_data.append(tool_call.model_dump())
-            elif hasattr(tool_call, "__dict__"):
-                # Convert ToolCall object to dict manually
-                tool_dict = {
-                    "id": tool_call.id,
-                    "execution_id": tool_call.execution_id,
-                    "step_id": tool_call.step_id,
-                    "tool_name": tool_call.tool_name,
-                    "tool_id": tool_call.tool_id,
-                    "parameters": tool_call.parameters,
-                    "response": tool_call.response,
-                    "status": tool_call.status,
-                    "error": tool_call.error,
-                    "duration_ms": tool_call.duration_ms,
-                    "factory_cluster": tool_call.factory_cluster,
-                    "started_at": (
-                        tool_call.started_at.isoformat()
-                        if tool_call.started_at
-                        else None
-                    ),
-                    "completed_at": (
-                        tool_call.completed_at.isoformat()
-                        if tool_call.completed_at
-                        else None
-                    ),
-                    "created_at": (
-                        tool_call.created_at.isoformat()
-                        if tool_call.created_at
-                        else None
-                    ),
-                }
-                tool_calls_data.append(tool_dict)
-            else:
-                # Fallback: try to convert as dict
-                try:
-                    tool_calls_data.append(dict(tool_call))
-                except (TypeError, ValueError):
-                    # Last resort: convert using vars() or empty dict
-                    tool_calls_data.append(
-                        vars(tool_call) if hasattr(tool_call, "__dict__") else {}
-                    )
-
-        return {"tool_calls": tool_calls_data, "count": len(tool_calls_data)}
 
     except Exception as e:
         logger.error(f"Failed to list execution tool calls: {e}", exc_info=True)
@@ -807,21 +624,11 @@ async def list_execution_stage_results(
     try:
         store = MindscapeStore()
         stage_results_store = StageResultsStore(db_path=store.db_path)
-
-        # Get stage results for this execution
-        stage_results = stage_results_store.list_stage_results(
-            execution_id=execution_id, step_id=step_id, limit=1000
+        return list_execution_stage_results_payload(
+            stage_results_store=stage_results_store,
+            execution_id=execution_id,
+            step_id=step_id,
         )
-
-        # Convert to dict format
-        stage_results_data = []
-        for stage_result in stage_results:
-            if hasattr(stage_result, "model_dump"):
-                stage_results_data.append(stage_result.model_dump())
-            else:
-                stage_results_data.append(dict(stage_result))
-
-        return {"stage_results": stage_results_data, "count": len(stage_results_data)}
 
     except Exception as e:
         logger.error(f"Failed to list execution stage results: {e}", exc_info=True)
@@ -844,41 +651,12 @@ async def list_executions(
     try:
         store = MindscapeStore()
         tasks_store = TasksStore(db_path=store.db_path)
-
-        # Get all execution tasks (tasks with execution_context)
-        execution_tasks = tasks_store.list_executions_by_workspace(
-            workspace_id=workspace_id, limit=limit
+        return list_executions_payload(
+            tasks_store=tasks_store,
+            workspace_id=workspace_id,
+            limit=limit,
+            logger=logger,
         )
-
-        executions = []
-        for task in execution_tasks:
-            try:
-                execution = ExecutionSession.from_task(task)
-                execution_dict = (
-                    execution.model_dump()
-                    if hasattr(execution, "model_dump")
-                    else execution
-                )
-                if isinstance(execution_dict, dict):
-                    execution_dict["status"] = task.status.value
-                    execution_dict["created_at"] = (
-                        task.created_at.isoformat() if task.created_at else None
-                    )
-                    execution_dict["started_at"] = (
-                        task.started_at.isoformat() if task.started_at else None
-                    )
-                    execution_dict["completed_at"] = (
-                        task.completed_at.isoformat() if task.completed_at else None
-                    )
-                    execution_dict["storyline_tags"] = task.storyline_tags or []
-                    execution_dict["execution_context"] = task.execution_context or {}
-                executions.append(execution_dict)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to create ExecutionSession from task {task.id}: {e}"
-                )
-
-        return {"executions": executions, "count": len(executions)}
 
     except Exception as e:
         logger.error(f"Failed to list executions: {e}", exc_info=True)
@@ -906,94 +684,14 @@ async def list_executions_with_steps(
     try:
         store = MindscapeStore()
         tasks_store = TasksStore(db_path=store.db_path)
-
-        # Get all execution tasks
-        execution_tasks = tasks_store.list_executions_by_workspace(
-            workspace_id=workspace_id, limit=limit
+        return list_executions_with_steps_payload(
+            store=store,
+            tasks_store=tasks_store,
+            workspace_id=workspace_id,
+            limit=limit,
+            include_steps_for=include_steps_for,
+            logger=logger,
         )
-
-        # Get all PLAYBOOK_STEP events for this workspace (batch query)
-        all_step_events = []
-        if include_steps_for != "none":
-            events = store.get_events_by_workspace(
-                workspace_id=workspace_id, limit=2000
-            )
-            all_step_events = [
-                e for e in events if e.event_type == EventType.PLAYBOOK_STEP
-            ]
-
-        # Group step events by execution_id
-        steps_by_execution: Dict[str, list] = {}
-        for event in all_step_events:
-            exec_id = event.payload.get("execution_id") if event.payload else None
-            if exec_id:
-                if exec_id not in steps_by_execution:
-                    steps_by_execution[exec_id] = []
-                steps_by_execution[exec_id].append(event)
-
-        # Sort steps by step_index for each execution
-        for exec_id in steps_by_execution:
-            steps_by_execution[exec_id].sort(
-                key=lambda e: e.payload.get("step_index", 0)
-            )
-
-        executions = []
-        for task in execution_tasks:
-            try:
-                execution = ExecutionSession.from_task(task)
-                execution_dict = (
-                    execution.model_dump()
-                    if hasattr(execution, "model_dump")
-                    else execution
-                )
-                if isinstance(execution_dict, dict):
-                    execution_dict["status"] = task.status.value
-                    execution_dict["created_at"] = (
-                        task.created_at.isoformat() if task.created_at else None
-                    )
-                    execution_dict["started_at"] = (
-                        task.started_at.isoformat() if task.started_at else None
-                    )
-                    execution_dict["completed_at"] = (
-                        task.completed_at.isoformat() if task.completed_at else None
-                    )
-                    execution_dict["storyline_tags"] = task.storyline_tags or []
-
-                    # Include steps based on include_steps_for parameter
-                    exec_id = execution_dict.get("execution_id")
-                    should_include_steps = False
-
-                    if include_steps_for == "all":
-                        should_include_steps = True
-                    elif include_steps_for == "active":
-                        # Only include steps for running or paused executions
-                        is_running = task.status.value == "running"
-                        is_paused = execution_dict.get("paused_at") is not None
-                        should_include_steps = is_running or is_paused
-
-                    if should_include_steps and exec_id in steps_by_execution:
-                        steps = []
-                        for event in steps_by_execution[exec_id]:
-                            try:
-                                step = PlaybookExecutionStep.from_mind_event(event)
-                                steps.append(
-                                    step.model_dump()
-                                    if hasattr(step, "model_dump")
-                                    else step
-                                )
-                            except Exception as e:
-                                logger.warning(f"Failed to create ExecutionStep: {e}")
-                        execution_dict["steps"] = steps
-                    else:
-                        execution_dict["steps"] = []
-
-                executions.append(execution_dict)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to create ExecutionSession from task {task.id}: {e}"
-                )
-
-        return {"executions": executions, "count": len(executions)}
 
     except Exception as e:
         logger.error(f"Failed to list executions with steps: {e}", exc_info=True)
@@ -1059,56 +757,17 @@ async def get_execution_chat(
     """
     try:
         store = MindscapeStore()
-
-        # Query MindEvents with event_type=EXECUTION_CHAT and execution_id in entity_ids
-        # Use get_events_by_workspace and filter
-        all_events = store.get_events_by_workspace(
-            workspace_id=workspace_id, limit=limit * 2  # Get more events to filter
+        return get_execution_chat_payload(
+            store=store,
+            workspace_id=workspace_id,
+            execution_id=execution_id,
+            limit=limit,
+            logger=logger,
         )
-        events = [
-            e
-            for e in all_events
-            if e.event_type == EventType.EXECUTION_CHAT
-            and execution_id in (e.entity_ids or [])
-        ][
-            :limit
-        ]  # Limit to requested number
-
-        messages = []
-        for event in events:
-            try:
-                message = ExecutionChatMessage.from_mind_event(event)
-                messages.append(
-                    message.model_dump(mode="json")
-                    if hasattr(message, "model_dump")
-                    else message
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to create ExecutionChatMessage from event {event.id}: {e}"
-                )
-
-        # Sort by created_at ascending
-        messages.sort(key=lambda m: m.get("created_at", ""))
-
-        return {"messages": messages, "count": len(messages)}
 
     except Exception as e:
         logger.error(f"Failed to get execution chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-class ExecutionChatRequest(BaseModel):
-    """Request model for posting execution chat messages"""
-
-    content: str = Field(..., description="Message content")
-    step_id: Optional[str] = Field(
-        None, description="Optional: step ID this message is about"
-    )
-    message_type: str = Field(
-        "question", description="Message type: question/note/route_proposal/system_hint"
-    )
-
 
 @router.post("/{workspace_id}/executions/{execution_id}/chat")
 async def post_execution_chat(
