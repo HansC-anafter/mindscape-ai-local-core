@@ -178,6 +178,7 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
                 hasattr(self.ws_manager, "has_connections")
                 and self.ws_manager.has_connections(
                     workspace_id=workspace_id,
+                    surface_type=self.RUNTIME_NAME,
                 )
             )
             if ws_connected:
@@ -276,7 +277,11 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
         )
         if self.ws_manager:
             logger.info(
-                f"GeminiCLIAdapter: ws_manager has connections? {self.ws_manager.has_connections()}"
+                "GeminiCLIAdapter: ws_manager has surface connection? %s",
+                self.ws_manager.has_connections(
+                    workspace_id=request.workspace_id or None,
+                    surface_type=self.RUNTIME_NAME,
+                ),
             )
 
         self.log_execution_start(request)
@@ -292,6 +297,7 @@ class GeminiCLIAdapter(PollingRuntimeAdapter):
                     hasattr(self.ws_manager, "has_connections")
                     and self.ws_manager.has_connections(
                         workspace_id=request.workspace_id or None,
+                        surface_type=self.RUNTIME_NAME,
                     )
                 )
                 if not ws_connected:

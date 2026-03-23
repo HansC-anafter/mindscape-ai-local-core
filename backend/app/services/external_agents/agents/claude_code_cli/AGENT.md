@@ -1,7 +1,7 @@
 ---
 name: Claude Code CLI
 version: "1.0.0"
-description: Claude Code CLI Agent — dispatches tasks to Anthropic Claude Code CLI via polling
+description: Claude Code CLI Agent — dispatches tasks to Anthropic Claude Code CLI via WebSocket bridge with polling fallback
 
 dependencies: []
 
@@ -24,14 +24,14 @@ governance:
 
 # Claude Code CLI Adapter
 
-Dispatches coding tasks to Anthropic Claude Code CLI via the shared REST Polling pipeline.
+Dispatches coding tasks to Anthropic Claude Code CLI via the shared WS-first bridge contract.
 
 ## Architecture
 
-Inherits all dispatch lifecycle logic from `PollingAgentAdapter`:
-- DB-primary persistence (TasksStore)
-- In-memory Future for instant notification
-- Timeout recovery via DB check
+Inherits the Gemini-style WS bridge flow with polling retained as fallback:
+- WebSocket dispatch to the real host-connected Claude Code surface
+- Cross-worker routing through the shared agent dispatch manager
+- Polling/DB fallback when no WS surface is reachable
 
 ## Configuration
 

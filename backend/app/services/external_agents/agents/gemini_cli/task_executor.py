@@ -24,6 +24,11 @@ import json
 import logging
 import os
 import shlex
+import shutil
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Dict, List, Optional
@@ -48,6 +53,7 @@ class ExecutionContext:
     task: str
     allowed_tools: List[str]
     max_duration: int
+    model: str = ""
     project_id: str = ""
     intent_id: str = ""
     lens_id: str = ""
@@ -55,6 +61,9 @@ class ExecutionContext:
     issued_at: str = ""
     conversation_context: str = ""
     thread_id: str = ""
+    auth_workspace_id: str = ""
+    source_workspace_id: str = ""
+    control_action: str = ""
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
     recommended_pack_codes: List[str] = field(default_factory=list)
     file_hint: str = ""
@@ -69,6 +78,7 @@ class ExecutionContext:
             task=msg.get("task", ""),
             allowed_tools=msg.get("allowed_tools", []),
             max_duration=msg.get("max_duration", DEFAULT_TASK_TIMEOUT),
+            model=msg.get("model", "") or "",
             project_id=ctx.get("project_id", ""),
             intent_id=ctx.get("intent_id", ""),
             lens_id=ctx.get("lens_id", ""),
@@ -76,6 +86,9 @@ class ExecutionContext:
             issued_at=msg.get("issued_at", ""),
             conversation_context=ctx.get("conversation_context", ""),
             thread_id=ctx.get("thread_id", ""),
+            auth_workspace_id=ctx.get("auth_workspace_id", ""),
+            source_workspace_id=ctx.get("source_workspace_id", ""),
+            control_action=ctx.get("control_action", ""),
             uploaded_files=ctx.get("uploaded_files", []),
             recommended_pack_codes=ctx.get("recommended_pack_codes", []),
             file_hint=ctx.get("file_hint", ""),
@@ -129,6 +142,7 @@ class TaskExecutor:
         timeout: int = DEFAULT_TASK_TIMEOUT,
         command_builder: Optional[Callable[[ExecutionContext], List[str]]] = None,
         progress_callback: Optional[ProgressCallback] = None,
+        runtime_surface: str = "gemini_cli",
     ):
         """
         Args:
@@ -142,6 +156,7 @@ class TaskExecutor:
         self.timeout = timeout
         self.command_builder = command_builder or self._default_command_builder
         self.progress_callback = progress_callback
+        self.runtime_surface = runtime_surface or "gemini_cli"
 
         # Track active executions for cancellation
         self._active: Dict[str, asyncio.subprocess.Process] = {}
@@ -213,8 +228,8 @@ class TaskExecutor:
         # Build the command
         cmd = self.command_builder(ctx)
         if not cmd:
-            # Natural-language task path: delegate to the Gemini CLI bridge.
-            return await self._execute_via_gemini_cli_bridge(ctx, timeout=timeout)
+            # Natural-language task path: delegate to the configured CLI runtime.
+            return await self._execute_via_runtime(ctx, timeout=timeout)
 
         logger.info(
             f"[TaskExecutor] Running command for {ctx.execution_id}: "
@@ -237,6 +252,115 @@ class TaskExecutor:
         await self._report_progress(ctx.execution_id, 95, "Finalizing")
         return result
 
+    async def _execute_via_runtime(
+        self,
+        ctx: ExecutionContext,
+        timeout: int,
+    ) -> ExecutionResult:
+        runtime_surface = (self.runtime_surface or "gemini_cli").strip().lower()
+        if runtime_surface == "gemini_cli":
+            return await self._execute_via_gemini_cli_bridge(ctx, timeout=timeout)
+        if runtime_surface == "codex_cli":
+            return await self._execute_via_codex_cli(ctx, timeout=timeout)
+        if runtime_surface == "claude_code_cli":
+            return await self._execute_via_claude_code_cli(ctx, timeout=timeout)
+        return ExecutionResult(
+            status="failed",
+            error=f"Unsupported runtime surface: {self.runtime_surface}",
+        )
+
+    @staticmethod
+    def _resolve_backend_api_url() -> str:
+        backend_url = self._resolve_backend_api_url()
+        return backend_url.rstrip("/")
+
+    @staticmethod
+    def _fallback_runtime_auth_env(runtime_name: str) -> Dict[str, str]:
+        runtime_name = (runtime_name or "").strip().lower()
+        if runtime_name == "codex_cli":
+            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            return {"OPENAI_API_KEY": api_key} if api_key else {}
+        if runtime_name == "claude_code_cli":
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+            return {"ANTHROPIC_API_KEY": api_key} if api_key else {}
+        api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        return {"GEMINI_API_KEY": api_key} if api_key else {}
+
+    def _fetch_runtime_auth_bundle_sync(
+        self,
+        runtime_name: str,
+        ctx: ExecutionContext,
+    ) -> Dict[str, Any]:
+        backend_url = self._resolve_backend_api_url()
+        if not backend_url:
+            return {
+                "auth_mode": "env_fallback",
+                "env": self._fallback_runtime_auth_env(runtime_name),
+            }
+
+        params = {"surface": runtime_name}
+        if ctx.workspace_id:
+            params["workspace_id"] = ctx.workspace_id
+        if ctx.auth_workspace_id:
+            params["auth_workspace_id"] = ctx.auth_workspace_id
+        if ctx.source_workspace_id:
+            params["source_workspace_id"] = ctx.source_workspace_id
+        url = (
+            f"{backend_url}/api/v1/auth/cli-token?"
+            f"{urllib.parse.urlencode(params)}"
+        )
+        try:
+            req = urllib.request.Request(url, method="GET")
+            req.add_header("Accept", "application/json")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+            env = data.get("env")
+            data["env"] = (
+                {
+                    str(key): str(value)
+                    for key, value in env.items()
+                    if value is not None and str(value) != ""
+                }
+                if isinstance(env, dict)
+                else {}
+            )
+            return data
+        except (urllib.error.URLError, json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "[TaskExecutor] Failed to fetch auth bundle for %s: %s",
+                runtime_name,
+                exc,
+            )
+            return {
+                "auth_mode": "env_fallback",
+                "env": self._fallback_runtime_auth_env(runtime_name),
+            }
+
+    async def _fetch_runtime_auth_env(
+        self,
+        runtime_name: str,
+        ctx: ExecutionContext,
+    ) -> Dict[str, Any]:
+        return await asyncio.to_thread(
+            self._fetch_runtime_auth_bundle_sync,
+            runtime_name,
+            ctx,
+        )
+
+    @staticmethod
+    def _build_codex_control_command(binary: str, control_action: str) -> List[str]:
+        action = (control_action or "").strip().lower()
+        if not action:
+            return []
+        base = [binary, "-c", 'model_reasoning_effort="high"']
+        if action == "codex_login_status":
+            return [*base, "login", "status"]
+        if action == "codex_login":
+            return [*base, "login"]
+        if action == "codex_logout":
+            return [*base, "logout"]
+        return []
+
     async def _execute_via_gemini_cli_bridge(
         self,
         ctx: ExecutionContext,
@@ -249,8 +373,15 @@ class TaskExecutor:
         It receives one JSON payload from stdin and should return JSON on stdout.
         """
         # Auto-discover bridge script: env override > project-relative path
-        runtime_cmd = os.environ.get("GEMINI_CLI_RUNTIME_CMD", "").strip()
-        logger.info(f"[TaskExecutor] GEMINI_CLI_RUNTIME_CMD={runtime_cmd!r}, workspace_root={self.workspace_root!r}")
+        runtime_cmd = os.environ.get("MINDSCAPE_CLI_RUNTIME_CMD", "").strip()
+        if not runtime_cmd:
+            runtime_cmd = os.environ.get("GEMINI_CLI_RUNTIME_CMD", "").strip()
+        logger.info(
+            "[TaskExecutor] runtime_surface=%s runtime_cmd=%r workspace_root=%r",
+            self.runtime_surface,
+            runtime_cmd,
+            self.workspace_root,
+        )
         if not runtime_cmd:
             # Derive from project root (workspace_root may be project or parent)
             for candidate_root in (
@@ -293,6 +424,7 @@ class TaskExecutor:
         payload = {
             "execution_id": ctx.execution_id,
             "workspace_id": ctx.workspace_id,
+            "surface": self.runtime_surface,
             "task": ctx.task,
             "allowed_tools": ctx.allowed_tools,
             "max_duration": timeout,
@@ -301,6 +433,8 @@ class TaskExecutor:
                 "project_id": ctx.project_id,
                 "intent_id": ctx.intent_id,
                 "lens_id": ctx.lens_id,
+                "auth_workspace_id": ctx.auth_workspace_id,
+                "source_workspace_id": ctx.source_workspace_id,
                 "sandbox_path": ctx.sandbox_path,
                 "issued_at": ctx.issued_at,
                 "conversation_context": ctx.conversation_context,
@@ -308,6 +442,7 @@ class TaskExecutor:
                 "uploaded_files": ctx.uploaded_files,
                 "recommended_pack_codes": ctx.recommended_pack_codes,
                 "file_hint": ctx.file_hint,
+                "control_action": ctx.control_action,
             },
         }
 
@@ -388,6 +523,263 @@ class TaskExecutor:
         if isinstance(auth_scope, dict) and auth_scope:
             result_dict["auth_scope"] = auth_scope
         return result_dict
+
+    def _resolve_runtime_binary(self, runtime_surface: str) -> str:
+        runtime_surface = runtime_surface.lower()
+        if runtime_surface == "codex_cli":
+            return os.environ.get("CODEX_CLI_PATH", "").strip() or (
+                shutil.which("codex") or "codex"
+            )
+        if runtime_surface == "claude_code_cli":
+            return os.environ.get("CLAUDE_CODE_CLI_PATH", "").strip() or (
+                shutil.which("claude") or "claude"
+            )
+        return os.environ.get("GEMINI_CLI_PATH", "").strip() or (
+            shutil.which("gemini") or "gemini"
+        )
+
+    def _build_runtime_prompt(self, ctx: ExecutionContext) -> str:
+        prompt_parts = []
+        if ctx.conversation_context:
+            prompt_parts.append(f"## Conversation Context\n{ctx.conversation_context}")
+        if ctx.uploaded_files:
+            file_lines = []
+            for item in ctx.uploaded_files:
+                if isinstance(item, dict):
+                    file_name = item.get("file_name") or item.get("filename") or "file"
+                    file_path = item.get("file_path") or ""
+                    detected_type = item.get("detected_type") or item.get(
+                        "file_type", "unknown"
+                    )
+                    line = f"- {file_name} ({detected_type})"
+                    if file_path:
+                        line += f": {file_path}"
+                    file_lines.append(line)
+                elif isinstance(item, str):
+                    file_lines.append(f"- {item}")
+            if file_lines:
+                prompt_parts.append("## Uploaded Files\n" + "\n".join(file_lines))
+        prompt_parts.append(ctx.task)
+        prompt_parts.append(
+            "IMPORTANT: After using any tools, provide a final text summary."
+        )
+        return "\n\n".join(part for part in prompt_parts if part)
+
+    async def _execute_via_codex_cli(
+        self,
+        ctx: ExecutionContext,
+        timeout: int,
+    ) -> ExecutionResult:
+        binary = self._resolve_runtime_binary("codex_cli")
+        cwd = ctx.sandbox_path or self.workspace_root
+        if not os.path.isdir(cwd):
+            cwd = self.workspace_root
+
+        control_cmd = self._build_codex_control_command(binary, ctx.control_action)
+        if control_cmd:
+            await self._report_progress(ctx.execution_id, 15, "Calling Codex CLI")
+            return await asyncio.wait_for(
+                self._run_cli_agent_subprocess(
+                    ctx,
+                    control_cmd,
+                    cwd,
+                    runtime_name="codex_cli",
+                ),
+                timeout=timeout,
+            )
+
+        prompt = self._build_runtime_prompt(ctx)
+        auth_bundle = await self._fetch_runtime_auth_env("codex_cli", ctx)
+        extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
+
+        with tempfile.NamedTemporaryFile(
+            prefix="mindscape_codex_last_",
+            suffix=".txt",
+            delete=False,
+        ) as tmp:
+            last_message_path = tmp.name
+
+        cmd = [
+            binary,
+            "-c",
+            'model_reasoning_effort="high"',
+            "exec",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "workspace-write",
+            "--ask-for-approval",
+            "never",
+            "--output-last-message",
+            last_message_path,
+        ]
+        if ctx.model:
+            cmd.extend(["--model", ctx.model])
+        if ctx.task:
+            cmd.append(prompt)
+        if ctx.max_duration:
+            # Codex currently does not expose an explicit timeout flag; runner timeout is enforced outside.
+            pass
+        await self._report_progress(ctx.execution_id, 15, "Calling Codex CLI")
+        try:
+            return await asyncio.wait_for(
+                self._run_cli_agent_subprocess(
+                    ctx,
+                    cmd,
+                    cwd,
+                    runtime_name="codex_cli",
+                    last_message_path=last_message_path,
+                    extra_env=extra_env if isinstance(extra_env, dict) else None,
+                ),
+                timeout=timeout,
+            )
+        finally:
+            try:
+                os.unlink(last_message_path)
+            except OSError:
+                pass
+
+    async def _execute_via_claude_code_cli(
+        self,
+        ctx: ExecutionContext,
+        timeout: int,
+    ) -> ExecutionResult:
+        binary = self._resolve_runtime_binary("claude_code_cli")
+        prompt = self._build_runtime_prompt(ctx)
+        cwd = ctx.sandbox_path or self.workspace_root
+        if not os.path.isdir(cwd):
+            cwd = self.workspace_root
+        auth_bundle = await self._fetch_runtime_auth_env("claude_code_cli", ctx)
+        extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
+
+        cmd = [
+            binary,
+            "-p",
+            "--dangerously-skip-permissions",
+            "--add-dir",
+            cwd,
+        ]
+        if ctx.model:
+            cmd.extend(["--model", ctx.model])
+        cmd.append(prompt)
+        await self._report_progress(
+            ctx.execution_id,
+            15,
+            "Calling Claude Code CLI",
+        )
+        return await asyncio.wait_for(
+            self._run_cli_agent_subprocess(
+                ctx,
+                cmd,
+                cwd,
+                runtime_name="claude_code_cli",
+                extra_env=extra_env if isinstance(extra_env, dict) else None,
+            ),
+            timeout=timeout,
+        )
+
+    async def _run_cli_agent_subprocess(
+        self,
+        ctx: ExecutionContext,
+        cmd: List[str],
+        cwd: str,
+        runtime_name: str,
+        last_message_path: Optional[str] = None,
+        extra_env: Optional[Dict[str, str]] = None,
+    ) -> ExecutionResult:
+        before_files = self._snapshot_files(cwd)
+        env = os.environ.copy()
+        env["MINDSCAPE_AGENT_RUNTIME"] = runtime_name
+        env["MINDSCAPE_AGENT_EXECUTION_ID"] = ctx.execution_id
+        env["MINDSCAPE_AGENT_WORKSPACE_ID"] = ctx.workspace_id
+        if extra_env:
+            env.update(
+                {
+                    str(key): str(value)
+                    for key, value in extra_env.items()
+                    if value is not None and str(value) != ""
+                }
+            )
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+            env=env,
+        )
+        self._active[ctx.execution_id] = proc
+        progress_task = asyncio.create_task(
+            self._progress_ticker(ctx.execution_id, proc)
+        )
+
+        stdout_bytes, stderr_bytes = await proc.communicate()
+
+        progress_task.cancel()
+        try:
+            await progress_task
+        except asyncio.CancelledError:
+            pass
+
+        after_files = self._snapshot_files(cwd)
+        files_created, files_modified = self._diff_file_snapshots(before_files, after_files)
+
+        stdout = stdout_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
+        stderr = stderr_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
+        output = stdout
+
+        if last_message_path and os.path.isfile(last_message_path):
+            try:
+                output = Path(last_message_path).read_text(encoding="utf-8").strip() or output
+            except OSError:
+                pass
+        if not output and stderr:
+            output = stderr
+
+        if proc.returncode == 0:
+            return ExecutionResult(
+                status="completed",
+                output=output or "(no response from agent)",
+                files_modified=files_modified,
+                files_created=files_created,
+            )
+        return ExecutionResult(
+            status="failed",
+            output=output,
+            error=f"Exit code {proc.returncode}: {stderr[:500] or stdout[:500]}",
+            files_modified=files_modified,
+            files_created=files_created,
+        )
+
+    @staticmethod
+    def _snapshot_files(root: str) -> Dict[str, tuple[int, int]]:
+        if not root or not os.path.isdir(root):
+            return {}
+        snapshot: Dict[str, tuple[int, int]] = {}
+        skip_dirs = {".git", "__pycache__", "node_modules", ".pytest_cache"}
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [name for name in dirnames if name not in skip_dirs]
+            for filename in filenames:
+                full_path = os.path.join(dirpath, filename)
+                try:
+                    stat = os.stat(full_path)
+                except OSError:
+                    continue
+                rel_path = os.path.relpath(full_path, root)
+                snapshot[rel_path] = (stat.st_mtime_ns, stat.st_size)
+        return snapshot
+
+    @staticmethod
+    def _diff_file_snapshots(
+        before: Dict[str, tuple[int, int]],
+        after: Dict[str, tuple[int, int]],
+    ) -> tuple[List[str], List[str]]:
+        created = sorted(path for path in after.keys() if path not in before)
+        modified = sorted(
+            path
+            for path, after_meta in after.items()
+            if path in before and before[path] != after_meta
+        )
+        return created, modified
 
     async def _run_subprocess(
         self,

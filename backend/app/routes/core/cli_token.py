@@ -3,14 +3,20 @@ CLI Token Endpoint
 
 Returns auth environment variables for CLI bridge processes.
 Reads the configured auth mode and credentials from system_settings,
-returning them as env-var key-value pairs that the bridge script
-injects into the Gemini CLI subprocess.
+returning them as env-var key-value pairs that the bridge or runtime
+injects into CLI subprocesses.
 
 Supported modes:
-  - gca           : returns GOOGLE_CLOUD_ACCESS_TOKEN + GOOGLE_GENAI_USE_GCA
-                    (reads stored Google IDP token from runtime auth_config)
-  - gemini_api_key: returns GEMINI_API_KEY
-  - vertex_ai     : returns GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION
+  - Gemini CLI:
+      - gca             : GOOGLE_CLOUD_ACCESS_TOKEN + GOOGLE_GENAI_USE_GCA
+      - gemini_api_key  : GEMINI_API_KEY
+      - vertex_ai       : GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION
+  - Codex CLI:
+      - openai_api_key  : OPENAI_API_KEY
+      - host_session    : empty env, host login is expected
+  - Claude Code CLI:
+      - anthropic_api_key: ANTHROPIC_API_KEY
+      - host_session     : empty env, host token is expected
 """
 
 import logging
@@ -264,6 +270,7 @@ async def get_cli_token(
     workspace_id: str | None = Query(None),
     auth_workspace_id: str | None = Query(None),
     source_workspace_id: str | None = Query(None),
+    surface: str | None = Query(None),
 ):
     """Return auth env vars for CLI bridge processes.
 
@@ -278,6 +285,37 @@ async def get_cli_token(
         from ...services.system_settings_store import SystemSettingsStore
 
         settings = SystemSettingsStore()
+        surface_name = (surface or "gemini_cli").strip().lower()
+
+        if surface_name == "codex_cli":
+            api_key = settings.get("openai_api_key", "")
+            if not api_key:
+                api_key = os.environ.get("OPENAI_API_KEY", "")
+            if api_key:
+                return {
+                    "auth_mode": "openai_api_key",
+                    "env": {"OPENAI_API_KEY": api_key},
+                }
+            return {
+                "auth_mode": "host_session",
+                "env": {},
+                "note": "Codex CLI will use any credentials already stored on the host.",
+            }
+
+        if surface_name == "claude_code_cli":
+            api_key = settings.get("claude_api_key", "")
+            if not api_key:
+                api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            if api_key:
+                return {
+                    "auth_mode": "anthropic_api_key",
+                    "env": {"ANTHROPIC_API_KEY": api_key},
+                }
+            return {
+                "auth_mode": "host_session",
+                "env": {},
+                "note": "Claude Code CLI will use any credentials already stored on the host.",
+            }
 
         auth_mode = settings.get("gemini_cli_auth_mode", "gca")
         agent_model = settings.get("agent_cli_model", "gemini-2.5-pro")
@@ -368,6 +406,21 @@ async def get_cli_token(
 
     except Exception as e:
         logger.error("Failed to retrieve CLI auth config: %s", e)
+        surface_name = (surface or "gemini_cli").strip().lower()
+        if surface_name == "codex_cli":
+            api_key = os.environ.get("OPENAI_API_KEY", "")
+            return {
+                "auth_mode": "openai_api_key" if api_key else "host_session",
+                "env": {"OPENAI_API_KEY": api_key} if api_key else {},
+                "warning": f"system_settings unavailable ({e}), using host fallback",
+            }
+        if surface_name == "claude_code_cli":
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            return {
+                "auth_mode": "anthropic_api_key" if api_key else "host_session",
+                "env": {"ANTHROPIC_API_KEY": api_key} if api_key else {},
+                "warning": f"system_settings unavailable ({e}), using host fallback",
+            }
         # Graceful fallback: check host env vars directly
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if api_key:

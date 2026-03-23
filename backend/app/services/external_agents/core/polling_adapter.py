@@ -59,6 +59,7 @@ def build_dispatch_payload(
             "uploaded_files": agent_cfg.get("uploaded_files", []),
             "recommended_pack_codes": agent_cfg.get("recommended_pack_codes", []),
             "file_hint": agent_cfg.get("file_hint", ""),
+            "control_action": agent_cfg.get("control_action", ""),
         },
         "issued_at": datetime.now(timezone.utc).isoformat(),
     }
