@@ -9,12 +9,28 @@ import inspect
 from pathlib import Path
 from typing import Dict, Optional, Callable, Any, List
 import logging
+from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
 
 logger = logging.getLogger(__name__)
 
 # Global capability registry
 CAPABILITY_REGISTRY: Dict[str, Dict] = {}
 TOOL_REGISTRY: Dict[str, Dict] = {}  # tool_name -> {capability, tool_info, backend}
+
+
+def _ensure_capability_import_paths(sys_path: list[str], capability_dir: Path) -> None:
+    """Expose capability, app, and backend roots for runtime pack imports."""
+    capability_dir = Path(capability_dir)
+    capabilities_root = capability_dir.parent
+    app_root = capabilities_root.parent
+    backend_root = app_root.parent
+
+    ordered_paths = (backend_root, app_root, capabilities_root)
+    for path in reversed(ordered_paths):
+        path_str = str(path)
+        if path_str in sys_path:
+            sys_path.remove(path_str)
+        sys_path.insert(0, path_str)
 
 
 class CapabilityRegistry:
@@ -31,7 +47,10 @@ class CapabilityRegistry:
             return
 
         for capability_dir in capabilities_dir.iterdir():
-            if not capability_dir.is_dir() or capability_dir.name.startswith('_'):
+            if (
+                not capability_dir.is_dir()
+                or is_ignored_runtime_pack_dir(capability_dir.name)
+            ):
                 continue
 
             manifest_path = capability_dir / "manifest.yaml"
@@ -208,15 +227,7 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
     if capability_info:
         capability_dir = capability_info.get('directory')
         if capability_dir:
-            # Add parent of capabilities directory to sys.path (for imports like 'capabilities.xxx')
-            capabilities_parent = capability_dir.parent
-            if str(capabilities_parent) not in sys.path:
-                sys.path.insert(0, str(capabilities_parent))
-
-            # Also add cloud root (parent of capabilities) for imports like 'services.xxx'
-            cloud_root = capabilities_parent.parent
-            if str(cloud_root) not in sys.path:
-                sys.path.insert(0, str(cloud_root))
+            _ensure_capability_import_paths(sys.path, capability_dir)
 
     # Parse backend path
     # Format 1: 'module.path:function' - module-level function
@@ -321,15 +332,7 @@ async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
     if capability_info:
         capability_dir = capability_info.get('directory')
         if capability_dir:
-            # Add parent of capabilities directory to sys.path (for imports like 'capabilities.xxx')
-            capabilities_parent = capability_dir.parent
-            if str(capabilities_parent) not in sys.path:
-                sys.path.insert(0, str(capabilities_parent))
-
-            # Also add cloud root (parent of capabilities) for imports like 'services.xxx'
-            cloud_root = capabilities_parent.parent
-            if str(cloud_root) not in sys.path:
-                sys.path.insert(0, str(cloud_root))
+            _ensure_capability_import_paths(sys.path, capability_dir)
 
     # Parse backend path
     # Format 1: 'module.path:function' - Module-level function

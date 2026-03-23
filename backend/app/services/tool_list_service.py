@@ -275,10 +275,11 @@ class ToolListService:
                 logger.debug(
                     "ToolListService: No capability tools found, reloading local capabilities..."
                 )
-                app_dir = Path(__file__).parent.parent.parent
+                app_dir = Path(__file__).parent.parent
                 capabilities_dir = app_dir / "capabilities"
                 if capabilities_dir.exists():
                     load_capabilities(capabilities_dir)
+                    capability_tool_names = capability_registry.list_tools()
 
             result = []
             for tool_name in capability_tool_names:

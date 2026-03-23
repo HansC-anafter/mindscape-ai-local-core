@@ -1,0 +1,1 @@
+"""Cross-pack shared schemas."""

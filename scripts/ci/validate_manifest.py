@@ -498,7 +498,7 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
         if not isinstance(cap, dict):
             continue
 
-        cap_code = cap.get("code", "unknown")
+        cap_code = cap.get("code") or cap.get("name") or "unknown"
         path = cap.get("path", "")
 
         if path:
@@ -535,7 +535,7 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
                         severity="error",
                     )
                 )
-            elif not re.match(r"^/[a-z0-9_/]+$", str(prefix)):
+            elif not re.match(r"^/[a-z0-9_/-]+$", str(prefix)):
                 warnings.append(
                     ValidationError(
                         capability=capability_code,
@@ -626,7 +626,7 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
         optional_deps = dependencies.get("optional", [])
         for dep in optional_deps:
             if isinstance(dep, dict):
-                dep_name = dep.get("name", "unknown")
+                dep_name = dep.get("name") or dep.get("code") or "unknown"
                 if "fallback" not in dep and "degraded_features" not in dep:
                     warnings.append(
                         ValidationError(

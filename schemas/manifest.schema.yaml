@@ -140,14 +140,18 @@ properties:
               oneOf:
                 - type: string
                 - type: object
-                  required: [name]
+                  anyOf:
+                    - required: [name]
+                    - required: [code]
                   properties:
                     name:
                       type: string
                       description: "依賴名稱"
-                    fallback:
+                    code:
                       type: string
-                      nullable: true
+                      description: "依賴名稱（兼容別名）"
+                    fallback:
+                      type: [string, "null"]
                       description: "替代模組路徑，null 表示無替代"
                     degraded_features:
                       type: array
@@ -403,13 +407,18 @@ properties:
     items:
       type: object
       required:
-        - code
         - path
         - prefix
+      anyOf:
+        - required: [code]
+        - required: [name]
       properties:
         code:
           type: string
           description: "API 代碼"
+        name:
+          type: string
+          description: "API 代碼（兼容別名）"
         path:
           type: string
           # 要求：必須在 api/ 目錄下
@@ -430,7 +439,7 @@ properties:
             - get_router: 導出 get_router() 函數
         prefix:
           type: string
-          pattern: "^/[a-z0-9_]+$"
+          pattern: "^/[a-z0-9_/-]+$"
           description: "API 路由前綴"
         enabled_by_default:
           type: boolean
@@ -444,13 +453,18 @@ properties:
     items:
       type: object
       required:
-        - code
         - path
         - prefix
+      anyOf:
+        - required: [code]
+        - required: [name]
       properties:
         code:
           type: string
           description: "API 代碼"
+        name:
+          type: string
+          description: "API 代碼（兼容別名）"
         path:
           type: string
           pattern: "^api/.*\\.py$"
@@ -470,7 +484,7 @@ properties:
             - get_router: 導出 get_router() 函數
         prefix:
           type: string
-          pattern: "^/[a-z0-9_]+$"
+          pattern: "^/[a-z0-9_/-]+$"
           description: "API 路由前綴"
         enabled_by_default:
           type: boolean

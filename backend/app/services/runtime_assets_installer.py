@@ -164,14 +164,28 @@ class RuntimeAssetsInstaller:
         target_services_dir.mkdir(parents=True, exist_ok=True)
 
         for service_file in services_dir.glob("*.py"):
-            if service_file.name.startswith("__"):
+            if service_file.name.startswith("__") and service_file.name != "__init__.py":
                 continue
 
             target_service = target_services_dir / service_file.name
             shutil.copy2(service_file, target_service)
             service_name = service_file.stem
-            result.add_installed("services", service_name)
+            if service_name != "__init__":
+                result.add_installed("services", service_name)
             logger.debug(f"Installed service: {service_name}")
+
+        # Also install service subdirectories (service packages).
+        for item in services_dir.iterdir():
+            if not item.is_dir():
+                continue
+            if item.name.startswith("__"):
+                continue
+            target_subdir = target_services_dir / item.name
+            if target_subdir.exists():
+                shutil.rmtree(target_subdir)
+            shutil.copytree(item, target_subdir)
+            logger.debug(f"Installed services subdirectory: {item.name}")
+            result.add_installed("service_dirs", item.name)
 
     def install_jobs(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install capability jobs directory"""
@@ -344,8 +358,14 @@ class RuntimeAssetsInstaller:
         target_models_dir = self.capabilities_dir / capability_code / "models"
         target_models_dir.mkdir(parents=True, exist_ok=True)
 
-        # Install all Python files from models/ directory (including subdirectories)
-        for model_file in models_dir.rglob("*.py"):
+        # models/ can contain runtime data assets such as JSON vocabularies in
+        # addition to Python modules, so copy all files except cache artifacts.
+        for model_file in models_dir.rglob("*"):
+            if not model_file.is_file():
+                continue
+            if "__pycache__" in model_file.parts:
+                continue
+
             # Calculate relative path from models_dir to preserve subdirectory structure
             relative_path = model_file.relative_to(models_dir)
             target_model = target_models_dir / relative_path
@@ -354,10 +374,9 @@ class RuntimeAssetsInstaller:
             target_model.parent.mkdir(parents=True, exist_ok=True)
 
             shutil.copy2(model_file, target_model)
-            model_name = model_file.stem
-            if not model_name.startswith("__"):
+            if not model_file.name.startswith("__"):
                 result.add_installed("capability_models", str(relative_path))
-            logger.debug(f"Installed capability model: {relative_path}")
+            logger.debug(f"Installed capability model asset: {relative_path}")
 
     def install_migrations_directory(
         self, cap_dir: Path, capability_code: str, result: InstallResult
@@ -458,9 +477,10 @@ class RuntimeAssetsInstaller:
             logger.debug(f"Installed migration: {migration_file.name}")
             installed_files.append(migration_file.name)
 
-            # Warn if branch_labels not set on pack migration
+            # Only root revisions need branch_labels for branch-scoped discovery.
             branch = self._extract_branch_labels(migration_file)
-            if not branch:
+            down_revision = self._extract_down_revision(migration_file)
+            if not branch and down_revision is None:
                 result.add_warning(
                     f"Migration {migration_file.name} has no branch_labels. "
                     f"Set branch_labels = ('{capability_code}',) for Hybrid migration support."
@@ -500,6 +520,49 @@ class RuntimeAssetsInstaller:
         except Exception:
             pass
         return ()
+
+    @staticmethod
+    def _extract_revision_id(migration_file: Path) -> Optional[str]:
+        """Extract the authoritative Alembic revision id from a migration file."""
+        import re
+
+        try:
+            content = migration_file.read_text()
+            match = re.search(
+                r"""\brevision\b\s*(?::\s*[^=]+)?\s*=\s*['"]([^'"]+)['"]""",
+                content,
+            )
+            if match:
+                return match.group(1).strip() or None
+        except Exception:
+            pass
+
+        stem = migration_file.stem.strip()
+        return stem or None
+
+    @staticmethod
+    def _extract_down_revision(migration_file: Path) -> Optional[str]:
+        """Extract the Alembic down_revision from a migration file."""
+        import re
+
+        try:
+            content = migration_file.read_text()
+            if re.search(
+                r"""\bdown_revision\b\s*(?::\s*[^=]+)?\s*=\s*None""",
+                content,
+            ):
+                return None
+
+            match = re.search(
+                r"""\bdown_revision\b\s*(?::\s*[^=]+)?\s*=\s*['"]([^'"]+)['"]""",
+                content,
+            )
+            if match:
+                return match.group(1).strip() or None
+        except Exception:
+            pass
+
+        return None
 
     def _pack_has_branch_label(
         self, capability_code: str, alembic_versions_dir: Path
@@ -567,11 +630,9 @@ class RuntimeAssetsInstaller:
                         for mf in versions_dir.glob("*.py"):
                             if mf.name.startswith("__"):
                                 continue
-                            # Extract revision from filename
-                            # (format: {revision}_{description}.py)
-                            rev_part = mf.stem.split("_")[0]
-                            if rev_part and rev_part.isdigit():
-                                actual_revisions.add(rev_part)
+                            revision_id = self._extract_revision_id(mf)
+                            if revision_id:
+                                actual_revisions.add(revision_id)
 
                 declared_set = set(str(r) for r in revisions)
                 undeclared = actual_revisions - declared_set
@@ -627,30 +688,29 @@ class RuntimeAssetsInstaller:
                     if migration_file.name.startswith("__"):
                         continue
                     try:
-                        # Extract revision from filename (format: {revision}_{description}.py)
-                        revision = migration_file.stem.split("_")[0]
-                        if revision and revision.isdigit():
-                            # Check if this file belongs to the current capability
-                            file_content = migration_file.read_text().lower()
-                            is_current_capability = any(
-                                pattern in file_content
-                                for pattern in capability_patterns
-                            )
+                        revision = self._extract_revision_id(migration_file)
+                        if not revision:
+                            continue
 
-                            if revision in existing_revisions:
-                                existing_revisions[revision].append(
-                                    {
-                                        "file": migration_file.name,
-                                        "is_current_capability": is_current_capability,
-                                    }
-                                )
-                            else:
-                                existing_revisions[revision] = [
-                                    {
-                                        "file": migration_file.name,
-                                        "is_current_capability": is_current_capability,
-                                    }
-                                ]
+                        file_content = migration_file.read_text().lower()
+                        is_current_capability = any(
+                            pattern in file_content for pattern in capability_patterns
+                        )
+
+                        if revision in existing_revisions:
+                            existing_revisions[revision].append(
+                                {
+                                    "file": migration_file.name,
+                                    "is_current_capability": is_current_capability,
+                                }
+                            )
+                        else:
+                            existing_revisions[revision] = [
+                                {
+                                    "file": migration_file.name,
+                                    "is_current_capability": is_current_capability,
+                                }
+                            ]
                     except:
                         continue
 

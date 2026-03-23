@@ -19,6 +19,7 @@ from sqlalchemy import create_engine, text
 HEAD_SENTINEL_TABLES = {
     "20260321083000": "tasks",
     "001_create_direction_tables": "direction_sessions",
+    "20260322000001": "direction_sessions",
     "20251227170000": "sonic_segments",
     "20260114000002": "mindscape_personal",
     "20260118000000": "ws_connections",

@@ -4,6 +4,7 @@ import logging
 import yaml
 from pathlib import Path
 from typing import List, Dict, Optional
+from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,10 @@ class MigrationScanner:
         metadata_list = []
 
         for capability_dir in self.capabilities_root.iterdir():
-            if not capability_dir.is_dir():
+            if (
+                not capability_dir.is_dir()
+                or is_ignored_runtime_pack_dir(capability_dir.name)
+            ):
                 continue
 
             migrations_yaml = capability_dir / "migrations.yaml"

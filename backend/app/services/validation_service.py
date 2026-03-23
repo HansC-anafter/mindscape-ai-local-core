@@ -339,7 +339,7 @@ class ValidationService:
         """Validate manifest schema"""
         errors = []
 
-        required_fields = ["code", "name", "version"]
+        required_fields = ["code", "version", "portability"]
         for field in required_fields:
             if field not in manifest:
                 errors.append(f"Missing required field: {field}")
