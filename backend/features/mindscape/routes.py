@@ -3,28 +3,70 @@ Mindscape API routes
 Handles profile and intent management endpoints
 """
 
+import logging
 import uuid
 from datetime import datetime
 from typing import List, Optional, Dict, Any
+
 from fastapi import APIRouter, HTTPException, Path, Query, Body
-from fastapi.responses import JSONResponse
-from pydantic import ValidationError, BaseModel
-import json
 
 from backend.app.models.mindscape import (
-    MindscapeProfile, IntentCard, IntentLog,
-    CreateProfileRequest, UpdateProfileRequest,
-    CreateIntentRequest, UpdateIntentRequest,
-    IntentStatus, PriorityLevel,
-    Entity, EntityType, Tag, TagCategory, EntityTag
+    CreateIntentRequest,
+    CreateProfileRequest,
+    Entity,
+    EventActor,
+    EventType,
+    IntentCard,
+    IntentLog,
+    IntentStatus,
+    MindEvent,
+    MindscapeProfile,
+    PriorityLevel,
+    Tag,
+    UpdateIntentRequest,
+    UpdateProfileRequest,
 )
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.mindscape_onboarding import MindscapeOnboardingService
 from backend.app.services.orchestration.governance_engine import GovernanceEngine
 from backend.app.services.intent_analyzer import IntentPipeline
 from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
+from backend.features.mindscape.routes_core import (
+    AnnotateIntentLogRequest,
+    ReplayIntentLogRequest,
+    SelfIntroRequest,
+    archive_intent,
+    annotate_intent_log_record,
+    associate_intent_playbook_payload,
+    complete_self_intro_payload,
+    complete_task2_payload,
+    complete_task3_payload,
+    create_profile_record,
+    create_entity_record,
+    create_tag_record,
+    get_entities_by_tag_payload,
+    get_entity_payload,
+    get_intent_playbooks_payload,
+    get_intent_log_payload,
+    get_intent_or_404,
+    get_onboarding_status_payload,
+    get_project_timeline_payload,
+    get_profile_or_404,
+    get_timeline_payload,
+    list_intent_logs_payload,
+    list_intents_payload,
+    list_entities_payload,
+    list_tags_payload,
+    playbook_completion_webhook_payload,
+    remove_intent_playbook_payload,
+    tag_entity_record,
+    untag_entity_record,
+    update_entity_record,
+    update_profile_record,
+)
 
 router = APIRouter(tags=["mindscape"])
+logger = logging.getLogger(__name__)
 
 # Initialize store, onboarding service, and completion ingress façade
 store = MindscapeStore()
@@ -36,27 +78,16 @@ governance_engine = GovernanceEngine()
 # Onboarding Endpoints
 # ============================================================================
 
-class SelfIntroRequest(BaseModel):
-    """Request body for task 1: self introduction"""
-    identity: str
-    solving: str
-    thinking: str
-
-
 @router.get("/onboarding/status")
 async def get_onboarding_status(
     user_id: str = Query("default-user", description="Profile ID")
 ):
     """Get onboarding status for a profile"""
     try:
-        status = onboarding_service.get_onboarding_status(user_id)
-        completed_count = onboarding_service.get_completion_count(user_id)
-
-        return {
-            "onboarding_state": status,
-            "completed_count": completed_count,
-            "is_complete": onboarding_service.is_onboarding_complete(user_id)
-        }
+        return get_onboarding_status_payload(
+            onboarding_service=onboarding_service,
+            user_id=user_id,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get onboarding status: {str(e)}")
 
@@ -75,13 +106,13 @@ async def complete_self_intro(
     - thinking: What's on their mind / challenges
     """
     try:
-        result = onboarding_service.complete_task1_self_intro(
+        return complete_self_intro_payload(
+            onboarding_service=onboarding_service,
             user_id=user_id,
             identity=request.identity,
             solving=request.solving,
-            thinking=request.thinking
+            thinking=request.thinking,
         )
-        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to complete self intro: {str(e)}")
 
@@ -98,12 +129,12 @@ async def complete_task2(
     Called after user completes the project breakdown playbook
     """
     try:
-        result = onboarding_service.complete_task2_project_breakdown(
+        return complete_task2_payload(
+            onboarding_service=onboarding_service,
             user_id=user_id,
             execution_id=execution_id,
-            intent_id=intent_id
+            intent_id=intent_id,
         )
-        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to complete task 2: {str(e)}")
 
@@ -120,12 +151,12 @@ async def complete_task3(
     Called after user completes the weekly review playbook
     """
     try:
-        result = onboarding_service.complete_task3_weekly_review(
+        return complete_task3_payload(
+            onboarding_service=onboarding_service,
             user_id=user_id,
             execution_id=execution_id,
-            created_seeds_count=created_seeds_count
+            created_seeds_count=created_seeds_count,
         )
-        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to complete task 3: {str(e)}")
 
@@ -147,13 +178,13 @@ async def playbook_completion_webhook(
     - Updating onboarding state
     """
     try:
-        result = await governance_engine.process_playbook_webhook(
+        return await playbook_completion_webhook_payload(
+            governance_engine=governance_engine,
             execution_id=execution_id,
             playbook_code=playbook_code,
             user_id=user_id,
-            output_data=output_data
+            output_data=output_data,
         )
-        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to handle playbook webhook: {str(e)}")
 
@@ -166,20 +197,7 @@ async def playbook_completion_webhook(
 async def create_profile(request: CreateProfileRequest):
     """Create a new mindscape profile"""
     try:
-        profile = MindscapeProfile(
-            id=str(uuid.uuid4()),
-            name=request.name,
-            email=request.email,
-            roles=request.roles,
-            domains=request.domains,
-            preferences=request.preferences or None,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
-        )
-
-        created = store.create_profile(profile)
-        return created
-
+        return create_profile_record(store=store, request=request)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create profile: {str(e)}")
 
@@ -187,11 +205,7 @@ async def create_profile(request: CreateProfileRequest):
 @router.get("/profiles/{user_id}", response_model=MindscapeProfile)
 async def get_profile(user_id: str = Path(..., description="Profile ID")):
     """Get profile by ID"""
-    profile = store.get_profile(user_id)
-    if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found")
-    # Return Pydantic model directly - FastAPI will handle serialization correctly
-    return profile
+    return get_profile_or_404(store=store, user_id=user_id)
 
 
 @router.put("/profiles/{user_id}", response_model=MindscapeProfile)
@@ -200,54 +214,17 @@ async def update_profile(
     request: UpdateProfileRequest = None
 ):
     """Update an existing profile"""
-    if not request:
-        raise HTTPException(status_code=400, detail="Update request required")
-
-    updates = {}
-    if request.name is not None:
-        updates["name"] = request.name
-    if request.email is not None:
-        updates["email"] = request.email
-    if request.roles is not None:
-        updates["roles"] = request.roles
-    if request.domains is not None:
-        updates["domains"] = request.domains
-    if request.preferences is not None:
-        updates["preferences"] = request.preferences
-
-    updated = store.update_profile(user_id, updates)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Profile not found")
-
-    # Record profile update event
     try:
-        from backend.app.models.mindscape import MindEvent, EventType, EventActor
-        import uuid
-        from datetime import datetime
-
-        update_event = MindEvent(
-            id=str(uuid.uuid4()),
-            timestamp=datetime.utcnow(),
-            actor=EventActor.USER,
-            channel="api",
-            profile_id=user_id,
-            project_id=None,
-            workspace_id=None,
-            event_type=EventType.PROFILE_UPDATED,
-            payload={
-                "updated_fields": list(updates.keys()),
-                "updates": updates
-            },
-            entity_ids=[],
-            metadata={}
+        return update_profile_record(
+            store=store,
+            user_id=user_id,
+            request=request,
+            logger=logger,
         )
-        store.create_event(update_event)
+    except HTTPException:
+        raise
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(f"Failed to record profile update event: {e}")
-
-    return updated
+        raise HTTPException(status_code=500, detail=f"Failed to update profile: {str(e)}")
 
 
 # Intent endpoints
@@ -311,8 +288,6 @@ async def create_intent(
             # Only generate embedding for high-priority intents
             store.create_event(intent_event, generate_embedding=is_high_priority)
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(f"Failed to record intent creation event: {e}")
 
         return created
@@ -328,22 +303,18 @@ async def list_intents(
     priority: Optional[PriorityLevel] = Query(None, description="Filter by priority")
 ):
     """List intents for a profile"""
-    # Verify profile exists
-    profile = store.get_profile(user_id)
-    if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found")
-
-    intents = store.list_intents(user_id, status=status, priority=priority)
-    return intents
+    return list_intents_payload(
+        store=store,
+        user_id=user_id,
+        status=status,
+        priority=priority,
+    )
 
 
 @router.get("/intents/{intent_id}", response_model=IntentCard)
 async def get_intent(intent_id: str = Path(..., description="Intent ID")):
     """Get intent by ID"""
-    intent = store.get_intent(intent_id)
-    if not intent:
-        raise HTTPException(status_code=404, detail="Intent not found")
-    return intent
+    return get_intent_or_404(store=store, intent_id=intent_id)
 
 
 @router.put("/intents/{intent_id}", response_model=IntentCard)
@@ -395,9 +366,6 @@ async def update_intent(
 
     # Record intent update event
     try:
-        from backend.app.models.mindscape import MindEvent, EventType, EventActor
-        import uuid
-
         update_event = MindEvent(
             id=str(uuid.uuid4()),
             timestamp=datetime.utcnow(),
@@ -424,8 +392,6 @@ async def update_intent(
         # Generate embedding only if completed or high priority
         store.create_event(update_event, generate_embedding=is_completed or intent.priority in ["high", "critical"])
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
         logger.warning(f"Failed to record intent update event: {e}")
 
     return intent
@@ -434,33 +400,14 @@ async def update_intent(
 @router.delete("/intents/{intent_id}", status_code=204)
 async def delete_intent(intent_id: str = Path(..., description="Intent ID")):
     """Delete an intent"""
-    intent = store.get_intent(intent_id)
-    if not intent:
-        raise HTTPException(status_code=404, detail="Intent not found")
-
-    # TODO: Implement delete method in store
-    # For MVP, we can mark as archived
-    intent.status = IntentStatus.ARCHIVED
-    intent.updated_at = datetime.utcnow()
-    store.create_intent(intent)
-
+    archive_intent(store=store, intent_id=intent_id)
     return None
 
 
 @router.get("/intents/{intent_id}/playbooks", response_model=List[str])
 async def get_intent_playbooks(intent_id: str = Path(..., description="Intent ID")):
     """Get playbook codes associated with an intent"""
-    from backend.app.services.playbook_service import PlaybookService
-    playbook_service = PlaybookService(store=store)
-
-    intent = store.get_intent(intent_id)
-    if not intent:
-        raise HTTPException(status_code=404, detail="Intent not found")
-
-    # Use PlaybookService's internal store for association queries
-    # TODO: Add association methods to PlaybookService API
-    playbook_codes = playbook_service.playbook_store.get_intent_playbooks(intent_id)
-    return playbook_codes
+    return get_intent_playbooks_payload(store=store, intent_id=intent_id)
 
 
 @router.post("/intents/{intent_id}/playbooks/{playbook_code}", status_code=201)
@@ -469,31 +416,11 @@ async def associate_intent_playbook(
     playbook_code: str = Path(..., description="Playbook code")
 ):
     """Associate a playbook with an intent"""
-    from backend.app.services.playbook_service import PlaybookService
-    playbook_service = PlaybookService(store=store)
-
-    # Verify intent exists
-    intent = store.get_intent(intent_id)
-    if not intent:
-        raise HTTPException(status_code=404, detail="Intent not found")
-
-    # Verify playbook exists using PlaybookService
-    playbook = await playbook_service.get_playbook(
+    return await associate_intent_playbook_payload(
+        store=store,
+        intent_id=intent_id,
         playbook_code=playbook_code,
-        locale="zh-TW",  # Default locale, can be made configurable
-        workspace_id=None
     )
-    if not playbook:
-        raise HTTPException(status_code=404, detail="Playbook not found")
-
-    # Create association using PlaybookService's internal store
-    # TODO: Add association methods to PlaybookService API
-    association = playbook_service.playbook_store.associate_intent_playbook(intent_id, playbook_code)
-    return {
-        "intent_id": association.intent_id,
-        "playbook_code": association.playbook_code,
-        "message": "Association created"
-    }
 
 
 @router.delete("/intents/{intent_id}/playbooks/{playbook_code}", status_code=204)
@@ -502,14 +429,11 @@ async def remove_intent_playbook(
     playbook_code: str = Path(..., description="Playbook code")
 ):
     """Remove association between intent and playbook"""
-    from backend.app.services.playbook_service import PlaybookService
-    playbook_service = PlaybookService(store=store)
-
-    # Use PlaybookService's internal store for association queries
-    # TODO: Add association methods to PlaybookService API
-    success = playbook_service.playbook_store.remove_intent_playbook_association(intent_id, playbook_code)
-    if not success:
-        raise HTTPException(status_code=404, detail="Association not found")
+    remove_intent_playbook_payload(
+        store=store,
+        intent_id=intent_id,
+        playbook_code=playbook_code,
+    )
     return None
 
 
@@ -744,21 +668,6 @@ async def get_current_mode(user_id: str = Path(..., description="Profile ID")):
 # Intent Log Endpoints (for offline optimization)
 # ============================================================================
 
-class AnnotateIntentLogRequest(BaseModel):
-    """Request to annotate an intent log with correct answer"""
-    correct_interaction_type: Optional[str] = None
-    correct_task_domain: Optional[str] = None
-    correct_playbook_code: Optional[str] = None
-    notes: Optional[str] = None
-
-
-class ReplayIntentLogRequest(BaseModel):
-    """Request to replay an intent log with new settings"""
-    use_llm: Optional[bool] = None
-    rule_priority: Optional[bool] = None
-    model: Optional[str] = None
-
-
 @router.get("/intent-logs", response_model=List[IntentLog])
 async def list_intent_logs(
     profile_id: Optional[str] = Query(None, description="Filter by profile ID"),
@@ -769,17 +678,14 @@ async def list_intent_logs(
 ):
     """List intent logs with optional filters"""
     try:
-        start = datetime.fromisoformat(start_time) if start_time else None
-        end = datetime.fromisoformat(end_time) if end_time else None
-
-        logs = store.list_intent_logs(
+        return list_intent_logs_payload(
+            store=store,
             profile_id=profile_id,
-            start_time=start,
-            end_time=end,
+            start_time=start_time,
+            end_time=end_time,
             has_override=has_override,
-            limit=limit
+            limit=limit,
         )
-        return logs
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list intent logs: {str(e)}")
 
@@ -790,10 +696,7 @@ async def get_intent_log(
 ):
     """Get a specific intent log by ID"""
     try:
-        log = store.get_intent_log(log_id)
-        if not log:
-            raise HTTPException(status_code=404, detail="Intent log not found")
-        return log
+        return get_intent_log_payload(store=store, log_id=log_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -807,22 +710,11 @@ async def annotate_intent_log(
 ):
     """Annotate an intent log with correct answer"""
     try:
-        # Build user override dict
-        user_override = {}
-        if request.correct_interaction_type:
-            user_override["correct_interaction_type"] = request.correct_interaction_type
-        if request.correct_task_domain:
-            user_override["correct_task_domain"] = request.correct_task_domain
-        if request.correct_playbook_code:
-            user_override["correct_playbook_code"] = request.correct_playbook_code
-        if request.notes:
-            user_override["notes"] = request.notes
-
-        updated_log = store.update_intent_log_override(log_id, user_override)
-        if not updated_log:
-            raise HTTPException(status_code=404, detail="Intent log not found")
-
-        return updated_log
+        return annotate_intent_log_record(
+            store=store,
+            log_id=log_id,
+            request=request,
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -931,47 +823,14 @@ async def get_timeline(
 ):
     """Get mindspace timeline events"""
     try:
-        from backend.app.models.mindscape import EventType
-
-        start = datetime.fromisoformat(start_time) if start_time else None
-        end = datetime.fromisoformat(end_time) if end_time else None
-
-        event_type_list = None
-        if event_types:
-            event_type_list = [EventType(et.strip()) for et in event_types.split(',')]
-
-        events = store.get_timeline(
+        return get_timeline_payload(
+            store=store,
             profile_id=profile_id,
-            start_time=start,
-            end_time=end,
-            event_types=event_type_list,
-            limit=limit
+            start_time=start_time,
+            end_time=end_time,
+            event_types=event_types,
+            limit=limit,
         )
-
-        # Enrich events with entity information
-        enriched_events = []
-        for event in events:
-            enriched = event.dict()
-            if event.entity_ids:
-                entities = []
-                for entity_id in event.entity_ids:
-                    entity = store.get_entity(entity_id)
-                    if entity:
-                        entity_dict = entity.dict()
-                        # Get tags for entity
-                        tags = store.get_tags_by_entity(entity_id)
-                        entity_dict['tags'] = [tag.dict() for tag in tags]
-                        entities.append(entity_dict)
-                enriched['entities'] = entities
-            else:
-                enriched['entities'] = []
-            enriched_events.append(enriched)
-
-        return {
-            "profile_id": profile_id,
-            "total": len(enriched_events),
-            "events": enriched_events
-        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get timeline: {str(e)}")
 
@@ -984,25 +843,12 @@ async def list_entities(
 ):
     """Get entities list"""
     try:
-        entity_type_enum = None
-        if entity_type:
-            entity_type_enum = EntityType(entity_type)
-
-        entities = store.list_entities(
+        return list_entities_payload(
+            store=store,
             profile_id=profile_id,
-            entity_type=entity_type_enum,
-            limit=limit
+            entity_type=entity_type,
+            limit=limit,
         )
-
-        # Enrich with tags
-        enriched = []
-        for entity in entities:
-            entity_dict = entity.dict()
-            tags = store.get_tags_by_entity(entity.id)
-            entity_dict['tags'] = [tag.dict() for tag in tags]
-            enriched.append(entity_dict)
-
-        return enriched
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list entities: {str(e)}")
 
@@ -1017,39 +863,13 @@ async def get_project_timeline(
 ):
     """Get timeline for a specific project"""
     try:
-        start = datetime.fromisoformat(start_time) if start_time else None
-        end = datetime.fromisoformat(end_time) if end_time else None
-
-        events = store.get_events_by_project(
+        return get_project_timeline_payload(
+            store=store,
             project_id=project_id,
-            start_time=start,
-            end_time=end,
-            limit=limit
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
         )
-
-        # Enrich events with entity information
-        enriched_events = []
-        for event in events:
-            enriched = event.dict()
-            if event.entity_ids:
-                entities = []
-                for entity_id in event.entity_ids:
-                    entity = store.get_entity(entity_id)
-                    if entity:
-                        entity_dict = entity.dict()
-                        tags = store.get_tags_by_entity(entity_id)
-                        entity_dict['tags'] = [tag.dict() for tag in tags]
-                        entities.append(entity_dict)
-                enriched['entities'] = entities
-            else:
-                enriched['entities'] = []
-            enriched_events.append(enriched)
-
-        return {
-            "project_id": project_id,
-            "total": len(enriched_events),
-            "events": enriched_events
-        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get project timeline: {str(e)}")
 
@@ -1060,14 +880,7 @@ async def get_entity(
 ):
     """Get a specific entity by ID"""
     try:
-        entity = store.get_entity(entity_id)
-        if not entity:
-            raise HTTPException(status_code=404, detail="Entity not found")
-
-        entity_dict = entity.dict()
-        tags = store.get_tags_by_entity(entity_id)
-        entity_dict['tags'] = [tag.dict() for tag in tags]
-        return entity_dict
+        return get_entity_payload(store=store, entity_id=entity_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -1080,8 +893,7 @@ async def create_entity(
 ):
     """Create a new entity"""
     try:
-        created = store.create_entity(entity)
-        return created
+        return create_entity_record(store=store, entity=entity)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create entity: {str(e)}")
 
@@ -1093,10 +905,7 @@ async def update_entity(
 ):
     """Update an entity"""
     try:
-        updated = store.update_entity(entity_id, updates)
-        if not updated:
-            raise HTTPException(status_code=404, detail="Entity not found")
-        return updated
+        return update_entity_record(store=store, entity_id=entity_id, updates=updates)
     except HTTPException:
         raise
     except Exception as e:
@@ -1111,16 +920,12 @@ async def list_tags(
 ):
     """Get tags list"""
     try:
-        category_enum = None
-        if category:
-            category_enum = TagCategory(category)
-
-        tags = store.list_tags(
+        return list_tags_payload(
+            store=store,
             profile_id=profile_id,
-            category=category_enum,
-            limit=limit
+            category=category,
+            limit=limit,
         )
-        return tags
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list tags: {str(e)}")
 
@@ -1131,8 +936,7 @@ async def create_tag(
 ):
     """Create a new tag"""
     try:
-        created = store.create_tag(tag)
-        return created
+        return create_tag_record(store=store, tag=tag)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create tag: {str(e)}")
 
@@ -1145,8 +949,12 @@ async def tag_entity(
 ):
     """Tag an entity with a tag"""
     try:
-        entity_tag = store.tag_entity(entity_id, tag_id, value)
-        return entity_tag
+        return tag_entity_record(
+            store=store,
+            entity_id=entity_id,
+            tag_id=tag_id,
+            value=value,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to tag entity: {str(e)}")
 
@@ -1158,9 +966,7 @@ async def untag_entity(
 ):
     """Remove a tag from an entity"""
     try:
-        removed = store.untag_entity(entity_id, tag_id)
-        if not removed:
-            raise HTTPException(status_code=404, detail="Entity-tag association not found")
+        untag_entity_record(store=store, entity_id=entity_id, tag_id=tag_id)
         return None
     except HTTPException:
         raise
@@ -1175,7 +981,6 @@ async def get_entities_by_tag(
 ):
     """Get all entities tagged with a specific tag"""
     try:
-        entities = store.get_entities_by_tag(tag_id, limit=limit)
-        return entities
+        return get_entities_by_tag_payload(store=store, tag_id=tag_id, limit=limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get entities by tag: {str(e)}")
