@@ -255,12 +255,16 @@ async def run_startup(app: FastAPI):
 
     # Tool RAG
     try:
+        from backend.app.services.pack_activation_service import PackActivationService
+        from backend.app.services.stores.installed_packs_store import InstalledPacksStore
         from backend.app.services.tool_embedding_service import ToolEmbeddingService
         import asyncio
 
         async def _tool_rag_bootstrap():
             try:
                 tes = ToolEmbeddingService()
+                activation_service = PackActivationService()
+                installed_packs_store = InstalledPacksStore()
                 await tes.ensure_table()
                 try:
                     n = await tes.ensure_indexed()
@@ -268,6 +272,26 @@ async def run_startup(app: FastAPI):
                 except RuntimeError:
                     n = await tes.index_all_tools()
                     logger.info("Tool RAG single-model fallback bootstrap completed: %d tools indexed.", n)
+                synced = 0
+                for pack_id in installed_packs_store.list_installed_pack_ids():
+                    try:
+                        stats = await tes.get_capability_embedding_status(pack_id)
+                        activation_service.record_embedding_observed(
+                            pack_id=pack_id,
+                            row_count=stats["row_count"],
+                            latest_updated_at=stats["latest_updated_at"],
+                        )
+                        synced += 1
+                    except Exception as sync_exc:
+                        logger.warning(
+                            "Tool RAG pack embedding state sync failed for %s: %s",
+                            pack_id,
+                            sync_exc,
+                        )
+                logger.info(
+                    "Tool RAG pack embedding state sync completed: %d packs checked.",
+                    synced,
+                )
             except Exception as e:
                 logger.warning("Tool RAG bootstrap failed: %s", e)
 

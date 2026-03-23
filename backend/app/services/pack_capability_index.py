@@ -10,6 +10,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Dict, List
+from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,8 @@ class PackCapabilityIndex:
 
         for manifest_path in caps_dir.glob("*/manifest.yaml"):
             pack_code = manifest_path.parent.name
+            if is_ignored_runtime_pack_dir(pack_code):
+                continue
             try:
                 manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
                 if not manifest:

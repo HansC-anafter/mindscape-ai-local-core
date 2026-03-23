@@ -386,74 +386,94 @@ class ToolEmbeddingService:
             logger.error(f"Failed to index tool {tool_id}: {e}")
             return False
 
-    async def index_all_tools(self) -> int:
-        """Index all tools from ToolListService. Idempotent (upsert).
+    async def _collect_indexable_entries(self) -> List[Dict[str, Any]]:
+        """Return the shared tool/playbook corpus used for embedding indexing."""
+        entries: List[Dict[str, Any]] = []
 
-        Returns number of successfully indexed tools.
-        """
         try:
             from app.services.tool_list_service import ToolListService
 
-            svc = ToolListService()
-            all_tools = svc.get_all_tools()
+            all_tools = ToolListService().get_all_tools()
         except Exception as e:
             logger.error(f"Failed to get tool list: {e}")
-            return 0
+            all_tools = []
 
-        count = 0
         for tool in all_tools:
-            # Derive capability_code from tool_id (format: "capability.tool_name")
             cap_code = None
             if tool.source == "capability" and "." in tool.tool_id:
                 cap_code = tool.tool_id.split(".")[0]
-
-            ok = await self.index_tool(
-                tool_id=tool.tool_id,
-                display_name=tool.name,
-                description=tool.description,
-                category=tool.category,
-                capability_code=cap_code,
+            entries.append(
+                {
+                    "tool_id": tool.tool_id,
+                    "display_name": tool.name,
+                    "description": tool.description,
+                    "category": tool.category,
+                    "capability_code": cap_code,
+                    "affordance": None,
+                }
             )
-            if ok:
-                count += 1
 
-        logger.info(f"Indexed {count}/{len(all_tools)} tools")
-
-        # P3: Index playbooks into the same tool_embeddings table
         try:
             from backend.app.services.manifest_utils import resolve_playbook_affordance
             from backend.app.services.playbook_service import PlaybookService
 
             pb_svc = PlaybookService()
             all_playbooks = await pb_svc.list_playbooks()
-            pb_count = 0
             seen_codes: set = set()
             for pb in all_playbooks:
                 if pb.playbook_code in seen_codes:
-                    continue  # skip locale duplicates
+                    continue
                 seen_codes.add(pb.playbook_code)
-                cap_code = getattr(pb, "capability_code", None)
-
-                # Retrieve affordance block if available
                 affordance_dict = {}
                 if pb.playbook_code:
                     affordance_dict = resolve_playbook_affordance(pb.playbook_code)
-
-                ok = await self.index_tool(
-                    tool_id=pb.playbook_code,
-                    display_name=pb.name,
-                    description=pb.description or pb.name,
-                    category="playbook",
-                    capability_code=cap_code,
-                    affordance=affordance_dict if affordance_dict else None,
+                entries.append(
+                    {
+                        "tool_id": pb.playbook_code,
+                        "display_name": pb.name,
+                        "description": pb.description or pb.name,
+                        "category": "playbook",
+                        "capability_code": getattr(pb, "capability_code", None),
+                        "affordance": affordance_dict if affordance_dict else None,
+                    }
                 )
-                if ok:
-                    pb_count += 1
-            logger.info("Indexed %d/%d playbooks", pb_count, len(seen_codes))
-            count += pb_count
         except Exception as exc:
-            logger.warning("Playbook indexing failed (non-fatal): %s", exc)
+            logger.warning("Playbook indexing corpus build failed (non-fatal): %s", exc)
 
+        return entries
+
+    async def index_all_tools(self) -> int:
+        """Index all tools from ToolListService. Idempotent (upsert).
+
+        Returns number of successfully indexed tools.
+        """
+        entries = await self._collect_indexable_entries()
+        count = 0
+        tool_entries = 0
+        playbook_entries = 0
+        for entry in entries:
+            ok = await self.index_tool(
+                tool_id=entry["tool_id"],
+                display_name=entry["display_name"],
+                description=entry["description"],
+                category=entry["category"],
+                capability_code=entry["capability_code"],
+                affordance=entry.get("affordance"),
+            )
+            if ok:
+                count += 1
+            if entry["category"] == "playbook":
+                playbook_entries += 1
+            else:
+                tool_entries += 1
+
+        logger.info(
+            "Indexed %d/%d entries (%d tools, %d playbooks)",
+            count,
+            len(entries),
+            tool_entries,
+            playbook_entries,
+        )
         return count
 
     async def ensure_indexed(self) -> int:
@@ -500,16 +520,11 @@ class ToolEmbeddingService:
         if not ollama_models:
             ollama_models = [primary]
 
-        # --- Get expected tool count ---
-        try:
-            from app.services.tool_list_service import ToolListService
-
-            expected = len(ToolListService().get_all_tools())
-        except Exception:
-            expected = 0
+        # --- Get expected corpus size (tools + playbooks) ---
+        expected = len(await self._collect_indexable_entries())
 
         if expected == 0:
-            logger.warning("ensure_indexed: no tools found, skipping")
+            logger.warning("ensure_indexed: no indexable entries found, skipping")
             return 0
 
         # --- Check which models need indexing ---
@@ -610,6 +625,38 @@ class ToolEmbeddingService:
                 f"Failed to remove embeddings for capability {capability_code}: {e}"
             )
             return 0
+
+    async def get_capability_embedding_status(
+        self, capability_code: str
+    ) -> Dict[str, Any]:
+        """Return current embedding coverage for one capability code."""
+        try:
+            conn = self._get_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT count(*) AS row_count, max(updated_at) AS latest_updated_at
+                        FROM tool_embeddings
+                        WHERE capability_code = %s
+                        """,
+                        (capability_code,),
+                    )
+                    row = cur.fetchone()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning(
+                "Failed to read embedding status for capability %s: %s",
+                capability_code,
+                e,
+            )
+            return {"row_count": 0, "latest_updated_at": None}
+
+        return {
+            "row_count": int(row[0] or 0),
+            "latest_updated_at": row[1],
+        }
 
     # ------------------------------------------------------------------ #
     #  Read path
@@ -1044,27 +1091,27 @@ class ToolEmbeddingService:
         return total
 
     async def _index_all_tools_for_model(self, model_name: str) -> int:
-        """Index all tools using a specific embedding model."""
-        try:
-            from app.services.tool_list_service import ToolListService
-
-            all_tools = ToolListService().get_all_tools()
-        except Exception as e:
-            logger.error(f"Failed to get tool list: {e}")
-            return 0
-
+        """Index all tools and playbooks using a specific embedding model."""
+        entries = await self._collect_indexable_entries()
         count = 0
-        for tool in all_tools:
-            cap_code = None
-            if tool.source == "capability" and "." in tool.tool_id:
-                cap_code = tool.tool_id.split(".")[0]
-
-            embed_text = f"{tool.name}: {tool.description}"
+        for entry in entries:
+            embed_text = f"{entry['display_name']}: {entry['description']}"
+            if entry["capability_code"]:
+                try:
+                    cap_meta = self._get_capability_manifest_context(
+                        entry["capability_code"]
+                    )
+                    if cap_meta:
+                        embed_text = f"{embed_text}. {cap_meta}"
+                except Exception:
+                    pass
             emb, used_model = await self._generate_embedding_for_model(
                 embed_text, model_name, is_query=False
             )
             if emb is None:
-                logger.warning(f"  Embed failed for {tool.tool_id} ({model_name})")
+                logger.warning(
+                    f"  Embed failed for {entry['tool_id']} ({model_name})"
+                )
                 continue
 
             embedding_str = "[" + ",".join(str(v) for v in emb) + "]"
@@ -1078,8 +1125,8 @@ class ToolEmbeddingService:
                             INSERT INTO tool_embeddings
                                 (tool_id, display_name, description, category,
                                  capability_code, embedding, embedding_model,
-                                 embedding_dim, updated_at)
-                            VALUES (%s, %s, %s, %s, %s, %s::vector, %s, %s, now())
+                                 embedding_dim, affordance, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, %s::vector, %s, %s, %s, now())
                             ON CONFLICT (tool_id, embedding_model)
                             DO UPDATE SET
                                 display_name = EXCLUDED.display_name,
@@ -1088,17 +1135,19 @@ class ToolEmbeddingService:
                                 capability_code = EXCLUDED.capability_code,
                                 embedding = EXCLUDED.embedding,
                                 embedding_dim = EXCLUDED.embedding_dim,
+                                affordance = EXCLUDED.affordance,
                                 updated_at = now()
                             """,
                             (
-                                tool.tool_id,
-                                tool.name,
-                                tool.description,
-                                tool.category,
-                                cap_code,
+                                entry["tool_id"],
+                                entry["display_name"],
+                                entry["description"],
+                                entry["category"],
+                                entry["capability_code"],
                                 embedding_str,
                                 used_model,
                                 embedding_dim,
+                                json.dumps(entry.get("affordance") or {}),
                             ),
                         )
                     conn.commit()
@@ -1107,7 +1156,7 @@ class ToolEmbeddingService:
                     conn.close()
             except Exception as e:
                 logger.error(
-                    f"  DB write failed for {tool.tool_id} ({model_name}): {e}"
+                    f"  DB write failed for {entry['tool_id']} ({model_name}): {e}"
                 )
 
         return count

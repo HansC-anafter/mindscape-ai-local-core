@@ -1,4 +1,5 @@
 import logging
+import os
 from fastapi import FastAPI
 
 # Kernel routes
@@ -49,6 +50,13 @@ from backend.app.services.capability_reload_manager import (
     hot_reload_enabled,
     reload_capability_routes,
 )
+from backend.app.services.capability_api_loader import (
+    get_capability_api_activation_policy,
+    group_capability_api_descriptors,
+    load_manifest_for_descriptor,
+    seed_capability_api_descriptors,
+)
+from app.services.pack_activation_service import PackActivationService
 
 logger = logging.getLogger(__name__)
 
@@ -159,25 +167,73 @@ def register_core_routes(app: FastAPI) -> None:
 
     if not _capability_hot_reload_enabled():
         try:
-            from backend.app.services.capability_api_loader import load_capability_apis
-            import os
+            from backend.app.services.capability_api_loader import (
+                activate_seeded_capability_apis,
+            )
 
             allowlist_env = os.getenv("CAPABILITY_ALLOWLIST")
             allowlist = allowlist_env.split(",") if allowlist_env else None
-            capability_routers = load_capability_apis(
+            descriptors = seed_capability_api_descriptors(
                 app=app, allowlist=allowlist, enable_all=False
             )
-            if allowlist:
-                logger.info(
-                    f"Loaded {len(capability_routers)} cloud capability API routers (allowlist={allowlist})"
+            activation_policy = get_capability_api_activation_policy()
+            activation_service = PackActivationService()
+
+            if activation_policy == "startup_eager":
+                capability_routers = activate_seeded_capability_apis(
+                    app=app,
+                    descriptors=descriptors,
+                    allowlist=allowlist,
+                    enable_all=False,
+                    activation_mode="startup_eager",
+                    activation_service=activation_service,
                 )
+                if allowlist:
+                    logger.info(
+                        "Seeded %d capability API descriptors and activated %d routers (policy=%s, allowlist=%s)",
+                        len(descriptors),
+                        len(capability_routers),
+                        activation_policy,
+                        allowlist,
+                    )
+                else:
+                    logger.info(
+                        "Seeded %d capability API descriptors and activated %d routers (policy=%s)",
+                        len(descriptors),
+                        len(capability_routers),
+                        activation_policy,
+                    )
             else:
-                logger.info(
-                    f"Loaded {len(capability_routers)} cloud capability API routers (using enabled_by_default from manifests)"
-                )
+                grouped = group_capability_api_descriptors(descriptors)
+                for descriptor_group in grouped.values():
+                    if not descriptor_group:
+                        continue
+                    descriptor = descriptor_group[0]
+                    activation_service.record_activation_pending(
+                        pack_id=descriptor.capability_code,
+                        manifest=load_manifest_for_descriptor(descriptor),
+                        manifest_path=descriptor.manifest_path
+                        if descriptor.manifest_path.exists()
+                        else None,
+                        activation_mode="startup_seeded",
+                    )
+                if allowlist:
+                    logger.info(
+                        "Seeded %d capability API descriptors without activation (policy=%s, allowlist=%s)",
+                        len(descriptors),
+                        activation_policy,
+                        allowlist,
+                    )
+                else:
+                    logger.info(
+                        "Seeded %d capability API descriptors without activation (policy=%s)",
+                        len(descriptors),
+                        activation_policy,
+                    )
         except Exception as e:
             logger.error(
-                f"Failed to load cloud capability API routers: {e}", exc_info=True
+                f"Failed to seed/activate cloud capability API routers: {e}",
+                exc_info=True,
             )
     else:
         logger.info(

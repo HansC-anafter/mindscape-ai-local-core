@@ -140,17 +140,21 @@ class TasksStoreRunnerMixin:
             self.update_task(task_id, execution_context=ctx)
         logger.debug("Updated heartbeat for task %s (runner=%s)", task_id, runner_id)
 
-        # ── Abort detection ──────────────────────────────────────
-        # Re-read status after write to catch external cancellation.
         if should_revive:
             return False  # just revived — keep running
+
+        return self.should_abort_task(task_id)
+
+    def should_abort_task(self, task_id: str) -> bool:
+        """Return True when the runner should abort the task without mutating heartbeat."""
+        task = self.get_task(task_id)
+        if not task:
+            return True
 
         abort_statuses = {
             TaskStatus.CANCELLED_BY_USER,
             TaskStatus.EXPIRED,
         }
-        # Handle string-based statuses as fallback
-        status_str = str(task.status).lower() if task.status else ""
         if task.status in abort_statuses:
             logger.warning(
                 "Task %s status=%s — signalling abort to runner", task_id, task.status
@@ -161,7 +165,9 @@ class TasksStoreRunnerMixin:
             and (task.error or "") != "Execution interrupted by server restart"
         ):
             logger.warning(
-                "Task %s externally failed (%s) — signalling abort", task_id, task.error
+                "Task %s externally failed (%s) — signalling abort",
+                task_id,
+                task.error,
             )
             return True
         return False

@@ -8,6 +8,7 @@ import sys
 import traceback
 
 from backend.app.core.security import security_monitor
+from .capability_activation_middleware import ensure_capability_activation_for_request
 from .cors import resolve_error_cors_origin
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,10 @@ async def security_middleware(request: Request, call_next):
         sys.stderr.flush()
 
     try:
+        activation_response = await ensure_capability_activation_for_request(request)
+        if activation_response is not None:
+            return activation_response
+
         request_id = (
             request.headers.get("x-request-id", f"req-{id(request)}")
             if "/files/upload" in str(request.url.path)

@@ -86,6 +86,18 @@ Architectural separation principles between local and cloud implementations.
 #### [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md)
 Playbook architecture and workflow execution mechanisms, including identity governance and access control.
 
+#### [Execution Chat Agent Loop](./execution-chat-agent-loop.md)
+Architecture and implementation details for upgrading execution-scoped chat from prompt-only discussion to an LLM + tool executor loop, while preserving legacy discussion mode and Local-Core governance boundaries.
+
+#### [Workspace Generic Execution Operator Toolbar Revision](./workspace-generic-execution-operator-toolbar-revision.md)
+Corrective implementation plan for restoring the proper boundary: cloud repo remains pack authoring/packaging only, while Local-Core remains the runtime host for workspace-generic execution operator surfaces and execution-chat runtime.
+
+#### [Workbench Execution Chat Entry](./workbench-execution-chat-entry.md)
+Historical draft of the earlier pack-launched entry model. Kept for audit, but superseded by the toolbar revision document above.
+
+#### [Workspace Execution Operator Toolbar Cleanup Checklist](./workspace-execution-operator-toolbar-cleanup-checklist-2026-03-22.md)
+Executed cleanup checklist for removing the rejected Local-Core launcher/context-menu experiment while preserving the canonical Local-Core execution runtime.
+
 #### [Governance Decision & Risk Control Layer](./governance-decision-risk-control-layer.md)
 Multi-layered governance framework for safe and controlled playbook execution, with clear separation between Local-Core universal mechanisms and Cloud-specific extensions.
 

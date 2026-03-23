@@ -3,18 +3,69 @@ TasksStore query mixin — all list_* and find_* read-only methods.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
 
 from app.models.workspace import Task, TaskStatus
+from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
 
 logger = logging.getLogger(__name__)
 
 
 class TasksStoreQueryMixin:
     """Read-only query methods for TasksStore."""
+
+    def _resolve_effective_concurrency_key(self, task: Task) -> Optional[str]:
+        """Recompute the current lock key from task context.
+
+        This lets the scheduler honor updated lock semantics without waiting for
+        every persisted task row to be rewritten.
+        """
+        try:
+            from backend.app.runner.concurrency import _resolve_lock_key
+
+            ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+            resolved = _resolve_lock_key(ctx, task.pack_id)
+            if isinstance(resolved, str) and resolved.strip():
+                return resolved.strip()
+        except Exception:
+            pass
+
+        if isinstance(task.concurrency_key, str) and task.concurrency_key.strip():
+            return task.concurrency_key.strip()
+        return None
+
+    def _select_fair_runnable_tasks(
+        self,
+        *,
+        candidates: List[Task],
+        limit: int,
+        active_keys: set[str],
+    ) -> List[Task]:
+        """Pick at most one pending task per effective lock key.
+
+        This keeps a single hot queue from being saturated by hundreds of tasks
+        that all compete for the same mutex, while still allowing different
+        playbooks with distinct lock keys to make progress concurrently.
+        """
+        selected: List[Task] = []
+        seen_keys: set[str] = set()
+
+        for task in candidates:
+            lock_key = self._resolve_effective_concurrency_key(task)
+            if lock_key:
+                if lock_key in active_keys:
+                    continue
+                if lock_key in seen_keys:
+                    continue
+                seen_keys.add(lock_key)
+            selected.append(task)
+            if len(selected) >= limit:
+                break
+
+        return selected
 
     def list_tasks_by_workspace(
         self,
@@ -365,7 +416,7 @@ class TasksStoreQueryMixin:
         limit: int = 500,
         queue_shard: Optional[str] = None,
     ) -> List[Task]:
-        from datetime import timezone
+        scan_limit = min(max(limit * 64, 512), 4096)
         query_parts = [
             """
             SELECT *
@@ -373,6 +424,7 @@ class TasksStoreQueryMixin:
             WHERE task_type IN (:task_type_pb, :task_type_tool)
             AND status = :status
             AND next_eligible_at <= :now
+            AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
             """
         ]
         params: Dict[str, Any] = {
@@ -380,6 +432,7 @@ class TasksStoreQueryMixin:
             "task_type_tool": "tool_execution",
             "status": TaskStatus.PENDING.value,
             "now": datetime.now(timezone.utc),
+            "admission_blocked_reason": ADMISSION_DEFERRED_REASON,
         }
 
         if workspace_id:
@@ -392,7 +445,76 @@ class TasksStoreQueryMixin:
 
         query_parts.append("ORDER BY next_eligible_at ASC, created_at ASC, id ASC")
         query_parts.append("LIMIT :limit")
-        params["limit"] = limit
+        params["limit"] = scan_limit
+
+        with self.get_connection() as conn:
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+            candidates = [self._row_to_task(row) for row in rows]
+
+        running_tasks = self.list_running_playbook_execution_tasks(
+            workspace_id=None,
+            limit=scan_limit,
+        )
+        active_keys = {
+            key
+            for task in running_tasks
+            if (
+                not queue_shard
+                or ((getattr(task, "queue_shard", "default") or "default") == queue_shard)
+            )
+            for key in [self._resolve_effective_concurrency_key(task)]
+            if key
+        }
+
+        return self._select_fair_runnable_tasks(
+            candidates=candidates,
+            limit=limit,
+            active_keys=active_keys,
+        )
+
+    def list_due_admission_deferred_tasks(
+        self,
+        *,
+        queue_shard: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Task]:
+        query_parts = [
+            """
+            SELECT *
+            FROM tasks
+            WHERE task_type IN (:task_type_pb, :task_type_tool)
+              AND status = :status
+              AND blocked_reason = :blocked_reason
+              AND next_eligible_at <= :now
+            """
+        ]
+        params: Dict[str, Any] = {
+            "task_type_pb": "playbook_execution",
+            "task_type_tool": "tool_execution",
+            "status": TaskStatus.PENDING.value,
+            "blocked_reason": ADMISSION_DEFERRED_REASON,
+            "now": datetime.now(timezone.utc),
+            "limit": limit,
+        }
+
+        if queue_shard:
+            query_parts.append("AND COALESCE(queue_shard, 'default') = :queue_shard")
+            params["queue_shard"] = queue_shard
+
+        query_parts.append(
+            """
+            ORDER BY
+                CASE
+                    WHEN COALESCE(execution_context->'admission_policy'->>'visibility', '') = 'visible' THEN 0
+                    WHEN COALESCE(execution_context->'admission'->>'visibility', '') = 'visible' THEN 0
+                    ELSE 1
+                END ASC,
+                next_eligible_at ASC,
+                created_at ASC,
+                id ASC
+            """
+        )
+        query_parts.append("LIMIT :limit")
 
         with self.get_connection() as conn:
             rows = conn.execute(text(" ".join(query_parts)), params).fetchall()

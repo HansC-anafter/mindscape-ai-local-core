@@ -10,6 +10,10 @@ from sqlalchemy import text
 
 from app.services.stores.base import StoreNotFoundError
 from app.models.workspace import Task, TaskStatus
+from backend.app.services.task_admission_service import (
+    ADMISSION_DEFERRED_REASON,
+    TASK_ADMISSION_SERVICE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +26,26 @@ _TERMINAL_TASK_STATUSES = {
     TaskStatus.CANCELLED_BY_USER.value,
     TaskStatus.EXPIRED.value,
 }
+
+
+def _normalize_frontier_updates_for_status(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep scheduler frontier fields consistent with authoritative task status."""
+    normalized = dict(kwargs)
+    status_val = normalized.get("status")
+    if status_val is None:
+        return normalized
+
+    status_raw = status_val.value if hasattr(status_val, "value") else str(status_val)
+    status_raw = str(status_raw).strip().lower()
+
+    if status_raw in _TERMINAL_TASK_STATUSES:
+        normalized["frontier_state"] = "done"
+        normalized["frontier_enqueued_at"] = None
+    elif status_raw == TaskStatus.RUNNING.value:
+        normalized["frontier_state"] = "running"
+        normalized["frontier_enqueued_at"] = None
+
+    return normalized
 
 
 def _utc_now() -> datetime:
@@ -47,7 +71,24 @@ def _parse_resume_after(raw_value: Any) -> Optional[datetime]:
         return None
 
 
-def _resolve_queue_shard(pack_id: str) -> str:
+def _normalize_queue_shard(value: Any) -> Optional[str]:
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized:
+            return normalized
+    return None
+
+
+def _resolve_queue_shard(
+    pack_id: str, execution_context: Optional[Dict[str, Any]] = None
+) -> str:
+    explicit_queue_shard = None
+    if isinstance(execution_context, dict):
+        explicit_queue_shard = _normalize_queue_shard(
+            execution_context.get("queue_shard")
+        )
+    if explicit_queue_shard:
+        return explicit_queue_shard
     if pack_id in _IG_ANALYSIS_PACKS:
         return "ig_analysis"
     if pack_id in _IG_BROWSER_PACKS:
@@ -113,7 +154,7 @@ def _derive_scheduler_fields(task: Task) -> Dict[str, Any]:
 
     queue_shard = (
         task.queue_shard if "queue_shard" in explicit_fields and task.queue_shard else None
-    ) or _resolve_queue_shard(task.pack_id)
+    ) or _resolve_queue_shard(task.pack_id, ctx)
     concurrency_key = (
         task.concurrency_key
         if "concurrency_key" in explicit_fields and task.concurrency_key
@@ -246,6 +287,16 @@ class TasksStoreCrudMixin:
         scheduler_fields = _derive_scheduler_fields(task)
         for key, value in scheduler_fields.items():
             setattr(task, key, value)
+
+        admission_decision = TASK_ADMISSION_SERVICE.evaluate_on_create(self, task)
+        if not admission_decision.allow:
+            task.execution_context = admission_decision.execution_context
+            task.next_eligible_at = admission_decision.next_eligible_at or task.next_eligible_at
+            task.blocked_reason = ADMISSION_DEFERRED_REASON
+            task.blocked_payload = admission_decision.blocked_payload
+            task.frontier_state = "cold"
+            task.frontier_enqueued_at = None
+            task.queue_shard = admission_decision.queue_shard or task.queue_shard
 
         with self.transaction() as conn:
             project_id = task.project_id
@@ -512,6 +563,8 @@ class TasksStoreCrudMixin:
         Raises:
             StoreNotFoundError: If task not found
         """
+        kwargs = _normalize_frontier_updates_for_status(kwargs)
+
         updates = []
         params: Dict[str, Any] = {"task_id": task_id}
 

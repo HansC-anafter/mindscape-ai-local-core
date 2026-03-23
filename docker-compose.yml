@@ -278,11 +278,16 @@ services:
       start_period: 10s
 
   # OCR Service (Local PaddleOCR)
+  # XTTS-first local preview mode:
+  # keep OCR as an opt-in profile so default `docker compose up -d`
+  # preserves memory/CPU headroom for XTTS.
   ocr-service:
     build:
       context: ./ocr-service
       dockerfile: Dockerfile
     container_name: mindscape-ai-local-core-ocr
+    profiles:
+      - ocr
     restart: unless-stopped
     ports:
       - "8001:8001"

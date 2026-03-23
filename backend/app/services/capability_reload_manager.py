@@ -12,9 +12,13 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI
 
-from backend.app.services.capability_api_loader import load_capability_apis
+from backend.app.services.capability_api_loader import (
+    activate_seeded_capability_apis,
+    seed_capability_api_descriptors,
+)
 from backend.app.services.capability_registry import load_capabilities
 from backend.app.core.pack_registry import load_and_register_packs
+from app.services.pack_activation_service import PackActivationService
 
 logger = logging.getLogger(__name__)
 
@@ -75,18 +79,27 @@ def reload_capability_routes(app: FastAPI, reason: str = "manual") -> Dict[str, 
         )
 
         allowlist = _get_allowlist_from_env()
-        load_capability_apis(
+        descriptors = seed_capability_api_descriptors(
             app=app,
             allowlist=allowlist,
             enable_all=False,
+        )
+        load_result = activate_seeded_capability_apis(
+            app=app,
+            descriptors=descriptors,
+            allowlist=allowlist,
+            enable_all=False,
             route_collector=state["capability_api_routes"],
+            activation_mode="hot_reload",
+            activation_service=PackActivationService(),
         )
 
         logger.info(
             "Hot reload finished: "
             f"removed_pack_routes={removed_pack_routes}, "
             f"removed_capability_api_routes={removed_api_routes}, "
-            f"added_pack_routes={len(added_pack_routes)}"
+            f"added_pack_routes={len(added_pack_routes)}, "
+            f"added_capability_api_routers={len(load_result)}"
         )
 
         return {

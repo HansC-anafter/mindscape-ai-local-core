@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,10 +36,25 @@ class PlaybookMetadata(BaseModel):
     )
     supports_execution_chat: bool = Field(
         default=False,
-        description="Whether this playbook supports execution-scoped chat.",
+        description="Legacy execution-chat UI toggle. Prefer x_platform.local_core.execution_chat.enabled.",
+    )
+    execution_chat_mode: Literal["discussion", "agent"] = Field(
+        default="discussion",
+        description="Legacy execution-chat backend mode. Prefer x_platform.local_core.execution_chat.mode.",
+    )
+    execution_chat_tool_groups: List[str] = Field(
+        default_factory=list,
+        description="Legacy execution-chat tool groups. Prefer x_platform.local_core.execution_chat.tool_groups.",
+    )
+    execution_chat_max_tool_iterations: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Legacy execution-chat loop budget. Prefer x_platform.local_core.execution_chat.max_tool_iterations.",
     )
     discussion_agent: Optional[str] = Field(
-        default=None, description="Agent persona for execution chat."
+        default=None,
+        description="Legacy execution-chat persona. Prefer x_platform.local_core.execution_chat.discussion_agent.",
     )
     supported_locales: List[str] = Field(
         default_factory=lambda: ["zh-TW", "en"],
@@ -138,6 +153,10 @@ class PlaybookMetadata(BaseModel):
     runtime: Optional[Dict[str, Any]] = Field(
         None, description="Runtime configuration for cloud execution"
     )
+    x_platform: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Platform-specific metadata / overlays (for example local-core execution chat config).",
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -214,4 +233,3 @@ class PlaybookRun(BaseModel):
         )
 
     model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
-

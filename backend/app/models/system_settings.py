@@ -131,3 +131,8 @@ class LLMModelSettingsResponse(BaseModel):
         description="Capability profile → model name mapping. "
         "e.g. {'fast': 'gemini-2.0-flash', 'precise': 'gemini-2.5-pro'}",
     )
+    profile_model_bindings: Dict[str, Dict[str, str]] = Field(
+        default_factory=dict,
+        description="Deployment-scoped capability profile → model mappings. "
+        "e.g. {'local': {...}, 'cloud': {...}}",
+    )

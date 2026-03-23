@@ -38,6 +38,8 @@ interface ModelConfigCardData {
 
 type ModelTypeFilter = 'chat' | 'embedding' | 'multimodal' | 'tool-calling';
 type SubTab = 'models' | 'dynamic';
+type DeploymentScope = 'local' | 'cloud';
+type CatalogCategory = 'runtime-cli' | 'local-deployed' | 'api';
 
 const CHAT_PROFILES = [
   { key: 'fast',       label: '快速 (Fast)',       description: 'Facilitator / 快速回應' },
@@ -63,6 +65,7 @@ export function ModelsAndQuotaPanel() {
   const [togglingModels, setTogglingModels] = useState<Set<string>>(new Set());
   const [hoveredModelId, setHoveredModelId] = useState<string | number | null>(null);
   const [subTab, setSubTab] = useState<SubTab>('models');
+  const [catalogCategory, setCatalogCategory] = useState<CatalogCategory>('local-deployed');
 
   // ── Centralized pull state management ──
   const [activePulls, setActivePulls] = useState<Record<string, PullState>>({});
@@ -70,7 +73,11 @@ export function ModelsAndQuotaPanel() {
 
 
   // Profile routing state
-  const [profileMap, setProfileMap] = useState<Record<string, string>>({});
+  const [deploymentScope, setDeploymentScope] = useState<DeploymentScope>('local');
+  const [profileBindings, setProfileBindings] = useState<Record<DeploymentScope, Record<string, string>>>({
+    local: {},
+    cloud: {},
+  });
   const [profileSaving, setProfileSaving] = useState(false);
   const { enabledModels: enabledChatModels } = useEnabledModels('chat');
   const { enabledModels: enabledMultimodalModels } = useEnabledModels('multimodal');
@@ -133,7 +140,7 @@ export function ModelsAndQuotaPanel() {
 
   useEffect(() => {
     loadAllModels();
-    loadProfileMap();
+    loadProfileBindings();
   }, []);
 
   useEffect(() => {
@@ -287,26 +294,33 @@ export function ModelsAndQuotaPanel() {
     recoverPulls();
   }, [startPolling]);
 
-  const loadProfileMap = async () => {
+  const loadProfileBindings = async () => {
     try {
       const data = await settingsApi.get<{
         profile_model_map: Record<string, string>;
+        profile_model_bindings?: Partial<Record<DeploymentScope, Record<string, string>>>;
       }>('/api/v1/system-settings/capability-profiles');
-      setProfileMap(data.profile_model_map || {});
+      setProfileBindings({
+        local: data.profile_model_bindings?.local || data.profile_model_map || {},
+        cloud: data.profile_model_bindings?.cloud || {},
+      });
     } catch { /* silent — routing tab will show defaults */ }
   };
 
-  const saveProfileMap = async (updated: Record<string, string>) => {
-    const prev = { ...profileMap };
-    setProfileMap(updated);
+  const saveProfileBindings = async (updated: Record<DeploymentScope, Record<string, string>>) => {
+    const prev = {
+      local: { ...(profileBindings.local || {}) },
+      cloud: { ...(profileBindings.cloud || {}) },
+    };
+    setProfileBindings(updated);
     setProfileSaving(true);
     try {
       await settingsApi.put('/api/v1/system-settings/capability-profiles', {
-        profile_model_map: updated,
+        profile_model_bindings: updated,
       });
       showNotification('success', 'Profile routing saved');
     } catch (err) {
-      setProfileMap(prev);
+      setProfileBindings(prev);
       showNotification('error', err instanceof Error ? err.message : 'Save failed');
     } finally {
       setProfileSaving(false);
@@ -521,26 +535,26 @@ export function ModelsAndQuotaPanel() {
       model.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       model.provider.toLowerCase().includes(searchQuery.toLowerCase()) ||
       model.description.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesProvider = (() => {
-      if (selectedProvider === null) return true;
-      if (selectedProvider === '__local__') return LOCAL_PROVIDERS.has(model.provider);
-      return model.provider === selectedProvider;
+    const matchesCategory = (() => {
+      const isLocalModel = LOCAL_PROVIDERS.has(model.provider);
+      if (catalogCategory === 'local-deployed') return isLocalModel;
+      if (catalogCategory === 'api') {
+        if (isLocalModel) return false;
+        if (selectedProvider === null) return true;
+        return model.provider === selectedProvider;
+      }
+      return false;
     })();
-    return matchesType && matchesSearch && matchesProvider;
+    return matchesType && matchesSearch && matchesCategory;
   });
 
-  const providers = Array.from(
+  const apiProviders = Array.from(
     new Set(
       models
-        .filter(m => m.model_type === modelTypeFilter)
+        .filter(m => m.model_type === modelTypeFilter && !LOCAL_PROVIDERS.has(m.provider))
         .map(m => m.provider)
-        .filter(p => !LOCAL_PROVIDERS.has(p))
     )
   ).sort();
-
-  const hasLocalModels = models.some(
-    m => m.model_type === modelTypeFilter && LOCAL_PROVIDERS.has(m.provider)
-  );
 
   const chatCount = models.filter(m => m.model_type === 'chat').length;
   const embeddingCount = models.filter(m => m.model_type === 'embedding').length;
@@ -567,6 +581,7 @@ export function ModelsAndQuotaPanel() {
     setSelectedProvider(null);
     setSelectedModel(null);
     setSubTab('models');
+    setCatalogCategory('local-deployed');
   };
 
   // ── HF Discovery helpers ──
@@ -668,65 +683,91 @@ export function ModelsAndQuotaPanel() {
           </div>
         </div>
 
-        {/* Header + Provider Filter — hidden on tool-calling tab and dynamic sub-tab */}
+        {/* Header + Catalog / Provider Filter — hidden on tool-calling tab and dynamic sub-tab */}
         {modelTypeFilter !== 'tool-calling' && subTab === 'models' && (
           <>
             <div className="flex flex-col gap-2 mb-3">
-              {/* Provider Filter Bar */}
-              <div className="flex flex-wrap gap-2">
-                {/* Runtime CLI — only in Chat/Plan */}
+              <div className="flex flex-wrap items-center gap-2">
                 {modelTypeFilter === 'chat' && (
-                  <>
-                    <button
-                      onClick={() => setSelectedProvider('__runtime_cli__')}
-                      data-filter-button="runtime-cli"
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${selectedProvider === '__runtime_cli__'
-                        ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-400/40 dark:border-blue-700'
-                        : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
-                      }`}
-                    >
-                      ⚙️ Runtime CLI
-                    </button>
-                    <span className="text-gray-300 dark:text-gray-600 mx-1 flex items-center">|</span>
-                  </>
+                  <button
+                    onClick={() => {
+                      setCatalogCategory('runtime-cli');
+                      setSelectedProvider(null);
+                      setSelectedModel(null);
+                    }}
+                    data-filter-button="runtime-cli"
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${catalogCategory === 'runtime-cli'
+                      ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-400/40 dark:border-blue-700'
+                      : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    ⚙️ Runtime CLI
+                  </button>
                 )}
                 <button
-                  onClick={() => setSelectedProvider(null)}
-                  data-filter-button="all"
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${selectedProvider === null
+                  onClick={() => {
+                    setCatalogCategory('local-deployed');
+                    setSelectedProvider(null);
+                    setSelectedModel(null);
+                  }}
+                  data-filter-button="catalog-local-deployed"
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${catalogCategory === 'local-deployed'
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-400/40 dark:border-green-700'
+                    : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
+                  }`}
+                >
+                  🏠 本地佈署模型
+                </button>
+                <button
+                  onClick={() => {
+                    setCatalogCategory('api');
+                    setSelectedProvider(null);
+                    setSelectedModel(null);
+                  }}
+                  data-filter-button="catalog-api"
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${catalogCategory === 'api'
                     ? 'bg-accent-10 dark:bg-purple-900/20 text-accent dark:text-purple-300 border-accent/30 dark:border-purple-700'
                     : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
-                    }`}
+                  }`}
                 >
-                  {t('allProviders' as any) || 'All'}
+                  🌐 API 模型
                 </button>
-                {providers.map((provider) => (
-                  <button
-                    key={provider}
-                    onClick={() => setSelectedProvider(provider)}
-                    data-filter-button={provider}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${selectedProvider === provider
-                      ? 'bg-accent-10 dark:bg-purple-900/20 text-accent dark:text-purple-300 border-accent/30 dark:border-purple-700'
-                      : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
-                      }`}
-                  >
-                    {provider}
-                  </button>
-                ))}
-                {/* ── 本地佈署 separator ── */}
-                {hasLocalModels && (
+                <span className="text-xs text-gray-400 dark:text-gray-500">
+                  {catalogCategory === 'runtime-cli'
+                    ? 'CLI 與本機開發工具的憑證與模型設定'
+                    : catalogCategory === 'local-deployed'
+                      ? '管理本地 runtime 可直接拉起的模型'
+                      : '管理各種雲端或第三方 API 模型'}
+                </span>
+              </div>
+
+              {/* Provider Filter Bar — API models only */}
+              <div className="flex flex-wrap gap-2">
+                {catalogCategory === 'api' && (
                   <>
-                    <span className="text-gray-300 dark:text-gray-600 mx-1 flex items-center">|</span>
                     <button
-                      onClick={() => setSelectedProvider('__local__')}
-                      data-filter-button="local"
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${selectedProvider === '__local__'
-                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-400/40 dark:border-green-700'
+                      onClick={() => setSelectedProvider(null)}
+                      data-filter-button="all"
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${selectedProvider === null
+                        ? 'bg-accent-10 dark:bg-purple-900/20 text-accent dark:text-purple-300 border-accent/30 dark:border-purple-700'
                         : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
                         }`}
                     >
-                      🏠 本地佈署
+                      {t('allProviders' as any) || 'All'}
                     </button>
+                    {apiProviders.map((provider) => (
+                      <button
+                        key={provider}
+                        onClick={() => setSelectedProvider(provider)}
+                        data-filter-button={provider}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${selectedProvider === provider
+                          ? 'bg-accent-10 dark:bg-purple-900/20 text-accent dark:text-purple-300 border-accent/30 dark:border-purple-700'
+                          : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
+                          }`}
+                      >
+                        {provider}
+                      </button>
+                    ))}
                   </>
                 )}
               </div>
@@ -757,7 +798,7 @@ export function ModelsAndQuotaPanel() {
                 動態分配
               </button>
             </div>
-            {subTab === 'models' && (
+            {subTab === 'models' && catalogCategory !== 'runtime-cli' && (
               <div className="flex flex-1 items-center gap-2">
                 <input
                   type="text"
@@ -806,8 +847,8 @@ export function ModelsAndQuotaPanel() {
         </div>
       )}
 
-      {/* ── Runtime CLI (when selectedProvider = __runtime_cli__) ─ */}
-      {modelTypeFilter === 'chat' && subTab === 'models' && selectedProvider === '__runtime_cli__' && (
+      {/* ── Runtime CLI body ─ */}
+      {modelTypeFilter === 'chat' && subTab === 'models' && catalogCategory === 'runtime-cli' && (
         <div className="flex-1">
           <CliApiKeysSection />
         </div>
@@ -823,8 +864,43 @@ export function ModelsAndQuotaPanel() {
             設定每個能力等級使用的模型。留空則使用系統預設 Chat 模型。變更即時儲存。
           </p>
           <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-500 dark:text-gray-400">執行目標</span>
+              <button
+                onClick={() => setDeploymentScope('local')}
+                data-filter-button="dynamic-local"
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${deploymentScope === 'local'
+                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-400/40 dark:border-green-700'
+                  : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
+                }`}
+              >
+                🏠 本地開發
+              </button>
+              <button
+                onClick={() => setDeploymentScope('cloud')}
+                data-filter-button="dynamic-cloud"
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${deploymentScope === 'cloud'
+                  ? 'bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 border-sky-400/40 dark:border-sky-700'
+                  : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
+                }`}
+              >
+                ☁️ 雲端 VM
+              </button>
+            </div>
+            <div className="text-xs text-gray-400 dark:text-gray-500">
+              目前編輯：
+              <span className="ml-1 font-medium text-gray-600 dark:text-gray-300">
+                {deploymentScope === 'local' ? '本地開發' : '雲端 VM'}
+              </span>
+              <span className="ml-2">
+                {deploymentScope === 'local'
+                  ? '工作站與本地 runtime 使用這組模型綁定'
+                  : 'Remote executor / GPU VM 預設使用這組模型綁定'}
+              </span>
+            </div>
             {(modelTypeFilter === 'chat' ? CHAT_PROFILES : MULTIMODAL_PROFILES).map(({ key, label, description }) => {
               const options: EnabledModel[] = modelTypeFilter === 'multimodal' ? enabledMultimodalModels : enabledChatModels;
+              const currentProfileMap = profileBindings[deploymentScope] || {};
               return (
                 <div key={key} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
                   <div className="flex-1 min-w-0">
@@ -832,11 +908,15 @@ export function ModelsAndQuotaPanel() {
                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{description}</div>
                   </div>
                   <select
-                    value={profileMap[key] || ''}
+                    value={currentProfileMap[key] || ''}
                     onChange={(e) => {
-                      const updated = { ...profileMap, [key]: e.target.value };
-                      if (!e.target.value) delete updated[key];
-                      saveProfileMap(updated);
+                      const updatedScopeMap = { ...currentProfileMap, [key]: e.target.value };
+                      if (!e.target.value) delete updatedScopeMap[key];
+                      saveProfileBindings({
+                        local: { ...(profileBindings.local || {}) },
+                        cloud: { ...(profileBindings.cloud || {}) },
+                        [deploymentScope]: updatedScopeMap,
+                      });
                     }}
                     disabled={profileSaving}
                     className="w-56 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm
@@ -858,7 +938,7 @@ export function ModelsAndQuotaPanel() {
       )}
 
       {/* ── Chat / Embedding / Multimodal model list body ──────────────── */}
-      {modelTypeFilter !== 'tool-calling' && subTab === 'models' && selectedProvider !== '__runtime_cli__' && (
+      {modelTypeFilter !== 'tool-calling' && subTab === 'models' && catalogCategory !== 'runtime-cli' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
           {/* Left: scrollable model list */}
           <div className="lg:col-span-5 lg:border-r border-gray-200 dark:border-gray-700 lg:pr-4 flex flex-col min-h-0">

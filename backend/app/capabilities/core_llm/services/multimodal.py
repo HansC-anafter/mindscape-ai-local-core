@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-# MLX VLM server can only handle 1 inference at a time; throttle concurrent calls
+# Local OpenAI-compatible VLM endpoints may only handle one heavy vision call at a time.
 _MLX_SEMAPHORE = asyncio.Semaphore(1)
 
 
@@ -337,14 +337,25 @@ def _guess_provider(model_name: str) -> str:
     return "huggingface"
 
 
-def _resolve_mlx_base_url(model_name: str) -> str:
-    """Resolve MLX server base URL from DB config.
+def _resolve_multimodal_base_url_from_env() -> tuple[Optional[str], Optional[str]]:
+    """Resolve multimodal endpoint base URL from environment aliases."""
+    for env_name in ("VISION_MODEL_BASE_URL", "VLM_BASE_URL", "MLX_SERVER_HOST"):
+        env_host = os.getenv(env_name)
+        if env_host:
+            return env_host.rstrip("/"), env_name
+    return None, None
+
+
+def _resolve_multimodal_base_url(model_name: str) -> str:
+    """Resolve multimodal endpoint base URL from config.
 
     Priority:
       1. ModelConfig.metadata['base_url'] for the specific model
       2. 'huggingface_base_url' system setting (provider-level)
-      3. MLX_SERVER_HOST environment variable
-      4. Fallback: http://host.docker.internal:8210
+      3. VISION_MODEL_BASE_URL environment variable
+      4. VLM_BASE_URL environment variable
+      5. MLX_SERVER_HOST environment variable (legacy fallback)
+      6. Fallback: http://host.docker.internal:8210
     """
     _FALLBACK = "http://host.docker.internal:8210"
 
@@ -384,17 +395,18 @@ def _resolve_mlx_base_url(model_name: str) -> str:
         logger.debug("[MultimodalAnalyze] System setting lookup failed: %s", e)
 
     # Priority 3: Environment variable
-    env_host = os.getenv("MLX_SERVER_HOST")
+    env_host, env_name = _resolve_multimodal_base_url_from_env()
     if env_host:
         logger.info(
-            "[MultimodalAnalyze] Resolved base_url from MLX_SERVER_HOST env: %s",
+            "[MultimodalAnalyze] Resolved base_url from %s env: %s",
+            env_name,
             env_host,
         )
-        return env_host.rstrip("/")
+        return env_host
 
-    # Priority 4: Hardcoded fallback
+    # Priority 6: Hardcoded fallback
     logger.info(
-        "[MultimodalAnalyze] Using fallback MLX base_url: %s", _FALLBACK
+        "[MultimodalAnalyze] Using fallback multimodal base_url: %s", _FALLBACK
     )
     return _FALLBACK
 
@@ -405,21 +417,23 @@ async def _route_mlx_server(
     model_name: str,
     temperature: float,
 ) -> Dict[str, Any]:
-    """Route to local MLX server (OpenAI-compatible API on host).
+    """Route to an OpenAI-compatible vision endpoint.
 
     Base URL resolution priority:
       1. Model metadata 'base_url' from model_configs DB table
       2. 'huggingface_base_url' system setting
-      3. MLX_SERVER_HOST environment variable
-      4. Fallback: http://host.docker.internal:8210
+      3. VISION_MODEL_BASE_URL environment variable
+      4. VLM_BASE_URL environment variable
+      5. MLX_SERVER_HOST environment variable
+      6. Fallback: http://host.docker.internal:8210
     """
     import httpx
 
-    mlx_host = _resolve_mlx_base_url(model_name)
-    url = f"{mlx_host}/v1/chat/completions"
+    base_url = _resolve_multimodal_base_url(model_name)
+    url = f"{base_url}/v1/chat/completions"
 
     logger.info(
-        "[MultimodalAnalyze] Routing to MLX server: %s (model=%s)",
+        "[MultimodalAnalyze] Routing to multimodal endpoint: %s (model=%s)",
         url, model_name,
     )
 
@@ -467,12 +481,17 @@ async def _route_mlx_server(
             
             first_b64 = images[0].get("base64_jpeg", "")
             mime = _detect_image_mime(first_b64) if first_b64 else "unknown"
-            logger.info("[MLX] MIME=%s max_tokens=%d model=%s", mime, resolved_max, model_name)
+            logger.info(
+                "[VLM] MIME=%s max_tokens=%d model=%s",
+                mime,
+                resolved_max,
+                model_name,
+            )
 
-            # Acquire semaphore so only 1 MLX inference runs at a time
+            # Acquire semaphore so only one local VLM inference runs at a time.
             async with _MLX_SEMAPHORE:
                 logger.info(
-                    "[MultimodalAnalyze] MLX semaphore acquired for %s with %d images",
+                    "[MultimodalAnalyze] Multimodal endpoint semaphore acquired for %s with %d images",
                     main_shortcode, len(content) - 1,
                 )
                 resp = await client.post(
@@ -504,19 +523,19 @@ async def _route_mlx_server(
             if text:
                 results.append({"shortcode": main_shortcode, "description": text})
                 logger.info(
-                    "[MultimodalAnalyze] MLX analysis OK for %s (%d chars)",
+                    "[MultimodalAnalyze] Multimodal endpoint analysis OK for %s (%d chars)",
                     main_shortcode, len(text),
                 )
         except Exception as e:
             logger.warning(
-                "[MultimodalAnalyze] MLX server call failed for %s: %s",
+                "[MultimodalAnalyze] Multimodal endpoint call failed for %s: %s",
                 main_shortcode, e,
             )
 
     if not results:
         return {
             "status": "error",
-            "error": "MLX server unreachable or returned no results",
+            "error": "Multimodal endpoint unreachable or returned no results",
             "recoverable": True,
             "error_type": "provider_unavailable",
         }

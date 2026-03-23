@@ -152,12 +152,20 @@ class ImportService:
                     name=pb_data.get("name", playbook_code),
                     description=pb_data.get("description", ""),
                     tags=pb_data.get("tags", []),
+                    supports_execution_chat=pb_data.get("supports_execution_chat", False),
+                    execution_chat_mode=pb_data.get("execution_chat_mode", "discussion"),
+                    execution_chat_tool_groups=pb_data.get("execution_chat_tool_groups", []),
+                    execution_chat_max_tool_iterations=pb_data.get(
+                        "execution_chat_max_tool_iterations", 5
+                    ),
+                    discussion_agent=pb_data.get("discussion_agent"),
                     entry_agent_type=pb_data.get("entry_agent_type"),
                     onboarding_task=pb_data.get("onboarding_task"),
                     icon=pb_data.get("icon"),
                     required_tools=pb_data.get("required_tools", []),
                     scope=pb_data.get("scope"),
                     owner={"type": "imported"},
+                    x_platform=pb_data.get("x_platform"),
                     created_at=_utc_now(),
                     updated_at=_utc_now()
                 )

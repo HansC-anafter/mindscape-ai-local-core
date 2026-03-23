@@ -88,6 +88,19 @@ class HookSpec(BaseModel):
     )
 
 
+class RerunSpec(BaseModel):
+    """Declarative rerun requirements and missing-input resolver."""
+
+    required_inputs: List[str] = Field(
+        default_factory=list,
+        description="Inputs that must be present before rerun dispatch.",
+    )
+    input_resolver: Optional[HookSpec] = Field(
+        None,
+        description="Optional tool-slot resolver used to backfill missing rerun inputs.",
+    )
+
+
 class StepHooks(BaseModel):
     """Step-level lifecycle hooks."""
 
@@ -215,6 +228,10 @@ class PlaybookJson(BaseModel):
     lifecycle_hooks: Optional[Dict[str, Any]] = Field(
         None,
         description="Declarative lifecycle hooks (on_queue/on_start/on_complete/on_fail).",
+    )
+    rerun: Optional[RerunSpec] = Field(
+        None,
+        description="Declarative rerun policy for restoring missing required inputs.",
     )
 
     @model_validator(mode="before")

@@ -1,10 +1,12 @@
 """
-Local Preview Service - Orchestrates no-cloud preview workflows for macOS (MPS/Metal).
+Legacy local preview prototype for macOS (MPS/Metal).
 
-Bypasses heavy video diffusion models by using:
-1. GGUF LLM for Natural Language to Knob mapping.
-2. SDXL Lightning for fast keyframe generation (MPS stable).
-3. CPU/Metal interpolation for motion preview.
+This service was an early experiment before `video_renderer` gained a
+first-class local preview path. It is intentionally retained only as a frozen
+prototype reference and compatibility fallback while the new
+`vr_render_local_preview` execution path is validated.
+
+Do not add new preview features here.
 """
 
 import os
@@ -47,7 +49,7 @@ class LocalPreviewService:
         self, workspace_id: str, prompt: str, profile_id: str = "vr_preview_local"
     ) -> Dict[str, Any]:
         """
-        Main entry point for local preview generation.
+        Legacy prototype entry point for local preview generation.
         """
         logger.info(
             f"Generating local preview for workspace {workspace_id} with prompt: {prompt}"
