@@ -158,6 +158,9 @@ docker-compose.override.yml
 /backend/backend/
 
 data/backups/
+backups/
+.backup/
+*.dump
 
 # Capability Pack Migrations (Do not track in local-core)
 backend/alembic_migrations/postgres/versions/*yogacoach*
