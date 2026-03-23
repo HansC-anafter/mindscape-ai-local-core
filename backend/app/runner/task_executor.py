@@ -6,6 +6,7 @@ import logging
 import multiprocessing as mp
 import os
 import threading
+import time
 from datetime import timedelta
 from typing import Any, Dict, Optional
 
@@ -13,15 +14,86 @@ from backend.app.models.workspace import Task, TaskStatus
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.playbook_run_executor import PlaybookRunExecutor
 from backend.app.services.stores.tasks_store import TasksStore
-from backend.app.services.stores.postgres.runner_locks_store import (
-    PostgresRunnerLocksStore,
-)
+from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
-from backend.app.runner.concurrency import _build_inputs, _resolve_lock_key
+from backend.app.runner.concurrency import _build_inputs, _resolve_lock_keys
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.utils import _env_int, _utc_now
 
 logger = logging.getLogger(__name__)
+
+
+def _emit_run_state_changed_for_task(
+    task: Task,
+    *,
+    previous_state: str,
+    new_state: str,
+    reason: str,
+) -> None:
+    """Emit a workspace lifecycle event for runner-managed task transitions."""
+    try:
+        from backend.app.services.playbook_runner import _build_run_state_changed_event
+
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        inputs = None
+        if isinstance(task.params, dict):
+            inputs = task.params
+        elif isinstance(ctx.get("inputs"), dict):
+            inputs = ctx.get("inputs")
+
+        event = _build_run_state_changed_event(
+            profile_id=(
+                getattr(task, "profile_id", None)
+                or (ctx.get("profile_id") if isinstance(ctx, dict) else None)
+                or "default-user"
+            ),
+            project_id=task.project_id,
+            workspace_id=task.workspace_id,
+            execution_id=task.execution_id or str(task.id),
+            previous_state=previous_state,
+            new_state=new_state,
+            reason=reason,
+            playbook_code=task.pack_id or "",
+            inputs=inputs,
+        )
+        MindscapeStore().create_event(event)
+    except Exception as emit_error:
+        logger.warning(
+            "Failed to emit %s RUN_STATE_CHANGED event for task %s (%s): %s",
+            new_state,
+            task.id,
+            task.execution_id,
+            emit_error,
+        )
+
+
+def _get_task_control_signal(task: Optional[Task]) -> Optional[Dict[str, str]]:
+    """Return a runner control signal derived from task status/context."""
+    if not task:
+        return {"kind": "missing", "message": "Runner task record missing"}
+
+    if task.status == TaskStatus.CANCELLED_BY_USER:
+        return {"kind": "cancelled", "message": task.error or "Cancelled by user"}
+    if task.status == TaskStatus.FAILED:
+        return {"kind": "failed", "message": task.error or "Task failed externally"}
+    if task.status == TaskStatus.EXPIRED:
+        return {"kind": "expired", "message": task.error or "Task expired externally"}
+
+    ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+    watchdog_abort = ctx.get("watchdog_abort")
+    if not isinstance(watchdog_abort, dict):
+        watchdog_abort = {}
+    requested_at = ctx.get("watchdog_abort_requested_at") or watchdog_abort.get(
+        "requested_at"
+    )
+    if requested_at:
+        reason = (
+            ctx.get("watchdog_abort_reason")
+            or watchdog_abort.get("reason")
+            or "Watchdog requested abort"
+        )
+        return {"kind": "watchdog_abort", "message": reason}
+    return None
 
 
 def _initialize_capability_packages_for_runner() -> None:
@@ -109,20 +181,15 @@ def _child_execute_playbook(payload: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _mark_task_failed(
+async def _mark_task_failed(
     tasks_store: TasksStore,
     task_id: str,
     runner_id: str,
     msg: str,
+    redis_queue: Optional[RedisRunnerQueueStore] = None,
 ) -> None:
-    """Mark a task as FAILED, invoking on_fail lifecycle hook if declared.
-
-    IMPORTANT: This function ALWAYS writes FAILED status to the database.
-    The on_fail hook may do additional work (e.g. create follow-up tasks),
-    but the base status update is never skipped. Previously, the hook's
-    return value was used to gate the DB write, causing tasks to remain
-    stuck in RUNNING when the hook was invoked but failed to update DB.
-    """
+    """Mark a task as FAILED, increment retry_count, and NACK or Deadletter via Redis."""
+    max_attempts = _env_int("LOCAL_CORE_RUNNER_MAX_ATTEMPTS", 3)
     try:
         latest = tasks_store.get_task(task_id)
         if latest and latest.status not in (
@@ -135,41 +202,71 @@ def _mark_task_failed(
                 else {}
             )
             ctxf = dict(ctxf)
-            ctxf["status"] = "failed"
+            retry_count = ctxf.get("retry_count", 0) + 1
+            ctxf["retry_count"] = retry_count
             ctxf["error"] = msg
             ctxf["runner_id"] = runner_id
             ctxf["failed_at"] = _utc_now().isoformat()
+            
+            is_deadletter = retry_count >= max_attempts
+
+            # For terminal deadletters, change status to FAILED.
+            # Otherwise we keep it as PENDING but defer it to delayed queue.
+            new_status = TaskStatus.FAILED if is_deadletter else TaskStatus.PENDING
+            ctxf["status"] = "failed" if is_deadletter else "queued"
 
             # Invoke on_fail hook (best-effort, may create follow-up tasks).
-            # Hook result is logged but does NOT gate the DB status update.
+            hook_invoked = False
             try:
-                _invoke_on_fail_hook(ctxf, msg, latest.id)
+                hook_invoked = _invoke_on_fail_hook(ctxf, msg, latest.id)
             except Exception as hook_err:
                 logger.warning(f"on_fail hook error for task {task_id}: {hook_err}")
 
-            # Re-read task in case hook already marked it FAILED
-            refreshed = tasks_store.get_task(task_id)
-            if refreshed and refreshed.status not in (
-                TaskStatus.CANCELLED_BY_USER,
-                TaskStatus.FAILED,
-                TaskStatus.SUCCEEDED,
-            ):
-                tasks_store.update_task(
-                    refreshed.id,
-                    execution_context=ctxf,
-                    status=TaskStatus.FAILED,
-                    completed_at=_utc_now(),
-                    error=msg,
+            if hook_invoked:
+                logger.info(f"on_fail hook handled failure for task {task_id}. Skipping native requeue.")
+                if redis_queue:
+                    try:
+                        await redis_queue.ack_task(latest.id)
+                    except Exception as e:
+                        logger.error(f"Failed to ack task {task_id} after hook invocation: {e}")
+                return
+
+            # 1. Strict DB write first
+            tasks_store.update_task(
+                latest.id,
+                execution_context=ctxf,
+                status=new_status,
+                completed_at=_utc_now() if is_deadletter else None,
+                error=msg if is_deadletter else None,
+            )
+
+            if is_deadletter:
+                _emit_run_state_changed_for_task(
+                    latest,
+                    previous_state="RUNNING",
+                    new_state="FAILED",
+                    reason="execution_failed",
                 )
+
+            # 2. Redis Transport resolution
+            if redis_queue:
+                if is_deadletter:
+                    logger.warning(f"Task {task_id} reached max_attempts ({max_attempts}). Sending to Deadletter.")
+                    await redis_queue.move_to_deadletter(task_id)
+                    await redis_queue.ack_task(task_id)  # Clean up from processing
+                else:
+                    logger.warning(f"Task {task_id} failed transiently (attempt {retry_count}). NACKing to delayed queue.")
+                    await redis_queue.nack_task_to_delayed(task_id, delay_sec=15)
     except Exception as e:
         logger.error(f"Failed to mark task {task_id} as failed: {e}", exc_info=True)
 
 
-def _mark_task_succeeded(
+async def _mark_task_succeeded(
     tasks_store: TasksStore,
     task_id: str,
     runner_id: str,
     result_file: Optional[str],
+    redis_queue: Optional[RedisRunnerQueueStore] = None,
 ) -> None:
     """Mark a task as SUCCEEDED, reading tool result from IPC temp file."""
     try:
@@ -203,10 +300,22 @@ def _mark_task_succeeded(
             )
             if tool_result is not None:
                 update_kwargs["result"] = tool_result
+            
+            # 1. DB Write MUST precede Ack
             tasks_store.update_task(
                 latest.id,
                 **update_kwargs,
             )
+            _emit_run_state_changed_for_task(
+                latest,
+                previous_state="RUNNING",
+                new_state="DONE",
+                reason="execution_completed",
+            )
+            
+        # 2. Redis Ack MUST ALWAYS happen even if DB state was skipped
+        if redis_queue:
+            await redis_queue.ack_task(task_id)
     except Exception as e:
         logger.error(f"Failed to mark task {task_id} as succeeded: {e}", exc_info=True)
 
@@ -217,121 +326,171 @@ def _mark_task_succeeded(
 
 
 async def _run_single_task(
-    tasks_store: TasksStore, runner_id: str, task_id: str
+    tasks_store: TasksStore, runner_id: str, task_id: str, redis_queue: Optional[RedisRunnerQueueStore] = None
 ) -> None:
     task = tasks_store.get_task(task_id)
     if not task:
+        if redis_queue:
+            await redis_queue.ack_task(task_id)
         return
 
     if task.status == TaskStatus.CANCELLED_BY_USER:
+        if redis_queue:
+            await redis_queue.ack_task(task_id)
         return
 
     os.environ["LOCAL_CORE_RUNNER_PROCESS"] = "1"
     inflight_files = set()
-    did_acquire = False
 
     ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
-    locks_store = None
-    lock_key = _resolve_lock_key(ctx, task.pack_id)
-    lock_ttl_seconds = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 3600)
-    if lock_key:
-        try:
-            store = MindscapeStore()
-            locks_store = PostgresRunnerLocksStore()
-            acquired = locks_store.try_acquire(
-                lock_key=lock_key, owner_id=runner_id, ttl_seconds=lock_ttl_seconds
-            )
-            if not acquired:
-                owner = None
-                try:
-                    owner = locks_store.get_owner(lock_key)
-                except Exception:
-                    pass
-                logger.warning(
-                    f"Runner skipped task due to concurrency lock task_id={task.id} lock_key={lock_key} owner={owner}"
-                )
-                try:
-                    from datetime import datetime, timedelta, timezone
-
-                    ctx2 = dict(ctx)
-                    ctx2["runner_skip_reason"] = "concurrency_locked"
-                    ctx2["runner_skip_lock_key"] = lock_key
-                    ctx2["runner_skip_owner"] = owner
-                    ctx2.pop("runner_id", None)
-                    ctx2.pop("heartbeat_at", None)
-
-                    resume_dt = datetime.now(timezone.utc) + timedelta(seconds=15)
-                    ctx2["resume_after"] = resume_dt.isoformat()
-
-                    # Revert status to PENDING so the task stays in the queue
-                    # and the reaper doesn't mark it as stale/failed.
-                    tasks_store.update_task(
-                        task.id,
-                        execution_context=ctx2,
-                        status=TaskStatus.PENDING,
-                        started_at=None,
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to revert task to PENDING for {task.id}: {e}", exc_info=True)
-                return
-            
-            did_acquire = True
-            # Lock acquired. Clear stale skip markers from previous attempts.
-            try:
-                ctx2 = dict(ctx)
-                if ctx2.get("runner_skip_reason") or ctx2.get("runner_skip_owner") or ctx2.get("resume_after"):
-                    ctx2.pop("runner_skip_reason", None)
-                    ctx2.pop("runner_skip_owner", None)
-                    ctx2.pop("runner_skip_lock_key", None)
-                    ctx2.pop("resume_after", None)
-                    tasks_store.update_task(task.id, execution_context=ctx2)
-            except Exception:
-                pass
-        except Exception as e:
-            logger.warning(f"Runner lock acquire failed task_id={task.id}: {e}")
+    lock_keys = _resolve_lock_keys(ctx, task.pack_id)
+    lock_ttl_seconds = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
+    
+    # Lock has ALREADY been acquired by runner/worker.py in the Redis store.
+    # We clear any leftover UI lock status metadata as this task is executing now.
+    try:
+        ctx2 = dict(ctx)
+        if (
+            ctx2.get("runner_skip_reason") 
+            or ctx2.get("runner_skip_owner") 
+            or ctx2.get("resume_after")
+            or ctx2.get("dependency_hold")
+            or ctx2.get("watchdog_abort_requested_at")
+            or ctx2.get("watchdog_abort_reason")
+            or ctx2.get("watchdog_abort")
+        ):
+            ctx2.pop("runner_skip_reason", None)
+            ctx2.pop("runner_skip_owner", None)
+            ctx2.pop("runner_skip_lock_key", None)
+            ctx2.pop("resume_after", None)
+            ctx2.pop("dependency_hold", None)
+            ctx2.pop("watchdog_abort_requested_at", None)
+            ctx2.pop("watchdog_abort_reason", None)
+            ctx2.pop("watchdog_abort", None)
+            tasks_store.update_task(task.id, execution_context=ctx2)
+    except Exception:
+        pass
+        
     inputs = _build_inputs(task.execution_id or task.id, ctx)
 
     hb_interval_ms = _env_int("LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS", 15000)
     # Heartbeat/lock renew must keep ticking even if the main async task blocks (e.g. Playwright hanging).
     stop_event = threading.Event()
 
+    # Capture the main event loop so daemon threads can schedule coroutines on it
+    # instead of calling asyncio.run() (which creates a NEW loop and conflicts
+    # with the Redis client's asyncio.Lock bound to the main loop).
+    main_loop = asyncio.get_running_loop()
+
     # proc reference will be set before heartbeat starts checking it
     proc_ref = [None]  # Use list for mutable reference in closure
 
     def _heartbeat_thread() -> None:
         interval_s = max(1.0, hb_interval_ms / 1000.0)
+        beat_seq = 0
+        trace_heartbeat = task.pack_id in {
+            "ig_analyze_following",
+            "ig_batch_pin_references",
+        }
         while not stop_event.is_set():
+            beat_seq += 1
             # Check if subprocess is still running - stop heartbeat if subprocess died
             try:
                 p = proc_ref[0]
                 if p is not None and not p.is_alive():
                     logger.warning(
-                        f"Runner heartbeat stopping: subprocess died for task {task.id}, exitcode={p.exitcode}"
+                        "Runner heartbeat stopping: subprocess died for task %s "
+                        "(playbook=%s beat_seq=%s exitcode=%s)",
+                        task.id,
+                        task.pack_id,
+                        beat_seq,
+                        p.exitcode,
                     )
                     break
             except Exception as e:
                 logger.error(f"Error checking subprocess alive status in heartbeat thread: {e}", exc_info=True)
             try:
+                hb_started = time.monotonic()
+                if trace_heartbeat and beat_seq <= 3:
+                    logger.warning(
+                        "Runner heartbeat begin task_id=%s playbook=%s beat_seq=%s phase=db_update",
+                        task.id,
+                        task.pack_id,
+                        beat_seq,
+                    )
                 tasks_store.update_task_heartbeat(task.id, runner_id=runner_id)
+                hb_db_elapsed_ms = int((time.monotonic() - hb_started) * 1000)
+                if (trace_heartbeat and beat_seq <= 3) or hb_db_elapsed_ms >= 2000:
+                    log_fn = logger.warning if hb_db_elapsed_ms >= 2000 or trace_heartbeat else logger.info
+                    log_fn(
+                        "Runner heartbeat db_update done task_id=%s playbook=%s beat_seq=%s elapsed_ms=%s",
+                        task.id,
+                        task.pack_id,
+                        beat_seq,
+                        hb_db_elapsed_ms,
+                    )
+                # Touch Redis queue visibility timeout to prevent ghosting by Reaper
+                if redis_queue:
+                    redis_started = time.monotonic()
+                    if trace_heartbeat and beat_seq <= 3:
+                        logger.warning(
+                            "Runner heartbeat begin task_id=%s playbook=%s beat_seq=%s phase=touch_visibility",
+                            task.id,
+                            task.pack_id,
+                            beat_seq,
+                        )
+                    fut = asyncio.run_coroutine_threadsafe(
+                        redis_queue.touch_visibility_timeout(task.id, added_time_sec=180),
+                        main_loop,
+                    )
+                    touch_ok = fut.result(timeout=10)
+                    hb_redis_elapsed_ms = int((time.monotonic() - redis_started) * 1000)
+                    if (trace_heartbeat and beat_seq <= 3) or hb_redis_elapsed_ms >= 2000 or not touch_ok:
+                        log_fn = (
+                            logger.warning
+                            if hb_redis_elapsed_ms >= 2000 or not touch_ok or trace_heartbeat
+                            else logger.info
+                        )
+                        log_fn(
+                            "Runner heartbeat touch_visibility done task_id=%s playbook=%s beat_seq=%s elapsed_ms=%s ok=%s",
+                            task.id,
+                            task.pack_id,
+                            beat_seq,
+                            hb_redis_elapsed_ms,
+                            touch_ok,
+                        )
             except Exception as e:
-                logger.error(f"Error updating heartbeat in heartbeat thread for task {task.id}: {e}", exc_info=True)
+                logger.error(
+                    "Error updating heartbeat in heartbeat thread for task %s "
+                    "(playbook=%s beat_seq=%s): %s",
+                    task.id,
+                    task.pack_id,
+                    beat_seq,
+                    e,
+                    exc_info=True,
+                )
             stop_event.wait(interval_s)
 
     hb_thread = threading.Thread(target=_heartbeat_thread, daemon=True)
     hb_thread.start()
 
     lock_renew_thread = None
-    if locks_store and lock_key:
+    if redis_queue and lock_keys:
 
         def _renew_thread() -> None:
             interval_s = max(5.0, hb_interval_ms / 1000.0)
             while not stop_event.is_set():
                 try:
-                    locks_store.renew(
-                        lock_key=lock_key,
-                        owner_id=runner_id,
-                        ttl_seconds=lock_ttl_seconds,
-                    )
+                    for held_key in lock_keys:
+                        fut = asyncio.run_coroutine_threadsafe(
+                            redis_queue.renew_lock(
+                                lock_key=held_key,
+                                owner_id=runner_id,
+                                ttl_seconds=lock_ttl_seconds,
+                            ),
+                            main_loop,
+                        )
+                        fut.result(timeout=10)
                 except Exception:
                     pass
                 stop_event.wait(interval_s)
@@ -358,12 +517,13 @@ async def _run_single_task(
             )
         ctx_mp = mp.get_context("spawn")
 
-        async def _wait_for_cancel() -> bool:
+        async def _wait_for_control_signal() -> Optional[Dict[str, str]]:
             while True:
                 try:
                     latest = tasks_store.get_task(task.id)
-                    if latest and latest.status == TaskStatus.CANCELLED_BY_USER:
-                        return True
+                    signal = _get_task_control_signal(latest)
+                    if signal:
+                        return signal
                 except Exception:
                     pass
                 await asyncio.sleep(cancel_poll_ms / 1000)
@@ -394,6 +554,20 @@ async def _run_single_task(
             target=_child_execute_playbook, args=(payload,), daemon=True
         )
         proc.start()
+        if task.pack_id in {"ig_analyze_following", "ig_batch_pin_references"}:
+            logger.warning(
+                "Runner subprocess started task_id=%s playbook=%s pid=%s",
+                task.id,
+                task.pack_id,
+                proc.pid,
+            )
+        else:
+            logger.info(
+                "Runner subprocess started task_id=%s playbook=%s pid=%s",
+                task.id,
+                task.pack_id,
+                proc.pid,
+            )
         # Update proc reference for heartbeat thread to monitor
         proc_ref[0] = proc
 
@@ -402,6 +576,22 @@ async def _run_single_task(
                 await asyncio.sleep(0.5)
             # Treat None exitcode as error (-1) to catch zombie/abnormal termination
             exitcode = proc.exitcode
+            if task.pack_id in {"ig_analyze_following", "ig_batch_pin_references"}:
+                logger.warning(
+                    "Runner subprocess exited task_id=%s playbook=%s pid=%s exitcode=%s",
+                    task.id,
+                    task.pack_id,
+                    proc.pid,
+                    exitcode,
+                )
+            else:
+                logger.info(
+                    "Runner subprocess exited task_id=%s playbook=%s pid=%s exitcode=%s",
+                    task.id,
+                    task.pack_id,
+                    proc.pid,
+                    exitcode,
+                )
             if exitcode is None:
                 logger.warning(
                     f"Runner subprocess exitcode is None (zombie?) for task {task.id}"
@@ -415,15 +605,15 @@ async def _run_single_task(
             return True
 
         exec_task = asyncio.create_task(_wait_for_proc())
-        cancel_task = asyncio.create_task(_wait_for_cancel())
+        control_task = asyncio.create_task(_wait_for_control_signal())
         timeout_task = asyncio.create_task(_wait_for_timeout())
 
         done, pending = await asyncio.wait(
-            {exec_task, cancel_task, timeout_task}, return_when=asyncio.FIRST_COMPLETED
+            {exec_task, control_task, timeout_task}, return_when=asyncio.FIRST_COMPLETED
         )
 
-        if cancel_task in done and cancel_task.result() is True:
-            # --- Cancelled by user ---
+        if control_task in done:
+            signal = control_task.result() or {}
             try:
                 if proc.is_alive():
                     proc.terminate()
@@ -439,27 +629,48 @@ async def _run_single_task(
                 await timeout_task
             except BaseException:
                 pass
+            signal_kind = signal.get("kind")
+            latest = None
             try:
                 latest = tasks_store.get_task(task.id)
-                if latest and latest.status == TaskStatus.CANCELLED_BY_USER:
-                    ctxc = (
-                        latest.execution_context
-                        if isinstance(latest.execution_context, dict)
-                        else {}
-                    )
-                    ctxc = dict(ctxc)
-                    ctxc["status"] = "cancelled"
-                    ctxc["cancelled_at"] = _utc_now().isoformat()
-                    ctxc["runner_id"] = runner_id
-                    tasks_store.update_task(
-                        latest.id,
-                        execution_context=ctxc,
-                        status=TaskStatus.CANCELLED_BY_USER,
-                        completed_at=_utc_now(),
-                        error=latest.error or "Cancelled by user",
-                    )
             except Exception:
-                pass
+                latest = None
+
+            if signal_kind == "cancelled":
+                try:
+                    if latest and latest.status == TaskStatus.CANCELLED_BY_USER:
+                        ctxc = (
+                            latest.execution_context
+                            if isinstance(latest.execution_context, dict)
+                            else {}
+                        )
+                        ctxc = dict(ctxc)
+                        ctxc["status"] = "cancelled"
+                        ctxc["cancelled_at"] = _utc_now().isoformat()
+                        ctxc["runner_id"] = runner_id
+                        tasks_store.update_task(
+                            latest.id,
+                            execution_context=ctxc,
+                            status=TaskStatus.CANCELLED_BY_USER,
+                            completed_at=_utc_now(),
+                            error=latest.error or "Cancelled by user",
+                        )
+                except Exception:
+                    pass
+                if redis_queue:
+                    try:
+                        await redis_queue.ack_task(task.id)
+                    except Exception:
+                        pass
+            elif latest and latest.status in (TaskStatus.FAILED, TaskStatus.EXPIRED):
+                if redis_queue:
+                    try:
+                        await redis_queue.ack_task(task.id)
+                    except Exception:
+                        pass
+            else:
+                msg = signal.get("message") or "Runner control signal requested abort"
+                await _mark_task_failed(tasks_store, task.id, runner_id, msg, redis_queue)
         elif timeout_task in done and timeout_task.result() is True:
             # --- Hard timeout ---
             try:
@@ -468,25 +679,25 @@ async def _run_single_task(
             except Exception:
                 pass
             exec_task.cancel()
-            cancel_task.cancel()
+            control_task.cancel()
             try:
                 await exec_task
             except BaseException:
                 pass
             try:
-                await cancel_task
+                await control_task
             except BaseException:
                 pass
             msg = (
                 f"Runner task timeout ({task_timeout_seconds}s) - subprocess terminated"
             )
-            _mark_task_failed(tasks_store, task.id, runner_id, msg)
+            await _mark_task_failed(tasks_store, task.id, runner_id, msg, redis_queue)
         else:
             # --- Process finished ---
-            cancel_task.cancel()
+            control_task.cancel()
             timeout_task.cancel()
             try:
-                await cancel_task
+                await control_task
             except BaseException:
                 pass
             try:
@@ -496,9 +707,9 @@ async def _run_single_task(
             exitcode = await exec_task
             if exitcode != 0:
                 msg = f"Runner subprocess exited non-zero (exitcode={exitcode})"
-                _mark_task_failed(tasks_store, task.id, runner_id, msg)
+                await _mark_task_failed(tasks_store, task.id, runner_id, msg, redis_queue)
             else:
-                _mark_task_succeeded(tasks_store, task.id, runner_id, result_file)
+                await _mark_task_succeeded(tasks_store, task.id, runner_id, result_file, redis_queue)
     finally:
         # Clean up result temp file regardless of outcome
         try:
@@ -518,9 +729,10 @@ async def _run_single_task(
                     proc.kill()
                     proc.join(timeout=1.0)
                     # Mark killed task as FAILED to prevent reaper re-queue loop
-                    _mark_task_failed(
+                    await _mark_task_failed(
                         tasks_store, task.id, runner_id,
-                        f"Runner subprocess killed after join timeout (pid={proc.pid})"
+                        f"Runner subprocess killed after join timeout (pid={proc.pid})",
+                        redis_queue
                     )
         except Exception as e:
             logger.warning(f"Runner subprocess cleanup error for task {task.id}: {e}")
@@ -535,9 +747,10 @@ async def _run_single_task(
                 pass
         # Release lock
         ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
-        lock_key = _resolve_lock_key(ctx, task.pack_id)
-        if locks_store and lock_key and did_acquire:
-            try:
-                locks_store.release(lock_key=lock_key, owner_id=runner_id)
-            except Exception:
-                pass
+        lock_keys = _resolve_lock_keys(ctx, task.pack_id)
+        if redis_queue and lock_keys:
+            for held_key in lock_keys:
+                try:
+                    await redis_queue.release_lock(lock_key=held_key, owner_id=runner_id)
+                except Exception:
+                    pass
