@@ -1,0 +1,10 @@
+code: core_export
+name: Core Export
+display_name: Core Export
+enabled_by_default: true
+version: 1.0.0
+description: Backup and portable export functionality.
+routes:
+  - backend.features.core_export.routes:router
+playbooks: []
+tools: []

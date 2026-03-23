@@ -1,0 +1,13 @@
+code: mindscape
+name: Mindscape Core
+display_name: Mindscape Core
+enabled_by_default: true
+version: 1.0.0
+description: Core Mindscape management functionality shipped with local core.
+routes:
+  - backend.features.mindscape.routes:router
+playbooks:
+  - mindscape_setup
+  - mindscape_sync
+tools:
+  - mindscape_storage

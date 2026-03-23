@@ -7,7 +7,7 @@ existing completion pipeline remains the single source of truth.
 """
 
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -23,6 +23,8 @@ class RemoteTerminalEventRequest(BaseModel):
     execution_id: str
     trace_id: str
     status: str
+    job_type: Optional[Literal["playbook", "tool", "chain"]] = None
+    capability_code: Optional[str] = None
     result_payload: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     playbook_code: Optional[str] = None
@@ -63,6 +65,8 @@ async def remote_terminal_event_callback(
         status=body.status,
         result_payload=body.result_payload,
         error_message=body.error_message,
+        job_type=body.job_type,
+        capability_code=body.capability_code,
         playbook_code=body.playbook_code,
         provider_metadata=body.provider_metadata,
     )

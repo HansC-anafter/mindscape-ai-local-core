@@ -10,21 +10,25 @@ Install endpoints have been extracted to ``capability_install.py``.
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import logging
 import os
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
+from app.services.pack_activation_service import PackActivationService
 from app.services.stores.installed_packs_store import InstalledPacksStore
+from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/capability-packs", tags=["Capability Packs"])
 
 installed_packs_store = InstalledPacksStore()
+pack_activation_service = PackActivationService()
 
 
 def _utc_now():
@@ -53,45 +57,163 @@ def _load_manifest_file(manifest_path: Path) -> Optional[Dict[str, Any]]:
 _pack_yaml_cache = None
 _pack_yaml_cache_time = 0
 
-def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
+_PACK_SOURCE_PRIORITY = {
+    "legacy_pack_yaml": 1,
+    "capability_manifest": 2,
+    "feature_manifest": 3,
+}
+
+def _normalize_enabled_by_default(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _merge_unique_items(left: Any, right: Any) -> List[Any]:
+    merged: List[Any] = []
+    seen = set()
+    for group in (left or [], right or []):
+        if not isinstance(group, list):
+            continue
+        for item in group:
+            marker = json.dumps(item, sort_keys=True, ensure_ascii=False, default=str)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            merged.append(item)
+    return merged
+
+
+def _merge_pack_meta(existing: Dict[str, Any], candidate: Dict[str, Any]) -> Dict[str, Any]:
+    existing_priority = _PACK_SOURCE_PRIORITY.get(
+        existing.get("_source_kind", "legacy_pack_yaml"), 0
+    )
+    candidate_priority = _PACK_SOURCE_PRIORITY.get(
+        candidate.get("_source_kind", "legacy_pack_yaml"), 0
+    )
+
+    primary = candidate if candidate_priority >= existing_priority else existing
+    secondary = existing if primary is candidate else candidate
+
+    merged = dict(primary)
+    merged["routes"] = _merge_unique_items(
+        secondary.get("routes"), primary.get("routes")
+    )
+    merged["playbooks"] = _merge_unique_items(
+        secondary.get("playbooks"), primary.get("playbooks")
+    )
+    merged["tools"] = _merge_unique_items(
+        secondary.get("tools"), primary.get("tools")
+    )
+    merged["ui_components"] = _merge_unique_items(
+        secondary.get("ui_components"), primary.get("ui_components")
+    )
+
+    for key in ("description", "name", "display_name", "version", "enabled_by_default"):
+        if merged.get(key) in (None, "", []):
+            merged[key] = secondary.get(key)
+    if not merged.get("_file_path"):
+        merged["_file_path"] = secondary.get("_file_path")
+    merged["enabled_by_default"] = _normalize_enabled_by_default(
+        merged.get("enabled_by_default")
+    )
+    return merged
+
+
+def _map_runtime_manifest(
+    meta: Dict[str, Any],
+    *,
+    default_id: str,
+    manifest_path: Path,
+    source_kind: str,
+) -> Dict[str, Any]:
+    code = meta.get("code") or meta.get("id") or default_id
+    name = meta.get("display_name") or meta.get("name") or code
+    description = meta.get("description", "")
+
+    playbooks = []
+    for pb in meta.get("playbooks", []):
+        if isinstance(pb, dict) and pb.get("code"):
+            playbooks.append(pb["code"])
+        elif isinstance(pb, str):
+            playbooks.append(pb)
+
+    mapped = {
+        "id": code,
+        "code": code,
+        "name": name,
+        "description": description,
+        "version": meta.get("version", "1.0.0"),
+        "enabled_by_default": _normalize_enabled_by_default(
+            meta.get("enabled_by_default")
+        ),
+        "playbooks": playbooks,
+        "ui_components": meta.get("ui_components", []),
+        "_file_path": str(manifest_path),
+        "_source_kind": source_kind,
+    }
+    for key, value in meta.items():
+        if key not in mapped and key != "_file_path":
+            mapped[key] = value
+    return mapped
+
+def _scan_pack_yaml_files(base_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     """Scan all installed capabilities and return their manifest data.
     Results are cached for 60 seconds to avoid filesystem latency.
     """
     global _pack_yaml_cache, _pack_yaml_cache_time
     import time
-    if _pack_yaml_cache is not None and (time.time() - _pack_yaml_cache_time < 60):
+    if (
+        base_dir is None
+        and _pack_yaml_cache is not None
+        and (time.time() - _pack_yaml_cache_time < 60)
+    ):
         return _pack_yaml_cache
 
-    packs = []
+    packs_by_id: Dict[str, Dict[str, Any]] = {}
 
     # Get packs directory
     # In Docker: /app/backend/app/routes/core/capability_packs.py -> /app/backend/packs
     # In local: backend/app/routes/core/capability_packs.py -> backend/packs
-    base_dir = Path(__file__).parent.parent.parent.parent
+    base_dir = base_dir or Path(__file__).parent.parent.parent.parent
     packs_dir = base_dir / "packs"
+    legacy_packs_dir: Optional[Path] = None
 
     # If packs directory doesn't exist at calculated path, try alternative locations
-    if not packs_dir.exists():
+    if packs_dir.exists():
+        legacy_packs_dir = packs_dir
+    else:
         # Try /app/backend/packs (Docker)
         alt_path = Path("/app/backend/packs")
         if alt_path.exists():
-            packs_dir = alt_path
+            legacy_packs_dir = alt_path
         else:
             # Try backend/packs (local dev)
             alt_path = base_dir / "backend" / "packs"
             if alt_path.exists():
-                packs_dir = alt_path
+                legacy_packs_dir = alt_path
             else:
                 logger.warning(
                     f"Packs directory not found. Tried: {base_dir / 'packs'}, {Path('/app/backend/packs')}, {base_dir / 'backend' / 'packs'}"
                 )
-                return packs
 
     # Scan for .yaml files
-    for pack_file in packs_dir.glob("*.yaml"):
-        meta = _load_manifest_file(pack_file)
-        if meta:
-            packs.append(meta)
+    if legacy_packs_dir is not None:
+        for pack_file in legacy_packs_dir.glob("*.yaml"):
+            meta = _load_manifest_file(pack_file)
+            if meta:
+                meta["_source_kind"] = "legacy_pack_yaml"
+                pack_id = meta.get("id") or meta.get("code")
+                if not pack_id:
+                    continue
+                existing = packs_by_id.get(pack_id)
+                packs_by_id[pack_id] = (
+                    _merge_pack_meta(existing, meta) if existing else meta
+                )
 
     # Scan installed capabilities from backend/app/capabilities/
     capabilities_dir = base_dir / "app" / "capabilities"
@@ -107,43 +229,64 @@ def _scan_pack_yaml_files() -> List[Dict[str, Any]]:
 
     if capabilities_dir.exists():
         for cap_dir in capabilities_dir.iterdir():
-            if not cap_dir.is_dir():
+            if not cap_dir.is_dir() or is_ignored_runtime_pack_dir(cap_dir.name):
                 continue
             manifest_path = cap_dir / "manifest.yaml"
             if manifest_path.exists():
                 meta = _load_manifest_file(manifest_path)
                 if not meta:
                     continue
-                # Map manifest fields to pack meta fields expected by API
-                code = meta.get("code") or cap_dir.name
-                name = meta.get("display_name") or meta.get("name") or code
-                description = meta.get("description", "")
-                # Attach playbook codes for visibility (if present)
-                playbooks = []
-                for pb in meta.get("playbooks", []):
-                    if isinstance(pb, dict) and pb.get("code"):
-                        playbooks.append(pb["code"])
-                    elif isinstance(pb, str):
-                        playbooks.append(pb)
-                meta_mapped = {
-                    "id": code,  # Use code as id
-                    "name": name or cap_dir.name,
-                    "description": description,
-                    "version": meta.get("version", "1.0.0"),
-                    "playbooks": playbooks,
-                    "ui_components": meta.get(
-                        "ui_components", []
-                    ),  # Include UI components
-                    "_file_path": str(manifest_path),
-                }
-                # Merge other fields from original meta
-                for key, value in meta.items():
-                    if key not in meta_mapped and key != "_file_path":
-                        meta_mapped[key] = value
-                packs.append(meta_mapped)
+                meta_mapped = _map_runtime_manifest(
+                    meta,
+                    default_id=cap_dir.name,
+                    manifest_path=manifest_path,
+                    source_kind="capability_manifest",
+                )
+                pack_id = meta_mapped["id"]
+                existing = packs_by_id.get(pack_id)
+                packs_by_id[pack_id] = (
+                    _merge_pack_meta(existing, meta_mapped)
+                    if existing
+                    else meta_mapped
+                )
 
-    _pack_yaml_cache = packs
-    _pack_yaml_cache_time = time.time()
+    features_dir = base_dir / "features"
+    if not features_dir.exists():
+        alt_paths = [
+            Path("/app/backend/features"),
+            base_dir / "backend" / "features",
+        ]
+        for alt_path in alt_paths:
+            if alt_path.exists():
+                features_dir = alt_path
+                break
+
+    if features_dir.exists():
+        for feature_dir in features_dir.iterdir():
+            if not feature_dir.is_dir() or is_ignored_runtime_pack_dir(feature_dir.name):
+                continue
+            manifest_path = feature_dir / "manifest.yaml"
+            if not manifest_path.exists():
+                continue
+            meta = _load_manifest_file(manifest_path)
+            if not meta:
+                continue
+            meta_mapped = _map_runtime_manifest(
+                meta,
+                default_id=feature_dir.name,
+                manifest_path=manifest_path,
+                source_kind="feature_manifest",
+            )
+            pack_id = meta_mapped["id"]
+            existing = packs_by_id.get(pack_id)
+            packs_by_id[pack_id] = (
+                _merge_pack_meta(existing, meta_mapped) if existing else meta_mapped
+            )
+
+    packs = list(packs_by_id.values())
+    if base_dir == Path(__file__).parent.parent.parent.parent:
+        _pack_yaml_cache = packs
+        _pack_yaml_cache_time = time.time()
     return packs
 
 
@@ -171,6 +314,24 @@ class PackResponse(BaseModel):
     tools: List[str] = []
     version: Optional[str] = None
     installed_at: Optional[str] = None
+
+
+class PackActivationStateResponse(BaseModel):
+    pack_id: str
+    pack_family: str
+    enabled: bool
+    install_state: str
+    migration_state: str
+    activation_state: str
+    activation_mode: str
+    embedding_state: str = "unknown"
+    embedding_error: Optional[str] = None
+    embeddings_updated_at: Optional[str] = None
+    manifest_hash: Optional[str] = None
+    registered_prefixes: List[str] = Field(default_factory=list)
+    last_error: Optional[str] = None
+    activated_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 @router.get("/", response_model=List[PackResponse])
@@ -238,7 +399,9 @@ def list_packs():
                     id=pack_id,
                     name=pack_meta.get("name", pack_id),
                     description=pack_meta.get("description", ""),
-                    enabled_by_default=pack_meta.get("enabled_by_default", False),
+                    enabled_by_default=_normalize_enabled_by_default(
+                        pack_meta.get("enabled_by_default")
+                    ),
                     enabled=pack_id in enabled_ids,
                     installed=pack_id in installed_ids,
                     routes=pack_meta.get("routes", []),
@@ -293,6 +456,15 @@ async def enable_pack(pack_id: str):
                 )
 
         await anyio.to_thread.run_sync(_do_db_enable)
+        await anyio.to_thread.run_sync(
+            lambda: pack_activation_service.record_enabled(
+                pack_id=pack_id,
+                manifest=pack_meta,
+                manifest_path=Path(pack_meta["_file_path"])
+                if pack_meta.get("_file_path")
+                else None,
+            )
+        )
 
         # Rebuild tool embeddings for re-enabled pack (background, non-fatal)
         import asyncio as _asyncio
@@ -310,6 +482,20 @@ async def enable_pack(pack_id: str):
                     logger.info(
                         "Tool RAG re-indexed after enable %s: %d tools", pack_id, n
                     )
+                    try:
+                        pack_activation_service.record_embedding_succeeded(
+                            pack_id=pack_id,
+                            manifest=pack_meta,
+                            manifest_path=Path(pack_meta["_file_path"])
+                            if pack_meta.get("_file_path")
+                            else None,
+                        )
+                    except Exception as _state_exc:
+                        logger.warning(
+                            "Failed to persist embedding success state for %s: %s",
+                            pack_id,
+                            _state_exc,
+                        )
                     # Invalidate process-level cache so next turn gets fresh results
                     try:
                         from backend.app.services.tool_rag import (
@@ -321,6 +507,21 @@ async def enable_pack(pack_id: str):
                         pass
                 except Exception as _exc:
                     logger.warning("Tool RAG re-indexing failed (non-fatal): %s", _exc)
+                    try:
+                        pack_activation_service.record_embedding_failed(
+                            pack_id=pack_id,
+                            manifest=pack_meta,
+                            error=str(_exc),
+                            manifest_path=Path(pack_meta["_file_path"])
+                            if pack_meta.get("_file_path")
+                            else None,
+                        )
+                    except Exception as _state_exc:
+                        logger.warning(
+                            "Failed to persist embedding failure state for %s: %s",
+                            pack_id,
+                            _state_exc,
+                        )
 
             _asyncio.create_task(_bg_reindex())
         except Exception as exc:
@@ -348,11 +549,14 @@ async def disable_pack(pack_id: str):
     """
     import anyio
     try:
-        updated = await anyio.to_thread.run_sync(installed_packs_store.set_enabled, pack_id, False)
+        updated = await anyio.to_thread.run_sync(
+            installed_packs_store.set_enabled, pack_id, False
+        )
         if not updated:
             raise HTTPException(
                 status_code=404, detail=f"Pack '{pack_id}' is not installed"
             )
+        await anyio.to_thread.run_sync(pack_activation_service.record_disabled, pack_id)
 
         # Remove tool embeddings for disabled pack (background, non-fatal)
         import asyncio as _asyncio
@@ -403,6 +607,18 @@ async def disable_pack(pack_id: str):
 def list_installed_packs():
     """List all installed pack IDs"""
     return installed_packs_store.list_installed_pack_ids()
+
+
+@router.get("/{pack_id}/activation", response_model=PackActivationStateResponse)
+def get_pack_activation_state(pack_id: str):
+    """Return persisted activation/install state for a pack."""
+    state = pack_activation_service.get_state(pack_id)
+    if state is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Activation state for pack '{pack_id}' not found",
+        )
+    return PackActivationStateResponse(**state)
 
 
 @router.get("/enabled", response_model=List[str])

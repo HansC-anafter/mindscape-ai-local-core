@@ -1,0 +1,10 @@
+code: playbook_indexing
+name: Playbook Indexing
+display_name: Playbook Indexing
+enabled_by_default: true
+version: 1.0.0
+description: Playbook indexing and search optimization.
+routes:
+  - backend.features.playbook_indexing.routes:router
+playbooks: []
+tools: []

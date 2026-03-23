@@ -1,0 +1,13 @@
+code: habits
+name: Habits & Daily Routines
+display_name: Habits & Daily Routines
+enabled_by_default: true
+version: 1.0.0
+description: Workspace habit suggestions and daily routine tracking.
+routes:
+  - backend.features.habits.routes:router
+playbooks:
+  - daily_planning
+  - habit_reflection
+tools:
+  - habit_storage

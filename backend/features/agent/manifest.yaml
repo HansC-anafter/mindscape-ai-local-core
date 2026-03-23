@@ -1,0 +1,10 @@
+code: agent
+name: Agent Execution
+display_name: Agent Execution
+enabled_by_default: true
+version: 1.0.0
+description: AI agent execution functionality for running different agent types.
+routes:
+  - backend.features.agent.routes:router
+playbooks: []
+tools: []

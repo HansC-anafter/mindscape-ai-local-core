@@ -29,7 +29,7 @@ from .execution_schemas import (
     ResumeExecutionRequest,
 )
 
-from .execution_shared import playbook_executor, playbook_runner
+from .execution_shared import playbook_executor, playbook_runner, playbook_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbook-execution"])
@@ -139,6 +139,25 @@ async def start_playbook_execution(
                 else "playbook"
             )
         )
+        final_remote_request_payload = (
+            request.remote_request_payload
+            if request and isinstance(request.remote_request_payload, dict)
+            else (
+                inputs.get("remote_request_payload")
+                if isinstance(inputs, dict)
+                and isinstance(inputs.get("remote_request_payload"), dict)
+                else None
+            )
+        )
+        final_remote_capability_code = (
+            request.remote_capability_code
+            if request and request.remote_capability_code
+            else (
+                inputs.get("remote_capability_code")
+                if isinstance(inputs, dict) and inputs.get("remote_capability_code")
+                else None
+            )
+        )
 
         # Auto-assign variant if not explicitly provided
         if not final_variant_id:
@@ -148,7 +167,7 @@ async def start_playbook_execution(
                 final_variant_id = assign_variant(
                     playbook_code=playbook_code,
                     variant_id=final_variant_id,
-                    registry=playbook_runner.playbook_service.registry,
+                    registry=playbook_service.registry,
                     workspace_id=workspace_id,
                     target_language=final_target_language,
                 )
@@ -180,25 +199,6 @@ async def start_playbook_execution(
         )
         final_project_id = project_id or (inputs.get("project_id") if inputs else None)
 
-        # If no project_id provided, use workspace.primary_project_id as fallback
-        if not final_project_id and final_workspace_id:
-            try:
-                from ...services.mindscape_store import MindscapeStore
-
-                store = MindscapeStore()
-                workspace = await store.get_workspace(final_workspace_id)
-                if (
-                    workspace
-                    and hasattr(workspace, "primary_project_id")
-                    and workspace.primary_project_id
-                ):
-                    final_project_id = workspace.primary_project_id
-                    logger.info(
-                        f"Using workspace.primary_project_id={final_project_id} for playbook {playbook_code}"
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to get workspace.primary_project_id: {e}")
-
         # Pool-aware backend selection
         final_execution_backend, pool_acquired_backend = resolve_and_acquire_backend(
             final_execution_backend
@@ -217,6 +217,8 @@ async def start_playbook_execution(
                     execution_id=request.execution_id if request else None,
                     trace_id=request.trace_id if request else None,
                     remote_job_type=final_remote_job_type,
+                    remote_request_payload=final_remote_request_payload,
+                    capability_code=final_remote_capability_code,
                 )
             finally:
                 release_backend(pool_acquired_backend)
@@ -252,7 +254,7 @@ async def start_playbook_execution(
                 f"Failed to update user_meta for playbook {playbook_code}: {e}"
             )
 
-        playbook_run = await playbook_executor.playbook_service.load_playbook_run(
+        playbook_run = await playbook_service.load_playbook_run(
             playbook_code=playbook_code,
             locale="zh-TW",
             workspace_id=final_workspace_id,
@@ -290,10 +292,15 @@ async def start_playbook_execution(
 
                 from backend.app.services.stores.tasks_store import TasksStore
                 from backend.app.services.mindscape_store import MindscapeStore
-                from backend.app.models.workspace import Task, TaskStatus
+                from backend.app.models.workspace import (
+                    PlaybookExecution,
+                    Task,
+                    TaskStatus,
+                )
 
                 store = MindscapeStore()
                 tasks_store = TasksStore()
+                executions_store = store.playbook_executions
 
                 # Calculate total_steps from playbook for frontend progress display
                 total_steps = (
@@ -307,6 +314,36 @@ async def start_playbook_execution(
                     else playbook_code
                 )
 
+                if executions_store and final_workspace_id:
+                    await asyncio.to_thread(
+                        executions_store.create_execution,
+                        PlaybookExecution(
+                            id=execution_id,
+                            workspace_id=final_workspace_id,
+                            playbook_code=playbook_code,
+                            thread_id=(
+                                normalized_inputs.get("thread_id")
+                                if isinstance(normalized_inputs, dict)
+                                else None
+                            ),
+                            intent_instance_id=None,
+                            status="running",
+                            phase="queue",
+                            last_checkpoint=None,
+                            progress_log_path=None,
+                            feature_list_path=None,
+                            metadata={
+                                "execution_mode": "runner",
+                                "execution_backend_hint": final_execution_backend,
+                                "playbook_name": playbook_name,
+                                "queue_shard": runner_metadata.get("queue_shard")
+                                or "default",
+                            },
+                            created_at=_utc_now(),
+                            updated_at=_utc_now(),
+                        ),
+                    )
+
                 await asyncio.to_thread(
                     tasks_store.create_task,
                     Task(
@@ -318,6 +355,7 @@ async def start_playbook_execution(
                         pack_id=playbook_code,
                         task_type="playbook_execution",
                         status=TaskStatus.PENDING,
+                        queue_shard=runner_metadata.get("queue_shard") or "default",
                         execution_context={
                             "playbook_code": playbook_code,
                             "playbook_name": playbook_name,
@@ -338,13 +376,14 @@ async def start_playbook_execution(
                     ),
                 )
 
-                # Invoke on_queue lifecycle hook (if declared in playbook spec)
+                # on_queue hooks are non-critical. Schedule them after enqueue
+                # so queue callers do not wait on extra synchronous work.
                 lifecycle_hooks_config = runner_metadata.get("lifecycle_hooks")
                 if isinstance(lifecycle_hooks_config, dict):
                     on_queue = lifecycle_hooks_config.get("on_queue")
                     if on_queue and isinstance(on_queue, dict):
-                        try:
-                            await async_invoke_lifecycle_hook(
+                        asyncio.create_task(
+                            async_invoke_lifecycle_hook(
                                 hook_name="on_queue",
                                 hook_spec=on_queue,
                                 normalized_inputs=normalized_inputs,
@@ -354,8 +393,7 @@ async def start_playbook_execution(
                                     "playbook_code": playbook_code,
                                 },
                             )
-                        except Exception as e:
-                            logger.warning(f"on_queue hook failed (non-fatal): {e}")
+                        )
 
                 return {
                     "execution_mode": "workflow",
@@ -804,6 +842,36 @@ async def cancel_playbook_execution(
             completed_at=_utc_now(),
             error=ctx["error"],
         )
+
+        try:
+            from backend.app.services.playbook_runner import _build_run_state_changed_event
+
+            cancel_inputs = (
+                task.params if isinstance(task.params, dict) else {}
+            ) or (
+                ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {}
+            )
+            previous_state = (
+                getattr(task.status, "value", task.status) or "running"
+            )
+            cancelled_event = _build_run_state_changed_event(
+                profile_id=task.profile_id,
+                project_id=task.project_id,
+                workspace_id=task.workspace_id,
+                execution_id=execution_id,
+                previous_state=str(previous_state).upper(),
+                new_state="CANCELLED",
+                reason="execution_cancelled",
+                playbook_code=task.pack_id or "",
+                inputs=cancel_inputs,
+            )
+            playbook_runner.store.create_event(cancelled_event)
+        except Exception as emit_error:
+            logger.warning(
+                "Failed to emit CANCELLED RUN_STATE_CHANGED event for %s: %s",
+                execution_id,
+                emit_error,
+            )
 
         return {"status": "cancelled", "execution_id": execution_id}
     except HTTPException:

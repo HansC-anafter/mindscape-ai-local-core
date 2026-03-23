@@ -26,8 +26,8 @@ from fastapi import (
     UploadFile,
 )
 from pydantic import BaseModel, Field
-from typing import Dict, Any
 
+from app.services.pack_activation_service import PackActivationService
 from app.services.stores.installed_packs_store import InstalledPacksStore
 from app.services.restart_webhook import get_restart_webhook_service
 
@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/capability-packs", tags=["Capability Packs"])
 
 installed_packs_store = InstalledPacksStore()
+pack_activation_service = PackActivationService()
+_configured_temp_dir: Optional[Path] = None
 
 
 def _utc_now():
@@ -62,6 +64,54 @@ def _ensure_sys_path():
     backend_dir = str(Path(__file__).resolve().parent.parent.parent)
     if backend_dir not in sys.path:
         sys.path.insert(0, backend_dir)
+
+
+def _resolve_runtime_temp_dir() -> Path:
+    """Pick a writable temp dir even when system temp paths are unavailable."""
+    global _configured_temp_dir
+    if _configured_temp_dir is not None:
+        return _configured_temp_dir
+
+    local_core_root = _resolve_local_core_root()
+    candidates = [
+        Path(os.getenv("MINDSCAPE_RUNTIME_TMPDIR", "")).expanduser()
+        if os.getenv("MINDSCAPE_RUNTIME_TMPDIR")
+        else None,
+        local_core_root / "backend" / ".tmp",
+        Path("/app/backend/.tmp"),
+        Path("/app/.tmp"),
+    ]
+
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe_path = candidate / ".tmp_write_probe"
+            probe_path.write_text("ok", encoding="utf-8")
+            probe_path.unlink()
+            resolved = candidate.resolve()
+            tempfile.tempdir = str(resolved)
+            os.environ["TMPDIR"] = str(resolved)
+            os.environ["TEMP"] = str(resolved)
+            os.environ["TMP"] = str(resolved)
+            _configured_temp_dir = resolved
+            logger.info("Configured capability install temp dir: %s", resolved)
+            return resolved
+        except Exception as exc:
+            logger.warning(
+                "Temp dir candidate unusable for capability install: %s (%s)",
+                candidate,
+                exc,
+            )
+
+    raise RuntimeError("No writable temp directory available for capability install")
+
+
+try:
+    _resolve_runtime_temp_dir()
+except Exception as exc:
+    logger.warning("Failed to preconfigure capability install temp dir: %s", exc)
 
 
 def _supports_file_touch_reload() -> bool:
@@ -99,6 +149,7 @@ class InstallPipelineResult:
     hot_reload_result: Any = None
     webhook_result: Any = None
     pack_metadata: Dict[str, Any] = field(default_factory=dict)
+    activation: Optional[Dict[str, Any]] = None
 
 
 async def run_install_pipeline(
@@ -276,6 +327,7 @@ async def run_install_pipeline(
 
         # 4. Reload capability registry
         hot_reload_performed = False
+        activation_error: Optional[str] = None
         try:
             from app.services.capability_registry import get_registry, load_capabilities
             from app.services.capability_reload_manager import (
@@ -302,8 +354,9 @@ async def run_install_pipeline(
                 load_capabilities(reset=True)
                 logger.info(f"Reloaded capability registry for {capability_code}")
         except Exception as exc:
+            activation_error = f"Failed to reload capability registry/routes: {exc}"
             logger.warning(f"Failed to reload capability registry/routes: {exc}")
-            result.add_warning(f"Failed to reload capability registry/routes: {exc}")
+            result.add_warning(activation_error)
             try:
                 from app.services.capability_registry import load_capabilities
 
@@ -377,6 +430,24 @@ async def run_install_pipeline(
             )
         except Exception as exc:
             logger.warning(f"Failed to register pack in database: {exc}")
+            result.add_warning(f"Failed to register pack in database: {exc}")
+
+        try:
+            pipeline.activation = pack_activation_service.record_install_outcome(
+                pack_id=capability_code,
+                manifest=manifest,
+                install_result=result,
+                enabled=True,
+                hot_reload_performed=hot_reload_performed,
+                restart_required=pipeline.restart_required,
+                manifest_path=installed_manifest_path
+                if installed_manifest_path.exists()
+                else None,
+                activation_error=activation_error,
+            )
+        except Exception as exc:
+            logger.warning("Failed to persist pack activation state: %s", exc)
+            result.add_warning(f"Failed to persist pack activation state: {exc}")
 
         # Step 6.5 — re-index tool embeddings in background (non-fatal, non-blocking)
         import asyncio as _asyncio
@@ -392,6 +463,20 @@ async def run_install_pipeline(
                     if n <= 0:
                         n = await _TES().index_all_tools()
                     logger.info("Tool RAG re-indexed after install: %d tools", n)
+                    try:
+                        pack_activation_service.record_embedding_succeeded(
+                            pack_id=capability_code,
+                            manifest=manifest,
+                            manifest_path=installed_manifest_path
+                            if installed_manifest_path.exists()
+                            else None,
+                        )
+                    except Exception as _state_exc:
+                        logger.warning(
+                            "Failed to persist embedding success state for %s: %s",
+                            capability_code,
+                            _state_exc,
+                        )
                     # Invalidate process-level cache so next turn gets fresh results
                     try:
                         from backend.app.services.tool_rag import (
@@ -403,6 +488,21 @@ async def run_install_pipeline(
                         pass
                 except Exception as _exc:
                     logger.warning("Tool RAG indexing failed (non-fatal): %s", _exc)
+                    try:
+                        pack_activation_service.record_embedding_failed(
+                            pack_id=capability_code,
+                            manifest=manifest,
+                            error=str(_exc),
+                            manifest_path=installed_manifest_path
+                            if installed_manifest_path.exists()
+                            else None,
+                        )
+                    except Exception as _state_exc:
+                        logger.warning(
+                            "Failed to persist embedding failure state for %s: %s",
+                            capability_code,
+                            _state_exc,
+                        )
 
             _asyncio.create_task(_bg_reindex())
         except Exception as exc:
@@ -490,8 +590,11 @@ async def install_from_file(
     if not file.filename.endswith(".mindpack"):
         raise HTTPException(status_code=400, detail="File must be a .mindpack file")
 
-    # Save upload to temp file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mindpack") as tmp:
+    # Save upload to a known-writable temp file instead of relying on /tmp.
+    temp_dir = _resolve_runtime_temp_dir()
+    with tempfile.NamedTemporaryFile(
+        delete=False, suffix=".mindpack", dir=temp_dir
+    ) as tmp:
         content = await file.read()
         tmp.write(content)
         tmp_path = Path(tmp.name)
@@ -512,6 +615,7 @@ async def install_from_file(
             "version": result.version,
             "message": f"Successfully installed {result.capability_code} v{result.version}",
             "warnings": result.warnings,
+            "activation": result.activation,
             "restart_required": result.restart_required,
             "restart_triggered": result.restart_triggered,
             "hot_reload": result.hot_reload_result,
@@ -627,6 +731,7 @@ async def install_from_cloud(
                 "version": result.pack_metadata.get("version", "1.0.0"),
                 "message": f"Successfully installed {result.capability_code} from {request.provider_id}",
                 "warnings": result.warnings,
+                "activation": result.activation,
                 "provider_id": request.provider_id,
                 "pack_ref": request.pack_ref,
                 "restart_required": result.restart_required,

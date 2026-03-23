@@ -1,0 +1,10 @@
+code: external_docs
+name: External Docs Sync
+display_name: External Docs Sync
+enabled_by_default: true
+version: 1.0.0
+description: External documents synchronization for connected content systems.
+routes:
+  - backend.features.external_docs.routes:router
+playbooks: []
+tools: []

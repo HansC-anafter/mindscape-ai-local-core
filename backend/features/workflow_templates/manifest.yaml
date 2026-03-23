@@ -1,0 +1,10 @@
+code: workflow_templates
+name: Workflow Templates
+display_name: Workflow Templates
+enabled_by_default: true
+version: 1.0.0
+description: Workflow templates and user-defined workflow management.
+routes:
+  - backend.features.workflow_templates.routes:router
+playbooks: []
+tools: []

@@ -45,6 +45,20 @@ def get_cloud_connector():
         return None
 
 
+def get_or_create_cloud_connector():
+    """Resolve a CloudConnector, falling back to a best-effort ephemeral instance."""
+    connector = get_cloud_connector()
+    if connector is not None:
+        return connector
+
+    try:
+        from backend.app.services.cloud_connector.connector import CloudConnector
+
+        return CloudConnector()
+    except Exception:
+        return None
+
+
 def get_execution_pool():
     """Retrieve ExecutionPoolDispatcher from global app state.
 
@@ -69,6 +83,8 @@ async def dispatch_remote_execution(
     execution_id: Optional[str] = None,
     trace_id: Optional[str] = None,
     remote_job_type: str = "playbook",
+    remote_request_payload: Optional[Dict[str, Any]] = None,
+    capability_code: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Dispatch execution to cloud control plane via CloudConnector.
 
@@ -99,9 +115,10 @@ async def dispatch_remote_execution(
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "Cloud Connector not available. "
-                    "Set CLOUD_CONNECTOR_ENABLED=true and "
-                    "configure CLOUD_API_URL."
+                    "Execution control connector not available. "
+                    "Set CLOUD_CONNECTOR_ENABLED=true and configure "
+                    "Runtime Environments config_url or "
+                    "EXECUTION_CONTROL_API_URL / SITE_HUB_API_URL / CLOUD_API_URL."
                 ),
             )
 
@@ -132,6 +149,13 @@ async def dispatch_remote_execution(
             normalized_inputs.setdefault("workspace_id", workspace_id)
         if project_id:
             normalized_inputs.setdefault("project_id", project_id)
+        cloud_request_payload = _build_remote_request_payload(
+            playbook_code=playbook_code,
+            profile_id=profile_id,
+            normalized_inputs=normalized_inputs,
+            remote_job_type=remote_job_type,
+            remote_request_payload=remote_request_payload,
+        )
 
         tasks_store, task = _ensure_remote_execution_shell(
             playbook_code=playbook_code,
@@ -147,11 +171,9 @@ async def dispatch_remote_execution(
         result = await connector.start_remote_execution(
             tenant_id=tenant_id,
             playbook_code=playbook_code,
-            request_payload={
-                "inputs": normalized_inputs,
-                "profile_id": profile_id,
-            },
+            request_payload=cloud_request_payload,
             workspace_id=workspace_id,
+            capability_code=capability_code,
             execution_id=execution_id,
             trace_id=trace_id,
             job_type=remote_job_type,
@@ -288,6 +310,37 @@ def _ensure_remote_execution_shell(
     )
     tasks_store.create_task(task)
     return tasks_store, task
+
+
+def _build_remote_request_payload(
+    *,
+    playbook_code: str,
+    profile_id: str,
+    normalized_inputs: Dict[str, Any],
+    remote_job_type: str,
+    remote_request_payload: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build a generic remote payload without embedding pack-specific logic."""
+    if not isinstance(remote_request_payload, dict):
+        return {
+            "inputs": normalized_inputs,
+            "profile_id": profile_id,
+        }
+
+    payload = dict(remote_request_payload)
+    nested_inputs = payload.get("inputs")
+    if not isinstance(nested_inputs, dict):
+        nested_inputs = {}
+    merged_inputs = dict(nested_inputs)
+    for key, value in normalized_inputs.items():
+        merged_inputs.setdefault(key, value)
+    payload["inputs"] = merged_inputs
+
+    if remote_job_type == "playbook":
+        payload.setdefault("playbook_code", playbook_code)
+        payload.setdefault("profile_id", profile_id)
+
+    return payload
 
 
 def resolve_and_acquire_backend(hint: str) -> Tuple[str, Optional[str]]:
