@@ -73,6 +73,7 @@ class WorkflowStepLoop:
         self,
         step: Any,
         execute_single_step_func,
+        playbook_json: Any,
         playbook_inputs: Dict[str, Any],
         step_outputs: Dict[str, Dict[str, Any]],
         playbook_input_defs: Dict[str, Any],
@@ -88,6 +89,7 @@ class WorkflowStepLoop:
         Args:
             step: PlaybookStep with for_each field
             execute_single_step_func: Function to execute single step iteration
+            playbook_json: Current playbook definition
             playbook_inputs: Playbook input values
             step_outputs: Completed step outputs
             playbook_input_defs: Playbook input definitions
@@ -121,6 +123,7 @@ class WorkflowStepLoop:
             try:
                 item_result = await execute_single_step_func(
                     step=step,
+                    playbook_json=playbook_json,
                     playbook_inputs=playbook_inputs,
                     step_outputs=temp_step_outputs,
                     playbook_input_defs=playbook_input_defs,
@@ -148,4 +151,3 @@ class WorkflowStepLoop:
             "count": len(loop_results),
             "success_count": sum(1 for r in loop_results if r.get("success", True))
         }
-
