@@ -26,7 +26,7 @@ Large language models are good at answering questions, but:
 - Real-world tasks (content pipelines, data processing, system operations) are:
   - **multi-step**
   - **stateful**
-  - often require **tools** and **APIs**, not just text.
+  - often require **tools**, **APIs**, and structured execution.
 
 The local core (`mindscape-ai-local-core`) solves this by introducing:
 
@@ -524,4 +524,3 @@ The cloud version's governance design follows these principles:
 This document focuses on the local-first implementation (`mindscape-ai-local-core`). For detailed cloud governance design, multi-tenant architecture, and specific implementation of permission systems, please open an issue or GitHub Discussion to talk about cloud governance architecture.
 
 For private deployments or partnership inquiries, you can also reach out via the project's listed contact channels.
-

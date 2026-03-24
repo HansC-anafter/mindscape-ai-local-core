@@ -137,7 +137,27 @@ A portable expert viewpoint module can move because the codebase already support
 
 ---
 
-## 5. How It Fits the Engine
+## 5. Plain-Language Runtime Example
+
+In practical terms, a portable expert viewpoint module separates responsibilities that are often mixed together in prompts:
+
+- **Intent** decides what the current run is trying to do.
+- **Skills / Tools** decide what capabilities are available to do it.
+- **Mind-Lens** decides what style of judgment and output should shape the work.
+- **Meeting Runtime** handles live clarification and convergence.
+- **Governed Memory Fabric** keeps the parts that should survive across runs.
+
+For example, if the task is to produce a publishable first draft for an outward-facing article:
+
+- `Intent` defines the goal: produce a clear first draft with a stable direction.
+- `Skills / Tools` gather references, compare source material, outline the piece, and generate candidate text.
+- `Mind-Lens` determines whether the work should read like a careful research editor, a disciplined brand operator, or a narrative director with stronger dramatic emphasis.
+- `Meeting Runtime` helps clarify what the article is really trying to say and where trade-offs need to be made.
+- `Governed Memory Fabric` turns the run into usable continuity: accepted standards are promoted, open tensions remain available for revisit, and stale or unsupported conclusions can later be revised or invalidated instead of silently fossilizing.
+
+---
+
+## 6. How It Fits the Engine
 
 Within Mindscape Engine, a portable expert viewpoint module plugs into the stack like this:
 
@@ -163,7 +183,7 @@ This means the module influences:
 
 ---
 
-## 6. Product Interpretation
+## 7. Product Interpretation
 
 From a product perspective, this unlocks a useful middle ground:
 
@@ -182,7 +202,7 @@ without collapsing those into a single assistant persona.
 
 ---
 
-## 7. Related Architecture
+## 8. Related Architecture
 
 - [Mind Lens](../core-architecture/mind-lens.md)
 - [Governed Memory Fabric](../core-architecture/governed-memory-fabric.md)

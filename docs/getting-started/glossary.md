@@ -26,8 +26,8 @@ This glossary defines the core terminology used in Mindscape AI. Understanding t
 
 | Language | Definition |
 |----------|------------|
-| **English** | A structured representation of "what you want to achieve" — more than a task or to-do item. Intents are versionable, traceable cards that anchor LLM conversations to your long-term goals. |
-| **中文** | 「你想達成什麼」的結構化表示 —— 不只是任務或待辦事項。Intent 是可版本化、可追蹤的卡片，把 LLM 對話錨定在你的長期目標上。 |
+| **English** | A structured representation of "what you want to achieve" that anchors LLM conversations to your long-term goals. Intents are versionable, traceable cards for directing meaningful work over time. |
+| **中文** | 「你想達成什麼」的結構化表示，會把 LLM 對話錨定在你的長期目標上。Intent 是可版本化、可追蹤的卡片，用來持續推進真正重要的工作。 |
 
 **Avoid using**: Task, To-do
 
@@ -70,6 +70,9 @@ This glossary defines the core terminology used in Mindscape AI. Understanding t
 1. **Global Preset** — Your baseline palette
 2. **Workspace Override** — Project-specific tuning
 3. **Session Override** — Temporary knobs for this task
+
+**Public framing**:
+- The same Mind-Lens contract is edited in **Mindscape Graph** (mind map mode) and applied in **Workspace execution** (runtime mode).
 
 ---
 

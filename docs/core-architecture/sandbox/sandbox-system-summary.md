@@ -4,9 +4,9 @@
 
 ### Key Principle
 
-> **Whenever "AI helps you modify something" (not just reading), it should go through the sandbox layer.**
+> **Whenever AI helps you modify something, it should go through the sandbox layer.**
 
-This is not just for three.js—it's a **unified abstraction for all AI write operations**.
+This is a **unified abstraction for all AI write operations**, including three.js.
 
 ## 🏗️ System Architecture
 
@@ -230,4 +230,3 @@ Select corresponding renderer based on `sandbox_type`:
 ---
 
 **Key Insight**: Sandbox is not a feature specific to a particular scenario, but a **unified abstraction layer for all AI write operations**. This design makes the entire system safer, more consistent, and easier to extend.
-

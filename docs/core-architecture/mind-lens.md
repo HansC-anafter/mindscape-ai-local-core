@@ -28,6 +28,8 @@ It defines how work should be interpreted, what kinds of trade-offs should be pr
 2. **Workspace Override**
 3. **Session Override**
 
+The same lens contract is used in both **Mindscape Graph** (mind map mode) and **Workspace execution** (runtime mode). What changes between them is not the contract itself, but which scope is being edited.
+
 This is reflected directly in the effective lens resolver, which merges a global preset with workspace and session overrides to produce the runtime lens used during execution.
 
 Mind-Lens is also one of the structural pieces behind **shareable expert viewpoints and working methods**:
@@ -378,7 +380,6 @@ The `mind_lens` field contains resolved lens values that influence how tasks are
 ---
 
 **Last updated**: 2025-12-22
-
 
 
 

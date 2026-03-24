@@ -197,7 +197,7 @@ When `workspace_id` is provided, results are filtered against explicit `TOOL` re
 
 ## Related Documents
 
-- [Memory & Intent Architecture](./memory-intent-architecture.md)
+- [Governed Memory Fabric](./governed-memory-fabric.md)
 - [Prompt Compilation](./prompt-compilation.md)
 - [Capability Pack Development Guide](../capability-pack-development-guide.md)
 - [Runtime Environments](./runtime-environments.md)

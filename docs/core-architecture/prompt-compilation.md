@@ -372,6 +372,6 @@ print(context.semantic_prompt)  # This is sent to LLM
 
 - [Mind-Lens Architecture](./mind-lens.md)
 - [Lens Composition](./lens-composition.md)
-- [Memory & Intent Architecture](./memory-intent-architecture.md)
+- [Governed Memory Fabric](./governed-memory-fabric.md)
 - [Execution Context](./execution-context.md)
 - [Glossary](../getting-started/glossary.md)

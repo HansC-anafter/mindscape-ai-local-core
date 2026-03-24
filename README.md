@@ -34,7 +34,7 @@ Mind-Lens works as a **three-layer palette**:
 2. **Workspace Override** — project-specific tuning (same person, different context)
 3. **Session Override** — temporary knobs for this task (resets after the conversation)
 
-Both the **Mindscape Graph** (author mode) and **Workspace execution** (runtime mode) operate on the same Lens contract — they just edit different scopes of the same palette.
+Both the **Mindscape Graph** (mind map mode) and **Workspace execution** (runtime mode) operate on the same Lens contract — they just edit different scopes of the same palette.
 
 ---
 
@@ -46,13 +46,11 @@ Mindscape AI is a local-first engine that compiles governance context, runs live
 
 The core pieces are:
 
-- **Governance Context** — `Intent`, `Mind-Lens`, and `Policy` define why work matters, how trade-offs are made, and what boundaries cannot be crossed.
+- **Governance Context** — `Intent`, `Mind-Lens`, and `Policy` define why work matters, how trade-offs are made, and what boundaries cannot be crossed; when needed, `Mind-Model VC` tracks how those governance clues change over time.
 - **Meeting Runtime** — Mindscape Meeting handles live deliberation, clarification, convergence, dispatch, and loop closure.
 - **Governed Memory Fabric** — evidence, episodic compression, durable memory, invalidation, and serving preserve continuity across runs.
 - **Optional Actuation** — `Project / Flow / Playbook / Tools / Sandbox` or external runtimes turn cognition into execution when needed.
 - **Reviewable Outputs** — execution traces, artifacts, decisions, and writebacks keep the system inspectable and correctable over time.
-
-`Mind-Model VC` remains part of the system, but as a versioning dimension inside governance context rather than the primary name for the engine.
 
 This repo packages these pieces into a local engine that can either plug into your existing agent stack or power an end-to-end local workspace.
 
@@ -182,6 +180,21 @@ In practice, that module is built from a governed combination of:
 - **Portability layer**: portable export (including AI roles and playbooks) plus lens preset package / install let these configurations move across profiles, workspaces, or local instances.
 
 This lets Mindscape package an expert's **distinctive viewpoint and working method** as a reusable module.
+
+In plain language, this kind of module is not only about whether AI can do a task. It separates a few different questions:
+
+- **Intent** decides what this run is trying to accomplish, such as reviewing a batch of brand copy, structuring a research brief, or advancing a role arc.
+- **Skills / Tools** decide which capabilities are available to do the work, such as search, comparison, drafting, or structured output.
+- **Mind-Lens** decides what viewpoint, style, and trade-off logic should shape the work.
+- **Meeting Runtime** clarifies the live problem, surfaces options, and converges the next decision.
+- **Governed Memory Fabric** writes back the judgments, preferences, evidence standards, and unresolved tensions that should persist over time.
+
+For example, imagine the task is producing an outward-facing piece of content:
+
+- `Intent` may be "turn this brand position into a publishable first draft."
+- `Skills / Tools` may gather source material, organize the outline, compare versions, and draft the piece.
+- `Mind-Lens` determines whether the result should feel more like a disciplined research editor or a sharply consistent brand lead.
+- `Memory` turns this run's judgments, evidence, trade-offs, and unresolved tensions into long-term continuity that the next run can immediately build on; standards that should persist are routed back into context, while stale or unsupported conclusions can be downgraded, revised, or invalidated.
 
 Product and application examples include:
 
@@ -370,7 +383,7 @@ Unlike typical AI automation tools that focus on "execution", Mindscape AI provi
 
 This means you can always answer:
 - **"Why did AI say this?"** → Trace back to Intent + Lens + compiled prompt
-- **"Can we go back to last week's version?"** → Rollback at segment level, not just file level
+- **"Can we go back to last week's version?"** → Rollback at both segment and file level
 - **"What changed?"** → Diff Intent v1.1 vs v1.2, Lens A vs Lens B
 
 See [Governance Decision & Risk Control Layer](./docs/core-architecture/governance-decision-risk-control-layer.md) for implementation details.

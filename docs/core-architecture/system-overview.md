@@ -1,6 +1,6 @@
-# System Overview: AI-Driven Visible Thinking Workflow
+# System Overview: Mindscape Engine
 
-This document provides a complete system overview, showing how all architectural layers work together to deliver the **AI-driven visible thinking workflow** described in the main README.
+This document provides a complete system overview, showing how the current public architecture of Mindscape Engine fits together: governance context, live deliberation, governed memory, and optional actuation.
 
 ## The Complete Flow: From User to Artifact
 
@@ -13,7 +13,7 @@ Conversation Orchestrator (+ IdentityPort → ExecutionContext)
     ↓
 Signal / Event Plane (MindEvent + SurfaceEvent)
     ↓
-Intent Governance + Mind-Model VC
+Governance Context (Intent + Lens + Policy + Mind-Model VC)
     ↓
 Governance Context Compilation (Task / Policy / Lens / Assets-Memory)
     ↓
@@ -21,31 +21,32 @@ Mind Meeting Runtime (deliberation, convergence, dispatch, closure)
     ↕
 Governed Memory Fabric (episodic / interface / core / procedural / serving)
     ↓
-Project Detector + Project / Flow
+Optional Project Detector + Project / Flow
     ↓
-Playbook Runner + Tools
+Optional Playbook Runner + Tools
     ↓
 Sandbox / External Runtimes (project file world)
     ↓
 Artifacts, Decisions, and Writebacks
 ```
 
-## AI-Driven Visible Thinking Workflow
+## Mindscape Engine Flow
 
-The **AI-driven visible thinking workflow** can be expressed as:
+The current public engine flow can be expressed as:
 
-> **Signal → Intent Governance → Meeting Runtime ↔ Governed Memory Fabric → Project/Flow → Playbooks / Tools → Sandbox → Artifacts & Decisions**
+> **Governance Context → Meeting Runtime ↔ Governed Memory Fabric → Optional Actuation / External Runtimes → Artifacts, Decisions, and Writebacks**
 
-At the center of the workflow is a cognitive core:
+The cognitive core is:
 
 - **Mind Meeting Runtime**: handles live thinking, clarification, convergence, dispatch, and loop closure
 - **Governed Memory Fabric**: handles long-term continuity, evidence, episodic compression, durable memory, and serving
 
-This cognitive core operates under a governance context:
+It operates under a governance context:
 
 - **Intent**: what matters and why
 - **Lens**: how to interpret and make trade-offs
 - **Policy**: what cannot be violated
+- **Mind-Model VC**: optional change tracking for governance clues when intent, lens, and related context need versioned evolution over time
 
 ### Layer-by-Layer Breakdown
 
@@ -74,7 +75,7 @@ This cognitive core operates under a governance context:
 #### 3. Signal / Event Plane
 - All user actions and system events become `MindEvent` objects
 - Events are stored in SQLite (`events` table)
-- Events feed into intent governance, meeting runtime, and memory write boundaries
+- Events feed into governance context compilation, meeting runtime, and memory write boundaries
 - Timeline visualization shows event history
 
 #### 4. Governance Context
@@ -113,6 +114,7 @@ This cognitive core operates under a governance context:
 
 #### 8. Mind Lens & Lens Composition
 - **Mind Lens**: Perspective/viewpoint system - how to see, where to focus attention, how to make trade-offs
+- **Shared Contract**: The same lens contract is edited in **Mindscape Graph** (mind map mode) and applied in **Workspace execution** (runtime mode)
 - **Lens Composition**: Multi-lens combination recipes for complex scenarios
 - **Fusion Strategies**: Priority, weighted, or priority-then-weighted fusion
 - **Execution Context Integration**: Lens values influence how tasks are interpreted
@@ -234,11 +236,11 @@ Project: "OpenSEO MVP"
           └─ feature_sections.html
 ```
 
-## Mapping: README Slogan to Architecture
+## Mapping: README Concepts to Architecture
 
 | README Concept | Architecture Component | Documentation |
 |---------------|------------------------|---------------|
-| **AI-driven visible thinking workflow** | Signal → Intent Governance → Meeting Runtime ↔ Governed Memory Fabric → Actuation | This document |
+| **Mindscape Engine** | Governance Context → Meeting Runtime ↔ Governed Memory Fabric → Optional Actuation | This document |
 | **Surface & Command Bus** | SurfaceDefinition + CommandBus + EventStream | [Surface & Command Bus Architecture](./surface-command-bus.md) |
 | **Mind Lens** | MindLensInstance + MindLensSchema + RuntimeMindLens | [Mind Lens Architecture](./mind-lens.md) |
 | **Lens Composition** | LensComposition + FusionService | [Lens Composition Architecture](./lens-composition.md) |

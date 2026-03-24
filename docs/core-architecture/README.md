@@ -1,14 +1,22 @@
 # Architecture Documentation
 
-This directory contains the complete architecture documentation for Mindscape AI, including system architecture, core concepts, and architecture status.
+This directory contains the complete architecture documentation for Mindscape AI, including system architecture, core concepts, and current public framing.
 
 ## Start Here
 
-**New to the architecture?** Read [System Overview](./system-overview.md) first to understand how all layers work together to deliver the **AI-driven visible thinking workflow** described in the main README.
+**New to the architecture?** Read [System Overview](./system-overview.md) first to understand how Mindscape Engine fits together: governance context, meeting runtime, governed memory, and optional actuation.
 
 ## Current Architecture Status
 
-**Project + Flow + Sandbox Architecture (v2.0)** - Fully implemented and in production.
+**Mindscape Engine + Optional Local Actuation** is the current public architecture framing.
+
+- **Governance Context**: Intent + Lens + Policy define the agent core and execution boundaries
+- **Meeting Runtime**: Live reasoning, clarification, convergence, dispatch, and closure
+- **Governed Memory Fabric**: Long-term continuity, evidence, episodic consolidation, durable memory, and serving
+- **External Runtime Adapters**: Framework-aware integration for local or third-party execution environments
+- **Optional Local Actuation**: Project / Flow / Playbook / Sandbox when end-to-end local execution is needed
+
+**Implemented execution infrastructure**:
 
 - **Project Management**: Complete lifecycle management (create, update, close, archive)
 - **Project Detection**: Automatic project suggestion from conversations
@@ -16,17 +24,8 @@ This directory contains the complete architecture documentation for Mindscape AI
 - **Project Sandbox**: Workspace-isolated file space for each project
 - **Artifact Registry**: Automatic artifact tracking and registration
 - **Memory Surfaces**: Workspace core, project, and member profile memories remain active as public memory surfaces
-- **Meeting Runtime + Governed Memory Fabric**: Current architecture direction for long-term continuity, episodic consolidation, and governed writeback
 - **Flow Checkpointing**: Resume execution from any node
 - **API Endpoints**: Full REST API for projects and flows
-
-**Core System Architecture**:
-
-- **Port/Adapter Pattern**: Clean separation between core and adapters
-- **Execution Context**: Context abstraction flowing through the system
-- **Governance Context**: Intent + Lens + Policy define the agent core and execution boundaries
-- **Meeting Runtime + Governed Memory Fabric**: The cognitive core for live reasoning and long-term continuity
-- **Playbook System**: Multi-step workflow execution
 
 ### Architecture Components
 
@@ -56,8 +55,8 @@ This directory contains the complete architecture documentation for Mindscape AI
 
 ### System Overview
 
-#### [System Overview: AI-Driven Visible Thinking Workflow](./system-overview.md)
-Complete flow from user to artifact, showing how all architectural layers work together. Maps the README's "AI-driven visible thinking workflow" concept to actual system components.
+#### [System Overview: Mindscape Engine](./system-overview.md)
+Complete flow from governance context to runtime, memory, and optional actuation. Maps the README's public engine framing to actual system components.
 
 ### Core System Architecture
 
@@ -326,7 +325,7 @@ SandboxManager (system-level)
 
 The main README describes two key concepts:
 
-1. **AI-driven visible thinking workflow** = Signal → Intent Governance → Project/Flow → Playbooks → Sandbox → Memory
+1. **Mindscape Engine** = Governance Context → Meeting Runtime ↔ Governed Memory Fabric → Optional Actuation
    - See [System Overview](./system-overview.md) for the complete flow
 
 2. **Project / Playbook flow** = Project → Intents → Playbooks → AI Team Execution → Artifacts

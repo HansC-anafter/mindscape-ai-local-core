@@ -216,7 +216,7 @@ voice:
 
 constraints:
   - Use past tense for recounting events
-  - Include emotional context, not just facts
+  - Include emotional context alongside factual detail
   - Connect events to personal growth themes
 
 preferences:

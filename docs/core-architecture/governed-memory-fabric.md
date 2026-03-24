@@ -9,7 +9,7 @@
 
 ## Overview
 
-Mindscape does not treat memory as "a better retrieval database for chat history".
+Mindscape treats memory as part of long-term continuity and agent cognition.
 
 The current architecture direction is:
 
@@ -22,7 +22,7 @@ Where:
 - **Governed Memory Fabric** = long-term continuity, evidence, promotion, invalidation, and serving
 - **Actuation Layer** = Project / Flow + Playbooks / Tools + Sandbox / external runtimes
 
-This is why memory in Mindscape is not just a retrieval feature. It is part of the agent core.
+This is why memory in Mindscape is part of the agent core.
 
 ---
 
@@ -103,7 +103,7 @@ Its responsibilities include:
 - revising or invalidating outdated memory
 - serving the right memory packet back into execution
 
-It is not just "storage". It is a governed memory operating model.
+It operates as a governed memory model for continuity, revision, and serving.
 
 ## 4. Actuation Layer
 
@@ -232,8 +232,8 @@ The current direction is not to throw these away. It is to converge them into a 
 
 ## Design Principles
 
-1. **Memory is governed state, not just searchable text**
-2. **Embeddings are projections, not canonical truth**
+1. **Memory is governed state with searchable projections**
+2. **Embeddings are projections; canonical memory remains explicit**
 3. **Evidence comes before promotion**
 4. **Write boundaries must be explicit**
 5. **Memory must support revision, supersession, and invalidation**
