@@ -1,8 +1,8 @@
 # Governance Decision & Risk Control Layer
 
-> This document describes the **Governance Decision & Risk Control Layer** architecture in Mindscape AI, which sits between the Intent Governance Layer and the Playbook Execution Layer, providing multi-layered governance checks and risk control before and during playbook execution.
+> This document describes the **Governance Decision & Risk Control Layer** architecture in Mindscape AI. In the current public architecture, this layer sits between the **Governance Context / Meeting Runtime** and the **Actuation Layer**, providing multi-layered governance checks and risk control before and during playbook execution.
 
-**Last Updated**: 2025-12-19
+**Last Updated**: 2026-03-25
 **Status**: Architecture Design Document
 **Version**: v1.0
 
@@ -44,8 +44,8 @@ The **Governance Decision & Risk Control Layer** is a critical architectural lay
 
 ```
 ┌─────────────────────────────────────────┐
-│     Intent Governance Layer              │
-│  (IntentCard, IntentCluster)            │
+│  Governance Context / Meeting Runtime   │
+│  (Intent, Lens, Policy, meeting state)  │
 └──────────────┬──────────────────────────┘
                │
                ▼
@@ -62,15 +62,15 @@ The **Governance Decision & Risk Control Layer** is a critical architectural lay
                │
                ▼
 ┌─────────────────────────────────────────┐
-│     Playbook Execution Layer             │
-│  (PlaybookRunner, Sandbox)               │
+│           Actuation Layer                │
+│  (PlaybookRunner, Tools, Sandbox)        │
 └─────────────────────────────────────────┘
 ```
 
 ### Integration Points
 
-- **Upstream**: Intent Governance Layer (receives execution requests)
-- **Downstream**: Playbook Execution Layer (controls execution permission)
+- **Upstream**: Governance Context / Meeting Runtime (receives execution requests and execution intent)
+- **Downstream**: Actuation Layer (controls execution permission before playbook/tool execution)
 - **Lateral**: Event System (publishes governance events), Execution Coordinator (orchestrates checks)
 
 ---
@@ -388,7 +388,7 @@ class GovernanceModeSettings(BaseModel):
 ### Architecture Documents
 
 - [System Overview](./system-overview.md) - Complete system architecture
-- [Memory & Intent Architecture](./memory-intent-architecture.md) - Intent Governance Layer
+- [Governed Memory Fabric](./governed-memory-fabric.md) - Current public memory architecture
 - [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md) - Playbook execution layer
 
 ---

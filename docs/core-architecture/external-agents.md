@@ -1,12 +1,12 @@
 # External Runtimes Architecture (Executor Integration)
 
-> **Version**: 1.2 (AgentSpec / Agent OS alignment)
-> **Last Updated**: 2026-02-23
+> **Version**: 1.3 (AgentSpec / Agent OS alignment)
+> **Last Updated**: 2026-03-25
 > **Status**: Phase 1 Implementation
 
 This document describes the pluggable architecture for integrating external executor runtimes within Mindscape's Agent OS (governance + execution contract layer).
 
-> **Terminology**: In Mindscape, *agent identity* is defined by AgentSpec (Intent + Lens + Memory + Actuator). External integrations (Gemini CLI, OpenClaw, LangGraph, etc.) are **executor runtimes** — they provide execution environments, not the agent identity.
+> **Terminology**: In Mindscape, the *agent core* is defined by **Governance Context** `(Intent + Mind-Lens + Policy)` together with the **Governed Memory Fabric**. `AgentSpec = Agent Core + Actuator`. External integrations (Gemini CLI, OpenClaw, LangGraph, etc.) are **executor runtimes** — they provide execution environments, not the agent core.
 
 ---
 
@@ -303,4 +303,3 @@ These tools are blocked for **all** agents:
 
 - [Asset Provenance Architecture](./asset-provenance.md)
 - [Governance Decision & Risk Control Layer](./governance-decision-risk-control-layer.md)
-

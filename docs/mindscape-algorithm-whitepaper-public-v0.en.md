@@ -1,11 +1,13 @@
 # Mindscape Algorithm Technical Whitepaper
 
-**Version**: v0.9 (Draft)
+**Version**: v0.9 (Public Snapshot Draft)
 **Date**: 2025-12-05
 **Maintainer**: Mindscape AI Development Team
-**Status**: Technical Whitepaper (Public Edition)
+**Status**: Technical Whitepaper (Public Edition, Historical Snapshot)
 
 > **Note**: This document is a technical whitepaper on the Mindscape Algorithm, intended for developers, researchers, and partners who wish to understand the architectural design philosophy of Mindscape AI. Some theoretical alignments (e.g., Active Inference, variational inference mechanisms) are currently design inspirations and future research directions, and have not been fully implemented at the code level.
+>
+> **Current public architecture note (2026-03-25)**: This document preserves the v0 naming and framing as a public whitepaper snapshot. For the current official public skeleton, read [The Mindscape Algorithm](./mindscape-algorithm.md), [System Overview](./core-architecture/system-overview.md), and [Governed Memory Fabric](./core-architecture/governed-memory-fabric.md). The current public story is now framed as: `Governance Context + Meeting Runtime + Governed Memory Fabric + Actuation Layer`.
 
 ---
 
@@ -240,8 +242,8 @@ Active Inference (Theory)
     ↓
 Mindscape Algorithm (Implementation)
     ├─ Preferred States ≈ Long-term intent preference distribution (IntentCard + IntentCluster)
-    ├─ Generative Model ≈ Workspace's understanding of the world (Event + Memory Layer)
-    ├─ Variational Inference ≈ Intent governance engine's convergence and layout
+    ├─ Generative Model ≈ Workspace's understanding of the world (Signal / Event Plane + Governed Memory Fabric)
+    ├─ Variational Inference ≈ Continuous convergence across Governance Context and Meeting Runtime
     └─ Action Selection ≈ Execution decision pipeline + Playbook execution
 ```
 
@@ -252,9 +254,9 @@ Mindscape Algorithm (Implementation)
   - These preference states continuously update, reflecting the evolution of user intentions
 
 - **Generative Model**:
-  - Event Layer records world state (conversations, tool calls, playbook execution)
-  - Memory/Embedding Layer provides long-term memory and semantic representations
-  - Semantic execution engine provides real-time semantic understanding and clustering
+  - Signal / Event Plane records world state (conversations, tool calls, playbook execution)
+  - Governed Memory Fabric provides long-term continuity, evidence, and memory projections
+  - Meeting Runtime and semantic execution components provide real-time understanding, convergence, and dispatch
 
 - **Variational Inference**:
   - Intent governance engine analyzes each conversation round, judging which IntentSignals should be upgraded to IntentCards
@@ -305,7 +307,7 @@ Mindscape Algorithm (Implementation)
 
 **Core Proposition**:
 
-> The Mindscape Algorithm = An additional "Intent-aware Cognitive Map" layer we add to LLM-Agents, responsible for managing goals, project storylines, and memory, and driving all underlying semantic clustering, RAG, Playbooks, and tool calls.
+> In the v0 whitepaper, the Mindscape Algorithm is described as an additional "Intent-aware Cognitive Map" layer added to LLM agents. In the current public architecture, that idea is expressed as an operating engine: Governance Context as the governance entry, Meeting Runtime plus Governed Memory Fabric as the cognitive core, and downstream Project / Flow, Playbook, Tool, and Sandbox execution.
 
 **Enhancement to Standard Architecture**:
 
@@ -316,20 +318,19 @@ Standard LLM Agent Architecture
     ├─ Tool Use
     └─ Environment Interaction
 
-Mindscape Algorithm Enhancement
-    ├─ Intent Governance Layer (New)
-    │   ├─ IntentSignal → IntentCard lifecycle management
-    │   ├─ IntentCluster theme line aggregation
-    │   └─ Intent governance engine automatic convergence and layout
-    ├─ Cognitive Map Layer (New)
-    │   ├─ Intent Cognitive Space (Conceptual Space)
-    │   ├─ Intent Cognitive Map (Cognitive Maps)
-    │   └─ Preferred States Distribution (Active Inference)
-    └─ Driving Standard Components
-        ├─ Planning: Execution decision pipeline decides whether to start playbook
-        ├─ Memory: Episode Memory selects high-value content based on IntentCluster
-        ├─ Tool Use: Playbook defines tool call sequences
-        └─ Environment: Semantic execution engine performs semantic understanding and agent tasks
+Mindscape Public Architecture (Current)
+    ├─ Governance Context
+    │   ├─ Intent
+    │   ├─ Mind-Lens
+    │   └─ Policy
+    ├─ Cognitive Core
+    │   ├─ Meeting Runtime
+    │   └─ Governed Memory Fabric
+    └─ Actuation Layer
+        ├─ Planning / Dispatch: meeting convergence and execution routing
+        ├─ Memory: episode / core / procedural continuity
+        ├─ Tool Use: Playbook-defined tool call sequences
+        └─ Environment: Project / Flow, Sandbox, external runtimes
 ```
 
 **Theoretical Citations**:
@@ -341,6 +342,8 @@ Mindscape Algorithm Enhancement
 ## II. Architectural Design
 
 ### 2.1 Three-Layer Mindscape Model
+
+> **Reading note**: This section keeps the historical v0 whitepaper naming so readers can understand the early model built around signals, intent governance, and clustering. For the current public architecture skeleton, read [System Overview](./core-architecture/system-overview.md) and [Governed Memory Fabric](./core-architecture/governed-memory-fabric.md).
 
 #### 2.1.1 Overall Architecture Diagram
 
@@ -427,7 +430,7 @@ Layer 2: Embedding Clustering (Cluster / Theme Layer)
 - Generates cluster labels, writes back to IntentCard.metadata.cluster_id
 
 **Component 4: Execution Decision Pipeline (Intent Pipeline)**
-- Retains three-layer analysis logic
+- Retains staged execution-routing logic
 - Layer 1: Interaction Type (QA / START_PLAYBOOK / MANAGE_SETTINGS)
 - Layer 2: Task Domain
 - Layer 3: Playbook Selection + automatic playbook triggering
@@ -568,19 +571,19 @@ Detailed implementation and API specifications will be released when the public 
 #### 3.1.4 Modern LLM Agent Architecture
 
 **Theoretical Alignment**:
-- The Mindscape Algorithm = An additional "Intent-aware Cognitive Map" layer we add to LLM-Agents
-- Responsible for managing goals, project storylines, and memory, and driving all underlying semantic clustering, RAG, Playbooks, and tool calls
+- The Mindscape Algorithm can be understood as an "intent-aware cognitive map"
+- In the current public architecture, this cognitive map is reframed as the combination of Governance Context, Meeting Runtime, and Governed Memory Fabric
 
 **Architectural Alignment**:
-- Intent Governance Layer (New): IntentSignal → IntentCard lifecycle management
-- Cognitive Map Layer (New): Intent Cognitive Space, Intent Cognitive Map, Preferred States Distribution
+- Governance Context: Intent, Mind-Lens, and Policy define the governance entry
+- Cognitive Core: Meeting Runtime + Governed Memory Fabric handle live reasoning and long-term continuity
 - Driving Standard Components: Planning, Memory, Tool Use, Environment Interaction
 
 ---
 
 ### 3.2 Architectural Alignment Summary
 
-#### 3.2.1 Three-Layer Architecture Correspondences
+#### 3.2.1 v0 Correspondences and Current Mapping
 
 | Theoretical Level | Architectural Level | Core Components | Data Models |
 |------------------|---------------------|-----------------|-------------|
@@ -590,23 +593,22 @@ Detailed implementation and API specifications will be released when the public 
 | HRL Options | Playbook System | Execution Decision Pipeline, Playbook runtime | Playbook execution events |
 | Active Inference | Preference Distribution | Intent Governance Engine + IntentCluster | IntentCard + IntentCluster |
 
-#### 3.2.2 Two-Layer Execution Architecture
+#### 3.2.2 v0 Execution Architecture and Current Skeleton
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │            Two-Layer Execution Architecture Correspondences  │
 └─────────────────────────────────────────────────────────────┘
 
-Upper Layer: Intent Governance Layer
+v0 Upper Layer: Intent Governance Layer
 ├─ Intent Governance Engine: Intent governance and layout
 ├─ IntentCluster: Theme line aggregation
 └─ Execution Decision Pipeline: Execution decisions (whether to start playbook)
 
-Lower Layer: Semantic Execution Layer
-├─ Semantic understanding and clustering
-├─ RAG retrieval
-├─ Agent execution
-└─ Content analysis
+Current Public Skeleton:
+├─ Governance Context: Intent + Mind-Lens + Policy
+├─ Cognitive Core: Meeting Runtime + Governed Memory Fabric
+└─ Actuation Layer: Project / Flow + Playbook / Tool + Sandbox / External Runtime
 
 Integration Points: Four Integration Patterns
 ├─ Combo A: IntentCluster → Semantic Execution Engine (Goal-oriented)
@@ -653,9 +655,11 @@ Integration Points: Four Integration Patterns
 
 **Core Value**:
 > The Mindscape Algorithm = An intent-first LLM agent architecture that places current LLM agent's Planning/Memory/Tool usage into a framework with a clear mindscape model.
+>
+> In current public product language, the more precise statement is: Mindscape is not just memory infrastructure. It is an architecture that turns a person's long-term mental continuity into a governable operating engine.
 
 **Application Scenarios**:
-- **Agent Architecture Design**: Provides Intent Governance Layer as a standard component
+- **Agent Architecture Design**: Provides a Governance Context + Meeting Runtime + Governed Memory Fabric skeleton
 - **Memory Governance**: Solves the problem of vector databases becoming dumping grounds
 - **Goal Alignment**: Solves the problem of Planner struggling to align "what's happening today" with "long-term projects"
 
@@ -741,5 +745,4 @@ Integration Points: Four Integration Patterns
 **Last Updated**: 2025-12-05
 **Maintainer**: Mindscape AI Development Team
 **Status**: Technical Whitepaper v0.9 (Public Edition)
-
 

@@ -2,13 +2,15 @@
 
 > **Note**: This document describes a **conceptual mapping**, not a structural change. The four-layer model maps existing fields and concepts, without introducing new APIs or models.
 
-**Last updated**: 2025-12-22
+**Last updated**: 2026-03-25
 
 ---
 
 ## Overview
 
 The Execution Context four-layer model provides a conceptual framework for understanding how different aspects of execution context are organized. It separates "what to do" (Task/Goal) from "how to do it" (Lens/Perspective), "what cannot be done" (Policy/Constraints) from "what materials to use" (Assets/Memory).
+
+In the current public architecture direction, the **Assets / Memory** layer is no longer explained as "some context blobs plus retrieval". It is increasingly formalized as a **Governed Memory Fabric** that serves episodic, interface, core, and procedural continuity back into execution.
 
 ## Core Concept
 
@@ -119,19 +121,22 @@ The four layers are:
 
 ### D. Assets / Memory (What materials to use)
 
-**Purpose**: Data materials, not perspective, but will be interpreted by lens.
+**Purpose**: Data materials and long-term continuity, not perspective, but will be interpreted by lens.
 
 **Examples**:
 - Workspace metadata (brand, voice, constraints)
 - Data sources (files, APIs, databases)
 - Artifact references (previous outputs)
 - Project memory (decisions, version evolution)
+- Episodic memory (session digests, decision episodes, unresolved loops)
+- Core / procedural memory (preferences, principles, working patterns)
 
 **Characteristics**:
 - Provides materials for execution
 - Not a perspective, but raw data
 - Will be interpreted by lens
 - Can be referenced and reused
+- Increasingly served through a governed memory fabric rather than ad-hoc retrieval alone
 
 **Field Mapping**:
 - `workspace.metadata`: Workspace metadata
@@ -143,6 +148,9 @@ The four layers are:
 **Code References**:
 - `backend/app/models/workspace.py` - Workspace model
 - `backend/app/core/execution_context.py:25` - `ExecutionContext.tags`
+
+**Related Architecture**:
+- [Governed Memory Fabric](./governed-memory-fabric.md)
 
 ---
 
@@ -278,7 +286,6 @@ assets = {
 ---
 
 **Last updated**: 2025-12-22
-
 
 
 

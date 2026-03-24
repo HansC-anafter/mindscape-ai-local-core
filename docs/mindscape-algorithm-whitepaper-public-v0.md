@@ -1,11 +1,13 @@
 # 心智空間算法技術白皮書
 
-**版本**: v0.9（草稿）
+**版本**: v0.9（公開快照草稿）
 **日期**: 2025-12-05
 **維護者**: Mindscape AI 開發團隊
-**狀態**: 技術白皮書（公開版）
+**狀態**: 技術白皮書（公開版，歷史快照）
 
 > **說明**: 本文件是心智空間算法（Mindscape Algorithm）的技術白皮書，面向希望了解 Mindscape AI 架構設計理念的開發者、研究者和合作夥伴。部分理論對齊（例如 Active Inference、變分推論機制）目前作為設計靈感與未來研究方向，尚未在程式碼層完全實作。
+>
+> **現行公開架構註記（2026-03-25）**: 本文保留 v0 時期的命名與理論鋪陳，作為公開技術白皮書快照。若你要了解目前正式對外的架構骨架，請以 [The Mindscape Algorithm](./mindscape-algorithm.md)、[System Overview](./core-architecture/system-overview.md)、[Governed Memory Fabric](./core-architecture/governed-memory-fabric.md) 為準。當前公開敘事已收斂為：`Governance Context + Meeting Runtime + Governed Memory Fabric + Actuation Layer`。
 
 ---
 
@@ -240,8 +242,8 @@ Active Inference (理論)
     ↓
 心智空間算法 (實作)
     ├─ Preferred States ≈ 長期意圖偏好分佈（IntentCard + IntentCluster）
-    ├─ Generative Model ≈ Workspace 對世界的認知（Event + Memory Layer）
-    ├─ Variational Inference ≈ 意圖治理引擎的收斂與佈局
+    ├─ Generative Model ≈ Workspace 對世界的認知（Signal / Event Plane + Governed Memory Fabric）
+    ├─ Variational Inference ≈ Governance Context 與 Meeting Runtime 的持續收斂
     └─ Action Selection ≈ 執行決策管線 + Playbook execution
 ```
 
@@ -252,9 +254,9 @@ Active Inference (理論)
   - 這些偏好狀態持續更新，反映使用者意圖的演進
 
 - **生成模型（Generative Model）**:
-  - Event Layer 記錄世界狀態（對話、工具調用、playbook 執行）
-  - Memory/Embedding Layer 提供長期記憶與語義表示
-  - 語義執行引擎提供實時的語義理解與聚類
+  - Signal / Event Plane 記錄世界狀態（對話、工具調用、playbook 執行）
+  - Governed Memory Fabric 提供長期連續性、證據與記憶投影
+  - Meeting Runtime 與語義執行組件提供實時的理解、收斂與派發
 
 - **變分推論（Variational Inference）**:
   - 意圖治理引擎分析每輪對話，判斷哪些 IntentSignal 應該升級為 IntentCard
@@ -305,7 +307,7 @@ Active Inference (理論)
 
 **核心主張**:
 
-> 心智空間算法 = 我們給 LLM-Agent 多加的一層「Intent-aware Cognitive Map」，負責管理目標、專案主線與記憶，並驅動底下所有語義聚類、RAG、Playbook、工具調用。
+> 在 v0 白皮書語境中，心智空間算法被描述為加在 LLM-Agent 之上的「Intent-aware Cognitive Map」。在目前公開架構中，這個想法已收斂為一個 operating engine：以 Governance Context 為治理入口，由 Meeting Runtime 與 Governed Memory Fabric 構成認知內核，並驅動下游的 Project / Flow、Playbook、Tool 與 Sandbox execution。
 
 **對標準架構的增強**:
 
@@ -316,20 +318,19 @@ Active Inference (理論)
     ├─ Tool Use
     └─ Environment Interaction
 
-心智空間算法增強
-    ├─ Intent Governance Layer（新增）
-    │   ├─ IntentSignal → IntentCard 的生命週期管理
-    │   ├─ IntentCluster 主題線聚合
-    │   └─ 意圖治理引擎自動收斂與佈局
-    ├─ Cognitive Map Layer（新增）
-    │   ├─ Intent Cognitive Space（Conceptual Space）
-    │   ├─ Intent Cognitive Map（Cognitive Maps）
-    │   └─ Preferred States Distribution（Active Inference）
-    └─ 驅動標準組件
-        ├─ Planning: 執行決策管線決定是否啟動 playbook
-        ├─ Memory: Episode Memory 基於 IntentCluster 選擇高價值內容
+目前公開架構
+    ├─ Governance Context
+    │   ├─ Intent
+    │   ├─ Mind-Lens
+    │   └─ Policy
+    ├─ Cognitive Core
+    │   ├─ Meeting Runtime
+    │   └─ Governed Memory Fabric
+    └─ Actuation Layer
+        ├─ Planning / Dispatch: 會議收斂與執行派發
+        ├─ Memory: episode / core / procedural continuity
         ├─ Tool Use: Playbook 定義工具調用序列
-        └─ Environment: 語義執行引擎執行語義理解與 agent 任務
+        └─ Environment: Project / Flow、Sandbox、外部 runtime
 ```
 
 **理論引用**:
@@ -341,6 +342,8 @@ Active Inference (理論)
 ## 二、架構設計
 
 ### 2.1 三層心智空間模型
+
+> **讀法註記**: 本節保留 v0 whitepaper 的歷史命名，用來說明早期設計如何從 signal、意圖治理與聚類視角理解系統。若你在看現行公開架構，請改讀 [System Overview](./core-architecture/system-overview.md) 與 [Governed Memory Fabric](./core-architecture/governed-memory-fabric.md)。
 
 #### 2.1.1 整體架構圖
 
@@ -427,7 +430,7 @@ Layer 2: Embedding Clustering (Cluster / Theme Layer)
 - 生成 cluster label，回寫到 IntentCard.metadata.cluster_id
 
 **組件 4: 執行決策管線（Intent Pipeline）**
-- 保留三層分析邏輯
+- 保留分階段的執行路由邏輯
 - Layer 1: Interaction Type (QA / START_PLAYBOOK / MANAGE_SETTINGS)
 - Layer 2: Task Domain
 - Layer 3: Playbook Selection + 自動觸發 playbook
@@ -568,19 +571,19 @@ Layer 2: Embedding Clustering (Cluster / Theme Layer)
 #### 3.1.4 現代 LLM Agent 架構
 
 **理論對齊**:
-- 心智空間算法 = 我們給 LLM-Agent 多加的一層「Intent-aware Cognitive Map」
-- 負責管理目標、專案主線與記憶，並驅動底下所有語義聚類、RAG、Playbook、工具調用
+- 心智空間算法可以被理解為一種「Intent-aware Cognitive Map」
+- 在目前公開架構中，這個認知地圖被重新表述為 Governance Context、Meeting Runtime 與 Governed Memory Fabric 的組合
 
 **架構對齊**:
-- Intent Governance Layer（新增）：IntentSignal → IntentCard 的生命週期管理
-- Cognitive Map Layer（新增）：Intent Cognitive Space、Intent Cognitive Map、Preferred States Distribution
+- Governance Context：Intent、Mind-Lens、Policy 共同定義治理入口
+- Cognitive Core：Meeting Runtime + Governed Memory Fabric 承接即時思考與長期連續性
 - 驅動標準組件：Planning、Memory、Tool Use、Environment Interaction
 
 ---
 
 ### 3.2 架構對齊總結
 
-#### 3.2.1 三層架構對應
+#### 3.2.1 v0 架構對應與現行映射
 
 | 理論層面 | 架構層面 | 核心組件 | 數據模型 |
 |---------|---------|---------|---------|
@@ -590,23 +593,22 @@ Layer 2: Embedding Clustering (Cluster / Theme Layer)
 | HRL Options | Playbook System | 執行決策管線, Playbook runtime | Playbook execution events |
 | Active Inference | Preference Distribution | 意圖治理引擎 + IntentCluster | IntentCard + IntentCluster |
 
-#### 3.2.2 雙層執行架構
+#### 3.2.2 v0 執行架構與現行骨架對照
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │              雙層執行架構對應                                 │
 └─────────────────────────────────────────────────────────────┘
 
-上層：Intent Governance Layer
+v0 上層：Intent Governance Layer
 ├─ 意圖治理引擎: 意圖治理與佈局
 ├─ IntentCluster: 主題線聚合
 └─ 執行決策管線: 執行決策（是否啟動 playbook）
 
-下層：Semantic Execution Layer
-├─ 語義理解與聚類
-├─ RAG 檢索
-├─ Agent 執行
-└─ 內容分析
+現行公開骨架：
+├─ Governance Context: Intent + Mind-Lens + Policy
+├─ Cognitive Core: Meeting Runtime + Governed Memory Fabric
+└─ Actuation Layer: Project / Flow + Playbook / Tool + Sandbox / External Runtime
 
 集成點：四種集成模式
 ├─ Combo A: IntentCluster → 語義執行引擎 (目標導向)
@@ -653,9 +655,11 @@ Layer 2: Embedding Clustering (Cluster / Theme Layer)
 
 **核心價值**:
 > 心智空間算法 = 一套 intent-first 的 LLM agent architecture，把目前 LLM agent 的 Planning/Memory/Tool 使用，放進一個有明確心智空間模型的框架中。
+>
+> 以目前公開產品語言來說，更準確的說法是：Mindscape 不是單純的 memory infra，而是一個把人的長期心智脈絡轉成可治理 operating engine 的架構。
 
 **應用場景**:
-- **Agent 架構設計**: 提供 Intent Governance Layer 作為標準組件
+- **Agent 架構設計**: 提供 Governance Context + Meeting Runtime + Governed Memory Fabric 的骨架
 - **記憶治理**: 解決向量數據庫變成垃圾場的問題
 - **目標對齊**: 解決 Planner 難以將「今天在幹嘛」與「長期專案」對齊的問題
 
@@ -741,4 +745,3 @@ Layer 2: Embedding Clustering (Cluster / Theme Layer)
 **最後更新**: 2025-12-05
 **維護者**: Mindscape AI 開發團隊
 **狀態**: 技術白皮書 v0.9（公開版）
-

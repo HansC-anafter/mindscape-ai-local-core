@@ -1,9 +1,12 @@
-# Mindscape AI: Event, Intent Governance, and Memory Architecture
+# Legacy Reference: Event, Intent Governance, and Memory/Embedding Architecture
 
-> This document describes the three-layer design of Mindscape AI (shared by local workstation and Cloud) for "Event Recording → Intent Governance → Memory/Embedding", providing technical implementation details for developers.
+> This document preserves the earlier public explanation of Mindscape as "Event Recording -> Intent Governance -> Memory/Embedding".
+>
+> **Read this first for the current architecture story**:
+> [Governed Memory Fabric](./governed-memory-fabric.md)
 
-**Last Updated**: 2025-12-01
-**Status**: ✅ Fully Aligned with Current Implementation
+**Last Updated**: 2026-03-25
+**Status**: Historical implementation reference
 
 **Architecture Version**: v0.6.2 (Post-Refactoring)
 **Database Schema Version**: Includes workspace_id migration, habit learning, entity/tag system
@@ -23,6 +26,23 @@
 ---
 
 ## 1. Why Three Layers?
+
+This three-layer model is still useful as a lower-resolution description of the earlier pipeline:
+
+- events are recorded
+- semantic requests go through intent governance
+- selected outputs are stored and embedded
+
+However, this is no longer the main public architecture philosophy for Local-Core.
+
+The current architecture story is:
+
+- **Governance Context** (Intent + Lens + Policy)
+- **Meeting Runtime**
+- **Governed Memory Fabric**
+- **Actuation Layer** (Project / Flow + Playbooks / Tools + Sandbox)
+
+This legacy document remains valuable when reading older implementation paths and migration history.
 
 If we blindly dump all user behaviors into embedding, long-term memory, or intent analysis:
 

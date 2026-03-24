@@ -187,11 +187,13 @@ The Execution Context four-layer model provides a conceptual framework for under
 1. **Task / Goal** (What to do) - Task boundaries, input/output specifications
 2. **Policy / Constraints** (What cannot be done) - Constraints and consistency rules
 3. **Lens / Perspective** (How to do it) - Attention allocation, trade-offs, narrative path
-4. **Assets / Memory** (What materials to use) - Data materials, workspace metadata, artifact references
+4. **Assets / Memory** (What materials to use) - Data materials, workspace metadata, artifact references, and governed memory projections
 
 The `mind_lens` field in ExecutionContext contains resolved lens values (Layer 3), while `tags` can contain metadata for Policy (Layer 2) and Assets (Layer 4).
 
 **Core Principle**: Task remains unchanged, Lens can be swapped; Policy is fixed to maintain bottom line; Assets provide materials.
+
+**Architecture note**: In the current public architecture, the Assets / Memory layer is no longer treated as "context blobs plus retrieval" only. It is increasingly formalized through the [Governed Memory Fabric](./governed-memory-fabric.md), which preserves evidence, builds episodes, and serves memory back into execution.
 
 See [Execution Context Four-Layer Model](./execution-context-four-layer-model.md) for detailed conceptual mapping.
 
@@ -257,4 +259,3 @@ See [Lens Composition Architecture](./lens-composition.md) for details.
 ---
 
 **Last updated:** 2025-12-22
-

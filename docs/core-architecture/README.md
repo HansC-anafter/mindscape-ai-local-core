@@ -15,7 +15,8 @@ This directory contains the complete architecture documentation for Mindscape AI
 - **Playbook Flow Execution**: Multi-playbook orchestration with dependency resolution
 - **Project Sandbox**: Workspace-isolated file space for each project
 - **Artifact Registry**: Automatic artifact tracking and registration
-- **Layered Memory System**: Workspace core, project, and member profile memories
+- **Memory Surfaces**: Workspace core, project, and member profile memories remain active as public memory surfaces
+- **Meeting Runtime + Governed Memory Fabric**: Current architecture direction for long-term continuity, episodic consolidation, and governed writeback
 - **Flow Checkpointing**: Resume execution from any node
 - **API Endpoints**: Full REST API for projects and flows
 
@@ -23,7 +24,8 @@ This directory contains the complete architecture documentation for Mindscape AI
 
 - **Port/Adapter Pattern**: Clean separation between core and adapters
 - **Execution Context**: Context abstraction flowing through the system
-- **Memory & Intent Architecture**: Three-layer architecture (Signal, Intent Governance, Execution)
+- **Governance Context**: Intent + Lens + Policy define the agent core and execution boundaries
+- **Meeting Runtime + Governed Memory Fabric**: The cognitive core for live reasoning and long-term continuity
 - **Playbook System**: Multi-step workflow execution
 
 ### Architecture Components
@@ -44,11 +46,11 @@ This directory contains the complete architecture documentation for Mindscape AI
 - **Path Structure**: `sandboxes/{workspace_id}/{project_type}/{project_id}/`
 - **Isolation**: Complete workspace-level isolation
 
-#### Memory Layering
+#### Memory Surfaces
 - **Workspace Core Memory**: `backend/app/services/memory/workspace_core_memory.py`
 - **Project Memory**: `backend/app/services/memory/project_memory.py`
 - **Member Profile Memory**: `backend/app/services/memory/member_profile_memory.py`
-- **Integration**: Automatically loaded by `ContextBuilder` for LLM context
+- **Architecture Direction**: These surfaces are converging toward a governed memory fabric with explicit episodic/core/procedural layers and serving projections
 
 ## Directory Structure
 
@@ -77,8 +79,11 @@ Lens Composition architecture - multi-lens combination recipes with fusion strat
 #### [Surface & Command Bus](./surface-command-bus.md)
 Surface and Command Bus architecture for unified command dispatch and event collection across all channels, with BYOP/BYOL trace support.
 
-#### [Memory & Intent Architecture](./memory-intent-architecture.md)
-Event, intent, and memory layer design - the three-layer Mindscape architecture.
+#### [Governed Memory Fabric](./governed-memory-fabric.md)
+Current public architecture story for memory in Mindscape: meeting runtime, governed memory, long-term continuity, and serving boundaries.
+
+#### [Legacy Event, Intent, and Memory/Embedding Architecture](./memory-intent-architecture.md)
+Historical implementation-oriented reference for the earlier event -> intent -> memory/embedding framing.
 
 #### [Local/Cloud Boundary](./local-cloud-boundary.md)
 Architectural separation principles between local and cloud implementations.
@@ -141,11 +146,12 @@ Project and Playbook Flow architecture for multi-playbook collaboration.
 
 ## Core Concepts
 
-### Mindscape Architecture (3 Layers)
+### Mindscape Operating Engine
 
-1. **Signal Layer** - Collects all signals (conversations, files, tool responses, playbook results)
-2. **Intent Governance Layer** - Organizes signals into IntentCards and IntentClusters
-3. **Execution & Semantic Layer** - Executes playbooks, tools, and semantic engines
+1. **Governance Context** - Intent + Lens + Policy define what matters, how to see, and what cannot be violated
+2. **Meeting Runtime** - Handles live deliberation, convergence, dispatch, and loop closure
+3. **Governed Memory Fabric** - Preserves evidence, builds episodes, promotes durable memory, and serves continuity back into execution
+4. **Actuation Layer** - Project / Flow + Playbooks / Tools + Sandbox / external runtimes
 
 ### Project + Flow + Sandbox Architecture (v2.0)
 
@@ -250,9 +256,10 @@ CREATE TABLE playbook_flows (
 ### Quick Overview
 1. [System Overview](./system-overview.md) - **Start here**: Complete flow from user to artifact
 2. [Port Architecture](./port-architecture.md) - System design patterns
-3. [Memory & Intent Architecture](./memory-intent-architecture.md) - Three-layer architecture
-4. [Sandbox System Summary](./sandbox/sandbox-system-summary.md)
-5. [Project + Flow Summary](./project-flow/project-flow-summary.md)
+3. [Governed Memory Fabric](./governed-memory-fabric.md) - Current public memory architecture
+4. [Legacy Event, Intent, and Memory/Embedding Architecture](./memory-intent-architecture.md) - Historical reference
+5. [Sandbox System Summary](./sandbox/sandbox-system-summary.md)
+6. [Project + Flow Summary](./project-flow/project-flow-summary.md)
 
 ### Deep Dive
 1. [Port Architecture](./port-architecture.md) - Hexagonal architecture patterns
@@ -349,7 +356,7 @@ The main README describes two key concepts:
 3. Update `should_generate_embedding()` logic if embedding is needed
 4. Implement memory service if workspace/project/member-specific
 5. Integrate into ContextBuilder for LLM context
-6. See [Memory & Intent Architecture](./memory-intent-architecture.md) for schema and patterns
+6. See [Governed Memory Fabric](./governed-memory-fabric.md) for architecture direction and [Legacy Event, Intent, and Memory/Embedding Architecture](./memory-intent-architecture.md) for older schema patterns
 
 ### Adding a New Tool / Integration
 

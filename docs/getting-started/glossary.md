@@ -1,7 +1,7 @@
 # Mindscape AI Glossary / 術語表
 
 > **Version**: 1.0
-> **Last Updated**: 2026-01-31
+> **Last Updated**: 2026-03-25
 
 This glossary defines the core terminology used in Mindscape AI. Understanding these terms will help you navigate the documentation and make the most of the platform.
 
@@ -215,6 +215,19 @@ This glossary defines the core terminology used in Mindscape AI. Understanding t
 
 ---
 
+### Governed Memory Fabric
+
+| Language | Definition |
+|----------|------------|
+| **English** | The long-term continuity layer in Mindscape's operating engine. It preserves evidence, builds episodes, promotes durable memory, invalidates stale conclusions, and serves the right memory packet back into execution. |
+| **中文** | Mindscape operating engine 中負責長期連續性的記憶層。它保留證據、形成 episode、將內容升格為長期記憶、讓過期結論失效，並把合適的 memory packet 回送到執行過程。 |
+
+**Avoid using**: Memory DB, Vector Store
+
+**Code mapping**: Publicly spans meeting writebacks, memory services, evidence links, and retrieval projections rather than a single table or engine.
+
+---
+
 ### Sandbox
 
 | Language | Definition |
@@ -251,6 +264,7 @@ This glossary defines the core terminology used in Mindscape AI. Understanding t
 ## See Also
 
 - [Mind-Lens Architecture](./core-architecture/mind-lens.md)
-- [Memory & Intent Architecture](./core-architecture/memory-intent-architecture.md)
+- [Governed Memory Fabric](./core-architecture/governed-memory-fabric.md)
+- [Legacy Event, Intent, and Memory/Embedding Architecture](./core-architecture/memory-intent-architecture.md)
 - [Playbooks & Workflows](./core-architecture/playbooks-and-workflows.md)
 - [Governance Decision & Risk Control Layer](./core-architecture/governance-decision-risk-control-layer.md)

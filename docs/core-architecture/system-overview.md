@@ -11,28 +11,41 @@ Surface & Command Bus (unified command dispatch)
     ↓
 Conversation Orchestrator (+ IdentityPort → ExecutionContext)
     ↓
-Event Layer (MindEvent + SurfaceEvent)
+Signal / Event Plane (MindEvent + SurfaceEvent)
     ↓
-Intent Governance Layer
+Intent Governance + Mind-Model VC
     ↓
-Mind-Model VC Layer (Swatch → Mix → Commit)
+Governance Context Compilation (Task / Policy / Lens / Assets-Memory)
+    ↓
+Mind Meeting Runtime (deliberation, convergence, dispatch, closure)
+    ↕
+Governed Memory Fabric (episodic / interface / core / procedural / serving)
     ↓
 Project Detector + Project / Flow
     ↓
-Playbook Runner (playbook.md + playbook.json)
+Playbook Runner + Tools
     ↓
-Sandbox (project file world)
+Sandbox / External Runtimes (project file world)
     ↓
-Event + Memory Layer (SQLite + pgvector)
-    ↓
-Artifacts & Decisions
+Artifacts, Decisions, and Writebacks
 ```
 
 ## AI-Driven Visible Thinking Workflow
 
 The **AI-driven visible thinking workflow** can be expressed as:
 
-> **Signal → Intent Governance → Mind-Model VC → Project/Flow → Playbooks → Sandbox → Memory**
+> **Signal → Intent Governance → Meeting Runtime ↔ Governed Memory Fabric → Project/Flow → Playbooks / Tools → Sandbox → Artifacts & Decisions**
+
+At the center of the workflow is a cognitive core:
+
+- **Mind Meeting Runtime**: handles live thinking, clarification, convergence, dispatch, and loop closure
+- **Governed Memory Fabric**: handles long-term continuity, evidence, episodic compression, durable memory, and serving
+
+This cognitive core operates under a governance context:
+
+- **Intent**: what matters and why
+- **Lens**: how to interpret and make trade-offs
+- **Policy**: what cannot be violated
 
 ### Layer-by-Layer Breakdown
 
@@ -58,41 +71,54 @@ The **AI-driven visible thinking workflow** can be expressed as:
 - **Capability profiles & staged model routing**: selects different LLM capability profiles (FAST, STANDARD, PRECISE, TOOL_STRICT, SAFE_WRITE, etc.) for different phases
   (intent analysis, tool-candidate selection, planning, safe writes), while keeping all intermediate results as typed JSON IR instead of ad-hoc text.
 
-#### 3. Event Layer (MindEvent)
+#### 3. Signal / Event Plane
 - All user actions and system events become `MindEvent` objects
 - Events are stored in SQLite (`events` table)
-- Events feed into Intent Governance Layer
+- Events feed into intent governance, meeting runtime, and memory write boundaries
 - Timeline visualization shows event history
 
-#### 4. Intent Governance Layer
+#### 4. Governance Context
 - **Intent Extraction**: Converts events into structured IntentCards
 - **Intent Clustering**: Groups related intents into IntentClusters (Projects)
 - **Intent Steward**: Maintains intent lifecycle and relationships
-- **Memory Integration**: Connects to workspace/project/member memories
-
-#### 4.5. Mind-Model VC Layer
 - **Swatch Collection**: Extracts candidate clues from Events (requires user confirmation)
 - **Mix Drafting**: Generates recipe drafts for time windows (user writes title/description)
 - **Commit Tracking**: Records recipe changes with user-written commit messages
 - **Co-Graph**: Tracks co-occurrence relationships between clues/colors
 - **User Control**: All clues require confirmation; recipes require user-written descriptions
+- **Policy + Lens Compilation**: Combines guardrails and perspective into execution context
 - See [Mind-Model VC Architecture](./mind-model-vc.md) for details
 
-#### 5. Project Detector + Project / Flow
+#### 5. Mind Meeting Runtime
+- **Ingress Router**: Single routing entry for chat, API intake, and handoff compilation
+- **Five-Layer Pipeline**: Deliberation → Semantic Bridge → Convergence + Dispatch Gate → Transport → Supervision
+- **Loop Closure**: Meeting close is a first-class write boundary for summarization, extraction, and follow-up
+- **Dispatch**: Routes work into projects, playbooks, tools, and external runtimes
+- See [Mind Meeting — Five-Layer Architecture](./meeting-engine-dispatch.md) for details
+
+#### 6. Governed Memory Fabric
+- **Evidence First**: raw events, digests, reasoning traces, and artifacts remain evidence sources
+- **Episodic Memory**: Session digests, decision episodes, tensions, unresolved loops
+- **Interface Memory**: workspace/project/member-facing operating surfaces
+- **Core / Procedural Memory**: durable preferences, principles, anti-goals, and working patterns
+- **Serving Layer**: vector search, graph traversal, and symbolic filters route the right memory packet back into execution
+- See [Governed Memory Fabric](./governed-memory-fabric.md) for details
+
+#### 7. Project Detector + Project / Flow
 - **Project Detector**: LLM-based detection of project-worthy conversations
 - **Project Creation**: Automatic or user-confirmed project creation
 - **Project Assignment**: Suggests human and AI PMs
 - **Flow Association**: Each Project has a PlaybookFlow
-- **Project Memory**: Project-specific decision history and context
+- **Project Continuity**: Projects become containers for execution, artifacts, decisions, and memory projections
 
-#### 6. Mind Lens & Lens Composition
+#### 8. Mind Lens & Lens Composition
 - **Mind Lens**: Perspective/viewpoint system - how to see, where to focus attention, how to make trade-offs
 - **Lens Composition**: Multi-lens combination recipes for complex scenarios
 - **Fusion Strategies**: Priority, weighted, or priority-then-weighted fusion
 - **Execution Context Integration**: Lens values influence how tasks are interpreted
 - See [Mind Lens Architecture](./mind-lens.md) and [Lens Composition Architecture](./lens-composition.md) for details
 
-#### 7. Playbook Runner
+#### 9. Playbook Runner + Tools
 - **Playbook Execution**: Executes `playbook.md + playbook.json`
 - **AI Team Roles**: Multiple AI roles collaborate (planner, writer, analyst)
 - **Tool Calls**: Playbooks can call tools (filesystem, API, etc.)
@@ -100,34 +126,17 @@ The **AI-driven visible thinking workflow** can be expressed as:
 - **Project Mode**: Playbooks can access project sandbox and context
 - **Lens Integration**: Playbook execution uses resolved lens values from Execution Context
 
-#### 8. Sandbox (Project File World)
+#### 10. Sandbox / External Runtimes
 - **Path Structure**: `sandboxes/{workspace_id}/{project_type}/{project_id}/`
 - **Shared Space**: All playbooks in a project share the same sandbox
 - **Artifact Storage**: Generated files, drafts, and intermediate results
 - **Workspace Isolation**: Complete isolation between workspaces
 
-#### 9. Event + Memory Layer
-- **SQLite**: Core data (workspaces, projects, events, intents)
-- **pgvector**: Vector embeddings for semantic search
-- **Memory Services**:
-  - Workspace Core Memory (brand, voice, constraints)
-  - Project Memory (decisions, version evolution)
-  - Member Profile Memory (skills, preferences)
-- **Context Builder**: Assembles memory context for LLM prompts
-
-#### 10. Artifacts & Decisions
+#### 11. Artifacts, Decisions, and Writebacks
 - **Artifact Registry**: Tracks all artifacts generated in a project
 - **Artifact Relationships**: Artifacts can depend on other artifacts
-- **Decision History**: Project memory stores key decisions and rationale
+- **Decision History**: Writebacks preserve key decisions, rationale, and evidence links
 - **Export**: Artifacts can be exported or synced via Portable Configuration
-
-#### 11. Mind Meeting Engine
-- **Ingress Router**: Single `IngressRouter` produces a `RouteDecision` for all entry points (chat, handoff-bundle compile, API intake)
-- **Five-Layer Pipeline**: L1 Deliberation → L2 Semantic Bridge → L3 Convergence + Dispatch Gate → L4 Transport → L5 Runtime Supervision
-- **Plane Separation**: Control State (TaskIR, PhaseAttempt), Projection State (tasks, playbook_executions), Transport State (pending_dispatch)
-- **DispatchOrchestrator**: Single dispatch authority with DAG gating and PhaseAttempt tracking
-- **External Runtimes**: Agent identity (AgentSpec) is separate from executor runtimes (Gemini CLI, LangGraph, IDE WS)
-- See [Mind Meeting — Five-Layer Architecture](./meeting-engine-dispatch.md) for details
 
 ## Project / Playbook Flow: The Mental Model
 
@@ -229,18 +238,19 @@ Project: "OpenSEO MVP"
 
 | README Concept | Architecture Component | Documentation |
 |---------------|------------------------|---------------|
-| **AI-driven visible thinking workflow** | Signal → Intent → Project/Flow → Playbooks → Sandbox → Memory | This document |
+| **AI-driven visible thinking workflow** | Signal → Intent Governance → Meeting Runtime ↔ Governed Memory Fabric → Actuation | This document |
 | **Surface & Command Bus** | SurfaceDefinition + CommandBus + EventStream | [Surface & Command Bus Architecture](./surface-command-bus.md) |
 | **Mind Lens** | MindLensInstance + MindLensSchema + RuntimeMindLens | [Mind Lens Architecture](./mind-lens.md) |
 | **Lens Composition** | LensComposition + FusionService | [Lens Composition Architecture](./lens-composition.md) |
 | **Execution Context Four-Layer Model** | Task/Policy/Lens/Assets conceptual mapping | [Execution Context Four-Layer Model](./execution-context-four-layer-model.md) |
 | **Project** | Project model + ProjectManager + ProjectDetector | [Project + Flow Architecture](./project-flow/project-flow-architecture.md) |
-| **Intents** | IntentCards + IntentClusters + Intent Steward | [Memory & Intent Architecture](./memory-intent-architecture.md) |
+| **Intents** | IntentCards + IntentClusters + Intent Steward | [Legacy Event, Intent, and Memory/Embedding Architecture](./memory-intent-architecture.md) |
+| **Governed Memory Fabric** | Episodic/core/procedural memory + serving boundaries | [Governed Memory Fabric](./governed-memory-fabric.md) |
 | **Playbooks** | PlaybookRunner + playbook.md + playbook.json | [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md) |
 | **Playbook Flow** | FlowExecutor + PlaybookFlow model | [Project + Flow Architecture](./project-flow/project-flow-architecture.md) |
 | **AI Team Execution** | AI roles + tool calls + execution trace | [Playbooks & Multi-step Workflows](./playbooks-and-workflows.md) |
 | **Sandbox** | ProjectSandboxManager + artifact registry | [Sandbox System Architecture](./sandbox/sandbox-system-architecture.md) |
-| **Memory** | WorkspaceCoreMemory + ProjectMemory + MemberProfileMemory | [Memory & Intent Architecture](./memory-intent-architecture.md) |
+| **Memory Surfaces** | WorkspaceCoreMemory + ProjectMemory + MemberProfileMemory | [Governed Memory Fabric](./governed-memory-fabric.md) |
 | **Artifacts** | ArtifactRegistry + artifact tracking | [Project + Flow Architecture](./project-flow/project-flow-architecture.md) |
 | **Mind Meeting Engine** | IngressRouter + Five-Layer Pipeline + DispatchOrchestrator | [Mind Meeting Architecture](./meeting-engine-dispatch.md) |
 
@@ -294,4 +304,3 @@ Project: "OpenSEO MVP"
 - **Understand Core Concepts**: [Architecture Documentation](./README.md)
 - **Deep Dive into Components**: See [Reading Guide](./README.md#reading-guide)
 - **Extend the System**: [For Contributors](./README.md#for-contributors)
-

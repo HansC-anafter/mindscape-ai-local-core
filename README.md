@@ -1,12 +1,17 @@
 # Mindscape AI Local Core
 
-> **Open-source, local-first, human-governable AI workspace for visible thinking workflows.**
+> **Open-source, local-first cognitive engine for human-governable AI workflows.**
 
 [English](README.md) | [中文](README.zh.md)
 
-`mindscape-ai-local-core` is the open-source core of **Mindscape AI** — a **local-first**, **human-governable** AI workspace.
+`mindscape-ai-local-core` is the open-source core of **Mindscape AI** — a **local-first**, **human-governable** cognitive engine for agentic workflows.
 
 It turns your long-term goals, projects, and creative themes into a **governable, navigable mindscape**, so the LLM is not just answering isolated prompts, but **thinking and acting with you across time** — with full traceability, rollback, and human oversight.
+
+You can use it in two ways:
+
+- as a **cognitive engine** inside your existing agent stack
+- as an **end-to-end local workspace** with optional project / flow / playbook actuation
 
 ### 🎯 Two Core Principles
 
@@ -56,31 +61,140 @@ This philosophy ensures that Mindscape AI remains a **governance-first** platfor
 
 Instead of "chat in, answer out", Mindscape AI is designed as an **AI-driven visible thinking workflow**:
 
-> **Signal → Intent Governance → Mind-Model VC → Project/Flow → Playbooks → Sandbox → Memory**
+> **Signal → Intent Governance → Meeting Runtime ↔ Governed Memory Fabric → Project/Flow → Playbooks / Tools → Sandbox → Artifacts & Decisions**
+
+At the center of this workflow is a cognitive core:
+
+- **Meeting Runtime** — live deliberation, clarification, convergence, dispatch, and loop closure
+- **Governed Memory Fabric** — long-term continuity, evidence, promotion, invalidation, and serving
+
+Together they operate under a governance context:
+
+- **Intent** — what matters and why
+- **Mind-Lens** — how to see, render, and make trade-offs
+- **Policy** — what cannot be violated
 
 1. **Capture your mindscape**
 
    - Turn life themes, long-term projects, and recurring tasks into **intents** and **projects** inside a workspace.
 
-2. **Version control your mind state**
+2. **Compile governance context**
 
-   - **Mind-Model VC** organizes clues you're willing to provide into reviewable, adjustable, and rollback-able mind state recipes with version history. See [Mind-Model VC Architecture](./docs/core-architecture/mind-model-vc.md) for details.
+   - **Mind-Model VC** organizes clues you're willing to provide into reviewable, adjustable, and rollback-able mind state recipes with version history.
+   - **Mind-Lens** shapes viewpoint and trade-offs.
+   - **Policy** keeps execution inside human-defined boundaries.
 
-3. **Attach playbooks**
+3. **Think in meetings, preserve continuity in memory**
 
-   - Connect each intent/project to reusable **playbooks** (Markdown + YAML) that describe how your AI team should help.
+   - **Mindscape Meeting** handles live thinking and convergence.
+   - The **Governed Memory Fabric** preserves episodic, interface, core, and procedural continuity across time.
 
-4. **Run, see, and iterate**
+4. **Attach optional actuation**
 
-   - Let the AI team execute the playbooks, see the **execution trace**, intermediate notes, and outputs, then refine together.
+   - Keep your existing workflow framework, or connect Mindscape's own **playbooks / tools / sandboxed runtimes** when you want end-to-end local execution.
 
-This repo contains the local engine that wires these pieces together: workspace state, intents, mind-model version control, the playbook runner, AI roles, and tool connections.
+5. **See, revise, and iterate**
+
+   - Execution leaves visible traces, artifacts, decisions, and writebacks, so the system can be reviewed and corrected over time.
+
+This repo contains the local engine that wires these pieces together: governance context, meeting runtime, governed memory, external runtime adapters, and an optional local actuation layer.
 
 ---
 
-## 🔄 Project / Playbook flow
+## Plug Into Your Existing Agent Stack
 
-The default mental model for this repo is the **project / playbook flow**:
+> **Keep your workflow framework. Add Mindscape for deliberation and governed long-term continuity.**
+
+Mindscape can sit beside your existing agentic workflow stack and provide the part most frameworks only sketch:
+
+- **Before the run** — compile governance context and the right memory packet
+- **During the run** — escalate ambiguity, conflict, or high-stakes reasoning into Mindscape Meeting
+- **After the run** — consolidate evidence, promote durable memory, invalidate stale conclusions, and write continuity back for the next run
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://openai.github.io/openai-agents-python/">
+        <img src="./docs/assets/integrations/openai-agents-sdk.svg" alt="OpenAI Agents SDK" height="40">
+      </a>
+      <br>
+      <sub>OpenAI Agents SDK</sub>
+    </td>
+    <td align="center">
+      <a href="https://docs.langchain.com/oss/javascript/langgraph/persistence">
+        <img src="./docs/assets/integrations/langgraph.png" alt="LangGraph" height="40">
+      </a>
+      <br>
+      <sub>LangGraph</sub>
+    </td>
+    <td align="center">
+      <a href="https://docs.crewai.com/en/concepts/flows">
+        <img src="./docs/assets/integrations/crewai.png" alt="CrewAI" height="40">
+      </a>
+      <br>
+      <sub>CrewAI</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://mastra.ai/workflows">
+        <img src="./docs/assets/integrations/mastra.svg" alt="Mastra" height="40">
+      </a>
+      <br>
+      <sub>Mastra</sub>
+    </td>
+    <td align="center">
+      <a href="https://ai.pydantic.dev/">
+        <img src="./docs/assets/integrations/pydantic-ai.svg" alt="PydanticAI" height="40">
+      </a>
+      <br>
+      <sub>PydanticAI</sub>
+    </td>
+    <td align="center">
+      <a href="https://docs.openclaw.ai/">
+        <img src="./docs/assets/integrations/openclaw.svg" alt="OpenClaw" height="40">
+      </a>
+      <br>
+      <sub>OpenClaw</sub>
+    </td>
+  </tr>
+</table>
+
+Works with custom **MCP** and **A2A** agents too.
+
+| Integration surface | What Mindscape provides |
+|---------------------|-------------------------|
+| **Tool / MCP layer** | Deliberation tools, memory packet preparation, reflection entry points |
+| **Workflow hooks** | Pre-run context compilation and post-run consolidation / writeback |
+| **Runtime adapter** | Workspace-bound execution context, governance constraints, trace-ready handoff |
+| **Cross-agent continuity** | Episodic / core / procedural memory that survives sessions and frameworks |
+
+**Important**: `Project / Flow / Playbooks / Sandbox` are **optional actuation modules**, not a prerequisite for using Mindscape as a cognitive engine.
+
+Framework logos are the property of their respective projects and are used here for integration identification.
+
+---
+
+## Scenario Families
+
+Mindscape is best understood through the kinds of continuity it governs.
+
+| Scenario family | What Mindscape governs | Example execution surfaces |
+|-----------------|------------------------|----------------------------|
+| **Brand and Content Governance** | Brand voice, storyline continuity, cross-channel consistency, rollback-able content decisions | websites, social media, newsletters, customer support |
+| **Narrative Direction and Role Evolution** | Character arcs, performer cues, persona targets, storyline-to-execution continuity | film previs, creator workflows, community-facing digital personas |
+| **Research and Knowledge Continuity** | Intent-aware research tracking, evidence packs, disagreement briefs, long-form synthesis | research assistants, writing systems, book workflows |
+| **Practice and Coaching Loops** | Session memory, progress baselines, feedback safety, retention loops | coaching apps, guided practice systems, domain companions |
+| **Agentic Workflow Sidecar** | Deliberation, reflection, memory packet routing, governed writeback across runs | OpenAI Agents SDK, LangGraph, CrewAI, custom MCP/A2A stacks |
+
+These are **scenario families**, not product silos.
+Public documentation stays at the level of governance, deliberation, memory, continuity, and generic integration boundaries.
+
+---
+
+## Optional Local Actuation Layer
+
+If you want end-to-end local execution, this repo also includes a **project / playbook** actuation stack:
 
 ```text
 Project  →  Intents  →  Playbooks  →  AI Team Execution  →  Artifacts & Decisions
@@ -101,7 +215,7 @@ You can add your own playbooks to encode your personal workflows, client SOPs, o
 
 ### 🧱 Shareable cognitive modules (even without the cloud)
 
-Although this repo is called *local-core*, it is not limited to "one user on one machine".
+If you use the optional local actuation layer, this repo is not limited to "one user on one machine".
 
 The core concepts – **playbooks**, **AI team members**, and **mind-lens / workspace profiles** – are all designed as
 **shareable cognitive modules**:
@@ -174,7 +288,7 @@ This means you can import Skills from the Anthropic ecosystem, wrap them with Mi
 
 Mindscape provides a **pluggable architecture** for integrating external executor runtimes within its governance layer.
 
-> External runtimes (Gemini CLI, OpenClaw, LangGraph, etc.) provide execution environments. In Mindscape's architecture, the *agent identity* is defined by Intent + Mind-Lens + Memory; runtimes provide the compute and sandbox for execution.
+> External runtimes (Gemini CLI, OpenClaw, LangGraph, etc.) provide execution environments. In Mindscape's architecture, the *agent core* is defined by Governance Context (Intent + Mind-Lens + Policy) together with the Governed Memory Fabric; runtimes provide compute and sandbox for execution.
 
 ### Key Features
 
@@ -313,8 +427,9 @@ See [Governance Decision & Risk Control Layer](./docs/core-architecture/governan
 * **Intents** – structured "what I want" cards that anchor LLM conversations to your long-term goals. **Versionable and rollback-able.**
 * **Mind-Lens** – a palette for rendering AI outputs; controls tone, style, and behavior. **Versionable, composable, A/B testable.**
 * **Mind-Model VC** – version control for mind models; organizes user-provided clues into reviewable, adjustable, and rollback-able mind state recipes with version history. See [Mind-Model VC Architecture](./docs/core-architecture/mind-model-vc.md).
+* **Governed Memory Fabric** – the long-term continuity layer that preserves evidence, builds episodes, promotes durable memory, and serves the right memory packet back into execution.
 * **Agent (Mindscape definition)** – An agent is an **AgentSpec** running on the **Agent OS**:
-  - **AgentSpec** = **Agent Core** (Intent + Mind-Lens + Memory) + **Actuator** (tool access + skill bundles + action space)
+  - **AgentSpec** = **Agent Core** ((Intent + Mind-Lens + Policy) + Governed Memory Fabric) + **Actuator** (tool access + skill bundles + action space)
   - **Agent OS** provides the execution contract: tracing, rollback, risk gates, audit/provenance, and human-in-the-loop UI.
 
   External integrations (Gemini CLI, OpenClaw, LangGraph, etc.) are **executor runtimes** — they provide execution environments. The agent identity stays with the AgentSpec.
@@ -324,7 +439,7 @@ See [Governance Decision & Risk Control Layer](./docs/core-architecture/governan
 * **Playbooks** – human-readable + machine-executable workflows (Markdown + YAML frontmatter) that carry capabilities across workspaces. Playbooks are policy assets mountable on AgentSpecs.
 * **Governance Layer (Agent OS)** – Intent, Lens, Trust, and Asset governance that ensures every AI action is traceable and controllable. Agent OS = Governance Layer + execution contract (trace, rollback, risk gates, provenance, HITL).
 * **Port/Adapter Architecture** – clean separation between core and external integrations, enabling local-first design with optional cloud extensions.
-* **[Event, Intent Governance, and Memory Architecture](./docs/core-architecture/memory-intent-architecture.md)** – how events, intent analysis, and long-term memory work together.
+* **[Governed Memory Fabric](./docs/core-architecture/governed-memory-fabric.md)** – the current public architecture for meeting runtime, governed memory, and long-term continuity.
 
 ---
 
@@ -338,6 +453,7 @@ The **Mindscape Algorithm** is the conceptual backbone behind this repo. It desc
 See:
 
 * [Mindscape Algorithm notes](./docs/mindscape-algorithm.md)
+* [Governed Memory Fabric](./docs/core-architecture/governed-memory-fabric.md)
 * [Architecture Documentation](./docs/core-architecture/README.md) - Complete system architecture
 * Mindscape AI website: [https://mindscapeai.app](https://mindscapeai.app)
 
@@ -565,12 +681,13 @@ cd mindscape-ai-local-core
 - [Troubleshooting](./docs/getting-started/troubleshooting.md) - Common issues and solutions
 
 ### Core Concepts
-- [The Mindscape Algorithm](./docs/mindscape-algorithm.md) - Core philosophy and 3-layer architecture
+- [The Mindscape Algorithm](./docs/mindscape-algorithm.md) - Core philosophy and mindscape worldview
+- [Governed Memory Fabric](./docs/core-architecture/governed-memory-fabric.md) - Current public memory architecture skeleton
 
 ### Architecture Documentation
 - [Architecture Documentation](./docs/core-architecture/README.md) - Complete system architecture, including:
   - Port/Adapter Architecture
-  - Memory & Intent Architecture
+  - Governed Memory Fabric / Legacy Event, Intent, and Memory Reference
   - Mind-Model VC Architecture
   - Execution Context
   - Local/Cloud Boundary
