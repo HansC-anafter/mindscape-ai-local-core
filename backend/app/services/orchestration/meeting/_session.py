@@ -110,51 +110,62 @@ class MeetingSessionMixin:
             )
 
         # ADR-001 v2 Phase 1: Emit session_digest (L1→L2 bridge)
+        canonical_memory = None
         try:
-            from backend.app.models.personal_governance.session_digest import (
-                SessionDigest,
-            )
-            from backend.app.services.stores.postgres.session_digest_store import (
-                SessionDigestStore,
+            from backend.app.services.memory.writeback.meeting_memory_writeback_orchestrator import (
+                MeetingMemoryWritebackOrchestrator,
             )
 
-            profile_id = getattr(self, "profile_id", "")
-            workspace = getattr(self, "workspace", None)
-            digest = SessionDigest.from_meeting_session(
+            orchestrator = MeetingMemoryWritebackOrchestrator()
+            writeback_result = orchestrator.run_for_closed_session(
                 session=self.session,
-                workspace=workspace,
-                profile_id=profile_id,
+                workspace=getattr(self, "workspace", None),
+                profile_id=getattr(self, "profile_id", ""),
             )
-            digest_store = SessionDigestStore()
-            digest_store.create(digest)
+
+            digest = writeback_result.get("digest")
+            memory_item = writeback_result.get("memory_item")
+            run = writeback_result.get("run")
+            if digest and memory_item and run:
+                canonical_memory = {
+                    "memory_item_id": getattr(memory_item, "id", ""),
+                    "digest_id": getattr(digest, "id", ""),
+                    "writeback_run_id": getattr(run, "id", ""),
+                    "lifecycle_status": getattr(memory_item, "lifecycle_status", ""),
+                    "verification_status": getattr(
+                        memory_item,
+                        "verification_status",
+                        "",
+                    ),
+                }
+                self.session.metadata["canonical_memory_item_id"] = memory_item.id
+                self.session.metadata["canonical_memory"] = canonical_memory
+                self.session_store.update(self.session)
+                self._emit_event(
+                    EventType.MEMORY_WRITEBACK,
+                    payload={
+                        "meeting_session_id": self.session.id,
+                        "project_id": self.session.project_id,
+                        **canonical_memory,
+                    },
+                    entity_ids=[memory_item.id],
+                    metadata={
+                        "project_id": self.session.project_id,
+                        "memory_item_id": memory_item.id,
+                        "digest_id": digest.id,
+                        "writeback_run_id": run.id,
+                    },
+                )
             logger.info(
-                "Emitted session_digest %s for session %s",
-                digest.id,
+                "Meeting writeback run %s emitted digest %s and memory item %s for session %s",
+                getattr(run, "id", "unknown"),
+                getattr(digest, "id", "unknown"),
+                getattr(memory_item, "id", "unknown"),
                 self.session.id,
             )
-
-            # Phase 2: Fire-and-forget extraction (PersonalKnowledge + GoalLedger)
-            try:
-                import asyncio
-                from backend.app.services.personal_governance.digest_extraction import (
-                    trigger_extraction,
-                )
-
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(trigger_extraction(digest, self.session.id))
-                else:
-                    asyncio.run(trigger_extraction(digest, self.session.id))
-            except Exception as ext_exc:
-                logger.warning(
-                    "Failed to trigger extraction for %s: %s",
-                    self.session.id,
-                    ext_exc,
-                )
-
         except Exception as exc:
             logger.warning(
-                "Failed to emit session_digest for %s: %s",
+                "Failed to execute meeting memory writeback for %s: %s",
                 self.session.id,
                 exc,
             )
@@ -167,6 +178,7 @@ class MeetingSessionMixin:
                 "action_item_count": len(action_items),
                 "state_diff": self.session.state_diff,
                 "dispatch_result": dispatch_result,
+                "canonical_memory": canonical_memory,
             },
         )
 

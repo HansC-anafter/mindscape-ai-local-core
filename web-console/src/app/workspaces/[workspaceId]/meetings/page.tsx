@@ -31,6 +31,14 @@ interface MeetingSession {
     metadata: Record<string, any>;
 }
 
+interface CanonicalMemoryLink {
+    memory_item_id: string;
+    digest_id?: string;
+    writeback_run_id?: string;
+    lifecycle_status?: string;
+    verification_status?: string;
+}
+
 interface ActionItem {
     description?: string;
     status?: string;
@@ -52,18 +60,6 @@ function getStatusStyle(status: string): string {
         failed: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
     };
     return styles[status] || 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
-}
-
-function getStatusIcon(status: string): string {
-    const icons: Record<string, string> = {
-        active: '🟢',
-        planned: '📋',
-        closing: '⏳',
-        closed: '✅',
-        aborted: '🚫',
-        failed: '❌',
-    };
-    return icons[status] || '•';
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +97,7 @@ function SessionCard({
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className={`text-xs px-2 py-0.5 rounded font-medium ${getStatusStyle(session.status)}`}>
-                        {getStatusIcon(session.status)} {session.status}
+                        {session.status}
                     </span>
                     <span className="text-xs text-secondary dark:text-gray-400">
                         {session.meeting_type}
@@ -155,6 +151,7 @@ function SessionDetail({
     const actionItems = session.action_items || [];
     const decisions = session.decisions || [];
     const agenda = session.agenda || [];
+    const canonicalMemory = session.metadata?.canonical_memory as CanonicalMemoryLink | undefined;
 
     return (
         <div className="p-5 space-y-5">
@@ -179,7 +176,7 @@ function SessionDetail({
                     </label>
                     <div className="mt-1">
                         <span className={`text-xs px-2 py-1 rounded ${getStatusStyle(session.status)}`}>
-                            {getStatusIcon(session.status)} {session.status}
+                            {session.status}
                         </span>
                     </div>
                 </div>
@@ -217,6 +214,31 @@ function SessionDetail({
                     <div className="text-sm text-primary dark:text-gray-100 mt-1">
                         {formatLocalDateTime(session.ended_at)}
                     </div>
+                </div>
+            )}
+
+            {canonicalMemory?.memory_item_id && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50/70 p-3 dark:border-sky-800 dark:bg-sky-950/30">
+                    <label className="text-[10px] font-medium text-sky-700 dark:text-sky-300 uppercase tracking-wide">
+                        Governed Memory
+                    </label>
+                    <div className="mt-1 text-sm text-sky-900 dark:text-sky-100">
+                        This meeting already produced a canonical memory item that can be reviewed in the governance workspace.
+                    </div>
+                    <div className="mt-2 text-xs text-sky-700/90 dark:text-sky-300/90 font-mono break-all">
+                        {canonicalMemory.memory_item_id}
+                    </div>
+                    <button
+                        onClick={() => {
+                            const params = new URLSearchParams();
+                            params.set('tab', 'memory');
+                            params.set('memoryId', canonicalMemory.memory_item_id);
+                            router.push(`/workspaces/${workspaceId}/governance?${params.toString()}`);
+                        }}
+                        className="mt-3 w-full rounded-lg bg-sky-600 px-3 py-2 text-sm text-white transition-colors hover:bg-sky-700 dark:bg-sky-700 dark:hover:bg-sky-600"
+                    >
+                        Open Memory Governance
+                    </button>
                 </div>
             )}
 
@@ -263,7 +285,7 @@ function SessionDetail({
                             >
                                 <span className={`text-xs mt-0.5 ${item.status === 'done' ? 'text-green-600' : 'text-secondary'
                                     }`}>
-                                    {item.status === 'done' ? '✅' : '☐'}
+                                    {item.status === 'done' ? 'Done' : 'Open'}
                                 </span>
                                 <div className="flex-1 min-w-0">
                                     <div className="text-sm text-primary dark:text-gray-200">
@@ -308,7 +330,7 @@ function SessionDetail({
                 }}
                 className="w-full px-4 py-2 bg-sky-600 dark:bg-sky-700 text-white text-sm rounded-lg hover:bg-sky-700 dark:hover:bg-sky-600 transition-colors"
             >
-                查看對話
+                Open Conversation
             </button>
         </div>
     );
@@ -412,12 +434,11 @@ export default function MeetingWorkbenchPage() {
                 <div className="flex-1 overflow-y-auto p-6">
                     {sessions.length === 0 ? (
                         <div className="text-center py-16">
-                            <div className="text-4xl mb-3">🧭</div>
                             <div className="text-lg font-medium text-primary dark:text-gray-300 mb-1">
-                                尚無 Meeting 紀錄
+                                No meeting records yet
                             </div>
                             <div className="text-sm text-secondary dark:text-gray-400">
-                                啟用 Persistent Meeting 後，對話紀錄會顯示在這裡
+                                Persistent Meeting history will appear here once it is enabled for this workspace.
                             </div>
                         </div>
                     ) : (

@@ -108,6 +108,25 @@ class SessionDigestStore(PostgresStoreBase):
             rows = conn.execute(query, params).fetchall()
             return [self._row_to_digest(r) for r in rows]
 
+    def get_by_source(self, source_type: str, source_id: str) -> Optional[SessionDigest]:
+        """Get the latest digest for a given source identity."""
+        query = text(
+            """
+            SELECT * FROM session_digests
+            WHERE source_type = :source_type AND source_id = :source_id
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        )
+        with self.get_connection() as conn:
+            row = conn.execute(
+                query,
+                {"source_type": source_type, "source_id": source_id},
+            ).fetchone()
+            if not row:
+                return None
+            return self._row_to_digest(row)
+
     def count_since(self, owner_profile_id: str, since: datetime) -> int:
         """Count digests since a given time (for cooldown checks)."""
         query = text(

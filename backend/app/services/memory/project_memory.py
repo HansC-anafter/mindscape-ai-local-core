@@ -69,6 +69,10 @@ class ProjectMemory(BaseModel):
         default_factory=list,
         description="Index of artifacts created in this project"
     )
+    projected_episodes: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Canonical memory projections for legacy project memory consumers",
+    )
     key_conversations: List[str] = Field(
         default_factory=list,
         description="Summaries of key conversations"
@@ -125,6 +129,7 @@ class ProjectMemoryService:
                 decision_history=[],
                 version_evolution=[],
                 artifact_index=[],
+                projected_episodes=[],
                 key_conversations=[]
             )
 
@@ -143,6 +148,7 @@ class ProjectMemoryService:
             decision_history=decision_history,
             version_evolution=version_evolution,
             artifact_index=memory_data.get("artifact_index", []),
+            projected_episodes=memory_data.get("projected_episodes", []),
             key_conversations=memory_data.get("key_conversations", []),
             updated_at=datetime.fromisoformat(memory_data.get("updated_at", _utc_now().isoformat()))
         )
@@ -254,6 +260,32 @@ class ProjectMemoryService:
 
         return memory
 
+    async def add_projected_episode(
+        self,
+        project_id: str,
+        workspace_id: str,
+        episode: Dict[str, Any],
+        *,
+        max_items: int = 20,
+    ) -> ProjectMemory:
+        """Append a canonical projection entry for legacy project memory consumers."""
+        memory = await self.get_project_memory(project_id, workspace_id)
+        projected = list(memory.projected_episodes or [])
+        canonical_projection = dict(episode.get("canonical_projection", {}) or {})
+        source_memory_item_id = canonical_projection.get("source_memory_item_id")
+        if source_memory_item_id and any(
+            (entry.get("canonical_projection", {}) or {}).get("source_memory_item_id")
+            == source_memory_item_id
+            for entry in projected
+        ):
+            return memory
+
+        projected.append(episode)
+        memory.projected_episodes = projected[-max_items:]
+        memory.updated_at = _utc_now()
+        await self._save_project_memory(project_id, workspace_id, memory)
+        return memory
+
     async def _save_project_memory(
         self,
         project_id: str,
@@ -286,6 +318,7 @@ class ProjectMemoryService:
                 for v in memory.version_evolution
             ],
             "artifact_index": memory.artifact_index,
+            "projected_episodes": memory.projected_episodes,
             "key_conversations": memory.key_conversations,
             "updated_at": memory.updated_at.isoformat()
         }
@@ -317,10 +350,16 @@ class ProjectMemoryService:
                     for change in version.key_changes[:3]:
                         parts.append(f"  - {change}")
 
+        if memory.projected_episodes:
+            parts.append("\n## Projected Episodes:")
+            for episode in memory.projected_episodes[-3:]:
+                parts.append(
+                    f"- {episode.get('title', 'Untitled')}: {episode.get('summary', '')}"
+                )
+
         if memory.key_conversations:
             parts.append("\n## Key Conversations:")
             for conv in memory.key_conversations[-3:]:
                 parts.append(f"- {conv}")
 
         return "\n".join(parts) if parts else ""
-

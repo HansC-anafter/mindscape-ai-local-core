@@ -56,6 +56,10 @@ class MemberProfileMemory(BaseModel):
         default_factory=list,
         description="Past project experiences"
     )
+    projected_episodes: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Canonical memory projections for legacy member memory consumers",
+    )
     learnings: Optional[List[str]] = Field(None, description="Key learnings and insights")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
 
@@ -104,6 +108,7 @@ class MemberProfileMemoryService:
                 skills=[],
                 preferences=None,
                 project_experiences=[],
+                projected_episodes=[],
                 learnings=None
             )
 
@@ -120,6 +125,7 @@ class MemberProfileMemoryService:
             skills=workspace_memory.get("skills", []),
             preferences=workspace_memory.get("preferences"),
             project_experiences=project_experiences,
+            projected_episodes=workspace_memory.get("projected_episodes", []),
             learnings=workspace_memory.get("learnings"),
             updated_at=datetime.fromisoformat(
                 workspace_memory.get("updated_at", _utc_now().isoformat())
@@ -132,6 +138,7 @@ class MemberProfileMemoryService:
         workspace_id: str,
         skills: Optional[List[str]] = None,
         preferences: Optional[Dict[str, Any]] = None,
+        projected_episodes: Optional[List[Dict[str, Any]]] = None,
         learnings: Optional[List[str]] = None
     ) -> MemberProfileMemory:
         """
@@ -155,6 +162,8 @@ class MemberProfileMemoryService:
             memory.skills = skills
         if preferences is not None:
             memory.preferences = {**(memory.preferences or {}), **preferences}
+        if projected_episodes is not None:
+            memory.projected_episodes = projected_episodes
         if learnings is not None:
             existing_learnings = memory.learnings or []
             memory.learnings = existing_learnings + learnings
@@ -184,6 +193,7 @@ class MemberProfileMemoryService:
                 }
                 for exp in memory.project_experiences
             ],
+            "projected_episodes": memory.projected_episodes,
             "learnings": memory.learnings,
             "updated_at": memory.updated_at.isoformat()
         }
@@ -257,6 +267,33 @@ class MemberProfileMemoryService:
         logger.info(f"Added project experience for user {user_id}: {project_id}")
         return memory
 
+    async def add_projected_episode(
+        self,
+        user_id: str,
+        workspace_id: str,
+        episode: Dict[str, Any],
+        *,
+        max_items: int = 20,
+    ) -> MemberProfileMemory:
+        """Append a canonical projection entry for legacy member memory consumers."""
+        memory = await self.get_member_memory(user_id, workspace_id)
+        projected = list(memory.projected_episodes or [])
+        canonical_projection = dict(episode.get("canonical_projection", {}) or {})
+        source_memory_item_id = canonical_projection.get("source_memory_item_id")
+        if source_memory_item_id and any(
+            (entry.get("canonical_projection", {}) or {}).get("source_memory_item_id")
+            == source_memory_item_id
+            for entry in projected
+        ):
+            return memory
+
+        projected.append(episode)
+        return await self.update_member_memory(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            projected_episodes=projected[-max_items:],
+        )
+
     def format_for_context(
         self,
         memory: MemberProfileMemory,
@@ -287,5 +324,11 @@ class MemberProfileMemoryService:
             for exp in memory.project_experiences[-3:]:
                 parts.append(f"- {exp.project_type} ({exp.role})")
 
-        return "\n".join(parts) if parts else ""
+        if memory.projected_episodes:
+            parts.append("\n## Projected Episodes:")
+            for episode in memory.projected_episodes[-3:]:
+                parts.append(
+                    f"- {episode.get('title', 'Untitled')}: {episode.get('summary', '')}"
+                )
 
+        return "\n".join(parts) if parts else ""

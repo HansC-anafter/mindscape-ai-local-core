@@ -92,6 +92,28 @@ class GoalLedgerStore(PostgresStoreBase):
         """List only active goals (for prompt injection / anchored extraction)."""
         return self.list_by_owner(owner_profile_id, status="active")
 
+    def list_by_canonical_memory_item(
+        self, source_memory_item_id: str, *, limit: int = 50
+    ) -> List[GoalLedgerEntry]:
+        """List goal entries projected from a canonical memory item."""
+        query = text(
+            """
+            SELECT * FROM goal_ledger
+            WHERE metadata::jsonb -> 'canonical_projection' ->> 'source_memory_item_id' = :source_memory_item_id
+            ORDER BY created_at DESC
+            LIMIT :limit
+            """
+        )
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                query,
+                {
+                    "source_memory_item_id": source_memory_item_id,
+                    "limit": limit,
+                },
+            ).fetchall()
+            return [self._row_to_entry(r) for r in rows]
+
     def update(self, entry: GoalLedgerEntry) -> bool:
         """Full update of a goal entry (after transition_to)."""
         query = text(

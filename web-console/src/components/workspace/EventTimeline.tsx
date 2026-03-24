@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { subscribeEventStream, eventToTimelineItem, UnifiedEvent, TimelineItem } from './eventProjector';
 import { AlertCircle, CheckCircle, Clock, Play, FileText, GitBranch, Wrench } from 'lucide-react';
 import { toTimestampMs, formatLocalDateTime } from '@/lib/time';
@@ -16,6 +17,7 @@ export function EventTimeline({
   apiUrl,
   onJumpToCard,
 }: EventTimelineProps) {
+  const router = useRouter();
   const [events, setEvents] = useState<UnifiedEvent[]>([]);
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
 
@@ -31,6 +33,7 @@ export function EventTimeline({
           'tool_result',
           'playbook_step',
           'branch_proposed',
+          'memory_writeback',
         ],
         onEvent: (event: UnifiedEvent) => {
           setEvents(prev => {
@@ -93,6 +96,8 @@ export function EventTimeline({
         return CheckCircle;
       case 'branch_proposed':
         return GitBranch;
+      case 'memory_writeback':
+        return CheckCircle;
       default:
         return Clock;
     }
@@ -112,6 +117,8 @@ export function EventTimeline({
         return 'text-purple-600 dark:text-purple-400';
       case 'branch_proposed':
         return 'text-orange-600 dark:text-orange-400';
+      case 'memory_writeback':
+        return 'text-sky-600 dark:text-sky-400';
       default:
         return 'text-gray-500 dark:text-gray-500';
     }
@@ -130,6 +137,10 @@ export function EventTimeline({
               className={`flex items-start gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${item.clickable ? 'cursor-pointer' : ''
                 }`}
               onClick={() => {
+                if (item.navigationHref) {
+                  router.push(item.navigationHref);
+                  return;
+                }
                 if (item.clickable && item.targetCardId) {
                   onJumpToCard?.(item.targetCardId);
                 }
@@ -160,4 +171,3 @@ export function EventTimeline({
     </div>
   );
 }
-

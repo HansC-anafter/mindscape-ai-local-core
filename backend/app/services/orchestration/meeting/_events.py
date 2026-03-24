@@ -127,6 +127,8 @@ class MeetingEventsMixin:
         payload: Dict[str, Any],
         actor: EventActor = EventActor.SYSTEM,
         channel: str = "meeting",
+        entity_ids: List[str] | None = None,
+        metadata: Dict[str, Any] | None = None,
     ) -> None:
         """Create and persist a MindEvent, appending to the session event list."""
         event = MindEvent(
@@ -140,8 +142,11 @@ class MeetingEventsMixin:
             thread_id=self.thread_id or self.session.thread_id,
             event_type=event_type,
             payload=payload,
-            entity_ids=[],
-            metadata={"meeting_session_id": self.session.id},
+            entity_ids=list(entity_ids or []),
+            metadata={
+                "meeting_session_id": self.session.id,
+                **(metadata or {}),
+            },
         )
         self.store.create_event(event)
         self._events.append(event)
@@ -191,4 +196,6 @@ class MeetingEventsMixin:
             return f"Round {rd} {status}"
         if event_type == EventType.MESSAGE:
             return "Meeting minutes"
+        if event_type == EventType.MEMORY_WRITEBACK:
+            return "Canonical memory linked"
         return event_type.value

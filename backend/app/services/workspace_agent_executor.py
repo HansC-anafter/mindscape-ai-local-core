@@ -282,7 +282,30 @@ class WorkspaceAgentExecutor:
         except Exception as e:
             logger.warning(f"Failed to load core memory: {e}")
 
-        # 2. Runtime Profile constraints
+        # 2. Governance context + selected memory packet
+        try:
+            from backend.app.services.governance.governance_context_read_model import (
+                GovernanceContextReadModel,
+            )
+            from backend.app.services.mindscape_store import MindscapeStore
+
+            read_model = GovernanceContextReadModel(store=MindscapeStore())
+            governance_packet = await read_model.build_for_workspace(self.workspace)
+            if governance_packet:
+                context["governance_context"] = governance_packet[
+                    "governance_context"
+                ]
+                context["memory_packet"] = governance_packet["memory_packet"]
+
+                memory_context_summary = read_model.format_memory_packet_for_context(
+                    governance_packet
+                )
+                if memory_context_summary:
+                    context["memory_context_summary"] = memory_context_summary
+        except Exception as e:
+            logger.warning(f"Failed to build governance memory packet: {e}")
+
+        # 3. Runtime Profile constraints
         try:
             # Get from workspace metadata or runtime_profile
             runtime_profile = getattr(self.workspace, "runtime_profile", None)
@@ -301,7 +324,7 @@ class WorkspaceAgentExecutor:
         except Exception as e:
             logger.warning(f"Failed to load runtime profile: {e}")
 
-        # 3. Sandbox config constraints
+        # 4. Sandbox config constraints
         sandbox_config = getattr(self.workspace, "sandbox_config", None) or {}
         context["sandbox_constraints"] = {
             "filesystem_scope": sandbox_config.get(

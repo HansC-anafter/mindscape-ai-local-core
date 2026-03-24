@@ -103,6 +103,13 @@ export interface UnifiedEvent {
       differences?: string[];
     }>;
     recommended_branch?: string;
+
+    // MEMORY_WRITEBACK
+    memory_item_id?: string;
+    digest_id?: string;
+    writeback_run_id?: string;
+    lifecycle_status?: string;
+    verification_status?: string;
   };
   entity_ids?: Record<string, string>;
   metadata?: Record<string, any>;
@@ -133,6 +140,7 @@ export interface TimelineItem {
   summary: string;
   clickable: boolean;
   targetCardId?: string;
+  navigationHref?: string;
 }
 
 /**
@@ -524,6 +532,7 @@ export function eventToTimelineItem(event: UnifiedEvent): TimelineItem | null {
     'tool_result',
     'playbook_step',
     'branch_proposed',
+    'memory_writeback',
   ];
 
   if (!importantTypes.includes(event.type)) {
@@ -532,6 +541,7 @@ export function eventToTimelineItem(event: UnifiedEvent): TimelineItem | null {
 
   let summary = '';
   let targetCardId: string | undefined;
+  let navigationHref: string | undefined;
 
   switch (event.type) {
     case 'decision_required':
@@ -554,6 +564,15 @@ export function eventToTimelineItem(event: UnifiedEvent): TimelineItem | null {
       summary = `Branch proposed: ${event.payload.alternatives?.length || 0} candidate plans`;
       targetCardId = event.payload.branch_id;
       break;
+    case 'memory_writeback':
+      summary = `Governed memory linked: ${event.payload.memory_item_id || 'canonical item created'}`;
+      if (event.workspace_id && event.payload.memory_item_id) {
+        const params = new URLSearchParams();
+        params.set('tab', 'memory');
+        params.set('memoryId', event.payload.memory_item_id);
+        navigationHref = `/workspaces/${event.workspace_id}/governance?${params.toString()}`;
+      }
+      break;
     default:
       summary = `${event.type} event`;
   }
@@ -563,8 +582,9 @@ export function eventToTimelineItem(event: UnifiedEvent): TimelineItem | null {
     timestamp: event.timestamp,
     type: event.type,
     summary,
-    clickable: !!targetCardId,
+    clickable: !!targetCardId || !!navigationHref,
     targetCardId,
+    navigationHref,
   };
 }
 
@@ -725,6 +745,7 @@ function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
     // Governance events
     'meeting_start',
     'meeting_end',
+    'memory_writeback',
     'decision_made',
     'reasoning_committed',
     'intent_patched',

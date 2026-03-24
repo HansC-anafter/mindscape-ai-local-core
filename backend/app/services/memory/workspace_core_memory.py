@@ -49,6 +49,10 @@ class WorkspaceCoreMemory(BaseModel):
     important_milestones: Optional[List[Dict[str, Any]]] = Field(
         None, description="Important milestones and achievements"
     )
+    projected_episodes: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Canonical memory projections for legacy workspace memory consumers",
+    )
     learnings: Optional[List[str]] = Field(
         None, description="Key learnings and insights from past projects"
     )
@@ -101,6 +105,7 @@ class WorkspaceCoreMemoryService:
                 voice_and_tone=None,
                 style_constraints=None,
                 important_milestones=None,
+                projected_episodes=None,
                 learnings=None,
             )
 
@@ -110,6 +115,7 @@ class WorkspaceCoreMemoryService:
             voice_and_tone=memory_data.get("voice_and_tone"),
             style_constraints=memory_data.get("style_constraints"),
             important_milestones=memory_data.get("important_milestones"),
+            projected_episodes=memory_data.get("projected_episodes"),
             learnings=memory_data.get("learnings"),
             updated_at=datetime.fromisoformat(
                 memory_data.get("updated_at", _utc_now().isoformat())
@@ -123,6 +129,7 @@ class WorkspaceCoreMemoryService:
         voice_and_tone: Optional[Dict[str, Any]] = None,
         style_constraints: Optional[List[str]] = None,
         important_milestones: Optional[List[Dict[str, Any]]] = None,
+        projected_episodes: Optional[List[Dict[str, Any]]] = None,
         learnings: Optional[List[str]] = None,
     ) -> WorkspaceCoreMemory:
         """
@@ -152,6 +159,8 @@ class WorkspaceCoreMemoryService:
         if important_milestones is not None:
             existing_milestones = memory.important_milestones or []
             memory.important_milestones = existing_milestones + important_milestones
+        if projected_episodes is not None:
+            memory.projected_episodes = projected_episodes
         if learnings is not None:
             existing_learnings = memory.learnings or []
             memory.learnings = existing_learnings + learnings
@@ -165,6 +174,7 @@ class WorkspaceCoreMemoryService:
             "voice_and_tone": memory.voice_and_tone,
             "style_constraints": memory.style_constraints,
             "important_milestones": memory.important_milestones,
+            "projected_episodes": memory.projected_episodes,
             "learnings": memory.learnings,
             "updated_at": memory.updated_at.isoformat(),
         }
@@ -215,6 +225,28 @@ class WorkspaceCoreMemoryService:
             workspace_id=workspace_id, learnings=existing_learnings
         )
 
+    async def add_projected_episode(
+        self, workspace_id: str, episode: Dict[str, Any], *, max_items: int = 20
+    ) -> WorkspaceCoreMemory:
+        """Append a canonical projection entry for legacy workspace memory consumers."""
+        memory = await self.get_core_memory(workspace_id)
+        projected = list(memory.projected_episodes or [])
+        canonical_projection = dict(episode.get("canonical_projection", {}) or {})
+        source_memory_item_id = canonical_projection.get("source_memory_item_id")
+        if source_memory_item_id and any(
+            (entry.get("canonical_projection", {}) or {}).get("source_memory_item_id")
+            == source_memory_item_id
+            for entry in projected
+        ):
+            return memory
+
+        projected.append(episode)
+        memory.updated_at = _utc_now()
+        return await self.update_core_memory(
+            workspace_id=workspace_id,
+            projected_episodes=projected[-max_items:],
+        )
+
     def format_for_context(self, memory: WorkspaceCoreMemory) -> str:
         """
         Format core memory for LLM context injection
@@ -249,6 +281,13 @@ class WorkspaceCoreMemoryService:
                 date = milestone.get("date", "")
                 description = milestone.get("description", "")
                 parts.append(f"- {title} ({date}): {description}")
+
+        if memory.projected_episodes:
+            parts.append("\n## Projected Episodes:")
+            for episode in memory.projected_episodes[-3:]:
+                parts.append(
+                    f"- {episode.get('title', 'Untitled')}: {episode.get('summary', '')}"
+                )
 
         if memory.learnings:
             parts.append("\n## Key Learnings:")

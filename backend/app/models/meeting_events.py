@@ -53,3 +53,13 @@ class MeetingRoundPayload(BaseModel):
     status: str
     speaker_order: List[str] = Field(default_factory=list)
     summary: str
+
+
+class MemoryWritebackPayload(BaseModel):
+    meeting_session_id: str
+    memory_item_id: str
+    digest_id: str
+    writeback_run_id: str
+    lifecycle_status: str
+    verification_status: str
+    project_id: Optional[str] = None

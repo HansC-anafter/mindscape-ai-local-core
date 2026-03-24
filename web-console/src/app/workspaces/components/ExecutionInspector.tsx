@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useT } from '@/lib/i18n';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
@@ -22,6 +23,13 @@ import RestartConfirmDialog from './execution-inspector/RestartConfirmDialog';
 import SandboxModalWrapper from './execution-inspector/SandboxModalWrapper';
 import type { ExecutionInspectorProps } from './execution-inspector/types/execution';
 
+interface RelatedGovernedMemoryLink {
+  eventId: string;
+  memoryItemId: string;
+  lifecycleStatus?: string;
+  verificationStatus?: string;
+}
+
 export default function ExecutionInspector({
   executionId,
   workspaceId,
@@ -32,6 +40,8 @@ export default function ExecutionInspector({
   const workspaceData = useWorkspaceDataOptional();
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const [showSandboxModal, setShowSandboxModal] = useState(false);
+  const [relatedMemory, setRelatedMemory] = useState<RelatedGovernedMemoryLink | null>(null);
+  const [relatedMemoryLoading, setRelatedMemoryLoading] = useState(false);
 
   // Use data hooks
   const executionCore = useExecutionCore(executionId, workspaceId, apiUrl, workspaceData as any);
@@ -188,13 +198,94 @@ export default function ExecutionInspector({
     return executionSteps.toolCalls.filter(tc => tc.step_id === currentStep?.id);
   }, [executionSteps.toolCalls, currentStep?.id]);
 
+  const executionThreadId = useMemo(() => {
+    const executionContext = executionCore.execution?.execution_context as Record<string, any> | undefined;
+    const inputs = executionContext?.inputs as Record<string, any> | undefined;
+    return (
+      (typeof inputs?.thread_id === 'string' && inputs.thread_id) ||
+      (typeof executionCore.execution?.thread_id === 'string' && executionCore.execution.thread_id) ||
+      (typeof executionContext?.thread_id === 'string' && executionContext.thread_id) ||
+      null
+    );
+  }, [executionCore.execution]);
+
+  const relatedMemoryHref = useMemo(() => {
+    if (!relatedMemory?.memoryItemId) {
+      return null;
+    }
+    const params = new URLSearchParams();
+    params.set('tab', 'memory');
+    params.set('memoryId', relatedMemory.memoryItemId);
+    return `/workspaces/${workspaceId}/governance?${params.toString()}`;
+  }, [relatedMemory?.memoryItemId, workspaceId]);
+
+  useEffect(() => {
+    if (!workspaceId || !executionThreadId) {
+      setRelatedMemory(null);
+      setRelatedMemoryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadRelatedMemory = async () => {
+      try {
+        setRelatedMemoryLoading(true);
+        const params = new URLSearchParams();
+        params.set('event_types', 'memory_writeback');
+        params.set('thread_id', executionThreadId);
+        params.set('limit', '10');
+
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/events?${params.toString()}`
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to load related governed memory: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const latestMemoryEvent = (data.events || []).find(
+          (event: any) => typeof event?.payload?.memory_item_id === 'string' && event.payload.memory_item_id
+        );
+
+        if (!cancelled) {
+          setRelatedMemory(
+            latestMemoryEvent
+              ? {
+                  eventId: latestMemoryEvent.id,
+                  memoryItemId: latestMemoryEvent.payload.memory_item_id,
+                  lifecycleStatus: latestMemoryEvent.payload.lifecycle_status,
+                  verificationStatus: latestMemoryEvent.payload.verification_status,
+                }
+              : null
+          );
+        }
+      } catch (error) {
+        console.error('[ExecutionInspector] Failed to load related governed memory:', error);
+        if (!cancelled) {
+          setRelatedMemory(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setRelatedMemoryLoading(false);
+        }
+      }
+    };
+
+    void loadRelatedMemory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, executionId, executionThreadId, workspaceId]);
+
   // Handle restart confirmation
   const handleRestartConfirm = useCallback(() => {
     setShowRestartConfirm(false);
     if (executionCore.execution?.playbook_code && executionId) {
       actions.restartExecution();
     }
-  }, [executionCore.execution?.playbook_code, executionId, actions.restartExecution]);
+  }, [executionCore.execution?.playbook_code, executionId, actions]);
 
   // Handle artifact view
   const handleArtifactView = useCallback((artifact: typeof artifacts[0]) => {
@@ -283,6 +374,42 @@ export default function ExecutionInspector({
                     // TODO: Open outputs drawer/modal - could scroll to artifacts section
                   }}
                 />
+
+                {(relatedMemoryLoading || relatedMemoryHref) && (
+                  <div className="mx-4 mt-3 rounded-lg border border-default dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          {t('relatedGovernedMemory' as any) || 'Related Governed Memory'}
+                        </p>
+                        {relatedMemoryLoading ? (
+                          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                            {t('loading' as any) || 'Loading...'}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-sm text-gray-800 dark:text-gray-100">
+                            {relatedMemory?.memoryItemId}
+                            {(relatedMemory?.lifecycleStatus || relatedMemory?.verificationStatus) && (
+                              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                                {[relatedMemory?.lifecycleStatus, relatedMemory?.verificationStatus]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </span>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                      {relatedMemoryHref && (
+                        <Link
+                          href={relatedMemoryHref}
+                          className="inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-500"
+                        >
+                          {t('openGovernedMemory' as any) || 'Open Governed Memory'}
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Steps Timeline & Current Step Details - Main Work Area */}
                 <div className="grid grid-cols-[280px,minmax(0,1fr)] gap-0 overflow-hidden bg-surface dark:bg-gray-950 h-full">
