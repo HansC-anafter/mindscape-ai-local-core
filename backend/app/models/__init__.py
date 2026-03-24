@@ -66,6 +66,14 @@ from .habit import (
     HabitMetricsResponse,
 )
 
+from .runtime_execution_intent import (
+    BindingMode,
+    ExecutionBackend,
+    PolicyMode,
+    ResolutionMode,
+    WorkloadExecutionIntent,
+)
+
 __all__ = [
     # Mindscape
     "MindscapeProfile",
@@ -122,4 +130,10 @@ __all__ = [
     "RejectHabitCandidateRequest",
     "HabitCandidateResponse",
     "HabitMetricsResponse",
+    # Runtime Execution Intent
+    "PolicyMode",
+    "BindingMode",
+    "ResolutionMode",
+    "ExecutionBackend",
+    "WorkloadExecutionIntent",
 ]

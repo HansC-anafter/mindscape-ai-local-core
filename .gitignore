@@ -84,7 +84,16 @@ test_*.yaml
 !backend/tests/test_app_bootstrap.py
 !backend/tests/test_system_control_restart_api.py
 !backend/tests/test_runner_time_tzinfo.py
+!backend/tests/test_workspace_governance_memory_transition_api.py
 !backend/tests/routes/test_agent_dispatch_pubsub.py
+!backend/tests/services/memory/meeting_memory_writeback_orchestrator_test.py
+!backend/tests/services/memory/digest_extraction_projection_test.py
+!backend/tests/services/memory/legacy_metadata_memory_projection_adapter_test.py
+!backend/tests/services/memory/memory_promotion_service_test.py
+!backend/tests/services/memory/memory_engine_closure_integration_test.py
+!backend/tests/services/orchestration/meeting/test_session_memory_linkage.py
+!backend/tests/services/governance_context_read_model_test.py
+!backend/tests/services/memory_packet_compiler_test.py
 !web-console/src/lib/__tests__/time.test.ts
 !backend/tests/test_workspace_instruction_chat_merge.py
 !web-console/src/app/workspaces/**/instruction/page.test.tsx

@@ -184,7 +184,10 @@ class DigestExtractionService:
         self.digest_store = SessionDigestStore()
 
     async def extract_from_digest(
-        self, digest: SessionDigest, meta_session_id: str = ""
+        self,
+        digest: SessionDigest,
+        meta_session_id: str = "",
+        projection_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Run extraction pipeline on a single digest.
 
@@ -219,7 +222,12 @@ class DigestExtractionService:
         # Process knowledge candidates
         knowledge_items = extraction.get("personal_knowledge", [])
         for item in knowledge_items[:5]:  # hard cap
-            receipt = self._process_knowledge_item(item, digest, meta_session_id)
+            receipt = self._process_knowledge_item(
+                item,
+                digest,
+                meta_session_id,
+                projection_context=projection_context,
+            )
             if receipt:
                 result["receipts"].append(receipt)
                 if receipt.status == "completed":
@@ -235,7 +243,12 @@ class DigestExtractionService:
         for item in goal_items[:5]:  # hard cap
             if goals_written >= 3:  # writeback policy: max 3 goals per session
                 break
-            receipt = self._process_goal_item(item, digest, meta_session_id)
+            receipt = self._process_goal_item(
+                item,
+                digest,
+                meta_session_id,
+                projection_context=projection_context,
+            )
             if receipt:
                 result["receipts"].append(receipt)
                 if receipt.status == "completed":
@@ -258,6 +271,7 @@ class DigestExtractionService:
         item: Dict[str, Any],
         digest: SessionDigest,
         meta_session_id: str,
+        projection_context: Optional[Dict[str, Any]] = None,
     ) -> Optional[WritebackReceipt]:
         """Process a single knowledge extraction result."""
         content = item.get("content", "").strip()
@@ -299,6 +313,7 @@ class DigestExtractionService:
                 )
 
         # Create candidate
+        canonical_metadata = _build_canonical_projection_metadata(projection_context)
         entry = PersonalKnowledge(
             owner_profile_id=digest.owner_profile_id,
             knowledge_type=knowledge_type,
@@ -310,7 +325,10 @@ class DigestExtractionService:
             ],
             source_workspace_ids=digest.workspace_refs,
             valid_scope="global",
-            metadata={"extraction_source": "digest_extraction_v1"},
+            metadata={
+                "extraction_source": "digest_extraction_v1",
+                **canonical_metadata,
+            },
         )
         self.pk_store.create(entry)
 
@@ -321,6 +339,7 @@ class DigestExtractionService:
             target_id=entry.id,
             writeback_type="candidate",
             status="completed",
+            metadata=dict(canonical_metadata),
         )
 
     def _process_goal_item(
@@ -328,6 +347,7 @@ class DigestExtractionService:
         item: Dict[str, Any],
         digest: SessionDigest,
         meta_session_id: str,
+        projection_context: Optional[Dict[str, Any]] = None,
     ) -> Optional[WritebackReceipt]:
         """Process a single goal extraction result."""
         title = item.get("title", "").strip()
@@ -356,6 +376,7 @@ class DigestExtractionService:
                     )
 
         # Create new goal as pending_confirmation
+        canonical_metadata = _build_canonical_projection_metadata(projection_context)
         entry = GoalLedgerEntry(
             owner_profile_id=digest.owner_profile_id,
             title=title,
@@ -367,6 +388,7 @@ class DigestExtractionService:
             metadata={
                 "extraction_source": "digest_extraction_v1",
                 "confidence": confidence,
+                **canonical_metadata,
             },
         )
         self.gl_store.create(entry)
@@ -378,6 +400,7 @@ class DigestExtractionService:
             target_id=entry.id,
             writeback_type="pending_confirmation",
             status="completed",
+            metadata=dict(canonical_metadata),
         )
 
 
@@ -386,11 +409,19 @@ class DigestExtractionService:
 # ---------------------------------------------------------------------------
 
 
-async def trigger_extraction(digest: SessionDigest, meta_session_id: str = "") -> None:
+async def trigger_extraction(
+    digest: SessionDigest,
+    meta_session_id: str = "",
+    projection_context: Optional[Dict[str, Any]] = None,
+) -> None:
     """Fire-and-forget extraction trigger. Safe to call from close hooks."""
     try:
         svc = DigestExtractionService()
-        result = await svc.extract_from_digest(digest, meta_session_id)
+        result = await svc.extract_from_digest(
+            digest,
+            meta_session_id,
+            projection_context=projection_context,
+        )
 
         # Persist receipts
         if result["receipts"]:
@@ -406,8 +437,8 @@ async def trigger_extraction(digest: SessionDigest, meta_session_id: str = "") -
                                 """
                                 INSERT INTO writeback_receipts
                                 (id, meta_session_id, source_decision_id, target_table,
-                                 target_id, writeback_type, status, created_at)
-                                VALUES (:id, :msid, :sdid, :tt, :tid, :wt, :st, now())
+                                 target_id, writeback_type, status, created_at, metadata)
+                                VALUES (:id, :msid, :sdid, :tt, :tid, :wt, :st, now(), :metadata)
                             """
                             ),
                             {
@@ -418,6 +449,7 @@ async def trigger_extraction(digest: SessionDigest, meta_session_id: str = "") -
                                 "tid": r.target_id,
                                 "wt": r.writeback_type,
                                 "st": r.status,
+                                "metadata": base.serialize_json(r.metadata),
                             },
                         )
             except Exception as exc:
@@ -431,3 +463,28 @@ async def trigger_extraction(digest: SessionDigest, meta_session_id: str = "") -
         )
     except Exception as exc:
         logger.warning("Extraction trigger failed for digest %s: %s", digest.id, exc)
+
+
+def _build_canonical_projection_metadata(
+    projection_context: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not projection_context:
+        return {}
+    metadata = {
+        "canonical_projection": {
+            "source_memory_item_id": projection_context.get("source_memory_item_id"),
+            "source_writeback_run_id": projection_context.get(
+                "source_writeback_run_id"
+            ),
+            "projection_stage": projection_context.get("projection_stage"),
+            "source_digest_id": projection_context.get("source_digest_id"),
+        }
+    }
+    metadata["canonical_projection"] = {
+        key: value
+        for key, value in metadata["canonical_projection"].items()
+        if value not in (None, "")
+    }
+    if not metadata["canonical_projection"]:
+        return {}
+    return metadata

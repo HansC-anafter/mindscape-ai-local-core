@@ -97,6 +97,28 @@ class PersonalKnowledgeStore(PostgresStoreBase):
             owner_profile_id, status=KnowledgeStatus.VERIFIED.value
         )
 
+    def list_by_canonical_memory_item(
+        self, source_memory_item_id: str, *, limit: int = 50
+    ) -> List[PersonalKnowledge]:
+        """List entries projected from a canonical memory item."""
+        query = text(
+            """
+            SELECT * FROM personal_knowledge
+            WHERE metadata::jsonb -> 'canonical_projection' ->> 'source_memory_item_id' = :source_memory_item_id
+            ORDER BY created_at DESC
+            LIMIT :limit
+            """
+        )
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                query,
+                {
+                    "source_memory_item_id": source_memory_item_id,
+                    "limit": limit,
+                },
+            ).fetchall()
+            return [self._row_to_entry(r) for r in rows]
+
     def update_status(
         self,
         entry_id: str,
@@ -114,6 +136,40 @@ class PersonalKnowledgeStore(PostgresStoreBase):
         query = text(
             f"UPDATE personal_knowledge SET {', '.join(updates)} WHERE id = :id"
         )
+        with self.transaction() as conn:
+            result = conn.execute(query, params)
+            return result.rowcount > 0
+
+    def update(self, entry: PersonalKnowledge) -> bool:
+        query = text(
+            """
+            UPDATE personal_knowledge SET
+                knowledge_type = :knowledge_type,
+                content = :content,
+                status = :status,
+                confidence = :confidence,
+                source_evidence = :source_evidence,
+                source_workspace_ids = :source_workspace_ids,
+                last_verified_at = :last_verified_at,
+                expires_at = :expires_at,
+                valid_scope = :valid_scope,
+                metadata = :metadata
+            WHERE id = :id
+            """
+        )
+        params = {
+            "id": entry.id,
+            "knowledge_type": entry.knowledge_type,
+            "content": entry.content,
+            "status": entry.status,
+            "confidence": entry.confidence,
+            "source_evidence": self.serialize_json(entry.source_evidence),
+            "source_workspace_ids": self.serialize_json(entry.source_workspace_ids),
+            "last_verified_at": entry.last_verified_at,
+            "expires_at": entry.expires_at,
+            "valid_scope": entry.valid_scope,
+            "metadata": self.serialize_json(entry.metadata),
+        }
         with self.transaction() as conn:
             result = conn.execute(query, params)
             return result.rowcount > 0

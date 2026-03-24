@@ -9,6 +9,7 @@ Main facade for building context for LLM prompts from workspace data:
 """
 
 import logging
+from types import SimpleNamespace
 from typing import Dict, Any, List, Optional, Tuple
 
 from backend.app.services.model_context_presets import get_context_preset
@@ -63,6 +64,11 @@ class ContextBuilder:
         self.side_chain_handler = SideChainHandler(
             store=store, timeline_items_store=timeline_items_store
         )
+        from backend.app.services.governance.memory_packet_compiler import (
+            MemoryPacketCompiler,
+        )
+
+        self.memory_packet_compiler = MemoryPacketCompiler()
 
         logger.info(
             f"ContextBuilder initialized with model: {model_name or 'default'}, "
@@ -99,13 +105,33 @@ class ContextBuilder:
             Context string to inject into LLM prompt
         """
         context_parts = []
-
-        # Layered memory system
-        context_parts.extend(
-            await self._build_layered_memory_context(
-                workspace_id, profile_id, project_id
-            )
+        governance_packet = await self._load_governance_context_packet(
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            workspace=workspace,
+            project_id=project_id,
         )
+
+        # Governance-routed memory packet
+        if governance_packet:
+            compiled_packet = self.memory_packet_compiler.compile_for_context(
+                governance_packet
+            )
+            if compiled_packet:
+                context_parts.append("\n## Governance Context Packet:")
+                context_parts.append(compiled_packet)
+                logger.info(
+                    "Injected governance packet with route=%s",
+                    self.memory_packet_compiler.build_route_plan(governance_packet),
+                )
+
+        # Layered memory system fallback
+        if not governance_packet:
+            context_parts.extend(
+                await self._build_layered_memory_context(
+                    workspace_id, profile_id, project_id
+                )
+            )
 
         # Workspace metadata
         context_parts.extend(
@@ -191,9 +217,19 @@ class ContextBuilder:
                 workspace_id=workspace_id, message=message, profile_id=profile_id
             )
             if long_term_memory:
-                context_parts.append("\n## Long-term Knowledge:")
-                context_parts.append(long_term_memory)
-                logger.info("Injected long-term memory context into QA context")
+                if governance_packet:
+                    context_parts.append("\n## Semantic Memory Hits:")
+                    context_parts.append(long_term_memory)
+                    logger.info(
+                        "Injected semantic memory tail into QA context (route=%s)",
+                        self.memory_packet_compiler.build_route_plan(
+                            governance_packet, include_semantic_hits=True
+                        ),
+                    )
+                else:
+                    context_parts.append("\n## Long-term Knowledge:")
+                    context_parts.append(long_term_memory)
+                    logger.info("Injected long-term memory context into QA context")
         except Exception as e:
             logger.debug(f"Failed to get long-term memory context: {e}")
 
@@ -269,6 +305,47 @@ class ContextBuilder:
             logger.warning(f"Failed to load layered memory: {e}")
 
         return context_parts
+
+    async def _load_governance_context_packet(
+        self,
+        workspace_id: str,
+        profile_id: Optional[str],
+        workspace: Optional[Any],
+        project_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Load governance-selected memory packet."""
+        try:
+            from backend.app.services.governance.governance_context_read_model import (
+                GovernanceContextReadModel,
+            )
+            from backend.app.services.mindscape_store import MindscapeStore
+
+            workspace_ref = workspace
+            store = self.store or MindscapeStore()
+            if workspace_ref is None:
+                workspace_ref = await store.get_workspace(workspace_id)
+
+            if workspace_ref is None:
+                workspace_ref = SimpleNamespace(
+                    id=workspace_id,
+                    owner_user_id=profile_id or "",
+                    primary_project_id=project_id,
+                    mode=None,
+                    execution_mode=None,
+                    runtime_profile=None,
+                    sandbox_config={},
+                    metadata={},
+                )
+
+            read_model = GovernanceContextReadModel(store=store)
+            return await read_model.build_for_workspace(
+                workspace_ref,
+                profile_id=profile_id,
+                project_id=project_id,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to build governance context packet: {e}")
+        return None
 
     def _build_workspace_metadata_context(
         self, workspace: Any, workspace_id: str

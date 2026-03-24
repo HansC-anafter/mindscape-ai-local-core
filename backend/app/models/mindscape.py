@@ -368,6 +368,9 @@ class EventType(str, Enum):
     # Governance events (intent governance paradigm)
     MEETING_START = "meeting_start"  # Governance meeting session started
     MEETING_END = "meeting_end"  # Governance meeting session ended
+    MEMORY_WRITEBACK = (
+        "memory_writeback"  # Canonical memory writeback completed for a meeting session
+    )
     DECISION_MADE = (
         "decision_made"  # Decision finalized (complement to DECISION_REQUIRED)
     )
