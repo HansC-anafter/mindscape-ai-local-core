@@ -2,7 +2,7 @@
 
 Mind Lens represents perspective/viewpoint - how to see, where to focus attention, how to make trade-offs. It is distinct from Policy (constraints) - Lens is like driving style, Policy is like guardrails.
 
-**Last updated**: 2025-12-22
+**Last updated**: 2026-03-25
 
 ---
 
@@ -15,6 +15,47 @@ Mind Lens is a core abstraction for representing different perspectives and view
 - Lens can be stacked, weighted, scoped
 - Lens is replaceable and versionable
 - Lens focuses on "how to interpret" not "what cannot be done"
+
+---
+
+## Current Public Framing
+
+In the current public architecture, **Mind-Lens is the viewpoint layer inside Governance Context**.
+
+It defines how work should be interpreted, what kinds of trade-offs should be preferred, and what kind of output style should be rendered. The runtime resolves that viewpoint through a three-layer composition:
+
+1. **Global Preset**
+2. **Workspace Override**
+3. **Session Override**
+
+This is reflected directly in the effective lens resolver, which merges a global preset with workspace and session overrides to produce the runtime lens used during execution.
+
+Mind-Lens is also one of the structural pieces behind **shareable expert viewpoints and working methods**:
+
+- `Mind-Lens` supplies the viewpoint layer
+- `AI role config` supplies role identity, tool selection, and profile overrides
+- scoped playbooks supply the executable working method
+- portable export and preset packaging make the configuration movable across profiles, workspaces, or local instances
+
+That means a portable expert module in Mindscape is closer to a governed combination of **viewpoint + role + workflow** than a single prompt template.
+
+---
+
+## Runtime and Portability
+
+### Effective Lens Resolution
+
+The runtime does not use a single static lens definition. It resolves an effective lens from:
+
+- active global preset
+- workspace override
+- session override
+
+This gives Mindscape a stable baseline while still allowing project-level and session-level tuning.
+
+### Preset Packaging and Installation
+
+The codebase also includes preset packaging and installation services. A lens preset can be packaged into a distributable unit and installed into another profile, which is the foundation for portable expert viewpoints.
 
 ---
 
@@ -337,7 +378,6 @@ The `mind_lens` field contains resolved lens values that influence how tasks are
 ---
 
 **Last updated**: 2025-12-22
-
 
 
 

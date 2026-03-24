@@ -6,12 +6,14 @@
 
 `mindscape-ai-local-core` is the open-source core of **Mindscape AI** — a **local-first**, **human-governable** cognitive engine for agentic workflows.
 
-It turns your long-term goals, projects, and creative themes into a **governable, navigable mindscape**, so the LLM is not just answering isolated prompts, but **thinking and acting with you across time** — with full traceability, rollback, and human oversight.
+It turns your long-term goals, projects, and creative themes into a **governable, navigable mindscape** for AI that can **think and act with you across time** — with full traceability, rollback, and human oversight.
 
 You can use it in two ways:
 
 - as a **cognitive engine** inside your existing agent stack
-- as an **end-to-end local workspace** with optional project / flow / playbook actuation
+- as an **end-to-end local workspace** with optional `Project / Flow / Playbook / Sandbox` actuation
+
+It is also natively compatible with **Agent Skills (`SKILL.md`)** and **MCP**, so it can plug into existing agent workflows without requiring the local actuation layer.
 
 ### 🎯 Two Core Principles
 
@@ -24,7 +26,7 @@ You can use it in two ways:
 
 ### 🎨 Mind-Lens: A Palette for Rendering
 
-> **Mind-Lens is a Palette for rendering** — a user-authored control surface that *projects* values, aesthetics, and working style into AI execution. It does not "represent you"; it helps you **direct outputs consistently** across workflows.
+> **Mind-Lens is a Palette for rendering** — a user-authored control surface that *projects* values, aesthetics, and working style into AI execution, helping you **direct outputs consistently** across workflows.
 
 Mind-Lens works as a **three-layer palette**:
 
@@ -36,68 +38,23 @@ Both the **Mindscape Graph** (author mode) and **Workspace execution** (runtime 
 
 ---
 
-### 🤖 Mindscape Assistant (Momo)
+## 🧠 Mindscape Engine
 
-> **Momo is a persistent collaborator inside your mindscape** — it checks configurations, organizes information, and coordinates your AI tools. But it never makes decisions or speaks on your behalf. You stay in control.
+Mindscape AI is a local-first engine that compiles governance context, runs live deliberation, preserves long-term continuity, and optionally routes work into local or external execution layers.
 
-**The Three "Don'ts"**:
+> **Governance Context → Meeting Runtime ↔ Governed Memory Fabric → Optional Actuation / External Runtimes → Artifacts, Decisions, and Writeback**
 
-| Boundary | What it means |
-|----------|---------------|
-| ❌ **Never decides for you** | Momo presents options and recommendations, but every final decision is yours. |
-| ❌ **Never speaks for you** | Momo drafts content but doesn't publish or send anything without your explicit approval. |
-| ❌ **Never claims to be you** | Momo is clearly an AI assistant, not an extension of your identity. |
+The core pieces are:
 
-**What Momo does**:
-- **Configuration Assistance**: Health checks, validation, and reminders for your system settings
-- **Information Organization**: Structures your intents, playbooks, and knowledge into navigable forms
-- **Tool Coordination**: Orchestrates other AI tools and services on your behalf
+- **Governance Context** — `Intent`, `Mind-Lens`, and `Policy` define why work matters, how trade-offs are made, and what boundaries cannot be crossed.
+- **Meeting Runtime** — Mindscape Meeting handles live deliberation, clarification, convergence, dispatch, and loop closure.
+- **Governed Memory Fabric** — evidence, episodic compression, durable memory, invalidation, and serving preserve continuity across runs.
+- **Optional Actuation** — `Project / Flow / Playbook / Tools / Sandbox` or external runtimes turn cognition into execution when needed.
+- **Reviewable Outputs** — execution traces, artifacts, decisions, and writebacks keep the system inspectable and correctable over time.
 
-This philosophy ensures that Mindscape AI remains a **governance-first** platform where humans retain meaningful control.
+`Mind-Model VC` remains part of the system, but as a versioning dimension inside governance context rather than the primary name for the engine.
 
----
-
-## 🧠 AI-driven visible thinking workflow
-
-Instead of "chat in, answer out", Mindscape AI is designed as an **AI-driven visible thinking workflow**:
-
-> **Signal → Intent Governance → Meeting Runtime ↔ Governed Memory Fabric → Project/Flow → Playbooks / Tools → Sandbox → Artifacts & Decisions**
-
-At the center of this workflow is a cognitive core:
-
-- **Meeting Runtime** — live deliberation, clarification, convergence, dispatch, and loop closure
-- **Governed Memory Fabric** — long-term continuity, evidence, promotion, invalidation, and serving
-
-Together they operate under a governance context:
-
-- **Intent** — what matters and why
-- **Mind-Lens** — how to see, render, and make trade-offs
-- **Policy** — what cannot be violated
-
-1. **Capture your mindscape**
-
-   - Turn life themes, long-term projects, and recurring tasks into **intents** and **projects** inside a workspace.
-
-2. **Compile governance context**
-
-   - **Mind-Model VC** organizes clues you're willing to provide into reviewable, adjustable, and rollback-able mind state recipes with version history.
-   - **Mind-Lens** shapes viewpoint and trade-offs.
-   - **Policy** keeps execution inside human-defined boundaries.
-
-3. **Think in meetings, preserve continuity in memory**
-
-   - **Mindscape Meeting** handles live thinking and convergence.
-   - The **Governed Memory Fabric** preserves episodic, interface, core, and procedural continuity across time.
-
-4. **Attach optional actuation**
-
-   - Keep your existing workflow framework, or connect Mindscape's own **playbooks / tools / sandboxed runtimes** when you want end-to-end local execution.
-
-5. **See, revise, and iterate**
-
-   - Execution leaves visible traces, artifacts, decisions, and writebacks, so the system can be reviewed and corrected over time.
-
-This repo contains the local engine that wires these pieces together: governance context, meeting runtime, governed memory, external runtime adapters, and an optional local actuation layer.
+This repo packages these pieces into a local engine that can either plug into your existing agent stack or power an end-to-end local workspace.
 
 ---
 
@@ -169,7 +126,7 @@ Works with custom **MCP** and **A2A** agents too.
 | **Runtime adapter** | Workspace-bound execution context, governance constraints, trace-ready handoff |
 | **Cross-agent continuity** | Episodic / core / procedural memory that survives sessions and frameworks |
 
-**Important**: `Project / Flow / Playbooks / Sandbox` are **optional actuation modules**, not a prerequisite for using Mindscape as a cognitive engine.
+**Important**: `Project / Flow / Playbooks / Sandbox` are **optional actuation modules** that you can attach when you want end-to-end local execution.
 
 Framework logos are the property of their respective projects and are used here for integration identification.
 
@@ -187,7 +144,7 @@ Mindscape is best understood through the kinds of continuity it governs.
 | **Practice and Coaching Loops** | Session memory, progress baselines, feedback safety, retention loops | coaching apps, guided practice systems, domain companions |
 | **Agentic Workflow Sidecar** | Deliberation, reflection, memory packet routing, governed writeback across runs | OpenAI Agents SDK, LangGraph, CrewAI, custom MCP/A2A stacks |
 
-These are **scenario families**, not product silos.
+These are **scenario families**.
 Public documentation stays at the level of governance, deliberation, memory, continuity, and generic integration boundaries.
 
 ---
@@ -213,28 +170,27 @@ Examples of built-in system playbooks:
 
 You can add your own playbooks to encode your personal workflows, client SOPs, or agency services.
 
-### 🧱 Shareable cognitive modules (even without the cloud)
+### 🧱 Shareable expert viewpoints and working methods
 
-If you use the optional local actuation layer, this repo is not limited to "one user on one machine".
+If you use the optional local actuation layer, Mindscape can package a domain expert's **way of seeing, working, and setting execution boundaries** into reusable modules.
 
-The core concepts – **playbooks**, **AI team members**, and **mind-lens / workspace profiles** – are all designed as
-**shareable cognitive modules**:
+In practice, that module is built from a governed combination of:
 
-- You can create your own playbooks, AI roles, and mind-lens configurations.
-- You can import playbooks and AI team presets created by others (from repos, bundles, or future marketplaces).
-- You can treat a "bundle" of `AI team member + mind-lens + playbooks` as a reusable kit for a specific domain
-  (e.g., a "book-writing companion", an "SEO advisor", or a "design consultant").
+- **Viewpoint layer**: `Mind-Lens` presets and overrides shape how problems are interpreted, how trade-offs are made, and what kind of output should be rendered.
+- **Role layer**: AI role configs persist role identity, associated playbooks, allowed tools, and role-specific `mindscape_profile_override` adjustments.
+- **Workflow layer**: playbooks carry `owner_type`, `visibility`, and `shared_with_workspaces`; the execution pipeline records the `effective_playbooks` that are actually in scope for the current workspace.
+- **Portability layer**: portable export (including AI roles and playbooks) plus lens preset package / install let these configurations move across profiles, workspaces, or local instances.
 
-The identity & scope model (owner type, visibility, and `effective_playbooks`) is what makes this exchange safe:
+This lets Mindscape package an expert's **distinctive viewpoint and working method** as a reusable module.
 
-- Locally, it helps you distinguish **system** playbooks, **workspace**-specific flows, and **personal** workflows.
-- When you import external playbooks, they can be tagged as `external_provider` and used as templates or forked into
-  your own workspace.
-- In cloud or multi-tenant deployments, the same model extends to tenants, teams, and shared templates.
+Product and application examples include:
 
-In other words, `mindscape-ai-local-core` defines the **world model** for long-lived projects and shareable workflows.
-Mindscape AI Cloud is one possible SaaS built on top of this core, but other developers can equally embed this engine
-into their own products or commercial offerings.
+- **Brand lead viewpoint**: reusable judgment for tone, review standards, content trade-offs, and cross-channel consistency.
+- **Research editor viewpoint**: reusable discipline for evidence quality, disagreement handling, long-form structure, and citation standards.
+- **Coach / companion viewpoint**: reusable cadence for feedback, progress checks, reflection loops, and safety boundaries.
+- **Narrative direction viewpoint**: reusable continuity for role arcs, performance cues, storyline coherence, and output style.
+
+In other words, `mindscape-ai-local-core` already contains the structural pieces needed to package **expert viewpoint + role configuration + workflow method** as portable modules.
 
 ---
 

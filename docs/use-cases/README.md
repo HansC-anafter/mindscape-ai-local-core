@@ -9,8 +9,8 @@
 | Scenario family | What continuity is being governed | Public examples |
 |-----------------|-----------------------------------|-----------------|
 | **Brand and Content Governance** | Brand voice, cross-channel consistency, storyline coverage, rollback-able content decisions | [Brand Content Governance](./brand-content-governance.md) |
-| **Narrative Direction and Role Evolution** | Role arcs, performer guidance, persona targets, storyline-to-execution continuity | Public deep dive coming soon |
-| **Research and Knowledge Continuity** | Intent-aware research tracking, evidence packs, long-form synthesis, knowledge consolidation | Public deep dive coming soon |
+| **Narrative Direction and Role Evolution** | Role arcs, performer guidance, persona targets, storyline-to-execution continuity | [Portable Expert Viewpoint Modules](./portable-expert-viewpoint-modules.md) |
+| **Research and Knowledge Continuity** | Intent-aware research tracking, evidence packs, long-form synthesis, knowledge consolidation | [Portable Expert Viewpoint Modules](./portable-expert-viewpoint-modules.md) |
 | **Practice and Coaching Loops** | Session baselines, guided feedback, safety, retention, and long-term progress | Public deep dive coming soon |
 | **Personal and Creative Reflection** | Private reflection, yearly synthesis, long-term memory, structure over scattered chat logs | [Yearly Personal Book](./yearly-personal-book.md) |
 
@@ -29,6 +29,7 @@ Mindscape Engine is defined by its primitives:
 The detailed public use cases in this directory currently focus on two representative scenario families:
 
 - [Brand Content Governance](./brand-content-governance.md)
+- [Portable Expert Viewpoint Modules](./portable-expert-viewpoint-modules.md)
 - [Yearly Personal Book](./yearly-personal-book.md)
 
 ## Related Resources

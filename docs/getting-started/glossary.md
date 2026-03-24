@@ -59,8 +59,8 @@ This glossary defines the core terminology used in Mindscape AI. Understanding t
 
 | Language | Definition |
 |----------|------------|
-| **English** | A **palette for rendering** AI outputs — a user-authored control surface that projects your values, aesthetics, and working style into AI execution. Mind-Lens does not "represent you"; it helps you **direct outputs consistently** across workflows. |
-| **中文** | AI 輸出的**調色盤** —— 一個由使用者定義的控制介面，把你的價值觀、美學偏好、工作風格投射到 AI 執行中。Mind-Lens 不是「代表你」，而是幫你在各種工作流中**一致地導演輸出**。 |
+| **English** | A **palette for rendering** AI outputs — a user-authored control surface that projects your values, aesthetics, and working style into AI execution, helping you **direct outputs consistently** across workflows. |
+| **中文** | AI 輸出的**調色盤** —— 一個由使用者定義的控制介面，把你的價值觀、美學偏好、工作風格投射到 AI 執行中，幫你在各種工作流中**一致地導演輸出**。 |
 
 **Avoid using**: Settings, Preferences
 
@@ -70,6 +70,25 @@ This glossary defines the core terminology used in Mindscape AI. Understanding t
 1. **Global Preset** — Your baseline palette
 2. **Workspace Override** — Project-specific tuning
 3. **Session Override** — Temporary knobs for this task
+
+---
+
+### Expert Viewpoint Module
+
+| Language | Definition |
+|----------|------------|
+| **English** | A portable combination of **Mind-Lens**, **AI role configuration**, and **scoped playbooks** that captures how a domain expert sees problems, makes trade-offs, and executes work. |
+| **中文** | 由 **Mind-Lens**、**AI 角色配置**、以及**具作用域的 Playbooks** 組成的可攜模組，用來承載某個領域專家如何理解問題、如何取捨、以及如何執行工作的方式。 |
+
+**Avoid using**: Generic agent template, prompt pack
+
+**Code mapping**: `AIRoleConfig`, portable export, `effective_playbooks`, lens preset package / install
+
+**Typical layers**:
+1. **Viewpoint** — Mind-Lens presets and overrides
+2. **Role** — AI role identity, allowed tools, profile overrides
+3. **Workflow** — Playbooks visible and executable in the current scope
+4. **Portability** — export, import, and preset packaging
 
 ---
 
