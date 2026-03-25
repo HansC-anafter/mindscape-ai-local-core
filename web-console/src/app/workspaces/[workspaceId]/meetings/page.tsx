@@ -1,9 +1,19 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { formatLocalDateTime } from '@/lib/time';
 import { getApiBaseUrl } from '../../../../lib/api-url';
+import { GovernedMemoryPreview } from '../../../../components/workspace/governance/GovernedMemoryPreview';
+import { WorkflowEvidenceSummary } from '../../../../components/workspace/meeting/WorkflowEvidenceSummary';
+import {
+    buildPdScenePatchSuccessText,
+    buildScenePatchFailureText,
+    ScenePatchConsole,
+    buildScenePatchSummary,
+    parseScenePatchJson,
+    scenePatchResultMessage,
+} from '../../../../components/workspace/ScenePatchConsole';
 
 const API_URL = getApiBaseUrl();
 
@@ -141,17 +151,110 @@ function SessionCard({
 function SessionDetail({
     session,
     workspaceId,
+    autoOpenScenePatch = false,
     onClose,
 }: {
     session: MeetingSession;
     workspaceId: string;
+    autoOpenScenePatch?: boolean;
     onClose: () => void;
 }) {
     const router = useRouter();
+    const [showScenePatchPanel, setShowScenePatchPanel] = useState(autoOpenScenePatch);
+    const [scenePatchJson, setScenePatchJson] = useState('');
+    const [patchSceneId, setPatchSceneId] = useState('');
+    const [artifactId, setArtifactId] = useState('');
+    const [applyingScenePatch, setApplyingScenePatch] = useState(false);
+    const [scenePatchResult, setScenePatchResult] = useState<string | null>(null);
     const actionItems = session.action_items || [];
     const decisions = session.decisions || [];
     const agenda = session.agenda || [];
     const canonicalMemory = session.metadata?.canonical_memory as CanonicalMemoryLink | undefined;
+    const workflowEvidenceDiagnostics =
+        session.metadata?.workflow_evidence_diagnostics as WorkflowEvidenceDiagnostics | undefined;
+    const workflowEvidenceSections = (workflowEvidenceDiagnostics?.section_order || [])
+        .map((title) => ({
+            title,
+            candidateCount: workflowEvidenceDiagnostics?.candidate_counts?.[title] || 0,
+            selectedCount: workflowEvidenceDiagnostics?.selected_counts?.[title] || 0,
+            droppedCount: workflowEvidenceDiagnostics?.dropped_counts?.[title] || 0,
+            limit: workflowEvidenceDiagnostics?.section_limits?.[title] || 0,
+        }))
+        .filter(
+            (section) =>
+                section.candidateCount > 0 ||
+                section.selectedCount > 0 ||
+                section.limit > 0
+        );
+
+    const parsedScenePatch = useMemo(
+        () => parseScenePatchJson(scenePatchJson),
+        [scenePatchJson],
+    );
+
+    const scenePatchSummary = useMemo(
+        () => buildScenePatchSummary(parsedScenePatch.patch, patchSceneId),
+        [parsedScenePatch.patch, patchSceneId],
+    );
+    const scenePatchResultView = useMemo(
+        () => scenePatchResultMessage(scenePatchResult),
+        [scenePatchResult],
+    );
+
+    useEffect(() => {
+        const sourceSceneId = parsedScenePatch.patch?.source_scene_id;
+        if (sourceSceneId && !patchSceneId.trim()) {
+            setPatchSceneId(sourceSceneId);
+        }
+    }, [parsedScenePatch.patch?.source_scene_id, patchSceneId]);
+
+    useEffect(() => {
+        if (autoOpenScenePatch) {
+            setShowScenePatchPanel(true);
+        }
+    }, [autoOpenScenePatch, session.id]);
+
+    const applyScenePatch = useCallback(async () => {
+        if (!parsedScenePatch.patch) {
+            setScenePatchResult(parsedScenePatch.error ? `scene patch 解析失敗：${parsedScenePatch.error}` : '請先貼上 storyboard_scene_patch JSON。');
+            return;
+        }
+        if (!patchSceneId.trim()) {
+            setScenePatchResult('請填入要套用的 scene_id。');
+            return;
+        }
+        try {
+            setApplyingScenePatch(true);
+            setScenePatchResult(null);
+            const response = await fetch(
+                `${API_URL}/api/v1/capabilities/performance_direction/sessions/${encodeURIComponent(session.id)}/storyboard/scene-patch`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        scene_id: patchSceneId.trim(),
+                        artifact_id: artifactId.trim() || undefined,
+                        storyboard_scene_patch: parsedScenePatch.patch,
+                    }),
+                }
+            );
+            if (!response.ok) {
+                const detail = await response.text();
+                throw new Error(detail || `HTTP ${response.status}`);
+            }
+            const payload = await response.json();
+            setScenePatchResult(
+                buildPdScenePatchSuccessText({
+                    sceneId: payload.patched_scene_id || patchSceneId.trim(),
+                    artifactId: payload.artifact?.artifact_id || null,
+                })
+            );
+        } catch (error) {
+            setScenePatchResult(buildScenePatchFailureText('PD', error));
+        } finally {
+            setApplyingScenePatch(false);
+        }
+    }, [artifactId, parsedScenePatch.error, parsedScenePatch.patch, patchSceneId, session.id]);
 
     return (
         <div className="p-5 space-y-5">
@@ -319,6 +422,57 @@ function SessionDetail({
                 </div>
             )}
 
+            <div className="rounded-lg border border-default dark:border-gray-700 bg-white/70 dark:bg-gray-900/40 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                    <div>
+                        <label className="text-[10px] font-medium text-secondary dark:text-gray-400 uppercase tracking-wide">
+                            場景 Patch
+                        </label>
+                        <div className="mt-1 text-sm text-primary dark:text-gray-100">
+                            將 LAF / ComfyUI 執行控制台產出的 scene patch 直接套到這筆 PD session。
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => setShowScenePatchPanel((current) => !current)}
+                        className="rounded-lg border border-default dark:border-gray-600 px-3 py-1.5 text-xs text-secondary dark:text-gray-300 hover:bg-surface-secondary dark:hover:bg-gray-800 transition-colors"
+                    >
+                        {showScenePatchPanel ? '收合' : '展開'}
+                    </button>
+                </div>
+                {showScenePatchPanel && (
+                    <div className="pt-1">
+                        <ScenePatchConsole
+                            description="將 scene patch 回寫到這筆 PD session 的 storyboard artifact，不在此頁建立新的派送來源。"
+                            patchMode="editable"
+                            patchJson={scenePatchJson}
+                            onPatchJsonChange={setScenePatchJson}
+                            patchError={parsedScenePatch.error}
+                            summary={scenePatchSummary}
+                            sceneId={patchSceneId}
+                            onSceneIdChange={setPatchSceneId}
+                            onClearPatch={() => {
+                                setScenePatchJson('');
+                                setPatchSceneId('');
+                                setArtifactId('');
+                                setScenePatchResult(null);
+                            }}
+                            pdAction={{
+                                sessionId: session.id,
+                                onSessionIdChange: () => undefined,
+                                sessionIdReadOnly: true,
+                                artifactId,
+                                onArtifactIdChange: setArtifactId,
+                                applying: applyingScenePatch,
+                                result: scenePatchResultView,
+                                onApply: applyScenePatch,
+                                buttonLabel: '套用到此 PD Storyboard',
+                                description: '這個入口已綁定當前 Meeting session；僅需確認 scene_id 與可選 artifact_id。',
+                            }}
+                        />
+                    </div>
+                )}
+            </div>
+
             {/* Navigate to conversation */}
             <button
                 onClick={() => {
@@ -346,11 +500,49 @@ export default function MeetingWorkbenchPage() {
     const router = useRouter();
     const workspaceId = params?.workspaceId as string;
     const projectId = searchParams?.get('project_id') || null;
+    const sessionId = searchParams?.get('session_id') || null;
+    const openScenePatch = searchParams?.get('open_patch') === '1';
 
     const [sessions, setSessions] = useState<MeetingSession[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedSession, setSelectedSession] = useState<MeetingSession | null>(null);
+
+    const updateSessionQuery = useCallback(
+        (nextSessionId: string | null) => {
+            const params = new URLSearchParams(searchParams?.toString() || '');
+            if (nextSessionId) {
+                params.set('session_id', nextSessionId);
+            } else {
+                params.delete('session_id');
+            }
+            const query = params.toString();
+            router.replace(
+                `/workspaces/${workspaceId}/meetings${query ? `?${query}` : ''}`
+            );
+        },
+        [router, searchParams, workspaceId]
+    );
+
+    const handleSelectSession = useCallback(
+        async (session: MeetingSession) => {
+            try {
+                const resp = await fetch(
+                    `${API_URL}/api/v1/workspaces/${workspaceId}/meeting-sessions/${session.id}`
+                );
+                if (resp.ok) {
+                    const full = await resp.json();
+                    setSelectedSession(full);
+                } else {
+                    setSelectedSession(session);
+                }
+            } catch {
+                setSelectedSession(session);
+            }
+            updateSessionQuery(session.id);
+        },
+        [updateSessionQuery, workspaceId]
+    );
 
     // Load sessions
     useEffect(() => {
@@ -374,23 +566,18 @@ export default function MeetingWorkbenchPage() {
         load();
     }, [workspaceId, projectId]);
 
-    // When a session is selected from the list, fetch full detail
-    const handleSelectSession = async (session: MeetingSession) => {
-        try {
-            const resp = await fetch(
-                `${API_URL}/api/v1/workspaces/${workspaceId}/meeting-sessions/${session.id}`
-            );
-            if (resp.ok) {
-                const full = await resp.json();
-                setSelectedSession(full);
-            } else {
-                // Fallback to list data
-                setSelectedSession(session);
-            }
-        } catch {
-            setSelectedSession(session);
+    useEffect(() => {
+        if (!sessionId || loading) {
+            return;
         }
-    };
+        if (selectedSession?.id === sessionId) {
+            return;
+        }
+        const matchedSession = sessions.find((session) => session.id === sessionId);
+        if (matchedSession) {
+            void handleSelectSession(matchedSession);
+        }
+    }, [handleSelectSession, loading, selectedSession?.id, sessionId, sessions]);
 
     if (loading) {
         return (
@@ -467,7 +654,11 @@ export default function MeetingWorkbenchPage() {
                         <SessionDetail
                             session={selectedSession}
                             workspaceId={workspaceId}
-                            onClose={() => setSelectedSession(null)}
+                            autoOpenScenePatch={openScenePatch}
+                            onClose={() => {
+                                setSelectedSession(null);
+                                updateSessionQuery(null);
+                            }}
                         />
                     </div>
                 )}

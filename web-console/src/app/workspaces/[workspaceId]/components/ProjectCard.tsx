@@ -407,6 +407,18 @@ export default function ProjectCard({
     router.push(`/workspaces/${effectiveWorkspaceId}/meetings?project_id=${project.id}`);
   };
 
+  const handleOpenMeetingScenePatch = () => {
+    if (!effectiveWorkspaceId) {
+      console.warn('[ProjectCard] No effectiveWorkspaceId, cannot open meeting scene patch');
+      return;
+    }
+    const params = new URLSearchParams({ project_id: project.id, open_patch: '1' });
+    if (cardData?.meeting?.session_id) {
+      params.set('session_id', cardData.meeting.session_id);
+    }
+    router.push(`/workspaces/${effectiveWorkspaceId}/meetings?${params.toString()}`);
+  };
+
   const handleOpenExecution = (executionId: string) => {
     if (onOpenExecution) {
       onOpenExecution(executionId);
@@ -623,6 +635,16 @@ export default function ProjectCard({
                       className="mt-1 text-[10px] px-2 py-1 rounded bg-sky-100 dark:bg-sky-900/30 text-sky-800 dark:text-sky-300 hover:opacity-85"
                     >
                       Enter Meeting
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenMeetingScenePatch();
+                      }}
+                      className="mt-1 ml-2 text-[10px] px-2 py-1 rounded border border-sky-200 dark:border-sky-700 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-900/20"
+                    >
+                      場景 Patch
                     </button>
                   </div>
                 ) : (
