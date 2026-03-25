@@ -20,7 +20,9 @@ import logging
 import asyncio
 import aiohttp
 import os
+import re
 from datetime import datetime, timezone
+from contextlib import suppress
 
 
 def _utc_now():
@@ -28,6 +30,11 @@ def _utc_now():
     return datetime.now(timezone.utc)
 
 logger = logging.getLogger(__name__)
+
+DOWNLOAD_RETRY_ATTEMPTS = 5
+DOWNLOAD_RETRY_BASE_DELAY_SECONDS = 2
+DOWNLOAD_CONNECT_TIMEOUT_SECONDS = 30
+DOWNLOAD_READ_TIMEOUT_SECONDS = 300
 
 
 class DownloadStrategy(str, Enum):
@@ -107,10 +114,10 @@ class ModelInfo:
     pack_code: str
     display_name: str
     provider: ModelProvider
-    role: str = "other"  # Role for path mapping (checkpoints, loras, etc.)
     files: List[ModelFile]
     license: LicenseInfo
     hardware_requirements: HardwareRequirements
+    role: str = "other"  # Role for path mapping (checkpoints, loras, etc.)
     quality_profiles: Dict[str, QualityProfile] = field(default_factory=dict)
     repo_id: Optional[str] = None
     revision: Optional[str] = None
@@ -177,6 +184,7 @@ class ModelWeightsInstaller:
         "controlnet": "controlnet",
         "clip_vision": "clip_vision",
         "segmentation": "segmentation",
+        "matting": "matting",
         "pose_detector": "pose_detector",
         "upscale": "upscale",
         "inpainting": "inpainting",
@@ -420,8 +428,11 @@ class ModelWeightsInstaller:
     def _find_manifest_path(self, pack_code: str) -> Optional[Path]:
         """Find model-manifest.yaml for a pack."""
         # Try common locations
+        app_root = Path(__file__).resolve().parent.parent
         possible_paths = [
             Path(f"capabilities/{pack_code}/model-manifest.yaml"),
+            app_root / "capabilities" / pack_code / "model-manifest.yaml",
+            app_root.parent.parent / "capabilities" / pack_code / "model-manifest.yaml",
             Path(
                 f"~/.mindscape/capabilities/{pack_code}/model-manifest.yaml"
             ).expanduser(),
@@ -439,6 +450,19 @@ class ModelWeightsInstaller:
                 raise LicenseError(
                     f"Model {model_info.model_id} has restricted license: {model_info.license.spdx_id}"
                 )
+
+    @staticmethod
+    def _parse_content_range_total(content_range: Optional[str]) -> Optional[int]:
+        """Extract total size from a Content-Range header like 'bytes */205803670'."""
+        if not content_range:
+            return None
+        match = re.match(r"bytes\s+\*/(\d+)$", content_range.strip())
+        if not match:
+            return None
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
 
     async def _download_model(
         self,
@@ -473,6 +497,8 @@ class ModelWeightsInstaller:
 
         for file_info in model_info.files:
             file_path = store_dir / file_info.filename
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            partial_path = file_path.parent / f"{file_path.name}.partial"
 
             # Get download URL
             url = self._get_download_url(model_info, file_info.filename)
@@ -483,34 +509,141 @@ class ModelWeightsInstaller:
             if not self._is_url_allowed(url, pack_code=model_info.pack_code):
                 raise SourceNotAllowedError(f"Download source not allowed: {url}")
 
-            # Download file
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url) as response:
-                        if response.status != 200:
-                            raise DownloadError(
-                                f"HTTP {response.status} downloading {url}"
-                            )
+            request_headers: Optional[Dict[str, str]] = None
+            if model_info.provider == ModelProvider.HUGGINGFACE:
+                try:
+                    from backend.app.services.huggingface_auth_resolver import (
+                        resolve_huggingface_auth,
+                    )
 
-                        with open(file_path, "wb") as f:
-                            async for chunk in response.content.iter_chunked(8192):
-                                f.write(chunk)
-                                downloaded_size += len(chunk)
-                                if progress_callback:
-                                    progress = (
-                                        downloaded_size / total_size
-                                        if total_size > 0
-                                        else 0
+                    hf_auth = resolve_huggingface_auth()
+                    headers = hf_auth.authorization_headers()
+                    if headers:
+                        request_headers = headers
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to resolve Hugging Face auth for %s: %s",
+                        model_info.model_id,
+                        exc,
+                    )
+
+            timeout = aiohttp.ClientTimeout(
+                total=None,
+                sock_connect=DOWNLOAD_CONNECT_TIMEOUT_SECONDS,
+                sock_read=DOWNLOAD_READ_TIMEOUT_SECONDS,
+            )
+            last_error: Optional[BaseException] = None
+            expected_size = int(file_info.size_bytes or 0)
+            base_headers = dict(request_headers or {})
+
+            # Recover from older downloader behavior that wrote partial data to the
+            # final filename directly. Convert it back into a resumable partial file.
+            if (
+                not partial_path.exists()
+                and file_path.exists()
+                and expected_size > 0
+                and file_path.stat().st_size < expected_size
+            ):
+                os.replace(file_path, partial_path)
+
+            for attempt in range(1, DOWNLOAD_RETRY_ATTEMPTS + 1):
+                try:
+                    existing_size = partial_path.stat().st_size if partial_path.exists() else 0
+                    headers = dict(base_headers)
+                    write_mode = "ab" if existing_size > 0 else "wb"
+                    remote_size_hint: Optional[int] = None
+
+                    if existing_size > 0:
+                        headers["Range"] = f"bytes={existing_size}-"
+                        downloaded_size = existing_size
+                    else:
+                        downloaded_size = 0
+
+                    async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+                        async with session.get(url) as response:
+                            if existing_size > 0 and response.status == 200:
+                                # Origin ignored Range; restart from zero to avoid corrupt append.
+                                with suppress(FileNotFoundError):
+                                    partial_path.unlink()
+                                existing_size = 0
+                                downloaded_size = 0
+                                raise DownloadError(
+                                    "Origin ignored HTTP Range resume request; restarting download"
+                                )
+
+                            if response.status == 416 and existing_size > 0:
+                                remote_size_hint = self._parse_content_range_total(
+                                    response.headers.get("Content-Range")
+                                )
+                                if remote_size_hint is not None and remote_size_hint == existing_size:
+                                    # The remote origin is telling us the requested range starts
+                                    # exactly at EOF. Treat the existing partial as complete.
+                                    final_size = existing_size
+                                else:
+                                    raise DownloadError(
+                                        f"HTTP 416 downloading {url}"
                                     )
-                                    progress_callback(progress)
-                                    self._download_progress[key] = progress
+                            elif response.status not in {200, 206}:
+                                raise DownloadError(
+                                    f"HTTP {response.status} downloading {url}"
+                                )
 
-                file_info.local_path = file_path
-                file_info.is_downloaded = True
+                            if response.status != 416:
+                                with open(partial_path, write_mode) as f:
+                                    async for chunk in response.content.iter_chunked(8192):
+                                        f.write(chunk)
+                                        downloaded_size += len(chunk)
+                                        if progress_callback:
+                                            progress = (
+                                                downloaded_size / total_size
+                                                if total_size > 0
+                                                else 0
+                                            )
+                                            progress_callback(progress)
+                                            self._download_progress[key] = progress
 
-            except Exception as e:
+                    final_size = partial_path.stat().st_size if partial_path.exists() else 0
+                    effective_expected_size = remote_size_hint or expected_size
+                    if effective_expected_size > 0 and final_size < effective_expected_size:
+                        raise DownloadError(
+                            f"Incomplete download for {file_info.filename}: "
+                            f"{final_size}/{effective_expected_size} bytes"
+                        )
+
+                    if file_path.exists():
+                        file_path.unlink()
+                    os.replace(partial_path, file_path)
+                    file_info.local_path = file_path
+                    file_info.is_downloaded = True
+                    break
+
+                except Exception as e:
+                    last_error = e
+                    logger.warning(
+                        "Download attempt %s/%s failed for %s (%s): %r",
+                        attempt,
+                        DOWNLOAD_RETRY_ATTEMPTS,
+                        file_info.filename,
+                        type(e).__name__,
+                        e,
+                    )
+                    if attempt >= DOWNLOAD_RETRY_ATTEMPTS:
+                        with suppress(FileNotFoundError):
+                            partial_path.unlink()
+                        model_info.status = ModelStatus.NOT_DOWNLOADED
+                        detail = f"{type(e).__name__}: {e!r}"
+                        raise DownloadError(
+                            f"Failed to download {file_info.filename}: {detail}"
+                        ) from e
+                    await asyncio.sleep(DOWNLOAD_RETRY_BASE_DELAY_SECONDS * attempt)
+                    continue
+
+            if last_error is not None and not file_info.is_downloaded:
                 model_info.status = ModelStatus.NOT_DOWNLOADED
-                raise DownloadError(f"Failed to download {file_info.filename}: {e}")
+                detail = f"{type(last_error).__name__}: {last_error!r}"
+                raise DownloadError(
+                    f"Failed to download {file_info.filename}: {detail}"
+                ) from last_error
 
         # 4. Create Symlink View
         if view_dir.exists():
@@ -595,7 +728,9 @@ class ModelWeightsInstaller:
             if not file_path.exists():
                 return False
 
-            if file_info.expected_hash:
+            if file_info.expected_hash and not self._is_placeholder_hash(
+                file_info.expected_hash
+            ):
                 # Parse hash format: "sha256:abc123..."
                 if ":" in file_info.expected_hash:
                     algo, expected = file_info.expected_hash.split(":", 1)
@@ -613,6 +748,18 @@ class ModelWeightsInstaller:
             file_info.is_verified = True
 
         return True
+
+    def _is_placeholder_hash(self, expected_hash: str) -> bool:
+        normalized = str(expected_hash or "").strip().lower()
+        if not normalized:
+            return True
+        if ":" in normalized:
+            _, normalized = normalized.split(":", 1)
+        return normalized.startswith("placeholder_hash_") or normalized in {
+            "placeholder",
+            "tbd",
+            "todo",
+        }
 
     def _compute_hash(self, file_path: Path, algorithm: str = "sha256") -> str:
         """Compute file hash."""

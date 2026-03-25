@@ -118,6 +118,10 @@ export class MCPServer {
                         description: "Command arguments",
                     },
                     cwd: { type: "string", description: "Working directory (optional)" },
+                    timeout_ms: {
+                        type: "number",
+                        description: "Execution timeout in milliseconds (optional, capped by device-node)",
+                    },
                 },
                 required: ["command"],
             },
@@ -303,8 +307,8 @@ export class MCPServer {
         });
 
         await new Promise<void>((resolve) => {
-            this.httpServer!.listen(port, () => {
-                console.log(`MCP HTTP Server listening on port ${port}`);
+            this.httpServer!.listen(port, "0.0.0.0", () => {
+                console.log(`MCP HTTP Server listening on 0.0.0.0:${port}`);
                 resolve();
             });
         });

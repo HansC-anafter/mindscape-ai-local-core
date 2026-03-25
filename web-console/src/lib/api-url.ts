@@ -3,22 +3,7 @@
  * All frontend code should use these functions to get the API URL instead of hardcoding ports
  */
 
-function shouldUseSameOriginProxy(configuredUrl?: string): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  if (!configuredUrl || !configuredUrl.startsWith('http')) {
-    return true;
-  }
-
-  try {
-    const url = new URL(configuredUrl);
-    return url.hostname === window.location.hostname;
-  } catch {
-    return true;
-  }
-}
+import { shouldUseSameOriginProxyForBrowser } from './api-origin';
 
 /**
  * Get initial API URL (synchronous, for initialization)
@@ -29,7 +14,7 @@ export function getApiBaseUrl(): string {
   const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
 
   if (typeof window !== 'undefined') {
-    if (shouldUseSameOriginProxy(configuredUrl)) {
+    if (shouldUseSameOriginProxyForBrowser(configuredUrl)) {
       return '';
     }
     return configuredUrl as string;

@@ -26,7 +26,15 @@ async function loadConfig(): Promise<DeviceNodeConfig> {
 
     if (fs.existsSync(configPath)) {
         const configContent = fs.readFileSync(configPath, "utf-8");
-        return JSON.parse(configContent);
+        const parsed = JSON.parse(configContent) as DeviceNodeConfig;
+        const configDir = path.dirname(configPath);
+        const resolvedPermissionsPath = path.isAbsolute(parsed.permissionsPath)
+            ? parsed.permissionsPath
+            : path.resolve(configDir, parsed.permissionsPath);
+        return {
+            ...parsed,
+            permissionsPath: resolvedPermissionsPath,
+        };
     }
 
     return {

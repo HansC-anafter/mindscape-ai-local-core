@@ -64,6 +64,7 @@ services:
       - CLOUD_API_URL=${CLOUD_API_URL:-}
       - CLOUD_LICENSE_KEY=${CLOUD_LICENSE_KEY:-}
       - XTTS_SERVICE_URL=${XTTS_SERVICE_URL:-http://xtts-service:8020}
+      - LOCAL_STORAGE_PATH=/root/.mindscape/storage/layer_asset_forge
       # Timezone
       - TZ=${TZ:-UTC}
       # Host project path for bridge script reference
@@ -73,6 +74,8 @@ services:
       - ./scripts:/app/scripts:rw
       - ./data:/app/data:rw
       - ./data/secrets:/root/.mindscape:rw
+      - ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}:/root/.mindscape/models:rw
+      - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
       - ./logs:/app/logs:rw
       - ./web-console:/app/web-console:rw
       # Mount user's custom directory for workspace storage (optional)
@@ -150,6 +153,7 @@ services:
       - PYTHONPATH=/app:/app/backend:/app/backend/app
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - LOCAL_STORAGE_PATH=/root/.mindscape/storage/layer_asset_forge
       - TZ=${TZ:-UTC}
       - LOCAL_CORE_RUNNER_PROCESS=1
       - LOCAL_CORE_RUNNER_POLL_INTERVAL_MS=${LOCAL_CORE_RUNNER_POLL_INTERVAL_MS:-1000}
@@ -162,6 +166,8 @@ services:
       - ./scripts:/app/scripts:rw
       - ./data:/app/data:rw
       - ./data/secrets:/root/.mindscape:rw
+      - ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}:/root/.mindscape/models:rw
+      - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
       - ./logs:/app/logs:rw
       - ./web-console:/app/web-console:rw
 

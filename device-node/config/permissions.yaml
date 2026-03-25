@@ -17,6 +17,8 @@ capabilities:
       - "~/Projects/**"
       - "~/Desktop/**"
       - "~/Downloads/**"
+      - "~/.mindscape/runtimes/**"
+      - "~/.mindscape/models/**"
     denied_paths:
       - "~/.ssh/**"
       - "~/.gnupg/**"

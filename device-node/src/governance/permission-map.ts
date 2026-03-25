@@ -71,25 +71,33 @@ export class PermissionMap {
             capabilities: {
                 filesystem_read: {
                     trust_level: "READ",
-                    allowed_paths: ["~/Documents/**", "~/Projects/**", "~/**"],
-                    denied_paths: ["~/.ssh/**", "~/.gnupg/**", "~/.aws/**"],
+                    allowed_paths: [
+                        "~/Documents/**",
+                        "~/Projects/**",
+                        "~/Desktop/**",
+                        "~/Downloads/**",
+                        "~/.mindscape/runtimes/**",
+                        "~/.mindscape/models/**",
+                    ],
+                    denied_paths: ["~/.ssh/**", "~/.gnupg/**", "~/.aws/**", "~/.config/gcloud/**"],
                 },
                 filesystem_write: {
                     trust_level: "DRAFT",
                     confirm_required: true,
-                    allowed_paths: ["~/Documents/**", "~/Projects/**"],
-                    denied_paths: ["~/.ssh/**", "~/.gnupg/**", "~/.aws/**", "/etc/**", "/usr/**"],
+                    sandbox: true,
+                    allowed_paths: ["~/Documents/Mindscape/**", "~/Projects/**"],
+                    denied_paths: ["~/.ssh/**", "~/.gnupg/**", "~/.aws/**", "/etc/**", "/usr/**", "/System/**"],
                 },
                 filesystem_list: {
                     trust_level: "READ",
                     allowed_paths: ["~/**"],
-                    denied_paths: ["~/.ssh/**", "~/.gnupg/**"],
+                    denied_paths: ["~/.ssh/**", "~/.gnupg/**", "~/.aws/**"],
                 },
                 shell_execute: {
                     trust_level: "EXECUTE",
                     confirm_required: true,
-                    allowed_commands: ["git", "npm", "node", "python", "ls", "cat", "echo", "pwd", "osascript"],
-                    denied_commands: ["rm -rf", "sudo", "chmod", "chown", "mkfs", "dd"],
+                    allowed_commands: ["git", "npm", "node", "python", "python3", "pip", "pip3", "ls", "cat", "echo", "pwd", "mkdir", "touch", "cp", "mv", "osascript"],
+                    denied_commands: ["rm -rf", "sudo", "chmod", "chown", "mkfs", "dd", "kill", "killall"],
                 },
             },
         };

@@ -1,21 +1,14 @@
+import { shouldUseSameOriginProxyForBrowser } from '../../../lib/api-origin';
+
 // Get initial API URL (avoids circular dependency)
 const getInitialApiUrl = (): string => {
   const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
 
   if (typeof window !== 'undefined') {
-    if (!configuredUrl || !configuredUrl.startsWith('http')) {
+    if (shouldUseSameOriginProxyForBrowser(configuredUrl)) {
       return '';
     }
-
-    try {
-      const url = new URL(configuredUrl);
-      if (url.hostname === window.location.hostname) {
-        return '';
-      }
-      return configuredUrl;
-    } catch {
-      return '';
-    }
+    return configuredUrl as string;
   }
 
   if (configuredUrl && configuredUrl.startsWith('http')) {
@@ -202,14 +195,55 @@ export const getInitialApiUrlForClient = (): string => {
 };
 
 interface ApiError {
-  detail?: string;
+  detail?: unknown;
   message?: string;
+  error?: string;
+  hint?: string;
+  summary?: string;
+  required_confirmation?: string;
 }
+
+const formatApiError = (payload: unknown): string | null => {
+  if (payload == null) {
+    return null;
+  }
+  if (typeof payload === 'string') {
+    return payload;
+  }
+  if (typeof payload !== 'object') {
+    return String(payload);
+  }
+
+  const data = payload as Record<string, unknown>;
+  const parts = [
+    typeof data.message === 'string' ? data.message.trim() : '',
+    typeof data.detail === 'string' ? data.detail.trim() : '',
+    typeof data.summary === 'string' ? data.summary.trim() : '',
+    typeof data.hint === 'string' ? data.hint.trim() : '',
+    typeof data.required_confirmation === 'string'
+      ? `Required confirmation: ${data.required_confirmation}`
+      : '',
+  ].filter(Boolean);
+
+  if (parts.length > 0) {
+    return parts.join('\n');
+  }
+
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return String(payload);
+  }
+};
 
 const parseError = async (response: Response): Promise<string> => {
   try {
     const errorData: ApiError = await response.json();
-    return errorData.detail || errorData.message || `HTTP ${response.status}: ${response.statusText}`;
+    return (
+      formatApiError(errorData.detail ?? errorData) ||
+      formatApiError(errorData.message) ||
+      `HTTP ${response.status}: ${response.statusText}`
+    );
   } catch {
     const text = await response.text();
     return text || `HTTP ${response.status}: ${response.statusText}`;

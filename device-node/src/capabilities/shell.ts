@@ -20,8 +20,12 @@ interface ShellArgs {
     subcommand?: string;
     args?: string[];
     cwd?: string;
+    timeout_ms?: number;
     _commandWhitelist?: CommandWhitelist;
 }
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_TIMEOUT_MS = 20 * 60 * 1000;
 
 const DEFAULT_WHITELIST: CommandWhitelist = {
     git: {
@@ -99,6 +103,7 @@ export async function shellExecute(
         subcommand: rawArgs.subcommand as string | undefined,
         args: rawArgs.args as string[] | undefined,
         cwd: rawArgs.cwd as string | undefined,
+        timeout_ms: rawArgs.timeout_ms as number | undefined,
         _commandWhitelist: rawArgs._commandWhitelist as CommandWhitelist | undefined,
     };
 
@@ -118,10 +123,18 @@ export async function shellExecute(
     }
 
     return new Promise((resolve, reject) => {
+        const requestedTimeout =
+            typeof args.timeout_ms === "number" && Number.isFinite(args.timeout_ms)
+                ? Math.trunc(args.timeout_ms)
+                : DEFAULT_TIMEOUT_MS;
+        const timeout = Math.min(
+            Math.max(requestedTimeout, 1000),
+            MAX_TIMEOUT_MS
+        );
         const child = spawn(args.command, cmdArgs, {
             cwd: args.cwd || process.cwd(),
             shell: false,
-            timeout: 30000,
+            timeout,
         });
 
         let stdout = "";
@@ -135,9 +148,15 @@ export async function shellExecute(
             stderr += data.toString();
         });
 
-        child.on("close", (code) => {
+        child.on("close", (code, signal) => {
             if (code === 0) {
                 resolve(stdout || "(no output)");
+            } else if (signal) {
+                reject(
+                    new Error(
+                        `Command terminated by signal ${signal}: ${stderr || stdout}`
+                    )
+                );
             } else {
                 reject(new Error(`Command exited with code ${code}: ${stderr || stdout}`));
             }
