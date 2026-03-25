@@ -59,22 +59,16 @@ const navigationItems: NavigationItem[] = [
         section: 'language-preference',
       },
       {
-        id: 'theme-preset',
-        label: 'themePreset',
-        tab: 'basic',
-        section: 'theme-preset',
-      },
-      {
         id: 'models-and-quota',
         label: 'modelsAndQuota',
         tab: 'basic',
         section: 'models-and-quota',
       },
       {
-        id: 'oauth',
-        label: 'oauthIntegration',
+        id: 'theme-preset',
+        label: 'themePreset',
         tab: 'basic',
-        section: 'oauth',
+        section: 'theme-preset',
       },
       {
         id: 'cloud-extension',
@@ -93,6 +87,26 @@ const navigationItems: NavigationItem[] = [
         label: 'portConfiguration',
         tab: 'basic',
         section: 'port-configuration',
+      },
+    ],
+  },
+  {
+    id: 'credentials',
+    label: 'credentialsAndOAuth',
+    icon: '🔐',
+    tab: 'credentials',
+    children: [
+      {
+        id: 'service-credentials',
+        label: 'serviceCredentials',
+        tab: 'credentials',
+        section: 'service-credentials',
+      },
+      {
+        id: 'oauth-integrations',
+        label: 'oauthIntegration',
+        tab: 'credentials',
+        section: 'oauth-integrations',
       },
     ],
   },
@@ -373,7 +387,7 @@ export function SettingsNavigation({
 }: SettingsNavigationProps) {
   const [hoveredItemId, setHoveredItemId] = React.useState<string | null>(null);
   const [expandedItems, setExpandedItems] = React.useState<Set<string>>(
-    new Set(['basic'])
+    new Set(['basic', 'credentials'])
   );
 
   const toggleExpand = (itemId: string) => {

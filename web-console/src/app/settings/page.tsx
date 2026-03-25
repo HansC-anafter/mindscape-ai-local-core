@@ -7,6 +7,7 @@ import { t } from '../../lib/i18n';
 import { SettingsNavigation } from './components/SettingsNavigation';
 import { SettingsConfigAssistant, type SettingsConfigAssistantHandle } from './components/SettingsConfigAssistant';
 import { BasicSettingsPanel } from './components/BasicSettingsPanel';
+import { CredentialsAndOAuthPanel } from './components/CredentialsAndOAuthPanel';
 import { MindscapePanel } from './components/MindscapePanel';
 import { SettingsNotificationContainer } from './hooks/useSettingsNotification';
 import { SocialMediaPanel } from './components/SocialMediaPanel';
@@ -44,41 +45,53 @@ export default function SettingsPage() {
     const modelParam = searchParams?.get('model' as any);
     const serviceParam = searchParams?.get('service' as any);
 
-    const validTabs: SettingsTab[] = ['tools', 'basic', 'mindscape', 'ai-team-governance', 'social_media', 'localization', 'service_status', 'governance', 'runtime'];
-    if (tabParam && validTabs.includes(tabParam as SettingsTab)) {
-      setActiveTab(tabParam as SettingsTab);
+    const credentialsSections = new Set(['service-credentials', 'oauth-integrations', 'oauth']);
+    const validTabs: SettingsTab[] = ['tools', 'basic', 'credentials', 'mindscape', 'ai-team-governance', 'social_media', 'localization', 'service_status', 'packs_status', 'governance', 'runtime'];
+    let resolvedTab = tabParam && validTabs.includes(tabParam as SettingsTab)
+      ? (tabParam as SettingsTab)
+      : undefined;
+
+    if (resolvedTab === 'basic' && sectionParam && credentialsSections.has(sectionParam)) {
+      resolvedTab = 'credentials';
+    }
+
+    if (resolvedTab === 'credentials' && sectionParam === 'models-and-quota') {
+      resolvedTab = 'basic';
+    }
+
+    if (resolvedTab) {
+      setActiveTab(resolvedTab);
     }
 
     if (sectionParam) {
-      setActiveSection(sectionParam);
+      setActiveSection(sectionParam === 'oauth' ? 'oauth-integrations' : sectionParam);
     } else if (tabParam === 'basic' && !sectionParam) {
       setActiveSection('backend-mode');
+    } else if (resolvedTab === 'credentials' && !sectionParam) {
+      setActiveSection('service-credentials');
+    } else if (tabParam === 'packs_status' && !sectionParam) {
+      setActiveSection('packages');
     }
 
-    if (providerParam) {
-      setActiveProvider(providerParam);
-    }
-
-    if (modelParam) {
-      setActiveModel(modelParam);
-    }
-
-    if (serviceParam) {
-      setActiveService(serviceParam);
-    }
+    setActiveProvider(providerParam || undefined);
+    setActiveModel(modelParam || undefined);
+    setActiveService(serviceParam || undefined);
   }, [searchParams]);
 
   const handleNavigate = (tab: SettingsTab, section?: string, provider?: string, model?: string, service?: string) => {
+    const normalizedSection = tab === 'credentials' && !section
+      ? 'service-credentials'
+      : section;
     setActiveTab(tab);
-    setActiveSection(section);
+    setActiveSection(normalizedSection);
     setActiveProvider(provider);
     setActiveModel(model);
     setActiveService(service);
 
     const params = new URLSearchParams();
     params?.set('tab', tab);
-    if (section) {
-      params?.set('section', section);
+    if (normalizedSection) {
+      params?.set('section', normalizedSection);
     }
     if (provider) {
       params?.set('provider', provider);
@@ -96,6 +109,14 @@ export default function SettingsPage() {
     switch (activeTab) {
       case 'basic':
         return <BasicSettingsPanel activeSection={activeSection} />;
+      case 'credentials':
+        return (
+          <CredentialsAndOAuthPanel
+            activeSection={activeSection}
+            activeProvider={activeProvider}
+            onNavigate={(section, provider) => handleNavigate('credentials', section, provider)}
+          />
+        );
       case 'mindscape':
         return <MindscapePanel />;
       case 'ai-team-governance':
@@ -138,6 +159,7 @@ export default function SettingsPage() {
         <div className="flex gap-2 overflow-x-auto">
           {[
             { id: 'basic' as SettingsTab, label: t('basicSettings' as any) },
+            { id: 'credentials' as SettingsTab, label: t('credentialsAndOAuth' as any) },
             { id: 'mindscape' as SettingsTab, label: t('mindscapeConfiguration' as any) },
             { id: 'social_media' as SettingsTab, label: t('socialMediaIntegration' as any) },
             { id: 'localization' as SettingsTab, label: t('localization' as any) },

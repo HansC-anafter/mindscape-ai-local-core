@@ -195,6 +195,8 @@ export const settingsZhTW = {
 
   // Settings Tabs
   basicSettings: '基礎設定',
+  credentialsAndOAuth: '憑證與 OAuth 整合',
+  serviceCredentials: '服務憑證',
   languagePreference: '語言偏好',
   languagePreferenceDescription: '設定系統預設語言，新建立的 Workspace 將使用此語言設定',
   themePreset: '主題風格',
@@ -220,6 +222,19 @@ export const settingsZhTW = {
   whichPlaybooksUseThisTool: '哪些 Playbooks 會用到這個工具？',
   noPlaybooksUseThisTool: '目前沒有使用此工具的 Playbook',
   playbooksUsingThisTool: '{count} 個 Playbook 使用此工具',
+  credentialStatus: '憑證狀態',
+  huggingFaceCredentialTitle: 'Hugging Face 存取憑證',
+  huggingFaceCredentialDescription: '管理 Hugging Face access token，供模型下載、權重同步與需要授權的資產拉取使用。',
+  huggingFaceCredentialConfigured: '已設定 Hugging Face 存取憑證。',
+  huggingFaceCredentialMissing: '尚未設定 Hugging Face 存取憑證。',
+  huggingFaceCredentialUsageHint: '此憑證會共用給 Hugging Face 模型拉取與 pack-owned 權重同步；儲存後無需重複在各模型卡片中輸入。',
+  huggingFaceAccessToken: 'Hugging Face Access Token',
+  huggingFaceAccessTokenPlaceholder: '輸入 Hugging Face access token',
+  huggingFaceAccessTokenPlaceholderConfigured: '***（已設定，輸入新值以更新）',
+  huggingFaceAccessTokenHelp: '需要下載受保護或需授權的 Hugging Face 模型與權重時，請在此填入 access token。',
+  saveCredential: '儲存憑證',
+  clearCredential: '清除憑證',
+  clearingCredential: '清除中...',
 
   // Tool Actions
   testing: '測試中...',

@@ -158,6 +158,8 @@ export const settingsJa = {
 
   // Settings Tabs
   basicSettings: '基本設定',
+  credentialsAndOAuth: '認証情報と OAuth 統合',
+  serviceCredentials: 'サービス認証情報',
   toolsAndIntegrations: 'ツールと統合',
   toolsAndIntegrationsDescription: 'ツールとサードパーティサービスを接続し、AI メンバーが実際の作業を支援できるようにする',
   capabilityPacks: '能力パック管理',
@@ -173,6 +175,19 @@ export const settingsJa = {
   whichPlaybooksUseThisTool: 'どのプレイブックがこのツールを使用しますか？',
   noPlaybooksUseThisTool: '現在、このツールを使用している Playbook はありません',
   playbooksUsingThisTool: '{count} 個の Playbook がこのツールを使用しています',
+  credentialStatus: '認証情報の状態',
+  huggingFaceCredentialTitle: 'Hugging Face アクセストークン',
+  huggingFaceCredentialDescription: 'モデルのダウンロード、重み同期、認証が必要なアセット取得に使う Hugging Face access token を管理します。',
+  huggingFaceCredentialConfigured: 'Hugging Face 認証情報は設定済みです。',
+  huggingFaceCredentialMissing: 'Hugging Face 認証情報はまだ設定されていません。',
+  huggingFaceCredentialUsageHint: 'この認証情報は Hugging Face モデルの取得と pack-owned な重み同期で共用されます。各モデルカードごとに再入力する必要はありません。',
+  huggingFaceAccessToken: 'Hugging Face Access Token',
+  huggingFaceAccessTokenPlaceholder: 'Hugging Face access token を入力',
+  huggingFaceAccessTokenPlaceholderConfigured: '***（設定済み。更新する場合は新しい値を入力）',
+  huggingFaceAccessTokenHelp: '保護された、または利用許諾が必要な Hugging Face モデルや重みを取得する場合は、ここに access token を入力してください。',
+  saveCredential: '認証情報を保存',
+  clearCredential: '認証情報を削除',
+  clearingCredential: '削除中...',
 
   // Tool Actions
   testing: 'テスト中...',

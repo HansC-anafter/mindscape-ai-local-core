@@ -9,6 +9,7 @@ from . import (
     general,
     obsidian,
     llm_models,
+    huggingface_auth,
     google_oauth,
     embedding_migrations,
     env_vars,
@@ -27,6 +28,7 @@ router = APIRouter(prefix="/api/v1/system-settings", tags=["system-settings"])
 router.include_router(governance.router, prefix="/governance", tags=["governance"])
 router.include_router(assistant.router, tags=["assistant"])  # Config assistant chat
 router.include_router(llm_models.router)
+router.include_router(huggingface_auth.router)
 router.include_router(google_oauth.router)
 router.include_router(obsidian.router)
 router.include_router(embedding_migrations.router)

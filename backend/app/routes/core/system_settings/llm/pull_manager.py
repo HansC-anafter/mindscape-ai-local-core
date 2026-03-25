@@ -258,13 +258,18 @@ async def _run_hf_download(task_id: str, model_name: str):
             from huggingface_hub import snapshot_download
             import os
             import threading
+            from backend.app.services.huggingface_auth_resolver import (
+                resolve_huggingface_auth,
+            )
 
             r = _sync_redis()
+            hf_auth = resolve_huggingface_auth()
+            hf_token = hf_auth.token
 
             # Get repo info to estimate total size
             try:
                 from huggingface_hub import HfApi
-                api = HfApi()
+                api = HfApi(token=hf_token) if hf_token else HfApi()
                 repo_info = api.repo_info(model_name, repo_type="model")
                 siblings = repo_info.siblings or []
                 total_size = 0
@@ -333,7 +338,7 @@ async def _run_hf_download(task_id: str, model_name: str):
             monitor.start()
 
             try:
-                snapshot_download(model_name, repo_type="model")
+                snapshot_download(model_name, repo_type="model", token=hf_token)
             except Exception as e:
                 download_error = e
             finally:

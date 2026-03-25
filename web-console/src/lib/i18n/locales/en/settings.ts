@@ -195,6 +195,8 @@ export const settingsEn = {
 
   // Settings Tabs
   basicSettings: 'Basic Settings',
+  credentialsAndOAuth: 'Credentials & OAuth',
+  serviceCredentials: 'Service Credentials',
   languagePreference: 'Language Preference',
   languagePreferenceDescription: 'Set the default system language. New workspaces will use this language setting',
   themePreset: 'Theme Preset',
@@ -220,6 +222,19 @@ export const settingsEn = {
   whichPlaybooksUseThisTool: 'Which Playbooks use this tool?',
   noPlaybooksUseThisTool: 'Currently no Playbook uses this tool',
   playbooksUsingThisTool: '{count} Playbook{plural} {verb} this tool',
+  credentialStatus: 'Credential Status',
+  huggingFaceCredentialTitle: 'Hugging Face Credential',
+  huggingFaceCredentialDescription: 'Manage the Hugging Face access token used for model downloads, weight sync, and other authenticated asset fetches.',
+  huggingFaceCredentialConfigured: 'A Hugging Face credential is configured.',
+  huggingFaceCredentialMissing: 'No Hugging Face credential is configured.',
+  huggingFaceCredentialUsageHint: 'This credential is shared by Hugging Face model pulls and pack-owned weight sync; you do not need to re-enter it on each model card.',
+  huggingFaceAccessToken: 'Hugging Face Access Token',
+  huggingFaceAccessTokenPlaceholder: 'Enter a Hugging Face access token',
+  huggingFaceAccessTokenPlaceholderConfigured: '*** (configured, enter a new value to replace)',
+  huggingFaceAccessTokenHelp: 'Provide an access token here when you need to download protected or gated Hugging Face models and weights.',
+  saveCredential: 'Save Credential',
+  clearCredential: 'Clear Credential',
+  clearingCredential: 'Clearing...',
 
   // Tool Actions
   testing: 'Testing...',
