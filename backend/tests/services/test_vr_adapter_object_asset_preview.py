@@ -15,6 +15,8 @@ from backend.app.capabilities.multi_media_studio.services.adapters.vr_adapter im
 from shared.schemas.storyboard import (
     DirectionIR,
     ObjectAssetRef,
+    ObjectUsageBinding,
+    ObjectWorkloadSnapshot,
     RenderProfile,
     Scene,
     SceneIntent,
@@ -72,3 +74,29 @@ def test_explicit_scene_manifest_reference_image_is_not_overridden_by_object_ass
 
     assert manifest["primary_object_asset"] == {"storage_key": "objects/dress_form.png"}
     assert manifest["reference_image"] == {"reference_id": "explicit_ref"}
+
+
+def test_object_workload_snapshot_is_forwarded_with_impact_region_metadata():
+    scene = Scene(
+        scene_id="sc_object_contract_forwarding",
+        object_workload_snapshot=ObjectWorkloadSnapshot(
+            source_scene_id="SC_SOURCE_01",
+            usage_bindings=[ObjectUsageBinding(scene_id="A01")],
+            impact_region_mode="contact_zone",
+            impact_region_bbox={"x": 12, "y": 18, "width": 96, "height": 104},
+            impact_region_confidence=0.71,
+            affected_object_instance_ids=["obj_dress_form", "obj_person_main"],
+            quality_gate_state="auto_approved",
+        ),
+    )
+    profile = RenderProfile(profile_id="vr_preview_local")
+
+    manifest = VRAdapter()._build_scene_manifest(scene, profile)
+
+    snapshot = manifest["_object_contract"]["object_workload_snapshot"]
+    assert snapshot["impact_region_mode"] == "contact_zone"
+    assert snapshot["quality_gate_state"] == "auto_approved"
+    assert snapshot["affected_object_instance_ids"] == [
+        "obj_dress_form",
+        "obj_person_main",
+    ]

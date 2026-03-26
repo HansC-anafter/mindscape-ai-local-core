@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import sys
 
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import httpx
 
 LOCAL_CORE_ROOT = Path("/Users/shock/Projects_local/workspace/mindscape-ai-local-core")
 BACKEND_ROOT = LOCAL_CORE_ROOT / "backend"
@@ -21,7 +22,6 @@ from backend.app.capabilities.layer_asset_forge.api.layer_asset_forge_endpoints 
 def test_extract_object_assets_route_returns_storyboard_scene_patch(monkeypatch, tmp_path):
     app = FastAPI()
     app.include_router(router, prefix="/api/v1/capabilities/layer_asset_forge")
-    client = TestClient(app)
 
     monkeypatch.setenv("LOCAL_STORAGE_PATH", str(tmp_path))
 
@@ -63,9 +63,22 @@ def test_extract_object_assets_route_returns_storyboard_scene_patch(monkeypatch,
                             "object_target_id": "dress_form",
                             "object_instance_id": "obj_dress_form",
                             "source_reference_fingerprint": "ref_scene_a",
+                            "impact_region_mode": "contact_zone",
+                            "impact_region_bbox": {
+                                "x": 0,
+                                "y": 0,
+                                "width": 120,
+                                "height": 180,
+                            },
+                            "impact_region_confidence": 0.74,
+                            "affected_object_instance_ids": [
+                                "obj_dress_form",
+                                "obj_person_main",
+                            ],
+                            "quality_gate_state": "auto_approved",
+                            "matte_refinement_status": "applied",
+                            "completion_status": "applied",
                         },
-                        "matte_refinement_status": "applied",
-                        "completion_status": "applied",
                     }
                 ],
             }
@@ -80,34 +93,48 @@ def test_extract_object_assets_route_returns_storyboard_scene_patch(monkeypatch,
         _fake_extract_layers,
     )
 
-    response = client.post(
-        "/api/v1/capabilities/layer_asset_forge/extract-object-assets",
-        json={
-            "job_id": "laf_job_demo",
-            "image_ref": {"storage_key": "refs/source.png"},
-            "selection_mode": "targets",
-            "source_scene_ref": {"scene_id": "SC_PATCH_01"},
-            "object_targets": [
-                {
-                    "object_target_id": "dress_form",
-                    "label": "Dress Form",
-                    "usage_bindings": [
+    async def _exercise_route():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            return await client.post(
+                "/api/v1/capabilities/layer_asset_forge/extract-object-assets",
+                json={
+                    "job_id": "laf_job_demo",
+                    "image_ref": {"storage_key": "refs/source.png"},
+                    "selection_mode": "targets",
+                    "source_scene_ref": {"scene_id": "SC_PATCH_01"},
+                    "object_targets": [
                         {
-                            "scene_id": "A01",
-                            "purpose": "prop",
-                            "placement_policy": "inherit",
+                            "object_target_id": "dress_form",
+                            "label": "Dress Form",
+                            "usage_bindings": [
+                                {
+                                    "scene_id": "A01",
+                                    "purpose": "prop",
+                                    "placement_policy": "inherit",
+                                }
+                            ],
                         }
                     ],
-                }
-            ],
-        },
-    )
+                },
+            )
+
+    response = asyncio.run(_exercise_route())
 
     assert response.status_code == 200
     payload = response.json()["job"]
     assert payload["status"] == "completed"
     assert payload["object_asset_refs"][0]["object_instance_id"] == "obj_dress_form"
+    assert payload["object_asset_refs"][0]["metadata"]["impact_region_mode"] == "contact_zone"
     assert payload["object_reuse_plan"]["usage_bindings"][0]["scene_id"] == "A01"
     assert payload["object_workload_snapshot"]["source_scene_id"] == "SC_PATCH_01"
+    assert payload["object_workload_snapshot"]["source_image_ref"] == {
+        "storage_key": "refs/source.png"
+    }
+    assert payload["object_workload_snapshot"]["impact_region_mode"] == "contact_zone"
+    assert payload["object_workload_snapshot"]["quality_gate_state"] == "auto_approved"
     assert payload["storyboard_scene_patch"]["object_assets"][0]["object_target_id"] == "dress_form"
     assert payload["storyboard_scene_patch"]["object_workload_snapshot"]["source_workload_ref"] == "laf_job:laf_job_demo"
