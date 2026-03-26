@@ -20,6 +20,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--mask-path", default="")
     parser.add_argument("--mask-url", default="")
     parser.add_argument("--bbox-json", default="")
+    parser.add_argument("--bbox-source", default="")
+    parser.add_argument("--context-mode", default="")
     return parser.parse_args()
 
 
@@ -82,6 +84,29 @@ def _resolve_bbox(mask: "np.ndarray", bbox_json: str) -> dict[str, int]:
     }
 
 
+def _normalize_bbox_source(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"impact_region_bbox", "coarse_mask_bbox"}:
+        return normalized
+    return "coarse_mask_bbox"
+
+
+def _normalize_context_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"contact_zone", "local_scene", "object_only"}:
+        return normalized
+    return "object_only"
+
+
+def _margin_ratio_for_context_mode(context_mode: str) -> float:
+    normalized = _normalize_context_mode(context_mode)
+    if normalized == "contact_zone":
+        return 0.22
+    if normalized == "local_scene":
+        return 0.1
+    return 0.15
+
+
 def _expand_bbox(bbox: dict[str, int], width: int, height: int, margin_ratio: float = 0.15) -> dict[str, int]:
     margin_x = max(int(bbox["width"] * margin_ratio), 8)
     margin_y = max(int(bbox["height"] * margin_ratio), 8)
@@ -95,6 +120,21 @@ def _expand_bbox(bbox: dict[str, int], width: int, height: int, margin_ratio: fl
         "width": max(right - left, 1),
         "height": max(bottom - top, 1),
     }
+
+
+def _crop_box_from_bbox(
+    bbox: dict[str, int],
+    *,
+    width: int,
+    height: int,
+    context_mode: str,
+) -> dict[str, int]:
+    return _expand_bbox(
+        bbox,
+        width,
+        height,
+        margin_ratio=_margin_ratio_for_context_mode(context_mode),
+    )
 
 
 def _resolve_device() -> str:
@@ -128,7 +168,7 @@ def _load_modnet(device: str):
     return model, checkpoint
 
 
-def _predict_matte(model, image_rgb, bbox: dict[str, int], device: str):
+def _predict_matte(model, image_rgb, bbox: dict[str, int], device: str, *, context_mode: str):
     import cv2
     import numpy as np
     import torch
@@ -137,7 +177,12 @@ def _predict_matte(model, image_rgb, bbox: dict[str, int], device: str):
     from PIL import Image
 
     height, width = image_rgb.shape[:2]
-    expanded = _expand_bbox(bbox, width, height)
+    expanded = _crop_box_from_bbox(
+        bbox,
+        width=width,
+        height=height,
+        context_mode=context_mode,
+    )
     x, y, w, h = expanded["x"], expanded["y"], expanded["width"], expanded["height"]
     crop = image_rgb[y : y + h, x : x + w, :]
 
@@ -172,7 +217,7 @@ def _predict_matte(model, image_rgb, bbox: dict[str, int], device: str):
     matte = np.clip(matte, 0.0, 1.0)
     full_mask = np.zeros((height, width), dtype=np.uint8)
     full_mask[y : y + h, x : x + w] = np.clip(matte * 255.0, 0, 255).astype("uint8")
-    return full_mask
+    return full_mask, expanded
 
 
 def _blend_with_coarse_mask(refined_mask, coarse_mask):
@@ -220,16 +265,30 @@ def main() -> int:
             raise ValueError("mask must be grayscale")
 
         bbox = _resolve_bbox(coarse_mask, str(args.bbox_json or "").strip())
+        bbox_source = _normalize_bbox_source(str(args.bbox_source or "").strip())
+        context_mode = _normalize_context_mode(str(args.context_mode or "").strip())
         requested_device = _resolve_device()
         device = requested_device
         model, checkpoint = _load_modnet(device)
         try:
-            refined_mask = _predict_matte(model, image_rgb, bbox, device)
+            refined_mask, crop_box = _predict_matte(
+                model,
+                image_rgb,
+                bbox,
+                device,
+                context_mode=context_mode,
+            )
         except Exception as exc:
             if device == "mps" and "Adaptive pool MPS" in str(exc):
                 device = "cpu"
                 model, checkpoint = _load_modnet(device)
-                refined_mask = _predict_matte(model, image_rgb, bbox, device)
+                refined_mask, crop_box = _predict_matte(
+                    model,
+                    image_rgb,
+                    bbox,
+                    device,
+                    context_mode=context_mode,
+                )
             else:
                 raise
         merged_mask = _blend_with_coarse_mask(refined_mask, coarse_mask)
@@ -250,6 +309,10 @@ def main() -> int:
                     "bbox": inferred_bbox,
                     "confidence": round(max(0.0, min(1.0, confidence)), 4),
                     "mask_png_base64": base64.b64encode(output.getvalue()).decode("ascii"),
+                    "input_bbox": bbox,
+                    "bbox_source": bbox_source,
+                    "context_mode": context_mode,
+                    "crop_box": crop_box,
                     "device": device,
                     "requested_device": requested_device,
                     "checkpoint_path": str(checkpoint),

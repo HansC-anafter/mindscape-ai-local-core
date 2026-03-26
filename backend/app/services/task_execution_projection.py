@@ -20,6 +20,7 @@ def build_remote_execution_summary(task_payload: Dict[str, Any]) -> Optional[Dic
     remote = _as_dict(ctx.get("remote_execution"))
     if not remote:
         return None
+    provider_metadata = _as_dict(remote.get("provider_metadata"))
 
     execution_id = task_payload.get("execution_id") or task_payload.get("id")
     result_ingress_mode = remote.get("result_ingress_mode") or ctx.get("remote_result_mode")
@@ -37,6 +38,10 @@ def build_remote_execution_summary(task_payload: Dict[str, Any]) -> Optional[Dic
         "cloud_dispatch_state": remote.get("cloud_dispatch_state"),
         "cloud_execution_id": remote.get("cloud_execution_id"),
         "cloud_state": remote.get("cloud_state"),
+        "callback_delivered_at": remote.get("callback_delivered_at")
+        or provider_metadata.get("callback_delivered_at"),
+        "callback_error": remote.get("callback_error")
+        or provider_metadata.get("callback_error"),
         "target_device_id": remote.get("target_device_id"),
         "lineage_root_execution_id": remote.get("lineage_root_execution_id") or execution_id,
         "replay_of_execution_id": remote.get("replay_of_execution_id"),

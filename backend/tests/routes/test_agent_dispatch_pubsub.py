@@ -70,7 +70,7 @@ async def test_pubsub_dispatch_relays_progress_and_result():
     )
     owner._clients["ws-1"]["client-1"] = client
 
-    origin._db_get_dispatch_target = lambda workspace_id, client_id=None: {
+    origin._db_get_dispatch_target = lambda workspace_id, client_id=None, surface_type=None: {
         "workspace_id": workspace_id,
         "client_id": "client-1",
         "worker_instance_id": "owner-worker",
@@ -145,7 +145,7 @@ async def test_pubsub_disconnect_falls_back_to_db_transport():
     )
     owner._clients["ws-1"]["client-1"] = client
 
-    origin._db_get_dispatch_target = lambda workspace_id, client_id=None: {
+    origin._db_get_dispatch_target = lambda workspace_id, client_id=None, surface_type=None: {
         "workspace_id": workspace_id,
         "client_id": "client-1",
         "worker_instance_id": "owner-worker",
@@ -187,3 +187,60 @@ async def test_pubsub_disconnect_falls_back_to_db_transport():
     result = await dispatch_task
     assert result["status"] == "completed"
     assert result["output"] == "db-fallback"
+
+
+@pytest.mark.asyncio
+async def test_local_ack_timeout_evicts_stale_client_and_retries_shared_transport():
+    manager = AgentDispatchManager()
+    manager.ACK_DEADLINE_SECONDS = 0.01
+    manager.WAIT_SLICE_SECONDS = 0.01
+    manager._db_unregister_connection = lambda client_id: None
+
+    websocket = _FakeWebSocket()
+    client = AgentClient(
+        websocket=websocket,
+        client_id="codex-client",
+        workspace_id="ws-1",
+        surface_type="codex_cli",
+        authenticated=True,
+    )
+    manager._clients["ws-1"]["codex-client"] = client
+
+    async def fake_cross_worker_dispatch(
+        workspace_id: str,
+        message,
+        execution_id: str,
+        timeout: float = 600.0,
+        target_client_id=None,
+        surface_type=None,
+    ):
+        assert workspace_id == "ws-1"
+        assert execution_id == "exec-ack-timeout"
+        assert surface_type == "codex_cli"
+        return {
+            "execution_id": execution_id,
+            "status": "completed",
+            "output": "shared-transport-retry",
+        }
+
+    manager._cross_worker_dispatch = fake_cross_worker_dispatch
+
+    message = {
+        "type": "dispatch",
+        "workspace_id": "ws-1",
+        "agent_id": "codex_cli",
+        "task": "retry this stale local client",
+    }
+
+    result = await manager.dispatch_and_wait(
+        workspace_id="ws-1",
+        message=message,
+        execution_id="exec-ack-timeout",
+        timeout=1.0,
+    )
+
+    assert websocket.messages == [message]
+    assert result["status"] == "completed"
+    assert result["output"] == "shared-transport-retry"
+    assert manager.get_client("ws-1", "codex-client", surface_type="codex_cli") is None
+    assert manager._pending_queue["ws-1"] == []

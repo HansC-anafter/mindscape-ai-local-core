@@ -105,6 +105,42 @@ class InstalledPacksStore(PostgresStoreBase):
                 },
             )
 
+    def update_metadata(
+        self,
+        pack_id: str,
+        metadata_patch: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        with self.transaction() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT pack_id, installed_at, enabled, metadata
+                    FROM installed_packs
+                    WHERE pack_id = :pack_id
+                    FOR UPDATE
+                    """
+                ),
+                {"pack_id": pack_id},
+            ).fetchone()
+            if not row:
+                return None
+            metadata = self.deserialize_json(row.metadata, {})
+            metadata.update(metadata_patch or {})
+            conn.execute(
+                text(
+                    """
+                    UPDATE installed_packs
+                    SET metadata = :metadata
+                    WHERE pack_id = :pack_id
+                    """
+                ),
+                {
+                    "pack_id": pack_id,
+                    "metadata": self.serialize_json(metadata),
+                },
+            )
+        return self.get_pack(pack_id)
+
     def set_enabled(self, pack_id: str, enabled: bool) -> bool:
         with self.transaction() as conn:
             result = conn.execute(

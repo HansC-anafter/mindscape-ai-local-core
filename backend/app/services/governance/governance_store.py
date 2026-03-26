@@ -190,6 +190,66 @@ class GovernanceStore(PostgresStoreBase):
 
         return decisions, total
 
+    def list_decisions_for_execution(
+        self,
+        *,
+        workspace_id: str,
+        execution_id: str,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT
+                        decision_id,
+                        workspace_id,
+                        execution_id,
+                        timestamp,
+                        layer,
+                        approved,
+                        reason,
+                        playbook_code,
+                        metadata
+                    FROM governance_decisions
+                    WHERE workspace_id = :workspace_id
+                      AND execution_id = :execution_id
+                    ORDER BY timestamp DESC
+                    LIMIT :limit
+                    """
+                ),
+                {
+                    "workspace_id": workspace_id,
+                    "execution_id": execution_id,
+                    "limit": limit,
+                },
+            ).fetchall()
+
+        decisions: List[Dict[str, Any]] = []
+        for row in rows:
+            data = row._mapping
+            metadata_payload = self.deserialize_json(data.get("metadata"), default={})
+            timestamp_val = data.get("timestamp")
+            timestamp_str = (
+                timestamp_val.isoformat()
+                if hasattr(timestamp_val, "isoformat")
+                else str(timestamp_val)
+            )
+            decisions.append(
+                {
+                    "decision_id": data.get("decision_id"),
+                    "workspace_id": data.get("workspace_id"),
+                    "execution_id": data.get("execution_id"),
+                    "timestamp": timestamp_str,
+                    "layer": data.get("layer"),
+                    "approved": bool(data.get("approved")),
+                    "reason": data.get("reason"),
+                    "playbook_code": data.get("playbook_code"),
+                    "metadata": metadata_payload or {},
+                }
+            )
+        return decisions
+
     def get_today_usage(self, workspace_id: str) -> float:
         with self.get_connection() as conn:
             total = conn.execute(

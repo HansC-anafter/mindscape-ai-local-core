@@ -264,14 +264,24 @@ class TaskAdmissionService:
             SELECT
                 COUNT(*) FILTER (
                     WHERE status = 'pending'
-                      AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
+                      AND COALESCE(blocked_reason, '') = :unblocked_reason
+                      AND COALESCE(next_eligible_at, created_at) <= :now
+                      AND COALESCE(frontier_state, :legacy_ready_state) IN (
+                        :ready_frontier_state,
+                        :legacy_ready_state
+                      )
                 ) AS pending_total,
                 COUNT(*) FILTER (
                     WHERE status = 'running'
                 ) AS running_total,
-                MIN(created_at) FILTER (
+                MIN(COALESCE(frontier_enqueued_at, next_eligible_at, created_at)) FILTER (
                     WHERE status = 'pending'
-                      AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
+                      AND COALESCE(blocked_reason, '') = :unblocked_reason
+                      AND COALESCE(next_eligible_at, created_at) <= :now
+                      AND COALESCE(frontier_state, :legacy_ready_state) IN (
+                        :ready_frontier_state,
+                        :legacy_ready_state
+                      )
                 ) AS oldest_pending_at
             FROM tasks
             WHERE task_type IN (:task_type_pb, :task_type_tool)
@@ -285,7 +295,10 @@ class TaskAdmissionService:
             "pending_status": "pending",
             "running_status": "running",
             "queue_shard": queue_shard,
-            "admission_blocked_reason": ADMISSION_DEFERRED_REASON,
+            "now": _utc_now(),
+            "ready_frontier_state": "ready",
+            "legacy_ready_state": "",
+            "unblocked_reason": "",
         }
         try:
             with tasks_store.get_connection() as conn:
@@ -341,4 +354,3 @@ class TaskAdmissionService:
 
 
 TASK_ADMISSION_SERVICE = TaskAdmissionService()
-

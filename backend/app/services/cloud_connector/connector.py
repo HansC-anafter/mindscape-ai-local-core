@@ -573,6 +573,25 @@ class CloudConnector:
         response.raise_for_status()
         return response.json()
 
+    async def get_runtime_availability(
+        self,
+        *,
+        site_key: str,
+        target_device_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Probe control-plane runtime availability for a site/device request."""
+        client = self._get_http_client()
+        params: Dict[str, Any] = {"site_key": site_key}
+        if isinstance(target_device_id, str) and target_device_id.strip():
+            params["device_id"] = target_device_id.strip()
+
+        response = await client.get(
+            "/api/v1/executions/availability",
+            params=params,
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def get_remote_execution(
         self,
         execution_id: str,
@@ -631,6 +650,13 @@ class CloudConnector:
                     "result_payload": result.get("result_payload"),
                     "error_message": result.get("error_message"),
                     "completed_at": result.get("completed_at"),
+                    "callback_delivered_at": (
+                        result.get("callback_delivered_at")
+                        or execution.get("callback_delivered_at")
+                    ),
+                    "callback_error": (
+                        result.get("callback_error") or execution.get("callback_error")
+                    ),
                 }
 
             elapsed_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()

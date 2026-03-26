@@ -1,18 +1,22 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import type {
   ExecutionStep,
   ToolCall,
   StepEvent,
   PlaybookStepDefinition,
   Artifact,
+  ReviewBundleArtifact,
   RemoteChildExecution,
+  RelatedGovernedMemoryLink,
 } from './types/execution';
 import { deriveAllSteps } from './utils/execution-inspector';
 import { getStepStatusColor, getEffectiveStepStatus } from './utils/execution-inspector';
 import { loadCapabilityUIComponent, artifactsMatchComponent } from '@/lib/capability-ui-loader';
 import { parseServerTimestamp } from '@/lib/time';
+import { GovernedMemoryPreview } from '@/components/workspace/governance/GovernedMemoryPreview';
+import ArtifactReviewPane from './ArtifactReviewPane';
 
 export interface StepDetailPanelProps {
   steps: ExecutionStep[];
@@ -23,10 +27,14 @@ export interface StepDetailPanelProps {
   stepEvents: StepEvent[];
   executionStatus?: string;
   artifacts?: Artifact[];
+  reviewBundleArtifacts?: ReviewBundleArtifact[];
+  reviewBundlesLoading?: boolean;
   remoteChildExecutions?: RemoteChildExecution[];
   workspaceId?: string;
   apiUrl?: string;
+  relatedGovernedMemory?: RelatedGovernedMemoryLink | null;
   onViewArtifact?: (artifact: Artifact) => void;
+  onReviewBundleArtifactUpdated?: (artifact: ReviewBundleArtifact) => void;
   t: (key: string, params?: any) => string;
 }
 
@@ -39,16 +47,21 @@ export default function StepDetailPanel({
   stepEvents,
   executionStatus,
   artifacts = [],
+  reviewBundleArtifacts = [],
+  reviewBundlesLoading = false,
   remoteChildExecutions = [],
   workspaceId,
   apiUrl,
+  relatedGovernedMemory,
   onViewArtifact,
+  onReviewBundleArtifactUpdated,
   t,
 }: StepDetailPanelProps) {
   // Dynamic capability UI components (boundary: no hardcoded Cloud components)
   const [installedCapabilities, setInstalledCapabilities] = useState<any[]>([]);
   const [capabilityUIComponents, setCapabilityUIComponents] = useState<Map<string, React.ComponentType<any>>>(new Map());
   const [openModalKey, setOpenModalKey] = useState<string | null>(null);
+  const [selectedReviewBundleId, setSelectedReviewBundleId] = useState<string | null>(null);
 
   // Load installed capabilities (boundary: via API, not hardcoded)
   useEffect(() => {
@@ -141,12 +154,29 @@ export default function StepDetailPanel({
       : remoteChildExecutions.length === 1
         ? remoteChildExecutions
         : [];
+  const selectedReviewBundle = useMemo(
+    () =>
+      reviewBundleArtifacts.find((artifact) => artifact.id === selectedReviewBundleId)
+      || reviewBundleArtifacts[0]
+      || null,
+    [reviewBundleArtifacts, selectedReviewBundleId],
+  );
+
+  useEffect(() => {
+    if (!reviewBundleArtifacts.length) {
+      setSelectedReviewBundleId(null);
+      return;
+    }
+    if (!selectedReviewBundleId || !reviewBundleArtifacts.some((artifact) => artifact.id === selectedReviewBundleId)) {
+      setSelectedReviewBundleId(reviewBundleArtifacts[0].id);
+    }
+  }, [reviewBundleArtifacts, selectedReviewBundleId]);
 
   if (!currentStepInfo) {
     return (
       <div className="h-full overflow-y-auto bg-surface-secondary dark:bg-gray-800 p-3 min-w-0">
         <div className="text-center py-8 text-gray-500 dark:text-gray-300">
-          {t('selectStepToViewDetails' as any) || '請選擇步驟以查看詳情'}
+          {t('selectStepToViewDetails' as any) || 'Select a step to view details'}
         </div>
       </div>
     );
@@ -223,6 +253,12 @@ export default function StepDetailPanel({
                       <div>step: {summary.workflow_step_id}</div>
                     )}
                     <div>status: {child.status}</div>
+                    {summary.callback_delivered_at && (
+                      <div>callback delivered: {summary.callback_delivered_at}</div>
+                    )}
+                    {summary.callback_error && (
+                      <div>callback error: {summary.callback_error}</div>
+                    )}
                     {summary.replay_of_execution_id && (
                       <div>replay of: {summary.replay_of_execution_id}</div>
                     )}
@@ -383,11 +419,10 @@ export default function StepDetailPanel({
                 onClick={() => setOpenModalKey(key)}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm font-medium"
               >
-                <span>📱</span>
-                <span>{componentInfo.description || `查看 ${componentInfo.code}`}</span>
+                <span>{componentInfo.description || `View ${componentInfo.code}`}</span>
               </button>
               {isOpen && (
-                <Suspense fallback={<div className="p-4 text-center">載入中...</div>}>
+                <Suspense fallback={<div className="p-4 text-center">Loading...</div>}>
                   <Component
                     isOpen={isOpen}
                     onClose={() => setOpenModalKey(null)}
@@ -403,12 +438,22 @@ export default function StepDetailPanel({
       {/* Artifacts for this step */}
       <div className="mt-4">
         <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
-          {t('artifacts' as any) || '產出'}
+          {t('artifacts' as any) || 'Artifacts'}
         </h4>
+        {workspaceId && apiUrl && relatedGovernedMemory?.memoryItemId && (
+          <GovernedMemoryPreview
+            workspaceId={workspaceId}
+            memoryItemId={relatedGovernedMemory.memoryItemId}
+            apiUrl={apiUrl}
+            lifecycleStatus={relatedGovernedMemory.lifecycleStatus}
+            verificationStatus={relatedGovernedMemory.verificationStatus}
+            compact
+            className="mb-3"
+          />
+        )}
         {artifacts.length === 0 ? (
           <div className="p-4 rounded border border-dashed border-default dark:border-gray-700 bg-surface-accent dark:bg-gray-800 text-center text-xs text-secondary dark:text-gray-400">
-            <div className="text-lg mb-1">🗂️</div>
-            <div>{t('noArtifacts' as any) || '此步驟尚未產出檔案'}</div>
+            <div>{t('noArtifacts' as any) || 'This step has not produced artifacts yet'}</div>
           </div>
         ) : (
           <div className="space-y-2">
@@ -433,6 +478,64 @@ export default function StepDetailPanel({
                 )}
               </button>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
+          Visual Acceptance
+        </h4>
+        {reviewBundlesLoading ? (
+          <div className="rounded border border-default bg-surface-accent p-4 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+            Loading review bundles...
+          </div>
+        ) : !reviewBundleArtifacts.length ? (
+          <div className="rounded border border-dashed border-default bg-surface-accent p-4 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+            This execution does not have a matching visual acceptance bundle yet.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid gap-2 md:grid-cols-2">
+              {reviewBundleArtifacts.map((artifact) => {
+                const content = artifact.content || {};
+                const latestDecision = content.latest_review_decision?.decision || content.status;
+                const isSelected = artifact.id === selectedReviewBundle?.id;
+                return (
+                  <button
+                    key={artifact.id}
+                    type="button"
+                    onClick={() => setSelectedReviewBundleId(artifact.id)}
+                    className={`rounded border px-3 py-3 text-left transition ${
+                      isSelected
+                        ? 'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/20'
+                        : 'border-default bg-surface-accent hover:bg-tertiary dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {content.scene_id || artifact.name}
+                      </span>
+                      <span className="rounded-full border border-default px-2 py-0.5 text-[10px] text-gray-600 dark:border-gray-700 dark:text-gray-300">
+                        {content.source_kind || 'bundle'}
+                      </span>
+                    </div>
+                    <div className="mt-2 space-y-1 text-[11px] text-gray-500 dark:text-gray-400">
+                      <div>run_id={content.run_id || '-'}</div>
+                      <div>scene_id={content.scene_id || '-'}</div>
+                      <div>decision={latestDecision || '-'}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <ArtifactReviewPane
+              artifact={selectedReviewBundle}
+              workspaceId={workspaceId}
+              apiUrl={apiUrl}
+              onArtifactUpdated={onReviewBundleArtifactUpdated}
+            />
           </div>
         )}
       </div>

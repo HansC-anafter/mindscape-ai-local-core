@@ -48,6 +48,21 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_lens_patches_chain ON lens_patches(lens_id, lens_version_before)",
 ]
 
+ALTER_DDL = [
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS delta JSONB NOT NULL DEFAULT '{}'",
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS evidence_refs JSONB DEFAULT '[]'",
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS confidence FLOAT NOT NULL DEFAULT 0.0",
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'proposed'",
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS rollback_to TEXT",
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS lens_version_before INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS lens_version_after INTEGER",
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS approved_by TEXT",
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS rejection_reason TEXT",
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()",
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ",
+    "ALTER TABLE lens_patches ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'",
+]
+
 
 class LensPatchStore(PostgresStoreBase):
     """Store for LensPatch persistence with version chain support (Postgres)."""
@@ -64,6 +79,8 @@ class LensPatchStore(PostgresStoreBase):
         """Create table if it does not exist."""
         with self.transaction() as conn:
             conn.execute(text(TABLE_DDL))
+            for ddl in ALTER_DDL:
+                conn.execute(text(ddl))
             for idx in INDEX_DDL:
                 conn.execute(text(idx))
         logger.info("lens_patches table ensured")

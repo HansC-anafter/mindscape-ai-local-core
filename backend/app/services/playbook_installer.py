@@ -128,7 +128,10 @@ class PlaybookInstaller:
         return validate_playbook_required_fields(spec_path)
 
     def _validate_tools_direct_call(
-        self, playbook_code: str, capability_code: str
+        self,
+        playbook_code: str,
+        capability_code: str,
+        tool_model_preload_cache: Dict[str, str] | None = None,
     ) -> Tuple[List[str], List[str]]:
         """Validate tool backends without executing the playbook."""
         return validate_tools_direct_call(
@@ -136,4 +139,5 @@ class PlaybookInstaller:
             capability_code=capability_code,
             capabilities_dir=self.capabilities_dir,
             specs_dir=self.specs_dir,
+            tool_model_preload_cache=tool_model_preload_cache,
         )
