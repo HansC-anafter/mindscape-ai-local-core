@@ -144,7 +144,11 @@ def test_remote_terminal_success_delegates_to_process_completion():
         job_type="tool",
         capability_code="ig",
         playbook_code="ig_batch_pin_references",
-        provider_metadata={"device_id": "gpu-1"},
+        provider_metadata={
+            "device_id": "gpu-1",
+            "callback_delivered_at": "2026-03-26T10:01:02",
+            "callback_error": None,
+        },
     )
 
     engine.process_completion.assert_called_once_with(
@@ -159,6 +163,11 @@ def test_remote_terminal_success_delegates_to_process_completion():
     assert store.updated_contexts[-1]["remote_execution"]["trace_id"] == "trace-1"
     assert store.updated_contexts[-1]["remote_execution"]["job_type"] == "tool"
     assert store.updated_contexts[-1]["remote_execution"]["capability_code"] == "ig"
+    assert (
+        store.updated_contexts[-1]["remote_execution"]["callback_delivered_at"]
+        == "2026-03-26T10:01:02"
+    )
+    assert store.updated_contexts[-1]["remote_execution"].get("callback_error") is None
 
 
 def test_remote_terminal_failure_does_not_call_process_completion():
@@ -184,7 +193,10 @@ def test_remote_terminal_failure_does_not_call_process_completion():
         job_type="tool",
         capability_code="ig",
         playbook_code="ig_batch_pin_references",
-        provider_metadata={"device_id": "gpu-1"},
+        provider_metadata={
+            "device_id": "gpu-1",
+            "callback_error": "local-core unavailable",
+        },
     )
 
     engine.process_completion.assert_not_called()
@@ -192,6 +204,7 @@ def test_remote_terminal_failure_does_not_call_process_completion():
     assert store.updated_contexts[-1]["trace_id"] == "trace-1"
     assert store.updated_contexts[-1]["remote_execution"]["job_type"] == "tool"
     assert store.updated_contexts[-1]["remote_execution"]["capability_code"] == "ig"
+    assert store.updated_contexts[-1]["remote_execution"]["callback_error"] == "local-core unavailable"
     assert result["artifact_id"] is None
 
 

@@ -329,6 +329,8 @@ async def maybe_execute_tool_via_remote_route(
                 "cloud_state": terminal_result.get("status"),
                 "workflow_step_id": step_id,
                 "tool_name": tool_name,
+                "callback_delivered_at": terminal_result.get("callback_delivered_at"),
+                "callback_error": terminal_result.get("callback_error"),
             },
         )
     except Exception:
