@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { GovernanceTimeline } from './components/GovernanceTimeline';
 import { GovernanceMetrics } from './components/GovernanceMetrics';
 import { GovernedMemoryPanel } from './components/GovernedMemoryPanel';
@@ -17,6 +17,7 @@ function resolveTab(value: string | null): GovernanceTabId {
 }
 
 export default function GovernancePage() {
+  const t = useT();
   const params = useParams();
   const router = useRouter();
   const pathname = usePathname();

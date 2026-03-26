@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { X } from 'lucide-react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { formatLocalDateTime } from '@/lib/time';
 
 interface GovernanceDecision {
@@ -30,6 +30,7 @@ export function GovernanceDecisionDetail({
   decision,
   onClose,
 }: GovernanceDecisionDetailProps) {
+  const t = useT();
   const layerLabels = {
     cost: t('costGovernance' as any) || 'Cost Governance',
     node: t('nodeGovernance' as any) || 'Node Governance',
@@ -194,4 +195,3 @@ export function GovernanceDecisionDetail({
     </div>
   );
 }
-

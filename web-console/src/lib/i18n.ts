@@ -27,6 +27,12 @@ export { messages };
 let currentLocale: Locale = 'zh-TW';
 let isClientMounted = false;
 
+function applyDocumentLocale(locale: Locale): void {
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = locale;
+  }
+}
+
 // DO NOT initialize locale from localStorage at module load time
 // This ensures SSR and initial client render are always consistent
 // Locale will be initialized only after client mount via useLocale hook
@@ -36,6 +42,7 @@ export function setLocale(locale: Locale): void {
   if (typeof window !== 'undefined') {
     localStorage.setItem('locale', locale);
   }
+  applyDocumentLocale(locale);
 }
 
 export function getLocale(): Locale {
@@ -60,6 +67,7 @@ export function initLocaleFromStorage(): void {
     if (stored && (stored === 'zh-TW' || stored === 'en' || stored === 'ja')) {
       currentLocale = stored;
     }
+    applyDocumentLocale(currentLocale);
     // Mark as mounted only after reading from localStorage
     isClientMounted = true;
   }
@@ -102,6 +110,7 @@ export function useLocale(): [Locale, (locale: Locale) => void] {
         currentLocale = stored;
         setLocaleState(stored);
       }
+      applyDocumentLocale(stored && (stored === 'zh-TW' || stored === 'en' || stored === 'ja') ? stored : 'zh-TW');
       // Mark as mounted after reading from localStorage
       isClientMounted = true;
       setMounted(true);

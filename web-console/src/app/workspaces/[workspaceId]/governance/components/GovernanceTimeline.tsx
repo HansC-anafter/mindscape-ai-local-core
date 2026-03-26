@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useT } from '@/lib/i18n';
 import { formatLocalDateTime } from '@/lib/time';
 import { GovernanceDecisionDetail } from './GovernanceDecisionDetail';
 import { getApiBaseUrl } from '../../../../../lib/api-url';
@@ -27,6 +27,7 @@ interface GovernanceTimelineProps {
 }
 
 export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<GovernanceDecision[]>([]);
@@ -40,50 +41,7 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  useEffect(() => {
-    loadDecisions();
-  }, [workspaceId, filters, page]);
-
-  const loadDecisions = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const apiUrl = getApiBaseUrl();
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: '50',
-      });
-
-      if (filters.layer) params?.append('layer', filters.layer);
-      if (filters.approved !== undefined) params?.append('approved', filters.approved.toString());
-      if (filters.startDate) params?.append('start_date', filters.startDate);
-      if (filters.endDate) params?.append('end_date', filters.endDate);
-
-      const response = await fetch(
-        `${apiUrl}/api/v1/workspaces/${workspaceId}/governance/decisions?${params?.toString()}`
-      );
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          // Fallback to events API for Local-Core
-          await loadFromEvents();
-          return;
-        }
-        throw new Error('Failed to load governance decisions');
-      }
-
-      const data = await response.json();
-      setDecisions(data.decisions || []);
-      setTotalPages(data.total_pages || 1);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load decisions');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadFromEvents = async () => {
+  const loadFromEvents = useCallback(async () => {
     try {
       const apiUrl = getApiBaseUrl();
       const response = await fetch(
@@ -114,13 +72,62 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
     } catch (err) {
       console.error('Failed to load from events:', err);
     }
-  };
+  }, [workspaceId]);
+
+  const loadDecisions = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const apiUrl = getApiBaseUrl();
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: '50',
+      });
+
+      if (filters.layer) params?.append('layer', filters.layer);
+      if (filters.approved !== undefined) params?.append('approved', filters.approved.toString());
+      if (filters.startDate) params?.append('start_date', filters.startDate);
+      if (filters.endDate) params?.append('end_date', filters.endDate);
+
+      const response = await fetch(
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/governance/decisions?${params?.toString()}`
+      );
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          // Fallback to events API for Local-Core
+          await loadFromEvents();
+          return;
+        }
+        throw new Error(t('failedToLoadGovernanceDecisions' as any));
+      }
+
+      const data = await response.json();
+      setDecisions(data.decisions || []);
+      setTotalPages(data.total_pages || 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('failedToLoadDecisions' as any));
+    } finally {
+      setLoading(false);
+    }
+  }, [filters, loadFromEvents, page, t, workspaceId]);
+
+  useEffect(() => {
+    void loadDecisions();
+  }, [loadDecisions]);
 
   const layerColors = {
     cost: 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300',
     node: 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300',
     policy: 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300',
     preflight: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300',
+  };
+  const layerLabels = {
+    cost: t('cost' as any) || 'Cost',
+    node: t('node' as any) || 'Node',
+    policy: t('policy' as any) || 'Policy',
+    preflight: t('preflight' as any) || 'Preflight',
   };
 
   if (loading) {
@@ -221,7 +228,7 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
                     <span
                       className={`px-2 py-1 text-xs font-medium rounded ${layerColors[decision.layer]}`}
                     >
-                      {decision.layer}
+                      {layerLabels[decision.layer]}
                     </span>
                     <span
                       className={`px-2 py-1 text-xs font-medium rounded ${decision.approved
@@ -281,4 +288,3 @@ export function GovernanceTimeline({ workspaceId }: GovernanceTimelineProps) {
     </div>
   );
 }
-
