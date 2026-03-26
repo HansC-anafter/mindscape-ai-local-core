@@ -271,7 +271,15 @@ class TaskExecutor:
 
     @staticmethod
     def _resolve_backend_api_url() -> str:
-        backend_url = self._resolve_backend_api_url()
+        backend_url = os.environ.get("MINDSCAPE_BACKEND_API_URL", "").strip()
+        if not backend_url:
+            ws_host = os.environ.get("MINDSCAPE_WS_HOST", "").strip()
+            if ws_host:
+                backend_url = (
+                    ws_host
+                    if ws_host.startswith("http://") or ws_host.startswith("https://")
+                    else f"http://{ws_host}"
+                )
         return backend_url.rstrip("/")
 
     @staticmethod
@@ -605,10 +613,7 @@ class TaskExecutor:
             'model_reasoning_effort="high"',
             "exec",
             "--skip-git-repo-check",
-            "--sandbox",
-            "workspace-write",
-            "--ask-for-approval",
-            "never",
+            "--full-auto",
             "--output-last-message",
             last_message_path,
         ]
