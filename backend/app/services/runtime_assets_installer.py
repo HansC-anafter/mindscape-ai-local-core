@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class RuntimeAssetsInstaller:
-    """Install runtime assets (tools, services, API, schema, models, migrations, UI, manifest, root files)"""
+    """Install runtime assets (tools, services, API, schema, models, migrations, UI, manifest, root files, bundles)"""
 
     def __init__(self, local_core_root: Path, capabilities_dir: Path):
         """
@@ -97,13 +97,16 @@ class RuntimeAssetsInstaller:
         # 11. Install root-level Python files and YAML files
         self.install_root_files(cap_dir, capability_code, result)
 
-        # 12. Install docs directory (agent_guide, etc.)
+        # 12. Install pack-local bundles (e.g. local_bundle model assets)
+        self.install_bundles(cap_dir, capability_code, result)
+
+        # 13. Install docs directory (agent_guide, etc.)
         self.install_docs(cap_dir, capability_code, result)
 
-        # 13. Install evals directory (evaluation scenarios and validators)
+        # 14. Install evals directory (evaluation scenarios and validators)
         self.install_evals(cap_dir, capability_code, result)
 
-        # 14. Install workflows directory (ComfyUI templates + .meta.json)
+        # 15. Install workflows directory (ComfyUI templates + .meta.json)
         self.install_workflows(cap_dir, capability_code, result)
 
     def install_workflows(
@@ -813,6 +816,35 @@ class RuntimeAssetsInstaller:
                 shutil.copy2(md_file, target_file)
                 logger.debug(f"Installed root MD file: {md_file.name}")
                 result.add_installed("root_files", md_file.name)
+
+    def install_bundles(
+        self, cap_dir: Path, capability_code: str, result: InstallResult
+    ):
+        """Install pack-local bundles consumed by model-manifest local_bundle entries."""
+        bundles_dir = cap_dir / "bundles"
+        if not bundles_dir.exists():
+            return
+
+        target_bundles_dir = self.capabilities_dir / capability_code / "bundles"
+        if target_bundles_dir.exists() or target_bundles_dir.is_symlink():
+            if target_bundles_dir.is_symlink() or target_bundles_dir.is_file():
+                target_bundles_dir.unlink()
+            else:
+                shutil.rmtree(target_bundles_dir)
+
+        shutil.copytree(bundles_dir, target_bundles_dir)
+
+        installed_bundle_files = [
+            str(file_path.relative_to(bundles_dir))
+            for file_path in bundles_dir.rglob("*")
+            if file_path.is_file()
+        ]
+        result.extend_installed("bundles", installed_bundle_files)
+        logger.info(
+            "Installed bundles directory for %s: %s files",
+            capability_code,
+            len(installed_bundle_files),
+        )
 
     def install_docs(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install docs directory (contains agent_guide.md etc.)"""

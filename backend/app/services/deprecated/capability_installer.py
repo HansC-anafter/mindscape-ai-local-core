@@ -108,6 +108,7 @@ class CapabilityInstaller:
                 "database_models": [],
                 "migrations": [],
                 "ui_components": [],
+                "bundles": [],
             }
         )
 
@@ -224,6 +225,7 @@ class CapabilityInstaller:
             self._install_ui_components(cap_dir, capability_code, manifest, result_model)
             self._install_manifest(cap_dir, capability_code, manifest)
             self._install_root_files(cap_dir, capability_code, result_model)
+            self._install_bundles(cap_dir, capability_code, result_model)
             self._reload_capability_registry(capability_code)
             self._check_dependencies(manifest, result_model)
             self._run_post_install_hooks(cap_dir, capability_code, manifest, result_model)
@@ -484,6 +486,18 @@ class CapabilityInstaller:
         """Install root-level Python, YAML, and Markdown files."""
         result_model, legacy_result = self._coerce_result(result)
         self._runtime_assets_installer.install_root_files(
+            cap_dir,
+            capability_code,
+            result_model,
+        )
+        self._sync_legacy_result(result_model, legacy_result)
+
+    def _install_bundles(
+        self, cap_dir: Path, capability_code: str, result: LegacyResult
+    ) -> None:
+        """Install pack-local bundle assets used by local_bundle model manifests."""
+        result_model, legacy_result = self._coerce_result(result)
+        self._runtime_assets_installer.install_bundles(
             cap_dir,
             capability_code,
             result_model,
