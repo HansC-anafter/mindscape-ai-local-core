@@ -2,9 +2,11 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useT } from '@/lib/i18n';
 import { formatLocalDateTime } from '@/lib/time';
 import { getApiBaseUrl } from '../../../../lib/api-url';
 import { GovernedMemoryPreview } from '../../../../components/workspace/governance/GovernedMemoryPreview';
+import { MemoryImpactGraphPanel } from '../../../../components/workspace/governance/MemoryImpactGraphPanel';
 import { WorkflowEvidenceSummary } from '../../../../components/workspace/meeting/WorkflowEvidenceSummary';
 import {
     buildPdScenePatchSuccessText,
@@ -49,6 +51,23 @@ interface CanonicalMemoryLink {
     verification_status?: string;
 }
 
+interface WorkflowEvidenceDiagnostics {
+    profile?: string;
+    scope?: string;
+    section_order?: string[];
+    section_limits?: Record<string, number>;
+    total_candidate_count?: number;
+    total_dropped_count?: number;
+    candidate_counts?: Record<string, number>;
+    selected_counts?: Record<string, number>;
+    dropped_counts?: Record<string, number>;
+    total_line_budget?: number;
+    selected_line_count?: number;
+    budget_utilization_ratio?: number;
+    rendered?: boolean;
+    rendered_section_count?: number;
+}
+
 interface ActionItem {
     description?: string;
     status?: string;
@@ -72,6 +91,10 @@ function getStatusStyle(status: string): string {
     return styles[status] || 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
 }
 
+function formatWorkflowEvidenceLabel(label: string): string {
+    return label.replace(/^Recent /, '').replace(/^Latest /, '');
+}
+
 // ---------------------------------------------------------------------------
 // Session Card (list item)
 // ---------------------------------------------------------------------------
@@ -86,6 +109,8 @@ function SessionCard({
     onClick: () => void;
 }) {
     const actionItemCount = session.action_items?.length || 0;
+    const workflowEvidenceDiagnostics =
+        session.metadata?.workflow_evidence_diagnostics as WorkflowEvidenceDiagnostics | undefined;
 
     return (
         <div
@@ -122,6 +147,12 @@ function SessionCard({
                         </span>
                     )}
                 </div>
+
+                {workflowEvidenceDiagnostics && (
+                    <div className="mb-1 text-xs text-secondary dark:text-gray-400">
+                        workflow packet · {workflowEvidenceDiagnostics.profile || 'general'} · {workflowEvidenceDiagnostics.scope || 'none'} · {workflowEvidenceDiagnostics.selected_line_count || 0}/{workflowEvidenceDiagnostics.total_line_budget || 0} lines
+                    </div>
+                )}
 
                 <div className="text-xs text-secondary dark:text-gray-500">
                     {formatLocalDateTime(session.started_at)}
@@ -160,6 +191,7 @@ function SessionDetail({
     onClose: () => void;
 }) {
     const router = useRouter();
+    const t = useT();
     const [showScenePatchPanel, setShowScenePatchPanel] = useState(autoOpenScenePatch);
     const [scenePatchJson, setScenePatchJson] = useState('');
     const [patchSceneId, setPatchSceneId] = useState('');
@@ -216,11 +248,15 @@ function SessionDetail({
 
     const applyScenePatch = useCallback(async () => {
         if (!parsedScenePatch.patch) {
-            setScenePatchResult(parsedScenePatch.error ? `scene patch 解析失敗：${parsedScenePatch.error}` : '請先貼上 storyboard_scene_patch JSON。');
+            setScenePatchResult(
+                parsedScenePatch.error
+                    ? t('meetingsScenePatchParseFailed', { error: parsedScenePatch.error })
+                    : t('meetingsScenePatchJsonRequired'),
+            );
             return;
         }
         if (!patchSceneId.trim()) {
-            setScenePatchResult('請填入要套用的 scene_id。');
+            setScenePatchResult(t('meetingsScenePatchSceneIdRequired'));
             return;
         }
         try {
@@ -254,7 +290,7 @@ function SessionDetail({
         } finally {
             setApplyingScenePatch(false);
         }
-    }, [artifactId, parsedScenePatch.error, parsedScenePatch.patch, patchSceneId, session.id]);
+    }, [artifactId, parsedScenePatch.error, parsedScenePatch.patch, patchSceneId, session.id, t]);
 
     return (
         <div className="p-5 space-y-5">
@@ -320,28 +356,84 @@ function SessionDetail({
                 </div>
             )}
 
+            <MemoryImpactGraphPanel
+                workspaceId={workspaceId}
+                apiUrl={API_URL}
+                sessionId={session.id}
+                title="Selected Memory Subgraph"
+                description="This session view makes the selected packet, produced decisions, action items, and writeback landing visible in one focused graph."
+            />
+
             {canonicalMemory?.memory_item_id && (
-                <div className="rounded-lg border border-sky-200 bg-sky-50/70 p-3 dark:border-sky-800 dark:bg-sky-950/30">
-                    <label className="text-[10px] font-medium text-sky-700 dark:text-sky-300 uppercase tracking-wide">
-                        Governed Memory
-                    </label>
-                    <div className="mt-1 text-sm text-sky-900 dark:text-sky-100">
-                        This meeting already produced a canonical memory item that can be reviewed in the governance workspace.
+                <GovernedMemoryPreview
+                    workspaceId={workspaceId}
+                    memoryItemId={canonicalMemory.memory_item_id}
+                    apiUrl={API_URL}
+                    lifecycleStatus={canonicalMemory.lifecycle_status}
+                    verificationStatus={canonicalMemory.verification_status}
+                />
+            )}
+
+            {workflowEvidenceDiagnostics && (
+                <div className="rounded-lg border border-default dark:border-gray-700 bg-white/70 dark:bg-gray-900/40 p-4 space-y-3">
+                    <WorkflowEvidenceSummary
+                        label="Workflow Evidence Packet"
+                        profile={workflowEvidenceDiagnostics.profile}
+                        scope={workflowEvidenceDiagnostics.scope}
+                        selectedLineCount={workflowEvidenceDiagnostics.selected_line_count}
+                        totalLineBudget={workflowEvidenceDiagnostics.total_line_budget}
+                        totalCandidateCount={workflowEvidenceDiagnostics.total_candidate_count}
+                        totalDroppedCount={workflowEvidenceDiagnostics.total_dropped_count}
+                        renderedSectionCount={workflowEvidenceDiagnostics.rendered_section_count}
+                        budgetUtilizationRatio={workflowEvidenceDiagnostics.budget_utilization_ratio}
+                    />
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-md bg-surface-secondary dark:bg-gray-800 px-3 py-2">
+                            <div className="text-[10px] font-medium text-secondary dark:text-gray-400 uppercase tracking-wide">
+                                Rendered Sections
+                            </div>
+                            <div className="mt-1 text-sm text-primary dark:text-gray-100">
+                                {workflowEvidenceDiagnostics.rendered_section_count || 0}
+                            </div>
+                        </div>
+                        <div className="rounded-md bg-surface-secondary dark:bg-gray-800 px-3 py-2">
+                            <div className="text-[10px] font-medium text-secondary dark:text-gray-400 uppercase tracking-wide">
+                                Rendered
+                            </div>
+                            <div className="mt-1 text-sm text-primary dark:text-gray-100">
+                                {workflowEvidenceDiagnostics.rendered ? 'yes' : 'no'}
+                            </div>
+                        </div>
                     </div>
-                    <div className="mt-2 text-xs text-sky-700/90 dark:text-sky-300/90 font-mono break-all">
-                        {canonicalMemory.memory_item_id}
-                    </div>
-                    <button
-                        onClick={() => {
-                            const params = new URLSearchParams();
-                            params.set('tab', 'memory');
-                            params.set('memoryId', canonicalMemory.memory_item_id);
-                            router.push(`/workspaces/${workspaceId}/governance?${params.toString()}`);
-                        }}
-                        className="mt-3 w-full rounded-lg bg-sky-600 px-3 py-2 text-sm text-white transition-colors hover:bg-sky-700 dark:bg-sky-700 dark:hover:bg-sky-600"
-                    >
-                        Open Memory Governance
-                    </button>
+
+                    {workflowEvidenceSections.length > 0 && (
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-medium text-secondary dark:text-gray-400 uppercase tracking-wide">
+                                Section Selection
+                            </label>
+                            <div className="space-y-2">
+                                {workflowEvidenceSections.map((section) => (
+                                    <div
+                                        key={section.title}
+                                        className="rounded-md bg-surface-secondary dark:bg-gray-800 px-3 py-2"
+                                    >
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="text-sm text-primary dark:text-gray-100">
+                                                {formatWorkflowEvidenceLabel(section.title)}
+                                            </div>
+                                            <div className="text-xs text-secondary dark:text-gray-400">
+                                                selected {section.selectedCount} of {section.candidateCount}
+                                            </div>
+                                        </div>
+                                        <div className="mt-1 text-xs text-tertiary dark:text-gray-500">
+                                            section limit {section.limit} · dropped {section.droppedCount}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -426,23 +518,23 @@ function SessionDetail({
                 <div className="flex items-center justify-between gap-3">
                     <div>
                         <label className="text-[10px] font-medium text-secondary dark:text-gray-400 uppercase tracking-wide">
-                            場景 Patch
+                            {t('meetingsScenePatchLabel')}
                         </label>
                         <div className="mt-1 text-sm text-primary dark:text-gray-100">
-                            將 LAF / ComfyUI 執行控制台產出的 scene patch 直接套到這筆 PD session。
+                            {t('meetingsScenePatchDescription')}
                         </div>
                     </div>
                     <button
                         onClick={() => setShowScenePatchPanel((current) => !current)}
                         className="rounded-lg border border-default dark:border-gray-600 px-3 py-1.5 text-xs text-secondary dark:text-gray-300 hover:bg-surface-secondary dark:hover:bg-gray-800 transition-colors"
                     >
-                        {showScenePatchPanel ? '收合' : '展開'}
+                        {showScenePatchPanel ? t('meetingsScenePatchCollapse') : t('meetingsScenePatchExpand')}
                     </button>
                 </div>
                 {showScenePatchPanel && (
                     <div className="pt-1">
                         <ScenePatchConsole
-                            description="將 scene patch 回寫到這筆 PD session 的 storyboard artifact，不在此頁建立新的派送來源。"
+                            description={t('meetingsScenePatchConsoleDescription')}
                             patchMode="editable"
                             patchJson={scenePatchJson}
                             onPatchJsonChange={setScenePatchJson}
@@ -465,8 +557,8 @@ function SessionDetail({
                                 applying: applyingScenePatch,
                                 result: scenePatchResultView,
                                 onApply: applyScenePatch,
-                                buttonLabel: '套用到此 PD Storyboard',
-                                description: '這個入口已綁定當前 Meeting session；僅需確認 scene_id 與可選 artifact_id。',
+                                buttonLabel: t('meetingsScenePatchApplyButton'),
+                                description: t('meetingsScenePatchApplyDescription'),
                             }}
                         />
                     </div>

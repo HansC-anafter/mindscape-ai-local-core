@@ -1,9 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import React, { useCallback, useEffect, useState } from 'react';
 import { t } from '@/lib/i18n';
 import { formatLocalDateTime } from '@/lib/time';
 import { GovernanceDecisionDetail } from '@/app/workspaces/[workspaceId]/governance/components/GovernanceDecisionDetail';
+import { GovernedMemoryPreview } from '@/components/workspace/governance/GovernedMemoryPreview';
+import type { RelatedGovernedMemoryLink } from './types/execution';
 
 interface GovernanceDecision {
   decision_id: string;
@@ -26,23 +29,21 @@ interface GovernanceTabProps {
   executionId: string;
   workspaceId: string;
   apiUrl: string;
+  relatedGovernedMemory?: RelatedGovernedMemoryLink | null;
 }
 
 export default function GovernanceTab({
   executionId,
   workspaceId,
   apiUrl,
+  relatedGovernedMemory,
 }: GovernanceTabProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<GovernanceDecision[]>([]);
   const [selectedDecision, setSelectedDecision] = useState<GovernanceDecision | null>(null);
 
-  useEffect(() => {
-    loadGovernanceDecisions();
-  }, [executionId, workspaceId]);
-
-  const loadGovernanceDecisions = async () => {
+  const loadGovernanceDecisions = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -103,7 +104,11 @@ export default function GovernanceTab({
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiUrl, executionId, workspaceId]);
+
+  useEffect(() => {
+    void loadGovernanceDecisions();
+  }, [loadGovernanceDecisions]);
 
   const layerColors = {
     cost: 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300',
@@ -131,12 +136,34 @@ export default function GovernanceTab({
   return (
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-          {t('governanceDecisions' as any) || 'Governance Decisions'}
-        </h3>
-        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-          {decisions.length} {t('decisions' as any) || 'decisions'} for this execution
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {t('governanceDecisions' as any) || 'Governance Decisions'}
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+              {decisions.length} {t('decisions' as any) || 'decisions'} for this execution
+            </p>
+          </div>
+          <Link
+            href={`/workspaces/${workspaceId}/governance?tab=memory`}
+            className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          >
+            {t('openGovernedMemory' as any) || 'Open Governed Memory'}
+          </Link>
+        </div>
+        {relatedGovernedMemory?.memoryItemId && (
+          <GovernedMemoryPreview
+            workspaceId={workspaceId}
+            memoryItemId={relatedGovernedMemory.memoryItemId}
+            apiUrl={apiUrl}
+            lifecycleStatus={relatedGovernedMemory.lifecycleStatus}
+            verificationStatus={relatedGovernedMemory.verificationStatus}
+            compact
+            className="mt-3"
+            showOpenLink={false}
+          />
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -188,4 +215,3 @@ export default function GovernanceTab({
     </div>
   );
 }
-

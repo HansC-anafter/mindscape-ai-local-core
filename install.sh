@@ -43,7 +43,7 @@ echo ""
 # Check prerequisites
 check_command() {
     if ! command -v "$1" &> /dev/null; then
-        echo "❌ $1 is required but not installed."
+        echo "ERROR: $1 is required but not installed."
         return 1
     fi
     echo "✓ $1 found"
@@ -55,7 +55,7 @@ check_command docker || exit 1
 
 # Check if docker is running
 if ! docker info &> /dev/null; then
-    echo "❌ Docker is not running. Please start Docker and try again."
+    echo "ERROR: Docker is not running. Please start Docker and try again."
     exit 1
 fi
 echo "✓ Docker is running"
@@ -63,15 +63,15 @@ echo "✓ Docker is running"
 # Check Ollama (optional but recommended for local LLM)
 if command -v ollama &> /dev/null; then
     echo "✓ Ollama found"
-    echo "  ℹ️  To use local LLM, pull a model:  ollama pull qwen3:8b"
+    echo "  INFO: To use local LLM, pull a model: ollama pull qwen3:8b"
 else
-    echo "⚠️  Ollama not found (optional, for local LLM support)"
+    echo "WARNING: Ollama not found (optional, for local LLM support)"
     read -p "Install Ollama now? (Y/n) " -n 1 -r
     echo ""
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
         echo "Installing Ollama..."
         curl -fsSL https://ollama.com/install.sh | sh
-        echo "  ℹ️  To use local LLM, pull a model:  ollama pull qwen3:8b"
+        echo "  INFO: To use local LLM, pull a model: ollama pull qwen3:8b"
     else
         echo "  Skipped. Install later from: https://ollama.com/download"
     fi
@@ -82,7 +82,7 @@ if command -v node &> /dev/null; then
     NODE_VER=$(node --version 2>/dev/null)
     echo "✓ Node.js found ($NODE_VER)"
 else
-    echo "⚠️  Node.js not found (required for CLI agents: gemini-cli, claude-code, codex)"
+    echo "WARNING: Node.js not found (required for CLI agents: gemini-cli, claude-code, codex)"
     read -p "Install Node.js LTS now? (Y/n) " -n 1 -r
     echo ""
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
@@ -118,7 +118,7 @@ fi
 
 # Check if directory already exists
 if [ -d "$INSTALL_DIR" ]; then
-    echo "⚠️  Directory '$INSTALL_DIR' already exists."
+    echo "WARNING: Directory '$INSTALL_DIR' already exists."
     read -p "Update existing installation? (y/N) " -n 1 -r
     echo ""
     if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -168,19 +168,19 @@ if command -v node &> /dev/null && command -v npm &> /dev/null; then
     echo "Setting up Device Node (CLI agent bridge)..."
     if [[ "$OSTYPE" == darwin* ]] && [ -f "device-node/scripts/install-macos.sh" ]; then
         chmod +x device-node/scripts/install-macos.sh
-        device-node/scripts/install-macos.sh || echo "  ⚠️  Device Node setup failed (non-fatal)"
+        device-node/scripts/install-macos.sh || echo "  WARNING: Device Node setup failed (non-fatal)"
     elif [ -d "device-node" ]; then
         echo "  Building Device Node..."
         cd device-node && npm install --silent && npm run build && cd ..
         # Install gemini-cli if not present
         if ! command -v gemini &> /dev/null; then
-            echo "  📦 Installing gemini-cli..."
-            npm install -g @google/gemini-cli 2>/dev/null || echo "  ⚠️  gemini-cli install failed (non-fatal)"
+            echo "  Installing gemini-cli..."
+            npm install -g @google/gemini-cli 2>/dev/null || echo "  WARNING: gemini-cli install failed (non-fatal)"
         fi
     fi
 else
     echo ""
-    echo "⚠️  Node.js not found — skipping Device Node setup."
+    echo "WARNING: Node.js not found - skipping Device Node setup."
     echo "  Install Node.js >= 18 to enable CLI agents (gemini-cli, claude-code, codex)."
 fi
 
@@ -194,7 +194,7 @@ fi
 
 echo ""
 echo "╔═══════════════════════════════════════════════════╗"
-echo "║   ✅ Installation Complete!                       ║"
+echo "║   Installation Complete                           ║"
 echo "╚═══════════════════════════════════════════════════╝"
 echo ""
 echo "Your Mindscape AI is running at:"
@@ -204,5 +204,6 @@ echo ""
 echo "Next steps:"
 echo "  cd $INSTALL_DIR"
 echo "  # Configure API keys in .env (optional if using Ollama)"
-echo "  # CLI Bridge: ./scripts/start_cli_bridge.sh (for Gemini CLI / Claude Code)"
+echo "  # CLI Bridge is auto-managed by ./scripts/start.sh"
+echo "  # Manual override: ./scripts/start_cli_bridge_supervisor.sh --all"
 echo ""

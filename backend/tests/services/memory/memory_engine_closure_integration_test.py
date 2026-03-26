@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -221,7 +221,9 @@ def test_meeting_writeback_verify_changes_governance_packet():
     )
 
     app = FastAPI()
-    app.include_router(workspace_governance_router)
+    workspace_router = APIRouter(prefix="/api/v1/workspaces")
+    workspace_router.include_router(workspace_governance_router)
+    app.include_router(workspace_router)
     client = TestClient(app)
 
     read_model = GovernanceContextReadModel(

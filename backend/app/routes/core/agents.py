@@ -49,10 +49,7 @@ async def list_agents():
     """
     try:
         registry = get_runtime_registry()
-
-        # Ensure discovery has run
-        if not registry._adapters:
-            registry.discover_agents()
+        registry.discover_agents()
 
         agents = []
         for agent_name, manifest in registry.get_all_manifests().items():
@@ -116,6 +113,7 @@ async def get_agent(agent_id: str):
     """
     try:
         registry = get_runtime_registry()
+        registry.discover_agents()
         manifest = registry.get_manifest(agent_id)
 
         if not manifest:

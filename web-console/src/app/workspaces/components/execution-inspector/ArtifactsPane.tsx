@@ -2,7 +2,8 @@
 
 import React from 'react';
 import { ArtifactsList } from '@/components/execution';
-import type { Artifact } from './types/execution';
+import { GovernedMemoryPreview } from '@/components/workspace/governance/GovernedMemoryPreview';
+import type { Artifact, RelatedGovernedMemoryLink } from './types/execution';
 
 export interface ArtifactsPaneProps {
   artifacts: Artifact[];
@@ -10,6 +11,8 @@ export interface ArtifactsPaneProps {
   sandboxId?: string;
   apiUrl: string;
   workspaceId: string;
+  relatedGovernedMemory?: RelatedGovernedMemoryLink | null;
+  relatedGovernedMemoryLoading?: boolean;
   onView: (artifact: Artifact) => void;
   onViewSandbox?: () => void;
 }
@@ -20,6 +23,8 @@ export default function ArtifactsPane({
   sandboxId,
   apiUrl,
   workspaceId,
+  relatedGovernedMemory,
+  relatedGovernedMemoryLoading,
   onView,
   onViewSandbox,
 }: ArtifactsPaneProps) {
@@ -39,6 +44,24 @@ export default function ArtifactsPane({
 
   return (
     <div className="p-4 border-b dark:border-gray-700 overflow-y-auto flex-shrink-0 max-h-96">
+      {relatedGovernedMemoryLoading && !relatedGovernedMemory ? (
+        <div className="mb-3 rounded border border-default dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 px-3 py-2 text-sm text-secondary dark:text-gray-300">
+          Loading governed memory detail...
+        </div>
+      ) : null}
+
+      {relatedGovernedMemory?.memoryItemId && (
+        <GovernedMemoryPreview
+          workspaceId={workspaceId}
+          memoryItemId={relatedGovernedMemory.memoryItemId}
+          apiUrl={apiUrl}
+          lifecycleStatus={relatedGovernedMemory.lifecycleStatus}
+          verificationStatus={relatedGovernedMemory.verificationStatus}
+          compact
+          className="mb-3"
+        />
+      )}
+
       <ArtifactsList
         artifacts={artifacts}
         latestArtifact={latestArtifact}

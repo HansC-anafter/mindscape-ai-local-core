@@ -26,8 +26,9 @@ governance:
 # Gemini CLI Agent Adapter
 
 Gemini CLI is an AI coding agent that runs in a host-side execution environment,
-often alongside an IDE but not inherently IDE-bound. This adapter dispatches
-coding tasks to Gemini CLI through a transport-agnostic Dispatch Contract,
+often alongside an IDE but not inherently IDE-bound. The Gemini adapter is the
+surface-specific facade over the shared `external_agents.bridge` layer and
+dispatches coding tasks through a transport-agnostic Dispatch Contract,
 supporting WebSocket Push (primary) and REST Polling (fallback).
 
 ## Features
@@ -51,6 +52,11 @@ GeminiCLIAdapter.execute()
   → Send via WebSocket (or queue for polling)
   → Wait for ack + result
   → Parse into AgentResponse
+
+Shared bridge implementation lives under:
+- `backend/app/services/external_agents/bridge/runtime_adapter.py`
+- `backend/app/services/external_agents/bridge/host_ws_client.py`
+- `backend/app/services/external_agents/bridge/task_executor.py`
 ```
 
 ## Configuration

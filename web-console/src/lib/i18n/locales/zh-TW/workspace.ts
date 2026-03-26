@@ -343,4 +343,17 @@ export const workspaceZhTW = {
   failedToLoadGovernedMemory: '無法載入治理記憶',
   failedToLoadMemoryDetail: '無法載入記憶詳情',
   failedToApplyMemoryTransition: '無法套用記憶轉換',
+  meetingsScenePatchLabel: '場景 Patch',
+  meetingsScenePatchDescription:
+    '將 LAF 或 ComfyUI 執行控制台產出的 scene patch 直接套用到這筆 PD session。',
+  meetingsScenePatchCollapse: '收合',
+  meetingsScenePatchExpand: '展開',
+  meetingsScenePatchConsoleDescription:
+    '將 scene patch 回寫到這筆 PD session 的 storyboard artifact，不在此頁建立新的派送來源。',
+  meetingsScenePatchApplyButton: '套用到此 PD Storyboard',
+  meetingsScenePatchApplyDescription:
+    '這個入口已綁定當前 Meeting session；僅需確認 scene_id 與可選 artifact_id。',
+  meetingsScenePatchParseFailed: 'scene patch 解析失敗：{error}',
+  meetingsScenePatchJsonRequired: '請先貼上 storyboard_scene_patch JSON。',
+  meetingsScenePatchSceneIdRequired: '請填入要套用的 scene_id。',
 } as const satisfies Partial<Record<MessageKey, string>>;

@@ -1,24 +1,24 @@
 """
 Claude Code CLI Runtime Adapter.
 
-Runs Claude Code over the same WS-first bridge contract as Gemini CLI,
+Runs Claude Code over the shared WS-first bridge contract,
 with polling only kept as the inherited fallback path.
 """
 
 import logging
 
-from backend.app.services.external_agents.agents.gemini_cli.adapter import (
-    GeminiCLIAdapter,
+from backend.app.services.external_agents.bridge.runtime_adapter import (
+    HostBridgeRuntimeAdapter,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class ClaudeCodeCLIAdapter(GeminiCLIAdapter):
+class ClaudeCodeCLIAdapter(HostBridgeRuntimeAdapter):
     """
     Claude Code CLI Agent Adapter.
 
-    Uses the same WS-first runtime bridge contract as Gemini so requests
+    Uses the shared WS-first runtime bridge contract so requests
     always target the real surface-owning worker. This prevents multi-worker
     requests from queueing against the wrong in-memory manager.
     """

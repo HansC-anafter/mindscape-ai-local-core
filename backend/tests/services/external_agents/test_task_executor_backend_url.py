@@ -1,7 +1,7 @@
-from backend.app.services.external_agents.agents.gemini_cli.task_executor import (
+from backend.app.services.external_agents.bridge.task_executor import (
     ExecutionContext,
     ExecutionResult,
-    TaskExecutor,
+    HostBridgeTaskExecutor,
 )
 
 
@@ -9,18 +9,18 @@ def test_resolve_backend_api_url_prefers_explicit_env(monkeypatch):
     monkeypatch.setenv("MINDSCAPE_BACKEND_API_URL", "http://localhost:8200/")
     monkeypatch.delenv("MINDSCAPE_WS_HOST", raising=False)
 
-    assert TaskExecutor._resolve_backend_api_url() == "http://localhost:8200"
+    assert HostBridgeTaskExecutor._resolve_backend_api_url() == "http://localhost:8200"
 
 
 def test_resolve_backend_api_url_falls_back_to_ws_host(monkeypatch):
     monkeypatch.delenv("MINDSCAPE_BACKEND_API_URL", raising=False)
     monkeypatch.setenv("MINDSCAPE_WS_HOST", "localhost:8200")
 
-    assert TaskExecutor._resolve_backend_api_url() == "http://localhost:8200"
+    assert HostBridgeTaskExecutor._resolve_backend_api_url() == "http://localhost:8200"
 
 
 def test_codex_cli_command_uses_full_auto(monkeypatch):
-    executor = TaskExecutor(workspace_root="/tmp", runtime_surface="codex_cli")
+    executor = HostBridgeTaskExecutor(workspace_root="/tmp", runtime_surface="codex_cli")
     captured = {}
 
     async def fake_fetch(runtime_name, ctx):

@@ -10,12 +10,12 @@ setup_device_node_launchd() {
   local dn_dir="$project_root/device-node"
 
   if [ ! -d "$dn_dir" ]; then
-    echo "  ⚠️  device-node directory not found, skipping"
+    echo "  WARNING: device-node directory not found, skipping"
     return 0
   fi
 
   if ! command -v node &>/dev/null; then
-    echo "  ⚠️  Node.js not found, skipping Device Node setup"
+    echo "  WARNING: Node.js not found, skipping Device Node setup"
     return 0
   fi
 
@@ -35,7 +35,7 @@ setup_device_node_launchd() {
     if launchctl list 2>/dev/null | grep -q "ai.mindscape.device-node"; then
       echo "  ✓ Device Node started via launchd"
     else
-      echo "  ⚠️  Device Node launchd agent failed to start"
+      echo "  WARNING: Device Node launchd agent failed to start"
     fi
   else
     # First run — delegate to install-macos.sh
@@ -66,9 +66,44 @@ setup_device_node_launchd() {
       if launchctl list 2>/dev/null | grep -q "ai.mindscape.device-node"; then
         echo "  ✓ Device Node installed and started (launchd, port 3100)"
       else
-        echo "  ⚠️  Device Node install failed. Run manually: cd device-node && npm run install:macos"
+        echo "  WARNING: Device Node install failed. Run manually: cd device-node && npm run install:macos"
       fi
       cd "$project_root"
     fi
+  fi
+}
+
+setup_cli_bridge_launchd() {
+  local project_root="${PROJECT_ROOT:-.}"
+  local install_script="$project_root/scripts/install-cli-bridge-macos.sh"
+  local plist_dst="$HOME/Library/LaunchAgents/ai.mindscape.cli-bridge.plist"
+
+  if [ ! -f "$project_root/scripts/start_cli_bridge_supervisor.sh" ]; then
+    echo "  WARNING: CLI bridge supervisor not found, skipping"
+    return 0
+  fi
+
+  if launchctl list 2>/dev/null | grep -q "ai.mindscape.cli-bridge"; then
+    echo "  ✓ CLI Bridge launchd agent running"
+    return 0
+  fi
+
+  if [ -f "$plist_dst" ]; then
+    echo "  Loading CLI Bridge launchd agent..."
+    launchctl load "$plist_dst"
+    sleep 2
+    if launchctl list 2>/dev/null | grep -q "ai.mindscape.cli-bridge"; then
+      echo "  ✓ CLI Bridge started via launchd"
+    else
+      echo "  WARNING: CLI Bridge launchd agent failed to start"
+    fi
+    return 0
+  fi
+
+  if [ -f "$install_script" ]; then
+    echo "  First-time setup: installing CLI Bridge launchd agent..."
+    bash "$install_script"
+  else
+    echo "  WARNING: CLI Bridge install script not found: $install_script"
   fi
 }

@@ -347,4 +347,17 @@ export const workspaceJa = {
   failedToLoadGovernedMemory: 'ガバナンスメモリを読み込めませんでした',
   failedToLoadMemoryDetail: 'メモリ詳細を読み込めませんでした',
   failedToApplyMemoryTransition: 'メモリ遷移を適用できませんでした',
+  meetingsScenePatchLabel: 'シーンパッチ',
+  meetingsScenePatchDescription:
+    'LAF または ComfyUI の実行コンソールで生成した scene patch を、この PD session に直接適用します。',
+  meetingsScenePatchCollapse: '折りたたむ',
+  meetingsScenePatchExpand: '展開',
+  meetingsScenePatchConsoleDescription:
+    'このページで新しい dispatch source を作らず、この PD session の storyboard artifact に scene patch を書き戻します。',
+  meetingsScenePatchApplyButton: 'この PD Storyboard に適用',
+  meetingsScenePatchApplyDescription:
+    'この操作は現在の Meeting session に紐付いています。scene_id と任意の artifact_id だけ確認してください。',
+  meetingsScenePatchParseFailed: 'scene patch の解析に失敗しました: {error}',
+  meetingsScenePatchJsonRequired: 'まず storyboard_scene_patch JSON を貼り付けてください。',
+  meetingsScenePatchSceneIdRequired: '適用前に対象の scene_id を入力してください。',
 } as const satisfies Partial<Record<MessageKey, string>>;
