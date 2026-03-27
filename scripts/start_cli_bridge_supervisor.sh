@@ -15,6 +15,21 @@ log_info()  { echo "[bridge-supervisor][INFO] $1"; }
 log_warn()  { echo "[bridge-supervisor][WARN] $1"; }
 log_error() { echo "[bridge-supervisor][ERROR] $1" >&2; }
 
+describe_process_context() {
+    echo "pid=$$ ppid=$PPID"
+}
+
+reap_exit_code() {
+    local pid="$1"
+    local exit_code=0
+    if wait "$pid"; then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
+    echo "$exit_code"
+}
+
 usage() {
     cat <<'EOF'
 Usage: ./scripts/start_cli_bridge_supervisor.sh [OPTIONS]
@@ -73,7 +88,7 @@ fi
 
 spawn_surface() {
     local surface="$1"
-    log_info "Starting surface watcher: $surface"
+    log_info "Starting surface watcher: $surface ($(describe_process_context))"
     bash "$BRIDGE_SCRIPT" "${BRIDGE_ARGS[@]}" --surface "$surface" &
     local pid=$!
     RUNNING_SURFACES+=("$surface")
@@ -101,7 +116,8 @@ while true; do
     sleep 10
     for i in "${!RUNNING_PIDS[@]}"; do
         if ! kill -0 "${RUNNING_PIDS[$i]}" 2>/dev/null; then
-            log_warn "Surface ${RUNNING_SURFACES[$i]} watcher exited; restarting"
+            exit_code=$(reap_exit_code "${RUNNING_PIDS[$i]}")
+            log_warn "Surface ${RUNNING_SURFACES[$i]} watcher exited with code ${exit_code}; restarting"
             surface="${RUNNING_SURFACES[$i]}"
             unset 'RUNNING_PIDS['"$i"']'
             unset 'RUNNING_SURFACES['"$i"']'

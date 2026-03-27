@@ -49,6 +49,23 @@ logging.basicConfig(
 logger = logging.getLogger("host_ws_client")
 
 
+def _runtime_identity() -> Dict[str, Any]:
+    """Collect lightweight host-process identity for signal/debug traces."""
+    identity: Dict[str, Any] = {
+        "pid": os.getpid(),
+        "ppid": os.getppid(),
+        "pgid": None,
+        "xpc_service_name": os.environ.get("XPC_SERVICE_NAME", ""),
+        "workspace_id": os.environ.get("MINDSCAPE_WORKSPACE_ID", ""),
+        "surface": os.environ.get("MINDSCAPE_SURFACE", ""),
+    }
+    try:
+        identity["pgid"] = os.getpgid(0)
+    except OSError:
+        identity["pgid"] = None
+    return identity
+
+
 class HostBridgeWSClient:
     """
     Host-side WebSocket client for receiving and executing tasks
@@ -189,10 +206,18 @@ class HostBridgeWSClient:
         """Main entry point -- connect with auto-reconnect."""
         self._preflight_check()
         self._running = True
+        runtime_identity = _runtime_identity()
         logger.info(
-            "Starting host bridge WS client (workspace=%s surface=%s)",
+            (
+                "Starting host bridge WS client "
+                "(workspace=%s surface=%s pid=%s ppid=%s pgid=%s xpc_service=%s)"
+            ),
             self.workspace_id,
             self.surface,
+            runtime_identity.get("pid"),
+            runtime_identity.get("ppid"),
+            runtime_identity.get("pgid"),
+            runtime_identity.get("xpc_service_name") or "-",
         )
 
         while self._running:
@@ -836,7 +861,22 @@ def main():
     loop = asyncio.new_event_loop()
 
     def shutdown(sig):
-        logger.info(f"Received {sig.name}, shutting down...")
+        runtime_identity = _runtime_identity()
+        logger.info(
+            (
+                "Received %s, shutting down... "
+                "(workspace=%s surface=%s pid=%s ppid=%s pgid=%s "
+                "xpc_service=%s active_tasks=%s)"
+            ),
+            sig.name,
+            client.workspace_id,
+            client.surface,
+            runtime_identity.get("pid"),
+            runtime_identity.get("ppid"),
+            runtime_identity.get("pgid"),
+            runtime_identity.get("xpc_service_name") or "-",
+            client._active_tasks,
+        )
         loop.create_task(client.stop())
 
     try:

@@ -48,6 +48,21 @@ log_info()  { echo -e "${GREEN}[INFO]${NC}  $1"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+describe_process_context() {
+    echo "pid=$$ ppid=$PPID"
+}
+
+reap_exit_code() {
+    local pid="$1"
+    local exit_code=0
+    if wait "$pid"; then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
+    echo "$exit_code"
+}
+
 # Parse CLI args
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -258,7 +273,7 @@ if [[ "$ALL_MODE" == "true" ]]; then
     # Spawn a bridge for a workspace
     spawn_bridge() {
         local ws_id="$1"
-        log_info "  Spawning bridge for workspace: $ws_id"
+        log_info "  Spawning bridge for workspace: $ws_id ($(describe_process_context))"
         "$PYTHON_BIN" "$CLIENT_SCRIPT" \
             --workspace-id "$ws_id" \
             --host "$BACKEND_HOST" \
@@ -312,7 +327,8 @@ if [[ "$ALL_MODE" == "true" ]]; then
         if [[ ${#DEAD_INDICES[@]} -gt 0 ]]; then
             RESPAWN_WS=()
             for i in "${DEAD_INDICES[@]}"; do
-                log_warn "Bridge PID ${RUNNING_PIDS[$i]} for ${RUNNING_WS_IDS[$i]} died, will respawn"
+                exit_code=$(reap_exit_code "${RUNNING_PIDS[$i]}")
+                log_warn "Bridge PID ${RUNNING_PIDS[$i]} for ${RUNNING_WS_IDS[$i]} exited with code ${exit_code}, will respawn"
                 RESPAWN_WS+=("${RUNNING_WS_IDS[$i]}")
                 unset 'RUNNING_PIDS['"$i"']'
                 unset 'RUNNING_WS_IDS['"$i"']'

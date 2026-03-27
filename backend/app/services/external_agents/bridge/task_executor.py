@@ -715,6 +715,12 @@ class HostBridgeTaskExecutor:
             cwd=cwd,
             env=env,
         )
+        logger.info(
+            "[TaskExecutor] Spawned %s subprocess pid=%s for execution %s",
+            runtime_name,
+            proc.pid,
+            ctx.execution_id,
+        )
         self._active[ctx.execution_id] = proc
         progress_task = asyncio.create_task(
             self._progress_ticker(ctx.execution_id, proc)
@@ -744,12 +750,25 @@ class HostBridgeTaskExecutor:
             output = stderr
 
         if proc.returncode == 0:
+            logger.info(
+                "[TaskExecutor] %s subprocess pid=%s finished with code 0 for %s",
+                runtime_name,
+                proc.pid,
+                ctx.execution_id,
+            )
             return ExecutionResult(
                 status="completed",
                 output=output or "(no response from agent)",
                 files_modified=files_modified,
                 files_created=files_created,
             )
+        logger.warning(
+            "[TaskExecutor] %s subprocess pid=%s finished with code %s for %s",
+            runtime_name,
+            proc.pid,
+            proc.returncode,
+            ctx.execution_id,
+        )
         return ExecutionResult(
             status="failed",
             output=output,
