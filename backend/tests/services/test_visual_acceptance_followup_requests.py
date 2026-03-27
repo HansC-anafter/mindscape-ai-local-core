@@ -4,7 +4,11 @@ import sys
 
 import pytest
 
-LOCAL_CORE_ROOT = Path("/Users/shock/Projects_local/workspace/mindscape-ai-local-core")
+LOCAL_CORE_ROOT = next(
+    parent
+    for parent in Path(__file__).resolve().parents
+    if parent.name == "mindscape-ai-local-core"
+)
 BACKEND_ROOT = LOCAL_CORE_ROOT / "backend"
 for candidate in (LOCAL_CORE_ROOT, BACKEND_ROOT):
     candidate_str = str(candidate)
@@ -192,16 +196,16 @@ def test_materialize_followup_request_artifacts_creates_and_supersedes_requests(
                         "target_ref": {"run_id": "run_demo", "scene_id": "A01"},
                     },
                     {
-                        "lane_id": "pack_consumer_handoff",
-                        "consumer_kind": "pack_owned_consumer",
+                        "lane_id": "capability_consumer_handoff",
+                        "consumer_kind": "capability_owned_consumer",
                         "dispatch_state": "ready",
                         "blocking_reason": None,
-                        "action_ids": ["pack_consumer_handoff"],
+                        "action_ids": ["capability_consumer_handoff"],
                         "target_ref": {"package_id": "charpkg_demo", "preset_id": "preset_alpha"},
                     },
                 ]
             },
-            "pack_consumer_handoff_gate": {
+            "capability_consumer_handoff_gate": {
                 "gate_state": "ready",
                 "accepted_review_count": 1,
             },
@@ -209,12 +213,12 @@ def test_materialize_followup_request_artifacts_creates_and_supersedes_requests(
         artifacts_store=store,
     )
 
-    assert {item["lane_id"] for item in first_refs} == {"rerender", "pack_consumer_handoff"}
+    assert {item["lane_id"] for item in first_refs} == {"rerender", "capability_consumer_handoff"}
     publish_request = next(
-        item for item in first_refs if item["lane_id"] == "pack_consumer_handoff"
+        item for item in first_refs if item["lane_id"] == "capability_consumer_handoff"
     )
     assert publish_request["request_state"] == "ready"
-    publish_artifact = store.get_artifact("vafreq_vrb_demo_pack_consumer_handoff")
+    publish_artifact = store.get_artifact("vafreq_vrb_demo_capability_consumer_handoff")
     assert publish_artifact is not None
     assert publish_artifact.content["package_id"] == "charpkg_demo"
     assert publish_artifact.content["preset_id"] == "preset_alpha"
@@ -255,7 +259,7 @@ def test_materialize_followup_request_artifacts_creates_and_supersedes_requests(
                     }
                 ]
             },
-            "pack_consumer_handoff_gate": {
+            "capability_consumer_handoff_gate": {
                 "gate_state": "blocked",
                 "accepted_review_count": 0,
             },
@@ -265,7 +269,7 @@ def test_materialize_followup_request_artifacts_creates_and_supersedes_requests(
 
     assert [item["lane_id"] for item in second_refs] == ["laf_patch"]
     rerender_artifact = store.get_artifact("vafreq_vrb_demo_rerender")
-    publish_artifact = store.get_artifact("vafreq_vrb_demo_pack_consumer_handoff")
+    publish_artifact = store.get_artifact("vafreq_vrb_demo_capability_consumer_handoff")
     laf_patch_artifact = store.get_artifact("vafreq_vrb_demo_laf_patch")
     assert rerender_artifact is not None
     assert publish_artifact is not None
@@ -273,6 +277,47 @@ def test_materialize_followup_request_artifacts_creates_and_supersedes_requests(
     assert rerender_artifact.metadata["request_state"] == "superseded"
     assert publish_artifact.metadata["request_state"] == "superseded"
     assert laf_patch_artifact.metadata["request_state"] == "ready"
+
+
+def test_materialize_followup_request_artifacts_normalizes_legacy_pack_aliases():
+    store = _FakeArtifactsStore()
+    refs = visual_acceptance_followup_requests.materialize_followup_request_artifacts(
+        bundle={
+            "review_bundle_id": "vrb_alias_demo",
+            "workspace_id": "ws_demo",
+            "run_id": "run_demo",
+            "scene_id": "A01",
+            "source_kind": "vr_render",
+            "package_id": "charpkg_demo",
+            "slots": [],
+        },
+        decision_payload={
+            "decision": "accepted",
+            "reviewed_at": "2026-03-27T01:00:00+00:00",
+            "downstream_action_plan": {
+                "lanes": [
+                    {
+                        "lane_id": "pack_consumer_handoff",
+                        "consumer_kind": "pack_owned_consumer",
+                        "dispatch_state": "ready",
+                        "blocking_reason": None,
+                        "action_ids": ["pack_consumer_handoff"],
+                        "target_ref": {"package_id": "charpkg_demo"},
+                    }
+                ]
+            },
+        },
+        artifacts_store=store,
+    )
+
+    assert refs[0]["lane_id"] == "capability_consumer_handoff"
+    request_artifact = store.get_artifact(
+        "vafreq_vrb_alias_demo_capability_consumer_handoff"
+    )
+    assert request_artifact is not None
+    assert request_artifact.content["lane_id"] == "capability_consumer_handoff"
+    assert request_artifact.content["consumer_kind"] == "capability_owned_consumer"
+    assert request_artifact.content["action_ids"] == ["capability_consumer_handoff"]
 
 
 def test_persist_followup_request_state_syncs_bundle_and_run(tmp_path):
@@ -287,9 +332,9 @@ def test_persist_followup_request_state_syncs_bundle_and_run(tmp_path):
     )
 
     followup_ref = {
-        "artifact_id": "vafreq_vrb_demo_pack_consumer_handoff",
-        "lane_id": "pack_consumer_handoff",
-        "consumer_kind": "pack_owned_consumer",
+        "artifact_id": "vafreq_vrb_demo_capability_consumer_handoff",
+        "lane_id": "capability_consumer_handoff",
+        "consumer_kind": "capability_owned_consumer",
         "request_state": "ready",
         "blocking_reason": None,
     }
@@ -365,23 +410,23 @@ def test_persist_followup_request_state_syncs_bundle_and_run(tmp_path):
     )
     store.create_artifact(
         Artifact(
-            id="vafreq_vrb_demo_pack_consumer_handoff",
+            id="vafreq_vrb_demo_capability_consumer_handoff",
             workspace_id="ws_demo",
             execution_id=(
-                f"visual_acceptance_followup:{run['run_id']}:A01:pack_consumer_handoff"
+                f"visual_acceptance_followup:{run['run_id']}:A01:capability_consumer_handoff"
             ),
             playbook_code="visual_acceptance_followup",
             artifact_type=ArtifactType.DATA,
-            title="Visual Acceptance Follow-up: A01 / pack_consumer_handoff",
-            summary="pack_consumer_handoff request for scene A01 (ready)",
+            title="Visual Acceptance Follow-up: A01 / capability_consumer_handoff",
+            summary="capability_consumer_handoff request for scene A01 (ready)",
             content={
-                "request_id": "vafreq_vrb_demo_pack_consumer_handoff",
+                "request_id": "vafreq_vrb_demo_capability_consumer_handoff",
                 "review_bundle_id": "vrb_demo",
                 "run_id": run["run_id"],
                 "scene_id": "A01",
                 "workspace_id": "ws_demo",
-                "lane_id": "pack_consumer_handoff",
-                "consumer_kind": "pack_owned_consumer",
+                "lane_id": "capability_consumer_handoff",
+                "consumer_kind": "capability_owned_consumer",
                 "request_state": "ready",
                 "blocking_reason": None,
             },
@@ -392,18 +437,18 @@ def test_persist_followup_request_state_syncs_bundle_and_run(tmp_path):
                 "review_bundle_id": "vrb_demo",
                 "run_id": run["run_id"],
                 "scene_id": "A01",
-                "lane_id": "pack_consumer_handoff",
-                "consumer_kind": "pack_owned_consumer",
+                "lane_id": "capability_consumer_handoff",
+                "consumer_kind": "capability_owned_consumer",
                 "request_state": "ready",
             },
         )
     )
 
     updated = visual_acceptance_followup_requests.persist_followup_request_state(
-        artifact=store.get_artifact("vafreq_vrb_demo_pack_consumer_handoff"),
+        artifact=store.get_artifact("vafreq_vrb_demo_capability_consumer_handoff"),
         request_state="completed",
         actor_id="publisher_demo",
-        notes="Handed off to pack-owned consumer.",
+        notes="Handed off to capability-owned consumer.",
         execution_ref={"publish_job_id": "pub_demo_001"},
         artifacts_store=store,
     )
@@ -419,7 +464,7 @@ def test_persist_followup_request_state_syncs_bundle_and_run(tmp_path):
     assert updated_bundle.content["followup_request_refs"][0]["request_state"] == "completed"
     assert updated_bundle.content["latest_review_decision"]["followup_request_refs"][0][
         "last_transition"
-    ]["notes"] == "Handed off to pack-owned consumer."
+    ]["notes"] == "Handed off to capability-owned consumer."
     assert updated_bundle.metadata["followup_request_state_counts"] == {"completed": 1}
 
     persisted_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -572,38 +617,38 @@ async def test_dispatch_followup_request_executes_rerender_and_completes_request
 
 
 @pytest.mark.asyncio
-async def test_dispatch_followup_request_handoffs_pack_consumer_handoff_to_pack_owned_consumer(
+async def test_dispatch_followup_request_handoffs_capability_consumer_handoff_to_capability_owned_consumer(
     tmp_path,
 ):
     store = _FakeArtifactsStore()
     run, _manifest_path = _seed_followup_bundle_and_run(
         store=store,
         tmp_path=tmp_path,
-        lane_id="pack_consumer_handoff",
-        consumer_kind="pack_owned_consumer",
+        lane_id="capability_consumer_handoff",
+        consumer_kind="capability_owned_consumer",
     )
 
     store.create_artifact(
         Artifact(
-            id="vafreq_vrb_demo_pack_consumer_handoff",
+            id="vafreq_vrb_demo_capability_consumer_handoff",
             workspace_id="ws_demo",
             execution_id=(
-                f"visual_acceptance_followup:{run['run_id']}:A01:pack_consumer_handoff"
+                f"visual_acceptance_followup:{run['run_id']}:A01:capability_consumer_handoff"
             ),
             playbook_code="visual_acceptance_followup",
             artifact_type=ArtifactType.DATA,
-            title="Visual Acceptance Follow-up: A01 / pack_consumer_handoff",
-            summary="pack_consumer_handoff request for scene A01 (ready)",
+            title="Visual Acceptance Follow-up: A01 / capability_consumer_handoff",
+            summary="capability_consumer_handoff request for scene A01 (ready)",
             content={
-                "request_id": "vafreq_vrb_demo_pack_consumer_handoff",
+                "request_id": "vafreq_vrb_demo_capability_consumer_handoff",
                 "review_bundle_id": "vrb_demo",
                 "run_id": run["run_id"],
                 "scene_id": "A01",
                 "workspace_id": "ws_demo",
-                "lane_id": "pack_consumer_handoff",
-                "consumer_kind": "pack_owned_consumer",
+                "lane_id": "capability_consumer_handoff",
+                "consumer_kind": "capability_owned_consumer",
                 "request_state": "ready",
-                "action_ids": ["pack_consumer_handoff"],
+                "action_ids": ["capability_consumer_handoff"],
                 "target_ref": {"package_id": "charpkg_demo", "preset_id": "preset_alpha"},
                 "package_id": "charpkg_demo",
                 "preset_id": "preset_alpha",
@@ -618,17 +663,17 @@ async def test_dispatch_followup_request_handoffs_pack_consumer_handoff_to_pack_
                 "review_bundle_id": "vrb_demo",
                 "run_id": run["run_id"],
                 "scene_id": "A01",
-                "lane_id": "pack_consumer_handoff",
-                "consumer_kind": "pack_owned_consumer",
+                "lane_id": "capability_consumer_handoff",
+                "consumer_kind": "capability_owned_consumer",
                 "request_state": "ready",
             },
         )
     )
 
     result = await visual_acceptance_followup_requests.dispatch_followup_request(
-        artifact=store.get_artifact("vafreq_vrb_demo_pack_consumer_handoff"),
+        artifact=store.get_artifact("vafreq_vrb_demo_capability_consumer_handoff"),
         actor_id="operator_demo",
-        notes="handoff pack consumer",
+        notes="handoff capability consumer",
         artifacts_store=store,
     )
 
@@ -638,10 +683,92 @@ async def test_dispatch_followup_request_handoffs_pack_consumer_handoff_to_pack_
     assert request_artifact.metadata["request_state"] == "dispatched"
     assert dispatch_artifact.content["dispatch_mode"] == "consumer_handoff"
     assert dispatch_artifact.content["dispatch_result"]["execution_strategy"] == "workspace_artifact_handoff"
-    assert dispatch_artifact.content["dispatch_result"]["handoff_reason"] == "pack_owned_consumer_required"
+    assert dispatch_artifact.content["dispatch_result"]["handoff_reason"] == "capability_owned_consumer_required"
     assert dispatch_artifact.content["dispatch_result"]["package_id"] == "charpkg_demo"
     assert dispatch_artifact.content["dispatch_result"]["preset_id"] == "preset_alpha"
     assert dispatch_artifact.content["dispatch_result"]["artifact_ids"] == ["artifact_alpha"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_followup_request_bounds_long_artifact_ids(tmp_path):
+    store = _FakeArtifactsStore()
+    review_bundle_id = "vrb_" + ("character_training_eval_" * 4)
+
+    store.create_artifact(
+        Artifact(
+            id=review_bundle_id,
+            workspace_id="ws_demo",
+            execution_id="visual_acceptance:run_demo:A01",
+            playbook_code="visual_acceptance_review",
+            artifact_type=ArtifactType.DATA,
+            title="Visual Acceptance Bundle: A01",
+            summary="bundle",
+            content={
+                "review_bundle_id": review_bundle_id,
+                "workspace_id": "ws_demo",
+                "run_id": "run_demo",
+                "scene_id": "A01",
+                "source_kind": "character_training_eval",
+                "status": "accepted",
+                "artifact_ids": ["artifact_alpha"],
+                "package_id": "charpkg_demo",
+                "binding_mode": "reference_only",
+                "latest_review_decision": {"decision": "accepted"},
+                "followup_request_refs": [],
+            },
+            storage_ref="",
+            primary_action_type=PrimaryActionType.DOWNLOAD,
+            metadata={
+                "kind": "visual_acceptance_bundle",
+                "review_bundle_id": review_bundle_id,
+            },
+        )
+    )
+
+    refs = visual_acceptance_followup_requests.materialize_followup_request_artifacts(
+        bundle={
+            "review_bundle_id": review_bundle_id,
+            "workspace_id": "ws_demo",
+            "run_id": "run_demo",
+            "scene_id": "A01",
+            "source_kind": "character_training_eval",
+            "package_id": "charpkg_demo",
+            "artifact_ids": ["artifact_alpha"],
+            "binding_mode": "reference_only",
+            "slots": [],
+        },
+        decision_payload={
+            "decision": "accepted",
+            "reviewed_at": "2026-03-27T02:00:00+00:00",
+            "downstream_action_plan": {
+                "lanes": [
+                    {
+                        "lane_id": "capability_consumer_handoff",
+                        "consumer_kind": "capability_owned_consumer",
+                        "dispatch_state": "ready",
+                        "blocking_reason": None,
+                        "action_ids": ["capability_consumer_handoff"],
+                        "target_ref": {"package_id": "charpkg_demo"},
+                    }
+                ]
+            },
+        },
+        artifacts_store=store,
+    )
+
+    request_artifact_id = refs[0]["artifact_id"]
+    assert len(request_artifact_id) <= 64
+    assert len(str(store.get_artifact(request_artifact_id).execution_id or "")) <= 64
+
+    result = await visual_acceptance_followup_requests.dispatch_followup_request(
+        artifact=store.get_artifact(request_artifact_id),
+        actor_id="operator_demo",
+        notes="handoff capability consumer",
+        artifacts_store=store,
+    )
+
+    assert len(result["dispatch_artifact"].id) <= 64
+    assert len(str(result["dispatch_artifact"].execution_id or "")) <= 64
 
 
 @pytest.mark.asyncio

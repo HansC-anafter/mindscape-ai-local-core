@@ -9,6 +9,7 @@ JSON manifest on disk + artifact metadata/content for downstream UI.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import re
@@ -19,25 +20,35 @@ from typing import Any, Dict, Iterable, List, Optional
 try:
     from app.models.workspace import Artifact, ArtifactType, PrimaryActionType
     from app.services.artifact_review_decision import (
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY,
         build_followup_action_plan,
         build_review_checklist_template,
         normalize_review_checklist_scores,
     )
+    from app.services.artifact_review_followup_contract import (
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY,
+    )
     from app.services.visual_acceptance_followup_requests import (
         materialize_followup_request_artifacts,
+    )
+    from app.services.visual_acceptance_owner_contract import (
+        resolve_explicit_owner_capability_code,
     )
     from app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
 except ImportError:
     from backend.app.models.workspace import Artifact, ArtifactType, PrimaryActionType
     from backend.app.services.artifact_review_decision import (
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY,
         build_followup_action_plan,
         build_review_checklist_template,
         normalize_review_checklist_scores,
     )
+    from backend.app.services.artifact_review_followup_contract import (
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY,
+    )
     from backend.app.services.visual_acceptance_followup_requests import (
         materialize_followup_request_artifacts,
+    )
+    from backend.app.services.visual_acceptance_owner_contract import (
+        resolve_explicit_owner_capability_code,
     )
     from backend.app.services.stores.postgres.artifacts_store import (
         PostgresArtifactsStore,
@@ -60,6 +71,7 @@ LINEAGE_KEYS = ("package_id", "preset_id", "binding_mode")
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v"}
 JSON_EXTS = {".json"}
+_MAX_ARTIFACT_ID_LENGTH = 64
 
 
 def _utc_now() -> datetime:
@@ -81,6 +93,19 @@ def get_visual_acceptance_artifacts_store() -> PostgresArtifactsStore:
 def _safe_segment(value: str, fallback: str) -> str:
     candidate = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "").strip())
     return candidate or fallback
+
+
+def _bounded_identifier(value: str, fallback: str) -> str:
+    candidate = _safe_segment(value, fallback)
+    if len(candidate) <= _MAX_ARTIFACT_ID_LENGTH:
+        return candidate
+    digest = hashlib.sha1(candidate.encode("utf-8")).hexdigest()[:12]
+    head = candidate[: _MAX_ARTIFACT_ID_LENGTH - len(digest) - 1].rstrip("_")
+    return f"{head}_{digest}" if head else digest
+
+
+def _bounded_execution_id(value: str, fallback: str) -> str:
+    return _bounded_identifier(value, fallback)
 
 
 def _enum_value(value: Any) -> Any:
@@ -278,8 +303,13 @@ def build_visual_acceptance_bundle(
     """Build a minimal compare-ready bundle manifest."""
 
     scene_id = str(_field_value(scene, "scene_id", "") or "").strip() or "scene"
-    review_bundle_id = (
-        f"vrb_{_safe_segment(run_id, 'run')}_{_safe_segment(scene_id, 'scene')}_{_safe_segment(source_kind, 'source')}"
+    review_bundle_id = _bounded_identifier(
+        (
+            f"vrb_{_safe_segment(run_id, 'run')}"
+            f"_{_safe_segment(scene_id, 'scene')}"
+            f"_{_safe_segment(source_kind, 'source')}"
+        ),
+        "vrb_bundle",
     )
     snapshot = _field_value(scene, "object_workload_snapshot", None)
     snapshot_payload = _jsonable(snapshot) if snapshot is not None else None
@@ -289,6 +319,9 @@ def build_visual_acceptance_bundle(
     slots.extend(_collect_render_slots(list(clip_refs or []), tenant_id=tenant_id))
 
     source_kind_value = str(source_kind or "").strip() or SOURCE_KIND_VR_RENDER
+    owning_capability_code = resolve_explicit_owner_capability_code(
+        context_metadata=context_metadata,
+    )
     return {
         "review_bundle_id": review_bundle_id,
         "workspace_id": str(workspace_id or "").strip(),
@@ -301,6 +334,7 @@ def build_visual_acceptance_bundle(
         "render_status": str(render_status or "").strip() or "unknown",
         "renderer": str(renderer or "").strip() or "unknown",
         "binding_mode": lineage.get("binding_mode"),
+        "owning_capability_code": owning_capability_code,
         "package_id": lineage.get("package_id"),
         "preset_id": lineage.get("preset_id"),
         "artifact_ids": list(lineage.get("artifact_ids") or []),
@@ -344,6 +378,7 @@ def _artifact_metadata(bundle: Dict[str, Any], manifest_path: str) -> Dict[str, 
         "scene_id": bundle["scene_id"],
         "source_kind": bundle["source_kind"],
         "visual_acceptance_state": bundle["status"],
+        "owning_capability_code": bundle.get("owning_capability_code"),
         "package_id": bundle.get("package_id"),
         "preset_id": bundle.get("preset_id"),
         "artifact_ids": bundle.get("artifact_ids", []),
@@ -384,7 +419,10 @@ def _upsert_bundle_artifact(
     artifact = Artifact(
         id=artifact_id,
         workspace_id=workspace_id,
-        execution_id=f"visual_acceptance:{bundle['run_id']}:{bundle['scene_id']}",
+        execution_id=_bounded_execution_id(
+            f"visual_acceptance:{bundle['run_id']}:{bundle['scene_id']}",
+            "visual_acceptance",
+        ),
         playbook_code=VISUAL_ACCEPTANCE_PLAYBOOK_CODE,
         artifact_type=ArtifactType.DATA,
         title=f"Visual Acceptance Bundle: {bundle['scene_id']}",
@@ -475,6 +513,7 @@ def publish_visual_acceptance_bundle(
         "run_id": bundle["run_id"],
         "status": bundle["status"],
         "source_kind": bundle["source_kind"],
+        "owning_capability_code": bundle.get("owning_capability_code"),
         "package_id": bundle.get("package_id"),
         "preset_id": bundle.get("preset_id"),
         "artifact_ids": bundle.get("artifact_ids", []),
@@ -658,8 +697,8 @@ def persist_visual_acceptance_review_decision(
     metadata["review_decision_count"] = len(history_items)
     metadata["followup_action_ids"] = list(downstream_action_plan.get("action_ids") or [])
     metadata["downstream_lane_ids"] = list(downstream_action_plan.get("lane_ids") or [])
-    metadata[FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY] = bool(
-        downstream_action_plan.get(FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY)
+    metadata[FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY] = bool(
+        downstream_action_plan.get(FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY)
     )
 
     manifest_path = str(metadata.get("manifest_path") or "").strip()

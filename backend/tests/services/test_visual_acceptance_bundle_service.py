@@ -4,7 +4,11 @@ import sys
 
 import pytest
 
-LOCAL_CORE_ROOT = Path("/Users/shock/Projects_local/workspace/mindscape-ai-local-core")
+LOCAL_CORE_ROOT = next(
+    parent
+    for parent in Path(__file__).resolve().parents
+    if parent.name == "mindscape-ai-local-core"
+)
 BACKEND_ROOT = LOCAL_CORE_ROOT / "backend"
 for candidate in (LOCAL_CORE_ROOT, BACKEND_ROOT):
     candidate_str = str(candidate)
@@ -101,6 +105,7 @@ def test_publish_visual_acceptance_bundle_lands_manifest_and_artifact(monkeypatc
             "preset_id": "preset_hybrid_demo",
             "artifact_ids": ["artifact_lora_demo"],
             "binding_mode": "hybrid",
+            "owning_capability_code": "character_training",
             "source_type": "generative",
             "render_profile": {"profile_id": "vr_preview_local"},
         },
@@ -112,6 +117,7 @@ def test_publish_visual_acceptance_bundle_lands_manifest_and_artifact(monkeypatc
 
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert payload["scene_id"] == "A01"
+    assert payload["owning_capability_code"] == "character_training"
     assert payload["package_id"] == "charpkg_demo"
     assert payload["preset_id"] == "preset_hybrid_demo"
     assert payload["binding_mode"] == "hybrid"
@@ -143,7 +149,93 @@ def test_publish_visual_acceptance_bundle_lands_manifest_and_artifact(monkeypatc
     stored_artifact = fake_store.get_artifact(bundle_ref["artifact_id"])
     assert stored_artifact is not None
     assert stored_artifact.metadata["kind"] == visual_acceptance_bundle.VISUAL_ACCEPTANCE_ARTIFACT_KIND
+    assert stored_artifact.metadata["owning_capability_code"] == "character_training"
     assert stored_artifact.content["review_bundle_id"] == bundle_ref["review_bundle_id"]
+
+
+def test_publish_visual_acceptance_bundle_requires_explicit_owner_metadata(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("LOCAL_STORAGE_PATH", str(tmp_path))
+    fake_store = _FakeArtifactsStore()
+    monkeypatch.setattr(
+        visual_acceptance_bundle,
+        "get_visual_acceptance_artifacts_store",
+        lambda: fake_store,
+    )
+
+    scene = Scene(scene_id="A01", scene_manifest={"shot": "close_up"})
+
+    bundle_ref = visual_acceptance_bundle.publish_visual_acceptance_bundle(
+        tenant_id="default",
+        project_id="proj_demo",
+        run_id="run_demo",
+        workspace_id="ws_demo",
+        scene=scene,
+        source_kind=visual_acceptance_bundle.SOURCE_KIND_CHARACTER_TRAINING_EVAL,
+        render_status="completed",
+        renderer="video_renderer",
+        clip_refs=[
+            {
+                "storage_key": "renders/a01.png",
+                "metadata": {
+                    "package_id": "charpkg_demo",
+                    "preset_id": "preset_demo",
+                    "binding_mode": "reference_only",
+                },
+            }
+        ],
+        context_metadata={
+            "package_id": "charpkg_demo",
+            "preset_id": "preset_demo",
+            "binding_mode": "reference_only",
+        },
+    )
+
+    stored_artifact = fake_store.get_artifact(bundle_ref["artifact_id"])
+    assert stored_artifact is not None
+    assert bundle_ref["owning_capability_code"] is None
+    assert stored_artifact.metadata["owning_capability_code"] is None
+    assert stored_artifact.content["owning_capability_code"] is None
+
+
+def test_publish_visual_acceptance_bundle_bounds_review_bundle_id(monkeypatch, tmp_path):
+    monkeypatch.setenv("LOCAL_STORAGE_PATH", str(tmp_path))
+    fake_store = _FakeArtifactsStore()
+    monkeypatch.setattr(
+        visual_acceptance_bundle,
+        "get_visual_acceptance_artifacts_store",
+        lambda: fake_store,
+    )
+
+    scene = Scene(
+        scene_id="A01",
+        scene_manifest={"shot": "close_up"},
+    )
+
+    bundle_ref = visual_acceptance_bundle.publish_visual_acceptance_bundle(
+        tenant_id="default",
+        project_id="proj_demo",
+        run_id="run_" + ("verylongsegment_" * 6),
+        workspace_id="ws_demo",
+        scene=scene,
+        source_kind=visual_acceptance_bundle.SOURCE_KIND_CHARACTER_TRAINING_EVAL,
+        render_status="completed",
+        renderer="video_renderer",
+        clip_refs=[{"storage_key": "renders/a01.png"}],
+        context_metadata={
+            "owning_capability_code": "character_training",
+            "package_id": "charpkg_demo",
+            "artifact_ids": ["artifact_demo"],
+            "binding_mode": "reference_only",
+        },
+    )
+
+    assert len(bundle_ref["review_bundle_id"]) <= 64
+    assert bundle_ref["artifact_id"] == bundle_ref["review_bundle_id"]
+    stored_artifact = fake_store.get_artifact(bundle_ref["artifact_id"])
+    assert stored_artifact is not None
+    assert len(str(stored_artifact.execution_id or "")) <= 64
 
 
 def test_build_artifact_review_decision_validates_decision():
@@ -158,7 +250,7 @@ def test_build_artifact_review_decision_validates_decision():
 
     assert decision["review_bundle_id"] == "vrb_run_scene"
     assert decision["decision"] == REVIEW_DECISION_ACCEPTED
-    assert decision["followup_actions"] == ["pack_consumer_handoff"]
+    assert decision["followup_actions"] == ["capability_consumer_handoff"]
 
     with pytest.raises(ValueError):
         build_artifact_review_decision(
@@ -220,7 +312,7 @@ def test_persist_visual_acceptance_review_decision_normalizes_checklist_scores(m
             "identity_consistency": 9,
             "extra_field": 0.2,
         },
-        followup_actions=["rebuild_contact_zone_mask", "pack_consumer_handoff"],
+        followup_actions=["rebuild_contact_zone_mask", "capability_consumer_handoff"],
     )
     updated = visual_acceptance_bundle.persist_visual_acceptance_review_decision(
         artifact=artifact,
@@ -240,7 +332,7 @@ def test_persist_visual_acceptance_review_decision_normalizes_checklist_scores(m
     }
     assert latest["followup_actions"] == [
         "rebuild_contact_zone_mask",
-        "pack_consumer_handoff",
+        "capability_consumer_handoff",
     ]
 
 
@@ -330,7 +422,7 @@ def test_persist_visual_acceptance_review_decision_syncs_downstream_action_plan_
         review_bundle_id="vrb_review_sync",
         decision=REVIEW_DECISION_ACCEPTED,
         followup_actions=[
-            "pack_consumer_handoff",
+            "capability_consumer_handoff",
             "rerender_same_preset",
             "unknown_action_should_drop",
         ],
@@ -342,29 +434,32 @@ def test_persist_visual_acceptance_review_decision_syncs_downstream_action_plan_
     )
 
     plan = updated.content["downstream_action_plan"]
-    assert plan["action_ids"] == ["pack_consumer_handoff", "rerender_same_preset"]
-    assert set(plan["lane_ids"]) == {"pack_consumer_handoff", "rerender"}
-    assert plan["pack_consumer_handoff_ready"] is True
+    assert plan["action_ids"] == ["capability_consumer_handoff", "rerender_same_preset"]
+    assert set(plan["lane_ids"]) == {"capability_consumer_handoff", "rerender"}
+    assert plan["capability_consumer_handoff_ready"] is True
     assert "publish_candidate_gate" not in updated.content
 
     latest = updated.content["latest_review_decision"]
-    assert latest["downstream_action_plan"]["pack_consumer_handoff_ready"] is True
+    assert latest["downstream_action_plan"]["capability_consumer_handoff_ready"] is True
     assert "publish_candidate_gate" not in latest
-    assert latest["followup_request_refs"][0]["lane_id"] == "pack_consumer_handoff"
+    assert latest["followup_request_refs"][0]["lane_id"] == "capability_consumer_handoff"
 
     synced_run = production_run.get_run("default", "proj_demo", run["run_id"])
     assert synced_run is not None
     provider_metadata = synced_run["scene_results"][0]["provider_metadata"]
-    assert provider_metadata["downstream_action_plan"]["pack_consumer_handoff_ready"] is True
+    assert provider_metadata["downstream_action_plan"]["capability_consumer_handoff_ready"] is True
     assert "publish_candidate_gate" not in provider_metadata
     assert {item["lane_id"] for item in provider_metadata["followup_request_refs"]} == {
-        "pack_consumer_handoff",
+        "capability_consumer_handoff",
         "rerender",
     }
     assert provider_metadata["review_decision_ref"]["downstream_action_plan"]["action_ids"] == [
-        "pack_consumer_handoff",
+        "capability_consumer_handoff",
         "rerender_same_preset",
     ]
     review_bundle_ref = provider_metadata["review_bundle_refs"][0]
-    assert review_bundle_ref["downstream_action_plan"]["pack_consumer_handoff_ready"] is True
+    assert (
+        review_bundle_ref["downstream_action_plan"]["capability_consumer_handoff_ready"]
+        is True
+    )
     assert "publish_candidate_gate" not in review_bundle_ref

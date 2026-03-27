@@ -10,6 +10,29 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
+try:
+    from app.services.artifact_review_followup_contract import (
+        FOLLOWUP_ACTION_CAPABILITY_CONSUMER_HANDOFF,
+        FOLLOWUP_CONSUMER_CAPABILITY_OWNED,
+        FOLLOWUP_LANE_CAPABILITY_CONSUMER_HANDOFF,
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY,
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_REQUESTED,
+        normalize_followup_action_id,
+        normalize_followup_consumer_kind,
+        normalize_followup_lane_id,
+    )
+except ImportError:
+    from backend.app.services.artifact_review_followup_contract import (
+        FOLLOWUP_ACTION_CAPABILITY_CONSUMER_HANDOFF,
+        FOLLOWUP_CONSUMER_CAPABILITY_OWNED,
+        FOLLOWUP_LANE_CAPABILITY_CONSUMER_HANDOFF,
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY,
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_REQUESTED,
+        normalize_followup_action_id,
+        normalize_followup_consumer_kind,
+        normalize_followup_lane_id,
+    )
+
 REVIEW_DECISION_ACCEPTED = "accepted"
 REVIEW_DECISION_REJECTED = "rejected"
 REVIEW_DECISION_NEEDS_TUNE = "needs_tune"
@@ -21,12 +44,6 @@ VALID_REVIEW_DECISIONS = {
     REVIEW_DECISION_NEEDS_TUNE,
     REVIEW_DECISION_MANUAL_REQUIRED,
 }
-
-FOLLOWUP_ACTION_PACK_CONSUMER_HANDOFF = "pack_consumer_handoff"
-FOLLOWUP_LANE_PACK_CONSUMER_HANDOFF = "pack_consumer_handoff"
-FOLLOWUP_CONSUMER_PACK_OWNED = "pack_owned_consumer"
-FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_REQUESTED = "pack_consumer_handoff_requested"
-FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY = "pack_consumer_handoff_ready"
 
 FOLLOWUP_ACTION_SPECS: Dict[str, Dict[str, str]] = {
     "compare_against_accepted_baseline": {
@@ -57,15 +74,15 @@ FOLLOWUP_ACTION_SPECS: Dict[str, Dict[str, str]] = {
         "lane_id": "baseline_capture",
         "consumer_kind": "accepted_baseline_capture",
     },
-    FOLLOWUP_ACTION_PACK_CONSUMER_HANDOFF: {
-        "lane_id": FOLLOWUP_LANE_PACK_CONSUMER_HANDOFF,
-        "consumer_kind": FOLLOWUP_CONSUMER_PACK_OWNED,
+    FOLLOWUP_ACTION_CAPABILITY_CONSUMER_HANDOFF: {
+        "lane_id": FOLLOWUP_LANE_CAPABILITY_CONSUMER_HANDOFF,
+        "consumer_kind": FOLLOWUP_CONSUMER_CAPABILITY_OWNED,
     },
 }
 
 _ACCEPTED_ONLY_LANES = {
     "baseline_capture",
-    FOLLOWUP_LANE_PACK_CONSUMER_HANDOFF,
+    FOLLOWUP_LANE_CAPABILITY_CONSUMER_HANDOFF,
 }
 
 CHECKLIST_LIBRARY: Dict[str, Dict[str, str]] = {
@@ -167,20 +184,6 @@ CHECKLIST_TEMPLATE_IDS: Dict[str, List[str]] = {
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def normalize_followup_action_id(action_id: Any) -> str:
-    return str(action_id or "").strip()
-
-
-def normalize_followup_lane_id(lane_id: Any) -> str:
-    return str(lane_id or "").strip()
-
-
-def normalize_followup_consumer_kind(consumer_kind: Any) -> str:
-    return str(consumer_kind or "").strip()
-
-
 def _normalize_followup_actions(actions: Optional[Iterable[Any]]) -> List[str]:
     seen: set[str] = set()
     normalized: List[str] = []
@@ -279,12 +282,12 @@ def build_followup_action_plan(
         "manual_escalation_required": "local_scene_review" in lane_ids,
         "baseline_compare_requested": "baseline_compare" in lane_ids,
         "baseline_capture_requested": "baseline_capture" in lane_ids,
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_REQUESTED: (
-            FOLLOWUP_ACTION_PACK_CONSUMER_HANDOFF in action_ids
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_REQUESTED: (
+            FOLLOWUP_ACTION_CAPABILITY_CONSUMER_HANDOFF in action_ids
         ),
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY: any(
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY: any(
             normalize_followup_lane_id(item.get("lane_id"))
-            == FOLLOWUP_LANE_PACK_CONSUMER_HANDOFF
+            == FOLLOWUP_LANE_CAPABILITY_CONSUMER_HANDOFF
             and str(item.get("dispatch_state") or "").strip() == "ready"
             for item in lanes
         ),

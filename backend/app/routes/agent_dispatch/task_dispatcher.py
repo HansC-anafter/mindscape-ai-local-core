@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 class TaskDispatchMixin:
     """Mixin: core task dispatch, pending queue, and flush."""
 
+    ACK_DEADLINE_SECONDS: float = 30.0
+    WAIT_SLICE_SECONDS: float = 30.0
+
     @staticmethod
     def _resolve_surface_type(message: Dict[str, Any]) -> Optional[str]:
         return message.get("agent_id") or message.get("surface_type")
@@ -129,7 +132,8 @@ class TaskDispatchMixin:
         # ACK fail-fast: if the client never acknowledges within
         # ACK_DEADLINE seconds, the client is likely dead/disconnected.
         # Fail fast instead of waiting the full idle timeout.
-        ACK_DEADLINE = 30.0  # seconds to wait for initial ACK
+        ack_deadline = self.ACK_DEADLINE_SECONDS
+        wait_slice = max(0.05, self.WAIT_SLICE_SECONDS)
         max_idle = timeout
         dispatch_time = time.monotonic()
         last_activity = dispatch_time
@@ -138,7 +142,7 @@ class TaskDispatchMixin:
             try:
                 return await asyncio.wait_for(
                     asyncio.shield(result_future),
-                    timeout=30.0,
+                    timeout=wait_slice,
                 )
             except asyncio.TimeoutError:
                 inflight = self._inflight.get(execution_id)
@@ -146,21 +150,46 @@ class TaskDispatchMixin:
                 # ACK fail-fast: no acknowledgment within deadline
                 if inflight and not inflight.acked:
                     elapsed = time.monotonic() - dispatch_time
-                    if elapsed > ACK_DEADLINE:
+                    if elapsed > ack_deadline:
+                        stale_client = None
+                        if inflight.client_id and inflight.client_id != "pending":
+                            stale_client = self.get_client(
+                                workspace_id,
+                                inflight.client_id,
+                                surface_type=surface_type,
+                            )
                         self._inflight.pop(execution_id, None)
+                        if stale_client:
+                            try:
+                                self.disconnect(
+                                    stale_client,
+                                    requeue_inflight=False,
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "[AgentWS] Failed to evict stale client %s "
+                                    "after ACK timeout for %s",
+                                    stale_client.client_id,
+                                    execution_id,
+                                )
                         logger.error(
                             f"[AgentWS] dispatch_and_wait: no ACK after "
                             f"{elapsed:.0f}s, client likely disconnected. "
                             f"exec={execution_id}"
                         )
-                        return {
-                            "execution_id": execution_id,
-                            "status": "timeout",
-                            "error": (
-                                f"No ACK from agent within {elapsed:.0f}s. "
-                                f"The CLI bridge may have disconnected."
-                            ),
-                        }
+                        logger.warning(
+                            "[AgentWS] Retrying %s via shared transport after "
+                            "ACK timeout",
+                            execution_id,
+                        )
+                        return await self._cross_worker_dispatch(
+                            workspace_id,
+                            message,
+                            execution_id,
+                            timeout,
+                            target_client_id=target_client_id,
+                            surface_type=surface_type,
+                        )
 
                 # Activity-aware idle timeout (post-ACK)
                 if inflight and inflight.last_progress_at > last_activity:

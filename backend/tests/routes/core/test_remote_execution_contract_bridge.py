@@ -482,6 +482,7 @@ async def test_cloud_terminal_callback_matches_local_core_schema(monkeypatch):
         base_url="http://local-core.test",
         timeout_seconds=5,
     )
+    callback_signing_key = "fixture-callback-key-1"
     result = await client.report_remote_execution_terminal_event(
         tenant_id="tenant-1",
         workspace_id="ws-1",
@@ -493,7 +494,7 @@ async def test_cloud_terminal_callback_matches_local_core_schema(monkeypatch):
         status="succeeded",
         result_payload={"outputs": {"artifact": "x"}},
         provider_metadata={"cloud_state": "completed"},
-        callback_secret="secret-1",
+        callback_secret=callback_signing_key,
     )
 
     validated = local_callback_module.RemoteTerminalEventRequest.model_validate(
@@ -504,7 +505,7 @@ async def test_cloud_terminal_callback_matches_local_core_schema(monkeypatch):
         captured["endpoint"]
         == "http://local-core.test/api/v1/executions/remote-terminal-events"
     )
-    assert captured["headers"]["Authorization"] == "Bearer secret-1"
+    assert captured["headers"]["Authorization"] == f"Bearer {callback_signing_key}"
     assert result["execution_id"] == "11111111-1111-4111-8111-111111111111"
     assert validated.execution_id == "11111111-1111-4111-8111-111111111111"
     assert validated.trace_id == "trace-1"

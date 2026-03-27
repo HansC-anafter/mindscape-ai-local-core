@@ -8,7 +8,11 @@ from fastapi import FastAPI
 import httpx
 import pytest
 
-LOCAL_CORE_ROOT = Path("/Users/shock/Projects_local/workspace/mindscape-ai-local-core")
+LOCAL_CORE_ROOT = next(
+    parent
+    for parent in Path(__file__).resolve().parents
+    if parent.name == "mindscape-ai-local-core"
+)
 BACKEND_ROOT = LOCAL_CORE_ROOT / "backend"
 for candidate in (LOCAL_CORE_ROOT, BACKEND_ROOT):
     candidate_str = str(candidate)
@@ -146,18 +150,18 @@ async def test_artifact_review_route_persists_decision_and_syncs_run(monkeypatch
                 "reviewer_id": "reviewer_demo",
                 "notes": "Looks good.",
                 "checklist_scores": {"identity_consistency": 1.0},
-                "followup_actions": ["pack_consumer_handoff"],
+                "followup_actions": ["capability_consumer_handoff"],
             },
         )
         followup_response = await client.post(
-            "/api/v1/workspaces/ws_demo/artifacts/vafreq_vrb_demo_pack_consumer_handoff/followup-request-state",
+            "/api/v1/workspaces/ws_demo/artifacts/vafreq_vrb_demo_capability_consumer_handoff/followup-request-state",
             json={
                 "request_state": "dispatched",
                 "actor_id": "worker_demo",
-                "notes": "Queued into pack consumer handoff lane.",
+                "notes": "Queued into capability consumer handoff lane.",
                 "execution_ref": {
                     "execution_id": "publish_job_demo",
-                    "lane_id": "pack_consumer_handoff",
+                    "lane_id": "capability_consumer_handoff",
                 },
             },
         )
@@ -169,18 +173,18 @@ async def test_artifact_review_route_persists_decision_and_syncs_run(monkeypatch
     assert payload["artifact"]["metadata"]["visual_acceptance_state"] == "accepted"
     assert payload["artifact"]["content"]["latest_review_decision"]["decision"] == "accepted"
     assert payload["artifact"]["content"]["latest_review_decision"]["followup_actions"] == [
-        "pack_consumer_handoff"
+        "capability_consumer_handoff"
     ]
-    assert payload["artifact"]["content"]["followup_request_refs"][0]["lane_id"] == "pack_consumer_handoff"
+    assert payload["artifact"]["content"]["followup_request_refs"][0]["lane_id"] == "capability_consumer_handoff"
     assert payload["artifact"]["content"]["followup_request_refs"][0]["request_state"] == "ready"
 
     updated_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert updated_manifest["status"] == "accepted"
     assert updated_manifest["latest_review_decision"]["reviewer_id"] == "reviewer_demo"
     assert updated_manifest["latest_review_decision"]["followup_actions"] == [
-        "pack_consumer_handoff"
+        "capability_consumer_handoff"
     ]
-    assert updated_manifest["followup_request_refs"][0]["lane_id"] == "pack_consumer_handoff"
+    assert updated_manifest["followup_request_refs"][0]["lane_id"] == "capability_consumer_handoff"
 
     updated_run = production_run.get_run("default", "proj_demo", run["run_id"])
     assert updated_run is not None
@@ -188,15 +192,15 @@ async def test_artifact_review_route_persists_decision_and_syncs_run(monkeypatch
     assert scene_result["provider_metadata"]["visual_acceptance_state"] == "accepted"
     assert scene_result["provider_metadata"]["review_decision_ref"]["artifact_id"] == "vrb_demo"
     assert scene_result["provider_metadata"]["review_decision_ref"]["followup_actions"] == [
-        "pack_consumer_handoff"
+        "capability_consumer_handoff"
     ]
     assert scene_result["provider_metadata"]["review_bundle_refs"][0]["status"] == "accepted"
     assert scene_result["provider_metadata"]["review_bundle_refs"][0]["review_decision"][
         "followup_actions"
-    ] == ["pack_consumer_handoff"]
-    assert scene_result["provider_metadata"]["followup_request_refs"][0]["lane_id"] == "pack_consumer_handoff"
+    ] == ["capability_consumer_handoff"]
+    assert scene_result["provider_metadata"]["followup_request_refs"][0]["lane_id"] == "capability_consumer_handoff"
 
-    followup_request_artifact = fake_artifacts.get_artifact("vafreq_vrb_demo_pack_consumer_handoff")
+    followup_request_artifact = fake_artifacts.get_artifact("vafreq_vrb_demo_capability_consumer_handoff")
     assert followup_request_artifact is not None
     assert followup_request_artifact.metadata["kind"] == "visual_acceptance_followup_request"
     assert followup_request_artifact.metadata["request_state"] == "dispatched"
@@ -208,7 +212,7 @@ async def test_artifact_review_route_persists_decision_and_syncs_run(monkeypatch
     assert followup_payload["transition"]["actor_id"] == "worker_demo"
     assert followup_payload["transition"]["execution_ref"] == {
         "execution_id": "publish_job_demo",
-        "lane_id": "pack_consumer_handoff",
+        "lane_id": "capability_consumer_handoff",
     }
     assert followup_payload["artifact"]["metadata"]["request_state"] == "dispatched"
     assert (
@@ -217,7 +221,7 @@ async def test_artifact_review_route_persists_decision_and_syncs_run(monkeypatch
     )
 
     dispatched_request_artifact = fake_artifacts.get_artifact(
-        "vafreq_vrb_demo_pack_consumer_handoff"
+        "vafreq_vrb_demo_capability_consumer_handoff"
     )
     assert dispatched_request_artifact is not None
     assert dispatched_request_artifact.metadata["request_state"] == "dispatched"
@@ -253,7 +257,7 @@ async def test_artifact_review_route_persists_decision_and_syncs_run(monkeypatch
         dispatched_provider_metadata["review_decision_ref"]["followup_request_refs"][0][
             "last_transition"
         ]["notes"]
-        == "Queued into pack consumer handoff lane."
+        == "Queued into capability consumer handoff lane."
     )
     assert (
         dispatched_provider_metadata["review_bundle_refs"][0]["followup_request_refs"][0][
@@ -867,7 +871,7 @@ async def test_dispatch_followup_route_executes_laf_patch_request(monkeypatch, t
 
 
 @pytest.mark.asyncio
-async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_owned_consumer(
+async def test_dispatch_followup_route_handoffs_capability_consumer_handoff_to_capability_owned_consumer(
     monkeypatch,
     tmp_path,
 ):
@@ -904,9 +908,9 @@ async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_ow
                     "decision": "accepted",
                     "followup_request_refs": [
                         {
-                            "artifact_id": "vafreq_vrb_dispatch_publish_demo_pack_consumer_handoff",
-                            "lane_id": "pack_consumer_handoff",
-                            "consumer_kind": "pack_owned_consumer",
+                            "artifact_id": "vafreq_vrb_dispatch_publish_demo_capability_consumer_handoff",
+                            "lane_id": "capability_consumer_handoff",
+                            "consumer_kind": "capability_owned_consumer",
                             "request_state": "ready",
                         }
                     ],
@@ -916,9 +920,9 @@ async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_ow
                         "decision": "accepted",
                         "followup_request_refs": [
                             {
-                                "artifact_id": "vafreq_vrb_dispatch_publish_demo_pack_consumer_handoff",
-                                "lane_id": "pack_consumer_handoff",
-                                "consumer_kind": "pack_owned_consumer",
+                                "artifact_id": "vafreq_vrb_dispatch_publish_demo_capability_consumer_handoff",
+                                "lane_id": "capability_consumer_handoff",
+                                "consumer_kind": "capability_owned_consumer",
                                 "request_state": "ready",
                             }
                         ],
@@ -926,9 +930,9 @@ async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_ow
                 ],
                 "followup_request_refs": [
                     {
-                        "artifact_id": "vafreq_vrb_dispatch_publish_demo_pack_consumer_handoff",
-                        "lane_id": "pack_consumer_handoff",
-                        "consumer_kind": "pack_owned_consumer",
+                        "artifact_id": "vafreq_vrb_dispatch_publish_demo_capability_consumer_handoff",
+                        "lane_id": "capability_consumer_handoff",
+                        "consumer_kind": "capability_owned_consumer",
                         "request_state": "ready",
                     }
                 ],
@@ -949,9 +953,9 @@ async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_ow
         provider_metadata={
             "followup_request_refs": [
                 {
-                    "artifact_id": "vafreq_vrb_dispatch_publish_demo_pack_consumer_handoff",
-                    "lane_id": "pack_consumer_handoff",
-                    "consumer_kind": "pack_owned_consumer",
+                    "artifact_id": "vafreq_vrb_dispatch_publish_demo_capability_consumer_handoff",
+                    "lane_id": "capability_consumer_handoff",
+                    "consumer_kind": "capability_owned_consumer",
                     "request_state": "ready",
                 }
             ],
@@ -960,9 +964,9 @@ async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_ow
                 "decision": "accepted",
                 "followup_request_refs": [
                     {
-                        "artifact_id": "vafreq_vrb_dispatch_publish_demo_pack_consumer_handoff",
-                        "lane_id": "pack_consumer_handoff",
-                        "consumer_kind": "pack_owned_consumer",
+                        "artifact_id": "vafreq_vrb_dispatch_publish_demo_capability_consumer_handoff",
+                        "lane_id": "capability_consumer_handoff",
+                        "consumer_kind": "capability_owned_consumer",
                         "request_state": "ready",
                     }
                 ],
@@ -974,9 +978,9 @@ async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_ow
                     "status": "accepted",
                     "followup_request_refs": [
                         {
-                            "artifact_id": "vafreq_vrb_dispatch_publish_demo_pack_consumer_handoff",
-                            "lane_id": "pack_consumer_handoff",
-                            "consumer_kind": "pack_owned_consumer",
+                            "artifact_id": "vafreq_vrb_dispatch_publish_demo_capability_consumer_handoff",
+                            "lane_id": "capability_consumer_handoff",
+                            "consumer_kind": "capability_owned_consumer",
                             "request_state": "ready",
                         }
                     ],
@@ -984,9 +988,9 @@ async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_ow
                         "decision": "accepted",
                         "followup_request_refs": [
                             {
-                                "artifact_id": "vafreq_vrb_dispatch_publish_demo_pack_consumer_handoff",
-                                "lane_id": "pack_consumer_handoff",
-                                "consumer_kind": "pack_owned_consumer",
+                                "artifact_id": "vafreq_vrb_dispatch_publish_demo_capability_consumer_handoff",
+                                "lane_id": "capability_consumer_handoff",
+                                "consumer_kind": "capability_owned_consumer",
                                 "request_state": "ready",
                             }
                         ],
@@ -1017,29 +1021,29 @@ async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_ow
     )
     fake_artifacts.create_artifact(
         Artifact(
-            id="vafreq_vrb_dispatch_publish_demo_pack_consumer_handoff",
+            id="vafreq_vrb_dispatch_publish_demo_capability_consumer_handoff",
             workspace_id="ws_demo",
             execution_id=(
-                f"visual_acceptance_followup:{run['run_id']}:A01:pack_consumer_handoff"
+                f"visual_acceptance_followup:{run['run_id']}:A01:capability_consumer_handoff"
             ),
             playbook_code="visual_acceptance_followup",
             artifact_type=ArtifactType.DATA,
-            title="Visual Acceptance Follow-up: A01 / pack_consumer_handoff",
+            title="Visual Acceptance Follow-up: A01 / capability_consumer_handoff",
             summary="publish candidate request",
             content={
-                "request_id": "vafreq_vrb_dispatch_publish_demo_pack_consumer_handoff",
+                "request_id": "vafreq_vrb_dispatch_publish_demo_capability_consumer_handoff",
                 "review_bundle_id": "vrb_dispatch_publish_demo",
                 "run_id": run["run_id"],
                 "scene_id": "A01",
                 "workspace_id": "ws_demo",
-                "lane_id": "pack_consumer_handoff",
-                "consumer_kind": "pack_owned_consumer",
+                "lane_id": "capability_consumer_handoff",
+                "consumer_kind": "capability_owned_consumer",
                 "request_state": "ready",
                 "package_id": "charpkg_demo",
                 "preset_id": "preset_alpha",
                 "artifact_ids": ["artifact_alpha"],
                 "binding_mode": "hybrid",
-                "action_ids": ["pack_consumer_handoff"],
+                "action_ids": ["capability_consumer_handoff"],
                 "target_ref": {
                     "package_id": "charpkg_demo",
                     "preset_id": "preset_alpha",
@@ -1055,8 +1059,8 @@ async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_ow
                 "review_bundle_id": "vrb_dispatch_publish_demo",
                 "run_id": run["run_id"],
                 "scene_id": "A01",
-                "lane_id": "pack_consumer_handoff",
-                "consumer_kind": "pack_owned_consumer",
+                "lane_id": "capability_consumer_handoff",
+                "consumer_kind": "capability_owned_consumer",
                 "request_state": "ready",
             },
         )
@@ -1068,10 +1072,10 @@ async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_ow
 
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post(
-            "/api/v1/workspaces/ws_demo/artifacts/vafreq_vrb_dispatch_publish_demo_pack_consumer_handoff/dispatch-followup",
+            "/api/v1/workspaces/ws_demo/artifacts/vafreq_vrb_dispatch_publish_demo_capability_consumer_handoff/dispatch-followup",
             json={
                 "actor_id": "operator_demo",
-                "notes": "Dispatch pack consumer handoff",
+                "notes": "Dispatch capability consumer handoff",
             },
         )
 
@@ -1082,11 +1086,11 @@ async def test_dispatch_followup_route_handoffs_pack_consumer_handoff_to_pack_ow
     assert payload["artifact"]["metadata"]["request_state"] == "dispatched"
     assert payload["dispatch_artifact"]["metadata"]["dispatch_status"] == "pending_worker"
     assert payload["dispatch_artifact"]["content"]["dispatch_mode"] == "consumer_handoff"
-    assert payload["dispatch_result"]["handoff_reason"] == "pack_owned_consumer_required"
+    assert payload["dispatch_result"]["handoff_reason"] == "capability_owned_consumer_required"
     assert payload["dispatch_result"]["package_id"] == "charpkg_demo"
 
     updated_request_artifact = fake_artifacts.get_artifact(
-        "vafreq_vrb_dispatch_publish_demo_pack_consumer_handoff"
+        "vafreq_vrb_dispatch_publish_demo_capability_consumer_handoff"
     )
     assert updated_request_artifact is not None
     assert updated_request_artifact.metadata["request_state"] == "dispatched"

@@ -5,6 +5,7 @@ Materialize review follow-up lanes into durable workspace artifacts.
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import uuid
 from datetime import datetime, timezone
@@ -13,8 +14,8 @@ from typing import Any, Dict, List, Optional
 
 try:
     from app.models.workspace import Artifact, ArtifactType, PrimaryActionType
-    from app.services.artifact_review_decision import (
-        FOLLOWUP_LANE_PACK_CONSUMER_HANDOFF,
+    from app.services.artifact_review_followup_contract import (
+        FOLLOWUP_LANE_CAPABILITY_CONSUMER_HANDOFF,
         normalize_followup_action_id,
         normalize_followup_consumer_kind,
         normalize_followup_lane_id,
@@ -22,8 +23,8 @@ try:
     from app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
 except ImportError:
     from backend.app.models.workspace import Artifact, ArtifactType, PrimaryActionType
-    from backend.app.services.artifact_review_decision import (
-        FOLLOWUP_LANE_PACK_CONSUMER_HANDOFF,
+    from backend.app.services.artifact_review_followup_contract import (
+        FOLLOWUP_LANE_CAPABILITY_CONSUMER_HANDOFF,
         normalize_followup_action_id,
         normalize_followup_consumer_kind,
         normalize_followup_lane_id,
@@ -50,6 +51,7 @@ VALID_FOLLOWUP_REQUEST_STATES = {
     FOLLOWUP_REQUEST_STATE_COMPLETED,
     FOLLOWUP_REQUEST_STATE_SUPERSEDED,
 }
+_MAX_ARTIFACT_ID_LENGTH = 64
 
 
 def _utc_now_iso() -> str:
@@ -63,6 +65,19 @@ def get_visual_acceptance_artifacts_store() -> PostgresArtifactsStore:
 def _safe_segment(value: str, fallback: str) -> str:
     candidate = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "").strip())
     return candidate or fallback
+
+
+def _bounded_identifier(value: str, fallback: str) -> str:
+    candidate = _safe_segment(value, fallback)
+    if len(candidate) <= _MAX_ARTIFACT_ID_LENGTH:
+        return candidate
+    digest = hashlib.sha1(candidate.encode("utf-8")).hexdigest()[:12]
+    head = candidate[: _MAX_ARTIFACT_ID_LENGTH - len(digest) - 1].rstrip("_")
+    return f"{head}_{digest}" if head else digest
+
+
+def _bounded_execution_id(value: str, fallback: str) -> str:
+    return _bounded_identifier(value, fallback)
 
 
 def _list_workspace_artifacts(
@@ -82,7 +97,10 @@ def _list_workspace_artifacts(
 
 
 def _request_artifact_id(review_bundle_id: str, lane_id: str) -> str:
-    return f"vafreq_{_safe_segment(review_bundle_id, 'bundle')}_{_safe_segment(lane_id, 'lane')}"
+    return _bounded_identifier(
+        f"vafreq_{_safe_segment(review_bundle_id, 'bundle')}_{_safe_segment(lane_id, 'lane')}",
+        "vafreq_request",
+    )
 
 
 def _request_payload(
@@ -147,11 +165,17 @@ def _request_metadata(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _dispatch_artifact_id(request_id: str) -> str:
-    return f"vafdispatch_{_safe_segment(request_id, 'request')}_{uuid.uuid4().hex[:8]}"
+    return _bounded_identifier(
+        f"vafdispatch_{_safe_segment(request_id, 'request')}_{uuid.uuid4().hex[:8]}",
+        "vafdispatch_request",
+    )
 
 
 def _scene_review_artifact_id(request_id: str) -> str:
-    return f"vasr_{_safe_segment(request_id, 'request')}"
+    return _bounded_identifier(
+        f"vasr_{_safe_segment(request_id, 'request')}",
+        "vasr_request",
+    )
 
 
 def _dispatch_metadata(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -204,8 +228,9 @@ def _upsert_dispatch_artifact(
     artifact = Artifact(
         id=artifact_id,
         workspace_id=workspace_id,
-        execution_id=(
-            f"visual_acceptance_dispatch:{payload.get('run_id') or 'run'}:{scene_id}:{lane_id or 'lane'}"
+        execution_id=_bounded_execution_id(
+            f"visual_acceptance_dispatch:{payload.get('run_id') or 'run'}:{scene_id}:{lane_id or 'lane'}",
+            "visual_acceptance_dispatch",
         ),
         playbook_code=VISUAL_ACCEPTANCE_FOLLOWUP_DISPATCH_PLAYBOOK_CODE,
         artifact_type=ArtifactType.DATA,
@@ -247,8 +272,9 @@ def _upsert_scene_review_artifact(
     artifact = Artifact(
         id=artifact_id,
         workspace_id=workspace_id,
-        execution_id=(
-            f"visual_acceptance_scene_review:{payload.get('run_id') or 'run'}:{scene_id}"
+        execution_id=_bounded_execution_id(
+            f"visual_acceptance_scene_review:{payload.get('run_id') or 'run'}:{scene_id}",
+            "visual_acceptance_scene_review",
         ),
         playbook_code=VISUAL_ACCEPTANCE_SCENE_REVIEW_PLAYBOOK_CODE,
         artifact_type=ArtifactType.DATA,
@@ -288,8 +314,9 @@ def _upsert_request_artifact(
     artifact = Artifact(
         id=request_id,
         workspace_id=workspace_id,
-        execution_id=(
-            f"visual_acceptance_followup:{payload.get('run_id') or 'run'}:{scene_id}:{lane_id or 'lane'}"
+        execution_id=_bounded_execution_id(
+            f"visual_acceptance_followup:{payload.get('run_id') or 'run'}:{scene_id}:{lane_id or 'lane'}",
+            "visual_acceptance_followup",
         ),
         playbook_code=VISUAL_ACCEPTANCE_FOLLOWUP_PLAYBOOK_CODE,
         artifact_type=ArtifactType.DATA,
@@ -440,14 +467,14 @@ def _source_metadata_from_request(request_content: Dict[str, Any]) -> Dict[str, 
     return dict(dispatch_context.get("source_metadata") or {})
 
 
-def _pack_owned_consumer_handoff_result(
+def _capability_owned_consumer_handoff_result(
     request_content: Dict[str, Any],
 ) -> Dict[str, Any]:
     return {
         "success": True,
         "mode": "consumer_handoff",
         "execution_strategy": "workspace_artifact_handoff",
-        "handoff_reason": "pack_owned_consumer_required",
+        "handoff_reason": "capability_owned_consumer_required",
         "lane_id": normalize_followup_lane_id(request_content.get("lane_id")) or None,
         "consumer_kind": normalize_followup_consumer_kind(
             request_content.get("consumer_kind")
@@ -1406,8 +1433,8 @@ async def dispatch_followup_request(
                 },
             }
 
-    if lane_id == FOLLOWUP_LANE_PACK_CONSUMER_HANDOFF:
-        dispatch_result = _pack_owned_consumer_handoff_result(content)
+    if lane_id == FOLLOWUP_LANE_CAPABILITY_CONSUMER_HANDOFF:
+        dispatch_result = _capability_owned_consumer_handoff_result(content)
         dispatch_payload = _dispatch_payload(
             request_content=content,
             dispatch_mode="consumer_handoff",
@@ -1425,7 +1452,7 @@ async def dispatch_followup_request(
             artifact=artifact,
             request_state=FOLLOWUP_REQUEST_STATE_DISPATCHED,
             actor_id=actor_id,
-            notes=notes or "handoff_to_pack_owned_publish_consumer",
+            notes=notes or "handoff_to_capability_owned_consumer",
             execution_ref={
                 "kind": VISUAL_ACCEPTANCE_FOLLOWUP_DISPATCH_ARTIFACT_KIND,
                 "artifact_id": dispatch_artifact.id,
