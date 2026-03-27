@@ -191,11 +191,13 @@ Important:
 
 Mindscape does not treat all events as equal.
 
-Formal write boundaries are the moments where memory formation should happen deliberately, for example:
+Formal canonical write boundaries are the moments where memory formation should happen deliberately:
 
 - meeting close
-- artifact finalize / milestone commit
-- reasoning completion / reflection completion
+- meta meeting close / reflection meeting close
+
+Workflow outcomes such as artifact milestones, reasoning traces, governance receipts, and execution traces are evidence intake surfaces in the current rollout.
+They can be brought into deliberation and attached to governed memory, but they do not independently create canonical memory items outside meeting-time or meta-meeting-time closure.
 
 Without explicit write boundaries, memory collapses back into logs and prompt stuffing.
 

@@ -15,6 +15,14 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 from backend.app.models.personal_governance.session_digest import SessionDigest
+from backend.app.models.lens_patch import LensPatch
+from backend.app.models.meeting_decision import MeetingDecision
+from backend.app.models.mindscape import IntentLog
+from backend.app.models.reasoning_trace import ReasoningTrace
+from backend.app.models.personal_governance.writeback_receipt import WritebackReceipt
+from backend.app.models.lens_receipt import LensReceipt
+from backend.app.models.workspace import Artifact
+from backend.app.models.workspace import Task
 
 
 def _utc_now() -> datetime:
@@ -214,6 +222,300 @@ class MemoryEvidenceLink:
             },
         )
 
+    @staticmethod
+    def from_reasoning_trace(
+        memory_item_id: str,
+        trace: ReasoningTrace,
+    ) -> "MemoryEvidenceLink":
+        return MemoryEvidenceLink(
+            memory_item_id=memory_item_id,
+            evidence_type="reasoning_trace",
+            evidence_id=trace.id,
+            link_role="supports",
+            excerpt=_build_reasoning_trace_excerpt(trace),
+            confidence=0.78,
+            metadata={
+                "meeting_session_id": trace.meeting_session_id,
+                "execution_id": trace.execution_id,
+                "assistant_event_id": trace.assistant_event_id,
+                "schema_version": trace.schema_version,
+                "sgr_mode": trace.sgr_mode,
+                "model": trace.model,
+                "node_count": len(trace.graph.nodes),
+                "edge_count": len(trace.graph.edges),
+            },
+        )
+
+    @staticmethod
+    def from_meeting_decision(
+        memory_item_id: str,
+        decision: MeetingDecision,
+    ) -> "MemoryEvidenceLink":
+        return MemoryEvidenceLink(
+            memory_item_id=memory_item_id,
+            evidence_type="meeting_decision",
+            evidence_id=decision.id,
+            link_role="supports",
+            excerpt=_shorten(decision.content.strip(), 280),
+            confidence=0.82,
+            metadata={
+                "meeting_session_id": decision.session_id,
+                "workspace_id": decision.workspace_id,
+                "category": decision.category,
+                "status": decision.status,
+                "resolved_by_task_id": decision.resolved_by_task_id,
+            },
+        )
+
+    @staticmethod
+    def from_writeback_receipt(
+        memory_item_id: str,
+        receipt: WritebackReceipt,
+    ) -> "MemoryEvidenceLink":
+        return MemoryEvidenceLink(
+            memory_item_id=memory_item_id,
+            evidence_type="writeback_receipt",
+            evidence_id=receipt.id,
+            link_role="derived_from",
+            excerpt=_build_writeback_receipt_excerpt(receipt),
+            confidence=0.86 if receipt.status == "completed" else 0.72,
+            metadata={
+                "meta_session_id": receipt.meta_session_id,
+                "source_decision_id": receipt.source_decision_id,
+                "target_table": receipt.target_table,
+                "target_id": receipt.target_id,
+                "writeback_type": receipt.writeback_type,
+                "status": receipt.status,
+            },
+        )
+
+    @staticmethod
+    def from_lens_receipt(
+        memory_item_id: str,
+        receipt: LensReceipt,
+    ) -> "MemoryEvidenceLink":
+        return MemoryEvidenceLink(
+            memory_item_id=memory_item_id,
+            evidence_type="lens_receipt",
+            evidence_id=receipt.id,
+            link_role="supports",
+            excerpt=_build_lens_receipt_excerpt(receipt),
+            confidence=0.8,
+            metadata={
+                "execution_id": receipt.execution_id,
+                "workspace_id": receipt.workspace_id,
+                "effective_lens_hash": receipt.effective_lens_hash,
+                "triggered_node_count": len(receipt.triggered_nodes),
+            },
+        )
+
+    @staticmethod
+    def from_lens_patch(
+        memory_item_id: str,
+        patch: LensPatch,
+    ) -> "MemoryEvidenceLink":
+        return MemoryEvidenceLink(
+            memory_item_id=memory_item_id,
+            evidence_type="lens_patch",
+            evidence_id=patch.id,
+            link_role="supports",
+            excerpt=_build_lens_patch_excerpt(patch),
+            confidence=patch.confidence or 0.75,
+            metadata={
+                "lens_id": patch.lens_id,
+                "meeting_session_id": patch.meeting_session_id,
+                "status": (
+                    patch.status.value
+                    if hasattr(patch.status, "value")
+                    else str(patch.status)
+                ),
+                "lens_version_before": patch.lens_version_before,
+                "lens_version_after": patch.lens_version_after,
+                "delta_magnitude": patch.delta_magnitude,
+                "evidence_ref_count": len(patch.evidence_refs or []),
+            },
+        )
+
+    @staticmethod
+    def from_task_execution(
+        memory_item_id: str,
+        task: Task,
+    ) -> "MemoryEvidenceLink":
+        return MemoryEvidenceLink(
+            memory_item_id=memory_item_id,
+            evidence_type="task_execution",
+            evidence_id=task.execution_id or task.id,
+            link_role="supports",
+            excerpt=_build_task_execution_excerpt(task),
+            confidence=0.79 if str(task.status) == "succeeded" else 0.68,
+            metadata={
+                "task_id": task.id,
+                "execution_id": task.execution_id,
+                "status": str(task.status),
+                "pack_id": task.pack_id,
+                "task_type": task.task_type,
+                "completed_at": task.completed_at.isoformat()
+                if task.completed_at
+                else None,
+            },
+        )
+
+    @staticmethod
+    def from_execution_trace(
+        memory_item_id: str,
+        trace_payload: Dict[str, Any],
+        *,
+        task: Optional[Task] = None,
+    ) -> "MemoryEvidenceLink":
+        tool_calls = trace_payload.get("tool_calls")
+        files_created = trace_payload.get("files_created")
+        files_modified = trace_payload.get("files_modified")
+        return MemoryEvidenceLink(
+            memory_item_id=memory_item_id,
+            evidence_type="execution_trace",
+            evidence_id=str(
+                trace_payload.get("execution_id")
+                or trace_payload.get("trace_id")
+                or (task.execution_id if task else None)
+                or (task.id if task else "")
+            ),
+            link_role="supports",
+            excerpt=_build_execution_trace_excerpt(trace_payload, task=task),
+            confidence=0.77,
+            metadata={
+                "task_id": task.id if task else None,
+                "execution_id": trace_payload.get("execution_id")
+                or (task.execution_id if task else None),
+                "trace_id": trace_payload.get("trace_id"),
+                "agent": trace_payload.get("agent") or trace_payload.get("agent_type"),
+                "tool_call_count": len(tool_calls) if isinstance(tool_calls, list) else 0,
+                "files_created_count": len(files_created)
+                if isinstance(files_created, list)
+                else 0,
+                "files_modified_count": len(files_modified)
+                if isinstance(files_modified, list)
+                else 0,
+                "file_change_count": len(trace_payload.get("file_changes"))
+                if isinstance(trace_payload.get("file_changes"), list)
+                else 0,
+                "sandbox_path": trace_payload.get("sandbox_path"),
+                "pack_id": task.pack_id if task else None,
+                "task_type": task.task_type if task else None,
+                "task_description": trace_payload.get("task_description"),
+                "output_summary": trace_payload.get("output_summary"),
+                "success": trace_payload.get("success"),
+                "duration_seconds": trace_payload.get("duration_seconds"),
+                "trace_source": trace_payload.get("trace_source"),
+                "trace_file_path": trace_payload.get("trace_file_path"),
+            },
+        )
+
+    @staticmethod
+    def from_artifact_result(
+        memory_item_id: str,
+        artifact: Artifact,
+    ) -> "MemoryEvidenceLink":
+        artifact_metadata = artifact.metadata or {}
+        landing_metadata = (
+            artifact_metadata.get("landing")
+            if isinstance(artifact_metadata.get("landing"), dict)
+            else {}
+        )
+        return MemoryEvidenceLink(
+            memory_item_id=memory_item_id,
+            evidence_type="artifact_result",
+            evidence_id=artifact.id,
+            link_role="supports",
+            excerpt=_build_artifact_excerpt(artifact),
+            confidence=0.83,
+            metadata={
+                "artifact_id": artifact.id,
+                "execution_id": artifact.execution_id,
+                "artifact_type": str(artifact.artifact_type),
+                "playbook_code": artifact.playbook_code,
+                "storage_ref": artifact.storage_ref,
+                "sync_state": artifact.sync_state,
+                "landing_artifact_dir": landing_metadata.get("artifact_dir"),
+                "landing_result_json_path": landing_metadata.get("result_json_path"),
+                "landing_summary_md_path": landing_metadata.get("summary_md_path"),
+                "landing_attachments_count": landing_metadata.get(
+                    "attachments_count"
+                ),
+                "landing_attachments": landing_metadata.get("attachments") or [],
+                "landing_landed_at": landing_metadata.get("landed_at"),
+            },
+        )
+
+    @staticmethod
+    def from_stage_result(
+        memory_item_id: str,
+        stage_result: Any,
+    ) -> "MemoryEvidenceLink":
+        return MemoryEvidenceLink(
+            memory_item_id=memory_item_id,
+            evidence_type="stage_result",
+            evidence_id=stage_result.id,
+            link_role="supports",
+            excerpt=_build_stage_result_excerpt(stage_result),
+            confidence=0.76,
+            metadata={
+                "execution_id": getattr(stage_result, "execution_id", None),
+                "step_id": getattr(stage_result, "step_id", None),
+                "stage_name": getattr(stage_result, "stage_name", None),
+                "result_type": getattr(stage_result, "result_type", None),
+                "requires_review": getattr(stage_result, "requires_review", None),
+                "review_status": getattr(stage_result, "review_status", None),
+                "artifact_id": getattr(stage_result, "artifact_id", None),
+            },
+        )
+
+    @staticmethod
+    def from_intent_log(
+        memory_item_id: str,
+        intent_log: IntentLog,
+    ) -> "MemoryEvidenceLink":
+        final_decision = intent_log.final_decision or {}
+        return MemoryEvidenceLink(
+            memory_item_id=memory_item_id,
+            evidence_type="intent_log",
+            evidence_id=intent_log.id,
+            link_role="supports",
+            excerpt=_build_intent_log_excerpt(intent_log),
+            confidence=0.74,
+            metadata={
+                "workspace_id": intent_log.workspace_id,
+                "project_id": intent_log.project_id,
+                "channel": intent_log.channel,
+                "selected_playbook_code": final_decision.get("selected_playbook_code"),
+                "resolution_strategy": final_decision.get("resolution_strategy"),
+                "requires_user_approval": final_decision.get(
+                    "requires_user_approval"
+                ),
+                "has_user_override": bool(intent_log.user_override),
+            },
+        )
+
+    @staticmethod
+    def from_governance_decision(
+        memory_item_id: str,
+        decision: Dict[str, Any],
+    ) -> "MemoryEvidenceLink":
+        return MemoryEvidenceLink(
+            memory_item_id=memory_item_id,
+            evidence_type="governance_decision",
+            evidence_id=str(decision.get("decision_id", "")),
+            link_role="supports",
+            excerpt=_build_governance_decision_excerpt(decision),
+            confidence=0.81,
+            metadata={
+                "execution_id": decision.get("execution_id"),
+                "layer": decision.get("layer"),
+                "approved": decision.get("approved"),
+                "reason": decision.get("reason"),
+                "playbook_code": decision.get("playbook_code"),
+            },
+        )
+
 
 @dataclass
 class MemoryEdge:
@@ -305,3 +607,163 @@ def _build_meeting_fallback_summary(digest: SessionDigest) -> str:
         f"Closed meeting {digest.source_id} with "
         f"{action_count} action items and {decision_count} decisions."
     )
+
+
+def _build_reasoning_trace_excerpt(trace: ReasoningTrace) -> str:
+    graph = trace.graph
+    if graph.answer:
+        return _shorten(graph.answer.strip(), 280)
+
+    for preferred_type in ("conclusion", "inference", "evidence", "premise", "risk"):
+        for node in graph.nodes:
+            if node.type == preferred_type and node.content.strip():
+                return _shorten(node.content.strip(), 280)
+
+    return _shorten(f"Reasoning trace {trace.id}", 280)
+
+
+def _build_writeback_receipt_excerpt(receipt: WritebackReceipt) -> str:
+    summary = (
+        f"{receipt.target_table} {receipt.writeback_type} "
+        f"status={receipt.status} target={receipt.target_id}"
+    )
+    return _shorten(summary.strip(), 280)
+
+
+def _build_lens_receipt_excerpt(receipt: LensReceipt) -> str:
+    if receipt.diff_summary:
+        return _shorten(receipt.diff_summary.strip(), 280)
+    if receipt.lens_output:
+        return _shorten(receipt.lens_output.strip(), 280)
+    if receipt.base_output:
+        return _shorten(receipt.base_output.strip(), 280)
+    return _shorten(f"Lens receipt {receipt.id}", 280)
+
+
+def _build_lens_patch_excerpt(patch: LensPatch) -> str:
+    status = patch.status.value if hasattr(patch.status, "value") else str(patch.status)
+    delta_keys = list((patch.delta or {}).keys())
+    if delta_keys:
+        preview = ", ".join(delta_keys[:3])
+        if len(delta_keys) > 3:
+            preview = f"{preview}, +{len(delta_keys) - 3} more"
+        return _shorten(
+            f"Lens patch {status}. Changed {preview}. Confidence {patch.confidence:.2f}.",
+            280,
+        )
+    return _shorten(
+        f"Lens patch {status}. Confidence {patch.confidence:.2f}.",
+        280,
+    )
+
+
+def _build_task_execution_excerpt(task: Task) -> str:
+    if isinstance(task.result, dict):
+        for key in ("summary", "message", "result_summary", "title"):
+            value = task.result.get(key)
+            if isinstance(value, str) and value.strip():
+                return _shorten(value.strip(), 280)
+    if task.error:
+        return _shorten(task.error.strip(), 280)
+    summary = f"{task.pack_id} {task.task_type} status={task.status}"
+    return _shorten(summary.strip(), 280)
+
+
+def _build_execution_trace_excerpt(
+    trace_payload: Dict[str, Any],
+    *,
+    task: Optional[Task] = None,
+) -> str:
+    output_summary = trace_payload.get("output_summary")
+    if isinstance(output_summary, str) and output_summary.strip():
+        return _shorten(output_summary.strip(), 280)
+
+    task_description = trace_payload.get("task_description")
+    if isinstance(task_description, str) and task_description.strip():
+        return _shorten(task_description.strip(), 280)
+
+    agent = trace_payload.get("agent") or trace_payload.get("agent_type")
+    if not isinstance(agent, str) or not agent.strip():
+        agent = "runtime"
+    tool_calls = trace_payload.get("tool_calls")
+    files_created = trace_payload.get("files_created")
+    files_modified = trace_payload.get("files_modified")
+    tool_call_count = len(tool_calls) if isinstance(tool_calls, list) else 0
+    file_change_count = 0
+    if isinstance(files_created, list):
+        file_change_count += len(files_created)
+    if isinstance(files_modified, list):
+        file_change_count += len(files_modified)
+    task_label = ""
+    if task is not None:
+        task_label = f"{task.pack_id} {task.task_type}".strip()
+    summary_parts = [f"{agent} trace"]
+    if task_label:
+        summary_parts.append(f"for {task_label}")
+    summary_parts.append(f"with {tool_call_count} tool calls")
+    summary_parts.append(f"and {file_change_count} file changes.")
+    return _shorten(" ".join(summary_parts), 280)
+
+
+def _build_artifact_excerpt(artifact: Artifact) -> str:
+    if artifact.summary:
+        return _shorten(artifact.summary.strip(), 280)
+    if artifact.title:
+        return _shorten(artifact.title.strip(), 280)
+    summary = f"{artifact.playbook_code} {artifact.artifact_type}"
+    return _shorten(summary.strip(), 280)
+
+
+def _build_stage_result_excerpt(stage_result: Any) -> str:
+    preview = getattr(stage_result, "preview", None)
+    if isinstance(preview, str) and preview.strip():
+        return _shorten(preview.strip(), 280)
+
+    content = getattr(stage_result, "content", None)
+    if isinstance(content, dict):
+        for key in ("summary", "message", "title", "result_summary"):
+            value = content.get(key)
+            if isinstance(value, str) and value.strip():
+                return _shorten(value.strip(), 280)
+
+    stage_name = getattr(stage_result, "stage_name", "stage")
+    result_type = getattr(stage_result, "result_type", "result")
+    return _shorten(f"{stage_name} {result_type}", 280)
+
+
+def _build_intent_log_excerpt(intent_log: IntentLog) -> str:
+    final_decision = intent_log.final_decision or {}
+    selected_playbook_code = final_decision.get("selected_playbook_code")
+    resolution_strategy = final_decision.get("resolution_strategy")
+    requires_user_approval = final_decision.get("requires_user_approval")
+
+    summary_parts = []
+    if isinstance(selected_playbook_code, str) and selected_playbook_code.strip():
+        summary_parts.append(f"Selected {selected_playbook_code.strip()}.")
+    if isinstance(resolution_strategy, str) and resolution_strategy.strip():
+        summary_parts.append(f"Resolution {resolution_strategy.strip()}.")
+    if requires_user_approval is True:
+        summary_parts.append("User approval required.")
+    if intent_log.user_override:
+        summary_parts.append("User override recorded.")
+    if summary_parts:
+        return _shorten(" ".join(summary_parts), 280)
+
+    raw_input = intent_log.raw_input.strip()
+    if raw_input:
+        return _shorten(raw_input, 280)
+    return _shorten(f"Intent log {intent_log.id}", 280)
+
+
+def _build_governance_decision_excerpt(decision: Dict[str, Any]) -> str:
+    layer = str(decision.get("layer") or "governance").strip()
+    approved = decision.get("approved")
+    reason = decision.get("reason")
+    playbook_code = decision.get("playbook_code")
+
+    summary_parts = [f"{layer.title()} approval={approved}."]
+    if isinstance(playbook_code, str) and playbook_code.strip():
+        summary_parts.append(f"Playbook {playbook_code.strip()}.")
+    if isinstance(reason, str) and reason.strip():
+        summary_parts.append(reason.strip())
+    return _shorten(" ".join(summary_parts), 280)

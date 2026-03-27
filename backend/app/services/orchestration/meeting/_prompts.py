@@ -16,6 +16,7 @@ from backend.app.services.orchestration.meeting._prompt_context import (
     build_lens_context,
     build_previous_decisions_context,
     build_project_context,
+    build_workflow_evidence_context,
     format_workspace_identity,
 )
 
@@ -351,6 +352,10 @@ class MeetingPromptsMixin:
         """Build previous meeting decisions context from DECISION_FINAL events."""
         return build_previous_decisions_context(self)
 
+    def _build_workflow_evidence_context(self) -> str:
+        """Build workflow evidence packet for prompt injection."""
+        return build_workflow_evidence_context(self)
+
     def _build_turn_prompt(
         self,
         role_id: str,
@@ -497,6 +502,14 @@ class MeetingPromptsMixin:
                 f"=== Previous Meeting Decisions ===\n"
                 f"{prev_ctx}\n"
                 f"=== End Previous Decisions ===\n\n"
+            )
+
+        workflow_evidence_ctx = getattr(self, "_workflow_evidence_context", "")
+        if workflow_evidence_ctx:
+            common += (
+                f"=== Workflow Evidence ===\n"
+                f"{workflow_evidence_ctx}\n"
+                f"=== End Workflow Evidence ===\n\n"
             )
 
         # Workspace context as reference (not system-level instruction)
