@@ -7,6 +7,7 @@ and Layer-C gap-refetch for null actuators.
 
 import asyncio
 import logging
+import time
 from typing import Any, List
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,15 @@ logger = logging.getLogger(__name__)
 
 class MeetingToolDiscoveryMixin:
     """Mixin providing progressive tool discovery for MeetingEngine."""
+
+    LAYER_C_TOOL_QUERY_TIMEOUT_S: float = 5.0
+    LAYER_C_TOOL_TOTAL_BUDGET_S: float = 8.0
+    LAYER_C_PLAYBOOK_QUERY_TIMEOUT_S: float = 5.0
+    LAYER_C_PLAYBOOK_TOTAL_BUDGET_S: float = 8.0
+
+    @staticmethod
+    def _layer_c_remaining_budget(deadline: float) -> float:
+        return max(0.0, deadline - time.monotonic())
 
     async def _ensure_agenda_decomposed(self, user_message: str) -> bool:
         """Layer 0c: decompose single-item agenda into sub-tasks.
@@ -100,17 +110,40 @@ class MeetingToolDiscoveryMixin:
 
             cache_ids = {t["tool_id"] for t in self._rag_tool_cache}
             enriched = 0
+            tool_deadline = (
+                time.monotonic() + self.LAYER_C_TOOL_TOTAL_BUDGET_S
+            )
             for item in null_actuator:
+                remaining = self._layer_c_remaining_budget(tool_deadline)
+                if remaining <= 0:
+                    logger.info(
+                        "Layer-C gap-fill budget exhausted for session %s "
+                        "after %d null-actuator items",
+                        self.session.id,
+                        len(null_actuator),
+                    )
+                    break
                 title = _get(item, "title") or ""
                 if not title:
                     continue
                 aug = self._verb_augment(title)
                 q = f"{title} {aug}".strip() if aug else title
-                hits = await retrieve_relevant_tools(
-                    q,
-                    top_k=3,
-                    workspace_id=self.session.workspace_id,
-                )
+                try:
+                    hits = await asyncio.wait_for(
+                        retrieve_relevant_tools(
+                            q,
+                            top_k=3,
+                            workspace_id=self.session.workspace_id,
+                        ),
+                        timeout=min(self.LAYER_C_TOOL_QUERY_TIMEOUT_S, remaining),
+                    )
+                except asyncio.TimeoutError:
+                    logger.info(
+                        "Layer-C gap-fill timed out for session %s title=%r",
+                        self.session.id,
+                        title[:80],
+                    )
+                    continue
                 for h in hits:
                     if h["tool_id"] not in cache_ids:
                         cache_ids.add(h["tool_id"])
@@ -154,7 +187,11 @@ class MeetingToolDiscoveryMixin:
 
         # ── Layer-C playbook gap-refetch ──────────────────────────────
         # Same pattern as tool gap-refetch but for playbook_code.
-        null_pb = [i for i in action_items if not _get(i, "playbook_code")]
+        null_pb = [
+            i
+            for i in action_items
+            if not _get(i, "playbook_code") and not _get(i, "tool_name")
+        ]
         if null_pb and has_tool_context:
             try:
                 from app.services.tool_embedding_service import (
@@ -165,13 +202,39 @@ class MeetingToolDiscoveryMixin:
                 pb_ids = {p.get("playbook_code") or p.get("tool_id") for p in pb_cache}
                 tes = ToolEmbeddingService()
                 pb_enriched = 0
+                pb_deadline = time.monotonic() + self.LAYER_C_PLAYBOOK_TOTAL_BUDGET_S
                 for item in null_pb:
+                    remaining = self._layer_c_remaining_budget(pb_deadline)
+                    if remaining <= 0:
+                        logger.info(
+                            "Layer-C playbook gap-fill budget exhausted for session %s "
+                            "after %d null-pb items",
+                            self.session.id,
+                            len(null_pb),
+                        )
+                        break
                     title = _get(item, "title") or ""
                     if not title:
                         continue
-                    pb_matches, _ = await tes.search_rrf(
-                        query=title, top_k=5, min_score=0.10
-                    )
+                    try:
+                        pb_matches, _ = await asyncio.wait_for(
+                            tes.search_rrf(
+                                query=title,
+                                top_k=5,
+                                min_score=0.10,
+                            ),
+                            timeout=min(
+                                self.LAYER_C_PLAYBOOK_QUERY_TIMEOUT_S,
+                                remaining,
+                            ),
+                        )
+                    except asyncio.TimeoutError:
+                        logger.info(
+                            "Layer-C playbook gap-fill timed out for session %s title=%r",
+                            self.session.id,
+                            title[:80],
+                        )
+                        continue
                     for m in pb_matches:
                         if m.category == "playbook" and m.tool_id not in pb_ids:
                             pb_ids.add(m.tool_id)

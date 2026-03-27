@@ -15,6 +15,7 @@ import os
 import asyncio
 import json
 import inspect
+from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
@@ -106,6 +107,12 @@ def _make_engine_stub(**overrides):
         return_value=overrides.get("retry_items", [])
     )
     return engine
+
+
+def _mock_tool_embedding_service(matches=None):
+    service = MagicMock()
+    service.search_rrf = AsyncMock(return_value=(matches or [], None))
+    return service
 
 
 # ---------------------------------------------------------------------------
@@ -447,9 +454,15 @@ class TestLayerCProduction:
             ]
         )
 
-        with patch(
-            "backend.app.services.tool_rag.retrieve_relevant_tools",
-            mock_hits,
+        with (
+            patch(
+                "backend.app.services.tool_rag.retrieve_relevant_tools",
+                mock_hits,
+            ),
+            patch(
+                "app.services.tool_embedding_service.ToolEmbeddingService",
+                return_value=_mock_tool_embedding_service(),
+            ),
         ):
             result = await engine._gap_refetch_for_null_actuators(items)
 
@@ -457,8 +470,7 @@ class TestLayerCProduction:
         assert len(engine._rag_tool_cache) == 2  # existing + t-new1
         # Result should be the improved retry list
         assert result[1]["tool_name"] == "content.gen"
-        # Current Layer-C retries both tool and playbook gap-fill passes
-        assert engine._build_action_items.await_count == 2
+        assert engine._build_action_items.await_count == 1
 
     @pytest.mark.asyncio
     async def test_skips_when_no_gaps(self):
@@ -513,9 +525,15 @@ class TestLayerCProduction:
 
         mock_hits = AsyncMock(return_value=[{"tool_id": "t-new"}])
 
-        with patch(
-            "backend.app.services.tool_rag.retrieve_relevant_tools",
-            mock_hits,
+        with (
+            patch(
+                "backend.app.services.tool_rag.retrieve_relevant_tools",
+                mock_hits,
+            ),
+            patch(
+                "app.services.tool_embedding_service.ToolEmbeddingService",
+                return_value=_mock_tool_embedding_service(),
+            ),
         ):
             result = await engine._gap_refetch_for_null_actuators(items)
 
@@ -541,9 +559,15 @@ class TestLayerCProduction:
             ]
         )
 
-        with patch(
-            "backend.app.services.tool_rag.retrieve_relevant_tools",
-            mock_hits,
+        with (
+            patch(
+                "backend.app.services.tool_rag.retrieve_relevant_tools",
+                mock_hits,
+            ),
+            patch(
+                "app.services.tool_embedding_service.ToolEmbeddingService",
+                return_value=_mock_tool_embedding_service(),
+            ),
         ):
             await engine._gap_refetch_for_null_actuators(items)
 
@@ -551,3 +575,103 @@ class TestLayerCProduction:
         assert cache_ids.count("t2") == 1  # not duplicated
         assert "t3" in cache_ids
         assert len(engine._rag_tool_cache) == 3
+
+    @pytest.mark.asyncio
+    async def test_timeout_keeps_original_without_retry(self):
+        """Layer-C timeout should not block the pipeline or force a retry."""
+        items = [
+            {
+                "title": "Draft partner brief",
+                "tool_name": None,
+                "playbook_code": None,
+            }
+        ]
+        engine = _make_engine_stub(
+            rag_cache=[{"tool_id": "t-existing"}],
+            has_bindings=True,
+            retry_items=[],
+        )
+        engine.LAYER_C_TOOL_QUERY_TIMEOUT_S = 0.01
+        engine.LAYER_C_TOOL_TOTAL_BUDGET_S = 0.02
+
+        async def _slow_hits(*args, **kwargs):
+            await asyncio.sleep(0.05)
+            return [{"tool_id": "t-late"}]
+
+        with (
+            patch(
+                "backend.app.services.tool_rag.retrieve_relevant_tools",
+                AsyncMock(side_effect=_slow_hits),
+            ) as mock_hits,
+            patch(
+                "app.services.tool_embedding_service.ToolEmbeddingService",
+                return_value=_mock_tool_embedding_service(),
+            ),
+        ):
+            result = await engine._gap_refetch_for_null_actuators(items)
+
+        assert result is items
+        assert mock_hits.await_count == 1
+        engine._build_action_items.assert_not_awaited()
+        assert engine._rag_tool_cache == [{"tool_id": "t-existing"}]
+
+    @pytest.mark.asyncio
+    async def test_playbook_gap_fill_skips_items_with_tool_binding(self):
+        """Playbook gap-fill should skip items that already have a tool binding."""
+        items = [
+            {
+                "title": "Fetch partner facts",
+                "tool_name": "frontier.fetch",
+                "playbook_code": None,
+            },
+            {
+                "title": "Save partner brief",
+                "tool_name": None,
+                "playbook_code": None,
+            },
+        ]
+        retry_items = [
+            {
+                "title": "Fetch partner facts",
+                "tool_name": "frontier.fetch",
+                "playbook_code": None,
+            },
+            {
+                "title": "Save partner brief",
+                "tool_name": None,
+                "playbook_code": "pb.write_markdown",
+            },
+        ]
+        engine = _make_engine_stub(
+            rag_cache=[{"tool_id": "t-existing"}],
+            has_bindings=True,
+            retry_items=retry_items,
+        )
+        embedding_service = _mock_tool_embedding_service(
+            [
+                SimpleNamespace(
+                    category="playbook",
+                    tool_id="pb.write_markdown",
+                    display_name="Write Markdown",
+                    description="Save markdown output",
+                )
+            ]
+        )
+
+        with (
+            patch(
+                "backend.app.services.tool_rag.retrieve_relevant_tools",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "app.services.tool_embedding_service.ToolEmbeddingService",
+                return_value=embedding_service,
+            ),
+        ):
+            result = await engine._gap_refetch_for_null_actuators(items)
+
+        assert result[1]["playbook_code"] == "pb.write_markdown"
+        embedding_service.search_rrf.assert_awaited_once()
+        _, kwargs = embedding_service.search_rrf.call_args
+        assert kwargs["query"] == "Save partner brief"
+        assert engine._build_action_items.await_count == 1
