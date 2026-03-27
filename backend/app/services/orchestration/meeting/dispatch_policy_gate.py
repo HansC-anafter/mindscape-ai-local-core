@@ -489,6 +489,13 @@ def _build_contract_payload(
             payload[gov_field] = item[gov_field]
 
     if request_contract:
+        source_message = request_contract.get("source_message")
+        if (
+            "user_request" not in payload
+            and isinstance(source_message, str)
+            and source_message.strip()
+        ):
+            payload["user_request"] = source_message.strip()
         if (
             "acceptance_tests" not in payload
             and request_contract.get("acceptance_tests") is not None

@@ -399,6 +399,7 @@ class TestCompileHappyPath:
         mock_engine = MagicMock()
         mock_engine.run = _fake_run
         mock_engine_cls.return_value = mock_engine
+        fake_execution_launcher = object()
 
         mock_ir_store = MagicMock()
         mock_ir_store.replace_task_ir.return_value = True
@@ -424,6 +425,12 @@ class TestCompileHappyPath:
         mod_pg_ir.PostgresTaskIRStore = mock_ir_store_cls
         mod_mindscape_store = types.ModuleType("backend.app.services.mindscape_store")
         mod_mindscape_store.MindscapeStore = MagicMock(return_value=MagicMock())
+        mod_pipeline_meeting = types.ModuleType(
+            "backend.app.services.conversation.pipeline_meeting"
+        )
+        mod_pipeline_meeting.build_execution_launcher = MagicMock(
+            return_value=fake_execution_launcher
+        )
 
         target_modules = {
             "backend.app.services.orchestration.meeting": mod_meeting,
@@ -431,6 +438,7 @@ class TestCompileHappyPath:
             "backend.app.models.meeting_session": mod_meeting_session,
             "backend.app.services.stores.postgres.task_ir_store": mod_pg_ir,
             "backend.app.services.mindscape_store": mod_mindscape_store,
+            "backend.app.services.conversation.pipeline_meeting": mod_pipeline_meeting,
         }
 
         saved = {k: sys.modules.get(k) for k in target_modules}
@@ -467,6 +475,7 @@ class TestCompileHappyPath:
         mock_engine_cls.assert_called_once()
         _, engine_kwargs = mock_engine_cls.call_args
         assert engine_kwargs["executor_runtime"] == "codex_cli"
+        assert engine_kwargs["execution_launcher"] is fake_execution_launcher
         assert engine_kwargs["execution_context"].executor_runtime_id == "codex_cli"
         assert engine_kwargs["execution_context"].route_kind == "meeting"
         # Call contract: session store queried, new session created

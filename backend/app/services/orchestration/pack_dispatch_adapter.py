@@ -143,6 +143,13 @@ class PackDispatchAdapter:
 
         request_contract = self._extract_request_contract(session)
         if request_contract:
+            source_message = request_contract.get("source_message")
+            if (
+                "user_request" not in inputs
+                and isinstance(source_message, str)
+                and source_message.strip()
+            ):
+                inputs["user_request"] = source_message.strip()
             if "acceptance_tests" not in inputs and request_contract.get("acceptance_tests") is not None:
                 inputs["acceptance_tests"] = request_contract["acceptance_tests"]
             if "governance_constraints" not in inputs and request_contract.get("constraints") is not None:

@@ -270,6 +270,9 @@ class HandoffBundleService:
         from backend.app.models.meeting_execution_context import (
             MeetingExecutionContext,
         )
+        from backend.app.services.conversation.pipeline_meeting import (
+            build_execution_launcher,
+        )
         from backend.app.services.orchestration.meeting import MeetingEngine
         from backend.app.services.stores.meeting_session_store import (
             MeetingSessionStore,
@@ -322,6 +325,9 @@ class HandoffBundleService:
 
         from backend.app.services.mindscape_store import MindscapeStore
 
+        store = MindscapeStore()
+        execution_launcher = build_execution_launcher(store)
+
         executor_runtime = getattr(workspace, "resolved_executor_runtime", None) or (
             getattr(workspace, "executor_runtime", None)
         )
@@ -333,12 +339,13 @@ class HandoffBundleService:
 
         engine = MeetingEngine(
             session=session,
-            store=MindscapeStore(),
+            store=store,
             workspace=workspace,
             runtime_profile=runtime_profile,
             profile_id=profile_id,
             thread_id=thread_id,
             project_id=project_id,
+            execution_launcher=execution_launcher,
             model_name=model_name,
             executor_runtime=executor_runtime,
             uploaded_files=None,  # Handoff bundles don't carry uploaded files
