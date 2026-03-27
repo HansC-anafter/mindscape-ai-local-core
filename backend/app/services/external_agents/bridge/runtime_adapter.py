@@ -104,6 +104,11 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
     # Default timeout for waiting for result from IDE (seconds)
     RESULT_TIMEOUT: float = 600.0
 
+    # Availability cache TTLs. Positive hits can be sticky; negative hits
+    # must expire quickly so reconnects are visible to retry loops.
+    WS_AVAILABLE_CACHE_TTL: float = 30.0
+    WS_UNAVAILABLE_CACHE_TTL: float = 1.0
+
     def __init__(
         self,
         strategy: str = "ws",
@@ -163,8 +168,15 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
             self._ws_avail_cache = {}  # Dict[Optional[str], Tuple[dict, float]]
 
         cached = self._ws_avail_cache.get(cache_key)
-        if cached and (now - cached[1]) < 30.0:
-            return cached[0]
+        if cached:
+            cached_detail, cached_at = cached
+            ttl = (
+                self.WS_AVAILABLE_CACHE_TTL
+                if cached_detail.get("available")
+                else self.WS_UNAVAILABLE_CACHE_TTL
+            )
+            if (now - cached_at) < ttl:
+                return cached_detail
 
         # Lazy-resolve ws_manager from global singleton
         self._resolve_ws_manager()
