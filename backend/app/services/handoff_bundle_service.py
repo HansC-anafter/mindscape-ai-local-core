@@ -267,6 +267,9 @@ class HandoffBundleService:
         Returns:
             Dict with task_ir_id, session_id, persisted status.
         """
+        from backend.app.models.meeting_execution_context import (
+            MeetingExecutionContext,
+        )
         from backend.app.services.orchestration.meeting import MeetingEngine
         from backend.app.services.stores.meeting_session_store import (
             MeetingSessionStore,
@@ -319,6 +322,15 @@ class HandoffBundleService:
 
         from backend.app.services.mindscape_store import MindscapeStore
 
+        executor_runtime = getattr(workspace, "resolved_executor_runtime", None) or (
+            getattr(workspace, "executor_runtime", None)
+        )
+        execution_context = MeetingExecutionContext.assemble(
+            workspace=workspace,
+            runtime_profile=runtime_profile,
+            route_decision=route_decision,
+        )
+
         engine = MeetingEngine(
             session=session,
             store=MindscapeStore(),
@@ -328,7 +340,9 @@ class HandoffBundleService:
             thread_id=thread_id,
             project_id=project_id,
             model_name=model_name,
+            executor_runtime=executor_runtime,
             uploaded_files=None,  # Handoff bundles don't carry uploaded files
+            execution_context=execution_context,
         )
 
         intake_message = (

@@ -437,9 +437,14 @@ class TestCompileHappyPath:
         sys.modules.update(target_modules)
         try:
             svc = HandoffBundleService()
+            workspace = MagicMock(
+                id="ws_001",
+                executor_runtime="codex_cli",
+                resolved_executor_runtime="codex_cli",
+            )
             result = await svc.intake_and_compile(
                 bundle=bundle,
-                workspace=MagicMock(id="ws_001"),
+                workspace=workspace,
                 runtime_profile=None,
                 profile_id="test-user",
                 thread_id="t1",
@@ -460,6 +465,10 @@ class TestCompileHappyPath:
 
         # Call contract: MeetingEngine constructed and run() called
         mock_engine_cls.assert_called_once()
+        _, engine_kwargs = mock_engine_cls.call_args
+        assert engine_kwargs["executor_runtime"] == "codex_cli"
+        assert engine_kwargs["execution_context"].executor_runtime_id == "codex_cli"
+        assert engine_kwargs["execution_context"].route_kind == "meeting"
         # Call contract: session store queried, new session created
         mock_session_store.get_active_session.assert_called_once()
         mock_session_store.create.assert_called_once_with(fake_session)
