@@ -20,8 +20,6 @@ function ThemePresetSync({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Apply theme preset when theme changes
     // Use requestAnimationFrame to ensure DOM has been updated by next-themes
-    console.log('[Theme Provider] Theme changed to:', resolvedTheme)
-
     if (resolvedTheme) {
       // Use requestAnimationFrame to ensure next-themes has updated the DOM
       requestAnimationFrame(() => {
@@ -43,11 +41,9 @@ function ThemePresetSync({ children }: { children: React.ReactNode }) {
     const initializePreset = () => {
       requestAnimationFrame(() => {
         if (resolvedTheme) {
-          console.log('[Theme Provider] Initializing theme preset with resolved theme:', resolvedTheme)
           applyThemePreset(resolvedTheme as 'light' | 'dark')
         } else {
           // Fallback: if resolvedTheme not available yet, use DOM detection
-          console.log('[Theme Provider] Initializing theme preset (fallback to DOM detection)')
           applyThemePreset()
         }
       })
@@ -59,7 +55,6 @@ function ThemePresetSync({ children }: { children: React.ReactNode }) {
     // Listen for storage changes (when preset changes in another tab)
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'theme-preset') {
-        console.log('[Theme Provider] Storage changed, applying preset')
         if (resolvedTheme) {
           applyThemePreset(resolvedTheme as 'light' | 'dark')
         } else {
@@ -70,7 +65,6 @@ function ThemePresetSync({ children }: { children: React.ReactNode }) {
 
     // Listen for custom event (when preset changes in current tab)
     const handlePresetChange = () => {
-      console.log('[Theme Provider] Theme preset changed event received')
       if (resolvedTheme) {
         applyThemePreset(resolvedTheme as 'light' | 'dark')
       } else {
@@ -90,4 +84,3 @@ function ThemePresetSync({ children }: { children: React.ReactNode }) {
 
   return <>{children}</>
 }
-

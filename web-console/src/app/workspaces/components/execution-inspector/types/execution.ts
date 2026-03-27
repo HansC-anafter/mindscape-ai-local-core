@@ -224,6 +224,9 @@ export interface VisualAcceptanceBundleContent {
   scene_id?: string;
   source_kind?: string;
   status?: string;
+  render_status?: string;
+  renderer?: string;
+  owning_capability_code?: string | null;
   package_id?: string | null;
   preset_id?: string | null;
   artifact_ids?: string[];
@@ -231,6 +234,10 @@ export interface VisualAcceptanceBundleContent {
   slots?: VisualAcceptanceSlotView[];
   checklist_template?: ReviewChecklistItemView[];
   latest_review_decision?: ReviewDecisionView | null;
+  scene_context?: {
+    object_workload_snapshot?: Record<string, any> | null;
+    scene_manifest?: Record<string, any> | null;
+  } | null;
   object_workload_snapshot?: Record<string, any> | null;
 }
 

@@ -18,6 +18,10 @@ export interface ScenePatchSummary {
   sourceSceneId: string;
   objectAssetCount: number;
   usageBindingCount: number;
+  impactRegionMode?: string;
+  qualityGateState?: string;
+  affectedObjectCount?: number;
+  impactRegionBBoxLabel?: string;
 }
 
 export interface ScenePatchStatusMessage {
@@ -180,6 +184,11 @@ export function buildScenePatchSummary(
   fallbackSceneId: string,
 ): ScenePatchSummary | null {
   if (!patch) return null;
+  const workloadSnapshot = patch.object_workload_snapshot || null;
+  const impactRegionBBox = workloadSnapshot?.impact_region_bbox;
+  const impactRegionBBoxLabel = impactRegionBBox
+    ? `x=${impactRegionBBox.x ?? 0}, y=${impactRegionBBox.y ?? 0}, w=${impactRegionBBox.width ?? 0}, h=${impactRegionBBox.height ?? 0}`
+    : undefined;
   return {
     sourceSceneId: patch.source_scene_id || fallbackSceneId || '-',
     objectAssetCount: Array.isArray(patch.object_assets) ? patch.object_assets.length : 0,
@@ -188,6 +197,12 @@ export function buildScenePatchSummary(
       : Array.isArray(patch.object_reuse_plan?.usage_scene_ids)
         ? patch.object_reuse_plan.usage_scene_ids.length
         : 0,
+    impactRegionMode: workloadSnapshot?.impact_region_mode,
+    qualityGateState: workloadSnapshot?.quality_gate_state,
+    affectedObjectCount: Array.isArray(workloadSnapshot?.affected_object_instance_ids)
+      ? workloadSnapshot.affected_object_instance_ids.length
+      : 0,
+    impactRegionBBoxLabel,
   };
 }
 
@@ -238,6 +253,18 @@ export function ScenePatchConsole({
               <span className={styles.chip}>來源場景：{summary.sourceSceneId}</span>
               <span className={styles.chip}>物件資產：{summary.objectAssetCount}</span>
               <span className={styles.chip}>場景綁定：{summary.usageBindingCount}</span>
+              {summary.impactRegionMode ? (
+                <span className={styles.chip}>影響區：{summary.impactRegionMode}</span>
+              ) : null}
+              {summary.qualityGateState ? (
+                <span className={styles.chip}>Gate：{summary.qualityGateState}</span>
+              ) : null}
+              {summary.affectedObjectCount ? (
+                <span className={styles.chip}>關聯物件：{summary.affectedObjectCount}</span>
+              ) : null}
+              {summary.impactRegionBBoxLabel ? (
+                <span className={styles.chip}>BBox：{summary.impactRegionBBoxLabel}</span>
+              ) : null}
             </>
           ) : (
             <span className={styles.chipEmpty}>

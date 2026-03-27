@@ -40,11 +40,5 @@ export function convertImportPathToContextKey(importPath: string): string | null
     }
   }
 
-  if (process.env.NODE_ENV === 'development') {
-    console.info(
-      `[capability-path] import_path="${importPath}" contextKey="${contextKey}"`
-    );
-  }
-
   return contextKey;
 }

@@ -16,7 +16,38 @@ import { getStepStatusColor, getEffectiveStepStatus } from './utils/execution-in
 import { loadCapabilityUIComponent, artifactsMatchComponent } from '@/lib/capability-ui-loader';
 import { parseServerTimestamp } from '@/lib/time';
 import { GovernedMemoryPreview } from '@/components/workspace/governance/GovernedMemoryPreview';
-import ArtifactReviewPane from './ArtifactReviewPane';
+
+function buildCapabilityWorkbenchHref({
+  workspaceId,
+  capabilityCode,
+  artifactId,
+  runId,
+  sceneId,
+}: {
+  workspaceId?: string;
+  capabilityCode?: string | null;
+  artifactId?: string;
+  runId?: string;
+  sceneId?: string;
+}): string | null {
+  const normalizedWorkspaceId = String(workspaceId || '').trim();
+  const normalizedCapabilityCode = String(capabilityCode || '').trim();
+  if (!normalizedWorkspaceId || !normalizedCapabilityCode) {
+    return null;
+  }
+  const params = new URLSearchParams();
+  if (artifactId) {
+    params.set('artifact_id', artifactId);
+  }
+  if (runId) {
+    params.set('run_id', runId);
+  }
+  if (sceneId) {
+    params.set('scene_id', sceneId);
+  }
+  const query = params.toString();
+  return `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/capabilities/${encodeURIComponent(normalizedCapabilityCode)}${query ? `?${query}` : ''}`;
+}
 
 export interface StepDetailPanelProps {
   steps: ExecutionStep[];
@@ -530,12 +561,83 @@ export default function StepDetailPanel({
               })}
             </div>
 
-            <ArtifactReviewPane
-              artifact={selectedReviewBundle}
-              workspaceId={workspaceId}
-              apiUrl={apiUrl}
-              onArtifactUpdated={onReviewBundleArtifactUpdated}
-            />
+            {selectedReviewBundle ? (
+              <div className="rounded border border-default bg-surface-accent p-4 dark:border-gray-700 dark:bg-gray-800">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {selectedReviewBundle.content?.scene_id || selectedReviewBundle.name || selectedReviewBundle.id}
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      artifact={selectedReviewBundle.id} / bundle={selectedReviewBundle.content?.review_bundle_id || '-'}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(() => {
+                      const href = buildCapabilityWorkbenchHref({
+                        workspaceId,
+                        capabilityCode: selectedReviewBundle.content?.owning_capability_code,
+                        artifactId: selectedReviewBundle.id,
+                        runId: selectedReviewBundle.content?.run_id,
+                        sceneId: selectedReviewBundle.content?.scene_id,
+                      });
+                      if (!href) {
+                        return null;
+                      }
+                      return (
+                        <a
+                          href={href}
+                          className="rounded border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition hover:border-blue-400 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/20 dark:text-blue-200"
+                        >
+                          Open Pack Workbench
+                        </a>
+                      );
+                    })()}
+                    {workspaceId ? (
+                      <a
+                        href={`${apiUrl}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(selectedReviewBundle.id)}/file`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded border border-default bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+                      >
+                        Open Manifest
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded border border-default bg-white px-3 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+                    <div className="font-medium text-gray-900 dark:text-gray-100">State</div>
+                    <div className="mt-2">review={selectedReviewBundle.content?.latest_review_decision?.decision || selectedReviewBundle.content?.status || '-'}</div>
+                    <div className="mt-1">source={selectedReviewBundle.content?.source_kind || '-'}</div>
+                  </div>
+                  <div className="rounded border border-default bg-white px-3 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+                    <div className="font-medium text-gray-900 dark:text-gray-100">Lineage</div>
+                    <div className="mt-2">package={selectedReviewBundle.content?.package_id || '-'}</div>
+                    <div className="mt-1">preset={selectedReviewBundle.content?.preset_id || '-'}</div>
+                  </div>
+                  <div className="rounded border border-default bg-white px-3 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+                    <div className="font-medium text-gray-900 dark:text-gray-100">Owner</div>
+                    <div className="mt-2">{selectedReviewBundle.content?.owning_capability_code || '-'}</div>
+                    <div className="mt-1">run={selectedReviewBundle.content?.run_id || '-'}</div>
+                  </div>
+                  <div className="rounded border border-default bg-white px-3 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+                    <div className="font-medium text-gray-900 dark:text-gray-100">Workload</div>
+                    <div className="mt-2">
+                      impact={String(selectedReviewBundle.content?.scene_context?.object_workload_snapshot?.impact_region_mode || '-')}
+                    </div>
+                    <div className="mt-1">
+                      gate={String(selectedReviewBundle.content?.scene_context?.object_workload_snapshot?.quality_gate_state || '-')}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+                  Detailed compare, checklist, and decision workflow now live in the capability-owned workbench. Execution Inspector stays as a fallback bundle viewer and launcher.
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

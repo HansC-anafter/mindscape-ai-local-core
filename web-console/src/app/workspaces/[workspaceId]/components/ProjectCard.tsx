@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Project } from '@/types/project';
 import { parseServerTimestamp } from '@/lib/time';
-import { subscribeEventStream } from '@/components/workspace/eventProjector';
+import { subscribeEventStream, UnifiedEvent } from '@/components/workspace/eventProjector';
+import { WorkflowEvidenceSummary } from '@/components/workspace/meeting/WorkflowEvidenceSummary';
 
 interface ProjectCardData {
   projectId: string;
@@ -142,14 +143,26 @@ export default function ProjectCard({
   const [loading, setLoading] = useState(false);
   const [meetingUpdating, setMeetingUpdating] = useState(false);
   const [isHighlighted, setIsHighlighted] = useState(false);
+  const [workflowEvidenceProfile, setWorkflowEvidenceProfile] = useState<string | null>(null);
+  const [workflowEvidenceScope, setWorkflowEvidenceScope] = useState<string | null>(null);
+  const [workflowEvidenceSelectedLines, setWorkflowEvidenceSelectedLines] = useState<number | null>(null);
+  const [workflowEvidenceTotalBudget, setWorkflowEvidenceTotalBudget] = useState<number | null>(null);
+  const [workflowEvidenceTotalCandidates, setWorkflowEvidenceTotalCandidates] = useState<number | null>(null);
+  const [workflowEvidenceTotalDropped, setWorkflowEvidenceTotalDropped] = useState<number | null>(null);
+  const [workflowEvidenceRenderedSections, setWorkflowEvidenceRenderedSections] = useState<number | null>(null);
+  const [workflowEvidenceUtilizationRatio, setWorkflowEvidenceUtilizationRatio] = useState<number | null>(null);
   const loadingRef = useRef(false);
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const isExpanded = controlledExpanded !== undefined ? controlledExpanded : internalExpanded;
-  const handleToggleExpand = onToggleExpand || (() => {
+  const handleToggleExpand = useCallback(() => {
+    if (onToggleExpand) {
+      onToggleExpand();
+      return;
+    }
     console.log('[ProjectCard] Toggle expand:', { before: internalExpanded, projectId: project.id });
     setInternalExpanded(!internalExpanded);
-  });
+  }, [internalExpanded, onToggleExpand, project.id]);
 
   // Debug: Log expansion state
   useEffect(() => {
@@ -277,7 +290,29 @@ export default function ProjectCard({
       apiUrl,
       eventTypes: ['meeting_round', 'meeting_start', 'meeting_end', 'decision_proposal', 'decision_final'],
       projectId: project.id,
-      onEvent: () => {
+      onEvent: (event: UnifiedEvent) => {
+        if (event.type === 'meeting_start') {
+          setWorkflowEvidenceProfile(event.payload.workflow_evidence_profile || null);
+          setWorkflowEvidenceScope(event.payload.workflow_evidence_scope || null);
+          setWorkflowEvidenceSelectedLines(
+            event.payload.workflow_evidence_selected_line_count ?? null
+          );
+          setWorkflowEvidenceTotalBudget(
+            event.payload.workflow_evidence_total_line_budget ?? null
+          );
+          setWorkflowEvidenceTotalCandidates(
+            event.payload.workflow_evidence_total_candidate_count ?? null
+          );
+          setWorkflowEvidenceTotalDropped(
+            event.payload.workflow_evidence_total_dropped_count ?? null
+          );
+          setWorkflowEvidenceRenderedSections(
+            event.payload.workflow_evidence_rendered_section_count ?? null
+          );
+          setWorkflowEvidenceUtilizationRatio(
+            event.payload.workflow_evidence_budget_utilization_ratio ?? null
+          );
+        }
         // Re-fetch card data when any meeting event arrives
         const url = `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/projects/${project.id}/card`;
         fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'include' })
@@ -289,6 +324,72 @@ export default function ProjectCard({
 
     return unsubscribe;
   }, [cardData?.meeting?.enabled, project.metadata?.meeting_enabled, apiUrl, effectiveWorkspaceId, project.id]);
+
+  useEffect(() => {
+    const sessionId = cardData?.meeting?.session_id;
+    if (!sessionId || apiUrl == null || !effectiveWorkspaceId) {
+      setWorkflowEvidenceProfile(null);
+      setWorkflowEvidenceScope(null);
+      setWorkflowEvidenceSelectedLines(null);
+      setWorkflowEvidenceTotalBudget(null);
+      setWorkflowEvidenceTotalCandidates(null);
+      setWorkflowEvidenceTotalDropped(null);
+      setWorkflowEvidenceRenderedSections(null);
+      setWorkflowEvidenceUtilizationRatio(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadMeetingDiagnostics = async () => {
+      try {
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/meeting-sessions/${sessionId}`,
+          {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+            credentials: 'include',
+          }
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to load meeting session: ${response.status}`);
+        }
+        const session = await response.json();
+        const diagnostics = session?.metadata?.workflow_evidence_diagnostics || {};
+        if (cancelled) {
+          return;
+        }
+        setWorkflowEvidenceProfile(diagnostics.profile || null);
+        setWorkflowEvidenceScope(diagnostics.scope || null);
+        setWorkflowEvidenceSelectedLines(diagnostics.selected_line_count ?? null);
+        setWorkflowEvidenceTotalBudget(diagnostics.total_line_budget ?? null);
+        setWorkflowEvidenceTotalCandidates(diagnostics.total_candidate_count ?? null);
+        setWorkflowEvidenceTotalDropped(diagnostics.total_dropped_count ?? null);
+        setWorkflowEvidenceRenderedSections(diagnostics.rendered_section_count ?? null);
+        setWorkflowEvidenceUtilizationRatio(
+          diagnostics.budget_utilization_ratio ?? null
+        );
+      } catch (err) {
+        console.error('[ProjectCard] Failed to load meeting diagnostics:', err);
+        if (!cancelled) {
+          setWorkflowEvidenceProfile(null);
+          setWorkflowEvidenceScope(null);
+          setWorkflowEvidenceSelectedLines(null);
+          setWorkflowEvidenceTotalBudget(null);
+          setWorkflowEvidenceTotalCandidates(null);
+          setWorkflowEvidenceTotalDropped(null);
+          setWorkflowEvidenceRenderedSections(null);
+          setWorkflowEvidenceUtilizationRatio(null);
+        }
+      }
+    };
+
+    void loadMeetingDiagnostics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, cardData?.meeting?.session_id, effectiveWorkspaceId]);
 
   const meetingEnabled = Boolean(
     cardData?.meeting?.enabled ?? project.metadata?.meeting_enabled
@@ -623,6 +724,26 @@ export default function ProjectCard({
                     <div className="text-[10px] text-secondary dark:text-gray-400">
                       Round {cardData.meeting?.round_count || 0}/{cardData.meeting?.max_rounds || 5} · Action Items {cardData.meeting?.action_item_count || 0}
                     </div>
+                    {workflowEvidenceProfile && (
+                      <WorkflowEvidenceSummary
+                        label="Workflow Evidence"
+                        profile={workflowEvidenceProfile}
+                        scope={workflowEvidenceScope}
+                        selectedLineCount={workflowEvidenceSelectedLines}
+                        totalLineBudget={workflowEvidenceTotalBudget}
+                        totalCandidateCount={workflowEvidenceTotalCandidates}
+                        totalDroppedCount={workflowEvidenceTotalDropped}
+                        renderedSectionCount={workflowEvidenceRenderedSections}
+                        budgetUtilizationRatio={workflowEvidenceUtilizationRatio}
+                        href={`/workspaces/${effectiveWorkspaceId}/meetings?${new URLSearchParams(
+                          cardData.meeting?.session_id
+                            ? { project_id: project.id, session_id: cardData.meeting.session_id }
+                            : { project_id: project.id }
+                        ).toString()}`}
+                        compact
+                        className="mt-1"
+                      />
+                    )}
                     <div className="text-[10px] text-secondary dark:text-gray-400 line-clamp-2">
                       {cardData.meeting?.minutes_preview?.trim() || 'No meeting summary yet'}
                     </div>
