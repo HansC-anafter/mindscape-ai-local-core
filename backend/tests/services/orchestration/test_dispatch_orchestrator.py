@@ -332,6 +332,51 @@ class TestPhaseAttemptTracking:
         assert attempt.task_ir_id == "ir-99"
 
 
+class TestExecutionLineage:
+    """Execution lineage is written back to the matched action item."""
+
+    @pytest.mark.asyncio
+    async def test_tool_dispatch_matches_by_intent_id_and_writes_lineage(
+        self, monkeypatch
+    ):
+        orch = DispatchOrchestrator(session=FakeSession(), profile_id="user-1")
+        phase = FakePhaseIR(
+            id="intent-123",
+            name="Compile Execution Plan",
+            tool_name="tools.execute_plan",
+        )
+        action_item = {
+            "title": "Human-facing title that does not match the phase name",
+            "intent_id": "intent-123",
+        }
+
+        monkeypatch.setattr(
+            orch,
+            "_dispatch_tool",
+            AsyncMock(
+                return_value={
+                    "task_id": "task-123",
+                    "execution_id": "task-123",
+                    "tool_name": "tools.execute_plan",
+                }
+            ),
+        )
+
+        result = await orch.execute(
+            task_ir=FakeTaskIR(phases=[phase]),
+            action_items=[action_item],
+        )
+
+        assert result["status"] == "ok"
+        assert result["succeeded"] == 1
+        assert action_item["landing_status"] == "task_created"
+        assert action_item["task_id"] == "task-123"
+        assert action_item["execution_id"] == "task-123"
+        attempt = orch.get_attempt("intent-123")
+        assert attempt is not None
+        assert attempt.result["execution_id"] == "task-123"
+
+
 class TestPlaybookCodeExtraction:
     """Engine string → playbook code."""
 

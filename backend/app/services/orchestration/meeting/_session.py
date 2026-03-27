@@ -308,6 +308,62 @@ class MeetingSessionMixin:
         }
 
     @staticmethod
+    def _normalize_lineage_value(value: Any) -> Optional[str]:
+        normalized = str(value or "").strip()
+        return normalized or None
+
+    @classmethod
+    def _stitch_action_item_execution_lineage(
+        cls,
+        *,
+        action_items: List[Dict[str, Any]],
+        dispatch_result: Optional[Dict[str, Any]],
+    ) -> None:
+        if not action_items or not isinstance(dispatch_result, dict):
+            return
+
+        attempts = dispatch_result.get("attempts")
+        if not isinstance(attempts, dict) or not attempts:
+            return
+
+        items_by_intent_id: Dict[str, Dict[str, Any]] = {}
+        for item in action_items:
+            if not isinstance(item, dict):
+                continue
+            intent_id = cls._normalize_lineage_value(item.get("intent_id"))
+            if intent_id and intent_id not in items_by_intent_id:
+                items_by_intent_id[intent_id] = item
+
+        for phase_id, attempt in attempts.items():
+            normalized_phase_id = cls._normalize_lineage_value(phase_id)
+            if not normalized_phase_id:
+                continue
+            item = items_by_intent_id.get(normalized_phase_id)
+            if item is None or not isinstance(attempt, dict):
+                continue
+
+            adapter_meta = attempt.get("adapter_meta")
+            result = attempt.get("result")
+            if not isinstance(adapter_meta, dict):
+                adapter_meta = {}
+            if not isinstance(result, dict):
+                result = {}
+
+            execution_id = (
+                cls._normalize_lineage_value(adapter_meta.get("execution_id"))
+                or cls._normalize_lineage_value(result.get("execution_id"))
+                or cls._normalize_lineage_value(result.get("task_id"))
+            )
+            task_id = cls._normalize_lineage_value(result.get("task_id"))
+
+            if execution_id and not cls._normalize_lineage_value(
+                item.get("execution_id")
+            ):
+                item["execution_id"] = execution_id
+            if task_id and not cls._normalize_lineage_value(item.get("task_id")):
+                item["task_id"] = task_id
+
+    @staticmethod
     def _resolve_locale(workspace) -> str:
         """Resolve locale with fallback chain.
 
@@ -431,6 +487,10 @@ class MeetingSessionMixin:
         dispatch_result: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Close the session with final state snapshot and minutes."""
+        self._stitch_action_item_execution_lineage(
+            action_items=action_items,
+            dispatch_result=dispatch_result,
+        )
         self.session.begin_closing()
         self.session.minutes_md = minutes_md
         self.session.action_items = action_items

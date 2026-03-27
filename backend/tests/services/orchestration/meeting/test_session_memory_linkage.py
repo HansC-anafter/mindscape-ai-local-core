@@ -202,3 +202,82 @@ def test_start_session_records_workflow_evidence_diagnostics():
         engine.emitted_events[0]["payload"]["workflow_evidence_budget_utilization_ratio"]
         == 0.556
     )
+
+
+def test_close_session_stitches_execution_lineage_into_action_items(monkeypatch):
+    import backend.app.services.memory.writeback.meeting_memory_writeback_orchestrator as writeback_module
+
+    monkeypatch.setattr(
+        writeback_module,
+        "MeetingMemoryWritebackOrchestrator",
+        _FakeWritebackOrchestrator,
+    )
+
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        agenda=["Close the execution lineage loop"],
+    )
+    session.start()
+    engine = _FakeEngine(session=session)
+
+    engine._close_session(
+        minutes_md="Execution lineage should be persisted before decision extraction.",
+        action_items=[{"title": "Finalize artifact", "intent_id": "intent-1"}],
+        dispatch_result={
+            "status": "ok",
+            "attempts": {
+                "intent-1": {
+                    "adapter_meta": {"execution_id": "exec-123"},
+                    "result": {"task_id": "task-123"},
+                }
+            },
+        },
+    )
+
+    assert session.action_items[0]["execution_id"] == "exec-123"
+    assert session.action_items[0]["task_id"] == "task-123"
+    assert engine.session_store.saved_decisions is not None
+    decision = engine.session_store.saved_decisions[0]
+    assert decision.source_action_item["execution_id"] == "exec-123"
+    assert decision.source_action_item["task_id"] == "task-123"
+
+
+def test_close_session_falls_back_to_task_id_when_execution_id_missing(monkeypatch):
+    import backend.app.services.memory.writeback.meeting_memory_writeback_orchestrator as writeback_module
+
+    monkeypatch.setattr(
+        writeback_module,
+        "MeetingMemoryWritebackOrchestrator",
+        _FakeWritebackOrchestrator,
+    )
+
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        agenda=["Use task id as execution lineage fallback"],
+    )
+    session.start()
+    engine = _FakeEngine(session=session)
+
+    engine._close_session(
+        minutes_md="Execution lineage should fall back to task id when needed.",
+        action_items=[{"title": "Run tool", "intent_id": "intent-2"}],
+        dispatch_result={
+            "status": "ok",
+            "attempts": {
+                "intent-2": {
+                    "adapter_meta": {},
+                    "result": {"task_id": "task-456"},
+                }
+            },
+        },
+    )
+
+    assert session.action_items[0]["execution_id"] == "task-456"
+    assert session.action_items[0]["task_id"] == "task-456"
+    assert engine.session_store.saved_decisions is not None
+    decision = engine.session_store.saved_decisions[0]
+    assert decision.source_action_item["execution_id"] == "task-456"

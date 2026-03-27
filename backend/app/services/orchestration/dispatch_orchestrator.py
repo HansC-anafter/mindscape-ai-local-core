@@ -139,12 +139,9 @@ class DispatchOrchestrator:
         skipped_phases: Set[str] = set()
         workspaces: Set[str] = set()
 
-        # Build action_items lookup by title for projection
-        items_by_title: Dict[str, Dict[str, Any]] = {}
-        for item in action_items:
-            title = item.get("title", "")
-            if title:
-                items_by_title[title] = item
+        items_by_intent_id, items_by_title = self._build_action_item_lookups(
+            action_items
+        )
 
         # Wave-based DAG walk
         while ready:
@@ -152,7 +149,11 @@ class DispatchOrchestrator:
             dispatch_tasks = []
             for pid in ready:
                 phase = phase_map[pid]
-                item = items_by_title.get(phase.name, {})
+                item = self._resolve_action_item_for_phase(
+                    phase=phase,
+                    items_by_intent_id=items_by_intent_id,
+                    items_by_title=items_by_title,
+                )
                 dispatch_tasks.append(
                     self._dispatch_phase(phase, item, task_ir.task_id)
                 )
@@ -436,6 +437,9 @@ class DispatchOrchestrator:
                     ir_provenance=ir_provenance,
                 )
                 attempt.mark_completed(result)
+                execution_id = self._resolve_execution_id_from_result(result)
+                if execution_id:
+                    action_item["execution_id"] = execution_id
                 action_item["landing_status"] = "launched"
                 await self._publish_activity(
                     "task_dispatched",
@@ -445,11 +449,7 @@ class DispatchOrchestrator:
                         "engine": engine,
                         "playbook_code": playbook_code,
                         "workspace_id": target_ws,
-                        "execution_id": (
-                            result.get("execution_id")
-                            if isinstance(result, dict)
-                            else None
-                        ),
+                        "execution_id": execution_id,
                     },
                 )
                 return {
@@ -467,6 +467,16 @@ class DispatchOrchestrator:
                     ir_provenance=ir_provenance,
                 )
                 attempt.mark_completed(result)
+                task_id = (
+                    str(result.get("task_id", "")).strip()
+                    if isinstance(result, dict)
+                    else ""
+                )
+                execution_id = self._resolve_execution_id_from_result(result)
+                if task_id:
+                    action_item["task_id"] = task_id
+                if execution_id:
+                    action_item["execution_id"] = execution_id
                 action_item["landing_status"] = "task_created"
                 await self._publish_activity(
                     "task_dispatched",
@@ -476,6 +486,8 @@ class DispatchOrchestrator:
                         "engine": engine,
                         "tool_name": phase.tool_name,
                         "workspace_id": target_ws,
+                        "task_id": task_id or None,
+                        "execution_id": execution_id,
                     },
                 )
                 return {
@@ -696,10 +708,19 @@ class DispatchOrchestrator:
         if self.tasks_store:
             try:
                 self.tasks_store.create_task(task)
-                return {"task_id": task.id, "tool_name": phase.tool_name}
+                return {
+                    "task_id": task.id,
+                    "execution_id": task.id,
+                    "tool_name": phase.tool_name,
+                }
             except Exception:
                 raise
-        return {"task_id": None, "tool_name": phase.tool_name, "dry_run": True}
+        return {
+            "task_id": None,
+            "execution_id": None,
+            "tool_name": phase.tool_name,
+            "dry_run": True,
+        }
 
     def _project_to_task(
         self,
@@ -801,6 +822,51 @@ class DispatchOrchestrator:
             action_items=action_items,
             session=self.session,
         )
+
+    @staticmethod
+    def _build_action_item_lookups(
+        action_items: List[Dict[str, Any]],
+    ) -> tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+        items_by_intent_id: Dict[str, Dict[str, Any]] = {}
+        items_by_title: Dict[str, Dict[str, Any]] = {}
+        for item in action_items:
+            if not isinstance(item, dict):
+                continue
+            intent_id = str(item.get("intent_id") or "").strip()
+            if intent_id and intent_id not in items_by_intent_id:
+                items_by_intent_id[intent_id] = item
+            title = str(item.get("title") or "").strip()
+            if title and title not in items_by_title:
+                items_by_title[title] = item
+        return items_by_intent_id, items_by_title
+
+    @staticmethod
+    def _resolve_action_item_for_phase(
+        *,
+        phase: PhaseIR,
+        items_by_intent_id: Dict[str, Dict[str, Any]],
+        items_by_title: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        phase_id = str(getattr(phase, "id", "") or "").strip()
+        if phase_id and phase_id in items_by_intent_id:
+            return items_by_intent_id[phase_id]
+        phase_name = str(getattr(phase, "name", "") or "").strip()
+        if phase_name and phase_name in items_by_title:
+            return items_by_title[phase_name]
+        return {}
+
+    @staticmethod
+    def _resolve_execution_id_from_result(result: Dict[str, Any] | None) -> Optional[str]:
+        if not isinstance(result, dict):
+            return None
+        for candidate in (
+            result.get("execution_id"),
+            result.get("task_id"),
+        ):
+            normalized = str(candidate or "").strip()
+            if normalized:
+                return normalized
+        return None
 
     def _derive_research_context(
         self,
