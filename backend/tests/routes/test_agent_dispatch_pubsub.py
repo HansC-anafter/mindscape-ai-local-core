@@ -244,3 +244,39 @@ async def test_local_ack_timeout_evicts_stale_client_and_retries_shared_transpor
     assert result["output"] == "shared-transport-retry"
     assert manager.get_client("ws-1", "codex-client", surface_type="codex_cli") is None
     assert manager._pending_queue["ws-1"] == []
+
+
+def test_stale_disconnect_does_not_evict_reconnected_client():
+    manager = AgentDispatchManager()
+    unregister_calls = []
+    manager._db_unregister_connection = lambda client_id: unregister_calls.append(
+        client_id
+    )
+
+    old_client = AgentClient(
+        websocket=_FakeWebSocket(),
+        client_id="codex-client",
+        workspace_id="ws-1",
+        surface_type="codex_cli",
+        authenticated=True,
+    )
+    new_client = AgentClient(
+        websocket=_FakeWebSocket(),
+        client_id="codex-client",
+        workspace_id="ws-1",
+        surface_type="codex_cli",
+        authenticated=True,
+    )
+
+    manager._clients["ws-1"]["codex-client"] = old_client
+    manager.disconnect(old_client)
+    assert unregister_calls == ["codex-client"]
+
+    manager._clients["ws-1"]["codex-client"] = new_client
+    manager.disconnect(old_client)
+
+    assert (
+        manager.get_client("ws-1", "codex-client", surface_type="codex_cli")
+        is new_client
+    )
+    assert unregister_calls == ["codex-client"]

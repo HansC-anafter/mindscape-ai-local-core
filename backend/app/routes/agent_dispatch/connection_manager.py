@@ -189,6 +189,16 @@ class ConnectionMixin:
         ws_id = client.workspace_id
         cid = client.client_id
 
+        current = self._clients.get(ws_id, {}).get(cid)
+        if current is not None and current is not client:
+            logger.info(
+                "[AgentWS] Ignoring stale disconnect for client %s in workspace %s; "
+                "a newer connection with the same client_id is active",
+                cid,
+                ws_id,
+            )
+            return
+
         if ws_id in self._clients:
             self._clients[ws_id].pop(cid, None)
             if not self._clients[ws_id]:
