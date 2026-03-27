@@ -210,13 +210,18 @@ class DispatchOrchestrator:
                                 phase_map[dep_pid], task_ir.task_id
                             )
                             attempt.mark_skipped("upstream_dependency_failed")
+                            skipped_item = self._resolve_action_item_for_phase(
+                                phase=phase_map[dep_pid],
+                                action_items=action_items,
+                                items_by_intent_id=items_by_intent_id,
+                                items_by_title=items_by_title,
+                            )
+                            self._append_action_item_lineage(
+                                action_item=skipped_item,
+                                phase=phase_map[dep_pid],
+                            )
                             self._mark_action_item_skipped(
-                                action_item=self._resolve_action_item_for_phase(
-                                    phase=phase_map[dep_pid],
-                                    action_items=action_items,
-                                    items_by_intent_id=items_by_intent_id,
-                                    items_by_title=items_by_title,
-                                ),
+                                action_item=skipped_item,
                                 reason="upstream_dependency_failed",
                             )
                             # Continue unlocking downstream of skipped
@@ -350,6 +355,7 @@ class DispatchOrchestrator:
     ) -> Dict[str, Any]:
         """Dispatch a single phase, creating a PhaseAttempt."""
         attempt = self._create_attempt(phase, task_ir_id)
+        self._append_action_item_lineage(action_item=action_item, phase=phase)
 
         # Idempotency guard runs before mark_dispatched() to keep
         # attempt state clean.
@@ -443,6 +449,7 @@ class DispatchOrchestrator:
             engine=engine,
             playbook_code=playbook_code,
             target_workspace_id=target_ws,
+            source_intent_id=getattr(phase, "source_intent_id", None),
         )
 
         # Execute dispatch
@@ -458,8 +465,11 @@ class DispatchOrchestrator:
                 )
                 attempt.mark_completed(result)
                 execution_id = self._resolve_execution_id_from_result(result)
-                if execution_id:
-                    action_item["execution_id"] = execution_id
+                self._append_action_item_lineage(
+                    action_item=action_item,
+                    phase=phase,
+                    execution_id=execution_id,
+                )
                 action_item["landing_status"] = "launched"
                 await self._publish_activity(
                     "task_dispatched",
@@ -493,10 +503,12 @@ class DispatchOrchestrator:
                     else ""
                 )
                 execution_id = self._resolve_execution_id_from_result(result)
-                if task_id:
-                    action_item["task_id"] = task_id
-                if execution_id:
-                    action_item["execution_id"] = execution_id
+                self._append_action_item_lineage(
+                    action_item=action_item,
+                    phase=phase,
+                    task_id=task_id or None,
+                    execution_id=execution_id,
+                )
                 action_item["landing_status"] = "task_created"
                 await self._publish_activity(
                     "task_dispatched",
@@ -868,6 +880,11 @@ class DispatchOrchestrator:
         items_by_intent_id: Dict[str, Dict[str, Any]],
         items_by_title: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
+        source_intent_id = str(
+            getattr(phase, "source_intent_id", "") or ""
+        ).strip()
+        if source_intent_id and source_intent_id in items_by_intent_id:
+            return items_by_intent_id[source_intent_id]
         phase_id = str(getattr(phase, "id", "") or "").strip()
         if phase_id and phase_id in items_by_intent_id:
             return items_by_intent_id[phase_id]
@@ -880,6 +897,47 @@ class DispatchOrchestrator:
             if isinstance(item, dict):
                 return item
         return {}
+
+    @staticmethod
+    def _append_action_item_lineage(
+        *,
+        action_item: Dict[str, Any],
+        phase: PhaseIR,
+        task_id: Optional[str] = None,
+        execution_id: Optional[str] = None,
+    ) -> None:
+        if not isinstance(action_item, dict) or not action_item:
+            return
+
+        normalized_task_id = str(task_id or "").strip() or None
+        normalized_execution_id = str(execution_id or "").strip() or None
+        normalized_phase_id = str(getattr(phase, "id", "") or "").strip() or None
+        normalized_source_intent_id = (
+            str(getattr(phase, "source_intent_id", "") or "").strip() or None
+        )
+
+        if normalized_phase_id and not action_item.get("source_phase_id"):
+            action_item["source_phase_id"] = normalized_phase_id
+        if normalized_source_intent_id and not action_item.get("source_intent_id"):
+            action_item["source_intent_id"] = normalized_source_intent_id
+        if normalized_task_id and not str(action_item.get("task_id") or "").strip():
+            action_item["task_id"] = normalized_task_id
+        if normalized_execution_id and not str(
+            action_item.get("execution_id") or ""
+        ).strip():
+            action_item["execution_id"] = normalized_execution_id
+
+        if normalized_task_id:
+            task_ids = action_item.setdefault("task_ids", [])
+            if isinstance(task_ids, list) and normalized_task_id not in task_ids:
+                task_ids.append(normalized_task_id)
+        if normalized_execution_id:
+            execution_ids = action_item.setdefault("execution_ids", [])
+            if (
+                isinstance(execution_ids, list)
+                and normalized_execution_id not in execution_ids
+            ):
+                execution_ids.append(normalized_execution_id)
 
     @staticmethod
     def _resolve_execution_id_from_result(result: Dict[str, Any] | None) -> Optional[str]:

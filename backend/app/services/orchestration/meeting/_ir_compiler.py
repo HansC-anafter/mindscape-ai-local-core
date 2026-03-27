@@ -184,6 +184,7 @@ class MeetingIRCompilerMixin:
             phase = PhaseIR(
                 # INV-2: phase_id = intent_id
                 id=intent.intent_id,
+                source_intent_id=intent.intent_id,
                 name=intent.title,
                 description=intent.description,
                 status=PhaseStatus.PENDING,
@@ -222,6 +223,7 @@ class MeetingIRCompilerMixin:
 
             phase = PhaseIR(
                 id=f"action_{idx}",
+                source_intent_id=item.get("intent_id"),
                 name=title,
                 description=desc,
                 status=PhaseStatus.PENDING,

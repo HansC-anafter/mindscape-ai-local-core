@@ -125,6 +125,10 @@ class PhaseIR(BaseModel):
     """
 
     id: str = Field(..., description="Unique phase identifier")
+    source_intent_id: Optional[str] = Field(
+        None,
+        description="Stable originating action-item intent_id for decomposed phases",
+    )
     name: str = Field(..., description="Human-readable phase name")
     description: Optional[str] = Field(None, description="Phase description")
 

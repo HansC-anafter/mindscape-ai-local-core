@@ -108,11 +108,14 @@ phase list (DAG).
 3. Phases that need upstream output MUST declare depends_on with the IDs of \
    their upstream phases.
 4. Use stable phase IDs: "phase_0", "phase_1", etc.
-5. Keep the total number of phases ≤ {max_phases}.
-6. If a single action item implies batch work (e.g., "generate 90 posts"), \
+5. Every phase MUST include source_intent_id matching exactly one input \
+   action item's intent_id. Reuse the same source_intent_id when one action \
+   item expands into multiple phases.
+6. Keep the total number of phases ≤ {max_phases}.
+7. If a single action item implies batch work (e.g., "generate 90 posts"), \
    create ONE phase with a clear description mentioning the batch size — \
    the batch processor playbook will handle fan-out.
-7. Output ONLY a JSON array. No markdown, no commentary.
+8. Output ONLY a JSON array. No markdown, no commentary.
 
 ## Output Schema
 
@@ -120,6 +123,7 @@ phase list (DAG).
 [
   {{
     "id": "phase_0",
+    "source_intent_id": "intent_abc123",
     "name": "short descriptive name",
     "description": "what this phase does and what artifact it produces",
     "preferred_engine": "playbook:<code>" or "tool:<code>",
@@ -284,6 +288,7 @@ class TaskDecomposer:
             phases.append(
                 PhaseIR(
                     id=item.get("intent_id", f"phase_{idx}"),
+                    source_intent_id=item.get("intent_id", f"phase_{idx}"),
                     name=item.get("title", f"Action {idx + 1}"),
                     description=item.get("description", ""),
                     status=PhaseStatus.PENDING,
@@ -320,6 +325,7 @@ class TaskDecomposer:
         items_summary = json.dumps(
             [
                 {
+                    "intent_id": i.get("intent_id"),
                     "title": i.get("title", ""),
                     "description": i.get("description", ""),
                     "playbook_code": i.get("playbook_code"),
@@ -370,7 +376,7 @@ class TaskDecomposer:
                 )
                 return self._passthrough(action_items)
 
-            phases = self._parse_phases(phases_data)
+            phases = self._parse_phases(phases_data, action_items=action_items)
             logger.info(
                 "LLM decomposed %d action items into %d phases",
                 len(action_items),
@@ -500,11 +506,26 @@ class TaskDecomposer:
         logger.warning("Could not extract JSON array from LLM output")
         return None
 
-    def _parse_phases(self, phases_data: List[Dict[str, Any]]) -> List[PhaseIR]:
+    def _parse_phases(
+        self,
+        phases_data: List[Dict[str, Any]],
+        *,
+        action_items: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[PhaseIR]:
         """Parse JSON phase dicts into PhaseIR objects."""
         phases = []
+        valid_source_intent_ids = {
+            str(item.get("intent_id") or "").strip()
+            for item in (action_items or [])
+            if isinstance(item, dict) and str(item.get("intent_id") or "").strip()
+        }
         for idx, item in enumerate(phases_data[: self._max_phases]):
             phase_id = item.get("id", f"phase_{idx}")
+            source_intent_id = str(
+                item.get("source_intent_id") or item.get("intent_id") or ""
+            ).strip()
+            if not source_intent_id and phase_id in valid_source_intent_ids:
+                source_intent_id = phase_id
 
             # Resolve engine
             engine = item.get("preferred_engine")
@@ -519,6 +540,7 @@ class TaskDecomposer:
                 phases.append(
                     PhaseIR(
                         id=phase_id,
+                        source_intent_id=source_intent_id or None,
                         name=item.get("name", f"Phase {idx + 1}"),
                         description=item.get("description", ""),
                         status=PhaseStatus.PENDING,

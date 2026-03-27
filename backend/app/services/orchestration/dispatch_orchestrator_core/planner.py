@@ -168,5 +168,7 @@ def build_ir_provenance(
         "dependencies": list(dependencies or []),
         "meeting_session_id": getattr(session, "id", None),
         "phase_id": phase.id,
+        "source_intent_id": getattr(phase, "source_intent_id", None)
+        or action_item.get("intent_id"),
         "priority": getattr(phase, "priority", None) or action_item.get("priority"),
     }

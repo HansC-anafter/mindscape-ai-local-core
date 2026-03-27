@@ -324,3 +324,47 @@ def test_close_session_stitches_phase_index_lineage_when_phase_ids_are_ordinal(
     assert session.action_items[1]["task_id"] == "task-789"
     decision = engine.session_store.saved_decisions[1]
     assert decision.source_action_item["execution_id"] == "task-789"
+
+
+def test_close_session_prefers_source_intent_id_over_ordinal_phase_id(monkeypatch):
+    import backend.app.services.memory.writeback.meeting_memory_writeback_orchestrator as writeback_module
+
+    monkeypatch.setattr(
+        writeback_module,
+        "MeetingMemoryWritebackOrchestrator",
+        _FakeWritebackOrchestrator,
+    )
+
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        agenda=["Prefer explicit source intent over ordinal phase fallback"],
+    )
+    session.start()
+    engine = _FakeEngine(session=session)
+
+    engine._close_session(
+        minutes_md="Explicit source_intent_id should win over phase_0 fallback.",
+        action_items=[
+            {"title": "Planning item", "intent_id": "intent-1"},
+            {"title": "Execution item", "intent_id": "intent-2"},
+        ],
+        dispatch_result={
+            "status": "ok",
+            "attempts": {
+                "phase_0": {
+                    "adapter_meta": {"source_intent_id": "intent-2"},
+                    "result": {"task_id": "task-900"},
+                }
+            },
+        },
+    )
+
+    assert "execution_id" not in session.action_items[0]
+    assert session.action_items[1]["source_intent_id"] == "intent-2"
+    assert session.action_items[1]["source_phase_id"] == "phase_0"
+    assert session.action_items[1]["execution_id"] == "task-900"
+    assert session.action_items[1]["execution_ids"] == ["task-900"]
+    decision = engine.session_store.saved_decisions[1]
+    assert decision.source_action_item["execution_id"] == "task-900"

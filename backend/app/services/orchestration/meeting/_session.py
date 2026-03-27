@@ -319,7 +319,14 @@ class MeetingSessionMixin:
         action_items: List[Dict[str, Any]],
         items_by_intent_id: Dict[str, Dict[str, Any]],
         phase_id: Any,
+        source_intent_id: Any = None,
     ) -> Optional[Dict[str, Any]]:
+        normalized_source_intent_id = cls._normalize_lineage_value(source_intent_id)
+        if normalized_source_intent_id:
+            item = items_by_intent_id.get(normalized_source_intent_id)
+            if item is not None:
+                return item
+
         normalized_phase_id = cls._normalize_lineage_value(phase_id)
         if not normalized_phase_id:
             return None
@@ -340,6 +347,45 @@ class MeetingSessionMixin:
         return None
 
     @classmethod
+    def _append_action_item_lineage(
+        cls,
+        *,
+        item: Dict[str, Any],
+        phase_id: Any,
+        source_intent_id: Any,
+        execution_id: Any,
+        task_id: Any,
+    ) -> None:
+        normalized_phase_id = cls._normalize_lineage_value(phase_id)
+        normalized_source_intent_id = cls._normalize_lineage_value(source_intent_id)
+        normalized_execution_id = cls._normalize_lineage_value(execution_id)
+        normalized_task_id = cls._normalize_lineage_value(task_id)
+
+        if normalized_source_intent_id and not cls._normalize_lineage_value(
+            item.get("source_intent_id")
+        ):
+            item["source_intent_id"] = normalized_source_intent_id
+        if normalized_phase_id and not cls._normalize_lineage_value(
+            item.get("source_phase_id")
+        ):
+            item["source_phase_id"] = normalized_phase_id
+        if normalized_execution_id and not cls._normalize_lineage_value(
+            item.get("execution_id")
+        ):
+            item["execution_id"] = normalized_execution_id
+        if normalized_task_id and not cls._normalize_lineage_value(item.get("task_id")):
+            item["task_id"] = normalized_task_id
+
+        if normalized_execution_id:
+            execution_ids = item.setdefault("execution_ids", [])
+            if isinstance(execution_ids, list) and normalized_execution_id not in execution_ids:
+                execution_ids.append(normalized_execution_id)
+        if normalized_task_id:
+            task_ids = item.setdefault("task_ids", [])
+            if isinstance(task_ids, list) and normalized_task_id not in task_ids:
+                task_ids.append(normalized_task_id)
+
+    @classmethod
     def _stitch_action_item_execution_lineage(
         cls,
         *,
@@ -358,16 +404,13 @@ class MeetingSessionMixin:
             if not isinstance(item, dict):
                 continue
             intent_id = cls._normalize_lineage_value(item.get("intent_id"))
+            if intent_id and not cls._normalize_lineage_value(item.get("source_intent_id")):
+                item["source_intent_id"] = intent_id
             if intent_id and intent_id not in items_by_intent_id:
                 items_by_intent_id[intent_id] = item
 
         for phase_id, attempt in attempts.items():
-            item = cls._resolve_action_item_for_phase_id(
-                action_items=action_items,
-                items_by_intent_id=items_by_intent_id,
-                phase_id=phase_id,
-            )
-            if item is None or not isinstance(attempt, dict):
+            if not isinstance(attempt, dict):
                 continue
 
             adapter_meta = attempt.get("adapter_meta")
@@ -377,19 +420,30 @@ class MeetingSessionMixin:
             if not isinstance(result, dict):
                 result = {}
 
+            item = cls._resolve_action_item_for_phase_id(
+                action_items=action_items,
+                items_by_intent_id=items_by_intent_id,
+                phase_id=phase_id,
+                source_intent_id=adapter_meta.get("source_intent_id")
+                or result.get("source_intent_id"),
+            )
+            if item is None:
+                continue
+
             execution_id = (
                 cls._normalize_lineage_value(adapter_meta.get("execution_id"))
                 or cls._normalize_lineage_value(result.get("execution_id"))
                 or cls._normalize_lineage_value(result.get("task_id"))
             )
             task_id = cls._normalize_lineage_value(result.get("task_id"))
-
-            if execution_id and not cls._normalize_lineage_value(
-                item.get("execution_id")
-            ):
-                item["execution_id"] = execution_id
-            if task_id and not cls._normalize_lineage_value(item.get("task_id")):
-                item["task_id"] = task_id
+            cls._append_action_item_lineage(
+                item=item,
+                phase_id=phase_id,
+                source_intent_id=adapter_meta.get("source_intent_id")
+                or result.get("source_intent_id"),
+                execution_id=execution_id,
+                task_id=task_id,
+            )
 
     @staticmethod
     def _resolve_locale(workspace) -> str:

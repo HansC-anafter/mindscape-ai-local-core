@@ -45,6 +45,7 @@ DispatchOrchestrator = _mod.DispatchOrchestrator
 class FakePhaseIR:
     id: str
     name: str
+    source_intent_id: Optional[str] = None
     description: str = ""
     status: str = "pending"
     preferred_engine: Optional[str] = None
@@ -129,12 +130,12 @@ class TestDependencyGate:
         """If A is policy-blocked, B (depends_on A) should be SKIPPED."""
         orch = DispatchOrchestrator(session=FakeSession(), profile_id="user-1")
         phases = [
-            FakePhaseIR(id="a", name="A"),
-            FakePhaseIR(id="b", name="B", depends_on=["a"]),
+            FakePhaseIR(id="a", source_intent_id="intent-a", name="A"),
+            FakePhaseIR(id="b", source_intent_id="intent-b", name="B", depends_on=["a"]),
         ]
         items = [
-            {"title": "A", "landing_status": "policy_blocked"},
-            {"title": "B", "description": ""},
+            {"title": "A", "intent_id": "intent-a", "landing_status": "policy_blocked"},
+            {"title": "B", "intent_id": "intent-b", "description": ""},
         ]
         result = await orch.execute(
             task_ir=FakeTaskIR(phases=phases), action_items=items
@@ -142,6 +143,8 @@ class TestDependencyGate:
         assert result["skipped"] >= 1  # B should be skipped
         assert items[1]["landing_status"] == "dependency_blocked"
         assert items[1]["skip_reason"] == "upstream_dependency_failed"
+        assert items[1]["source_intent_id"] == "intent-b"
+        assert items[1]["source_phase_id"] == "b"
 
     @pytest.mark.asyncio
     async def test_continue_on_dep_failure_policy(self):
@@ -344,8 +347,14 @@ class TestPolicyBlockedSkip:
 
     @pytest.mark.asyncio
     async def test_policy_blocked(self, orchestrator):
-        phases = [FakePhaseIR(id="a", name="Blocked")]
-        items = [{"title": "Blocked", "landing_status": "policy_blocked"}]
+        phases = [FakePhaseIR(id="a", source_intent_id="intent-a", name="Blocked")]
+        items = [
+            {
+                "title": "Blocked",
+                "intent_id": "intent-a",
+                "landing_status": "policy_blocked",
+            }
+        ]
         result = await orchestrator.execute(
             task_ir=FakeTaskIR(phases=phases), action_items=items
         )
@@ -353,6 +362,8 @@ class TestPolicyBlockedSkip:
         attempt = orchestrator.get_attempt("a")
         assert attempt is not None
         assert attempt.status == AttemptStatus.SKIPPED
+        assert items[0]["source_intent_id"] == "intent-a"
+        assert items[0]["source_phase_id"] == "a"
 
 
 class TestMultiWorkspace:
@@ -447,6 +458,97 @@ class TestExecutionLineage:
         attempt = orch.get_attempt("intent-123")
         assert attempt is not None
         assert attempt.result["execution_id"] == "task-123"
+
+    @pytest.mark.asyncio
+    async def test_tool_dispatch_prefers_source_intent_id_over_ordinal_phase_id(
+        self, monkeypatch
+    ):
+        orch = DispatchOrchestrator(session=FakeSession(), profile_id="user-1")
+        phase = FakePhaseIR(
+            id="phase_0",
+            source_intent_id="intent-2",
+            name="Expanded execution phase",
+            tool_name="tools.execute_plan",
+        )
+        items = [
+            {"title": "Planning-only item", "intent_id": "intent-1"},
+            {"title": "Actual execution item", "intent_id": "intent-2"},
+        ]
+
+        monkeypatch.setattr(
+            orch,
+            "_dispatch_tool",
+            AsyncMock(
+                return_value={
+                    "task_id": "task-222",
+                    "execution_id": "task-222",
+                    "tool_name": "tools.execute_plan",
+                }
+            ),
+        )
+
+        result = await orch.execute(
+            task_ir=FakeTaskIR(phases=[phase]),
+            action_items=items,
+        )
+
+        assert result["status"] == "ok"
+        assert "execution_id" not in items[0]
+        assert items[1]["landing_status"] == "task_created"
+        assert items[1]["execution_id"] == "task-222"
+        assert items[1]["execution_ids"] == ["task-222"]
+
+    @pytest.mark.asyncio
+    async def test_multiple_phases_same_source_intent_collect_lineage_without_overwrite(
+        self, monkeypatch
+    ):
+        orch = DispatchOrchestrator(session=FakeSession(), profile_id="user-1")
+        phases = [
+            FakePhaseIR(
+                id="phase_0",
+                source_intent_id="intent-1",
+                name="Prepare draft",
+                tool_name="tools.prepare",
+            ),
+            FakePhaseIR(
+                id="phase_1",
+                source_intent_id="intent-1",
+                name="Finalize draft",
+                tool_name="tools.finalize",
+                depends_on=["phase_0"],
+            ),
+        ]
+        item = {"title": "Draft partner brief", "intent_id": "intent-1"}
+
+        monkeypatch.setattr(
+            orch,
+            "_dispatch_tool",
+            AsyncMock(
+                side_effect=[
+                    {
+                        "task_id": "task-1",
+                        "execution_id": "task-1",
+                        "tool_name": "tools.prepare",
+                    },
+                    {
+                        "task_id": "task-2",
+                        "execution_id": "task-2",
+                        "tool_name": "tools.finalize",
+                    },
+                ]
+            ),
+        )
+
+        result = await orch.execute(
+            task_ir=FakeTaskIR(phases=phases),
+            action_items=[item],
+        )
+
+        assert result["status"] == "ok"
+        assert item["execution_id"] == "task-1"
+        assert item["task_id"] == "task-1"
+        assert item["execution_ids"] == ["task-1", "task-2"]
+        assert item["task_ids"] == ["task-1", "task-2"]
 
 
 class TestPlaybookCodeExtraction:
