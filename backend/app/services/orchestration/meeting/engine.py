@@ -9,6 +9,7 @@ MeetingEngine class.
 The run() method drives a bounded multi-round governance meeting.
 """
 
+import asyncio
 import logging
 import time
 from datetime import datetime, timezone
@@ -101,6 +102,9 @@ class MeetingEngine(
     MeetingToolDiscoveryMixin,
 ):
     """Drives a bounded multi-role meeting with real LLM turns and action landing."""
+
+    AGENDA_RAG_QUERY_TIMEOUT_S: float = 5.0
+    AGENDA_RAG_TOTAL_BUDGET_S: float = 12.0
 
     def __init__(
         self,
@@ -502,19 +506,53 @@ class MeetingEngine(
 
             agenda = getattr(self.session, "agenda", None) or []
             ws_id = self.session.workspace_id
+            rag_deadline = time.monotonic() + self.AGENDA_RAG_TOTAL_BUDGET_S
+
+            async def _retrieve_with_budget(
+                query: str,
+                *,
+                top_k: int,
+                label: str,
+            ) -> list | None:
+                remaining = self._layer_c_remaining_budget(rag_deadline)
+                if remaining <= 0:
+                    logger.info(
+                        "Agenda RAG pre-fetch budget exhausted for session %s before %s",
+                        self.session.id,
+                        label,
+                    )
+                    return None
+                try:
+                    return await asyncio.wait_for(
+                        retrieve_relevant_tools(
+                            query,
+                            top_k=top_k,
+                            workspace_id=ws_id,
+                        ),
+                        timeout=min(self.AGENDA_RAG_QUERY_TIMEOUT_S, remaining),
+                    )
+                except asyncio.TimeoutError:
+                    logger.info(
+                        "Agenda RAG pre-fetch timed out for session %s on %s",
+                        self.session.id,
+                        label,
+                    )
+                    return []
 
             if agenda and len(agenda) > 1:
                 per_k = max(5, 40 // len(agenda))
                 seen_ids: set = set()
                 combined: list = []
-                for item in agenda:
+                for idx, item in enumerate(agenda, start=1):
                     aug = self._verb_augment(str(item))
                     q = f"{item} {aug}".strip() if aug else str(item)
-                    hits = await retrieve_relevant_tools(
+                    hits = await _retrieve_with_budget(
                         q,
                         top_k=per_k,
-                        workspace_id=ws_id,
+                        label=f"agenda[{idx}]",
                     )
+                    if hits is None:
+                        break
                     for h in hits:
                         if h["tool_id"] not in seen_ids:
                             seen_ids.add(h["tool_id"])
@@ -522,23 +560,25 @@ class MeetingEngine(
 
                 msg_aug = self._verb_augment(str(user_message))
                 msg_q = f"{user_message} {msg_aug}".strip()
-                msg_hits = await retrieve_relevant_tools(
+                msg_hits = await _retrieve_with_budget(
                     msg_q,
                     top_k=per_k,
-                    workspace_id=ws_id,
+                    label="user_message",
                 )
-                for h in msg_hits:
-                    if h["tool_id"] not in seen_ids:
-                        seen_ids.add(h["tool_id"])
-                        combined.append(h)
+                if msg_hits is not None:
+                    for h in msg_hits:
+                        if h["tool_id"] not in seen_ids:
+                            seen_ids.add(h["tool_id"])
+                            combined.append(h)
 
                 self._rag_tool_cache = combined
             else:
-                self._rag_tool_cache = await retrieve_relevant_tools(
+                hits = await _retrieve_with_budget(
                     self._build_tool_query_from_context(),
                     top_k=40,
-                    workspace_id=ws_id,
+                    label="context_query",
                 )
+                self._rag_tool_cache = hits or []
 
             logger.debug(
                 "Meeting RAG pre-fetch: %d tools cached for session %s (queries=%d)",

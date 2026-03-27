@@ -675,3 +675,67 @@ class TestLayerCProduction:
         _, kwargs = embedding_service.search_rrf.call_args
         assert kwargs["query"] == "Save partner brief"
         assert engine._build_action_items.await_count == 1
+
+
+class TestAgendaRagProduction:
+    """Test agenda/tool prefetch guardrails in the real engine stage."""
+
+    @pytest.mark.asyncio
+    async def test_stage_agenda_and_rag_timeout_continues_pipeline(self):
+        engine = _make_engine_stub(
+            agenda=["整理合作方向", "列出立即下一步", "輸出 markdown brief"],
+        )
+        engine.AGENDA_RAG_QUERY_TIMEOUT_S = 0.01
+        engine.AGENDA_RAG_TOTAL_BUDGET_S = 0.03
+        engine._emit_meeting_stage = AsyncMock()
+        engine._ensure_agenda_decomposed = AsyncMock(return_value=False)
+        engine._build_tool_query_from_context = MagicMock(
+            return_value="context query"
+        )
+
+        async def _slow_hits(*args, **kwargs):
+            await asyncio.sleep(0.05)
+            return [{"tool_id": "t-late"}]
+
+        with patch(
+            "backend.app.services.tool_rag.retrieve_relevant_tools",
+            AsyncMock(side_effect=_slow_hits),
+        ) as mock_hits:
+            await engine._stage_agenda_and_rag("請產出 partner brief")
+
+        assert mock_hits.await_count >= 1
+        assert engine._rag_tool_cache == []
+        engine._emit_meeting_stage.assert_has_awaits(
+            [
+                call("agenda", "Analyzing agenda..."),
+                call("tool_discovery", "Discovering available tools..."),
+            ]
+        )
+        engine._ensure_agenda_decomposed.assert_awaited_once_with(
+            "請產出 partner brief"
+        )
+
+    @pytest.mark.asyncio
+    async def test_stage_agenda_and_rag_respects_total_budget(self):
+        engine = _make_engine_stub(
+            agenda=["A", "B", "C"],
+        )
+        engine.AGENDA_RAG_QUERY_TIMEOUT_S = 1.0
+        engine.AGENDA_RAG_TOTAL_BUDGET_S = 10.0
+        engine._emit_meeting_stage = AsyncMock()
+        engine._ensure_agenda_decomposed = AsyncMock(return_value=False)
+        engine._build_tool_query_from_context = MagicMock(
+            return_value="context query"
+        )
+        engine._layer_c_remaining_budget = MagicMock(
+            side_effect=[1.0, 0.0, 0.0, 0.0]
+        )
+
+        with patch(
+            "backend.app.services.tool_rag.retrieve_relevant_tools",
+            AsyncMock(return_value=[]),
+        ) as mock_hits:
+            await engine._stage_agenda_and_rag("user message")
+
+        assert mock_hits.await_count == 1
+        assert engine._rag_tool_cache == []
