@@ -82,9 +82,10 @@ class HostBridgeWSClient:
     # Pong response timeout — if server doesn't respond within this,
     # the connection is considered dead (e.g. backend restarted).
     PONG_TIMEOUT: float = 10.0
-    # WS result should be acknowledged quickly; otherwise fall back
-    # to the REST result endpoint so the execution does not remain stuck.
-    RESULT_ACK_TIMEOUT: float = 5.0
+    # Result ACKs can lag behind task completion when the backend is
+    # under meeting load; keep the WS path alive long enough to avoid
+    # unnecessary REST fallback churn on healthy-but-slow deliveries.
+    RESULT_ACK_TIMEOUT: float = 15.0
     RESULT_REST_RETRY_ATTEMPTS: int = 4
     RESULT_REST_RETRY_BASE_DELAY: float = 1.0
     # Keep recently delivered results around long enough to survive a
@@ -130,6 +131,12 @@ class HostBridgeWSClient:
             f"ws://{self.host}/ws/agent/{self.workspace_id}"
             f"?client_id={self.client_id}&surface={self.surface}"
         )
+
+    def _has_pending_transport_work(self) -> bool:
+        """Whether the bridge should tolerate temporary WS silence."""
+        if self._active_tasks > 0:
+            return True
+        return any(not waiter.done() for waiter in self._result_ack_waiters.values())
 
     # ============================================================
     #  Main lifecycle
@@ -304,10 +311,17 @@ class HostBridgeWSClient:
                         timeout=self.PONG_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
-                    if self._active_tasks > 0:
+                    if self._has_pending_transport_work():
                         logger.info(
-                            f"Pong timeout but {self._active_tasks} task(s) "
-                            f"active — keeping connection alive"
+                            "Pong timeout but transport work is still pending "
+                            "(active_tasks=%s pending_result_acks=%s) — "
+                            "keeping connection alive",
+                            self._active_tasks,
+                            sum(
+                                1
+                                for waiter in self._result_ack_waiters.values()
+                                if not waiter.done()
+                            ),
                         )
                         continue
                     logger.warning(

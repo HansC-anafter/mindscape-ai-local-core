@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from backend.app.services.external_agents.bridge.host_ws_client import (
@@ -64,3 +66,84 @@ def test_unavailable_availability_cache_expires_quickly_after_reconnect(monkeypa
         "reason": "ws_connected",
     }
     assert manager.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_result_ack_wait_avoids_rest_fallback_when_ack_arrives_in_time(monkeypatch):
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+    )
+    client.RESULT_ACK_TIMEOUT = 0.05
+
+    fallback_calls = []
+
+    async def _fake_submit(result_message):
+        fallback_calls.append(result_message)
+
+    monkeypatch.setattr(client, "_submit_result_via_rest", _fake_submit)
+
+    waiter = asyncio.get_running_loop().create_future()
+
+    async def _resolve_ack():
+        await asyncio.sleep(0.01)
+        waiter.set_result(True)
+
+    asyncio.create_task(_resolve_ack())
+    await client._wait_for_result_ack_or_fallback(
+        "exec-1",
+        waiter,
+        {"execution_id": "exec-1"},
+    )
+
+    assert fallback_calls == []
+
+
+@pytest.mark.asyncio
+async def test_result_ack_wait_falls_back_after_timeout(monkeypatch):
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+    )
+    client.RESULT_ACK_TIMEOUT = 0.01
+
+    fallback_calls = []
+
+    async def _fake_submit(result_message):
+        fallback_calls.append(result_message)
+
+    monkeypatch.setattr(client, "_submit_result_via_rest", _fake_submit)
+
+    waiter = asyncio.get_running_loop().create_future()
+    result_message = {"execution_id": "exec-timeout"}
+
+    await client._wait_for_result_ack_or_fallback(
+        "exec-timeout",
+        waiter,
+        result_message,
+    )
+
+    assert fallback_calls == [result_message]
+
+
+def test_pending_result_ack_counts_as_transport_work():
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+    )
+
+    loop = asyncio.new_event_loop()
+    try:
+        waiter = loop.create_future()
+        client._result_ack_waiters["exec-1"] = waiter
+
+        assert client._has_pending_transport_work() is True
+
+        waiter.set_result(True)
+
+        assert client._has_pending_transport_work() is False
+    finally:
+        loop.close()
