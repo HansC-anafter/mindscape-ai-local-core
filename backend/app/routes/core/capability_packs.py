@@ -314,6 +314,8 @@ class PackResponse(BaseModel):
     tools: List[str] = []
     version: Optional[str] = None
     installed_at: Optional[str] = None
+    activation: Optional["PackActivationStateResponse"] = None
+    validation: Optional[Dict[str, Any]] = None
 
 
 class PackActivationStateResponse(BaseModel):
@@ -332,6 +334,14 @@ class PackActivationStateResponse(BaseModel):
     last_error: Optional[str] = None
     activated_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+try:
+    PackResponse.model_rebuild()
+except AttributeError:
+    PackResponse.update_forward_refs(
+        PackActivationStateResponse=PackActivationStateResponse
+    )
 
 
 @router.get("/", response_model=List[PackResponse])
@@ -355,6 +365,7 @@ def list_packs():
             installed_metadata[row["pack_id"]] = {
                 "installed_at": row.get("installed_at"),
                 "version": metadata.get("version", "1.0.0"),
+                "metadata": metadata,
             }
 
         packs = []
@@ -367,6 +378,13 @@ def list_packs():
                 continue
 
             installed_info = installed_metadata.get(pack_id, {})
+            installed_metadata_payload = installed_info.get("metadata") or {}
+            validation_state = installed_metadata_payload.get("validation")
+            activation_state = (
+                pack_activation_service.get_state(pack_id)
+                if pack_id in installed_ids
+                else None
+            )
 
             # Handle tools field: if it's a list of dicts, extract tool names
             tools_raw = pack_meta.get("tools", [])
@@ -410,6 +428,12 @@ def list_packs():
                     version=installed_info.get("version")
                     or pack_meta.get("version", "1.0.0"),
                     installed_at=installed_info.get("installed_at"),
+                    activation=(
+                        PackActivationStateResponse(**activation_state)
+                        if activation_state
+                        else None
+                    ),
+                    validation=validation_state if isinstance(validation_state, dict) else None,
                 )
             )
 

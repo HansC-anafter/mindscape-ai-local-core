@@ -381,12 +381,12 @@ class TestSignedBundleRoundtrip:
         )
 
         # A creates signed bundle
-        secret = "test-shared-secret-key"
+        signing_key = "fixture-shared-signing-key"
         bundle = SignedHandoffBundle.create(
             payload_type="handoff_in",
             payload=handoff_in.model_dump(mode="json"),
             source_device_id="dev-A",
-            secret_key=secret,
+            secret_key=signing_key,
             target_device_id="dev-B",
         )
 
@@ -398,12 +398,12 @@ class TestSignedBundleRoundtrip:
         assert len(bundle.signature) == 64
 
         # B verifies
-        assert bundle.verify(secret) is True
+        assert bundle.verify(signing_key) is True
 
         # Tamper detection
         bundle_copy = bundle.model_copy(deep=True)
         bundle_copy.payload["intent_summary"] = "TAMPERED"
-        assert bundle_copy.verify(secret) is False
+        assert bundle_copy.verify(signing_key) is False
 
         # Wrong secret detection
         assert bundle.verify("wrong-secret") is False
@@ -417,16 +417,16 @@ class TestSignedBundleRoundtrip:
             task_ir_id="ir-001",
         )
 
-        secret = "test-secret"
+        signing_key = "fixture-signing-key"
         bundle = SignedHandoffBundle.create(
             payload_type="commitment",
             payload=commitment.model_dump(mode="json"),
             source_device_id="dev-B",
-            secret_key=secret,
+            secret_key=signing_key,
             target_device_id="dev-A",
         )
 
-        assert bundle.verify(secret) is True
+        assert bundle.verify(signing_key) is True
         assert bundle.payload_type == "commitment"
         assert bundle.payload["accepted"] is True
 

@@ -11,6 +11,7 @@ from datetime import datetime
 
 from sqlalchemy import text
 
+from backend.app.models.meeting_decision import MeetingDecision
 from backend.app.services.stores.postgres_base import PostgresStoreBase
 from backend.app.models.meeting_session import MeetingSession, MeetingStatus
 
@@ -483,3 +484,38 @@ class MeetingSessionStore(PostgresStoreBase):
                 }
                 for r in rows
             ]
+
+    def list_decisions_by_session(self, session_id: str) -> List[MeetingDecision]:
+        """List structured meeting decisions for a session, oldest first."""
+        query = text(
+            """
+            SELECT id, session_id, workspace_id, category, content, status,
+                   resolved_by_task_id, source_action_item, created_at
+            FROM meeting_decisions
+            WHERE session_id = :session_id
+            ORDER BY created_at ASC
+            """
+        )
+        with self.get_connection() as conn:
+            rows = conn.execute(query, {"session_id": session_id}).fetchall()
+            return [self._row_to_meeting_decision(row) for row in rows]
+
+    def _row_to_meeting_decision(self, row: Any) -> MeetingDecision:
+        data = row._mapping if hasattr(row, "_mapping") else row
+        created_at = data["created_at"]
+        if created_at and not isinstance(created_at, datetime):
+            created_at = datetime.fromisoformat(str(created_at))
+        return MeetingDecision(
+            id=data["id"],
+            session_id=data["session_id"],
+            workspace_id=data["workspace_id"],
+            category=data["category"],
+            content=data["content"],
+            status=data.get("status") or "pending",
+            resolved_by_task_id=data.get("resolved_by_task_id"),
+            source_action_item=self.deserialize_json(
+                data.get("source_action_item"),
+                default={},
+            ),
+            created_at=created_at,
+        )

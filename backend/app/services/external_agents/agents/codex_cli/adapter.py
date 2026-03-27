@@ -1,24 +1,24 @@
 """
 Codex CLI Runtime Adapter.
 
-Runs Codex over the same WS-first bridge contract used by Gemini CLI,
+Runs Codex over the shared WS-first host bridge contract,
 with the polling path retained only as the inherited fallback.
 """
 
 import logging
 
-from backend.app.services.external_agents.agents.gemini_cli.adapter import (
-    GeminiCLIAdapter,
+from backend.app.services.external_agents.bridge.runtime_adapter import (
+    HostBridgeRuntimeAdapter,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class CodexCLIAdapter(GeminiCLIAdapter):
+class CodexCLIAdapter(HostBridgeRuntimeAdapter):
     """
     Codex CLI Agent Adapter.
 
-    Uses the same WS-first runtime bridge contract as Gemini so requests
+    Uses the shared WS-first runtime bridge contract so requests
     always target the real surface-owning worker. This prevents multi-worker
     requests from queueing against the wrong in-memory manager.
     """

@@ -86,6 +86,7 @@ from .execution_dispatch import (
     release_backend,
 )
 from .execution_metadata import resolve_runner_metadata, should_route_through_runner
+from backend.app.services.runner_topology import DEFAULT_LOCAL_QUEUE_PARTITION
 
 
 @router.post("/execute/start")
@@ -338,8 +339,18 @@ async def start_playbook_execution(
                                 "execution_mode": "runner",
                                 "execution_backend_hint": final_execution_backend,
                                 "playbook_name": playbook_name,
+                                "resource_class": runner_metadata.get("resource_class"),
+                                "queue_partition": runner_metadata.get("queue_partition")
+                                or runner_metadata.get("queue_shard")
+                                or DEFAULT_LOCAL_QUEUE_PARTITION,
                                 "queue_shard": runner_metadata.get("queue_shard")
-                                or "default",
+                                or DEFAULT_LOCAL_QUEUE_PARTITION,
+                                "runner_profile_hint": runner_metadata.get(
+                                    "runner_profile_hint"
+                                ),
+                                "runtime_affinity": runner_metadata.get(
+                                    "runtime_affinity"
+                                ),
                             },
                             created_at=_utc_now(),
                             updated_at=_utc_now(),
@@ -357,7 +368,8 @@ async def start_playbook_execution(
                         pack_id=playbook_code,
                         task_type="playbook_execution",
                         status=TaskStatus.PENDING,
-                        queue_shard=runner_metadata.get("queue_shard") or "default",
+                        queue_shard=runner_metadata.get("queue_shard")
+                        or DEFAULT_LOCAL_QUEUE_PARTITION,
                         execution_context={
                             "playbook_code": playbook_code,
                             "playbook_name": playbook_name,

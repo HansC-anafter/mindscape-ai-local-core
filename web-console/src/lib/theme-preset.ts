@@ -22,7 +22,6 @@ export function getThemePreset(): ThemePreset {
 export function setThemePreset(preset: ThemePreset): void {
   if (typeof window === 'undefined') return
 
-  console.log('[Theme Preset] Setting preset to:', preset)
   localStorage.setItem(THEME_PRESET_KEY, preset)
 
   // Apply preset immediately
@@ -30,7 +29,6 @@ export function setThemePreset(preset: ThemePreset): void {
 
   // Dispatch custom event to notify other components
   window.dispatchEvent(new CustomEvent('theme-preset-changed', { detail: { preset } }))
-  console.log('[Theme Preset] Preset changed event dispatched')
 }
 
 /**
@@ -62,16 +60,4 @@ export function applyThemePreset(themeMode?: 'light' | 'dark'): void {
     // default preset doesn't need a class, uses :root styles
   }
 
-  // Console log for debugging
-  const appliedClass = html.classList.contains('theme-warm') ? 'theme-warm' : 'default'
-  const surfaceColor = getComputedStyle(html).getPropertyValue('--color-surface').trim()
-  console.log('[Theme Preset]', {
-    preset,
-    mode: isDark ? 'dark' : 'light',
-    themeModeProvided: themeMode !== undefined,
-    appliedClass,
-    surfaceColor,
-    htmlClasses: Array.from(html.classList),
-  })
 }
-

@@ -9,12 +9,12 @@ setup_device_node_systemd() {
   local dn_dir="$project_root/device-node"
 
   if [ ! -d "$dn_dir" ]; then
-    echo "  ⚠️  device-node directory not found, skipping"
+    echo "  WARNING: device-node directory not found, skipping"
     return 0
   fi
 
   if ! command -v node &>/dev/null; then
-    echo "  ⚠️  Node.js not found, skipping Device Node setup"
+    echo "  WARNING: Node.js not found, skipping Device Node setup"
     return 0
   fi
 
@@ -67,7 +67,7 @@ EOF
       echo "  ✓ Device Node started (systemd --user)"
       return 0
     else
-      echo "  ⚠️  systemd --user failed, falling back to nohup"
+      echo "  WARNING: systemd --user failed, falling back to nohup"
     fi
   fi
 
@@ -84,6 +84,34 @@ EOF
   if ps -p $pid > /dev/null 2>&1; then
     echo "  ✓ Device Node started (nohup, PID: $pid)"
   else
-    echo "  ⚠️  Device Node failed to start. See $dn_dir/logs/device-node.log"
+    echo "  WARNING: Device Node failed to start. See $dn_dir/logs/device-node.log"
+  fi
+}
+
+setup_cli_bridge_systemd() {
+  local project_root="${PROJECT_ROOT:-.}"
+  local install_script="$project_root/scripts/install-cli-bridge-linux.sh"
+  local service_name="ai.mindscape.cli-bridge"
+
+  if [ ! -f "$project_root/scripts/start_cli_bridge_supervisor.sh" ]; then
+    echo "  WARNING: CLI bridge supervisor not found, skipping"
+    return 0
+  fi
+
+  if command -v systemctl &>/dev/null && systemctl --user status &>/dev/null 2>&1; then
+    if systemctl --user is-active "$service_name" &>/dev/null; then
+      echo "  ✓ CLI Bridge started (systemd --user)"
+      return 0
+    fi
+  elif pgrep -f "start_cli_bridge_supervisor.sh" &>/dev/null; then
+    echo "  ✓ CLI Bridge already running (nohup)"
+    return 0
+  fi
+
+  if [ -f "$install_script" ]; then
+    echo "  Installing CLI Bridge service..."
+    bash "$install_script"
+  else
+    echo "  WARNING: CLI Bridge install script not found: $install_script"
   fi
 }

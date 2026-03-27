@@ -91,7 +91,7 @@ export const SettingsConfigAssistant = forwardRef<SettingsConfigAssistantHandle,
             suggestions.push(t('configAssistantToolsSuggestion1') || 'Connect external tools (WordPress, Google Drive, etc.)');
             suggestions.push(t('configAssistantToolsSuggestion2') || 'Manage tool connections and permissions');
             break;
-          case 'packs':
+          case 'packs_status':
             content = t('configAssistantPacksTab' as any) || 'You are on the Capability Packs page.';
             suggestions.push(t('configAssistantPacksSuggestion1') || 'Install capability suites (AI members + Playbooks)');
             suggestions.push(t('configAssistantPacksSuggestion2') || 'Install individual capability packages');
@@ -174,7 +174,7 @@ export const SettingsConfigAssistant = forwardRef<SettingsConfigAssistantHandle,
           }
           break;
 
-        case 'packs':
+        case 'packs_status':
           content = t('configAssistantPacksTab' as any) || 'You are on the Capability Packs page.';
           suggestions.push(t('configAssistantPacksSuggestion1') || 'Install capability suites (AI members + Playbooks)');
           suggestions.push(t('configAssistantPacksSuggestion2') || 'Install individual capability packages');
@@ -232,7 +232,7 @@ export const SettingsConfigAssistant = forwardRef<SettingsConfigAssistantHandle,
         content += `\n\n${t('configAssistantDetectedIssues' as any) || '⚠️ Detected issues'}: ${issues.join(', ')}`;
       }
 
-      if (actions.length === 0 && currentTab !== 'packs') {
+      if (actions.length === 0 && currentTab !== 'packs_status') {
         actions.push({
           label: t('viewAllSettings' as any) || 'View All Settings',
           action: 'navigate',

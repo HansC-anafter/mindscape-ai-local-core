@@ -5,9 +5,14 @@ from pathlib import Path
 import sys
 
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import httpx
+import pytest
 
-LOCAL_CORE_ROOT = Path("/Users/shock/Projects_local/workspace/mindscape-ai-local-core")
+LOCAL_CORE_ROOT = next(
+    parent
+    for parent in Path(__file__).resolve().parents
+    if parent.name == "mindscape-ai-local-core"
+)
 BACKEND_ROOT = LOCAL_CORE_ROOT / "backend"
 for candidate in (LOCAL_CORE_ROOT, BACKEND_ROOT):
     candidate_str = str(candidate)
@@ -165,10 +170,10 @@ def test_apply_storyboard_scene_patch_persists_new_storyboard_artifact(monkeypat
     )
 
 
-def test_pd_storyboard_scene_patch_route_calls_tool(monkeypatch):
+@pytest.mark.asyncio
+async def test_pd_storyboard_scene_patch_route_calls_tool(monkeypatch):
     app = FastAPI()
     app.include_router(pd_router, prefix="/api/v1/capabilities/performance_direction")
-    client = TestClient(app)
 
     async def _fake_apply_scene_patch(
         *, session_id, scene_id, storyboard_scene_patch, artifact_id=None
@@ -188,31 +193,36 @@ def test_pd_storyboard_scene_patch_route_calls_tool(monkeypatch):
         _fake_apply_scene_patch,
     )
 
-    response = client.post(
-        "/api/v1/capabilities/performance_direction/sessions/ds_demo/storyboard/scene-patch",
-        json={
-            "scene_id": "sc01",
-            "artifact_id": "da_storyboard_1",
-            "storyboard_scene_patch": {
-                "object_assets": [
-                    {
-                        "object_target_id": "prop_main",
-                        "object_instance_id": "obj_prop",
-                        "asset_ref": {"storage_key": "storage/prop.png"},
-                    }
-                ]
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/v1/capabilities/performance_direction/sessions/ds_demo/storyboard/scene-patch",
+            json={
+                "scene_id": "sc01",
+                "artifact_id": "da_storyboard_1",
+                "storyboard_scene_patch": {
+                    "object_assets": [
+                        {
+                            "object_target_id": "prop_main",
+                            "object_instance_id": "obj_prop",
+                            "asset_ref": {"storage_key": "storage/prop.png"},
+                        }
+                    ]
+                },
             },
-        },
-    )
+        )
 
     assert response.status_code == 200
     assert response.json()["artifact"]["artifact_id"] == "da_storyboard_2"
 
 
-def test_mms_apply_storyboard_scene_patch_route_returns_patched_storyboard(monkeypatch):
+@pytest.mark.asyncio
+async def test_mms_apply_storyboard_scene_patch_route_returns_patched_storyboard(monkeypatch):
     app = FastAPI()
     app.include_router(mms_router, prefix="/api/v1/capabilities/multi_media_studio")
-    client = TestClient(app)
 
     async def _fake_apply_storyboard_scene_patch(
         *,
@@ -244,23 +254,28 @@ def test_mms_apply_storyboard_scene_patch_route_returns_patched_storyboard(monke
         _fake_apply_storyboard_scene_patch,
     )
 
-    response = client.post(
-        "/api/v1/capabilities/multi_media_studio/production-runs/apply-storyboard-scene-patch",
-        json={
-            "storyboard": {"workspace_id": "ws_demo", "scenes": [{"scene_id": "sc01"}]},
-            "scene_id": "sc01",
-            "storyboard_scene_patch": {
-                "object_assets": [
-                    {
-                        "object_target_id": "prop_main",
-                        "object_instance_id": "obj_prop",
-                        "asset_ref": {"storage_key": "storage/prop.png"},
-                    }
-                ]
-            },
-        },
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
         headers={"X-Tenant-Id": "tenant_demo"},
-    )
+    ) as client:
+        response = await client.post(
+            "/api/v1/capabilities/multi_media_studio/production-runs/apply-storyboard-scene-patch",
+            json={
+                "storyboard": {"workspace_id": "ws_demo", "scenes": [{"scene_id": "sc01"}]},
+                "scene_id": "sc01",
+                "storyboard_scene_patch": {
+                    "object_assets": [
+                        {
+                            "object_target_id": "prop_main",
+                            "object_instance_id": "obj_prop",
+                            "asset_ref": {"storage_key": "storage/prop.png"},
+                        }
+                    ]
+                },
+            },
+        )
 
     assert response.status_code == 200
     payload = response.json()

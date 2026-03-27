@@ -13,7 +13,7 @@ import pytest
 from backend.app.models.signed_bundle import SignedHandoffBundle
 
 
-SECRET = "test-secret-key-32bytes-long!!"
+SIGNING_KEY_FIXTURE = "fixture-signing-key-32bytes!!"
 PAYLOAD = {
     "handoff_id": "h_001",
     "workspace_id": "ws_001",
@@ -30,9 +30,9 @@ class TestSignedBundleCreateVerify:
             payload_type="handoff_in",
             payload=PAYLOAD,
             source_device_id="device_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
-        assert bundle.verify(SECRET) is True
+        assert bundle.verify(SIGNING_KEY_FIXTURE) is True
         assert bundle.payload_type == "handoff_in"
         assert bundle.source_device_id == "device_A"
         assert bundle.content_hash
@@ -43,10 +43,10 @@ class TestSignedBundleCreateVerify:
             payload_type="handoff_in",
             payload=PAYLOAD,
             source_device_id="device_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
             target_device_id="device_B",
         )
-        assert bundle.verify(SECRET) is True
+        assert bundle.verify(SIGNING_KEY_FIXTURE) is True
         assert bundle.target_device_id == "device_B"
 
 
@@ -58,27 +58,27 @@ class TestSignedBundleTamperDetection:
             payload_type="handoff_in",
             payload=PAYLOAD,
             source_device_id="device_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
         bundle.payload["intent_summary"] = "TAMPERED"
-        assert bundle.verify(SECRET) is False
+        assert bundle.verify(SIGNING_KEY_FIXTURE) is False
 
     def test_tampered_payload_type_fails(self):
         bundle = SignedHandoffBundle.create(
             payload_type="handoff_in",
             payload=PAYLOAD,
             source_device_id="device_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
         bundle.payload_type = "commitment"
-        assert bundle.verify(SECRET) is False
+        assert bundle.verify(SIGNING_KEY_FIXTURE) is False
 
     def test_wrong_key_fails(self):
         bundle = SignedHandoffBundle.create(
             payload_type="handoff_in",
             payload=PAYLOAD,
             source_device_id="device_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
         assert bundle.verify("wrong-key") is False
 
@@ -91,14 +91,14 @@ class TestSignedBundleRoundtrip:
             payload_type="commitment",
             payload=PAYLOAD,
             source_device_id="device_B",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
             target_device_id="device_A",
         )
 
         json_str = bundle.model_dump_json()
         restored = SignedHandoffBundle.model_validate_json(json_str)
 
-        assert restored.verify(SECRET) is True
+        assert restored.verify(SIGNING_KEY_FIXTURE) is True
         assert restored.payload == PAYLOAD
         assert restored.source_device_id == "device_B"
         assert restored.target_device_id == "device_A"
@@ -108,10 +108,10 @@ class TestSignedBundleRoundtrip:
             payload_type="handoff_in",
             payload=PAYLOAD,
             source_device_id="device_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
 
         data = bundle.model_dump(mode="json")
         restored = SignedHandoffBundle(**data)
 
-        assert restored.verify(SECRET) is True
+        assert restored.verify(SIGNING_KEY_FIXTURE) is True

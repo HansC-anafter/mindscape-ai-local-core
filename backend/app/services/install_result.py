@@ -22,7 +22,8 @@ class InstallResult:
         "database_models": [],
         "migrations": [],
         "ui_components": [],
-        "root_files": []
+        "root_files": [],
+        "bundles": [],
     })
     warnings: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
@@ -97,7 +98,8 @@ class InstallResult:
                 "database_models": [],
                 "migrations": [],
                 "ui_components": [],
-                "root_files": []
+                "root_files": [],
+                "bundles": [],
             }),
             warnings=data.get("warnings", []),
             errors=data.get("errors", []),
@@ -108,5 +110,4 @@ class InstallResult:
             bootstrap=data.get("bootstrap", [])
         )
         return result
-
 

@@ -370,8 +370,19 @@ def _ensure_tool_capability_package(
     return tool_capability_dir
 
 
-def _preload_tool_models(capability_name: str) -> None:
+def _preload_tool_models(
+    capability_name: str,
+    preload_cache: Optional[Dict[str, str]] = None,
+) -> None:
     """Preload tool capability models and normalize `Plan` exposure when available."""
+    if preload_cache is not None and capability_name in preload_cache:
+        logger.debug(
+            "Skipping repeated preload for capabilities.%s.models (cached=%s)",
+            capability_name,
+            preload_cache[capability_name],
+        )
+        return
+
     models_module_path = f"capabilities.{capability_name}.models"
     logger.info(
         f"Pre-loading {models_module_path} for tool validation"
@@ -400,44 +411,22 @@ def _preload_tool_models(capability_name: str) -> None:
                 sys.modules[models_module_path].Plan = models_module.Plan
             if "Plan" not in models_module.__dict__:
                 models_module.Plan = models_module.Plan
+            if preload_cache is not None:
+                preload_cache[capability_name] = "plan_available"
         else:
-            logger.warning(f"Pre-loaded {models_module_path} but Plan is None")
             logger.debug(
-                "Module attributes: %s",
-                [
-                    attr
-                    for attr in dir(models_module)
-                    if not attr.startswith("_")
-                ][:10],
+                "Pre-loaded %s without Plan export; continuing tool validation",
+                models_module_path,
             )
+            if preload_cache is not None:
+                preload_cache[capability_name] = "no_plan"
     except Exception as exc:
         logger.warning(
             f"Preload capability models failed for {capability_name}: {exc}"
         )
         logger.debug("Capability model preload traceback", exc_info=True)
-
-    cached_module = sys.modules.get(models_module_path)
-    if cached_module is None:
-        return
-
-    logger.debug(
-        "Checking cached module state: Plan=%s",
-        "available"
-        if hasattr(cached_module, "Plan") and cached_module.Plan is not None
-        else "NOT available",
-    )
-    if hasattr(cached_module, "Plan") and cached_module.Plan is not None:
-        logger.info(f"Verified Plan is available in sys.modules['{models_module_path}']")
-        return
-
-    logger.warning("Plan not available in cached module, attempting to refresh it...")
-    try:
-        fresh_module = importlib.import_module(models_module_path)
-        if hasattr(fresh_module, "Plan") and fresh_module.Plan is not None:
-            sys.modules[models_module_path].Plan = fresh_module.Plan
-            logger.info("Set Plan from fresh import")
-    except Exception as exc:
-        logger.warning(f"Failed to set Plan from fresh import: {exc}")
+        if preload_cache is not None:
+            preload_cache[capability_name] = f"error:{type(exc).__name__}"
 
 
 def _ensure_importable_tool_parent(
@@ -548,6 +537,7 @@ def validate_tools_direct_call(
     capability_code: str,
     capabilities_dir: Path,
     specs_dir: Path,
+    tool_model_preload_cache: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[str], List[str]]:
     """Validate tool backends referenced by a playbook without executing them."""
     errors: List[str] = []
@@ -681,7 +671,10 @@ def validate_tools_direct_call(
                 elif module_path.startswith("app."):
                     module_path = "backend." + module_path
 
-                _preload_tool_models(capability_name)
+                _preload_tool_models(
+                    capability_name,
+                    preload_cache=tool_model_preload_cache,
+                )
                 logger.info(f"Importing tool file: {module_path}")
                 logger.debug(
                     f"sys.path before tool import: {sys.path[:5]}... (showing first 5)"

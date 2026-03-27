@@ -22,6 +22,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 
+def _slugify_runtime_code(value: Any) -> Optional[str]:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    normalized = "".join(ch if ch.isalnum() else "_" for ch in text)
+    normalized = "_".join(segment for segment in normalized.split("_") if segment)
+    return normalized or None
+
+
 def _get_capabilities_dir() -> Path:
     """Get the capabilities directory path."""
     return Path(__file__).parent.parent.parent / "capabilities"
@@ -96,7 +105,22 @@ def get_registered_runtime_codes(db: Session) -> List[str]:
     """
     try:
         runtimes = db.query(RuntimeEnvironment).all()
-        return [r.id for r in runtimes if r.id]
+        codes = set()
+        for runtime in runtimes:
+            metadata = runtime.extra_metadata or {}
+            for value in (
+                runtime.id,
+                _slugify_runtime_code(runtime.id),
+                runtime.name,
+                _slugify_runtime_code(runtime.name),
+                metadata.get("runtime_type"),
+                _slugify_runtime_code(metadata.get("runtime_type")),
+                metadata.get("capability_code"),
+                _slugify_runtime_code(metadata.get("capability_code")),
+            ):
+                if value:
+                    codes.add(value)
+        return list(codes)
     except Exception as e:
         logger.warning(f"Failed to get runtimes from DB: {e}")
         return []
@@ -243,11 +267,15 @@ async def get_settings_extensions(
                     "export": component.get("export", "default"),
                     "section": component_section,
                     "title": settings_config.get("title", component_code),
+                    "description": settings_config.get("description")
+                    or component.get("description"),
                     "order": settings_config.get("order", 100),
                     "requires_workspace_id": settings_config.get(
                         "requires_workspace_id", False
                     ),
+                    "display_mode": settings_config.get("display_mode"),
                     "show_when": show_when,
+                    "props_schema": settings_config.get("props_schema"),
                 }
 
                 extensions.append(extension)

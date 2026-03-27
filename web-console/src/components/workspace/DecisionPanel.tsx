@@ -5,6 +5,8 @@ import { useT } from '@/lib/i18n';
 import { List, AlertCircle, UserCheck, AtSign, Clock } from 'lucide-react';
 import PendingTasksPanel from '@/app/workspaces/components/PendingTasksPanel';
 import { DecisionCard, DecisionCardData } from './DecisionCard';
+import { GovernedMemoryPreview } from './governance/GovernedMemoryPreview';
+import { WorkflowEvidenceSummary } from './meeting/WorkflowEvidenceSummary';
 import {
   subscribeEventStream,
   eventToBlockerCard,
@@ -32,6 +34,7 @@ export interface IntentCard {
 interface DecisionPanelProps {
   workspaceId: string;
   apiUrl: string;
+  selectedThreadId?: string | null;
   onViewArtifact?: (artifact: any) => void;
   onSwitchToOutcomes?: () => void;
   workspace?: {
@@ -46,6 +49,7 @@ interface DecisionPanelProps {
 export function DecisionPanel({
   workspaceId,
   apiUrl,
+  selectedThreadId,
   onViewArtifact,
   onSwitchToOutcomes,
   workspace,
@@ -60,6 +64,19 @@ export function DecisionPanel({
   const [events, setEvents] = useState<UnifiedEvent[]>([]);
   const [filter, setFilter] = useState<'all' | 'blockers' | 'assigned-to-me' | 'mentioned-me' | 'waiting-on-others'>('all');
   const [showLegacyTasks, setShowLegacyTasks] = useState(false);
+  const [relatedMemoryId, setRelatedMemoryId] = useState<string | null>(null);
+  const [relatedMemoryLifecycleStatus, setRelatedMemoryLifecycleStatus] = useState<string | undefined>(undefined);
+  const [relatedMemoryVerificationStatus, setRelatedMemoryVerificationStatus] = useState<string | undefined>(undefined);
+  const [relatedMeetingSessionId, setRelatedMeetingSessionId] = useState<string | null>(null);
+  const [relatedWorkflowEvidenceProfile, setRelatedWorkflowEvidenceProfile] = useState<string | undefined>(undefined);
+  const [relatedWorkflowEvidenceScope, setRelatedWorkflowEvidenceScope] = useState<string | undefined>(undefined);
+  const [relatedWorkflowEvidenceSelectedLines, setRelatedWorkflowEvidenceSelectedLines] = useState<number | undefined>(undefined);
+  const [relatedWorkflowEvidenceTotalBudget, setRelatedWorkflowEvidenceTotalBudget] = useState<number | undefined>(undefined);
+  const [relatedWorkflowEvidenceTotalCandidates, setRelatedWorkflowEvidenceTotalCandidates] = useState<number | undefined>(undefined);
+  const [relatedWorkflowEvidenceTotalDropped, setRelatedWorkflowEvidenceTotalDropped] = useState<number | undefined>(undefined);
+  const [relatedWorkflowEvidenceRenderedSections, setRelatedWorkflowEvidenceRenderedSections] = useState<number | undefined>(undefined);
+  const [relatedWorkflowEvidenceUtilizationRatio, setRelatedWorkflowEvidenceUtilizationRatio] = useState<number | undefined>(undefined);
+  const [relatedMemoryLoading, setRelatedMemoryLoading] = useState(false);
   const [inputDialog, setInputDialog] = useState<{
     title: string;
     fields: Array<{ key: string; label: string; type?: 'text' | 'textarea' | 'file'; required?: boolean; placeholder?: string }>;
@@ -235,7 +252,7 @@ export function DecisionPanel({
       workspaceId,
       {
         apiUrl,
-        eventTypes: ['decision_required', 'branch_proposed', 'run_state_changed', 'artifact_created'],
+        eventTypes: ['decision_required', 'branch_proposed', 'run_state_changed', 'artifact_created', 'meeting_start'],
         onEvent: (event: UnifiedEvent) => {
           setEvents(prev => {
             if (prev.find(e => e.id === event.id)) {
@@ -243,6 +260,22 @@ export function DecisionPanel({
             }
             return [...prev, event];
           });
+
+          if (
+            event.type === 'meeting_start' &&
+            selectedThreadId &&
+            event.thread_id === selectedThreadId
+          ) {
+            setRelatedMeetingSessionId(event.payload.meeting_session_id || null);
+            setRelatedWorkflowEvidenceProfile(event.payload.workflow_evidence_profile);
+            setRelatedWorkflowEvidenceScope(event.payload.workflow_evidence_scope);
+            setRelatedWorkflowEvidenceSelectedLines(event.payload.workflow_evidence_selected_line_count);
+            setRelatedWorkflowEvidenceTotalBudget(event.payload.workflow_evidence_total_line_budget);
+            setRelatedWorkflowEvidenceTotalCandidates(event.payload.workflow_evidence_total_candidate_count);
+            setRelatedWorkflowEvidenceTotalDropped(event.payload.workflow_evidence_total_dropped_count);
+            setRelatedWorkflowEvidenceRenderedSections(event.payload.workflow_evidence_rendered_section_count);
+            setRelatedWorkflowEvidenceUtilizationRatio(event.payload.workflow_evidence_budget_utilization_ratio);
+          }
 
           if (event.type === 'decision_required' || event.type === 'branch_proposed') {
             const card = eventToBlockerCard(event);
@@ -316,7 +349,92 @@ export function DecisionPanel({
       window.removeEventListener('decision-card-action', handleCardAction);
       window.removeEventListener('branch-selection', handleBranchSelection);
     };
-  }, [workspaceId, handleDecisionCardAction]);
+  }, [apiUrl, workspaceId, handleDecisionCardAction, selectedThreadId]);
+
+  useEffect(() => {
+    if (!selectedThreadId) {
+      setRelatedMemoryId(null);
+      setRelatedMemoryLifecycleStatus(undefined);
+      setRelatedMemoryVerificationStatus(undefined);
+      setRelatedMeetingSessionId(null);
+      setRelatedWorkflowEvidenceProfile(undefined);
+      setRelatedWorkflowEvidenceScope(undefined);
+      setRelatedWorkflowEvidenceSelectedLines(undefined);
+      setRelatedWorkflowEvidenceTotalBudget(undefined);
+      setRelatedWorkflowEvidenceTotalCandidates(undefined);
+      setRelatedWorkflowEvidenceTotalDropped(undefined);
+      setRelatedWorkflowEvidenceRenderedSections(undefined);
+      setRelatedWorkflowEvidenceUtilizationRatio(undefined);
+      setRelatedMemoryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadRelatedMemory = async () => {
+      try {
+        setRelatedMemoryLoading(true);
+        const params = new URLSearchParams();
+        params.set('event_types', 'memory_writeback,meeting_start');
+        params.set('thread_id', selectedThreadId);
+        params.set('limit', '10');
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/events?${params.toString()}`
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to load related governed memory: ${response.status}`);
+        }
+        const data = await response.json();
+        const latestMeetingStartEvent = (data.events || []).find(
+          (event: any) => event?.type === 'meeting_start'
+        );
+        const latestMemoryEvent = (data.events || []).find(
+          (event: any) => typeof event?.payload?.memory_item_id === 'string' && event.payload.memory_item_id
+        );
+
+        if (!cancelled) {
+          setRelatedMeetingSessionId(latestMeetingStartEvent?.payload?.meeting_session_id || null);
+          setRelatedWorkflowEvidenceProfile(latestMeetingStartEvent?.payload?.workflow_evidence_profile);
+          setRelatedWorkflowEvidenceScope(latestMeetingStartEvent?.payload?.workflow_evidence_scope);
+          setRelatedWorkflowEvidenceSelectedLines(latestMeetingStartEvent?.payload?.workflow_evidence_selected_line_count);
+          setRelatedWorkflowEvidenceTotalBudget(latestMeetingStartEvent?.payload?.workflow_evidence_total_line_budget);
+          setRelatedWorkflowEvidenceTotalCandidates(latestMeetingStartEvent?.payload?.workflow_evidence_total_candidate_count);
+          setRelatedWorkflowEvidenceTotalDropped(latestMeetingStartEvent?.payload?.workflow_evidence_total_dropped_count);
+          setRelatedWorkflowEvidenceRenderedSections(latestMeetingStartEvent?.payload?.workflow_evidence_rendered_section_count);
+          setRelatedWorkflowEvidenceUtilizationRatio(latestMeetingStartEvent?.payload?.workflow_evidence_budget_utilization_ratio);
+          setRelatedMemoryId(latestMemoryEvent?.payload?.memory_item_id || null);
+          setRelatedMemoryLifecycleStatus(latestMemoryEvent?.payload?.lifecycle_status);
+          setRelatedMemoryVerificationStatus(latestMemoryEvent?.payload?.verification_status);
+        }
+      } catch (err) {
+        console.error('Failed to load related governed memory for decision panel:', err);
+        if (!cancelled) {
+          setRelatedMeetingSessionId(null);
+          setRelatedWorkflowEvidenceProfile(undefined);
+          setRelatedWorkflowEvidenceScope(undefined);
+          setRelatedWorkflowEvidenceSelectedLines(undefined);
+          setRelatedWorkflowEvidenceTotalBudget(undefined);
+          setRelatedWorkflowEvidenceTotalCandidates(undefined);
+          setRelatedWorkflowEvidenceTotalDropped(undefined);
+          setRelatedWorkflowEvidenceRenderedSections(undefined);
+          setRelatedWorkflowEvidenceUtilizationRatio(undefined);
+          setRelatedMemoryId(null);
+          setRelatedMemoryLifecycleStatus(undefined);
+          setRelatedMemoryVerificationStatus(undefined);
+        }
+      } finally {
+        if (!cancelled) {
+          setRelatedMemoryLoading(false);
+        }
+      }
+    };
+
+    void loadRelatedMemory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, selectedThreadId, workspaceId]);
 
   useEffect(() => {
     const loadInitialEvents = async () => {
@@ -512,6 +630,43 @@ export function DecisionPanel({
 
       {/* Decision Content */}
       <div className="flex-1 overflow-y-auto min-h-0 p-3 space-y-3">
+        {relatedMemoryLoading && !relatedMemoryId ? (
+          <div className="rounded border border-default dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 px-3 py-2 text-sm text-secondary dark:text-gray-300">
+            Loading governed memory detail...
+          </div>
+        ) : null}
+
+        {relatedWorkflowEvidenceProfile && (
+          <WorkflowEvidenceSummary
+            label="Workflow Evidence"
+            profile={relatedWorkflowEvidenceProfile}
+            scope={relatedWorkflowEvidenceScope}
+            selectedLineCount={relatedWorkflowEvidenceSelectedLines}
+            totalLineBudget={relatedWorkflowEvidenceTotalBudget}
+            totalCandidateCount={relatedWorkflowEvidenceTotalCandidates}
+            totalDroppedCount={relatedWorkflowEvidenceTotalDropped}
+            renderedSectionCount={relatedWorkflowEvidenceRenderedSections}
+            budgetUtilizationRatio={relatedWorkflowEvidenceUtilizationRatio}
+            href={`/workspaces/${workspaceId}/meetings?${new URLSearchParams(
+              relatedMeetingSessionId
+                ? { session_id: relatedMeetingSessionId }
+                : {}
+            ).toString()}`}
+            compact
+          />
+        )}
+
+        {relatedMemoryId && (
+          <GovernedMemoryPreview
+            workspaceId={workspaceId}
+            memoryItemId={relatedMemoryId}
+            apiUrl={apiUrl}
+            lifecycleStatus={relatedMemoryLifecycleStatus}
+            verificationStatus={relatedMemoryVerificationStatus}
+            compact
+          />
+        )}
+
         {/* Unified Decision Cards (from event stream) */}
         {filteredDecisionCards.length > 0 ? (
           <div className="space-y-3">
@@ -770,4 +925,3 @@ function IntentCardItem({
     </div>
   );
 }
-

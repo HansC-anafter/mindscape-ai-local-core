@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.mindscape.cli-bridge</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__BASH_BIN__</string>
+        <string>__PROJECT_DIR__/scripts/start_cli_bridge_supervisor.sh</string>
+        <string>--all</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_DIR__</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__PROJECT_DIR__/logs/cli-bridge.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__PROJECT_DIR__/logs/cli-bridge.error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>__HOME__</string>
+        <key>PATH</key>
+        <string>__PATH__</string>
+        <key>MINDSCAPE_WORKSPACE_ROOT</key>
+        <string>__PROJECT_DIR__</string>
+        <key>MINDSCAPE_WS_HOST</key>
+        <string>localhost:8200</string>
+        <key>MINDSCAPE_BRIDGE_SURFACES</key>
+        <string>gemini_cli,codex_cli,claude_code_cli</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

@@ -225,16 +225,30 @@ class TaskResultLandingService:
 
         # --- DB: Create Artifact record (idempotent by execution_id) ---
         artifact_id = None
+        landed_at = _utc_now()
+        landing_metadata = self._build_landing_metadata(
+            artifact_dir=artifact_dir_str,
+            result_json_path=result_json_path_str,
+            summary_md_path=summary_md_path_str,
+            attachments=written_attachments,
+            landed_at=landed_at,
+        )
         try:
             existing = self._artifacts_store.get_by_execution_id(execution_id)
             if existing:
-                # Update storage_ref if we now have it
+                updated_metadata = self._merge_artifact_metadata(
+                    existing_metadata=getattr(existing, "metadata", None),
+                    project_id=project_id,
+                    has_attachments=len(written_attachments) > 0,
+                    landing_metadata=landing_metadata,
+                )
+                update_kwargs = {
+                    "summary": summary[:2000] if summary else existing.summary,
+                    "metadata": updated_metadata,
+                }
                 if artifact_dir_str:
-                    self._artifacts_store.update_artifact(
-                        existing.id,
-                        storage_ref=artifact_dir_str,
-                        summary=summary[:2000] if summary else existing.summary,
-                    )
+                    update_kwargs["storage_ref"] = artifact_dir_str
+                self._artifacts_store.update_artifact(existing.id, **update_kwargs)
                 artifact_id = existing.id
                 logger.info("Artifact already exists id=%s, updated", artifact_id)
             else:
@@ -252,11 +266,12 @@ class TaskResultLandingService:
                     content={"output": summary[:500]} if summary else {},
                     storage_ref=artifact_dir_str or None,
                     primary_action_type=PrimaryActionType.DOWNLOAD,
-                    metadata={
-                        "project_id": project_id,
-                        "source": "task_runner",
-                        "has_attachments": len(written_attachments) > 0,
-                    },
+                    metadata=self._merge_artifact_metadata(
+                        existing_metadata=None,
+                        project_id=project_id,
+                        has_attachments=len(written_attachments) > 0,
+                        landing_metadata=landing_metadata,
+                    ),
                 )
                 self._artifacts_store.create_artifact(artifact)
                 logger.info("Artifact created id=%s exec=%s", artifact_id, execution_id)
@@ -266,16 +281,24 @@ class TaskResultLandingService:
         # --- DB: Update Task status ---
         if task_id:
             try:
+                existing_task_result = (
+                    dict(getattr(task, "result", {}) or {})
+                    if isinstance(getattr(task, "result", None), dict)
+                    else {}
+                )
                 self._tasks_store.update_task_status(
                     task_id=task_id,
                     status=TaskStatus.SUCCEEDED,
-                    result={
-                        "summary": summary[:500],
-                        "storage_ref": artifact_dir_str or None,
-                        "execution_id": execution_id,
-                        "artifact_id": artifact_id,
-                    },
-                    completed_at=_utc_now(),
+                    result=self._build_task_result_payload(
+                        existing_result=existing_task_result,
+                        incoming_result=result_data,
+                        summary=summary[:500],
+                        storage_ref=artifact_dir_str or None,
+                        execution_id=execution_id,
+                        artifact_id=artifact_id,
+                        landing_metadata=landing_metadata,
+                    ),
+                    completed_at=landed_at,
                 )
                 logger.info("Task updated id=%s status=succeeded", task_id)
             except Exception:
@@ -352,6 +375,72 @@ class TaskResultLandingService:
         # Fallback: status
         status = result_data.get("status")
         return str(status) if status else ""
+
+    @staticmethod
+    def _build_landing_metadata(
+        *,
+        artifact_dir: str,
+        result_json_path: str,
+        summary_md_path: str,
+        attachments: List[str],
+        landed_at: datetime,
+    ) -> Dict[str, Any]:
+        if not artifact_dir and not result_json_path and not summary_md_path and not attachments:
+            return {}
+        return {
+            "artifact_dir": artifact_dir or None,
+            "result_json_path": result_json_path or None,
+            "summary_md_path": summary_md_path or None,
+            "attachments": list(attachments or []),
+            "attachments_count": len(attachments or []),
+            "landed_at": landed_at.isoformat(),
+        }
+
+    @staticmethod
+    def _merge_artifact_metadata(
+        *,
+        existing_metadata: Optional[Dict[str, Any]],
+        project_id: Optional[str],
+        has_attachments: bool,
+        landing_metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        metadata = dict(existing_metadata or {})
+        metadata["source"] = metadata.get("source") or "task_runner"
+        if project_id is not None:
+            metadata["project_id"] = project_id
+        metadata["has_attachments"] = has_attachments or bool(
+            metadata.get("has_attachments")
+        )
+        if landing_metadata:
+            metadata["landing"] = landing_metadata
+        return metadata
+
+    @staticmethod
+    def _build_task_result_payload(
+        *,
+        existing_result: Dict[str, Any],
+        incoming_result: Dict[str, Any],
+        summary: str,
+        storage_ref: Optional[str],
+        execution_id: str,
+        artifact_id: Optional[str],
+        landing_metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        result_payload = dict(existing_result or {})
+        result_payload.update(
+            {
+                "summary": summary,
+                "storage_ref": storage_ref,
+                "execution_id": execution_id,
+                "artifact_id": artifact_id,
+            }
+        )
+        execution_trace = incoming_result.get("execution_trace")
+        if isinstance(execution_trace, dict) and execution_trace:
+            result_payload["execution_trace"] = execution_trace
+        if landing_metadata:
+            result_payload["landing"] = landing_metadata
+        return result_payload
 
     def get_landed_result(
         self,

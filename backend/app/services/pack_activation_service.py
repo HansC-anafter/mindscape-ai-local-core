@@ -215,6 +215,79 @@ class PackActivationService:
         )
         return self.store.upsert_state(**record.to_store_payload())
 
+    def record_validation_pending(
+        self,
+        *,
+        pack_id: str,
+        manifest: Optional[Dict[str, Any]],
+        manifest_path: Optional[Path] = None,
+    ) -> Optional[Dict[str, Any]]:
+        existing = self.store.get_state(pack_id)
+        if existing is None:
+            return None
+        record = self._build_runtime_record(
+            pack_id=pack_id,
+            manifest=manifest,
+            existing=existing,
+            activation_state=existing.get("activation_state", "pending_activation"),
+            activation_mode=existing.get("activation_mode", "unknown"),
+            manifest_path=manifest_path,
+            registered_prefixes=existing.get("registered_prefixes"),
+            last_error=None,
+            activated_at=self._coerce_dt(existing.get("activated_at")),
+        )
+        record.install_state = "validation_pending"
+        return self.store.upsert_state(**record.to_store_payload())
+
+    def record_validation_succeeded(
+        self,
+        *,
+        pack_id: str,
+        manifest: Optional[Dict[str, Any]],
+        manifest_path: Optional[Path] = None,
+    ) -> Optional[Dict[str, Any]]:
+        existing = self.store.get_state(pack_id)
+        if existing is None:
+            return None
+        record = self._build_runtime_record(
+            pack_id=pack_id,
+            manifest=manifest,
+            existing=existing,
+            activation_state=existing.get("activation_state", "pending_activation"),
+            activation_mode=existing.get("activation_mode", "unknown"),
+            manifest_path=manifest_path,
+            registered_prefixes=existing.get("registered_prefixes"),
+            last_error=None,
+            activated_at=self._coerce_dt(existing.get("activated_at")),
+        )
+        record.install_state = "installed"
+        return self.store.upsert_state(**record.to_store_payload())
+
+    def record_validation_failed(
+        self,
+        *,
+        pack_id: str,
+        manifest: Optional[Dict[str, Any]],
+        error: str,
+        manifest_path: Optional[Path] = None,
+    ) -> Optional[Dict[str, Any]]:
+        existing = self.store.get_state(pack_id)
+        if existing is None:
+            return None
+        record = self._build_runtime_record(
+            pack_id=pack_id,
+            manifest=manifest,
+            existing=existing,
+            activation_state=existing.get("activation_state", "pending_activation"),
+            activation_mode=existing.get("activation_mode", "unknown"),
+            manifest_path=manifest_path,
+            registered_prefixes=existing.get("registered_prefixes"),
+            last_error=error,
+            activated_at=self._coerce_dt(existing.get("activated_at")),
+        )
+        record.install_state = "validation_failed"
+        return self.store.upsert_state(**record.to_store_payload())
+
     def record_embedding_succeeded(
         self,
         *,
@@ -419,6 +492,11 @@ class PackActivationService:
         prefixes: List[str] = []
         manifest = manifest or {}
         prefixes.extend(self._normalize_values(manifest.get("routes")))
+        apis = manifest.get("apis")
+        if isinstance(apis, list):
+            for api_def in apis:
+                if isinstance(api_def, dict):
+                    prefixes.extend(self._normalize_values(api_def.get("prefix")))
         if install_result:
             prefixes.extend(
                 self._normalize_values(install_result.installed.get("api_endpoints"))

@@ -716,6 +716,8 @@ The **Device Node** is a lightweight sidecar that runs alongside the backend and
 
 The Device Node is automatically started by the one-line installer and the startup scripts (`scripts/start.sh` on macOS/Linux via launchd/systemd, `scripts/start.ps1` on Windows via NSSM service). On macOS it runs as a launchd agent; on Linux it uses systemd `--user` with nohup fallback; on Windows it installs as an NSSM service.
 
+The shared CLI Bridge is also service-managed across platforms: launchd on macOS, systemd `--user` on Linux, and an NSSM-managed PowerShell supervisor on Windows. The supervisor keeps the per-surface bridge watchers (`gemini_cli`, `codex_cli`, `claude_code_cli`) alive and restarts them on failure.
+
 ---
 
 ### 2025-12 system evolution note

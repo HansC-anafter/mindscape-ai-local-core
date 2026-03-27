@@ -22,7 +22,7 @@ from backend.app.models.handoff import (
 from backend.app.models.signed_bundle import SignedHandoffBundle
 from backend.app.services.handoff_bundle_service import HandoffBundleService
 
-SECRET = "test-service-secret-key-32bytes!"
+SIGNING_KEY_FIXTURE = "fixture-service-signing-key-32!"
 
 
 class TestPackageHandoffIn:
@@ -40,7 +40,7 @@ class TestPackageHandoffIn:
         bundle = svc.package_handoff(
             handoff_in=handoff,
             source_device_id="dev_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
             target_device_id="dev_B",
         )
 
@@ -48,7 +48,7 @@ class TestPackageHandoffIn:
         assert bundle.payload_type == "handoff_in"
         assert bundle.source_device_id == "dev_A"
         assert bundle.target_device_id == "dev_B"
-        assert bundle.verify(SECRET) is True
+        assert bundle.verify(SIGNING_KEY_FIXTURE) is True
 
     def test_payload_contains_handoff_fields(self):
         handoff = HandoffIn(
@@ -61,7 +61,7 @@ class TestPackageHandoffIn:
         bundle = svc.package_handoff(
             handoff_in=handoff,
             source_device_id="dev_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
 
         assert bundle.payload["handoff_id"] == "h_svc_002"
@@ -83,11 +83,11 @@ class TestPackageCommitment:
         bundle = svc.package_commitment(
             commitment=commitment,
             source_device_id="dev_B",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
 
         assert bundle.payload_type == "commitment"
-        assert bundle.verify(SECRET) is True
+        assert bundle.verify(SIGNING_KEY_FIXTURE) is True
         assert bundle.payload["accepted"] is True
 
 
@@ -104,9 +104,9 @@ class TestVerifyBundle:
         bundle = svc.package_handoff(
             handoff_in=handoff,
             source_device_id="dev_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
-        assert svc.verify_bundle(bundle, secret_key=SECRET) is True
+        assert svc.verify_bundle(bundle, secret_key=SIGNING_KEY_FIXTURE) is True
 
     def test_verify_tampered_fails(self):
         handoff = HandoffIn(
@@ -118,10 +118,10 @@ class TestVerifyBundle:
         bundle = svc.package_handoff(
             handoff_in=handoff,
             source_device_id="dev_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
         bundle.payload["intent_summary"] = "TAMPERED"
-        assert svc.verify_bundle(bundle, secret_key=SECRET) is False
+        assert svc.verify_bundle(bundle, secret_key=SIGNING_KEY_FIXTURE) is False
 
 
 class TestExtractPayload:
@@ -138,10 +138,10 @@ class TestExtractPayload:
         bundle = svc.package_handoff(
             handoff_in=handoff,
             source_device_id="dev_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
 
-        result = svc.extract_payload(bundle, secret_key=SECRET)
+        result = svc.extract_payload(bundle, secret_key=SIGNING_KEY_FIXTURE)
         assert result["payload_type"] == "handoff_in"
         extracted = result["payload"]
         assert isinstance(extracted, HandoffIn)
@@ -160,10 +160,10 @@ class TestExtractPayload:
         bundle = svc.package_commitment(
             commitment=commitment,
             source_device_id="dev_B",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
 
-        result = svc.extract_payload(bundle, secret_key=SECRET)
+        result = svc.extract_payload(bundle, secret_key=SIGNING_KEY_FIXTURE)
         assert result["payload_type"] == "commitment"
         extracted = result["payload"]
         assert isinstance(extracted, Commitment)
@@ -179,12 +179,12 @@ class TestExtractPayload:
         bundle = svc.package_handoff(
             handoff_in=handoff,
             source_device_id="dev_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
         bundle.payload["intent_summary"] = "TAMPERED"
 
         with pytest.raises(ValueError, match="verification failed"):
-            svc.extract_payload(bundle, secret_key=SECRET)
+            svc.extract_payload(bundle, secret_key=SIGNING_KEY_FIXTURE)
 
     def test_extract_wrong_key_rejected(self):
         handoff = HandoffIn(
@@ -196,7 +196,7 @@ class TestExtractPayload:
         bundle = svc.package_handoff(
             handoff_in=handoff,
             source_device_id="dev_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
 
         with pytest.raises(ValueError, match="verification failed"):
@@ -207,7 +207,7 @@ class TestSecretKeyResolution:
     """Test secret key from env var fallback."""
 
     def test_env_var_fallback(self, monkeypatch):
-        monkeypatch.setenv("HANDOFF_BUNDLE_SECRET", "env-secret-key-123456")
+        monkeypatch.setenv("HANDOFF_BUNDLE_SECRET", "fixture-bundle-key-123456")
         handoff = HandoffIn(
             handoff_id="h_env_001",
             workspace_id="ws_001",
@@ -218,7 +218,7 @@ class TestSecretKeyResolution:
             handoff_in=handoff,
             source_device_id="dev_A",
         )
-        assert bundle.verify("env-secret-key-123456") is True
+        assert bundle.verify("fixture-bundle-key-123456") is True
 
     def test_no_secret_raises(self, monkeypatch):
         monkeypatch.delenv("HANDOFF_BUNDLE_SECRET", raising=False)
@@ -250,7 +250,7 @@ class TestIntakeAndCompileValidation:
         bundle = svc.package_handoff(
             handoff_in=handoff,
             source_device_id="dev_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
         bundle.payload["intent_summary"] = "TAMPERED"
 
@@ -262,7 +262,7 @@ class TestIntakeAndCompileValidation:
                 profile_id="test",
                 thread_id="t1",
                 project_id="p1",
-                secret_key=SECRET,
+                secret_key=SIGNING_KEY_FIXTURE,
             )
 
     @pytest.mark.asyncio
@@ -277,7 +277,7 @@ class TestIntakeAndCompileValidation:
         bundle = svc.package_commitment(
             commitment=commitment,
             source_device_id="dev_B",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
 
         with pytest.raises(ValueError, match="requires handoff_in bundle"):
@@ -288,7 +288,7 @@ class TestIntakeAndCompileValidation:
                 profile_id="test",
                 thread_id="t1",
                 project_id="p1",
-                secret_key=SECRET,
+                secret_key=SIGNING_KEY_FIXTURE,
             )
 
     @pytest.mark.asyncio
@@ -303,7 +303,7 @@ class TestIntakeAndCompileValidation:
         bundle = svc.package_handoff(
             handoff_in=handoff,
             source_device_id="dev_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
 
         with pytest.raises(ValueError, match="verification failed"):
@@ -356,7 +356,7 @@ class TestCompileHappyPath:
         return svc.package_handoff(
             handoff_in=handoff,
             source_device_id="dev_A",
-            secret_key=SECRET,
+            secret_key=SIGNING_KEY_FIXTURE,
         )
 
     @pytest.mark.asyncio
@@ -422,12 +422,15 @@ class TestCompileHappyPath:
             "backend.app.services.stores.postgres.task_ir_store"
         )
         mod_pg_ir.PostgresTaskIRStore = mock_ir_store_cls
+        mod_mindscape_store = types.ModuleType("backend.app.services.mindscape_store")
+        mod_mindscape_store.MindscapeStore = MagicMock(return_value=MagicMock())
 
         target_modules = {
             "backend.app.services.orchestration.meeting": mod_meeting,
             "backend.app.services.stores.meeting_session_store": mod_session_store,
             "backend.app.models.meeting_session": mod_meeting_session,
             "backend.app.services.stores.postgres.task_ir_store": mod_pg_ir,
+            "backend.app.services.mindscape_store": mod_mindscape_store,
         }
 
         saved = {k: sys.modules.get(k) for k in target_modules}
@@ -441,7 +444,7 @@ class TestCompileHappyPath:
                 profile_id="test-user",
                 thread_id="t1",
                 project_id="p1",
-                secret_key=SECRET,
+                secret_key=SIGNING_KEY_FIXTURE,
             )
         finally:
             for k, v in saved.items():
@@ -497,10 +500,13 @@ class TestCompileHappyPath:
         mod_session_store.MeetingSessionStore = MagicMock(
             return_value=mock_session_store
         )
+        mod_mindscape_store = types.ModuleType("backend.app.services.mindscape_store")
+        mod_mindscape_store.MindscapeStore = MagicMock(return_value=MagicMock())
 
         target_modules = {
             "backend.app.services.orchestration.meeting": mod_meeting,
             "backend.app.services.stores.meeting_session_store": mod_session_store,
+            "backend.app.services.mindscape_store": mod_mindscape_store,
         }
 
         saved = {k: sys.modules.get(k) for k in target_modules}
@@ -514,7 +520,7 @@ class TestCompileHappyPath:
                 profile_id="test-user",
                 thread_id="t1",
                 project_id="p1",
-                secret_key=SECRET,
+                secret_key=SIGNING_KEY_FIXTURE,
             )
         finally:
             for k, v in saved.items():

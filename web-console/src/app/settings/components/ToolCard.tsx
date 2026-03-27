@@ -52,7 +52,6 @@ export function ToolCard({
         .get<PlaybookInfo[]>(`/api/v1/playbooks?uses_tool=${toolType}&scope=all`, { silent: true })
         .then((data) => {
           const count = Array.isArray(data) ? data.length : 0;
-          console.log(`[ToolCard] Loaded playbook count for ${toolType}:`, count, data);
           setPlaybookCount(count);
           hasLoadedRef.current = true;
         })

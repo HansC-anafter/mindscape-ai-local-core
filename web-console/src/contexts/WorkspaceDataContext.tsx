@@ -178,22 +178,18 @@ export function WorkspaceDataProvider({
   // Load workspace data with timeout
   const loadWorkspace = useCallback(async () => {
     const tabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    console.log(`[WorkspaceDataContext:${tabId}] loadWorkspace called for ${workspaceId}`);
 
     // Skip loading for 'new' workspace (wizard mode)
     if (workspaceId === 'new') {
-      console.log(`[WorkspaceDataContext:${tabId}] Skipping - workspaceId is 'new' (wizard mode)`);
       setIsLoadingWorkspace(false);
       return;
     }
 
     if (loadingWorkspaceRef.current) {
-      console.log(`[WorkspaceDataContext:${tabId}] Skipping - already loading (ref=${loadingWorkspaceRef.current})`);
       return;
     }
 
     if (!mountedRef.current) {
-      console.log(`[WorkspaceDataContext:${tabId}] Skipping - unmounted`);
       return;
     }
 
@@ -211,12 +207,10 @@ export function WorkspaceDataProvider({
     abortControllerRef.current = controller;
 
     const timeoutId = setTimeout(() => {
-      console.log(`[WorkspaceDataContext:${tabId}] Request timeout after 30s`);
       controller.abort();
     }, 30000); // 30 second timeout (backend may be under heavy load)
 
     try {
-      console.log(`[WorkspaceDataContext:${tabId}] Starting fetch for workspace ${workspaceId}`);
       const startTime = Date.now();
 
       // Use a unique request ID to avoid browser request deduplication
@@ -227,30 +221,12 @@ export function WorkspaceDataProvider({
       const apiUrl = getApiBaseUrl();
       const url = `${apiUrl}/api/v1/workspaces/${workspaceId}?t=${requestId}`;
 
-      console.log(`[WorkspaceDataContext:${tabId}] Fetch URL: ${url}`);
-
-      // Monitor request progress
-      const progressCheck = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        // Log every 2 seconds after 5 seconds
-        if (elapsed > 5000 && elapsed % 2000 < 100) {
-          console.warn(`[WorkspaceDataContext:${tabId}] Fetch still pending after ${elapsed}ms - URL: ${url}`);
-          // Check if controller is aborted
-          if (controller.signal.aborted) {
-            console.error(`[WorkspaceDataContext:${tabId}] Request was aborted!`);
-          }
-        }
-      }, 1000);
-
       let response: Response;
       try {
         // Configure request timeout protection
         // Use a shorter timeout to fail fast if there's a network issue
         // Fetch with minimal config to avoid CORS preflight
         // Use same-origin mode since frontend and backend are on different ports
-        // Log fetch attempt for debugging
-        console.log(`[WorkspaceDataContext:${tabId}] Attempting fetch to: ${url}`);
-
         const fetchPromise = fetch(url, {
           method: 'GET',
           signal: controller.signal,
@@ -264,18 +240,13 @@ export function WorkspaceDataProvider({
 
         // Execute fetch request
         response = await fetchPromise;
-        clearInterval(progressCheck);
       } catch (fetchErr: any) {
-        clearInterval(progressCheck);
         // If it's a timeout or abort, provide clearer error message
         if (fetchErr.name === 'AbortError' || fetchErr.message?.includes('timeout')) {
           throw new Error('Request timeout - backend may be unreachable or slow to respond');
         }
         throw fetchErr;
       }
-
-      const fetchTime = Date.now() - startTime;
-      console.log(`[WorkspaceDataContext:${tabId}] Fetch completed in ${fetchTime}ms, status: ${response.status}`);
 
       clearTimeout(timeoutId);
 
@@ -287,7 +258,6 @@ export function WorkspaceDataProvider({
       }
 
       const data = await response.json();
-      console.log(`[WorkspaceDataContext:${tabId}] Parsed response, workspace id: ${data?.id}`);
 
       if (mountedRef.current) {
         if (!data || !data.id) {
@@ -296,12 +266,9 @@ export function WorkspaceDataProvider({
           setError('Workspace not found or invalid');
           setWorkspace(null);
         } else {
-          console.log(`[WorkspaceDataContext:${tabId}] Successfully loaded workspace ${workspaceId}`);
           setWorkspace(data);
           setError(null);
         }
-      } else {
-        console.log(`[WorkspaceDataContext:${tabId}] Component unmounted, skipping state update`);
       }
     } catch (err: any) {
       clearTimeout(timeoutId);
@@ -323,7 +290,6 @@ export function WorkspaceDataProvider({
       }
     } finally {
       loadingWorkspaceRef.current = false;
-      console.log(`[WorkspaceDataContext:${tabId}] loadWorkspace completed, ref cleared`);
       if (mountedRef.current) {
         setIsLoadingWorkspace(false);
       }
@@ -334,7 +300,6 @@ export function WorkspaceDataProvider({
   const loadTasks = useCallback(async () => {
     if (loadingTasksRef.current || !mountedRef.current) return;
     if (!workspaceId || workspaceId === 'new') {
-      console.log('[WorkspaceDataContext] Skipping loadTasks - invalid workspaceId:', workspaceId);
       return;
     }
 
@@ -364,7 +329,6 @@ export function WorkspaceDataProvider({
       if (mountedRef.current) {
         const tasks = data.tasks || [];
         setTasks(tasks);
-        console.log(`[WorkspaceDataContext] Loaded ${tasks.length} tasks for workspace ${workspaceId}`);
       }
     } catch (err: any) {
       clearTimeout(timeoutId);
@@ -535,21 +499,16 @@ export function WorkspaceDataProvider({
 
       // Double-check we're still mounted and not already loading
       if (!mountedRef.current || isCancelled) {
-        console.log('[WorkspaceDataContext] Skipping initial load - unmounted or cancelled');
         return;
       }
 
       // Check if already loading to prevent duplicate loads during hot reload
       if (loadingWorkspaceRef.current) {
-        console.log('[WorkspaceDataContext] Skipping initial load - already loading');
         return;
       }
 
-      console.log(`[WorkspaceDataContext] Starting initial load for workspace ${workspaceId}`);
-
       // Skip loading for 'new' workspace (wizard mode)
       if (workspaceId === 'new') {
-        console.log(`[WorkspaceDataContext] Skipping initial load - workspaceId is 'new' (wizard mode)`);
         setIsLoadingWorkspace(false);
         return;
       }
@@ -561,7 +520,6 @@ export function WorkspaceDataProvider({
 
       // Load workspace first (most important) - with retry logic
       if (mountedRef.current) {
-        console.log(`[WorkspaceDataContext] Loading workspace...`);
         let retries = 3;
         let success = false;
         while (retries > 0 && !success && mountedRef.current) {
@@ -590,8 +548,6 @@ export function WorkspaceDataProvider({
           loadSystemStatus()
         ]);
       }
-
-      console.log(`[WorkspaceDataContext] Initial load completed for workspace ${workspaceId}`);
     };
 
     loadData();
@@ -618,10 +574,6 @@ export function WorkspaceDataProvider({
   // Listen for workspace events (unified event handling)
   useEffect(() => {
     const handleWorkspaceUpdate = (event?: Event) => {
-      if (process.env.NODE_ENV === 'development') {
-        const customEvent = event as CustomEvent;
-        console.log('[WorkspaceDataContext] Received workspace update event:', customEvent?.type, customEvent?.detail || 'no detail');
-      }
       debouncedRefresh();
     };
 
@@ -683,4 +635,3 @@ export function useWorkspaceData(): WorkspaceDataContextType {
 export function useWorkspaceDataOptional(): WorkspaceDataContextType | null {
   return useContext(WorkspaceDataContext);
 }
-

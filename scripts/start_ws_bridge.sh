@@ -2,7 +2,7 @@
 # =========================================================
 # start_ws_bridge.sh -- Mac-side WS bridge for Gemini CLI
 #
-# Starts ide_ws_client.py as a persistent daemon on Mac.
+# Starts the shared host bridge client as a persistent daemon on Mac.
 # The client connects to backend WebSocket, receives task
 # dispatches, and routes them to Gemini CLI for execution.
 #
@@ -55,7 +55,7 @@ export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend:${PYTHONPATH:-}"
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$MINDSCAPE_WS_HOST}"
 
-# ---- Database connection (needed by TaskExecutor for MCP tools) ----
+# ---- Database connection (needed by HostBridgeTaskExecutor for MCP tools) ----
 # Host-side accesses Docker-mapped port (5433 by default, not container-internal 5432)
 _DB_HOST_PORT=$(docker compose port postgres 5432 2>/dev/null | sed 's/.*://' || echo "5433")
 export DATABASE_URL_CORE="${DATABASE_URL_CORE:-postgresql://mindscape:mindscape_password@localhost:${_DB_HOST_PORT}/mindscape_core}"
@@ -76,6 +76,6 @@ echo " Venv:       $VENV_DIR"
 echo "======================================"
 echo ""
 
-exec python3 -m backend.app.services.external_agents.agents.gemini_cli.ide_ws_client \
+exec python3 -m backend.app.services.external_agents.bridge.host_ws_client \
   --workspace-id "$MINDSCAPE_WORKSPACE_ID" \
   --host "$MINDSCAPE_WS_HOST"

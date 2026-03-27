@@ -11,6 +11,8 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
+from backend.app.services.runner_topology import normalize_queue_partition
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -39,7 +41,10 @@ def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:
       - runner_timeout_seconds: int
       - lifecycle_hooks: dict
       - resource_class: str  ("browser" | "compute" | "api")
+      - queue_partition: str
       - queue_shard: str
+      - runner_profile_hint: str
+      - runtime_affinity: dict
       - capability_code: str
 
     Both playbook_execution.py and playbook_rerun.py must call this
@@ -91,9 +96,18 @@ def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:
 
     # --- resource_class ---
     meta["resource_class"] = _resolve_resource_class_from_profile(ep)
-    queue_shard = _resolve_queue_shard_from_profile(ep)
-    if queue_shard:
-        meta["queue_shard"] = queue_shard
+    queue_partition = _resolve_queue_partition_from_profile(ep)
+    if queue_partition:
+        meta["queue_partition"] = queue_partition
+        meta["queue_shard"] = queue_partition
+
+    runner_profile_hint = _resolve_runner_profile_hint_from_profile(ep)
+    if runner_profile_hint:
+        meta["runner_profile_hint"] = runner_profile_hint
+
+    runtime_affinity = _resolve_runtime_affinity_from_profile(ep)
+    if runtime_affinity:
+        meta["runtime_affinity"] = runtime_affinity
 
     return meta
 
@@ -153,6 +167,18 @@ def _has_runner_only_metadata(runner_meta: Dict[str, Any]) -> bool:
     }:
         return True
 
+    queue_partition = runner_meta.get("queue_partition")
+    if isinstance(queue_partition, str) and queue_partition.strip():
+        return True
+
+    runner_profile_hint = runner_meta.get("runner_profile_hint")
+    if isinstance(runner_profile_hint, str) and runner_profile_hint.strip():
+        return True
+
+    runtime_affinity = runner_meta.get("runtime_affinity")
+    if isinstance(runtime_affinity, dict) and runtime_affinity:
+        return True
+
     return False
 
 
@@ -181,17 +207,59 @@ def _resolve_resource_class_from_profile(ep: Optional[Dict[str, Any]]) -> str:
     return DEFAULT_RESOURCE_CLASS
 
 
-def _resolve_queue_shard_from_profile(ep: Optional[Dict[str, Any]]) -> Optional[str]:
-    """Return explicit queue_shard from execution_profile when declared."""
+def _resolve_queue_partition_from_profile(ep: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Return canonical queue_partition from execution_profile when declared."""
     if not isinstance(ep, dict):
         return None
 
-    declared = ep.get("queue_shard")
+    declared = ep.get("queue_partition")
+    if not isinstance(declared, str) or not declared.strip():
+        declared = ep.get("queue_shard")
+    if isinstance(declared, str):
+        normalized = normalize_queue_partition(declared, fallback=None)
+        if normalized:
+            return normalized
+    return None
+
+
+def _resolve_runner_profile_hint_from_profile(
+    ep: Optional[Dict[str, Any]]
+) -> Optional[str]:
+    if not isinstance(ep, dict):
+        return None
+
+    declared = ep.get("runner_profile_hint")
     if isinstance(declared, str):
         normalized = declared.strip()
         if normalized:
             return normalized
     return None
+
+
+def _resolve_runtime_affinity_from_profile(
+    ep: Optional[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(ep, dict):
+        return None
+
+    declared = ep.get("runtime_affinity")
+    if isinstance(declared, str):
+        normalized = declared.strip()
+        if normalized:
+            return {"runtime_id": normalized}
+        return None
+
+    if not isinstance(declared, dict):
+        return None
+
+    normalized = {
+        key: value.strip()
+        for key, value in declared.items()
+        if key in {"runtime_id", "runtime_url", "transport", "dispatch_mode", "site_key", "device_id"}
+        and isinstance(value, str)
+        and value.strip()
+    }
+    return normalized or None
 
 
 def resolve_resource_class_from_task(task) -> str:

@@ -1,0 +1,340 @@
+code: comfyui_runtime
+display_name: "ComfyUI Runtime"
+version: "1.2.0"
+type: feature
+description: "Infrastructure management for ComfyUI rendering engine. Supports local GPU (CUDA/MPS) and remote execution."
+category: infrastructure
+tags:
+  - rendering
+  - infrastructure
+  - gpu
+  - comfyui
+
+portability:
+  min_local_core_version: "0.9.0"
+  environments:
+    - local-core
+    - cloud
+  degradation_strategy: graceful
+
+dependencies:
+  required: []
+  optional:
+    - code: storage
+    - code: video_renderer
+
+# Tools
+tools:
+  - code: comfyui_detect_platform
+    name: comfyui_detect_platform
+    description: "Detect GPU platform and recommend installation profile"
+    backend: capabilities.comfyui_runtime.tools.detect_platform:detect_platform
+
+  - code: comfyui_install
+    name: comfyui_install
+    description: "Install ComfyUI natively (git clone + venv) or via Docker"
+    backend: capabilities.comfyui_runtime.tools.install:install_comfyui
+    input_schema:
+      type: object
+      properties:
+        install_path:
+          type: string
+          description: "Target directory for installation (default: ~/.mindscape/comfyui)"
+        force_reinstall:
+          type: boolean
+          default: false
+
+  - code: comfyui_start
+    name: comfyui_start
+    description: "Start ComfyUI server process and wait for readiness"
+    backend: capabilities.comfyui_runtime.tools.start:start_comfyui
+    input_schema:
+      type: object
+      properties:
+        install_path:
+          type: string
+          description: "Path to ComfyUI installation directory"
+          default: "~/.mindscape/comfyui"
+        port:
+          type: integer
+          description: "Port to run ComfyUI on"
+          default: 8188
+        listen:
+          type: string
+          description: "Address to listen on"
+          default: "127.0.0.1"
+        timeout:
+          type: integer
+          description: "Seconds to wait for server health"
+          default: 30
+
+  - code: comfyui_download_models
+    name: comfyui_download_models
+    description: "Download models based on selected profile"
+    backend: capabilities.comfyui_runtime.tools.download_models:download_models
+    input_schema:
+      type: object
+      required: [profile_id]
+      properties:
+        profile_id:
+          type: string
+          enum: [vr_minimal, vr_preview_local, vr_generative, vr_wan22_14b_kj]
+        models_dir:
+          type: string
+          description: "Target models directory"
+
+  - code: comfyui_health_check
+    name: comfyui_health_check
+    description: "Validate ComfyUI server health and loaded models"
+    backend: capabilities.comfyui_runtime.tools.health_check:health_check
+    input_schema:
+      type: object
+      properties:
+        comfyui_url:
+          type: string
+          default: "http://localhost:8188"
+
+  - code: comfyui_register
+    name: comfyui_register
+    description: "Register ComfyUI URL in runtime configuration"
+    backend: capabilities.comfyui_runtime.tools.register:register_comfyui
+    input_schema:
+      type: object
+      required: [comfyui_url]
+      properties:
+        comfyui_url:
+          type: string
+        runtime_id:
+          type: string
+          description: "Optional runtime ID to update"
+
+# Playbooks
+playbooks:
+  - code: comfyui_setup
+    display_name: "ComfyUI Setup"
+    display_name_zh: "ComfyUI 安裝設置"
+    locales: [zh-TW, en]
+    path: playbooks/{locale}/comfyui_setup.md
+    spec_path: playbooks/specs/comfyui_setup.json
+    description: "Install ComfyUI, download models, and register runtime"
+    description_zh: "安裝 ComfyUI、下載模型並註冊執行環境"
+    tool_dependencies:
+      - comfyui_runtime.comfyui_detect_platform
+      - comfyui_runtime.comfyui_install
+      - comfyui_runtime.comfyui_start
+      - comfyui_runtime.comfyui_download_models
+      - comfyui_runtime.comfyui_health_check
+      - comfyui_runtime.comfyui_register
+
+# API Routes
+apis:
+  - code: comfyui_runtime
+    path: api/__init__.py
+    router_export: router
+    prefix: /api/v1/capabilities/comfyui_runtime
+    enabled_by_default: true
+
+# UI Components
+ui_components:
+  - code: ComfyUIRuntimeSettingsPanel
+    path: ui/components/ComfyUIRuntimeSettingsPanel.tsx
+    display_name: "ComfyUI Local Runtime Settings"
+    description: "Configure host-side ComfyUI install path and validate access"
+    export: "default"
+    settings:
+      section: "runtime-environments"
+      title: "ComfyUI Local Runtime"
+      description: "Manage the host ComfyUI install path from the capability pack"
+      order: 40
+      requires_workspace_id: false
+      display_mode: "runtime_modal"
+      show_when:
+        runtime_codes:
+          - comfyui
+          - comfyui_local
+          - comfyui_runtime
+  - code: ComfyUIRuntimePanel
+    path: ui/components/ComfyUIRuntimePanel.tsx
+    display_name: "ComfyUI Runtime"
+    description: "Manage ComfyUI installation, models, and status"
+    export: "default"
+    settings:
+      section: "workflow-engines"
+      title: "ComfyUI Runtime"
+      order: 50
+      requires_workspace_id: false
+      show_when:
+        always: true
+
+# Model Definitions
+models:
+  # SDXL - Stable Diffusion XL (Image Generation / Style Transfer)
+  - model_id: sdxl_base_1_0
+    display_name: "SDXL Base 1.0"
+    role: diffusion_checkpoint
+    provider: huggingface
+    repo_id: "stabilityai/stable-diffusion-xl-base-1.0"
+    revision: "main"
+    files:
+      - filename: "sd_xl_base_1.0.safetensors"
+        expected_hash: "sha256:placeholder_hash_sdxl"
+        size_bytes: 6940000000
+    license:
+      spdx_id: "OpenRAIL++-M"
+    hardware_requirements:
+      min_vram_gb: 8
+      supports_cpu_fallback: false
+    quality_profiles:
+      balanced:
+        quantization: fp16
+        batch_size: 1
+
+  # SDXL Lightning - Fast Local Preview
+  - model_id: sdxl_lightning_4step
+    display_name: "SDXL Lightning (4-Step)"
+    role: diffusion_checkpoint
+    provider: huggingface
+    repo_id: "ByteDance/SDXL-Lightning"
+    revision: "main"
+    files:
+      - filename: "sdxl_lightning_4step_unet.safetensors"
+        expected_hash: "sha256:placeholder_sdxl_lightning"
+        size_bytes: 5140000000
+    license:
+      spdx_id: "Apache-2.0"
+    hardware_requirements:
+      min_vram_gb: 8
+      supports_cpu_fallback: false
+
+  - model_id: sd15_base_1_5
+    display_name: "Stable Diffusion v1.5 Base"
+    role: diffusion_checkpoint
+    provider: huggingface
+    repo_id: "runwayml/stable-diffusion-v1-5"
+    revision: "main"
+    files:
+      - filename: "v1-5-pruned-emaonly.ckpt"
+        expected_hash: "sha256:placeholder_sd15_base"
+        size_bytes: 4260000000
+    license:
+      spdx_id: "creativeml-openrail-m"
+    hardware_requirements:
+      min_vram_gb: 4
+      supports_cpu_fallback: false
+
+  - model_id: sdxl_clip_l
+    display_name: "SDXL CLIP-L"
+    role: text_encoder
+    provider: huggingface
+    repo_id: "stabilityai/stable-diffusion-xl-base-1.0"
+    revision: "main"
+    files:
+      - filename: "clip_l.safetensors"
+        expected_hash: "sha256:placeholder_clip_l"
+        size_bytes: 246000000
+    license:
+      spdx_id: "OpenRAIL++-M"
+
+  - model_id: sdxl_clip_g
+    display_name: "SDXL CLIP-G"
+    role: text_encoder
+    provider: huggingface
+    repo_id: "stabilityai/stable-diffusion-xl-base-1.0"
+    revision: "main"
+    files:
+      - filename: "clip_g.safetensors"
+        expected_hash: "sha256:placeholder_clip_g"
+        size_bytes: 1360000000
+    license:
+      spdx_id: "OpenRAIL++-M"
+
+  # ControlNet v1.1 OpenPose
+  - model_id: controlnet_openpose_v11p
+    display_name: "ControlNet v1.1 OpenPose (SD1.5)"
+    role: controlnet
+    provider: huggingface
+    repo_id: "lllyasviel/control_v11p_sd15_openpose"
+    revision: "main"
+    files:
+      - filename: "control_v11p_sd15_openpose.safetensors"
+        expected_hash: "sha256:placeholder_controlnet_openpose"
+        size_bytes: 1450000000
+    license:
+      spdx_id: "Apache-2.0"
+
+  # ControlNet v1.1 Depth
+  - model_id: controlnet_depth_v11f1p
+    display_name: "ControlNet v1.1 Depth"
+    role: controlnet
+    provider: huggingface
+    repo_id: "lllyasviel/control_v11f1p_sd15_depth"
+    revision: "main"
+    files:
+      - filename: "diffusion_pytorch_model.safetensors"
+        expected_hash: "sha256:placeholder_controlnet_depth"
+        size_bytes: 1450000000
+    license:
+      spdx_id: "Apache-2.0"
+
+  # SDXL VAE
+  - model_id: sdxl_vae
+    display_name: "SDXL VAE"
+    role: vae
+    provider: huggingface
+    repo_id: "stabilityai/sdxl-vae"
+    revision: "main"
+    files:
+      - filename: "sdxl_vae.safetensors"
+        expected_hash: "sha256:placeholder_sdxl_vae"
+        size_bytes: 335000000
+    license:
+      spdx_id: "Apache-2.0"
+
+  # Wan2.2 14B (Video Generation)
+  - model_id: wan22_14b_kj
+    display_name: "Wan2.2 14B (FP8, Kijai)"
+    role: diffusion_checkpoint
+    provider: huggingface
+    repo_id: "Kijai/WanVideo_comfy"
+    revision: "main"
+    files:
+      - filename: "wan2.1_t2v_14B_fp8_e4m3fn.safetensors"
+        expected_hash: "sha256:placeholder_wan22"
+        size_bytes: 16000000000
+    license:
+      spdx_id: "Apache-2.0"
+    hardware_requirements:
+      min_vram_gb: 16
+      supports_cpu_fallback: false
+
+profiles:
+  - profile_id: vr_minimal
+    display_name: "Minimal (No Models)"
+    description: "ComfyUI code only"
+    model_ids: []
+
+  - profile_id: vr_preview_local
+    display_name: "Local Preview (High Speed)"
+    description: "Dual-lane local preview: SDXL Lightning for text/style preview plus SD1.5 OpenPose for pose-guided preview on macOS (MPS)."
+    model_ids:
+      - sdxl_lightning_4step
+      - sdxl_clip_l
+      - sdxl_clip_g
+      - sd15_base_1_5
+      - controlnet_openpose_v11p
+      - sdxl_vae
+
+  - profile_id: vr_generative
+    display_name: "Generative Production"
+    description: "SDXL Base + ControlNet OpenPose + ControlNet Depth + VAE. Standard quality."
+    model_ids:
+      - sdxl_base_1_0
+      - controlnet_openpose_v11p
+      - controlnet_depth_v11f1p
+      - sdxl_vae
+
+  - profile_id: vr_wan22_14b_kj
+    display_name: "Wan2.2 Video Generation"
+    description: "Wan2.2 14B FP8 for text-to-video generation. Requires 16GB+ VRAM."
+    model_ids:
+      - wan22_14b_kj

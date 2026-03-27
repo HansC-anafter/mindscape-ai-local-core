@@ -24,11 +24,11 @@ governance:
 
 # Codex CLI Adapter
 
-Dispatches coding tasks to OpenAI Codex CLI via the shared WS-first bridge contract.
+Dispatches coding tasks to OpenAI Codex CLI via the shared host bridge contract.
 
 ## Architecture
 
-Inherits the Gemini-style WS bridge flow with polling retained as fallback:
+Uses the shared `external_agents.bridge` flow with polling retained as fallback:
 - WebSocket dispatch to the real host-connected Codex surface
 - Cross-worker routing through the shared agent dispatch manager
 - Polling/DB fallback when no WS surface is reachable

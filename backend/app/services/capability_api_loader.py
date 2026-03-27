@@ -531,10 +531,61 @@ def _get_runtime_state(app: FastAPI) -> Dict[str, Any]:
             "activated_capabilities": set(),
             "prefixes_by_capability": {},
             "sorted_prefix_entries": [],
+            "registered_descriptor_keys": set(),
             "activation_lock": threading.Lock(),
+            "seed_params": {},
         }
         setattr(app.state, _APP_STATE_KEY, state)
     return state
+
+
+def _descriptor_state_key(descriptor: CapabilityAPIDescriptor) -> str:
+    return "|".join(
+        [
+            descriptor.capability_code,
+            descriptor.cap_def.get("code", "") or "",
+            descriptor.cap_def.get("path", "") or "",
+            descriptor.cap_def.get("prefix", "") or "",
+        ]
+    )
+
+
+def _extract_registered_routes_from_app(app: FastAPI) -> Set[Tuple[str, str]]:
+    routes: Set[Tuple[str, str]] = set()
+
+    def extract_from_route(route: Route, prefix: str = ""):
+        methods = getattr(route, "methods", set())
+        path = prefix + route.path
+        for method in methods:
+            if method != "HEAD":
+                routes.add((method.upper(), path))
+
+    def extract_from_mount(mount: Mount, prefix: str = ""):
+        mount_path = prefix + mount.path
+        for route in mount.routes:
+            if isinstance(route, Route):
+                extract_from_route(route, mount_path)
+            elif isinstance(route, Mount):
+                extract_from_mount(route, mount_path)
+
+    for route in app.router.routes:
+        if isinstance(route, Route):
+            extract_from_route(route)
+        elif isinstance(route, Mount):
+            extract_from_mount(route)
+    return routes
+
+
+def _capability_registration_complete(app: FastAPI, capability_code: str) -> bool:
+    state = _get_runtime_state(app)
+    descriptors = state.get("descriptors_by_capability", {}).get(capability_code) or []
+    if not descriptors:
+        return False
+    registered_descriptor_keys = state.get("registered_descriptor_keys", set())
+    return all(
+        _descriptor_state_key(descriptor) in registered_descriptor_keys
+        for descriptor in descriptors
+    )
 
 
 def load_manifest_for_descriptor(descriptor: CapabilityAPIDescriptor) -> Dict[str, Any]:
@@ -574,6 +625,12 @@ def seed_capability_api_descriptors(
     )
     descriptors = loader.discover_capability_api_descriptors()
     state = _get_runtime_state(app)
+    state["seed_params"] = {
+        "remote_capabilities_dir": remote_capabilities_dir,
+        "allowlist": allowlist,
+        "enable_all": enable_all,
+        "installed_packs_store": installed_packs_store,
+    }
     grouped = group_capability_api_descriptors(descriptors)
     prefixes_by_capability: Dict[str, List[str]] = {}
     prefix_entries: List[Tuple[str, str]] = []
@@ -598,6 +655,30 @@ def seed_capability_api_descriptors(
         key=lambda item: len(item[0]),
         reverse=True,
     )
+    state["registered_descriptor_keys"] = set()
+    return descriptors
+
+
+def refresh_seeded_capability_descriptors(
+    app: FastAPI,
+) -> List[CapabilityAPIDescriptor]:
+    state = _get_runtime_state(app)
+    seed_params = state.get("seed_params") or {}
+    existing_activated = set(state.get("activated_capabilities") or set())
+    existing_registered = set(state.get("registered_descriptor_keys") or set())
+    descriptors = seed_capability_api_descriptors(
+        app=app,
+        remote_capabilities_dir=seed_params.get("remote_capabilities_dir"),
+        allowlist=seed_params.get("allowlist"),
+        enable_all=bool(seed_params.get("enable_all", False)),
+        installed_packs_store=seed_params.get("installed_packs_store"),
+    )
+    state["activated_capabilities"] = set(state.get("activated_capabilities") or set())
+    state["activated_capabilities"].update(existing_activated)
+    state["registered_descriptor_keys"] = set(
+        state.get("registered_descriptor_keys") or set()
+    )
+    state["registered_descriptor_keys"].update(existing_registered)
     return descriptors
 
 
@@ -630,16 +711,51 @@ def activate_seeded_capability_apis(
         enable_all=enable_all,
         installed_packs_store=installed_packs_store,
     )
+    loader.registered_routes = _extract_registered_routes_from_app(app)
 
     routers: List[APIRouter] = []
-    activated_capabilities: Set[str] = set()
+    processed_capabilities = {
+        descriptor.capability_code for descriptor in descriptors
+    }
+    registered_descriptor_keys = state.setdefault("registered_descriptor_keys", set())
     for descriptor in descriptors:
+        descriptor_key = _descriptor_state_key(descriptor)
+        if descriptor_key in registered_descriptor_keys:
+            logger.debug(
+                "Skipping capability API router for %s; prefix already registered",
+                descriptor.capability_code,
+            )
+            continue
         manifest = load_manifest_for_descriptor(descriptor)
         manifest_path = descriptor.manifest_path if descriptor.manifest_path.exists() else None
         try:
-            router = loader.activate_capability_api_descriptor(descriptor)
+            router = loader.load_api_router_from_capability_def(
+                descriptor.capability_code,
+                descriptor.capability_dir,
+                descriptor.cap_def,
+            )
             if router is None:
                 continue
+            manifest_prefix = descriptor.cap_def.get("prefix", "") or ""
+            expected_routes = loader.extract_routes_from_router(router, manifest_prefix)
+            existing_routes = set(loader.registered_routes)
+            if expected_routes and expected_routes.issubset(existing_routes):
+                registered_descriptor_keys.add(descriptor_key)
+                logger.debug(
+                    "Skipping capability API router for %s; all descriptor routes already registered",
+                    descriptor.capability_code,
+                )
+                continue
+
+            conflicts = sorted(expected_routes & existing_routes)
+            if conflicts:
+                conflict_details = ", ".join(f"{method} {path}" for method, path in conflicts)
+                raise ValueError(
+                    f"Route conflict detected for capability {descriptor.capability_code}: "
+                    f"Routes {conflict_details} are already registered. "
+                    "Please check router prefix and path definitions."
+                )
+
             before_routes = list(app.router.routes)
             prefix = descriptor.cap_def.get("prefix")
             if prefix:
@@ -659,6 +775,10 @@ def activate_seeded_capability_apis(
             if route_collector is not None:
                 after_routes = list(app.router.routes)
                 route_collector.extend(after_routes[len(before_routes) :])
+            loader.loaded_routers.append(
+                (router, descriptor.capability_code, descriptor.cap_def)
+            )
+            loader.registered_routes.update(expected_routes)
             if activation_service is not None:
                 activation_service.record_activation_succeeded(
                     pack_id=descriptor.capability_code,
@@ -670,7 +790,7 @@ def activate_seeded_capability_apis(
                     ),
                 )
             routers.append(router)
-            activated_capabilities.add(descriptor.capability_code)
+            registered_descriptor_keys.add(descriptor_key)
         except Exception as exc:
             if activation_service is not None:
                 activation_service.record_activation_failed(
@@ -685,6 +805,11 @@ def activate_seeded_capability_apis(
                 )
             raise
 
+    activated_capabilities = {
+        capability_code
+        for capability_code in processed_capabilities
+        if _capability_registration_complete(app, capability_code)
+    }
     state["activated_capabilities"] = existing_activated | activated_capabilities
     return routers
 
@@ -711,7 +836,12 @@ def activate_capability_api_code(
     state = _get_runtime_state(app)
     activation_lock = state["activation_lock"]
     with activation_lock:
-        if capability_code in state.get("activated_capabilities", set()):
+        capability_already_activated = capability_code in state.get(
+            "activated_capabilities", set()
+        )
+        if capability_already_activated and _capability_registration_complete(
+            app, capability_code
+        ):
             return []
         descriptors = state.get("descriptors_by_capability", {}).get(capability_code) or []
         if not descriptors:

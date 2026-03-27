@@ -12,7 +12,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Callable
+from typing import Dict, List, Optional, Set, Tuple, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,12 @@ class PlaybookValidator:
             "failed": [],
             "skipped": []
         }
+        tool_model_preload_cache: Dict[str, str] = {}
+        playbook_codes = {
+            pb_config.get("code")
+            for pb_config in playbooks_config
+            if pb_config.get("code")
+        }
 
         # Check if validation script exists
         validate_script = self.local_core_root / "scripts" / "validate_playbooks.py"
@@ -69,25 +75,34 @@ class PlaybookValidator:
             result.add_warning("Playbook validation skipped: script not found")
             return
 
+        structure_results = self._validate_capability_structure(
+            capability_code,
+            playbook_codes,
+            validate_script,
+            validation_results,
+        )
+
         for pb_config in playbooks_config:
             playbook_code = pb_config.get('code')
             if not playbook_code:
                 continue
 
-            # 1. Structure validation (via script)
-            structure_valid = self._validate_structure(
-                playbook_code,
-                capability_code,
-                validate_script,
-                validation_results
-            )
+            structure_valid = structure_results.get(playbook_code)
+            if structure_valid is None:
+                structure_valid = self._validate_structure(
+                    playbook_code,
+                    capability_code,
+                    validate_script,
+                    validation_results
+                )
 
             # 2. If structure validation passed, perform direct tool call test
             if structure_valid and self._validate_tools_direct_call:
                 self._validate_tool_calls(
                     playbook_code,
                     capability_code,
-                    validation_results
+                    validation_results,
+                    tool_model_preload_cache,
                 )
             elif structure_valid:
                 # Structure valid but no tool validation function provided
@@ -99,6 +114,94 @@ class PlaybookValidator:
 
         # Process validation results and add to result
         self._process_validation_results(validation_results, result)
+
+    def _validate_capability_structure(
+        self,
+        capability_code: str,
+        playbook_codes: Set[str],
+        validate_script: Path,
+        validation_results: Dict,
+    ) -> Dict[str, bool]:
+        """
+        Validate all playbooks in a capability with a single subprocess.
+
+        Falls back to per-playbook validation when the batched invocation cannot
+        be parsed or times out.
+        """
+        if not playbook_codes:
+            return {}
+
+        timeout_seconds = min(120, max(30, len(playbook_codes) * 3))
+        process = None
+
+        try:
+            process = subprocess.run(
+                [
+                    sys.executable,
+                    str(validate_script),
+                    "--capability", capability_code,
+                    "--json",
+                    "--skip-execution",
+                ],
+                cwd=str(self.local_core_root),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                env={
+                    **dict(os.environ),
+                    "LLM_MOCK": "false",
+                    "BASE_URL": "http://localhost:8200",
+                    "PYTHONPATH": f"{self.local_core_root}:{self.local_core_root / 'backend'}",
+                    "CAPABILITIES_PATH": str(self.capabilities_dir),
+                },
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "Batched playbook structure validation timed out for %s; "
+                "falling back to per-playbook validation",
+                capability_code,
+            )
+            return {}
+        except Exception as exc:
+            logger.warning(
+                "Batched playbook structure validation failed for %s: %s; "
+                "falling back to per-playbook validation",
+                capability_code,
+                exc,
+            )
+            return {}
+
+        json_output = self._extract_json_output(process.stdout or process.stderr or "")
+        if not json_output:
+            logger.warning(
+                "Batched playbook structure validation returned no parseable JSON "
+                "for %s; falling back to per-playbook validation",
+                capability_code,
+            )
+            return {}
+
+        results: Dict[str, bool] = {}
+        for validation in json_output.get("validations", []):
+            playbook_code = validation.get("playbook_code")
+            if not playbook_code or playbook_code not in playbook_codes:
+                continue
+            if validation.get("passed", False):
+                results[playbook_code] = True
+                continue
+            error_msg = self._format_validation_error(
+                validation.get("results", [])
+            )
+            validation_results["failed"].append({
+                "playbook": playbook_code,
+                "error": error_msg or "Validation failed",
+            })
+            logger.error(
+                "Playbook %s structure validation failed: %s",
+                playbook_code,
+                error_msg,
+            )
+            results[playbook_code] = False
+        return results
 
     def _validate_structure(
         self,
@@ -164,28 +267,16 @@ class PlaybookValidator:
     ) -> bool:
         """Parse successful validation output"""
         try:
-            output = output.strip()
-            json_output = None
-
-            # Try to parse JSON from the beginning
-            try:
-                json_output = json.loads(output)
-            except json.JSONDecodeError:
-                # If parsing from beginning fails, try to find the first complete JSON object
-                json_start = output.find('{')
-                if json_start >= 0:
-                    json_end = self._find_matching_brace(output, json_start)
-                    if json_end > json_start:
-                        json_output = json.loads(output[json_start:json_end])
+            json_output = self._extract_json_output(output)
 
             if json_output:
                 validations = json_output.get("validations", [])
                 for v in validations:
                     if v.get("playbook_code") == playbook_code:
                         if not v.get("passed", False):
-                            # Structure validation failed
-                            failed_checks = [r for r in v.get("results", []) if not r.get("passed", True)]
-                            error_msg = "; ".join([f"{r.get('check_name')}: {r.get('message')}" for r in failed_checks[:3]])
+                            error_msg = self._format_validation_error(
+                                v.get("results", [])
+                            )
                             validation_results["failed"].append({
                                 "playbook": playbook_code,
                                 "error": error_msg or "Validation failed"
@@ -213,23 +304,20 @@ class PlaybookValidator:
         """Parse failed validation output"""
         try:
             output = (process.stderr or process.stdout or "").strip()
-            # Find JSON part
-            json_start = output.rfind('{')
-            if json_start >= 0:
-                json_end = self._find_matching_brace(output, json_start)
-                if json_end > json_start:
-                    json_output = json.loads(output[json_start:json_end])
-                    validations = json_output.get("validations", [])
-                    for v in validations:
-                        if v.get("playbook_code") == playbook_code:
-                            failed_checks = [r for r in v.get("results", []) if not r.get("passed", True)]
-                            error_msg = "; ".join([f"{r.get('check_name')}: {r.get('message')}" for r in failed_checks[:3]])
-                            validation_results["failed"].append({
-                                "playbook": playbook_code,
-                                "error": error_msg or "Validation failed"
-                            })
-                            logger.error(f"Playbook {playbook_code} structure validation failed: {error_msg}")
-                            return False
+            json_output = self._extract_json_output(output)
+            if json_output:
+                validations = json_output.get("validations", [])
+                for v in validations:
+                    if v.get("playbook_code") == playbook_code:
+                        error_msg = self._format_validation_error(
+                            v.get("results", [])
+                        )
+                        validation_results["failed"].append({
+                            "playbook": playbook_code,
+                            "error": error_msg or "Validation failed"
+                        })
+                        logger.error(f"Playbook {playbook_code} structure validation failed: {error_msg}")
+                        return False
 
             # Not found or no JSON, use original error message
             error_lines = [line for line in output.split('\n') if not line.strip().startswith('[INFO]')]
@@ -262,15 +350,52 @@ class PlaybookValidator:
                     return i + 1
         return start  # Not found
 
+    def _extract_json_output(self, output: str) -> Optional[Dict]:
+        """Extract JSON output from mixed stdout/stderr text."""
+        output = output.strip()
+        if not output:
+            return None
+
+        try:
+            return json.loads(output)
+        except json.JSONDecodeError:
+            pass
+
+        json_start = output.find('{')
+        if json_start < 0:
+            return None
+        json_end = self._find_matching_brace(output, json_start)
+        if json_end <= json_start:
+            return None
+        try:
+            return json.loads(output[json_start:json_end])
+        except json.JSONDecodeError:
+            return None
+
+    def _format_validation_error(self, validation_results: List[Dict]) -> str:
+        """Format the first few failed checks from validation output."""
+        failed_checks = [
+            result for result in validation_results if not result.get("passed", True)
+        ]
+        return "; ".join(
+            f"{result.get('check_name')}: {result.get('message')}"
+            for result in failed_checks[:3]
+        )
+
     def _validate_tool_calls(
         self,
         playbook_code: str,
         capability_code: str,
-        validation_results: Dict
+        validation_results: Dict,
+        tool_model_preload_cache: Dict[str, str],
     ):
         """Validate tool calls"""
         try:
-            tool_test_errors, tool_test_warnings = self._validate_tools_direct_call(playbook_code, capability_code)
+            tool_test_errors, tool_test_warnings = self._validate_tools_direct_call(
+                playbook_code,
+                capability_code,
+                tool_model_preload_cache,
+            )
 
             # Add warnings for optional dependency issues
             if tool_test_warnings:
@@ -382,4 +507,3 @@ class PlaybookValidator:
             result.add_warning(
                 f"Playbook validation skipped for: {validation_results['skipped']}"
             )
-

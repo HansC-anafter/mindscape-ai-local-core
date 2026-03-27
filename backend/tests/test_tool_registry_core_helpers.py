@@ -26,6 +26,7 @@ from backend.app.services.tool_registry_core.tools import (
 
 
 LOGGER = logging.getLogger(__name__)
+FIXTURE_API_CREDENTIAL = "fixture-api-credential-value"
 
 
 def _make_tool(
@@ -71,7 +72,7 @@ def _make_connection(
         connection_type="local",
         base_url="https://example.com",
         api_key="user",
-        api_secret="secret-token-value",
+        api_secret=FIXTURE_API_CREDENTIAL,
         usage_count=usage_count,
         config={"required_permissions": ["write:posts"]},
         associated_roles=["operator"],
@@ -147,7 +148,7 @@ def test_export_as_templates_redacts_sensitive_values():
     assert template["tool_type"] == "wordpress"
     assert template["config_schema"]["fields"]["api_key"]["sensitive"] is True
     assert template["config_schema"]["fields"]["base_url"]["example"] == "https://example.com"
-    assert "secret-token-value" not in str(template)
+    assert FIXTURE_API_CREDENTIAL not in str(template)
 
 
 def test_build_registered_tool_maps_capability_code_and_risk_class():
@@ -186,7 +187,7 @@ def test_upsert_discovery_connection_updates_existing_config():
         connection_type="http_api",
         base_url="https://example.com",
         api_key="user",
-        api_secret="secret",
+        api_secret=FIXTURE_API_CREDENTIAL,
         custom_config={"workspace_id": "ws-1"},
     )
 

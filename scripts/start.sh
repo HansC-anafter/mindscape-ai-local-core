@@ -43,7 +43,7 @@ check_docker() {
 if [ "$1" != "--skip-check" ]; then
     if ! check_docker; then
         echo ""
-        echo "❌ Docker is not available or not running"
+        echo "ERROR: Docker is not available or not running"
         echo ""
         echo "Please ensure:"
         echo "  1. Docker is installed"
@@ -60,7 +60,7 @@ if [ "$1" != "--skip-check" ]; then
     fi
 
     echo ""
-    echo "✅ Docker is ready"
+    echo "Docker is ready"
     echo ""
 fi
 
@@ -72,7 +72,7 @@ echo "Checking for existing containers..."
 EXISTING_CONTAINERS=$(docker ps -a --filter "name=mindscape-ai-local-core" --format "{{.Names}}" 2>/dev/null)
 if [ -n "$EXISTING_CONTAINERS" ]; then
     echo ""
-    echo "⚠️  Found existing containers with conflicting names:"
+    echo "WARNING: Found existing containers with conflicting names:"
     echo "$EXISTING_CONTAINERS" | while read -r container; do
         if [ -n "$container" ]; then
             echo "  - $container"
@@ -96,7 +96,7 @@ if [ -n "$EXISTING_CONTAINERS" ]; then
         echo ""
     else
         echo ""
-        echo "⚠️  Keeping existing containers. If you encounter errors, run:"
+        echo "WARNING: Keeping existing containers. If you encounter errors, run:"
         echo "  docker compose down"
         echo "  docker compose up -d"
         echo ""
@@ -122,28 +122,34 @@ case "$PLATFORM" in
     setup_device_node_systemd
     ;;
   *)
-    echo "  ⚠️  Device Node auto-start not supported on $PLATFORM"
+    echo "  WARNING: Device Node auto-start not supported on $PLATFORM"
     ;;
 esac
 
 # Start CLI Bridge
 echo "Starting CLI Bridge..."
-BRIDGE_PID=$(pgrep -f "start_cli_bridge.sh" 2>/dev/null || true)
-if [ -n "$BRIDGE_PID" ]; then
-    echo "  ✓ CLI Bridge already running (PID: $BRIDGE_PID)"
+if [ "$PLATFORM" = "macos" ]; then
+    setup_cli_bridge_launchd
+elif [ "$PLATFORM" = "linux" ]; then
+    setup_cli_bridge_systemd
 else
-    if [ -f "scripts/start_cli_bridge.sh" ]; then
-        mkdir -p logs
-        nohup bash scripts/start_cli_bridge.sh --all > logs/cli-bridge.log 2>&1 &
-        BRIDGE_PID=$!
-        sleep 2
-        if ps -p $BRIDGE_PID > /dev/null 2>&1; then
-            echo "  ✓ CLI Bridge started (PID: $BRIDGE_PID)"
-        else
-            echo "  ⚠️  CLI Bridge failed to start. See logs/cli-bridge.log"
-        fi
+    BRIDGE_PID=$(pgrep -f "start_cli_bridge_supervisor.sh" 2>/dev/null || true)
+    if [ -n "$BRIDGE_PID" ]; then
+        echo "  ✓ CLI Bridge already running (PID: $BRIDGE_PID)"
     else
-        echo "  ⚠️  scripts/start_cli_bridge.sh not found"
+        if [ -f "scripts/start_cli_bridge_supervisor.sh" ]; then
+            mkdir -p logs
+            nohup bash scripts/start_cli_bridge_supervisor.sh --all > logs/cli-bridge.log 2>&1 &
+            BRIDGE_PID=$!
+            sleep 2
+            if ps -p $BRIDGE_PID > /dev/null 2>&1; then
+                echo "  ✓ CLI Bridge started (PID: $BRIDGE_PID)"
+            else
+                echo "  WARNING: CLI Bridge failed to start. See logs/cli-bridge.log"
+            fi
+        else
+            echo "  WARNING: scripts/start_cli_bridge_supervisor.sh not found"
+        fi
     fi
 fi
 echo ""
@@ -177,12 +183,12 @@ else
         if ps -p $MCP_PID > /dev/null 2>&1; then
             echo "  ✓ MCP Gateway started (PID: $MCP_PID)"
         else
-            echo "  ⚠️  MCP Gateway failed to start. See logs/mcp-gateway.log"
+            echo "  WARNING: MCP Gateway failed to start. See logs/mcp-gateway.log"
         fi
 
         cd "$PROJECT_ROOT"
     else
-        echo "  ⚠️  MCP Gateway directory not found or node not installed"
+        echo "  WARNING: MCP Gateway directory not found or node not installed"
     fi
 fi
 echo ""
@@ -193,7 +199,7 @@ docker compose up -d
 
 if [ $? -ne 0 ]; then
     echo ""
-    echo "❌ Failed to start services"
+    echo "ERROR: Failed to start services"
     echo ""
 
     # Wait a moment for containers to initialize
@@ -205,7 +211,7 @@ if [ $? -ne 0 ]; then
 
     if [ -n "$FAILED_SERVICES" ]; then
         echo ""
-        echo "⚠️  The following services failed to start:"
+        echo "WARNING: The following services failed to start:"
         docker compose ps --format "table {{.Service}}\t{{.State}}" | grep -v "running\|healthy" || true
         echo ""
 
@@ -240,7 +246,7 @@ UNHEALTHY_SERVICES=$(docker compose ps --format json 2>/dev/null | jq -r '.[] | 
 
 if [ -n "$UNHEALTHY_SERVICES" ]; then
     echo ""
-    echo "⚠️  Warning: Some services are unhealthy:"
+    echo "WARNING: Some services are unhealthy:"
     docker compose ps --format "table {{.Service}}\t{{.Health}}" | grep "unhealthy" || true
     echo ""
     echo "Showing logs for unhealthy services..."
@@ -258,7 +264,7 @@ if [ -n "$UNHEALTHY_SERVICES" ]; then
 fi
 
 echo ""
-echo "✅ Services started successfully!"
+echo "Services started successfully"
 echo ""
 echo "Access the application:"
 echo "  Frontend: http://localhost:8300"
@@ -271,4 +277,3 @@ echo "  docker compose logs -f     # View logs"
 echo "  docker compose stop        # Stop services"
 echo "  docker compose down        # Stop and remove containers"
 echo ""
-

@@ -105,7 +105,7 @@ class RuntimeRegistry:
             cls._instance.discover_agents()
         return cls._instance
 
-    def discover_agents(self) -> None:
+    def discover_agents(self, force_reload: bool = False) -> None:
         """
         Discover and register all runtimes in the agents/ directory.
 
@@ -117,11 +117,22 @@ class RuntimeRegistry:
             logger.warning(f"Agents directory not found: {self._agents_dir}")
             return
 
+        if force_reload:
+            self._adapters.clear()
+            self._manifests.clear()
+
         for agent_dir in self._agents_dir.iterdir():
             if not agent_dir.is_dir():
                 continue
 
             if agent_dir.name.startswith("_") or agent_dir.name.startswith("."):
+                continue
+
+            if (
+                not force_reload
+                and agent_dir.name in self._adapters
+                and agent_dir.name in self._manifests
+            ):
                 continue
 
             try:
@@ -246,22 +257,29 @@ class RuntimeRegistry:
 
     def get_adapter(self, agent_name: str) -> Optional[BaseRuntimeAdapter]:
         """Get an adapter by name."""
+        if agent_name not in self._adapters:
+            self.discover_agents()
         return self._adapters.get(agent_name)
 
     def get_manifest(self, agent_name: str) -> Optional[RuntimeManifest]:
         """Get a manifest by name."""
+        if agent_name not in self._manifests:
+            self.discover_agents()
         return self._manifests.get(agent_name)
 
     def list_agents(self) -> List[str]:
         """List all registered runtime names."""
+        self.discover_agents()
         return list(self._adapters.keys())
 
     def get_all_manifests(self) -> Dict[str, RuntimeManifest]:
         """Get all registered manifests."""
+        self.discover_agents()
         return self._manifests.copy()
 
     async def check_availability(self) -> Dict[str, bool]:
         """Check availability of all registered runtimes."""
+        self.discover_agents()
         result = {}
         for name, adapter in self._adapters.items():
             try:

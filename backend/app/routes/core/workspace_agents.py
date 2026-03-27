@@ -82,8 +82,7 @@ async def _resolve_agent_availability(
     agent_id: str,
 ) -> tuple[Any, Dict[str, Any]]:
     registry = get_runtime_registry()
-    if not registry._adapters:
-        registry.discover_agents()
+    registry.discover_agents()
 
     adapter = registry.get_adapter(agent_id)
     if not adapter:
@@ -110,6 +109,7 @@ async def _execute_agent_control(
     control_action: str,
 ):
     registry = get_runtime_registry()
+    registry.discover_agents()
     adapter = registry.get_adapter(agent_id)
     if not adapter:
         raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_id}")
@@ -164,9 +164,7 @@ async def list_workspace_agents(
     """
     try:
         registry = get_runtime_registry()
-
-        if not registry._adapters:
-            registry.discover_agents()
+        registry.discover_agents()
 
         agents = []
         for agent_name, manifest in registry.get_all_manifests().items():

@@ -31,6 +31,9 @@ from app.database.config import get_engine_kwargs, get_postgres_url_core
 from capabilities.ig.models.reference_metadata import ReferenceMetadata
 from capabilities.ig.services.auto_analyze import enqueue_reference_analysis
 from capabilities.ig.services.reference_index import ReferenceIndex
+from capabilities.ig.services.vision_runtime_policy import (
+    build_reference_execution_intent,
+)
 from capabilities.ig.services.workspace_storage import WorkspaceStorage
 from capabilities.ig.tools.ig_analyze_reference import _find_metadata_file
 
@@ -232,6 +235,15 @@ def _apply_candidate(
     index.add_entry(candidate.reference_id, metadata.model_dump())
 
     image_url = str(entry.get("image_url") or metadata.source_url or "").strip()
+    workload_execution_intent = (
+        build_reference_execution_intent(
+            workspace_id=candidate.workspace_id,
+            vision_execution_backend=vision_execution_backend,
+            vision_target_device_id=vision_target_device_id,
+        )
+        if vision_execution_backend is not None or vision_target_device_id is not None
+        else None
+    )
     execution_id = enqueue_reference_analysis(
         workspace_id=candidate.workspace_id,
         reference_id=candidate.reference_id,
@@ -239,8 +251,7 @@ def _apply_candidate(
         source_handle=metadata.source_handle,
         analysis_profile=candidate.analysis_profile,
         parent_execution_id=f"batch-retry-{uuid.uuid4().hex[:8]}",
-        vision_execution_backend=vision_execution_backend,
-        vision_target_device_id=vision_target_device_id,
+        workload_execution_intent=workload_execution_intent,
     )
     return ApplyResult(
         reference_id=candidate.reference_id,

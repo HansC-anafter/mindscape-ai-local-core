@@ -21,7 +21,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CLIENT_SCRIPT="$PROJECT_DIR/backend/app/services/external_agents/agents/gemini_cli/ide_ws_client.py"
+CLIENT_SCRIPT="$PROJECT_DIR/backend/app/services/external_agents/bridge/host_ws_client.py"
 
 # Default config
 BACKEND_HOST="${MINDSCAPE_WS_HOST:-localhost:8200}"
@@ -211,11 +211,13 @@ if [[ $DETECTED -eq 0 ]]; then
     fi
 fi
 
-# --- Environment for TaskExecutor ---
+# --- Environment for HostBridgeTaskExecutor ---
 export PYTHONPATH="$PROJECT_DIR:$PROJECT_DIR/backend:${PYTHONPATH:-}"
-export MINDSCAPE_CLI_RUNTIME_CMD="$PYTHON_BIN $PROJECT_DIR/scripts/gemini_cli_runtime_bridge.py"
-export GEMINI_CLI_RUNTIME_CMD="$MINDSCAPE_CLI_RUNTIME_CMD"
 export MINDSCAPE_WORKSPACE_ROOT="${MINDSCAPE_WORKSPACE_ROOT:-$PROJECT_DIR}"
+if [[ "$SURFACE" == "gemini_cli" ]]; then
+    export MINDSCAPE_CLI_RUNTIME_CMD="$PYTHON_BIN $PROJECT_DIR/scripts/gemini_cli_runtime_bridge.py"
+    export GEMINI_CLI_RUNTIME_CMD="${GEMINI_CLI_RUNTIME_CMD:-$MINDSCAPE_CLI_RUNTIME_CMD}"
+fi
 
 # --- Gemini auth (resolved by backend /api/v1/auth/cli-token) ---
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
@@ -225,7 +227,7 @@ export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$BACKEND_H
 if [[ "$ALL_MODE" == "true" ]]; then
     log_info "Starting bridge with workspace watcher..."
     log_info "Surface:   $SURFACE"
-    log_info "Runtime:   ${MINDSCAPE_CLI_RUNTIME_CMD:-$GEMINI_CLI_RUNTIME_CMD}"
+    log_info "Runtime:   ${MINDSCAPE_CLI_RUNTIME_CMD:-${GEMINI_CLI_RUNTIME_CMD:-surface-native}}"
     echo ""
     log_info "Press Ctrl+C to stop all bridges"
     echo ""
@@ -357,7 +359,7 @@ else
     log_info "Connecting to backend at ws://$BACKEND_HOST"
     log_info "Workspace: $WORKSPACE_ID"
     log_info "Surface:   $SURFACE"
-    log_info "Runtime:   ${MINDSCAPE_CLI_RUNTIME_CMD:-$GEMINI_CLI_RUNTIME_CMD}"
+    log_info "Runtime:   ${MINDSCAPE_CLI_RUNTIME_CMD:-${GEMINI_CLI_RUNTIME_CMD:-surface-native}}"
     echo ""
     log_info "Press Ctrl+C to stop"
     echo ""

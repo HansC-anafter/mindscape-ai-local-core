@@ -26,7 +26,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
-$ClientScript = Join-Path $ProjectDir "backend\app\services\external_agents\agents\gemini_cli\ide_ws_client.py"
+$ClientScript = Join-Path $ProjectDir "backend\app\services\external_agents\bridge\host_ws_client.py"
 $BridgeScript = Join-Path $ProjectDir "scripts\gemini_cli_runtime_bridge.py"
 
 function Write-Banner {
@@ -112,10 +112,11 @@ if ($All) {
     Write-Info "Fetching all workspaces..."
     $wsIds = Get-WorkspaceIds
     if ($wsIds.Count -eq 0) {
-        Write-Err "No workspaces found."
-        exit 1
+        Write-Warn "No workspaces found. Watcher will poll for new ones..."
     }
-    Write-Info "Found $($wsIds.Count) workspace(s)"
+    else {
+        Write-Info "Found $($wsIds.Count) workspace(s)"
+    }
 } elseif (-not $WorkspaceId) {
     Write-Info "Auto-detecting workspace ID..."
     $wsIds = Get-WorkspaceIds
@@ -161,56 +162,109 @@ if ($detected -eq 0) {
 
 # --- Environment ---
 $env:PYTHONPATH = "$ProjectDir;$($ProjectDir)\backend;$($env:PYTHONPATH)"
-$env:MINDSCAPE_CLI_RUNTIME_CMD = "python $BridgeScript"
-$env:GEMINI_CLI_RUNTIME_CMD = $env:MINDSCAPE_CLI_RUNTIME_CMD
 $env:MINDSCAPE_WORKSPACE_ROOT = if ($env:MINDSCAPE_WORKSPACE_ROOT) { $env:MINDSCAPE_WORKSPACE_ROOT } else { $ProjectDir }
 $env:MINDSCAPE_BACKEND_API_URL = if ($env:MINDSCAPE_BACKEND_API_URL) { $env:MINDSCAPE_BACKEND_API_URL } else { $BackendHttp }
+if ($Surface -eq "gemini_cli") {
+    $env:MINDSCAPE_CLI_RUNTIME_CMD = "python $BridgeScript"
+    if (-not $env:GEMINI_CLI_RUNTIME_CMD) {
+        $env:GEMINI_CLI_RUNTIME_CMD = $env:MINDSCAPE_CLI_RUNTIME_CMD
+    }
+}
 
-# --- Start bridge ---
-Write-Info "Surface:   $Surface"
-Write-Info "Runtime:   $($env:MINDSCAPE_CLI_RUNTIME_CMD)"
-Write-Host ""
-Write-Info "Press Ctrl+C to stop"
-Write-Host ""
+function Start-BridgeJob {
+    param([string]$WsId)
 
-$jobs = @()
-foreach ($wsId in $wsIds) {
-    Write-Info "  Starting bridge for workspace: $wsId"
+    Write-Info "  Starting bridge for workspace: $WsId"
     $job = Start-Job -ScriptBlock {
-        param($PythonPath, $ClientScript, $WsId, $Host_, $Surface, $WorkspaceRoot,
-              $RuntimeCmd, $BackendUrl, $ProjectDir)
+        param($PythonPath, $ClientScript, $WsId, $Host_, $Surface, $WorkspaceRoot, $RuntimeCmd, $BackendUrl)
         $env:PYTHONPATH = $PythonPath
-        $env:MINDSCAPE_CLI_RUNTIME_CMD = $RuntimeCmd
-        $env:GEMINI_CLI_RUNTIME_CMD = $RuntimeCmd
+        if ($Surface -eq "gemini_cli") {
+            $env:MINDSCAPE_CLI_RUNTIME_CMD = $RuntimeCmd
+            if (-not $env:GEMINI_CLI_RUNTIME_CMD) {
+                $env:GEMINI_CLI_RUNTIME_CMD = $RuntimeCmd
+            }
+        }
         $env:MINDSCAPE_BACKEND_API_URL = $BackendUrl
         $env:MINDSCAPE_WORKSPACE_ROOT = $WorkspaceRoot
         python $ClientScript --workspace-id $WsId --host $Host_ --surface $Surface --workspace-root $WorkspaceRoot
     } -ArgumentList @(
-        $env:PYTHONPATH, $ClientScript, $wsId, $Host_, $Surface,
-        $env:MINDSCAPE_WORKSPACE_ROOT, $env:GEMINI_CLI_RUNTIME_CMD,
-        $env:MINDSCAPE_BACKEND_API_URL, $ProjectDir
+        $env:PYTHONPATH,
+        $ClientScript,
+        $WsId,
+        $Host_,
+        $Surface,
+        $env:MINDSCAPE_WORKSPACE_ROOT,
+        $env:MINDSCAPE_CLI_RUNTIME_CMD,
+        $env:MINDSCAPE_BACKEND_API_URL
     )
-    $jobs += $job
-    Write-Info "  Bridge job $($job.Id) started for $wsId"
+    Write-Info "  Bridge job $($job.Id) started for $WsId"
+    return $job
 }
 
-# Keep alive and relay output
-try {
-    while ($true) {
-        foreach ($job in $jobs) {
-            $output = Receive-Job -Job $job -ErrorAction SilentlyContinue
-            if ($output) { $output | ForEach-Object { Write-Host $_ } }
-            if ($job.State -eq "Failed" -or $job.State -eq "Completed") {
-                Write-Warn "Bridge job $($job.Id) ended ($($job.State)). Restarting..."
-                $output = Receive-Job -Job $job -ErrorAction SilentlyContinue
-                if ($output) { $output | ForEach-Object { Write-Host $_ } }
-                # Restart
-                $wsId = $job.Command  # Will need to track this differently
+function Relay-JobOutput {
+    param([System.Management.Automation.Job]$Job)
+
+    try {
+        $output = Receive-Job -Job $Job -Keep -ErrorAction SilentlyContinue
+        if ($output) {
+            $output | ForEach-Object { Write-Host $_ }
+        }
+    } catch {
+    }
+}
+
+# --- Start bridge ---
+Write-Info "Surface:   $Surface"
+Write-Info "Runtime:   $(if ($env:MINDSCAPE_CLI_RUNTIME_CMD) { $env:MINDSCAPE_CLI_RUNTIME_CMD } else { 'surface-native' })"
+Write-Host ""
+Write-Info "Press Ctrl+C to stop"
+Write-Host ""
+
+if ($All) {
+    $runningJobs = @{}
+    foreach ($wsId in $wsIds) {
+        $runningJobs[$wsId] = Start-BridgeJob -WsId $wsId
+    }
+
+    try {
+        Write-Info "Watcher active — polling every 15s for workspace changes"
+        while ($true) {
+            foreach ($entry in @($runningJobs.GetEnumerator())) {
+                $job = $entry.Value
+                Relay-JobOutput -Job $job
+                if ($job.State -eq "Failed" -or $job.State -eq "Completed" -or $job.State -eq "Stopped") {
+                    Write-Warn "Bridge job $($job.Id) for $($entry.Key) ended ($($job.State)); restarting"
+                    Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+                    $runningJobs[$entry.Key] = Start-BridgeJob -WsId $entry.Key
+                }
+            }
+
+            Start-Sleep -Seconds 15
+            $currentWorkspaceIds = @(Get-WorkspaceIds)
+
+            foreach ($wsId in $currentWorkspaceIds) {
+                if (-not $runningJobs.ContainsKey($wsId)) {
+                    Write-Info "New workspace discovered: $wsId"
+                    $runningJobs[$wsId] = Start-BridgeJob -WsId $wsId
+                }
+            }
+
+            foreach ($trackedWs in @($runningJobs.Keys)) {
+                if ($currentWorkspaceIds -notcontains $trackedWs) {
+                    Write-Info "Workspace removed: $trackedWs"
+                    Stop-Job -Job $runningJobs[$trackedWs] -ErrorAction SilentlyContinue
+                    Remove-Job -Job $runningJobs[$trackedWs] -Force -ErrorAction SilentlyContinue
+                    $runningJobs.Remove($trackedWs)
+                }
             }
         }
-        Start-Sleep -Seconds 2
+    } finally {
+        Write-Info "Stopping all bridges..."
+        foreach ($job in $runningJobs.Values) {
+            Stop-Job -Job $job -ErrorAction SilentlyContinue
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        }
     }
-} finally {
-    Write-Info "Stopping all bridges..."
-    $jobs | ForEach-Object { Stop-Job -Job $_ -ErrorAction SilentlyContinue; Remove-Job -Job $_ -Force -ErrorAction SilentlyContinue }
+} else {
+    python $ClientScript --workspace-id $WorkspaceId --host $Host_ --surface $Surface --workspace-root $env:MINDSCAPE_WORKSPACE_ROOT
 }

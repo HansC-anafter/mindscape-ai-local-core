@@ -1,9 +1,11 @@
 from pathlib import Path
+import asyncio
 import importlib.util
 from types import SimpleNamespace
+from datetime import datetime, timezone
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import httpx
+from fastapi import APIRouter, FastAPI
 
 
 def _load_workspace_governance_module():
@@ -187,6 +189,52 @@ class StubPromotionService:
         }
 
 
+class StubMeetingSessionStore:
+    def __init__(self, sessions=None):
+        self.sessions = list(sessions or [])
+        self.calls = []
+
+    def list_by_workspace(self, workspace_id, project_id=None, limit=50, offset=0):
+        self.calls.append(
+            {
+                "workspace_id": workspace_id,
+                "project_id": project_id,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
+        sessions = [
+            session
+            for session in self.sessions
+            if session.workspace_id == workspace_id
+            and (project_id is None or session.project_id == project_id)
+        ]
+        return sessions[offset : offset + limit]
+
+
+class ASGIAsyncTestClient:
+    def __init__(self, app):
+        self.app = app
+        self.base_url = "http://testserver"
+
+    def request(self, method, url, **kwargs):
+        async def _request():
+            transport = httpx.ASGITransport(app=self.app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url=self.base_url,
+            ) as client:
+                return await client.request(method, url, **kwargs)
+
+        return asyncio.run(_request())
+
+    def get(self, url, **kwargs):
+        return self.request("GET", url, **kwargs)
+
+    def post(self, url, **kwargs):
+        return self.request("POST", url, **kwargs)
+
+
 def _build_client(
     monkeypatch,
     *,
@@ -197,6 +245,7 @@ def _build_client(
     edges=None,
     knowledge_entries=None,
     goal_entries=None,
+    meeting_sessions=None,
 ):
     module = _load_workspace_governance_module()
     item_store = StubMemoryItemStore(item, items=items)
@@ -206,6 +255,7 @@ def _build_client(
     personal_knowledge_store = StubPersonalKnowledgeStore(knowledge_entries)
     goal_ledger_store = StubGoalLedgerStore(goal_entries)
     promotion_service = StubPromotionService()
+    meeting_session_store = StubMeetingSessionStore(meeting_sessions)
     monkeypatch.setattr(module, "_get_memory_item_store", lambda: item_store)
     monkeypatch.setattr(module, "_get_memory_version_store", lambda: version_store)
     monkeypatch.setattr(module, "_get_memory_evidence_link_store", lambda: evidence_store)
@@ -215,10 +265,13 @@ def _build_client(
     )
     monkeypatch.setattr(module, "_get_goal_ledger_store", lambda: goal_ledger_store)
     monkeypatch.setattr(module, "_get_memory_promotion_service", lambda: promotion_service)
+    monkeypatch.setattr(module, "_get_meeting_session_store", lambda: meeting_session_store)
 
     app = FastAPI()
-    app.include_router(module.router)
-    return TestClient(app), promotion_service, item_store
+    workspace_router = APIRouter(prefix="/api/v1/workspaces")
+    workspace_router.include_router(module.router)
+    app.include_router(workspace_router)
+    return ASGIAsyncTestClient(app), promotion_service, item_store, meeting_session_store
 
 
 def test_workspace_memory_transition_verify_uses_workspace_scoped_memory(monkeypatch):
@@ -227,7 +280,7 @@ def test_workspace_memory_transition_verify_uses_workspace_scoped_memory(monkeyp
         context_type="workspace",
         context_id="ws-1",
     )
-    client, promotion_service, _item_store = _build_client(monkeypatch, item=item)
+    client, promotion_service, _item_store, _meeting_session_store = _build_client(monkeypatch, item=item)
 
     response = client.post(
         "/api/v1/workspaces/ws-1/governance/memory/mem-1/transition",
@@ -252,7 +305,7 @@ def test_workspace_memory_transition_rejects_cross_workspace_memory(monkeypatch)
         context_type="workspace",
         context_id="ws-other",
     )
-    client, _promotion_service, _item_store = _build_client(monkeypatch, item=item)
+    client, _promotion_service, _item_store, _meeting_session_store = _build_client(monkeypatch, item=item)
 
     response = client.post(
         "/api/v1/workspaces/ws-1/governance/memory/mem-1/transition",
@@ -269,7 +322,7 @@ def test_workspace_memory_transition_supersede_passes_successor_fields(monkeypat
         context_type="workspace",
         context_id="ws-1",
     )
-    client, promotion_service, _item_store = _build_client(monkeypatch, item=item)
+    client, promotion_service, _item_store, _meeting_session_store = _build_client(monkeypatch, item=item)
 
     response = client.post(
         "/api/v1/workspaces/ws-1/governance/memory/mem-1/transition",
@@ -342,7 +395,7 @@ def test_workspace_memory_list_returns_filtered_canonical_items(monkeypatch):
         created_at="2026-03-25T01:00:00Z",
         updated_at="2026-03-25T01:30:00Z",
     )
-    client, _promotion_service, item_store = _build_client(
+    client, _promotion_service, item_store, _meeting_session_store = _build_client(
         monkeypatch,
         item=None,
         items=[candidate, active],
@@ -377,7 +430,24 @@ def test_workspace_memory_list_returns_filtered_canonical_items(monkeypatch):
     ]
 
 
-def test_workspace_memory_detail_returns_versions_evidence_and_projections(monkeypatch):
+def test_workspace_memory_detail_returns_versions_evidence_and_projections(
+    monkeypatch, tmp_path
+):
+    artifact_dir = tmp_path / "artifacts" / "exec-001"
+    artifact_dir.mkdir(parents=True)
+    result_json_path = artifact_dir / "result.json"
+    summary_md_path = artifact_dir / "summary.md"
+    attachment_path = artifact_dir / "attachments" / "artifact.txt"
+    attachment_path.parent.mkdir(parents=True)
+    result_json_path.write_text('{"status":"ok"}', encoding="utf-8")
+    summary_md_path.write_text("# Summary", encoding="utf-8")
+    attachment_path.write_text("artifact body", encoding="utf-8")
+
+    trace_dir = tmp_path / ".mindscape" / "traces"
+    trace_dir.mkdir(parents=True)
+    trace_file_path = trace_dir / "trace-exec-001.json"
+    trace_file_path.write_text('{"execution_id":"trace-exec-001"}', encoding="utf-8")
+
     item = SimpleNamespace(
         id="mem-1",
         context_type="workspace",
@@ -421,6 +491,70 @@ def test_workspace_memory_detail_returns_versions_evidence_and_projections(monke
         metadata={"source_id": "sess-1"},
         created_at="2026-03-25T00:00:01Z",
     )
+    decision_evidence = SimpleNamespace(
+        id="evi-2",
+        memory_item_id="mem-1",
+        evidence_type="meeting_decision",
+        evidence_id="decision-1",
+        link_role="supports",
+        excerpt="Adopt the revised delivery standard.",
+        confidence=0.95,
+        metadata={"category": "action"},
+        created_at="2026-03-25T00:00:02Z",
+    )
+    artifact_evidence = SimpleNamespace(
+        id="evi-3",
+        memory_item_id="mem-1",
+        evidence_type="artifact_result",
+        evidence_id="artifact-1",
+        link_role="supports",
+        excerpt="Updated artifact reflects the revised delivery standard.",
+        confidence=0.96,
+        metadata={
+            "artifact_type": "draft",
+            "landing_artifact_dir": str(artifact_dir),
+            "landing_result_json_path": str(result_json_path),
+            "landing_summary_md_path": str(summary_md_path),
+            "landing_attachments_count": 1,
+            "landing_attachments": [str(attachment_path)],
+            "landing_landed_at": "2026-03-25T00:00:03Z",
+        },
+        created_at="2026-03-25T00:00:03Z",
+    )
+    trace_evidence = SimpleNamespace(
+        id="evi-4",
+        memory_item_id="mem-1",
+        evidence_type="execution_trace",
+        evidence_id="trace-exec-001",
+        link_role="supports",
+        excerpt="Produced a concise landing-page outline and updated the draft files.",
+        confidence=0.88,
+        metadata={
+            "trace_source": "trace_file",
+            "trace_file_path": str(trace_file_path),
+            "sandbox_path": str(tmp_path),
+            "tool_call_count": 2,
+            "file_change_count": 2,
+            "files_created_count": 1,
+            "files_modified_count": 1,
+            "success": True,
+            "duration_seconds": 12.5,
+            "task_description": "Generate a concise landing-page outline.",
+            "output_summary": "Produced a concise landing-page outline and updated the draft files.",
+        },
+        created_at="2026-03-25T00:00:03Z",
+    )
+    receipt_evidence = SimpleNamespace(
+        id="evi-5",
+        memory_item_id="mem-1",
+        evidence_type="writeback_receipt",
+        evidence_id="receipt-1",
+        link_role="derived_from",
+        excerpt="Projection receipt",
+        confidence=1.0,
+        metadata={"target_table": "personal_knowledge"},
+        created_at="2026-03-25T00:00:04Z",
+    )
     edge = SimpleNamespace(
         id="edge-1",
         from_memory_id="mem-1",
@@ -453,11 +587,17 @@ def test_workspace_memory_detail_returns_versions_evidence_and_projections(monke
         confirmed_at="2026-03-25T00:30:00Z",
         metadata={"canonical_projection": {"source_memory_item_id": "mem-1"}},
     )
-    client, _promotion_service, _item_store = _build_client(
+    client, _promotion_service, _item_store, _meeting_session_store = _build_client(
         monkeypatch,
         item=item,
         versions=[version],
-        evidence_links=[evidence],
+        evidence_links=[
+            evidence,
+            decision_evidence,
+            artifact_evidence,
+            trace_evidence,
+            receipt_evidence,
+        ],
         edges=[edge],
         knowledge_entries=[knowledge],
         goal_entries=[goal],
@@ -478,3 +618,163 @@ def test_workspace_memory_detail_returns_versions_evidence_and_projections(monke
     assert data["outgoing_edges"][0]["edge_type"] == "supersedes"
     assert data["personal_knowledge_projections"][0]["id"] == "pk-1"
     assert data["goal_projections"][0]["id"] == "goal-1"
+    assert data["evidence_coverage"] == {
+        "deliberation": 2,
+        "execution": 2,
+        "governance": 1,
+        "support": 3,
+        "derived": 2,
+    }
+    assert data["evidence"][2]["artifact_landing"] == {
+        "artifact_dir": str(artifact_dir),
+        "result_json_path": str(result_json_path),
+        "summary_md_path": str(summary_md_path),
+        "attachments_count": 1,
+        "attachments": [str(attachment_path)],
+        "landed_at": "2026-03-25T00:00:03Z",
+        "artifact_dir_exists": True,
+        "result_json_exists": True,
+        "summary_md_exists": True,
+    }
+    assert data["evidence"][3]["execution_trace_drilldown"] == {
+        "trace_source": "trace_file",
+        "trace_file_path": str(trace_file_path),
+        "trace_file_exists": True,
+        "sandbox_path": str(tmp_path),
+        "tool_call_count": 2,
+        "file_change_count": 2,
+        "files_created_count": 1,
+        "files_modified_count": 1,
+        "success": True,
+        "duration_seconds": 12.5,
+        "task_description": "Generate a concise landing-page outline.",
+        "output_summary": "Produced a concise landing-page outline and updated the draft files.",
+    }
+    assert data["transition_cues"][0]["id"] == "stale-usage"
+    assert any(cue["id"] == "supersede-usage" for cue in data["transition_cues"])
+    assert data["successor_draft_suggestion"] == {
+        "title": "Candidate memory Revision",
+        "claim": "Updated artifact reflects the revised delivery standard.",
+        "summary": "Successor drafted from artifact result. Coverage: 2 deliberation, 2 execution, 1 governance. Anchor evidence: artifact-1.",
+        "primary_evidence_id": "artifact-1",
+        "primary_evidence_type": "artifact_result",
+    }
+    assert (
+        data["transition_reason_suggestions"]["verify"]
+        == "Verified after reviewing Artifact Result artifact-1 with 2 deliberation signals and 3 downstream execution or governance signals."
+    )
+    assert (
+        data["transition_reason_suggestions"]["stale"]
+        == "Marked stale because the active workspace context moved beyond this claim and no replacement was finalized from Artifact Result artifact-1."
+    )
+    assert (
+        data["transition_reason_suggestions"]["supersede"]
+        == "Superseded after Artifact Result artifact-1 established a newer operating claim for Candidate memory."
+    )
+
+
+def test_workspace_memory_health_aggregates_recent_workflow_evidence(monkeypatch):
+    base_time = datetime(2026, 3, 26, 8, 0, tzinfo=timezone.utc)
+    sessions = [
+        SimpleNamespace(
+            id="sess-3",
+            workspace_id="ws-1",
+            project_id="proj-1",
+            thread_id="thread-1",
+            meeting_type="decision",
+            started_at=base_time,
+            ended_at=None,
+            metadata={
+                "workflow_evidence_diagnostics": {
+                    "profile": "decision",
+                    "scope": "thread",
+                    "selected_line_count": 8,
+                    "total_line_budget": 8,
+                    "total_candidate_count": 12,
+                    "total_dropped_count": 4,
+                    "rendered_section_count": 4,
+                    "budget_utilization_ratio": 1.0,
+                }
+            },
+        ),
+        SimpleNamespace(
+            id="sess-2",
+            workspace_id="ws-1",
+            project_id="proj-1",
+            thread_id="thread-1",
+            meeting_type="review",
+            started_at=base_time.replace(hour=7),
+            ended_at=None,
+            metadata={
+                "workflow_evidence_diagnostics": {
+                    "profile": "review",
+                    "scope": "thread",
+                    "selected_line_count": 2,
+                    "total_line_budget": 8,
+                    "total_candidate_count": 5,
+                    "total_dropped_count": 0,
+                    "rendered_section_count": 2,
+                    "budget_utilization_ratio": 0.25,
+                }
+            },
+        ),
+        SimpleNamespace(
+            id="sess-1",
+            workspace_id="ws-1",
+            project_id="proj-1",
+            thread_id="thread-1",
+            meeting_type="reflection",
+            started_at=base_time.replace(hour=6),
+            ended_at=None,
+            metadata={
+                "workflow_evidence_diagnostics": {
+                    "profile": "reflection",
+                    "scope": "project",
+                    "selected_line_count": 0,
+                    "total_line_budget": 8,
+                    "total_candidate_count": 0,
+                    "total_dropped_count": 0,
+                    "rendered_section_count": 0,
+                    "budget_utilization_ratio": 0.0,
+                }
+            },
+        ),
+    ]
+    client, _promotion_service, _item_store, meeting_session_store = _build_client(
+        monkeypatch,
+        item=None,
+        meeting_sessions=sessions,
+    )
+
+    response = client.get(
+        "/api/v1/workspaces/ws-1/governance/memory-health",
+        params={"thread_id": "thread-1", "limit": 3},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["workspace_id"] == "ws-1"
+    assert data["thread_id"] == "thread-1"
+    assert data["sampled_sessions"] == 3
+    assert data["tight_count"] == 1
+    assert data["underused_count"] == 1
+    assert data["empty_count"] == 1
+    assert data["balanced_count"] == 0
+    assert data["latest"]["session_id"] == "sess-3"
+    assert data["latest"]["classification"] == "tight"
+    assert data["average_utilization_ratio"] == 0.417
+    assert data["average_selected_line_count"] == 3.33
+    assert data["average_total_dropped_count"] == 1.33
+    assert [session["session_id"] for session in data["sessions"]] == [
+        "sess-3",
+        "sess-2",
+        "sess-1",
+    ]
+    assert meeting_session_store.calls == [
+        {
+            "workspace_id": "ws-1",
+            "project_id": None,
+            "limit": 9,
+            "offset": 0,
+        }
+    ]

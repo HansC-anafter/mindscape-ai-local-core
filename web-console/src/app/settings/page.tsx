@@ -15,6 +15,7 @@ import { ToolsPanel } from './components/ToolsPanel';
 
 import { LocalizationPanel } from './components/LocalizationPanel';
 import { ServiceStatusPanel } from './components/ServiceStatusPanel';
+import { PacksPanel } from './components/PacksPanel';
 import { GovernancePanel } from './components/GovernancePanel';
 import { AITeamGovernancePanel } from './components/panels/AITeamGovernancePanel';
 import { RuntimeEnvironmentsSettings } from './components/panels/RuntimeEnvironmentsSettings';
@@ -132,6 +133,8 @@ export default function SettingsPage() {
         return <LocalizationPanel activeSection={activeSection} />;
       case 'service_status':
         return <ServiceStatusPanel />;
+      case 'packs_status':
+        return <PacksPanel getToolStatus={getToolStatusForPack} activeSection={activeSection || 'packages'} />;
       case 'governance':
         return <GovernancePanel activeSection={activeSection} />;
       default:
@@ -163,6 +166,7 @@ export default function SettingsPage() {
             { id: 'mindscape' as SettingsTab, label: t('mindscapeConfiguration' as any) },
             { id: 'social_media' as SettingsTab, label: t('socialMediaIntegration' as any) },
             { id: 'localization' as SettingsTab, label: t('localization' as any) },
+            { id: 'packs_status' as SettingsTab, label: t('capabilityPacks' as any) },
             { id: 'governance' as SettingsTab, label: t('governance' as any) },
             { id: 'service_status' as SettingsTab, label: t('serviceStatus' as any) },
           ].map((tab) => (
@@ -199,7 +203,7 @@ export default function SettingsPage() {
 
           {/* Middle Column: Content - col-span-7 (58.33%) */}
           <div className="col-span-12 lg:col-span-7 flex flex-col h-full min-h-0 bg-surface dark:bg-gray-900">
-            {activeTab === 'basic' && activeSection === 'models-and-quota' ? (
+            {(activeTab === 'basic' && activeSection === 'models-and-quota') ? (
               <div className="flex-1 flex flex-col min-h-0 p-3 lg:p-4">
                 {renderContent()}
               </div>

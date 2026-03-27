@@ -14,10 +14,6 @@ from sqlalchemy.orm import Session
 
 from ...models.runtime_environment import RuntimeEnvironment
 from ...services.runtime_auth_service import RuntimeAuthService
-from ...services.runtime_discovery_service import (
-    RuntimeDiscoveryService,
-    DiscoveryResult,
-)
 
 # Import database session
 try:
@@ -48,7 +44,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/runtime-environments", tags=["runtime-environments"])
 
 auth_service = RuntimeAuthService()
-discovery_service = RuntimeDiscoveryService()
 
 
 # Pydantic models for request/response
@@ -92,15 +87,6 @@ class UpdateRuntimeEnvironmentRequest(BaseModel):
     supports_dispatch: Optional[bool] = None
     supports_cell: Optional[bool] = None
     recommended_for_dispatch: Optional[bool] = None
-
-
-class DiscoveryScanRequest(BaseModel):
-    """Request model for scanning a folder for runtime configuration"""
-
-    path: str = Field(..., description="Local folder path to scan")
-    runtime_type: str = Field(
-        default="comfyui", description="Type of runtime to scan for"
-    )
 
 
 @router.get("")
@@ -431,20 +417,3 @@ async def delete_runtime_environment(
             status_code=500, detail="Failed to delete runtime environment"
         )
 
-
-@router.post("/discovery/scan", response_model=DiscoveryResult)
-async def scan_runtime(
-    request: DiscoveryScanRequest, current_user: User = Depends(get_current_user)
-):
-    """
-    Scan a local folder for runtime configuration.
-
-    This endpoint helps users automatically configure local runtimes
-    by identifying paths, ports, and metadata from a selected folder.
-    """
-    try:
-        result = discovery_service.scan_folder(request.path, request.runtime_type)
-        return result
-    except Exception as e:
-        logger.error(f"Discovery scan failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Discovery scan failed: {str(e)}")

@@ -171,8 +171,13 @@ class ConnectionMixin:
 
         return client
 
-    def disconnect(self, client: AgentClient) -> None:
-        """Remove a client connection and re-queue inflight tasks."""
+    def disconnect(
+        self,
+        client: AgentClient,
+        *,
+        requeue_inflight: bool = True,
+    ) -> None:
+        """Remove a client connection and optionally re-queue inflight tasks."""
         ws_id = client.workspace_id
         cid = client.client_id
 
@@ -183,6 +188,14 @@ class ConnectionMixin:
 
         # Remove from PostgreSQL cross-worker registry
         self._db_unregister_connection(cid)
+
+        if not requeue_inflight:
+            logger.info(
+                "[AgentWS] Client %s evicted from workspace %s without re-queue",
+                cid,
+                ws_id,
+            )
+            return
 
         # Re-queue inflight tasks owned by this client
         owned_execs = [

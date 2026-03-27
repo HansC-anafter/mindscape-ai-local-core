@@ -36,7 +36,7 @@ export default function WorkspaceTimelinePage() {
       loadTimeline();
       loadWorkspace();
     }
-  }, [workspaceId]);
+  }, [workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadWorkspace = async () => {
     try {
@@ -58,7 +58,8 @@ export default function WorkspaceTimelinePage() {
       );
       if (response.ok) {
         const data = await response.json();
-        const mappedEvents = (data.events || []).map((event: any) => ({
+        const timelineItems = data.items || data.events || [];
+        const mappedEvents = timelineItems.map((event: any) => ({
           id: event.id,
           timestamp: event.timestamp,
           event_type: event.event_type,

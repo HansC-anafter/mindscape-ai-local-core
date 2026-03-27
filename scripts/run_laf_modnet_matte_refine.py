@@ -18,6 +18,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mask-path", default="")
     parser.add_argument("--mask-url", default="")
     parser.add_argument("--bbox-json", default="")
+    parser.add_argument("--bbox-source", default="")
+    parser.add_argument("--context-mode", default="")
     return parser.parse_args()
 
 
@@ -50,6 +52,10 @@ def main() -> int:
         command.extend(["--mask-url", args.mask_url])
     if args.bbox_json:
         command.extend(["--bbox-json", args.bbox_json])
+    if args.bbox_source:
+        command.extend(["--bbox-source", args.bbox_source])
+    if args.context_mode:
+        command.extend(["--context-mode", args.context_mode])
 
     process = subprocess.run(
         command,

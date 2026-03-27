@@ -110,6 +110,16 @@ export interface UnifiedEvent {
     writeback_run_id?: string;
     lifecycle_status?: string;
     verification_status?: string;
+    meeting_session_id?: string;
+    meeting_type?: string;
+    workflow_evidence_profile?: string;
+    workflow_evidence_scope?: string;
+    workflow_evidence_selected_line_count?: number;
+    workflow_evidence_total_line_budget?: number;
+    workflow_evidence_total_candidate_count?: number;
+    workflow_evidence_total_dropped_count?: number;
+    workflow_evidence_rendered_section_count?: number;
+    workflow_evidence_budget_utilization_ratio?: number;
   };
   entity_ids?: Record<string, string>;
   metadata?: Record<string, any>;
@@ -141,6 +151,17 @@ export interface TimelineItem {
   clickable: boolean;
   targetCardId?: string;
   navigationHref?: string;
+  memoryItemId?: string;
+  memoryLifecycleStatus?: string;
+  memoryVerificationStatus?: string;
+  meetingEvidenceProfile?: string;
+  meetingEvidenceScope?: string;
+  meetingEvidenceSelectedLines?: number;
+  meetingEvidenceTotalBudget?: number;
+  meetingEvidenceTotalCandidates?: number;
+  meetingEvidenceTotalDropped?: number;
+  meetingEvidenceRenderedSections?: number;
+  meetingEvidenceBudgetUtilizationRatio?: number;
 }
 
 /**
@@ -532,6 +553,7 @@ export function eventToTimelineItem(event: UnifiedEvent): TimelineItem | null {
     'tool_result',
     'playbook_step',
     'branch_proposed',
+    'meeting_start',
     'memory_writeback',
   ];
 
@@ -564,6 +586,20 @@ export function eventToTimelineItem(event: UnifiedEvent): TimelineItem | null {
       summary = `Branch proposed: ${event.payload.alternatives?.length || 0} candidate plans`;
       targetCardId = event.payload.branch_id;
       break;
+    case 'meeting_start': {
+      const profile = event.payload.workflow_evidence_profile || 'general';
+      const scope = event.payload.workflow_evidence_scope || 'none';
+      summary = `Meeting started: ${event.payload.meeting_type || 'general'} · ${profile} packet from ${scope} scope`;
+      if (event.workspace_id && event.payload.meeting_session_id) {
+        const params = new URLSearchParams();
+        params.set('session_id', event.payload.meeting_session_id);
+        if (event.project_id) {
+          params.set('project_id', event.project_id);
+        }
+        navigationHref = `/workspaces/${event.workspace_id}/meetings?${params.toString()}`;
+      }
+      break;
+    }
     case 'memory_writeback':
       summary = `Governed memory linked: ${event.payload.memory_item_id || 'canonical item created'}`;
       if (event.workspace_id && event.payload.memory_item_id) {
@@ -585,6 +621,19 @@ export function eventToTimelineItem(event: UnifiedEvent): TimelineItem | null {
     clickable: !!targetCardId || !!navigationHref,
     targetCardId,
     navigationHref,
+    memoryItemId: event.payload.memory_item_id,
+    memoryLifecycleStatus: event.payload.lifecycle_status,
+    memoryVerificationStatus: event.payload.verification_status,
+    meetingEvidenceProfile: event.payload.workflow_evidence_profile,
+    meetingEvidenceScope: event.payload.workflow_evidence_scope,
+    meetingEvidenceSelectedLines: event.payload.workflow_evidence_selected_line_count,
+    meetingEvidenceTotalBudget: event.payload.workflow_evidence_total_line_budget,
+    meetingEvidenceTotalCandidates: event.payload.workflow_evidence_total_candidate_count,
+    meetingEvidenceTotalDropped: event.payload.workflow_evidence_total_dropped_count,
+    meetingEvidenceRenderedSections:
+      event.payload.workflow_evidence_rendered_section_count,
+    meetingEvidenceBudgetUtilizationRatio:
+      event.payload.workflow_evidence_budget_utilization_ratio,
   };
 }
 
@@ -655,8 +704,6 @@ function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
   // SSE requires direct backend connection; Next.js rewrites buffer chunked responses.
   // Subscribe to ALL event types; client-side filtering per subscriber
   const url = `${baseUrl}/api/v1/workspaces/${workspaceId}/events/stream`;
-
-  console.log('[EventStream] Opening shared connection:', url);
 
   const eventSource = new EventSource(url);
   const stream: SharedStream = { eventSource, subscribers: new Set(), url, key };
@@ -782,7 +829,6 @@ function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
   };
 
   eventSource.onopen = () => {
-    console.log('[EventStream] Shared connection opened:', url);
   };
 
   sharedStreams.set(key, stream);
@@ -831,7 +877,6 @@ export function subscribeEventStream(
     if (stream.subscribers.size === 0) {
       stream.eventSource.close();
       sharedStreams.delete(stream.key);
-      console.log('[EventStream] Closed shared connection (no subscribers):', stream.url);
     }
   };
 }

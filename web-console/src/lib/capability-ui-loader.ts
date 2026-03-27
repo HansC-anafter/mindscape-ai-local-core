@@ -66,12 +66,6 @@ if (process.env.NODE_ENV === 'development') {
       '\n  All keys sample (first 20):',
       Array.from(capabilityComponentKeys).slice(0, 20)
     );
-  } else {
-    const sampleKeys = Array.from(capabilityComponentKeys).slice(0, 10);
-    console.debug(
-      '[capability-ui-loader] Context keys sample (first 10):',
-      sampleKeys
-    );
   }
 }
 const capabilityComponentsContext = ((key: string) => {
@@ -79,36 +73,18 @@ const capabilityComponentsContext = ((key: string) => {
 
   if (normalizedKey.startsWith('pp/src/app/capabilities/')) {
     normalizedKey = normalizedKey.replace('pp/src/app/capabilities/', './');
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[capability-ui-loader] Fixed pp/src key:', key, '->', normalizedKey);
-    }
   } else if (normalizedKey.startsWith('pp/src/')) {
     normalizedKey = normalizedKey.replace('pp/src/', './');
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[capability-ui-loader] Fixed pp/src key:', key, '->', normalizedKey);
-    }
   } else {
     normalizedKey = normalizeCapabilityContextKey(key) || key;
   }
 
   const resolvedKey = normalizedKey;
 
-  if (process.env.NODE_ENV === 'development') {
-    if (normalizedKey && normalizedKey !== key) {
-      console.info('[capability-ui-loader] Normalized context key:', key, '->', normalizedKey);
-    }
-    if (resolvedKey && !resolvedKey.startsWith('./')) {
-      console.warn('[capability-ui-loader] Unexpected context key:', resolvedKey, new Error().stack);
-    }
-  }
-
   try {
     return rawCapabilityComponentsContext(resolvedKey);
   } catch (error) {
     if (normalizedKey !== key) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('[capability-ui-loader] Fallback to original context key:', key, error);
-      }
       try {
         return rawCapabilityComponentsContext(key);
       } catch (fallbackError) {
@@ -117,7 +93,6 @@ const capabilityComponentsContext = ((key: string) => {
           k.includes(key.split('/').pop() || '')
         );
         if (matchingKey) {
-          console.warn('[capability-ui-loader] Using matching key:', matchingKey, 'for', key);
           return rawCapabilityComponentsContext(matchingKey);
         }
         throw fallbackError;
@@ -143,17 +118,10 @@ const rawResolve = (rawCapabilityComponentsContext as any).resolve
     }
     const resolvedRequest = normalizedRequest;
 
-    if (process.env.NODE_ENV === 'development' && resolvedRequest !== request) {
-      console.info('[capability-ui-loader] Resolve normalized:', request, '->', resolvedRequest);
-    }
-
     try {
       return rawResolve(resolvedRequest);
     } catch (error) {
       if (normalizedRequest !== request) {
-        if (process.env.NODE_ENV === 'development') {
-          console.warn('[capability-ui-loader] resolve fallback to original request:', request, error);
-        }
         try {
           return rawResolve(request);
         } catch (fallbackError) {
@@ -256,7 +224,6 @@ export async function loadCapabilityUIComponent(
   // Check cache first
   const cacheKey = `${capabilityCode}:${componentCode}`;
   if (loadedComponentsCache.has(cacheKey)) {
-    console.log(`[loadCapabilityUIComponent] Using cached component: ${componentCode}`);
     return loadedComponentsCache.get(cacheKey) || null;
   }
 
@@ -265,7 +232,6 @@ export async function loadCapabilityUIComponent(
     let components: UIComponentInfo[];
     if (componentMetadataCache.has(capabilityCode)) {
       components = componentMetadataCache.get(capabilityCode)!;
-      console.log(`[loadCapabilityUIComponent] Using cached metadata for capability: ${capabilityCode}`);
     } else {
       // Fetch UI component info from API (boundary: no hardcoded paths)
       const response = await fetch(
@@ -320,11 +286,8 @@ export async function loadCapabilityUIComponent(
     const importPath = component.import_path;
 
     try {
-      console.log(`[loadCapabilityUIComponent] Attempting to import path from backend: "${importPath}"`);
-
       const rawContextKey = convertImportPathToContextKey(importPath);
       const contextKey = findExistingContextKey(rawContextKey, component, capabilityCode);
-      console.log(`[loadCapabilityUIComponent] Converted to context key: "${contextKey}"`);
       if (!contextKey) {
         console.error(`[loadCapabilityUIComponent] Invalid import path format: ${importPath}`);
         return null;
@@ -335,8 +298,6 @@ export async function loadCapabilityUIComponent(
         );
         return null;
       }
-
-      console.log(`[loadCapabilityUIComponent] Loading via require.context with key: ${contextKey}`);
 
       // Use require.context to load the component (webpack handles this at build time)
       // The context function is created by webpack at build time
@@ -359,7 +320,6 @@ export async function loadCapabilityUIComponent(
 
       const Component = module[component.export] || module.default || null;
       if (Component) {
-        console.log(`[loadCapabilityUIComponent] Successfully loaded component: ${componentCode}`);
         // Cache the loaded component
         loadedComponentsCache.set(cacheKey, Component);
       } else {

@@ -92,12 +92,17 @@ test_*.yaml
 !backend/tests/services/memory/memory_promotion_service_test.py
 !backend/tests/services/memory/memory_engine_closure_integration_test.py
 !backend/tests/services/orchestration/meeting/test_session_memory_linkage.py
+!backend/tests/services/orchestration/meeting/test_workflow_evidence_prompt_context.py
 !backend/tests/services/governance_context_read_model_test.py
+!backend/tests/services/governance/test_memory_impact_graph_read_model.py
 !backend/tests/services/memory_packet_compiler_test.py
+!backend/tests/routes/core/test_workspace_memory_impact_graph_api.py
 !web-console/src/lib/__tests__/time.test.ts
 !backend/tests/test_workspace_instruction_chat_merge.py
 !web-console/src/app/workspaces/**/instruction/page.test.tsx
 !web-console/src/contexts/__tests__/MessagesContext.merge.test.ts
+!web-console/src/components/workspace/governance/__tests__/memoryImpactGraphAdapter.test.ts
+!web-console/src/components/workspace/governance/__tests__/MemoryImpactGraphPanel.test.tsx
 
 # PDF test files
 *.pdf

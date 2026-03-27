@@ -8,7 +8,7 @@ param(
 # Check execution policy and provide helpful message if blocked
 $executionPolicy = Get-ExecutionPolicy
 if ($executionPolicy -eq "Restricted") {
-    Write-Host "⚠️  PowerShell execution policy is 'Restricted'" -ForegroundColor Yellow
+    Write-Host "WARNING: PowerShell execution policy is 'Restricted'" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "To run this script, you need to change the execution policy." -ForegroundColor Yellow
     Write-Host "Run PowerShell as Administrator and execute:" -ForegroundColor Cyan
@@ -189,10 +189,10 @@ function Test-DockerAvailable {
         if ($context -match "desktop-linux") {
             Write-Host "  ✓ Docker context: $context" -ForegroundColor Green
         } else {
-            Write-Host "  ⚠ Docker context: $context (expected: desktop-linux)" -ForegroundColor Yellow
+            Write-Host "  WARNING: Docker context: $context (expected: desktop-linux)" -ForegroundColor Yellow
         }
     } catch {
-        Write-Host "  ⚠ Could not check Docker context" -ForegroundColor Yellow
+        Write-Host "  WARNING: Could not check Docker context" -ForegroundColor Yellow
     }
 
     # Check Docker Compose
@@ -218,7 +218,7 @@ if (-not $SkipCheck) {
 
     if (-not $dockerAvailable) {
         Write-Host ""
-        Write-Host "❌ Docker is not available or not running" -ForegroundColor Red
+        Write-Host "ERROR: Docker is not available or not running" -ForegroundColor Red
         Write-Host ""
         Write-Host "Please ensure:" -ForegroundColor Yellow
         Write-Host "  1. Docker Desktop is installed" -ForegroundColor Yellow
@@ -271,7 +271,7 @@ if (-not $SkipCheck) {
     }
 
     Write-Host ""
-    Write-Host "✅ Docker is ready" -ForegroundColor Green
+    Write-Host "Docker is ready" -ForegroundColor Green
     Write-Host ""
 }
 
@@ -282,7 +282,7 @@ $ProjectRoot = Split-Path -Parent $ScriptDir
 # Verify we're in the correct project directory (check for docker-compose.yml)
 if (-not (Test-Path (Join-Path $ProjectRoot "docker-compose.yml"))) {
     Write-Host ""
-    Write-Host "❌ ERROR: Cannot find docker-compose.yml in project root" -ForegroundColor Red
+    Write-Host "ERROR: Cannot find docker-compose.yml in project root" -ForegroundColor Red
     Write-Host ""
     Write-Host "Current project root: $ProjectRoot" -ForegroundColor Yellow
     Write-Host ""
@@ -322,7 +322,7 @@ foreach ($systemPath in $systemPaths) {
 
 if ($isInSystemPath) {
     Write-Host ""
-    Write-Host "❌ ERROR: Project is located in a system directory" -ForegroundColor Red
+    Write-Host "ERROR: Project is located in a system directory" -ForegroundColor Red
     Write-Host ""
     Write-Host "Current location: $ProjectRoot" -ForegroundColor Yellow
     Write-Host "System path detected: $matchedSystemPath" -ForegroundColor Yellow
@@ -357,7 +357,7 @@ if ($LASTEXITCODE -eq 0 -and $existingContainers) {
     $containerList = $existingContainers -split "`n" | Where-Object { $_ -ne "" }
     if ($containerList.Count -gt 0) {
         Write-Host ""
-        Write-Host "⚠️  Found existing containers with conflicting names:" -ForegroundColor Yellow
+        Write-Host "WARNING: Found existing containers with conflicting names:" -ForegroundColor Yellow
         foreach ($container in $containerList) {
             Write-Host "  - $container" -ForegroundColor Yellow
         }
@@ -371,7 +371,7 @@ if ($LASTEXITCODE -eq 0 -and $existingContainers) {
             $exitCode = Invoke-DockerCompose -Arguments @("down") -SuppressOutput
             if ($exitCode -ne 0 -and $exitCode -ne 1) {
                 # Exit code 1 is OK (some containers may not exist)
-                Write-Host "  ⚠ Warning: docker compose down had issues, trying individual removal..." -ForegroundColor Yellow
+                Write-Host "  WARNING: docker compose down had issues, trying individual removal..." -ForegroundColor Yellow
             }
             # Also try to remove individual containers if compose down didn't work
             foreach ($container in $containerList) {
@@ -381,7 +381,7 @@ if ($LASTEXITCODE -eq 0 -and $existingContainers) {
             Write-Host ""
         } else {
             Write-Host ""
-            Write-Host "⚠️  Keeping existing containers. If you encounter errors, run:" -ForegroundColor Yellow
+            Write-Host "WARNING: Keeping existing containers. If you encounter errors, run:" -ForegroundColor Yellow
             Write-Host "  docker compose down" -ForegroundColor Cyan
             Write-Host "  docker compose up -d" -ForegroundColor Cyan
             Write-Host ""
@@ -391,6 +391,12 @@ if ($LASTEXITCODE -eq 0 -and $existingContainers) {
 
 Write-Host "Starting services..." -ForegroundColor Cyan
 Write-Host ""
+
+function Get-BridgeSupervisorProcesses {
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -match '^powershell(\.exe)?$' -and $_.CommandLine -match 'start_cli_bridge_supervisor\.ps1'
+    }
+}
 
 # --- Device Node (host-level MCP service) ---
 $DeviceNodeDir = Join-Path $ProjectRoot "device-node"
@@ -416,10 +422,10 @@ if (Test-Path $DeviceNodeDir) {
         } else {
             # Fallback: run in background (no admin or no NSSM)
             if ($nssmAvailable -and -not $isAdmin) {
-                Write-Host "  ⚠️  NSSM found but not running as Administrator. Starting Device Node in background..." -ForegroundColor Yellow
+                Write-Host "  WARNING: NSSM found but not running as Administrator. Starting Device Node in background..." -ForegroundColor Yellow
                 Write-Host "     To install as service, re-run: powershell -RunAs .\\scripts\\start.ps1" -ForegroundColor Yellow
             } else {
-                Write-Host "  ⚠️  NSSM not found. Starting Device Node in background..." -ForegroundColor Yellow
+                Write-Host "  WARNING: NSSM not found. Starting Device Node in background..." -ForegroundColor Yellow
             }
             Set-Location $DeviceNodeDir
             if (-not (Test-Path "dist")) {
@@ -433,7 +439,47 @@ if (Test-Path $DeviceNodeDir) {
     }
     Write-Host ""
 } else {
-    Write-Host "  ⚠️  device-node directory not found, skipping" -ForegroundColor Yellow
+    Write-Host "  WARNING: device-node directory not found, skipping" -ForegroundColor Yellow
+    Write-Host ""
+}
+
+# --- CLI Bridge (host-level bridge supervisor) ---
+$CliBridgeScript = Join-Path $ProjectRoot "scripts\start_cli_bridge_supervisor.ps1"
+if (Test-Path $CliBridgeScript) {
+    Write-Host "Setting up CLI Bridge..." -ForegroundColor Yellow
+
+    $bridgeService = Get-Service -Name "MindscapeCliBridge" -ErrorAction SilentlyContinue
+    if ($bridgeService -and $bridgeService.Status -eq "Running") {
+        Write-Host "  ✓ CLI Bridge service already running" -ForegroundColor Green
+    } else {
+        $nssmAvailable = Get-Command nssm -ErrorAction SilentlyContinue
+        $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        $bridgeProcesses = @(Get-BridgeSupervisorProcesses)
+
+        if ($nssmAvailable -and $isAdmin) {
+            Write-Host "  Installing/updating CLI Bridge service..." -ForegroundColor Yellow
+            & (Join-Path $ProjectRoot "scripts\install-cli-bridge-windows.ps1")
+        } elseif ($bridgeProcesses.Count -gt 0) {
+            Write-Host "  ✓ CLI Bridge supervisor already running in background" -ForegroundColor Green
+        } else {
+            if ($nssmAvailable -and -not $isAdmin) {
+                Write-Host "  WARNING: NSSM found but not running as Administrator. Starting CLI Bridge in background..." -ForegroundColor Yellow
+                Write-Host "     To install as service, re-run: powershell -RunAs .\\scripts\\start.ps1" -ForegroundColor Yellow
+            } else {
+                Write-Host "  WARNING: NSSM not found. Starting CLI Bridge in background..." -ForegroundColor Yellow
+            }
+
+            Start-Process -FilePath "powershell.exe" -ArgumentList @(
+                "-ExecutionPolicy", "Bypass",
+                "-File", $CliBridgeScript,
+                "-All"
+            ) -WorkingDirectory $ProjectRoot -WindowStyle Hidden
+            Write-Host "  ✓ CLI Bridge started (background process)" -ForegroundColor Green
+        }
+    }
+    Write-Host ""
+} else {
+    Write-Host "  WARNING: CLI bridge supervisor script not found, skipping" -ForegroundColor Yellow
     Write-Host ""
 }
 
@@ -442,7 +488,7 @@ $ollamaAvailable = Get-Command ollama -ErrorAction SilentlyContinue
 if ($ollamaAvailable) {
     Write-Host "  ✓ Ollama found: $(ollama --version 2>$null)" -ForegroundColor Green
 } else {
-    Write-Host "  ⚠️  Ollama not found. Install from https://ollama.com/download for local inference." -ForegroundColor Yellow
+    Write-Host "  WARNING: Ollama not found. Install from https://ollama.com/download for local inference." -ForegroundColor Yellow
 }
 Write-Host ""
 
@@ -452,7 +498,7 @@ $exitCode = Invoke-DockerCompose -Arguments @("up", "-d")
 
 if ($exitCode -ne 0) {
     Write-Host ""
-    Write-Host "❌ Failed to start services" -ForegroundColor Red
+    Write-Host "ERROR: Failed to start services" -ForegroundColor Red
     Write-Host ""
 
     # Wait a moment for containers to initialize
@@ -499,7 +545,7 @@ if ($exitCode -ne 0) {
 
     if ($failedServices.Count -gt 0) {
         Write-Host ""
-        Write-Host "⚠️  The following services failed to start or are unhealthy:" -ForegroundColor Yellow
+        Write-Host "WARNING: The following services failed to start or are unhealthy:" -ForegroundColor Yellow
         Write-Host ""
 
         # Show logs for failed services
@@ -546,7 +592,7 @@ if ($exitCode -ne 0) {
     Write-Host "To check service status:" -ForegroundColor Yellow
     Write-Host "  docker compose ps" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "💡 Tip: If backend is unhealthy, it may need more time to start." -ForegroundColor Cyan
+    Write-Host "Tip: If backend is unhealthy, it may need more time to start." -ForegroundColor Cyan
     Write-Host "   Wait 1-2 minutes and check again: docker compose ps" -ForegroundColor White
     Write-Host ""
     exit 1
@@ -585,7 +631,7 @@ foreach ($line in $lines) {
 
 if ($unhealthyServices.Count -gt 0) {
     Write-Host ""
-    Write-Host "⚠️  Warning: Some services are unhealthy:" -ForegroundColor Yellow
+    Write-Host "WARNING: Some services are unhealthy:" -ForegroundColor Yellow
     foreach ($service in $unhealthyServices) {
         Write-Host "  - $service" -ForegroundColor Yellow
     }
@@ -605,7 +651,7 @@ if ($unhealthyServices.Count -gt 0) {
 }
 
 Write-Host ""
-Write-Host "✅ Services started successfully!" -ForegroundColor Green
+Write-Host "Services started successfully" -ForegroundColor Green
 Write-Host ""
 Write-Host "Access the application:" -ForegroundColor Cyan
 Write-Host "  Frontend: http://localhost:8300" -ForegroundColor White

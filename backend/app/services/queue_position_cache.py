@@ -1,17 +1,27 @@
 import time
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import text as _sa_text
 
+from backend.app.services.runner_topology import (
+    DEFAULT_LOCAL_QUEUE_PARTITION,
+    build_queue_partition_filter_clause,
+    normalize_queue_partition,
+)
 from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
 
 
 _QUEUE_TOTALS_SQL = """
 SELECT COALESCE(queue_shard, 'default') AS queue_shard,
        COUNT(*) AS pending_total,
-       COUNT(*) FILTER (
-           WHERE next_eligible_at <= NOW()
-             AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
+       SUM(
+           CASE
+               WHEN next_eligible_at <= :now
+                AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
+               THEN 1
+               ELSE 0
+           END
        ) AS eligible_total
 FROM tasks
 WHERE status = 'pending'
@@ -25,7 +35,7 @@ FROM tasks
 WHERE status = 'pending'
   AND task_type IN ('playbook_execution', 'tool_execution')
   AND COALESCE(queue_shard, 'default') = :queue_shard
-  AND next_eligible_at <= NOW()
+  AND next_eligible_at <= :now
   AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
   AND next_eligible_at < :cutoff
 """
@@ -47,11 +57,25 @@ class QueuePositionCache:
             with tasks_store.get_connection() as conn:
                 rows = conn.execute(
                     _sa_text(_QUEUE_TOTALS_SQL),
-                    {"admission_blocked_reason": ADMISSION_DEFERRED_REASON},
+                    {
+                        "admission_blocked_reason": ADMISSION_DEFERRED_REASON,
+                        "now": datetime.now(timezone.utc),
+                    },
                 ).fetchall()
                 self._positions = {}
-                self._pending_totals = {str(r[0]): int(r[1]) for r in rows if r[0]}
-                self._eligible_totals = {str(r[0]): int(r[2]) for r in rows if r[0]}
+                self._pending_totals = {}
+                self._eligible_totals = {}
+                for row in rows:
+                    canonical = normalize_queue_partition(
+                        row[0],
+                        fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+                    )
+                    self._pending_totals[canonical] = self._pending_totals.get(
+                        canonical, 0
+                    ) + int(row[1] or 0)
+                    self._eligible_totals[canonical] = self._eligible_totals.get(
+                        canonical, 0
+                    ) + int(row[2] or 0)
                 self._updated = time.monotonic()
         except Exception:
             pass
@@ -71,7 +95,10 @@ class QueuePositionCache:
         if getattr(task_obj, "frontier_state", None) == "cold":
             return None
 
-        queue_shard = getattr(task_obj, "queue_shard", None) or "default"
+        queue_shard = normalize_queue_partition(
+            getattr(task_obj, "queue_shard", None),
+            fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+        )
         if self.get_total(queue_shard) <= 0:
             return None
 
@@ -83,13 +110,24 @@ class QueuePositionCache:
             return None
 
         try:
+            queue_clause, queue_params = build_queue_partition_filter_clause(
+                "queue_shard",
+                queue_shard,
+                param_prefix="queue_partition",
+            )
             with tasks_store.get_connection() as conn:
                 ahead = conn.execute(
-                    _sa_text(_QUEUE_POSITION_ESTIMATE_SQL),
+                    _sa_text(
+                        _QUEUE_POSITION_ESTIMATE_SQL.replace(
+                            "COALESCE(queue_shard, 'default') = :queue_shard",
+                            queue_clause,
+                        )
+                    ),
                     {
-                        "queue_shard": queue_shard,
                         "cutoff": cutoff,
                         "admission_blocked_reason": ADMISSION_DEFERRED_REASON,
+                        "now": datetime.now(timezone.utc),
+                        **queue_params,
                     },
                 ).scalar()
             position = int(ahead or 0) + 1
@@ -99,7 +137,11 @@ class QueuePositionCache:
             return None
 
     def get_total(self, queue_shard: str) -> int:
-        return self._eligible_totals.get(queue_shard or "default", 0)
+        canonical = normalize_queue_partition(
+            queue_shard,
+            fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+        )
+        return self._eligible_totals.get(canonical, 0)
 
     @property
     def total(self) -> int:

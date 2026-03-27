@@ -11,6 +11,7 @@ from backend.app.services.capability_api_loader import (
     activate_capability_api_code,
     find_seeded_capability_for_path,
     get_capability_api_activation_policy,
+    refresh_seeded_capability_descriptors,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,12 @@ async def ensure_capability_activation_for_request(
         return None
 
     capability_code = find_seeded_capability_for_path(request.app, request.url.path)
+    if (
+        not capability_code
+        and request.url.path.startswith("/api/v1/capabilities/")
+    ):
+        refresh_seeded_capability_descriptors(request.app)
+        capability_code = find_seeded_capability_for_path(request.app, request.url.path)
     if not capability_code:
         return None
 

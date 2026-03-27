@@ -11,23 +11,100 @@ import { usePlaybookMetadata } from './execution-inspector/hooks/usePlaybookMeta
 import { useWorkflowData } from './execution-inspector/hooks/useWorkflowData';
 import { useExecutionActions } from './execution-inspector/hooks/useExecutionActions';
 import { useRemoteChildExecutions } from './execution-inspector/hooks/useRemoteChildExecutions';
-import { calculateTotalSteps, extractArtifacts } from './execution-inspector/utils/execution-inspector';
+import { calculateTotalSteps } from './execution-inspector/utils/execution-inspector';
 import HeaderBar from './execution-inspector/HeaderBar';
 import SummaryBar from './execution-inspector/SummaryBar';
 import StepsTimeline from './execution-inspector/StepsTimeline';
 import StepDetailPanel from './execution-inspector/StepDetailPanel';
 import WorkflowView from './execution-inspector/WorkflowView';
-import ArtifactsPane from './execution-inspector/ArtifactsPane';
 import ExecutionChatWrapper from './execution-inspector/ExecutionChatWrapper';
 import RestartConfirmDialog from './execution-inspector/RestartConfirmDialog';
 import SandboxModalWrapper from './execution-inspector/SandboxModalWrapper';
-import type { ExecutionInspectorProps } from './execution-inspector/types/execution';
+import { GovernedMemoryPreview } from '@/components/workspace/governance/GovernedMemoryPreview';
+import { MemoryImpactGraphPanel } from '@/components/workspace/governance/MemoryImpactGraphPanel';
+import type { Artifact, ExecutionInspectorProps, ReviewBundleArtifact } from './execution-inspector/types/execution';
 
 interface RelatedGovernedMemoryLink {
   eventId: string;
   memoryItemId: string;
   lifecycleStatus?: string;
   verificationStatus?: string;
+}
+
+function artifactUrl(apiUrl: string, workspaceId: string, artifact: any): string | undefined {
+  if (artifact.file_path) {
+    return `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/file`;
+  }
+  return artifact.external_url || undefined;
+}
+
+function toArtifactRecord(apiArtifact: any, apiUrl: string, workspaceId: string): Artifact {
+  return {
+    id: apiArtifact.id,
+    name: apiArtifact.title || apiArtifact.name || 'Untitled',
+    title: apiArtifact.title,
+    description: apiArtifact.description,
+    type: apiArtifact.type || 'other',
+    url: artifactUrl(apiUrl, workspaceId, apiArtifact),
+    createdAt: apiArtifact.created_at,
+    updatedAt: apiArtifact.updated_at,
+    stepId: apiArtifact.metadata?.step_id,
+    filePath: apiArtifact.file_path || undefined,
+    metadata: apiArtifact.metadata || {},
+    content: apiArtifact.content ?? undefined,
+    executionId: apiArtifact.execution_id,
+    artifactType: apiArtifact.artifact_type || null,
+  };
+}
+
+function toReviewBundleArtifact(apiArtifact: any, apiUrl: string, workspaceId: string): ReviewBundleArtifact {
+  return {
+    ...toArtifactRecord(apiArtifact, apiUrl, workspaceId),
+    metadata: apiArtifact.metadata || {},
+    content: apiArtifact.content || {},
+  };
+}
+
+function readRunIdCandidate(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function extractProductionRunId(execution: Record<string, any> | null | undefined): string | null {
+  if (!execution) {
+    return null;
+  }
+
+  const executionContext = execution.execution_context || {};
+  const task = execution.task || {};
+  const taskExecutionContext = task.execution_context || {};
+  const workflowResult = executionContext.workflow_result || {};
+  const taskWorkflowResult = taskExecutionContext.workflow_result || {};
+  const taskResult = task.result || {};
+
+  const candidates = [
+    taskResult?.outputs?.run_id,
+    taskResult?.run_id,
+    workflowResult?.outputs?.run_id,
+    workflowResult?.run_id,
+    taskWorkflowResult?.outputs?.run_id,
+    taskWorkflowResult?.run_id,
+    executionContext?.run_id,
+    taskExecutionContext?.run_id,
+    executionContext?.inputs?.run_id,
+    task?.params?.run_id,
+  ];
+
+  for (const candidate of candidates) {
+    const runId = readRunIdCandidate(candidate);
+    if (runId) {
+      return runId;
+    }
+  }
+  return null;
 }
 
 export default function ExecutionInspector({
@@ -99,9 +176,11 @@ export default function ExecutionInspector({
   }, [playbookMetadata.playbookStepDefinitions, executionSteps.steps, executionCore.execution]);
 
   // Fetch artifacts from API for this execution
-  const [artifacts, setArtifacts] = useState<any[]>([]);
-  const [originalArtifacts, setOriginalArtifacts] = useState<any[]>([]);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [originalArtifacts, setOriginalArtifacts] = useState<Artifact[]>([]);
   const [artifactsLoading, setArtifactsLoading] = useState(false);
+  const [reviewBundleArtifacts, setReviewBundleArtifacts] = useState<ReviewBundleArtifact[]>([]);
+  const [reviewBundlesLoading, setReviewBundlesLoading] = useState(false);
 
   useEffect(() => {
     if (!executionId || !workspaceId) {
@@ -134,20 +213,9 @@ export default function ExecutionInspector({
             return matches;
           });
           console.log('[ExecutionInspector] Filtered artifacts for execution:', executionArtifacts.length);
-          // Store original artifacts for IG post detection
+          const convertedArtifacts = executionArtifacts.map((art: any) => toArtifactRecord(art, apiUrl, workspaceId));
           if (!cancelled) {
-            setOriginalArtifacts(executionArtifacts);
-          }
-          // Convert to Artifact format
-          const convertedArtifacts = executionArtifacts.map((art: any) => ({
-            id: art.id,
-            name: art.title || art.name || 'Untitled',
-            type: art.type || 'other',
-            url: art.file_path ? `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${art.id}/file` : art.external_url,
-            createdAt: art.created_at,
-            stepId: art.metadata?.step_id,
-          }));
-          if (!cancelled) {
+            setOriginalArtifacts(convertedArtifacts);
             console.log('[ExecutionInspector] Setting artifacts:', convertedArtifacts.length);
             setArtifacts(convertedArtifacts);
           }
@@ -173,6 +241,69 @@ export default function ExecutionInspector({
       cancelled = true;
     };
   }, [executionId, workspaceId, apiUrl]);
+
+  const productionRunId = useMemo(
+    () => extractProductionRunId(executionCore.execution as Record<string, any> | null | undefined),
+    [executionCore.execution],
+  );
+
+  useEffect(() => {
+    if (!workspaceId || !productionRunId) {
+      setReviewBundleArtifacts([]);
+      setReviewBundlesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setReviewBundlesLoading(true);
+
+    const fetchReviewBundles = async () => {
+      try {
+        const params = new URLSearchParams({
+          kind: 'visual_acceptance_bundle',
+          include_content: 'true',
+          limit: '100',
+        });
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?${params.toString()}`
+        );
+        if (cancelled) return;
+        if (!response.ok) {
+          throw new Error(`Failed to fetch review bundles: ${response.status}`);
+        }
+        const data = await response.json();
+        const matchingBundles = (data.artifacts || [])
+          .map((artifact: any) => toReviewBundleArtifact(artifact, apiUrl, workspaceId))
+          .filter((artifact: ReviewBundleArtifact) => {
+            const runId = readRunIdCandidate(artifact.metadata?.run_id) || readRunIdCandidate(artifact.content?.run_id);
+            return runId === productionRunId;
+          })
+          .sort((left: ReviewBundleArtifact, right: ReviewBundleArtifact) => {
+            const leftTime = toTimestampMs(left.createdAt) ?? 0;
+            const rightTime = toTimestampMs(right.createdAt) ?? 0;
+            return rightTime - leftTime;
+          });
+        if (!cancelled) {
+          setReviewBundleArtifacts(matchingBundles);
+        }
+      } catch (error) {
+        console.error('[ExecutionInspector] Failed to fetch review bundles:', error);
+        if (!cancelled) {
+          setReviewBundleArtifacts([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setReviewBundlesLoading(false);
+        }
+      }
+    };
+
+    void fetchReviewBundles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, productionRunId, workspaceId]);
 
   // Get current step data
   const currentStep = useMemo(() => {
@@ -300,6 +431,18 @@ export default function ExecutionInspector({
     setShowSandboxModal(true);
   }, []);
 
+  const handleReviewBundleArtifactUpdated = useCallback((updatedArtifact: ReviewBundleArtifact) => {
+    setReviewBundleArtifacts((current) => {
+      const next = [...current];
+      const index = next.findIndex((artifact) => artifact.id === updatedArtifact.id);
+      if (index >= 0) {
+        next[index] = updatedArtifact;
+        return next;
+      }
+      return [updatedArtifact, ...next];
+    });
+  }, []);
+
   const handleCloseSandbox = useCallback(() => {
     setShowSandboxModal(false);
   }, []);
@@ -375,39 +518,42 @@ export default function ExecutionInspector({
                   }}
                 />
 
-                {(relatedMemoryLoading || relatedMemoryHref) && (
+                {relatedMemoryLoading && !relatedMemory ? (
                   <div className="mx-4 mt-3 rounded-lg border border-default dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                          {t('relatedGovernedMemory' as any) || 'Related Governed Memory'}
-                        </p>
-                        {relatedMemoryLoading ? (
-                          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                            {t('loading' as any) || 'Loading...'}
-                          </p>
-                        ) : (
-                          <p className="mt-1 text-sm text-gray-800 dark:text-gray-100">
-                            {relatedMemory?.memoryItemId}
-                            {(relatedMemory?.lifecycleStatus || relatedMemory?.verificationStatus) && (
-                              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-                                {[relatedMemory?.lifecycleStatus, relatedMemory?.verificationStatus]
-                                  .filter(Boolean)
-                                  .join(' · ')}
-                              </span>
-                            )}
-                          </p>
-                        )}
-                      </div>
-                      {relatedMemoryHref && (
-                        <Link
-                          href={relatedMemoryHref}
-                          className="inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-500"
-                        >
-                          {t('openGovernedMemory' as any) || 'Open Governed Memory'}
-                        </Link>
-                      )}
-                    </div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      {t('relatedGovernedMemory' as any) || 'Related Governed Memory'}
+                    </p>
+                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                      {t('loading' as any) || 'Loading...'}
+                    </p>
+                  </div>
+                ) : null}
+
+                {(executionId || executionThreadId) && (
+                  <div className="mx-4 mt-3">
+                    <MemoryImpactGraphPanel
+                      workspaceId={workspaceId}
+                      apiUrl={apiUrl}
+                      executionId={executionId}
+                      threadId={executionThreadId}
+                      compact
+                      title="Selected Memory Subgraph"
+                      description="Shows which memory nodes were selected into context for this execution thread, plus the resulting writeback anchor."
+                    />
+                  </div>
+                )}
+
+                {relatedMemoryHref && relatedMemory?.memoryItemId && (
+                  <div className="mx-4 mt-3">
+                    <GovernedMemoryPreview
+                      workspaceId={workspaceId}
+                      memoryItemId={relatedMemory.memoryItemId}
+                      apiUrl={apiUrl}
+                      lifecycleStatus={relatedMemory.lifecycleStatus}
+                      verificationStatus={relatedMemory.verificationStatus}
+                      href={relatedMemoryHref}
+                      compact
+                    />
                   </div>
                 )}
 
@@ -441,9 +587,13 @@ export default function ExecutionInspector({
                         stepEvents={executionSteps.stepEvents}
                         executionStatus={executionCore.execution?.status}
                         artifacts={currentStepArtifacts}
+                        reviewBundleArtifacts={reviewBundleArtifacts}
+                        reviewBundlesLoading={reviewBundlesLoading}
                         remoteChildExecutions={remoteChildExecutions.remoteChildren}
                         workspaceId={workspaceId}
+                        apiUrl={apiUrl}
                         onViewArtifact={handleArtifactView}
+                        onReviewBundleArtifactUpdated={handleReviewBundleArtifactUpdated}
                         t={t as any}
                       />
                     </>

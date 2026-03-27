@@ -73,6 +73,17 @@ class PostInstallHandler:
             manifest: Parsed manifest dict
             result: InstallResult to update
         """
+        self.run_required_tasks(cap_dir, capability_code, manifest, result)
+        self.run_playbook_validation(capability_code, manifest, result)
+
+    def run_required_tasks(
+        self,
+        cap_dir: Path,
+        capability_code: str,
+        manifest: Dict,
+        result: InstallResult
+    ):
+        """Run post-install tasks required for the pack to function."""
         self.dependency_installer.install_python_dependencies(cap_dir, capability_code, result)
 
         logger.info(f"[{capability_code}] Starting UI dependencies installation...")
@@ -95,6 +106,14 @@ class PostInstallHandler:
                 )
 
         self.run_post_install_hooks(cap_dir, capability_code, manifest, result)
+
+    def run_playbook_validation(
+        self,
+        capability_code: str,
+        manifest: Dict,
+        result: InstallResult
+    ):
+        """Run post-install playbook validation."""
         self.playbook_validator.validate_installed_playbooks(capability_code, manifest, result)
 
     def run_post_install_hooks(
@@ -147,4 +166,3 @@ class PostInstallHandler:
             except Exception as e:
                 logger.warning(f"Bootstrap strategy '{script_type}' failed: {e}")
                 result.add_warning(f"Bootstrap strategy '{script_type}' failed: {str(e)[:200]}")
-

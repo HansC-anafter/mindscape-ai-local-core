@@ -20,7 +20,7 @@ import ExecutionChatWrapper from './ExecutionChatWrapper';
 import RestartConfirmDialog from './RestartConfirmDialog';
 import SandboxModalWrapper from './SandboxModalWrapper';
 import GovernanceTab from './GovernanceTab';
-import type { ExecutionInspectorProps } from './types/execution';
+import type { ExecutionInspectorProps, RelatedGovernedMemoryLink } from './types/execution';
 
 export default function ExecutionInspector({
   executionId,
@@ -35,6 +35,8 @@ export default function ExecutionInspector({
   const [showSandboxModal, setShowSandboxModal] = useState(false);
   const [sandboxInitialFile, setSandboxInitialFile] = useState<string | null>(null);
   const [rightPanelView, setRightPanelView] = useState<'artifacts' | 'chat' | 'governance'>('artifacts');
+  const [relatedMemory, setRelatedMemory] = useState<RelatedGovernedMemoryLink | null>(null);
+  const [relatedMemoryLoading, setRelatedMemoryLoading] = useState(false);
 
   // Use data hooks
   const executionCore = useExecutionCore(executionId, workspaceId, apiUrl, workspaceData as any);
@@ -184,6 +186,77 @@ export default function ExecutionInspector({
     return sorted[0];
   }, [artifacts]);
 
+  const executionThreadId = useMemo(() => {
+    const executionContext = executionCore.execution?.execution_context as Record<string, unknown> | undefined;
+    const inputs = executionContext?.inputs as Record<string, unknown> | undefined;
+    return (
+      (typeof inputs?.thread_id === 'string' && inputs.thread_id) ||
+      (typeof executionCore.execution?.thread_id === 'string' && executionCore.execution.thread_id) ||
+      (typeof executionContext?.thread_id === 'string' && executionContext.thread_id) ||
+      null
+    );
+  }, [executionCore.execution]);
+
+  useEffect(() => {
+    if (!workspaceId || !executionThreadId) {
+      setRelatedMemory(null);
+      setRelatedMemoryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadRelatedMemory = async () => {
+      try {
+        setRelatedMemoryLoading(true);
+        const params = new URLSearchParams();
+        params.set('event_types', 'memory_writeback');
+        params.set('thread_id', executionThreadId);
+        params.set('limit', '10');
+
+        const response = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/events?${params.toString()}`
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to load related governed memory: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const latestMemoryEvent = (data.events || []).find(
+          (event: any) => typeof event?.payload?.memory_item_id === 'string' && event.payload.memory_item_id
+        );
+
+        if (!cancelled) {
+          setRelatedMemory(
+            latestMemoryEvent
+              ? {
+                  eventId: latestMemoryEvent.id,
+                  memoryItemId: latestMemoryEvent.payload.memory_item_id,
+                  lifecycleStatus: latestMemoryEvent.payload.lifecycle_status,
+                  verificationStatus: latestMemoryEvent.payload.verification_status,
+                }
+              : null
+          );
+        }
+      } catch (error) {
+        console.error('[ExecutionInspector] Failed to load related governed memory:', error);
+        if (!cancelled) {
+          setRelatedMemory(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setRelatedMemoryLoading(false);
+        }
+      }
+    };
+
+    void loadRelatedMemory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, executionThreadId, workspaceId]);
+
   // Get current step data
   const currentStep = useMemo(() => {
     return executionSteps.steps.find(s => s.step_index === executionCore.currentStepIndex);
@@ -322,6 +395,7 @@ export default function ExecutionInspector({
                         artifacts={artifacts}
                         workspaceId={workspaceId}
                         apiUrl={apiUrl}
+                        relatedGovernedMemory={relatedMemory}
                         t={t as any}
                       />
                     </>
@@ -374,6 +448,8 @@ export default function ExecutionInspector({
                 sandboxId={executionCore.sandboxId || undefined}
                 apiUrl={apiUrl}
                 workspaceId={workspaceId}
+                relatedGovernedMemory={relatedMemory}
+                relatedGovernedMemoryLoading={relatedMemoryLoading}
                 onView={handleArtifactView}
                 onViewSandbox={executionCore.sandboxId ? () => setShowSandboxModal(true) : undefined}
               />
@@ -383,6 +459,7 @@ export default function ExecutionInspector({
                 executionId={executionId}
                 workspaceId={workspaceId}
                 apiUrl={apiUrl}
+                relatedGovernedMemory={relatedMemory}
               />
             )}
             {rightPanelView === 'chat' && (

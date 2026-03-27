@@ -137,7 +137,6 @@ export function useBasicSettings(): UseBasicSettingsReturn {
         }
       }
 
-      console.log('Sending backend config update:', requestData);
       await settingsApi.put(`/api/v1/config/backend?profile_id=${PROFILE_ID}`, requestData);
 
       if (profile) {

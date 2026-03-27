@@ -36,14 +36,14 @@ function Test-Command($cmdname) {
 Write-Host "Checking prerequisites..." -ForegroundColor Yellow
 
 if (-not (Test-Command "git")) {
-    Write-Host "❌ Git is required but not installed." -ForegroundColor Red
+    Write-Host "ERROR: Git is required but not installed." -ForegroundColor Red
     Write-Host "   Install from: https://git-scm.com/download/win" -ForegroundColor Gray
     exit 1
 }
 Write-Host "✓ Git found" -ForegroundColor Green
 
 if (-not (Test-Command "docker")) {
-    Write-Host "❌ Docker is required but not installed." -ForegroundColor Red
+    Write-Host "ERROR: Docker is required but not installed." -ForegroundColor Red
     Write-Host "   Install from: https://www.docker.com/products/docker-desktop/" -ForegroundColor Gray
     exit 1
 }
@@ -54,22 +54,22 @@ try {
     docker info 2>&1 | Out-Null
     Write-Host "✓ Docker is running" -ForegroundColor Green
 } catch {
-    Write-Host "❌ Docker is not running. Please start Docker Desktop and try again." -ForegroundColor Red
+    Write-Host "ERROR: Docker is not running. Please start Docker Desktop and try again." -ForegroundColor Red
     exit 1
 }
 
 # Check Ollama (optional but recommended for local LLM)
 if (Test-Command "ollama") {
     Write-Host "✓ Ollama found" -ForegroundColor Green
-    Write-Host "  ℹ️  To use local LLM, pull a model:  ollama pull qwen3:8b" -ForegroundColor Cyan
+    Write-Host "  INFO: To use local LLM, pull a model: ollama pull qwen3:8b" -ForegroundColor Cyan
 } else {
-    Write-Host "⚠️  Ollama not found (optional, for local LLM support)" -ForegroundColor Yellow
+    Write-Host "WARNING: Ollama not found (optional, for local LLM support)" -ForegroundColor Yellow
     $response = Read-Host "Install Ollama now? (Y/n)"
     if ($response -notmatch "^[Nn]") {
         if (Test-Command "winget") {
             Write-Host "Installing Ollama via winget..." -ForegroundColor Cyan
             winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements
-            Write-Host "  ℹ️  To use local LLM, pull a model:  ollama pull qwen3:8b" -ForegroundColor Cyan
+            Write-Host "  INFO: To use local LLM, pull a model: ollama pull qwen3:8b" -ForegroundColor Cyan
         } else {
             Write-Host "  winget not available. Install Ollama from: https://ollama.com/download" -ForegroundColor Yellow
         }
@@ -83,7 +83,7 @@ if (Test-Command "node") {
     $nodeVersion = (node --version 2>$null)
     Write-Host "✓ Node.js found ($nodeVersion)" -ForegroundColor Green
 } else {
-    Write-Host "⚠️  Node.js not found (required for CLI agents: gemini-cli, claude-code, codex)" -ForegroundColor Yellow
+    Write-Host "WARNING: Node.js not found (required for CLI agents: gemini-cli, claude-code, codex)" -ForegroundColor Yellow
     $response = Read-Host "Install Node.js LTS now? (Y/n)"
     if ($response -notmatch "^[Nn]") {
         if (Test-Command "winget") {
@@ -128,7 +128,7 @@ Write-Host ""
 
 # Check if directory exists
 if (Test-Path $Dir) {
-    Write-Host "⚠️  Directory '$Dir' already exists." -ForegroundColor Yellow
+    Write-Host "WARNING: Directory '$Dir' already exists." -ForegroundColor Yellow
     $response = Read-Host "Update existing installation? (y/N)"
     if ($response -match "^[Yy]") {
         Write-Host "Updating existing installation..." -ForegroundColor Cyan
@@ -162,18 +162,19 @@ if (Test-Path "scripts\start.ps1") {
 
 Write-Host ""
 Write-Host "╔═══════════════════════════════════════════════════╗" -ForegroundColor Green
-Write-Host "║   ✅ Installation Complete!                       ║" -ForegroundColor Green
+Write-Host "║   Installation Complete                           ║" -ForegroundColor Green
 Write-Host "╚═══════════════════════════════════════════════════╝" -ForegroundColor Green
 Write-Host ""
 Write-Host "Your Mindscape AI is running at:" -ForegroundColor White
 Write-Host "  • Web Console: http://localhost:8300" -ForegroundColor Cyan
 Write-Host "  • Backend API: http://localhost:8200" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "To start CLI Bridge (connects Gemini CLI, Claude Code, etc.):" -ForegroundColor Yellow
-Write-Host "  .\scripts\start_cli_bridge.ps1 -All" -ForegroundColor White
+Write-Host "CLI Bridge is auto-managed by .\scripts\start.ps1 / the platform service wrapper." -ForegroundColor Yellow
+Write-Host "Manual override:" -ForegroundColor Yellow
+Write-Host "  .\scripts\start_cli_bridge_supervisor.ps1 -All" -ForegroundColor White
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Open http://localhost:8300 in your browser"
 Write-Host "  2. Configure API keys in Settings (optional if using Ollama)"
-Write-Host "  3. Start CLI Bridge in a separate terminal (see above)"
+Write-Host "  3. Use the manual override above only if the platform service wrapper is unavailable"
 Write-Host ""

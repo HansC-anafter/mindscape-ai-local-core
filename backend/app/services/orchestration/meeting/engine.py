@@ -176,6 +176,9 @@ class MeetingEngine(
         # Build workspace group asset map for cross-workspace dispatch
         self._asset_map_context = self._build_asset_map_context()
 
+        # Build recent workflow evidence packet for meeting deliberation.
+        self._workflow_evidence_context = self._build_workflow_evidence_context()
+
         # A4: Build dynamic roster from workspace/project context
         workspace_id = getattr(workspace, "id", None) or session.workspace_id
         self._roster = build_meeting_roster(

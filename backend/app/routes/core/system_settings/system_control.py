@@ -2,6 +2,7 @@
 System control endpoints (restart, health check, etc.)
 """
 
+import asyncio
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Dict, Any
@@ -20,7 +21,12 @@ logger = logging.getLogger(__name__)
 _RUNNER_SENTINEL_PATH = Path("/app/data/.restart_runner")
 _RUNNER_SENTINEL_TTL_SECONDS = 300
 
-ALLOWED_SERVICES = {"backend", "runner", "all"}
+RUNNER_POOL_SERVICES = (
+    "runner-default",
+    "runner-browser",
+    "runner-vision",
+)
+ALLOWED_SERVICES = {"backend", "runner", "all", *RUNNER_POOL_SERVICES}
 _LOCALHOST_ADDRS = {"127.0.0.1", "localhost", "::1", "unknown"}
 
 
@@ -30,6 +36,14 @@ class RestartRequest(BaseModel):
 
 def _build_manual_instruction(targets: list[str]) -> str:
     return f"docker compose restart {' '.join(targets)}"
+
+
+def _expand_service_targets(service: str) -> list[str]:
+    if service == "all":
+        return ["backend", *RUNNER_POOL_SERVICES]
+    if service == "runner":
+        return list(RUNNER_POOL_SERVICES)
+    return [service]
 
 
 def _is_localhost(request: Request) -> bool:
@@ -57,8 +71,11 @@ async def restart_service(request: Request, body: RestartRequest = RestartReques
 
     Supported services:
     - backend
-    - runner
-    - all (backend + runner)
+    - runner (all runner pools)
+    - runner-default
+    - runner-browser
+    - runner-vision
+    - all (backend + all runner pools)
     """
     try:
         # Localhost-only guard (v3 FIX)
@@ -75,7 +92,7 @@ async def restart_service(request: Request, body: RestartRequest = RestartReques
                 detail=f"Invalid service: {service}. Allowed: {sorted(ALLOWED_SERVICES)}",
             )
 
-        targets = ["backend", "runner"] if service == "all" else [service]
+        targets = _expand_service_targets(service)
         instruction = _build_manual_instruction(targets)
 
         webhook_service = get_restart_webhook_service()
@@ -115,13 +132,18 @@ async def restart_service(request: Request, body: RestartRequest = RestartReques
         # Runner polls this file and performs graceful self-restart.
         runner_sentinel_written = False
         if service in ("runner", "all"):
-            runner_result = results.get("runner") or {}
-            reason = runner_result.get("reason", "")
-            if reason in (
-                "device_node_unreachable",
-                "timeout",
-                "http_error",
-                "error",
+            runner_failures = [
+                results.get(target) or {}
+                for target in RUNNER_POOL_SERVICES
+            ]
+            if any(
+                result.get("reason") in {
+                    "device_node_unreachable",
+                    "timeout",
+                    "http_error",
+                    "error",
+                }
+                for result in runner_failures
             ):
                 try:
                     sentinel = {
@@ -148,7 +170,7 @@ async def restart_service(request: Request, body: RestartRequest = RestartReques
                 "success": True,
                 "message": "Runner restart requested via sentinel file",
                 "method": "runner_sentinel",
-                "targets": [t for t in targets if t == "runner"],
+                "targets": [t for t in targets if t in RUNNER_POOL_SERVICES],
                 "results": results,
                 "partial": service == "all",
             }
@@ -199,10 +221,18 @@ async def get_service_health():
 
 @router.get("/health/queue/metrics", response_model=Dict[str, Any])
 async def get_queue_metrics():
-    """Get Redis Runner Queue lengths and distribution across capabilities."""
+    """Get queue metrics plus active runner heartbeat projection."""
     try:
         from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
+        from backend.app.services.stores.tasks_store import TasksStore
+
         metrics = await RedisRunnerQueueStore.get_all_queue_metrics()
+        tasks_store = TasksStore()
+        metrics["runners"] = await asyncio.to_thread(
+            tasks_store.list_runner_heartbeats,
+            max_age_seconds=300,
+            limit=20,
+        )
         return metrics
     except Exception as e:
         logger.error(f"Failed to get Redis queue metrics: {e}", exc_info=True)

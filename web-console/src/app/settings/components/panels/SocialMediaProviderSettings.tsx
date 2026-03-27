@@ -349,8 +349,6 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
       const redirectUri = connection.config.redirect_uri || `${API_URL}/api/v1/tools/oauth/${provider}/callback`;
       const authorizeUrl = `${API_URL}/api/v1/tools/oauth/${provider}/authorize?redirect_uri=${encodeURIComponent(redirectUri)}&profile_id=${PROFILE_ID}&client_id=${encodeURIComponent(connection.config.client_id)}&client_secret=${encodeURIComponent(connection.config.client_secret)}`;
 
-      console.log(`[${provider} OAuth] Requesting authorization URL from: ${authorizeUrl}`);
-
       const response = await fetch(authorizeUrl);
 
       if (!response.ok) {
@@ -377,10 +375,8 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
       }
 
       const data = await response.json();
-      console.log(`[Line OAuth] Received authorization URL:`, data);
 
       if (data.authorization_url) {
-        console.log(`[Line OAuth] Redirecting to: ${data.authorization_url}`);
         window.location.href = data.authorization_url;
       } else {
         console.error(`[Line OAuth] No authorization_url in response:`, data);
@@ -785,4 +781,3 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
     </Card>
   );
 }
-

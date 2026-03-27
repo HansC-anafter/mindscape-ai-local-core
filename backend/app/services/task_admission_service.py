@@ -9,6 +9,12 @@ from typing import Any, Dict, Optional
 from sqlalchemy import text
 
 from app.models.workspace import Task
+from backend.app.services.runner_topology import (
+    DEFAULT_LOCAL_QUEUE_PARTITION,
+    build_queue_partition_filter_clause,
+    normalize_queue_partition,
+    queue_partition_env_suffixes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +45,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _normalize_queue_shard(value: Any) -> str:
-    if isinstance(value, str):
-        normalized = value.strip()
-        if normalized:
-            return normalized
-    return "default"
+    return normalize_queue_partition(value, fallback=DEFAULT_LOCAL_QUEUE_PARTITION)
 
 
 def _coerce_datetime(value: Any) -> Optional[datetime]:
@@ -124,7 +126,9 @@ class TaskAdmissionService:
     ) -> AdmissionDecision:
         ctx = dict(task.execution_context) if isinstance(task.execution_context, dict) else {}
         queue_shard = _normalize_queue_shard(
-            getattr(task, "queue_shard", None) or ctx.get("queue_shard")
+            getattr(task, "queue_shard", None)
+            or ctx.get("queue_partition")
+            or ctx.get("queue_shard")
         )
         policy = self._extract_policy(task, ctx)
 
@@ -169,6 +173,7 @@ class TaskAdmissionService:
             "policy": ADMISSION_DEFERRED_REASON,
             "phase": phase,
             "reason": defer_reason,
+            "queue_partition": queue_shard,
             "queue_shard": queue_shard,
             "mode": policy["mode"],
             "visibility": policy["visibility"],
@@ -216,18 +221,23 @@ class TaskAdmissionService:
         }
 
     def _resolve_limits(self, queue_shard: str, visibility: str) -> AdmissionLimits:
-        shard_key = queue_shard.upper().replace("-", "_")
-        base_pending_limit = _env_int(
-            f"LOCAL_CORE_TASK_ADMISSION_{shard_key}_PENDING_LIMIT",
-            _env_int("LOCAL_CORE_TASK_ADMISSION_PENDING_LIMIT", 256),
+        base_pending_limit = self._resolve_partition_env_limit(
+            queue_shard=queue_shard,
+            field_suffix="PENDING_LIMIT",
+            fallback_env="LOCAL_CORE_TASK_ADMISSION_PENDING_LIMIT",
+            default=256,
         )
-        base_oldest_age_limit = _env_int(
-            f"LOCAL_CORE_TASK_ADMISSION_{shard_key}_OLDEST_PENDING_AGE_SECONDS",
-            _env_int("LOCAL_CORE_TASK_ADMISSION_OLDEST_PENDING_AGE_SECONDS", 300),
+        base_oldest_age_limit = self._resolve_partition_env_limit(
+            queue_shard=queue_shard,
+            field_suffix="OLDEST_PENDING_AGE_SECONDS",
+            fallback_env="LOCAL_CORE_TASK_ADMISSION_OLDEST_PENDING_AGE_SECONDS",
+            default=300,
         )
-        base_defer_seconds = _env_int(
-            f"LOCAL_CORE_TASK_ADMISSION_{shard_key}_DEFER_SECONDS",
-            _env_int("LOCAL_CORE_TASK_ADMISSION_DEFER_SECONDS", 30),
+        base_defer_seconds = self._resolve_partition_env_limit(
+            queue_shard=queue_shard,
+            field_suffix="DEFER_SECONDS",
+            fallback_env="LOCAL_CORE_TASK_ADMISSION_DEFER_SECONDS",
+            default=30,
         )
 
         if visibility == "visible":
@@ -259,24 +269,39 @@ class TaskAdmissionService:
         )
 
     def _load_queue_pressure(self, tasks_store: Any, queue_shard: str) -> AdmissionPressure:
+        queue_clause, queue_params = build_queue_partition_filter_clause(
+            "queue_shard",
+            queue_shard,
+            param_prefix="queue_partition",
+        )
         query = text(
-            """
+            f"""
             SELECT
                 COUNT(*) FILTER (
                     WHERE status = 'pending'
-                      AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
+                      AND COALESCE(blocked_reason, '') = :unblocked_reason
+                      AND COALESCE(next_eligible_at, created_at) <= :now
+                      AND COALESCE(frontier_state, :legacy_ready_state) IN (
+                        :ready_frontier_state,
+                        :legacy_ready_state
+                      )
                 ) AS pending_total,
                 COUNT(*) FILTER (
                     WHERE status = 'running'
                 ) AS running_total,
-                MIN(created_at) FILTER (
+                MIN(COALESCE(frontier_enqueued_at, next_eligible_at, created_at)) FILTER (
                     WHERE status = 'pending'
-                      AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
+                      AND COALESCE(blocked_reason, '') = :unblocked_reason
+                      AND COALESCE(next_eligible_at, created_at) <= :now
+                      AND COALESCE(frontier_state, :legacy_ready_state) IN (
+                        :ready_frontier_state,
+                        :legacy_ready_state
+                      )
                 ) AS oldest_pending_at
             FROM tasks
             WHERE task_type IN (:task_type_pb, :task_type_tool)
               AND status IN (:pending_status, :running_status)
-              AND COALESCE(queue_shard, 'default') = :queue_shard
+              AND {queue_clause}
             """
         )
         params = {
@@ -284,9 +309,12 @@ class TaskAdmissionService:
             "task_type_tool": _RUNNER_TASK_TYPES[1],
             "pending_status": "pending",
             "running_status": "running",
-            "queue_shard": queue_shard,
-            "admission_blocked_reason": ADMISSION_DEFERRED_REASON,
+            "now": _utc_now(),
+            "ready_frontier_state": "ready",
+            "legacy_ready_state": "",
+            "unblocked_reason": "",
         }
+        params.update(queue_params)
         try:
             with tasks_store.get_connection() as conn:
                 row = conn.execute(query, params).fetchone()
@@ -310,6 +338,27 @@ class TaskAdmissionService:
             oldest_pending_at=_coerce_datetime(_row_value(row, "oldest_pending_at")),
         )
 
+    def _resolve_partition_env_limit(
+        self,
+        *,
+        queue_shard: str,
+        field_suffix: str,
+        fallback_env: str,
+        default: int,
+    ) -> int:
+        for shard_key in queue_partition_env_suffixes(queue_shard):
+            env_name = f"LOCAL_CORE_TASK_ADMISSION_{shard_key}_{field_suffix}"
+            raw = os.getenv(env_name)
+            if raw is None:
+                continue
+            try:
+                value = int(raw)
+                if value > 0:
+                    return value
+            except Exception:
+                continue
+        return _env_int(fallback_env, default)
+
     def _build_deferred_context(
         self,
         ctx: Dict[str, Any],
@@ -321,6 +370,7 @@ class TaskAdmissionService:
         ctx2["admission"] = {
             "state": "deferred",
             "reason": blocked_payload.get("reason"),
+            "queue_partition": blocked_payload.get("queue_partition"),
             "queue_shard": blocked_payload.get("queue_shard"),
             "visibility": blocked_payload.get("visibility"),
             "producer_kind": blocked_payload.get("producer_kind"),
@@ -341,4 +391,3 @@ class TaskAdmissionService:
 
 
 TASK_ADMISSION_SERVICE = TaskAdmissionService()
-

@@ -346,6 +346,17 @@ async def run_startup(app: FastAPI):
             exc_info=True,
         )
 
+    try:
+        import asyncio
+        from backend.app.services.pack_validation_background import (
+            resume_pending_pack_validations,
+        )
+
+        asyncio.create_task(resume_pending_pack_validations())
+        logger.info("Pending pack validations resume task started")
+    except Exception as e:
+        logger.warning(f"Failed to resume pending pack validations: {e}")
+
 async def run_shutdown(app: FastAPI):
     """Cleanup on shutdown"""
     if hasattr(app.state, "cloud_connector"):

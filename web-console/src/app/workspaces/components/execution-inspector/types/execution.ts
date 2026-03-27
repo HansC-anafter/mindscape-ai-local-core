@@ -27,6 +27,8 @@ export interface RemoteExecutionSummary {
   cloud_dispatch_state?: string | null;
   cloud_execution_id?: string | null;
   cloud_state?: string | null;
+  callback_delivered_at?: string | null;
+  callback_error?: string | null;
   target_device_id?: string | null;
   lineage_root_execution_id?: string | null;
   replay_of_execution_id?: string | null;
@@ -166,9 +168,89 @@ export interface Artifact {
   name: string;
   type: string;
   createdAt?: string;
+  updatedAt?: string;
   url?: string;
   stepId?: string;
   filePath?: string;
+  description?: string;
+  metadata?: Record<string, any>;
+  content?: Record<string, any>;
+  executionId?: string;
+  artifactType?: string | null;
+  title?: string;
+}
+
+export interface ReviewChecklistItemView {
+  check_id: string;
+  label?: string;
+  description?: string;
+  focus?: string;
+}
+
+export interface ReviewChecklistSummaryView {
+  average_score?: number | null;
+  scored_checks?: number;
+}
+
+export interface ReviewDecisionView {
+  decision?: string;
+  reviewer_id?: string;
+  reviewed_at?: string;
+  notes?: string;
+  checklist_scores?: Record<string, number>;
+  checklist_summary?: ReviewChecklistSummaryView | null;
+  followup_actions?: string[];
+}
+
+export interface VisualAcceptanceSlotView {
+  slot_key?: string;
+  label?: string;
+  index?: number;
+  storage_key?: string;
+  preview_url?: string;
+  preview_kind?: string;
+  mask_storage_key?: string;
+  mask_preview_url?: string;
+  mask_preview_kind?: string;
+  alpha_storage_key?: string;
+  alpha_preview_url?: string;
+  alpha_preview_kind?: string;
+  source_reference_fingerprint?: string;
+}
+
+export interface VisualAcceptanceBundleContent {
+  review_bundle_id?: string;
+  run_id?: string;
+  scene_id?: string;
+  source_kind?: string;
+  status?: string;
+  render_status?: string;
+  renderer?: string;
+  owning_capability_code?: string | null;
+  package_id?: string | null;
+  preset_id?: string | null;
+  artifact_ids?: string[];
+  binding_mode?: string | null;
+  slots?: VisualAcceptanceSlotView[];
+  checklist_template?: ReviewChecklistItemView[];
+  latest_review_decision?: ReviewDecisionView | null;
+  scene_context?: {
+    object_workload_snapshot?: Record<string, any> | null;
+    scene_manifest?: Record<string, any> | null;
+  } | null;
+  object_workload_snapshot?: Record<string, any> | null;
+}
+
+export interface ReviewBundleArtifact extends Artifact {
+  metadata?: Record<string, any>;
+  content?: VisualAcceptanceBundleContent;
+}
+
+export interface RelatedGovernedMemoryLink {
+  eventId: string;
+  memoryItemId: string;
+  lifecycleStatus?: string;
+  verificationStatus?: string;
 }
 
 export interface WorkflowData {

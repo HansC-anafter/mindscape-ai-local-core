@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { subscribeEventStream, eventToTimelineItem, UnifiedEvent, TimelineItem } from './eventProjector';
 import { AlertCircle, CheckCircle, Clock, Play, FileText, GitBranch, Wrench } from 'lucide-react';
 import { toTimestampMs, formatLocalDateTime } from '@/lib/time';
+import { GovernedMemoryPreview } from './governance/GovernedMemoryPreview';
+import { WorkflowEvidenceSummary } from './meeting/WorkflowEvidenceSummary';
 
 interface EventTimelineProps {
   workspaceId: string;
@@ -33,6 +35,7 @@ export function EventTimeline({
           'tool_result',
           'playbook_step',
           'branch_proposed',
+          'meeting_start',
           'memory_writeback',
         ],
         onEvent: (event: UnifiedEvent) => {
@@ -96,6 +99,8 @@ export function EventTimeline({
         return CheckCircle;
       case 'branch_proposed':
         return GitBranch;
+      case 'meeting_start':
+        return Clock;
       case 'memory_writeback':
         return CheckCircle;
       default:
@@ -117,6 +122,8 @@ export function EventTimeline({
         return 'text-purple-600 dark:text-purple-400';
       case 'branch_proposed':
         return 'text-orange-600 dark:text-orange-400';
+      case 'meeting_start':
+        return 'text-indigo-600 dark:text-indigo-400';
       case 'memory_writeback':
         return 'text-sky-600 dark:text-sky-400';
       default:
@@ -154,6 +161,38 @@ export function EventTimeline({
                 <div className="text-xs text-gray-500 dark:text-gray-500 mt-1">
                   {formatLocalDateTime(item.timestamp)}
                 </div>
+                {item.type === 'meeting_start' && (
+                  <div className="mt-3" onClick={(event) => event.stopPropagation()}>
+                    <WorkflowEvidenceSummary
+                      label="Workflow Evidence"
+                      profile={item.meetingEvidenceProfile}
+                      scope={item.meetingEvidenceScope}
+                      selectedLineCount={item.meetingEvidenceSelectedLines}
+                      totalLineBudget={item.meetingEvidenceTotalBudget}
+                      totalCandidateCount={item.meetingEvidenceTotalCandidates}
+                      totalDroppedCount={item.meetingEvidenceTotalDropped}
+                      renderedSectionCount={item.meetingEvidenceRenderedSections}
+                      budgetUtilizationRatio={item.meetingEvidenceBudgetUtilizationRatio}
+                      href={item.navigationHref}
+                      compact
+                      className="border border-default dark:border-gray-700"
+                    />
+                  </div>
+                )}
+                {item.type === 'memory_writeback' && item.memoryItemId && (
+                  <div className="mt-3" onClick={(event) => event.stopPropagation()}>
+                    <GovernedMemoryPreview
+                      workspaceId={workspaceId}
+                      memoryItemId={item.memoryItemId}
+                      apiUrl={apiUrl}
+                      lifecycleStatus={item.memoryLifecycleStatus}
+                      verificationStatus={item.memoryVerificationStatus}
+                      href={item.navigationHref}
+                      compact
+                      showOpenLink={false}
+                    />
+                  </div>
+                )}
               </div>
               {item.clickable && (
                 <div className="text-xs text-blue-600 dark:text-blue-400 flex-shrink-0">

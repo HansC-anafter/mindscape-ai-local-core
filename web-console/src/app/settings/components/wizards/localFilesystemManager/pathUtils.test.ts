@@ -10,8 +10,8 @@ import {
 
 describe('localFilesystemManager path utils', () => {
   it('extracts usernames from macOS and Windows paths', () => {
-    expect(extractUsername('/Users/shock/Documents/workspace')).toBe('shock');
-    expect(extractUsername('C:\\Users\\shock\\Documents\\workspace')).toBe('shock');
+    expect(extractUsername('/Users/demo/Documents/workspace')).toBe('demo');
+    expect(extractUsername('C:\\Users\\demo\\Documents\\workspace')).toBe('demo');
     expect(extractUsername('/tmp/workspace')).toBeNull();
   });
 
@@ -19,24 +19,24 @@ describe('localFilesystemManager path utils', () => {
     expect(sanitizeWorkspaceTitle('My Workspace: Alpha')).toBe('My-Workspace-Alpha');
     expect(
       appendWorkspaceTitleToPath({
-        currentPath: '/Users/shock/Documents',
+        currentPath: '/Users/demo/Documents',
         isWindows: false,
         workspaceTitle: 'My Workspace: Alpha',
       })
-    ).toBe('/Users/shock/Documents/My-Workspace-Alpha');
+    ).toBe('/Users/demo/Documents/My-Workspace-Alpha');
     expect(
       appendWorkspaceTitleToPath({
-        currentPath: '/Users/shock/Documents/My-Workspace-Alpha',
+        currentPath: '/Users/demo/Documents/My-Workspace-Alpha',
         isWindows: false,
         workspaceTitle: 'My Workspace: Alpha',
       })
-    ).toBe('/Users/shock/Documents/My-Workspace-Alpha');
+    ).toBe('/Users/demo/Documents/My-Workspace-Alpha');
   });
 
   it('filters workspace quick-select directories from the active username', () => {
     const commonDirectories = getCommonDirectories();
     const workspaceResult = getFilteredCommonDirectories({
-      actualUsername: 'shock',
+      actualUsername: 'demo',
       commonDirectories,
       isWindows: false,
       workspaceMode: true,
@@ -49,10 +49,10 @@ describe('localFilesystemManager path utils', () => {
     });
 
     expect(workspaceResult.map((directory) => directory.path)).toEqual([
-      '/Users/shock/Documents',
-      '/Users/shock/Downloads',
-      '/Users/shock/Desktop',
-      '/Users/shock',
+      '/Users/demo/Documents',
+      '/Users/demo/Downloads',
+      '/Users/demo/Desktop',
+      '/Users/demo',
     ]);
     expect(standardResult.some((directory) => directory.path === '~/Documents')).toBe(true);
   });

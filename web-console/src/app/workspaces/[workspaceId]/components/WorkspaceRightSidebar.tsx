@@ -14,6 +14,7 @@ import {
 import AITeamPanel from '../../../../components/execution/AITeamPanel';
 import { ArtifactsSummary } from '../../../../components/workspace/ArtifactsSummary';
 import { DecisionPanel } from '../../../../components/workspace/DecisionPanel';
+import { WorkflowEvidenceHealthSummary } from '../../../../components/workspace/meeting/WorkflowEvidenceHealthSummary';
 import { ResizablePanel } from '../../../../components/ui/ResizablePanel';
 import { Artifact } from './OutcomesPanel';
 import { t } from '@/lib/i18n';
@@ -206,9 +207,17 @@ export default function WorkspaceRightSidebar({
                                             minBottomHeight={20}
                                             top={
                                                 <section className="sidebar-section decision-section h-full overflow-hidden flex flex-col">
+                                                    <div className="px-3 pt-3">
+                                                        <WorkflowEvidenceHealthSummary
+                                                            workspaceId={workspaceId}
+                                                            apiUrl={apiUrl}
+                                                            selectedThreadId={selectedThreadId}
+                                                        />
+                                                    </div>
                                                     <DecisionPanel
                                                         workspaceId={workspaceId}
                                                         apiUrl={apiUrl}
+                                                        selectedThreadId={selectedThreadId}
                                                         onViewArtifact={setSelectedArtifact}
                                                         onSwitchToOutcomes={() => setLeftSidebarTab('outcomes')}
                                                         workspace={workspace ? {

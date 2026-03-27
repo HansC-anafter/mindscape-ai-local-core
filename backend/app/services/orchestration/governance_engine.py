@@ -342,6 +342,15 @@ class GovernanceEngine:
             remote_execution["job_type"] = job_type
         if capability_code:
             remote_execution["capability_code"] = capability_code
+        if isinstance(provider_metadata, dict):
+            if provider_metadata.get("callback_delivered_at"):
+                remote_execution["callback_delivered_at"] = provider_metadata.get(
+                    "callback_delivered_at"
+                )
+            if provider_metadata.get("callback_error"):
+                remote_execution["callback_error"] = provider_metadata.get(
+                    "callback_error"
+                )
         if error_message:
             remote_execution["error"] = error_message
         ctx.update(

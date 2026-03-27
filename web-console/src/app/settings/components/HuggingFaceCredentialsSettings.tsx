@@ -190,6 +190,18 @@ export function HuggingFaceCredentialsSettings() {
             這份 Hugging Face access token 會供 Hugging Face 模型拉取，以及 LAF / ComfyUI 相關權重同步共用。
           </p>
           <p>
+            如果你的 ComfyUI 不是安裝在預設位置，請前往
+            {' '}
+            <Link
+              href="/settings?tab=runtime"
+              className="text-blue-700 dark:text-blue-300 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200"
+            >
+              執行環境
+            </Link>
+            {' '}
+            後點擊 `ComfyUI Local` 卡片進入管理彈窗，指定安裝路徑，避免 preview / render runtime 讀到錯的本機路徑。
+          </p>
+          <p>
             如果你要管理 Hugging Face 模型清單，請前往
             {' '}
             <Link

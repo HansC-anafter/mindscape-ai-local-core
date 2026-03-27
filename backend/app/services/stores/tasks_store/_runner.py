@@ -301,45 +301,126 @@ class TasksStoreRunnerMixin:
                     """
                     CREATE TABLE IF NOT EXISTS runner_heartbeats (
                         runner_id TEXT PRIMARY KEY,
+                        profile_code TEXT,
+                        hostname TEXT,
+                        inflight INTEGER NOT NULL DEFAULT 0,
                         heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                     """
                 )
             )
+            for statement in (
+                "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS profile_code TEXT",
+                "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS hostname TEXT",
+                "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS inflight INTEGER NOT NULL DEFAULT 0",
+            ):
+                try:
+                    conn.execute(text(statement))
+                except Exception:
+                    pass
 
-    def upsert_runner_heartbeat(self, runner_id: str) -> None:
+    def _upsert_runner_heartbeat_legacy(self, runner_id: str) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO runner_heartbeats (runner_id, heartbeat_at)
+                    VALUES (:runner_id, NOW())
+                    ON CONFLICT (runner_id)
+                    DO UPDATE SET heartbeat_at = NOW()
+                    """
+                ),
+                {"runner_id": runner_id},
+            )
+
+    def upsert_runner_heartbeat(
+        self,
+        runner_id: str,
+        *,
+        profile_code: str | None = None,
+        hostname: str | None = None,
+        inflight: int = 0,
+    ) -> None:
         """Record that a runner is alive (called every poll cycle)."""
         try:
             with self.transaction() as conn:
                 conn.execute(
                     text(
                         """
-                        INSERT INTO runner_heartbeats (runner_id, heartbeat_at)
-                        VALUES (:runner_id, NOW())
+                        INSERT INTO runner_heartbeats (
+                            runner_id,
+                            profile_code,
+                            hostname,
+                            inflight,
+                            heartbeat_at
+                        )
+                        VALUES (
+                            :runner_id,
+                            :profile_code,
+                            :hostname,
+                            :inflight,
+                            NOW()
+                        )
                         ON CONFLICT (runner_id)
-                        DO UPDATE SET heartbeat_at = NOW()
+                        DO UPDATE SET
+                            profile_code = EXCLUDED.profile_code,
+                            hostname = EXCLUDED.hostname,
+                            inflight = EXCLUDED.inflight,
+                            heartbeat_at = NOW()
                         """
                     ),
-                    {"runner_id": runner_id},
+                    {
+                        "runner_id": runner_id,
+                        "profile_code": profile_code,
+                        "hostname": hostname,
+                        "inflight": max(0, int(inflight or 0)),
+                    },
                 )
         except Exception:
             # Table might not exist yet; create it and retry.
             try:
                 self.ensure_runner_heartbeats_table()
-                with self.transaction() as conn:
-                    conn.execute(
-                        text(
-                            """
-                            INSERT INTO runner_heartbeats (runner_id, heartbeat_at)
-                            VALUES (:runner_id, NOW())
-                            ON CONFLICT (runner_id)
-                            DO UPDATE SET heartbeat_at = NOW()
-                            """
-                        ),
-                        {"runner_id": runner_id},
-                    )
+                try:
+                    with self.transaction() as conn:
+                        conn.execute(
+                            text(
+                                """
+                                INSERT INTO runner_heartbeats (
+                                    runner_id,
+                                    profile_code,
+                                    hostname,
+                                    inflight,
+                                    heartbeat_at
+                                )
+                                VALUES (
+                                    :runner_id,
+                                    :profile_code,
+                                    :hostname,
+                                    :inflight,
+                                    NOW()
+                                )
+                                ON CONFLICT (runner_id)
+                                DO UPDATE SET
+                                    profile_code = EXCLUDED.profile_code,
+                                    hostname = EXCLUDED.hostname,
+                                    inflight = EXCLUDED.inflight,
+                                    heartbeat_at = NOW()
+                                """
+                            ),
+                            {
+                                "runner_id": runner_id,
+                                "profile_code": profile_code,
+                                "hostname": hostname,
+                                "inflight": max(0, int(inflight or 0)),
+                            },
+                        )
+                except Exception:
+                    self._upsert_runner_heartbeat_legacy(runner_id)
             except Exception:
-                pass
+                try:
+                    self._upsert_runner_heartbeat_legacy(runner_id)
+                except Exception:
+                    pass
 
     def has_active_runner(self, max_age_seconds: float = 120.0) -> bool:
         """Check if any runner has sent a heartbeat within max_age_seconds."""
@@ -363,3 +444,89 @@ class TasksStoreRunnerMixin:
         except Exception:
             pass
         return False
+
+    def list_runner_heartbeats(
+        self,
+        *,
+        max_age_seconds: Optional[float] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Return recent runner heartbeats with profile metadata when available."""
+        limit = max(1, int(limit or 50))
+        query_parts = [
+            """
+            SELECT runner_id, profile_code, hostname, inflight, heartbeat_at
+            FROM runner_heartbeats
+            """
+        ]
+        params: Dict[str, Any] = {"limit": limit}
+        if isinstance(max_age_seconds, (int, float)) and max_age_seconds > 0:
+            query_parts.append(
+                "WHERE heartbeat_at > NOW() - INTERVAL '1 second' * :max_age"
+            )
+            params["max_age"] = float(max_age_seconds)
+        query_parts.append("ORDER BY heartbeat_at DESC")
+        query_parts.append("LIMIT :limit")
+
+        try:
+            with self.get_connection() as conn:
+                rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+        except Exception:
+            try:
+                fallback_query = [
+                    "SELECT runner_id, heartbeat_at FROM runner_heartbeats"
+                ]
+                fallback_params: Dict[str, Any] = {"limit": limit}
+                if isinstance(max_age_seconds, (int, float)) and max_age_seconds > 0:
+                    fallback_query.append(
+                        "WHERE heartbeat_at > NOW() - INTERVAL '1 second' * :max_age"
+                    )
+                    fallback_params["max_age"] = float(max_age_seconds)
+                fallback_query.append("ORDER BY heartbeat_at DESC")
+                fallback_query.append("LIMIT :limit")
+                with self.get_connection() as conn:
+                    rows = conn.execute(
+                        text(" ".join(fallback_query)),
+                        fallback_params,
+                    ).fetchall()
+            except Exception:
+                return []
+
+        heartbeats: List[Dict[str, Any]] = []
+        for row in rows:
+            mapping = getattr(row, "_mapping", None)
+            runner_id = mapping["runner_id"] if mapping is not None else row[0]
+            heartbeat_at = (
+                mapping["heartbeat_at"]
+                if mapping is not None and "heartbeat_at" in mapping
+                else row[-1]
+            )
+            profile_code = (
+                mapping["profile_code"]
+                if mapping is not None and "profile_code" in mapping
+                else None
+            )
+            hostname = (
+                mapping["hostname"]
+                if mapping is not None and "hostname" in mapping
+                else None
+            )
+            inflight = (
+                mapping["inflight"]
+                if mapping is not None and "inflight" in mapping
+                else 0
+            )
+            heartbeats.append(
+                {
+                    "runner_id": runner_id,
+                    "profile_code": profile_code,
+                    "hostname": hostname,
+                    "inflight": int(inflight or 0),
+                    "heartbeat_at": (
+                        heartbeat_at.isoformat()
+                        if hasattr(heartbeat_at, "isoformat")
+                        else str(heartbeat_at)
+                    ),
+                }
+            )
+        return heartbeats

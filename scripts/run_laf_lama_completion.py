@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mask-path", default="")
     parser.add_argument("--mask-url", default="")
     parser.add_argument("--strategy", default="conservative")
+    parser.add_argument("--impact-region-bbox-json", default="")
     return parser.parse_args()
 
 
@@ -53,6 +54,8 @@ def main() -> int:
         command.extend(["--mask-path", args.mask_path])
     if args.mask_url:
         command.extend(["--mask-url", args.mask_url])
+    if args.impact_region_bbox_json:
+        command.extend(["--impact-region-bbox-json", args.impact_region_bbox_json])
 
     process = subprocess.run(
         command,

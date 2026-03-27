@@ -14,12 +14,23 @@ that delegates to focused sub-modules:
 import asyncio
 import logging
 import os
+import socket
 import sys
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.runner_topology import (
+    DEFAULT_LOCAL_QUEUE_PARTITION,
+    RUNNER_READY_QUEUE_ORDER,
+    canonical_queue_partition_for_pack,
+    normalize_queue_partition,
+    resolve_runner_capacity_snapshot,
+    resolve_runner_profile_from_env,
+    resolve_target_runner_profile,
+    runner_profile_can_claim_task,
+)
 from backend.app.services.stores.tasks_store import TasksStore
 
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
@@ -51,13 +62,6 @@ from backend.app.runner.restart import (
 from backend.app.runner.dependency_check import DependencyChecker
 
 logger = logging.getLogger(__name__)
-
-_RUNNER_READY_SHARDS = {
-    "ig_analyze_pinned_reference": "ig_analysis",
-    "ig_batch_pin_references": "ig_browser",
-    "ig_analyze_following": "ig_browser",
-}
-_RUNNER_READY_QUEUE_ORDER = ("ig_analysis", "ig_browser", "default")
 
 # Re-export all public symbols so existing imports (e.g. tests) keep working.
 __all__ = [
@@ -188,16 +192,25 @@ def _resolve_task_queue_shard(
     pack_id: str, task_ctx: Optional[dict] = None
 ) -> str:
     if isinstance(task_ctx, dict):
-        explicit_queue_shard = task_ctx.get("queue_shard")
-        if isinstance(explicit_queue_shard, str) and explicit_queue_shard.strip():
-            return explicit_queue_shard.strip()
-    return _RUNNER_READY_SHARDS.get(pack_id, "default")
+        explicit_queue_shard = normalize_queue_partition(
+            task_ctx.get("queue_partition"),
+            fallback=None,
+        ) or normalize_queue_partition(
+            task_ctx.get("queue_shard"),
+            fallback=None,
+        )
+        if explicit_queue_shard:
+            return explicit_queue_shard
+    return canonical_queue_partition_for_pack(pack_id)
 
 
-def _build_ready_queue_stores() -> dict[str, RedisRunnerQueueStore]:
+def _build_ready_queue_stores(
+    queue_partitions: Optional[list[str] | tuple[str, ...]] = None,
+) -> dict[str, RedisRunnerQueueStore]:
+    queue_order = list(queue_partitions or RUNNER_READY_QUEUE_ORDER)
     return {
         shard_name: RedisRunnerQueueStore(pack_id=shard_name)
-        for shard_name in _RUNNER_READY_QUEUE_ORDER
+        for shard_name in queue_order
     }
 
 
@@ -372,7 +385,7 @@ async def _run_maintenance_cycle(
 ) -> None:
     """Keep the ready frontier warm even when the dequeue loop is idle."""
     _reap_stale_running_tasks(tasks_store, runner_id=runner_id, redis_queue=redis_queue)
-    for shard_name in _RUNNER_READY_QUEUE_ORDER:
+    for shard_name in ready_queues.keys():
         await _reap_redis_queues(
             tasks_store,
             ready_queues[shard_name],
@@ -409,19 +422,33 @@ async def _maintenance_loop(
 async def run_forever() -> None:
     poll_interval_ms = _env_int("LOCAL_CORE_RUNNER_POLL_INTERVAL_MS", 1000)
     max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
-    # Poll significantly more than inflight to prevent Head-of-Line Blocking
-    # where many locked older tasks prevent newer ready tasks from being evaluated.
-    batch_limit = _env_int(
-        "LOCAL_CORE_RUNNER_POLL_BATCH_LIMIT", max(50, max_inflight * 10)
-    )
+    configured_poll_batch_limit = _env_int("LOCAL_CORE_RUNNER_POLL_BATCH_LIMIT", 0)
     runner_id = _runner_id()
     visibility_timeout_sec = _env_int("LOCAL_CORE_RUNNER_VISIBILITY_TIMEOUT_SECONDS", 180)
+    runner_profile = resolve_runner_profile_from_env(default_max_inflight=max_inflight)
+    max_inflight = runner_profile.max_inflight
+    capacity = resolve_runner_capacity_snapshot(
+        runner_profile,
+        inflight=0,
+        configured_poll_batch_limit=configured_poll_batch_limit,
+    )
 
     store = MindscapeStore()
     tasks_store = TasksStore()
-    ready_queues = _build_ready_queue_stores()
-    queue_cycle = [ready_queues[name] for name in _RUNNER_READY_QUEUE_ORDER]
-    redis_queue = ready_queues["default"]
+    if not runner_profile.enabled:
+        logger.warning(
+            "Runner profile %s is disabled; exiting worker without claim loop.",
+            runner_profile.profile_code,
+        )
+        return
+
+    ready_queues = _build_ready_queue_stores(runner_profile.accepted_queue_partitions)
+    queue_cycle = [ready_queues[name] for name in runner_profile.accepted_queue_partitions]
+    redis_queue = (
+        queue_cycle[0]
+        if queue_cycle
+        else RedisRunnerQueueStore(pack_id=DEFAULT_LOCAL_QUEUE_PARTITION)
+    )
     queue_cursor = 0
     ready_targets = _split_ready_target(
         _env_int("LOCAL_CORE_RUNNER_READY_TARGET", 64),
@@ -429,7 +456,15 @@ async def run_forever() -> None:
     )
 
     logger.info(
-        f"Local-Core runner started runner_id={runner_id} poll_interval_ms={poll_interval_ms} max_inflight={max_inflight}"
+        "Local-Core runner started runner_id=%s profile=%s partitions=%s "
+        "resource_classes=%s poll_interval_ms=%s max_inflight=%s poll_batch_limit=%s",
+        runner_id,
+        runner_profile.profile_code,
+        ",".join(runner_profile.accepted_queue_partitions),
+        ",".join(runner_profile.accepted_resource_classes),
+        poll_interval_ms,
+        max_inflight,
+        capacity.poll_batch_limit,
     )
 
     # Ensure heartbeat table exists before entering the poll loop.
@@ -479,7 +514,12 @@ async def run_forever() -> None:
     while True:
         # Runner liveness heartbeat via shared PostgreSQL.
         try:
-            tasks_store.upsert_runner_heartbeat(runner_id)
+            tasks_store.upsert_runner_heartbeat(
+                runner_id,
+                profile_code=runner_profile.profile_code,
+                hostname=socket.gethostname(),
+                inflight=len(inflight),
+            )
         except Exception:
             pass
 
@@ -527,7 +567,12 @@ async def run_forever() -> None:
         except Exception:
             pass
 
-        if len(inflight) >= max_inflight:
+        capacity = resolve_runner_capacity_snapshot(
+            runner_profile,
+            inflight=len(inflight),
+            configured_poll_batch_limit=configured_poll_batch_limit,
+        )
+        if capacity.saturated:
             await asyncio.sleep(poll_interval_ms / 1000)
             continue
 
@@ -559,6 +604,17 @@ async def run_forever() -> None:
                     f"[Worker] Task {task_id} popped but no longer PENDING (status: {t_data.status.value}). Dropping duplicate queue item."
                 )
                 await task_queue.ack_task(task_id)
+                continue
+
+            if not runner_profile_can_claim_task(runner_profile, t_data):
+                logger.info(
+                    "[Worker] Task %s not claimable by profile=%s target_profile=%s queue=%s. Delaying for another runner.",
+                    task_id,
+                    runner_profile.profile_code,
+                    resolve_target_runner_profile(t_data),
+                    getattr(t_data, "queue_shard", None),
+                )
+                await task_queue.nack_task_to_delayed(task_id, delay_sec=5)
                 continue
 
             # ── Per-task dependency check ──
