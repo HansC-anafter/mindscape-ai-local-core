@@ -7,7 +7,11 @@ import sys
 from fastapi import FastAPI
 import httpx
 
-LOCAL_CORE_ROOT = Path("/Users/shock/Projects_local/workspace/mindscape-ai-local-core")
+LOCAL_CORE_ROOT = next(
+    parent
+    for parent in Path(__file__).resolve().parents
+    if parent.name == "mindscape-ai-local-core"
+)
 BACKEND_ROOT = LOCAL_CORE_ROOT / "backend"
 for candidate in (LOCAL_CORE_ROOT, BACKEND_ROOT):
     candidate_str = str(candidate)
