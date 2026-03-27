@@ -300,7 +300,7 @@ class ExecutionLauncher:
                 "raw_result": None,
             }
 
-        execution_id = execution_result.get("execution_id")
+        execution_id = self._extract_execution_id(execution_result)
         execution_mode = execution_result.get("execution_mode", "conversation")
 
         if execution_id:
@@ -318,3 +318,31 @@ class ExecutionLauncher:
             "execution_mode": execution_mode,
             "raw_result": execution_result,
         }
+
+    @staticmethod
+    def _extract_execution_id(
+        execution_result: Optional[Dict[str, Any]],
+    ) -> Optional[str]:
+        """Extract execution lineage from both legacy and conversation-mode payloads."""
+        if not isinstance(execution_result, dict):
+            return None
+
+        for candidate in (
+            execution_result.get("execution_id"),
+            execution_result.get("task_id"),
+        ):
+            normalized = str(candidate or "").strip()
+            if normalized:
+                return normalized
+
+        nested_result = execution_result.get("result")
+        if isinstance(nested_result, dict):
+            for candidate in (
+                nested_result.get("execution_id"),
+                nested_result.get("task_id"),
+            ):
+                normalized = str(candidate or "").strip()
+                if normalized:
+                    return normalized
+
+        return None

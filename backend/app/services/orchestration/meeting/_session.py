@@ -313,6 +313,33 @@ class MeetingSessionMixin:
         return normalized or None
 
     @classmethod
+    def _resolve_action_item_for_phase_id(
+        cls,
+        *,
+        action_items: List[Dict[str, Any]],
+        items_by_intent_id: Dict[str, Dict[str, Any]],
+        phase_id: Any,
+    ) -> Optional[Dict[str, Any]]:
+        normalized_phase_id = cls._normalize_lineage_value(phase_id)
+        if not normalized_phase_id:
+            return None
+
+        item = items_by_intent_id.get(normalized_phase_id)
+        if item is not None:
+            return item
+
+        if normalized_phase_id.startswith("phase_"):
+            index_str = normalized_phase_id[len("phase_") :]
+            if index_str.isdigit():
+                index = int(index_str)
+                if 0 <= index < len(action_items):
+                    candidate = action_items[index]
+                    if isinstance(candidate, dict):
+                        return candidate
+
+        return None
+
+    @classmethod
     def _stitch_action_item_execution_lineage(
         cls,
         *,
@@ -335,10 +362,11 @@ class MeetingSessionMixin:
                 items_by_intent_id[intent_id] = item
 
         for phase_id, attempt in attempts.items():
-            normalized_phase_id = cls._normalize_lineage_value(phase_id)
-            if not normalized_phase_id:
-                continue
-            item = items_by_intent_id.get(normalized_phase_id)
+            item = cls._resolve_action_item_for_phase_id(
+                action_items=action_items,
+                items_by_intent_id=items_by_intent_id,
+                phase_id=phase_id,
+            )
             if item is None or not isinstance(attempt, dict):
                 continue
 

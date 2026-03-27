@@ -54,6 +54,7 @@ class FakePhaseIR:
     depends_on: Optional[List[str]] = None
     blocked_by: Optional[List[int]] = None
     latest_attempt_id: Optional[str] = None
+    capability_profile: Optional[str] = None
 
 
 @dataclass
@@ -67,6 +68,7 @@ class FakeSession:
     id: str = "session-1"
     workspace_id: str = "ws-default"
     thread_id: str = "thread-1"
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @pytest.fixture
@@ -138,6 +140,8 @@ class TestDependencyGate:
             task_ir=FakeTaskIR(phases=phases), action_items=items
         )
         assert result["skipped"] >= 1  # B should be skipped
+        assert items[1]["landing_status"] == "dependency_blocked"
+        assert items[1]["skip_reason"] == "upstream_dependency_failed"
 
     @pytest.mark.asyncio
     async def test_continue_on_dep_failure_policy(self):
@@ -246,6 +250,74 @@ class TestParallelDAG:
         )
         assert result["total"] == 3
         assert result["succeeded"] == 3
+
+
+class TestLineageFallbacks:
+    @pytest.mark.asyncio
+    async def test_phase_index_fallback_updates_tool_action_item(self):
+        tasks_store = MagicMock()
+        orch = DispatchOrchestrator(
+            session=FakeSession(),
+            profile_id="user-1",
+            project_id="proj-1",
+            tasks_store=tasks_store,
+        )
+        phases = [
+            FakePhaseIR(
+                id="phase_1",
+                name="Renamed Tool Phase",
+                tool_name="openseo.save_to_markdown",
+            )
+        ]
+        items = [
+            {"title": "Unrelated planning item", "intent_id": "intent-0"},
+            {"title": "Original save item", "intent_id": "intent-1"},
+        ]
+
+        result = await orch.execute(
+            task_ir=FakeTaskIR(phases=phases),
+            action_items=items,
+        )
+
+        assert result["status"] == "ok"
+        assert items[1]["landing_status"] == "task_created"
+        assert items[1]["task_id"]
+        assert items[1]["execution_id"] == items[1]["task_id"]
+
+    @pytest.mark.asyncio
+    async def test_phase_index_fallback_preserves_nested_playbook_execution_id(self):
+        execution_launcher = MagicMock()
+        execution_launcher.launch = AsyncMock(
+            return_value={
+                "execution_mode": "conversation",
+                "result": {"execution_id": "exec-123"},
+            }
+        )
+        orch = DispatchOrchestrator(
+            session=FakeSession(),
+            profile_id="user-1",
+            project_id="proj-1",
+            execution_launcher=execution_launcher,
+        )
+        phases = [
+            FakePhaseIR(
+                id="phase_0",
+                name="Renamed Playbook Phase",
+                preferred_engine="playbook:project_breakdown",
+            )
+        ]
+        items = [
+            {"title": "Original project breakdown item", "intent_id": "intent-0"},
+        ]
+
+        result = await orch.execute(
+            task_ir=FakeTaskIR(phases=phases),
+            action_items=items,
+        )
+
+        assert result["status"] == "ok"
+        assert items[0]["landing_status"] == "launched"
+        assert items[0]["execution_id"] == "exec-123"
 
 
 class TestDiamondDAG:

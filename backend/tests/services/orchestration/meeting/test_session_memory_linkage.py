@@ -281,3 +281,46 @@ def test_close_session_falls_back_to_task_id_when_execution_id_missing(monkeypat
     assert engine.session_store.saved_decisions is not None
     decision = engine.session_store.saved_decisions[0]
     assert decision.source_action_item["execution_id"] == "task-456"
+
+
+def test_close_session_stitches_phase_index_lineage_when_phase_ids_are_ordinal(
+    monkeypatch,
+):
+    import backend.app.services.memory.writeback.meeting_memory_writeback_orchestrator as writeback_module
+
+    monkeypatch.setattr(
+        writeback_module,
+        "MeetingMemoryWritebackOrchestrator",
+        _FakeWritebackOrchestrator,
+    )
+
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        agenda=["Backfill lineage for ordinal phase ids"],
+    )
+    session.start()
+    engine = _FakeEngine(session=session)
+
+    engine._close_session(
+        minutes_md="Ordinal phase ids should still stitch back into action items.",
+        action_items=[
+            {"title": "Plan first", "intent_id": "intent-1"},
+            {"title": "Run tool second", "intent_id": "intent-2"},
+        ],
+        dispatch_result={
+            "status": "ok",
+            "attempts": {
+                "phase_1": {
+                    "adapter_meta": {},
+                    "result": {"task_id": "task-789"},
+                }
+            },
+        },
+    )
+
+    assert session.action_items[1]["execution_id"] == "task-789"
+    assert session.action_items[1]["task_id"] == "task-789"
+    decision = engine.session_store.saved_decisions[1]
+    assert decision.source_action_item["execution_id"] == "task-789"

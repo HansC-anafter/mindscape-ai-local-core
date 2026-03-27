@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
@@ -151,6 +152,7 @@ class DispatchOrchestrator:
                 phase = phase_map[pid]
                 item = self._resolve_action_item_for_phase(
                     phase=phase,
+                    action_items=action_items,
                     items_by_intent_id=items_by_intent_id,
                     items_by_title=items_by_title,
                 )
@@ -183,6 +185,15 @@ class DispatchOrchestrator:
                 elif result.get("status") == "skipped":
                     skipped_phases.add(pid)
                     phase.status = PhaseStatus.SKIPPED
+                    self._mark_action_item_skipped(
+                        action_item=self._resolve_action_item_for_phase(
+                            phase=phase,
+                            action_items=action_items,
+                            items_by_intent_id=items_by_intent_id,
+                            items_by_title=items_by_title,
+                        ),
+                        reason=str(result.get("reason") or "skipped"),
+                    )
                 else:
                     failed_phases.add(pid)
                     phase.status = PhaseStatus.FAILED
@@ -199,6 +210,15 @@ class DispatchOrchestrator:
                                 phase_map[dep_pid], task_ir.task_id
                             )
                             attempt.mark_skipped("upstream_dependency_failed")
+                            self._mark_action_item_skipped(
+                                action_item=self._resolve_action_item_for_phase(
+                                    phase=phase_map[dep_pid],
+                                    action_items=action_items,
+                                    items_by_intent_id=items_by_intent_id,
+                                    items_by_title=items_by_title,
+                                ),
+                                reason="upstream_dependency_failed",
+                            )
                             # Continue unlocking downstream of skipped
                             for sub_dep in dependents.get(dep_pid, []):
                                 in_degree[sub_dep] -= 1
@@ -639,7 +659,7 @@ class DispatchOrchestrator:
                 trace_id=trace_id,
             )
 
-            execution_id = result.get("execution_id")
+            execution_id = self._resolve_execution_id_from_result(result)
 
             # Write execution_id back to attempt.adapter_meta
             # for direct attempt → execution_id join
@@ -844,6 +864,7 @@ class DispatchOrchestrator:
     def _resolve_action_item_for_phase(
         *,
         phase: PhaseIR,
+        action_items: List[Dict[str, Any]],
         items_by_intent_id: Dict[str, Dict[str, Any]],
         items_by_title: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
@@ -853,6 +874,11 @@ class DispatchOrchestrator:
         phase_name = str(getattr(phase, "name", "") or "").strip()
         if phase_name and phase_name in items_by_title:
             return items_by_title[phase_name]
+        phase_index = DispatchOrchestrator._extract_phase_index(phase_id)
+        if phase_index is not None and 0 <= phase_index < len(action_items):
+            item = action_items[phase_index]
+            if isinstance(item, dict):
+                return item
         return {}
 
     @staticmethod
@@ -866,7 +892,47 @@ class DispatchOrchestrator:
             normalized = str(candidate or "").strip()
             if normalized:
                 return normalized
+        nested_result = result.get("result")
+        if isinstance(nested_result, dict):
+            for candidate in (
+                nested_result.get("execution_id"),
+                nested_result.get("task_id"),
+            ):
+                normalized = str(candidate or "").strip()
+                if normalized:
+                    return normalized
         return None
+
+    @staticmethod
+    def _extract_phase_index(phase_id: str | None) -> Optional[int]:
+        normalized = str(phase_id or "").strip()
+        if not normalized:
+            return None
+        match = re.fullmatch(r"phase_(\d+)", normalized)
+        if not match:
+            return None
+        return int(match.group(1))
+
+    @staticmethod
+    def _mark_action_item_skipped(
+        *,
+        action_item: Dict[str, Any],
+        reason: str,
+    ) -> None:
+        if not isinstance(action_item, dict) or not action_item:
+            return
+
+        normalized_reason = str(reason or "").strip() or "skipped"
+        current_status = str(action_item.get("landing_status") or "").strip()
+        if current_status in {"policy_blocked", "dispatch_error", "boundary_violation"}:
+            return
+
+        status_map = {
+            "upstream_dependency_failed": "dependency_blocked",
+            "duplicate_dispatch_intercepted": "duplicate_skipped",
+        }
+        action_item["landing_status"] = status_map.get(normalized_reason, "skipped")
+        action_item["skip_reason"] = normalized_reason
 
     def _derive_research_context(
         self,
