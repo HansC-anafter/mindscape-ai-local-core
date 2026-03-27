@@ -14,6 +14,13 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _normalize_optional_string(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
 class RemoteExecutionLaunchService:
     """Own local-core remote launch shell creation and cloud dispatch state sync."""
 
@@ -76,6 +83,10 @@ class RemoteExecutionLaunchService:
                 remote_job_type=remote_job_type,
                 remote_request_payload=remote_request_payload,
             )
+            dispatch_target = self._resolve_dispatch_target(
+                normalized_inputs=normalized_inputs,
+                request_payload=cloud_request_payload,
+            )
 
             tasks_store, task = self._ensure_remote_execution_shell(
                 playbook_code=playbook_code,
@@ -86,6 +97,7 @@ class RemoteExecutionLaunchService:
                 execution_id=execution_id,
                 trace_id=trace_id,
                 inputs=normalized_inputs,
+                dispatch_target=dispatch_target,
             )
 
             result = await connector.start_remote_execution(
@@ -98,12 +110,23 @@ class RemoteExecutionLaunchService:
                 trace_id=trace_id,
                 job_type=remote_job_type,
                 callback_payload={"mode": "local_core_terminal_event"},
+                target_device_id=dispatch_target.get("target_device_id"),
+                site_key=dispatch_target.get("site_key"),
             )
 
             remote_ctx = dict(task.execution_context or {})
             remote_exec = dict(remote_ctx.get("remote_execution") or {})
             remote_exec["cloud_dispatch_state"] = result.get("state", "pending")
             remote_exec["cloud_execution_id"] = result.get("id") or execution_id
+            runtime_binding = dispatch_target.get("runtime_binding")
+            if isinstance(runtime_binding, dict) and runtime_binding:
+                remote_exec["runtime_binding"] = runtime_binding
+            if dispatch_target.get("runtime_id"):
+                remote_exec["runtime_id"] = dispatch_target["runtime_id"]
+            if dispatch_target.get("site_key"):
+                remote_exec["site_key"] = dispatch_target["site_key"]
+            if dispatch_target.get("target_device_id"):
+                remote_exec["target_device_id"] = dispatch_target["target_device_id"]
             remote_ctx["remote_execution"] = remote_exec
             tasks_store.update_task(task.id, execution_context=remote_ctx)
 
@@ -125,6 +148,7 @@ class RemoteExecutionLaunchService:
                 "status": result.get("state", "pending"),
                 "cloud_execution_id": cloud_execution_id,
                 "job_type": remote_job_type,
+                "runtime_id": dispatch_target.get("runtime_id"),
                 "result": {
                     "status": result.get("state", "pending"),
                     "execution_id": execution_id,
@@ -140,6 +164,18 @@ class RemoteExecutionLaunchService:
                     remote_exec = dict(remote_ctx.get("remote_execution") or {})
                     remote_exec["cloud_dispatch_state"] = "dispatch_failed"
                     remote_exec["error"] = str(e)
+                    if "dispatch_target" in locals():
+                        runtime_binding = dispatch_target.get("runtime_binding")
+                        if isinstance(runtime_binding, dict) and runtime_binding:
+                            remote_exec["runtime_binding"] = runtime_binding
+                        if dispatch_target.get("runtime_id"):
+                            remote_exec["runtime_id"] = dispatch_target["runtime_id"]
+                        if dispatch_target.get("site_key"):
+                            remote_exec["site_key"] = dispatch_target["site_key"]
+                        if dispatch_target.get("target_device_id"):
+                            remote_exec["target_device_id"] = dispatch_target[
+                                "target_device_id"
+                            ]
                     remote_ctx["remote_execution"] = remote_exec
                     tasks_store.update_task(task.id, execution_context=remote_ctx)
                     from backend.app.models.workspace import TaskStatus
@@ -171,6 +207,7 @@ class RemoteExecutionLaunchService:
         execution_id: str,
         trace_id: str,
         inputs: Dict[str, Any],
+        dispatch_target: Optional[Dict[str, Any]] = None,
     ):
         """Create a local task shell before remote dispatch."""
         from backend.app.models.workspace import Task, TaskStatus
@@ -187,6 +224,19 @@ class RemoteExecutionLaunchService:
             "cloud_dispatch_state": "queued",
             "cloud_execution_id": execution_id,
         }
+        dispatch_target = dict(dispatch_target or {})
+        runtime_binding = dispatch_target.get("runtime_binding")
+        if isinstance(runtime_binding, dict) and runtime_binding:
+            remote_execution["runtime_binding"] = runtime_binding
+        if isinstance(dispatch_target.get("runtime_id"), str) and dispatch_target["runtime_id"]:
+            remote_execution["runtime_id"] = dispatch_target["runtime_id"]
+        if isinstance(dispatch_target.get("site_key"), str) and dispatch_target["site_key"]:
+            remote_execution["site_key"] = dispatch_target["site_key"]
+        if (
+            isinstance(dispatch_target.get("target_device_id"), str)
+            and dispatch_target["target_device_id"]
+        ):
+            remote_execution["target_device_id"] = dispatch_target["target_device_id"]
         execution_context = {
             "playbook_code": playbook_code,
             "playbook_name": playbook_code,
@@ -218,6 +268,77 @@ class RemoteExecutionLaunchService:
         )
         tasks_store.create_task(task)
         return tasks_store, task
+
+    def _resolve_dispatch_target(
+        self,
+        *,
+        normalized_inputs: Dict[str, Any],
+        request_payload: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        request_payload = dict(request_payload or {})
+        nested_inputs = (
+            dict(request_payload.get("inputs"))
+            if isinstance(request_payload.get("inputs"), dict)
+            else {}
+        )
+        runtime_binding = (
+            dict(normalized_inputs.get("runtime_binding"))
+            if isinstance(normalized_inputs.get("runtime_binding"), dict)
+            else {}
+        )
+        payload_runtime_binding = request_payload.get("runtime_binding")
+        if isinstance(payload_runtime_binding, dict):
+            for key, value in payload_runtime_binding.items():
+                runtime_binding.setdefault(key, value)
+        nested_runtime_binding = nested_inputs.get("runtime_binding")
+        if isinstance(nested_runtime_binding, dict):
+            for key, value in nested_runtime_binding.items():
+                runtime_binding.setdefault(key, value)
+
+        governance = (
+            dict(request_payload.get("_governance"))
+            if isinstance(request_payload.get("_governance"), dict)
+            else {}
+        )
+
+        runtime_id = (
+            _normalize_optional_string(normalized_inputs.get("runtime_id"))
+            or _normalize_optional_string(runtime_binding.get("runtime_id"))
+            or _normalize_optional_string(nested_inputs.get("runtime_id"))
+        )
+        site_key = (
+            _normalize_optional_string(normalized_inputs.get("site_key"))
+            or _normalize_optional_string(runtime_binding.get("site_key"))
+            or _normalize_optional_string(governance.get("site_key"))
+        )
+        target_device_id = (
+            _normalize_optional_string(normalized_inputs.get("target_device_id"))
+            or _normalize_optional_string(request_payload.get("target_device_id"))
+            or _normalize_optional_string(runtime_binding.get("device_id"))
+            or _normalize_optional_string(runtime_binding.get("target_device_id"))
+            or _normalize_optional_string(nested_inputs.get("target_device_id"))
+        )
+
+        normalized_runtime_binding = {
+            key: _normalize_optional_string(runtime_binding.get(key))
+            for key in (
+                "dispatch_mode",
+                "runtime_id",
+                "runtime_url",
+                "transport",
+                "site_key",
+                "device_id",
+                "via",
+            )
+            if _normalize_optional_string(runtime_binding.get(key))
+        }
+
+        return {
+            "runtime_id": runtime_id,
+            "site_key": site_key,
+            "target_device_id": target_device_id,
+            "runtime_binding": normalized_runtime_binding or None,
+        }
 
     def _build_remote_request_payload(
         self,

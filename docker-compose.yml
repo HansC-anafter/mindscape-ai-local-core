@@ -1,3 +1,79 @@
+x-runner-environment: &runner-environment
+  ENVIRONMENT: development
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  REDIS_ENABLED: ${REDIS_ENABLED:-true}
+  REDIS_HOST: ${REDIS_HOST:-redis}
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  REDIS_DB: ${REDIS_DB:-0}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+  DATABASE_URL_CORE: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
+  DATABASE_URL_VECTOR: postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+  DATABASE_URL: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
+  POSTGRES_CORE_HOST: postgres
+  POSTGRES_CORE_PORT: 5432
+  POSTGRES_CORE_DB: ${POSTGRES_CORE_DB:-mindscape_core}
+  POSTGRES_CORE_USER: ${POSTGRES_CORE_USER:-mindscape}
+  POSTGRES_CORE_PASSWORD: ${POSTGRES_CORE_PASSWORD:-mindscape_password}
+  POSTGRES_VECTOR_HOST: postgres
+  POSTGRES_VECTOR_PORT: 5432
+  POSTGRES_VECTOR_DB: ${POSTGRES_VECTOR_DB:-mindscape_vectors}
+  POSTGRES_VECTOR_USER: ${POSTGRES_VECTOR_USER:-mindscape}
+  POSTGRES_VECTOR_PASSWORD: ${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
+  POSTGRES_HOST: ${POSTGRES_CORE_HOST:-postgres}
+  POSTGRES_PORT: ${POSTGRES_CORE_PORT:-5432}
+  POSTGRES_DB: ${POSTGRES_CORE_DB:-mindscape_core}
+  POSTGRES_USER: ${POSTGRES_CORE_USER:-mindscape}
+  POSTGRES_PASSWORD: ${POSTGRES_CORE_PASSWORD:-mindscape_password}
+  PYTHONPATH: /app:/app/backend:/app/backend/app
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+  OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+  LOCAL_STORAGE_PATH: /root/.mindscape/storage/layer_asset_forge
+  TZ: ${TZ:-UTC}
+  LOCAL_CORE_RUNNER_PROCESS: "1"
+  LOCAL_CORE_RUNNER_POLL_INTERVAL_MS: ${LOCAL_CORE_RUNNER_POLL_INTERVAL_MS:-1000}
+  LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS: ${LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS:-15000}
+  LOCAL_CORE_RUNNER_CANCEL_POLL_INTERVAL_MS: ${LOCAL_CORE_RUNNER_CANCEL_POLL_INTERVAL_MS:-2000}
+  LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS: ${LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS:-3600}
+
+x-runner-volumes: &runner-volumes
+  - ./backend:/app/backend:rw
+  - ./scripts:/app/scripts:rw
+  - ./data:/app/data:rw
+  - ./data/secrets:/root/.mindscape:rw
+  - ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}:/root/.mindscape/models:rw
+  - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
+  - ./logs:/app/logs:rw
+  - ./web-console:/app/web-console:rw
+
+x-runner-common: &runner-common
+  image: ${LOCAL_CORE_RUNNER_IMAGE:-mindscape-ai-local-core-runner}
+  build:
+    context: .
+    dockerfile: Dockerfile.backend
+  init: true
+  shm_size: "2gb"
+  restart: unless-stopped
+  environment: *runner-environment
+  volumes: *runner-volumes
+  deploy:
+    resources:
+      limits:
+        memory: 6g
+  networks:
+    - mindscape-network
+  depends_on:
+    backend:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  entrypoint: ["python", "-m", "backend.app.runner.worker"]
+  # Runner doesn't expose HTTP on :8200; it inherits Dockerfile.backend healthcheck which would fail.
+  # Disable to avoid misleading "unhealthy" status.
+  healthcheck:
+    disable: true
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
 services:
   # Backend API Service
   backend:
@@ -116,79 +192,35 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  runner:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    container_name: mindscape-ai-local-core-runner
-    init: true
-    shm_size: "2gb"
-    restart: unless-stopped
+  runner-default:
+    <<: *runner-common
+    container_name: mindscape-ai-local-core-runner-default
     environment:
-      - ENVIRONMENT=development
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - REDIS_ENABLED=${REDIS_ENABLED:-true}
-      - REDIS_HOST=${REDIS_HOST:-redis}
-      - REDIS_PORT=${REDIS_PORT:-6379}
-      - REDIS_DB=${REDIS_DB:-0}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
-      - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-      - POSTGRES_CORE_HOST=postgres
-      - POSTGRES_CORE_PORT=5432
-      - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
-      - POSTGRES_CORE_USER=${POSTGRES_CORE_USER:-mindscape}
-      - POSTGRES_CORE_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
-      - POSTGRES_VECTOR_HOST=postgres
-      - POSTGRES_VECTOR_PORT=5432
-      - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
-      - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_USER:-mindscape}
-      - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
-      - POSTGRES_HOST=${POSTGRES_CORE_HOST:-postgres}
-      - POSTGRES_PORT=${POSTGRES_CORE_PORT:-5432}
-      - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
-      - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
-      - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
-      - PYTHONPATH=/app:/app/backend:/app/backend/app
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
-      - LOCAL_STORAGE_PATH=/root/.mindscape/storage/layer_asset_forge
-      - TZ=${TZ:-UTC}
-      - LOCAL_CORE_RUNNER_PROCESS=1
-      - LOCAL_CORE_RUNNER_POLL_INTERVAL_MS=${LOCAL_CORE_RUNNER_POLL_INTERVAL_MS:-1000}
-      - LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS=${LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS:-15000}
-      - LOCAL_CORE_RUNNER_CANCEL_POLL_INTERVAL_MS=${LOCAL_CORE_RUNNER_CANCEL_POLL_INTERVAL_MS:-2000}
-      - LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS=${LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS:-3600}
-      - LOCAL_CORE_RUNNER_MAX_INFLIGHT=${LOCAL_CORE_RUNNER_MAX_INFLIGHT:-8}
-    volumes:
-      - ./backend:/app/backend:rw
-      - ./scripts:/app/scripts:rw
-      - ./data:/app/data:rw
-      - ./data/secrets:/root/.mindscape:rw
-      - ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}:/root/.mindscape/models:rw
-      - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
-      - ./logs:/app/logs:rw
-      - ./web-console:/app/web-console:rw
+      <<: *runner-environment
+      LOCAL_CORE_RUNNER_PROFILE: default_local
+      LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_DEFAULT_ACCEPTED_PARTITIONS:-default_local}
+      LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_DEFAULT_ACCEPTED_RESOURCE_CLASSES:-compute,api}
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_DEFAULT_MAX_INFLIGHT:-8}
 
-    deploy:
-      resources:
-        limits:
-          memory: 6g
-    networks:
-      - mindscape-network
-    depends_on:
-      backend:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    entrypoint: ["python", "-m", "backend.app.runner.worker"]
-    # Runner doesn't expose HTTP on :8200; it inherits Dockerfile.backend healthcheck which would fail.
-    # Disable to avoid misleading "unhealthy" status.
-    healthcheck:
-      disable: true
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+  runner-browser:
+    <<: *runner-common
+    container_name: mindscape-ai-local-core-runner-browser
+    environment:
+      <<: *runner-environment
+      LOCAL_CORE_RUNNER_PROFILE: browser_local
+      LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_BROWSER_ACCEPTED_PARTITIONS:-browser_local}
+      LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_BROWSER_ACCEPTED_RESOURCE_CLASSES:-browser}
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-4}
+
+  runner-vision:
+    <<: *runner-common
+    container_name: mindscape-ai-local-core-runner-vision
+    environment:
+      <<: *runner-environment
+      LOCAL_CORE_RUNNER_PROFILE: vision_local
+      LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_VISION_ACCEPTED_PARTITIONS:-vision_local}
+      LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_VISION_ACCEPTED_RESOURCE_CLASSES:-compute}
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_VISION_MAX_INFLIGHT:-4}
 
   # Frontend Web Console
   frontend:

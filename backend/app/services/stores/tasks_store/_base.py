@@ -10,6 +10,11 @@ from sqlalchemy import text
 
 from app.services.stores.base import StoreNotFoundError
 from app.models.workspace import Task, TaskStatus
+from backend.app.services.runner_topology import (
+    DEFAULT_LOCAL_QUEUE_PARTITION,
+    canonical_queue_partition_for_pack,
+    normalize_queue_partition,
+)
 from backend.app.services.task_admission_service import (
     ADMISSION_DEFERRED_REASON,
     TASK_ADMISSION_SERVICE,
@@ -18,8 +23,6 @@ from backend.app.services.task_admission_service import (
 logger = logging.getLogger(__name__)
 
 _RUNNER_TASK_TYPES = {"playbook_execution", "tool_execution"}
-_IG_ANALYSIS_PACKS = {"ig_analyze_pinned_reference"}
-_IG_BROWSER_PACKS = {"ig_batch_pin_references", "ig_analyze_following"}
 _TERMINAL_TASK_STATUSES = {
     TaskStatus.SUCCEEDED.value,
     TaskStatus.FAILED.value,
@@ -72,11 +75,7 @@ def _parse_resume_after(raw_value: Any) -> Optional[datetime]:
 
 
 def _normalize_queue_shard(value: Any) -> Optional[str]:
-    if isinstance(value, str):
-        normalized = value.strip()
-        if normalized:
-            return normalized
-    return None
+    return normalize_queue_partition(value, fallback=None)
 
 
 def _resolve_queue_shard(
@@ -85,15 +84,13 @@ def _resolve_queue_shard(
     explicit_queue_shard = None
     if isinstance(execution_context, dict):
         explicit_queue_shard = _normalize_queue_shard(
+            execution_context.get("queue_partition")
+        ) or _normalize_queue_shard(
             execution_context.get("queue_shard")
         )
     if explicit_queue_shard:
         return explicit_queue_shard
-    if pack_id in _IG_ANALYSIS_PACKS:
-        return "ig_analysis"
-    if pack_id in _IG_BROWSER_PACKS:
-        return "ig_browser"
-    return "default"
+    return canonical_queue_partition_for_pack(pack_id)
 
 
 def _resolve_concurrency_key(
@@ -221,7 +218,10 @@ class TasksStoreCrudMixin:
             )
 
             q_store = RedisRunnerQueueStore(
-                pack_id=getattr(task, "queue_shard", None) or "default"
+                pack_id=normalize_queue_partition(
+                    getattr(task, "queue_shard", None),
+                    fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+                )
             )
             success = q_store.enqueue_task_sync(task.id)
             if not success:
@@ -703,7 +703,10 @@ class TasksStoreCrudMixin:
             or _utc_now(),
             blocked_reason=getattr(row, "blocked_reason", None),
             blocked_payload=blocked_payload,
-            queue_shard=getattr(row, "queue_shard", "default") or "default",
+            queue_shard=normalize_queue_partition(
+                getattr(row, "queue_shard", None),
+                fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+            ),
             concurrency_key=getattr(row, "concurrency_key", None),
             frontier_state=getattr(row, "frontier_state", "cold") or "cold",
             frontier_enqueued_at=self._coerce_datetime(

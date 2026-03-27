@@ -9,6 +9,10 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy import text
 
 from app.models.workspace import Task, TaskStatus
+from backend.app.services.runner_topology import (
+    build_queue_partition_filter_clause,
+    queue_partition_matches,
+)
 from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
 
 logger = logging.getLogger(__name__)
@@ -440,8 +444,13 @@ class TasksStoreQueryMixin:
             params["workspace_id"] = workspace_id
 
         if queue_shard:
-            query_parts.append("AND COALESCE(queue_shard, 'default') = :queue_shard")
-            params["queue_shard"] = queue_shard
+            queue_clause, queue_params = build_queue_partition_filter_clause(
+                "queue_shard",
+                queue_shard,
+                param_prefix="queue_partition",
+            )
+            query_parts.append(f"AND {queue_clause}")
+            params.update(queue_params)
 
         query_parts.append("ORDER BY next_eligible_at ASC, created_at ASC, id ASC")
         query_parts.append("LIMIT :limit")
@@ -460,7 +469,7 @@ class TasksStoreQueryMixin:
             for task in running_tasks
             if (
                 not queue_shard
-                or ((getattr(task, "queue_shard", "default") or "default") == queue_shard)
+                or queue_partition_matches(getattr(task, "queue_shard", None), queue_shard)
             )
             for key in [self._resolve_effective_concurrency_key(task)]
             if key
@@ -498,8 +507,13 @@ class TasksStoreQueryMixin:
         }
 
         if queue_shard:
-            query_parts.append("AND COALESCE(queue_shard, 'default') = :queue_shard")
-            params["queue_shard"] = queue_shard
+            queue_clause, queue_params = build_queue_partition_filter_clause(
+                "queue_shard",
+                queue_shard,
+                param_prefix="queue_partition",
+            )
+            query_parts.append(f"AND {queue_clause}")
+            params.update(queue_params)
 
         query_parts.append(
             """
