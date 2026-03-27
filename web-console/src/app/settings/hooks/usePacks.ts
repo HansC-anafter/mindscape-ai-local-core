@@ -40,6 +40,8 @@ export function usePacks(): UsePacksReturn {
         installed_at: pack.installed_at,
         routes: pack.routes || [],
         tools: pack.tools || [],
+        activation: pack.activation || undefined,
+        validation: pack.validation || undefined,
       }));
       // Debug log for the three specific packs
       const targetPacks = mappedPacks.filter(p => ['agent', 'review', 'workflow_templates'].includes(p.id));

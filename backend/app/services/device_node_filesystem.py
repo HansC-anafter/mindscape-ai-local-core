@@ -202,6 +202,78 @@ class DeviceNodeFilesystemService:
                 return []
         return []
 
+    async def run_host_command(
+        self, command: str, args: Optional[List[str]] = None
+    ) -> str:
+        """
+        Execute a host command via Device Node shell_execute.
+
+        This is generic host/runtime infrastructure and should only be used
+        for host-level validation or discovery tasks.
+        """
+        result = await self._call_tool(
+            "shell_execute",
+            {
+                "command": command,
+                "args": args or [],
+            },
+        )
+        content_list = result.get("content", [])
+        if content_list:
+            return content_list[0].get("text", "")
+        return ""
+
+    async def stat_paths(self, paths: List[str]) -> Dict[str, Dict[str, Any]]:
+        """
+        Inspect one or more host filesystem paths in a single Device Node call.
+        """
+        unique_paths: List[str] = []
+        seen = set()
+        for path in paths:
+            normalized = str(path or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            unique_paths.append(normalized)
+
+        if not unique_paths:
+            return {}
+
+        script = """
+import json
+import os
+import pathlib
+import sys
+
+def inspect(raw_path: str) -> dict:
+    expanded = os.path.expanduser(raw_path)
+    path = pathlib.Path(expanded)
+    exists = path.exists()
+    return {
+        "requested_path": raw_path,
+        "resolved_path": str(path),
+        "exists": exists,
+        "is_directory": path.is_dir() if exists else False,
+        "readable": os.access(path, os.R_OK),
+        "writable": os.access(path, os.W_OK),
+        "executable": os.access(path, os.X_OK),
+    }
+
+print(json.dumps({raw: inspect(raw) for raw in sys.argv[1:]}))
+""".strip()
+
+        output = await self.run_host_command(
+            "python3",
+            ["-c", script, *unique_paths],
+        )
+        try:
+            data = json.loads(output or "{}")
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError as exc:
+            raise DeviceNodeError(f"Invalid stat_paths response: {exc}")
+        raise DeviceNodeError("Invalid stat_paths response from Device Node")
+
     async def read_file_to_sandbox(
         self,
         host_path: str,

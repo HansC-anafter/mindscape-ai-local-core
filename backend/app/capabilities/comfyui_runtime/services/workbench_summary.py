@@ -11,18 +11,24 @@ import yaml
 
 try:
     from app.services.artifact_review_decision import (
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY,
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_REQUESTED,
         build_followup_action_plan,
+    )
+    from app.services.artifact_review_followup_contract import (
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY,
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_REQUESTED,
+        canonicalize_followup_plan_flags,
         normalize_followup_action_id,
         normalize_followup_consumer_kind,
         normalize_followup_lane_id,
     )
 except ImportError:
     from backend.app.services.artifact_review_decision import (
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY,
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_REQUESTED,
         build_followup_action_plan,
+    )
+    from backend.app.services.artifact_review_followup_contract import (
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY,
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_REQUESTED,
+        canonicalize_followup_plan_flags,
         normalize_followup_action_id,
         normalize_followup_consumer_kind,
         normalize_followup_lane_id,
@@ -688,7 +694,7 @@ def _canonicalize_followup_plan(followup_plan: Dict[str, Any]) -> Dict[str, Any]
             }
         )
 
-    return {
+    return canonicalize_followup_plan_flags({
         **dict(followup_plan),
         "action_ids": [
             normalize_followup_action_id(action_id)
@@ -701,15 +707,15 @@ def _canonicalize_followup_plan(followup_plan: Dict[str, Any]) -> Dict[str, Any]
             if normalize_followup_lane_id(lane_id)
         ],
         "lanes": lanes,
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_REQUESTED: bool(
-            followup_plan.get(FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_REQUESTED)
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_REQUESTED: bool(
+            followup_plan.get(FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_REQUESTED)
             or followup_plan.get("publish_candidate_requested")
         ),
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY: bool(
-            followup_plan.get(FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY)
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY: bool(
+            followup_plan.get(FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY)
             or followup_plan.get("publish_candidate_ready")
         ),
-    }
+    })
 
 
 def _canonicalize_followup_request_refs(refs: Any) -> List[Dict[str, Any]]:
@@ -811,11 +817,11 @@ def _scene_review_followup(run: Dict[str, Any], scene_result: Dict[str, Any]) ->
         "manual_escalation_required": bool(
             followup_plan.get("manual_escalation_required")
         ),
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_REQUESTED: bool(
-            followup_plan.get(FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_REQUESTED)
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_REQUESTED: bool(
+            followup_plan.get(FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_REQUESTED)
         ),
-        FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY: bool(
-            followup_plan.get(FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY)
+        FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY: bool(
+            followup_plan.get(FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY)
         ),
         "followup_request_refs": _canonicalize_followup_request_refs(
             provider_metadata.get("followup_request_refs")
@@ -831,7 +837,7 @@ def _aggregate_review_followups(run: Dict[str, Any]) -> Dict[str, Any]:
         "dispatchable_lane_counts": {},
         "blocked_lane_counts": {},
         "followup_request_state_counts": {},
-        "pack_consumer_handoff_ready_scene_ids": [],
+        "capability_consumer_handoff_ready_scene_ids": [],
         "manual_escalation_scene_ids": [],
         "rerender_scene_ids": [],
         "scene_refs": [],
@@ -863,8 +869,8 @@ def _aggregate_review_followups(run: Dict[str, Any]) -> Dict[str, Any]:
                 summary["blocked_lane_counts"][lane_id] = (
                     summary["blocked_lane_counts"].get(lane_id, 0) + 1
                 )
-        if scene_followup.get(FOLLOWUP_PLAN_PACK_CONSUMER_HANDOFF_READY) and scene_id:
-            summary["pack_consumer_handoff_ready_scene_ids"].append(scene_id)
+        if scene_followup.get(FOLLOWUP_PLAN_CAPABILITY_CONSUMER_HANDOFF_READY) and scene_id:
+            summary["capability_consumer_handoff_ready_scene_ids"].append(scene_id)
         for request_ref in scene_followup.get("followup_request_refs") or []:
             if not isinstance(request_ref, dict):
                 continue

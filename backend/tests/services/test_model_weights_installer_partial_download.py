@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -336,11 +337,19 @@ async def test_ensure_model_materializes_local_bundle_file(tmp_path):
 
     resolved = await installer.ensure_model(model_info.pack_code, model_info.model_id)
 
+    store_dir = (
+        Path(installer.cache_root)
+        / "loras"
+        / "store"
+        / installer._get_model_fingerprint(model_info)
+    )
     final_file = resolved.local_path / "hero.safetensors"
     assert resolved.status == ModelStatus.VERIFIED
+    assert resolved.local_path.is_symlink()
+    assert not os.readlink(resolved.local_path).startswith("/")
+    assert resolved.local_path.resolve() == store_dir.resolve()
     assert final_file.exists()
-    assert final_file.is_symlink()
-    assert final_file.resolve() == source_file.resolve()
+    assert not final_file.is_symlink()
     assert final_file.read_bytes() == b"bundle-data"
 
 
@@ -365,9 +374,17 @@ async def test_ensure_model_materializes_local_bundle_directory(tmp_path):
 
     resolved = await installer.ensure_model(model_info.pack_code, model_info.model_id)
 
+    store_dir = (
+        Path(installer.cache_root)
+        / "loras"
+        / "store"
+        / installer._get_model_fingerprint(model_info)
+    )
     final_file = resolved.local_path / "loras" / "hero.safetensors"
     assert resolved.status == ModelStatus.VERIFIED
+    assert resolved.local_path.is_symlink()
+    assert not os.readlink(resolved.local_path).startswith("/")
+    assert resolved.local_path.resolve() == store_dir.resolve()
     assert final_file.exists()
-    assert final_file.is_symlink()
-    assert final_file.resolve() == source_file.resolve()
+    assert not final_file.is_symlink()
     assert final_file.read_bytes() == b"bundle-dir"

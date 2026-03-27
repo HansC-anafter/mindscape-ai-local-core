@@ -87,7 +87,7 @@ The Runtime Environments settings page (`/settings?tab=runtime`) displays:
 |------|-------------|
 | `backend/app/routes/core/runtime_environments.py` | API routes for runtime CRUD |
 | `backend/app/services/runtime/runtime_auth_service.py` | Runtime authentication service |
-| `backend/app/services/runtime/runtime_discovery_service.py` | Auto-discovery/scan service |
+| `backend/app/routes/core/system_settings/local_content.py` | Generic host directory authorization / picker |
 | `backend/app/routes/core/settings_extensions.py` | Settings extension panel API |
 | `web-console/src/app/settings/components/RuntimeEnvironmentsSettings.tsx` | Frontend settings panel |
 

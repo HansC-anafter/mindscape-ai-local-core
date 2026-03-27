@@ -34,6 +34,7 @@ from app.services.restart_webhook import get_restart_webhook_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/capability-packs", tags=["Capability Packs"])
+OVERWRITE_CONFIRMATION_PHRASE = "OVERWRITE"
 
 installed_packs_store = InstalledPacksStore()
 pack_activation_service = PackActivationService()
@@ -130,6 +131,35 @@ def _supports_file_touch_reload() -> bool:
     return False
 
 
+def _parse_bool_flag(value: str) -> bool:
+    return str(value or "").strip().lower() in ("true", "1", "yes")
+
+
+def _require_explicit_overwrite_confirmation(
+    *,
+    allow_overwrite: bool,
+    overwrite_confirmation: str,
+) -> None:
+    if not allow_overwrite:
+        return
+
+    if str(overwrite_confirmation or "").strip() == OVERWRITE_CONFIRMATION_PHRASE:
+        return
+
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "error": "overwrite_confirmation_required",
+            "message": "Overwrite install requires explicit confirmation.",
+            "required_confirmation": OVERWRITE_CONFIRMATION_PHRASE,
+            "hint": (
+                "Resubmit with allow_overwrite=true and "
+                f"overwrite_confirmation={OVERWRITE_CONFIRMATION_PHRASE}"
+            ),
+        },
+    )
+
+
 # ------------------------------------------------------------------
 # Shared install pipeline
 # ------------------------------------------------------------------
@@ -150,6 +180,7 @@ class InstallPipelineResult:
     webhook_result: Any = None
     pack_metadata: Dict[str, Any] = field(default_factory=dict)
     activation: Optional[Dict[str, Any]] = None
+    validation: Optional[Dict[str, Any]] = None
 
 
 async def run_install_pipeline(
@@ -269,7 +300,12 @@ async def run_install_pipeline(
                             "added": dirty.added,
                             "deleted": dirty.deleted,
                             "summary": dirty.summary(),
-                            "hint": "Set allow_overwrite=true to force install",
+                            "required_confirmation": OVERWRITE_CONFIRMATION_PHRASE,
+                            "hint": (
+                                "Set allow_overwrite=true and "
+                                f"overwrite_confirmation={OVERWRITE_CONFIRMATION_PHRASE} "
+                                "to force install"
+                            ),
                         },
                     )
                 elif dirty.is_dirty:
@@ -316,14 +352,16 @@ async def run_install_pipeline(
         else:
             logger.warning(f"Migration status not available for {capability_code}")
 
-        # Post-install hooks
+        # Post-install hooks required for pack readiness. Playbook validation
+        # runs as a resumable background task so install responses do not block
+        # on every validation subprocess.
         post_handler = PostInstallHandler(
             local_core_root=local_core_root,
             capabilities_dir=capabilities_dir,
             specs_dir=specs_dir,
             validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call,
         )
-        post_handler.run_all(cap_dir, capability_code, manifest, result)
+        post_handler.run_required_tasks(cap_dir, capability_code, manifest, result)
 
         # 4. Reload capability registry
         hot_reload_performed = False
@@ -421,6 +459,18 @@ async def run_install_pipeline(
             except Exception:
                 pass
 
+        validation_state = None
+        if manifest.get("playbooks"):
+            from app.services.pack_validation_background import (
+                build_validation_status_payload,
+            )
+
+            validation_state = build_validation_status_payload(
+                "pending",
+                mode="background",
+            )
+            pack_metadata["validation"] = validation_state
+
         try:
             installed_packs_store.upsert_pack(
                 pack_id=capability_code,
@@ -445,6 +495,14 @@ async def run_install_pipeline(
                 else None,
                 activation_error=activation_error,
             )
+            if validation_state is not None:
+                pipeline.activation = pack_activation_service.record_validation_pending(
+                    pack_id=capability_code,
+                    manifest=manifest,
+                    manifest_path=installed_manifest_path
+                    if installed_manifest_path.exists()
+                    else None,
+                )
         except Exception as exc:
             logger.warning("Failed to persist pack activation state: %s", exc)
             result.add_warning(f"Failed to persist pack activation state: {exc}")
@@ -509,9 +567,74 @@ async def run_install_pipeline(
             logger.warning("Tool RAG background task setup failed: %s", exc)
 
         pipeline.pack_metadata = pack_metadata
+        pipeline.validation = validation_state
 
-        # 7. Webhook notification
-        if pipeline.restart_required:
+        # 7. Validation / webhook background follow-up
+        if validation_state is not None:
+            try:
+                from app.services.pack_validation_background import (
+                    schedule_pack_validation,
+                )
+
+                scheduled = schedule_pack_validation(
+                    pack_id=capability_code,
+                    manifest=manifest,
+                    manifest_path=installed_manifest_path
+                    if installed_manifest_path.exists()
+                    else None,
+                    restart_required=pipeline.restart_required,
+                    version=pack_metadata.get("version", "1.0.0"),
+                    extra_metadata=extra_metadata,
+                )
+                if scheduled:
+                    result.add_warning(
+                        f"Playbook validation scheduled in background for {capability_code}."
+                    )
+                    if pipeline.restart_required:
+                        pipeline.webhook_result = {
+                            "sent": False,
+                            "reason": "scheduled_background_validation",
+                        }
+            except Exception as exc:
+                logger.warning(
+                    "Failed to schedule background playbook validation for %s: %s",
+                    capability_code,
+                    exc,
+                )
+                from app.services.pack_validation_background import (
+                    build_validation_status_payload,
+                )
+
+                failure_state = build_validation_status_payload(
+                    "failed",
+                    mode="background",
+                    errors=[f"Failed to schedule background playbook validation: {exc}"],
+                )
+                try:
+                    installed_packs_store.update_metadata(
+                        capability_code,
+                        {"validation": failure_state},
+                    )
+                    pipeline.activation = pack_activation_service.record_validation_failed(
+                        pack_id=capability_code,
+                        manifest=manifest,
+                        error=f"Failed to schedule background playbook validation: {exc}",
+                        manifest_path=installed_manifest_path
+                        if installed_manifest_path.exists()
+                        else None,
+                    )
+                    pipeline.validation = failure_state
+                except Exception as state_exc:
+                    logger.warning(
+                        "Failed to persist schedule failure state for %s: %s",
+                        capability_code,
+                        state_exc,
+                    )
+                result.add_warning(
+                    f"Failed to schedule background playbook validation: {exc}"
+                )
+
+        if pipeline.restart_required and pipeline.webhook_result is None:
             try:
                 webhook_service = get_restart_webhook_service()
                 if webhook_service.is_configured():
@@ -577,6 +700,7 @@ async def install_from_file(
     fastapi_request: Request,
     file: UploadFile = File(...),
     allow_overwrite: str = Form("false"),
+    overwrite_confirmation: str = Form(""),
     profile_id: str = Query(
         "default-user", description="User profile ID for role mapping"
     ),
@@ -590,6 +714,12 @@ async def install_from_file(
     if not file.filename.endswith(".mindpack"):
         raise HTTPException(status_code=400, detail="File must be a .mindpack file")
 
+    overwrite = _parse_bool_flag(allow_overwrite)
+    _require_explicit_overwrite_confirmation(
+        allow_overwrite=overwrite,
+        overwrite_confirmation=overwrite_confirmation,
+    )
+
     # Save upload to a known-writable temp file instead of relying on /tmp.
     temp_dir = _resolve_runtime_temp_dir()
     with tempfile.NamedTemporaryFile(
@@ -600,7 +730,6 @@ async def install_from_file(
         tmp_path = Path(tmp.name)
 
     try:
-        overwrite = allow_overwrite.lower() in ("true", "1", "yes")
         result = await run_install_pipeline(
             fastapi_app=fastapi_request.app,
             mindpack_path=tmp_path,
@@ -616,6 +745,7 @@ async def install_from_file(
             "message": f"Successfully installed {result.capability_code} v{result.version}",
             "warnings": result.warnings,
             "activation": result.activation,
+            "validation": result.validation,
             "restart_required": result.restart_required,
             "restart_triggered": result.restart_triggered,
             "hot_reload": result.hot_reload_result,
@@ -661,6 +791,9 @@ async def install_from_cloud(
     allow_overwrite: str = Query(
         "false", description="Force install even if local modifications detected"
     ),
+    overwrite_confirmation: str = Query(
+        "", description="Explicit confirmation phrase required when allow_overwrite=true"
+    ),
 ):
     """
     Install capability pack from cloud provider
@@ -669,6 +802,12 @@ async def install_from_cloud(
     Supports any provider that implements the CloudProvider interface.
     """
     try:
+        overwrite = _parse_bool_flag(allow_overwrite)
+        _require_explicit_overwrite_confirmation(
+            allow_overwrite=overwrite,
+            overwrite_confirmation=overwrite_confirmation,
+        )
+
         _ensure_sys_path()
         from app.services.cloud_extension_manager import CloudExtensionManager
         from app.services.pack_download_service import get_pack_download_service
@@ -712,7 +851,6 @@ async def install_from_cloud(
             )
 
         try:
-            overwrite = allow_overwrite.lower() in ("true", "1", "yes")
             result = await run_install_pipeline(
                 fastapi_app=fastapi_request.app,
                 mindpack_path=pack_file,
@@ -732,6 +870,7 @@ async def install_from_cloud(
                 "message": f"Successfully installed {result.capability_code} from {request.provider_id}",
                 "warnings": result.warnings,
                 "activation": result.activation,
+                "validation": result.validation,
                 "provider_id": request.provider_id,
                 "pack_ref": request.pack_ref,
                 "restart_required": result.restart_required,

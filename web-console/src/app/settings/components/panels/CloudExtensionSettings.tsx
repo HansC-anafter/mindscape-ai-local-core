@@ -337,7 +337,6 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
         const installedCount = result.installed?.length || 0;
         const installedNames = result.installed?.map((p: any) => p.pack_code || p.code).join(', ') || '';
         const notificationMessage = `✅ 成功安裝 ${installedCount} 個 pack${installedCount > 1 ? 's' : ''}${installedNames ? `: ${installedNames}` : ''}`;
-        console.log('Showing success notification:', notificationMessage);
         showNotification('success', notificationMessage);
         // Reload packs to refresh the list and show installed status
         // Note: loadPacks failure is non-critical, don't block on it

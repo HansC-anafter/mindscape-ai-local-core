@@ -370,6 +370,26 @@ const navigationItems: NavigationItem[] = [
     ],
   },
   {
+    id: 'packs_status',
+    label: 'capabilityPacks',
+    icon: '📦',
+    tab: 'packs_status',
+    children: [
+      {
+        id: 'capability-packages',
+        label: 'capabilityPackages',
+        tab: 'packs_status',
+        section: 'packages',
+      },
+      {
+        id: 'capability-suites',
+        label: 'capabilitySuites',
+        tab: 'packs_status',
+        section: 'suites',
+      },
+    ],
+  },
+  {
     id: 'service_status',
     label: 'serviceStatus',
     icon: '📊',
@@ -406,7 +426,7 @@ export function SettingsNavigation({
     <div className="flex flex-col h-full overflow-hidden">
       <nav className="space-y-1 flex-1 overflow-y-auto min-h-0 px-2 pt-2">
         {navigationItems.map((item) => {
-          const isActive = activeTab === item.tab && !activeSection;
+          const isActive = activeTab === item.tab && (!activeSection || item.tab === 'packs_status');
           const hasChildren = item.children && item.children.length > 0;
           const isExpanded = expandedItems.has(item.id);
 
@@ -593,4 +613,3 @@ export function SettingsNavigation({
     </div>
   );
 }
-

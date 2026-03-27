@@ -496,4 +496,3 @@ export const settingsJa = {
   restartServiceForEffect: '変更を反映するにはサービスを再起動してください',
 
 } as const satisfies Partial<Record<MessageKey, string>>;
-

@@ -47,12 +47,6 @@ export function GoogleOAuthSettings() {
       setLoading(true);
       setError(null);
       const data = await settingsApi.get<GoogleOAuthConfig>('/api/v1/system-settings/google-oauth');
-      console.log('Loaded config from backend:', {
-        client_id: data.client_id ? `${data.client_id.substring(0, 30)}...` : 'empty',
-        backend_url: data.backend_url || 'empty',
-        redirect_uri: data.redirect_uri || 'empty',
-        is_configured: data.is_configured,
-      });
 
       setConfig(data);
 
@@ -98,22 +92,7 @@ export function GoogleOAuthSettings() {
         updateData.backend_url = form.backend_url.trim();
       }
 
-      console.log('Saving Google OAuth config:', {
-        client_id: updateData.client_id ? `${updateData.client_id.substring(0, 30)}...` : 'not sent',
-        client_secret: updateData.client_secret ? '*** (hidden)' : 'not sent',
-        redirect_uri: updateData.redirect_uri || 'not sent',
-        backend_url: updateData.backend_url || 'not sent',
-      });
-
-      console.log('Sending save request with data:', {
-        client_id: updateData.client_id ? `${updateData.client_id.substring(0, 40)}...` : 'not sent',
-        client_secret: updateData.client_secret ? '*** (hidden)' : 'not sent',
-        redirect_uri: updateData.redirect_uri || 'not sent',
-        backend_url: updateData.backend_url || 'not sent',
-      });
-
       const response = await settingsApi.put('/api/v1/system-settings/google-oauth', updateData);
-      console.log('Save response:', response);
 
       setSuccess(t('googleOAuthConfigurationSaved' as any));
 
@@ -163,14 +142,6 @@ export function GoogleOAuthSettings() {
       if (clientSecretValue) {
         testPayload.client_secret = clientSecretValue;
       }
-
-      console.log('Sending test request:', {
-        form_client_id: form.client_id ? `${form.client_id.substring(0, 40)}...` : 'empty',
-        form_client_secret: form.client_secret ? '*** (hidden)' : 'empty',
-        payload_keys: Object.keys(testPayload),
-        payload_client_id: testPayload.client_id ? `${testPayload.client_id.substring(0, 40)}...` : 'not sent',
-        payload_client_secret: testPayload.client_secret ? 'sent (hidden)' : 'not sent',
-      });
 
       const testData = await settingsApi.post<{
         success: boolean;

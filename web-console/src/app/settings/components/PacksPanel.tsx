@@ -30,6 +30,30 @@ export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
     loadSuites();
   }, [loadPacks, loadSuites]);
 
+  const hasTransientPackState = packs.some((pack) => {
+    const validationState = pack.validation?.state;
+    const installState = pack.activation?.install_state;
+    const activationState = pack.activation?.activation_state;
+    return (
+      validationState === 'pending' ||
+      validationState === 'running' ||
+      installState === 'validation_pending' ||
+      activationState === 'pending_activation'
+    );
+  });
+
+  React.useEffect(() => {
+    if (!hasTransientPackState) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      loadPacks();
+    }, 2500);
+
+    return () => window.clearInterval(intervalId);
+  }, [hasTransientPackState, loadPacks]);
+
   const handleInstallPack = async (packId: string) => {
     setInstallError(null);
     setInstallSuccess(null);
@@ -179,7 +203,7 @@ export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
                 ))}
               </div>
 
-              <InstalledCapabilitiesList refreshTrigger={refreshTrigger} />
+              <InstalledCapabilitiesList packs={packs} loading={packsLoading} refreshTrigger={refreshTrigger} />
             </>
           )}
         </Section>

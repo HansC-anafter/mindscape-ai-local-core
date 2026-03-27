@@ -65,6 +65,44 @@ export interface CapabilityPack {
   installed_at?: string;
   routes?: string[];
   tools?: string[];
+  activation?: PackActivationState;
+  validation?: PackValidationState;
+}
+
+export interface PackActivationState {
+  pack_id: string;
+  pack_family: string;
+  enabled: boolean;
+  install_state: string;
+  migration_state: string;
+  activation_state: string;
+  activation_mode: string;
+  embedding_state: string;
+  embedding_error?: string | null;
+  embeddings_updated_at?: string | null;
+  manifest_hash?: string | null;
+  registered_prefixes: string[];
+  last_error?: string | null;
+  activated_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface PackValidationSummary {
+  validated: number;
+  failed: number;
+  skipped: number;
+  warnings: number;
+}
+
+export interface PackValidationState {
+  state: string;
+  mode?: string;
+  updated_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  warnings?: string[];
+  errors?: string[];
+  summary?: PackValidationSummary;
 }
 
 export interface Profile {
@@ -119,4 +157,4 @@ export interface PlaybookReadinessStatus {
   optional_tools: string[];
 }
 
-export type SettingsTab = 'basic' | 'mindscape' | 'ai-team-governance' | 'social_media' | 'tools' | 'localization' | 'service_status' | 'governance' | 'runtime';
+export type SettingsTab = 'basic' | 'credentials' | 'mindscape' | 'ai-team-governance' | 'social_media' | 'tools' | 'localization' | 'service_status' | 'packs_status' | 'governance' | 'runtime';

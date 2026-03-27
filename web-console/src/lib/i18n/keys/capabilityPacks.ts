@@ -22,6 +22,9 @@ export const capabilityPacksKeys = {
   installFromFile: true,
   installFromFileDescription: true,
   selectMindpackFile: true,
+  overwriteConfirmationHint: true,
+  overwriteConfirmationPrompt: true,
+  overwriteConfirmationMismatch: true,
   packInstallsMembers: true,
   packInstallsPlaybooks: true,
   packProvidesTools: true,
@@ -47,4 +50,3 @@ export const capabilityPacksKeys = {
   packWordPressWebmasterCap3: true,
   packWordPressWebmasterCap4: true,
 } as const;
-

@@ -671,7 +671,8 @@ class ModelWeightsInstaller:
             else:
                 shutil.rmtree(view_dir)
 
-        os.symlink(store_dir, view_dir)
+        relative_target = os.path.relpath(store_dir, start=view_dir.parent)
+        os.symlink(relative_target, view_dir)
         model_info.local_path = view_dir
         model_info.status = ModelStatus.DOWNLOADED
         model_info.downloaded_at = _utc_now()
@@ -783,10 +784,7 @@ class ModelWeightsInstaller:
             else:
                 shutil.rmtree(target_path)
 
-        try:
-            os.symlink(source_path.resolve(), target_path)
-        except OSError:
-            shutil.copy2(source_path, target_path)
+        shutil.copy2(source_path, target_path)
 
     def _get_download_url(self, model_info: ModelInfo, filename: str) -> Optional[str]:
         """Get download URL for a file."""

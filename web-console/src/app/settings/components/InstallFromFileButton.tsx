@@ -10,6 +10,7 @@ interface InstallFromFileButtonProps {
 }
 
 type InstallPhase = 'idle' | 'installing' | 'mapping_roles' | 'completed' | 'error';
+const OVERWRITE_CONFIRMATION_PHRASE = 'OVERWRITE';
 
 export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps) {
   const [phase, setPhase] = useState<InstallPhase>('idle');
@@ -44,9 +45,28 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
     setPhase('installing');
 
     try {
+      let overwriteConfirmation = '';
+      if (allowOverwrite) {
+        const promptMessage = (
+          t('overwriteConfirmationPrompt' as any) ||
+          'Overwrite install can replace local capability files. Type "{phrase}" to continue.'
+        ).replace('{phrase}', OVERWRITE_CONFIRMATION_PHRASE);
+        const confirmed = window.prompt(promptMessage, '');
+        if ((confirmed || '').trim() !== OVERWRITE_CONFIRMATION_PHRASE) {
+          throw new Error(
+            (
+              t('overwriteConfirmationMismatch' as any) ||
+              'Overwrite install cancelled. Confirmation phrase did not match "{phrase}".'
+            ).replace('{phrase}', OVERWRITE_CONFIRMATION_PHRASE)
+          );
+        }
+        overwriteConfirmation = OVERWRITE_CONFIRMATION_PHRASE;
+      }
+
       const formData = new FormData();
       formData.append('file', file);
       formData.append('allow_overwrite', allowOverwrite.toString());
+      formData.append('overwrite_confirmation', overwriteConfirmation);
 
       // Phase 1: Install package
       setPhase('installing');
@@ -118,6 +138,13 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
           {t('allowOverwrite' as any)}
         </span>
       </label>
+      {allowOverwrite && (
+        <span className="text-[11px] text-amber-700">
+          {(t('overwriteConfirmationHint' as any) ||
+            'Overwrite install requires typing "{phrase}" before continuing.'
+          ).replace('{phrase}', OVERWRITE_CONFIRMATION_PHRASE)}
+        </span>
+      )}
       <input
         ref={fileInputRef}
         type="file"

@@ -83,6 +83,28 @@ def install_migrations(
             return
         return
 
+    conflicting_revisions = detect_revision_conflicts(
+        capability_code, alembic_versions_dir, migration_files
+    )
+    if conflicting_revisions:
+        error_message = (
+            f"Migration revision ID conflict detected for {capability_code}:\n"
+        )
+        for conflict in conflicting_revisions:
+            error_message += (
+                f"  Revision {conflict['revision']} is already used by other capabilities: "
+                f"{', '.join(conflict['existing_files'])}\n"
+            )
+        error_message += (
+            "Please use a unique revision ID for this capability's migrations."
+        )
+        logger.error(error_message)
+        result.add_error(error_message)
+        if result.migration_status is None:
+            result.migration_status = {}
+        result.migration_status[capability_code] = "conflict"
+        return
+
     installed_files = []
     for migration_file in migration_files:
         target_file = alembic_versions_dir / migration_file.name
@@ -170,6 +192,81 @@ def extract_down_revision(migration_file: Path) -> Optional[str]:
     return None
 
 
+def detect_revision_conflicts(
+    capability_code: str,
+    alembic_versions_dir: Path,
+    incoming_migration_files: list[Path],
+) -> list[dict]:
+    """Detect revision collisions with installed migrations.
+
+    Incoming filenames are treated as belonging to the current capability so
+    reinstalling the same pack does not self-conflict after files are copied.
+    """
+
+    if not alembic_versions_dir.exists():
+        return []
+
+    capability_patterns = [
+        capability_code.replace("_", " "),
+        capability_code.replace("_", ""),
+        capability_code,
+    ]
+    incoming_filenames = {
+        migration_file.name for migration_file in incoming_migration_files
+    }
+    incoming_revisions = {
+        revision_id
+        for migration_file in incoming_migration_files
+        if (revision_id := extract_revision_id(migration_file))
+    }
+
+    existing_revisions: dict[str, list[dict]] = {}
+    for migration_file in alembic_versions_dir.glob("*.py"):
+        if migration_file.name.startswith("__"):
+            continue
+        try:
+            revision = extract_revision_id(migration_file)
+            if not revision or revision not in incoming_revisions:
+                continue
+
+            is_current_capability = migration_file.name in incoming_filenames
+            if not is_current_capability:
+                file_content = migration_file.read_text().lower()
+                is_current_capability = any(
+                    pattern in file_content for pattern in capability_patterns
+                )
+
+            existing_revisions.setdefault(revision, []).append(
+                {
+                    "file": migration_file.name,
+                    "is_current_capability": is_current_capability,
+                }
+            )
+        except Exception:
+            continue
+
+    conflicting_revisions = []
+    for revision in sorted(incoming_revisions):
+        if revision not in existing_revisions:
+            continue
+        other_capability_files = [
+            file_info
+            for file_info in existing_revisions[revision]
+            if not file_info["is_current_capability"]
+        ]
+        if other_capability_files:
+            conflicting_revisions.append(
+                {
+                    "revision": revision,
+                    "existing_files": [
+                        file_info["file"] for file_info in other_capability_files
+                    ],
+                }
+            )
+
+    return conflicting_revisions
+
+
 def pack_has_branch_label(capability_code: str, alembic_versions_dir: Path) -> bool:
     """Check whether any installed migration file declares the capability branch."""
     if not alembic_versions_dir.exists():
@@ -206,6 +303,7 @@ def execute_migrations(
 
         capability_dir = capabilities_dir / capability_code
         migrations_yaml = capability_dir / "migrations.yaml"
+        migration_data = {}
         revisions = []
         use_branch_scoped = False
         alembic_versions_dir = _get_alembic_versions_dir(local_core_root)
@@ -261,73 +359,39 @@ def execute_migrations(
             logger.info(f"No migrations found for {capability_code}")
             return
 
-        if alembic_versions_dir.exists():
-            existing_revisions = {}
-            capability_patterns = [
-                capability_code.replace("_", " "),
-                capability_code.replace("_", ""),
-                capability_code,
-            ]
-
-            for migration_file in alembic_versions_dir.glob("*.py"):
+        current_migration_files = []
+        for migration_path in migration_data.get("migration_paths", ["migrations/versions/"]):
+            versions_dir = capability_dir / migration_path
+            if not versions_dir.exists():
+                continue
+            for migration_file in versions_dir.glob("*.py"):
                 if migration_file.name.startswith("__"):
                     continue
-                try:
-                    revision = extract_revision_id(migration_file)
-                    if not revision:
-                        continue
+                current_migration_files.append(migration_file)
 
-                    file_content = migration_file.read_text().lower()
-                    is_current_capability = any(
-                        pattern in file_content for pattern in capability_patterns
-                    )
-
-                    existing_revisions.setdefault(revision, []).append(
-                        {
-                            "file": migration_file.name,
-                            "is_current_capability": is_current_capability,
-                        }
-                    )
-                except Exception:
-                    continue
-
-            conflicting_revisions = []
-            for revision in revisions:
-                if revision not in existing_revisions:
-                    continue
-                other_capability_files = [
-                    file_info
-                    for file_info in existing_revisions[revision]
-                    if not file_info["is_current_capability"]
-                ]
-                if other_capability_files:
-                    conflicting_revisions.append(
-                        {
-                            "revision": revision,
-                            "existing_files": [
-                                file_info["file"] for file_info in other_capability_files
-                            ],
-                        }
-                    )
-
-            if conflicting_revisions:
-                error_message = (
-                    f"Migration revision ID conflict detected for {capability_code}:\n"
-                )
-                for conflict in conflicting_revisions:
-                    error_message += (
-                        f"  Revision {conflict['revision']} is already used by other capabilities: "
-                        f"{', '.join(conflict['existing_files'])}\n"
-                    )
+        conflicting_revisions = detect_revision_conflicts(
+            capability_code,
+            alembic_versions_dir,
+            current_migration_files,
+        )
+        if conflicting_revisions:
+            error_message = (
+                f"Migration revision ID conflict detected for {capability_code}:\n"
+            )
+            for conflict in conflicting_revisions:
                 error_message += (
-                    "Please use a unique revision ID for this capability's migrations."
+                    f"  Revision {conflict['revision']} is already used by other capabilities: "
+                    f"{', '.join(conflict['existing_files'])}\n"
                 )
-                logger.error(error_message)
-                result.add_error(error_message)
-                if result.migration_status is None:
-                    result.migration_status = {}
-                result.migration_status[capability_code] = "conflict"
-                return
+            error_message += (
+                "Please use a unique revision ID for this capability's migrations."
+            )
+            logger.error(error_message)
+            result.add_error(error_message)
+            if result.migration_status is None:
+                result.migration_status = {}
+            result.migration_status[capability_code] = "conflict"
+            return
 
         from app.services.migrations.orchestrator import MigrationOrchestrator
         from sqlalchemy import create_engine, inspect, text

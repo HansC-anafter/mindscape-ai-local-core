@@ -65,6 +65,7 @@ interface SettingsPanel {
   componentCode: string;
   title: string;
   description?: string;
+  displayMode?: string;
   requiresWorkspaceId?: boolean;
   showWhen?: {
     runtimeCodes?: string[];
@@ -73,6 +74,67 @@ interface SettingsPanel {
   importPath: string;
   export: string;
 }
+
+type RuntimeSettingsExtensionProps = Record<string, any> & {
+  runtimeId?: string;
+  runtime?: RuntimeEnvironment;
+};
+
+const slugifyRuntimeCode = (value: string | null | undefined): string | null => {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return null;
+  const slug = text
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return slug || null;
+};
+
+const getRuntimeMatchCodes = (runtime: RuntimeEnvironment | undefined): string[] => {
+  if (!runtime) {
+    return [];
+  }
+  const metadata = runtime.metadata || {};
+  const candidates = [
+    runtime.id,
+    slugifyRuntimeCode(runtime.id),
+    runtime.name,
+    slugifyRuntimeCode(runtime.name),
+    metadata.runtime_type,
+    slugifyRuntimeCode(metadata.runtime_type),
+    metadata.capability_code,
+    slugifyRuntimeCode(metadata.capability_code),
+  ];
+  return Array.from(
+    new Set(
+      candidates
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    )
+  );
+};
+
+const resolveRuntimeModalPanel = (
+  runtime: RuntimeEnvironment | undefined,
+  panels: SettingsPanel[],
+): SettingsPanel | null => {
+  if (!runtime) {
+    return null;
+  }
+  const runtimeCodes = new Set(getRuntimeMatchCodes(runtime));
+  for (const panel of panels) {
+    if (panel.displayMode !== 'runtime_modal') {
+      continue;
+    }
+    const requiredCodes = panel.showWhen?.runtimeCodes || [];
+    if (!requiredCodes.length) {
+      return panel;
+    }
+    if (requiredCodes.some((code) => runtimeCodes.has(String(code || '').trim()))) {
+      return panel;
+    }
+  }
+  return null;
+};
 
 export function RuntimeEnvironmentsSettings() {
   const [runtimes, setRuntimes] = useState<RuntimeEnvironment[]>([]);
@@ -105,13 +167,26 @@ export function RuntimeEnvironmentsSettings() {
       );
       if (response.ok) {
         const data = await response.json();
-        console.log('[Site-Hub Debug] Settings panels loaded:', data);
-        setSettingsPanels(data);
+        const panels: SettingsPanel[] = data.map((ext: any) => ({
+          capabilityCode: ext.capability_code,
+          componentCode: ext.component_code,
+          title: ext.title,
+          description: ext.description,
+          displayMode: ext.display_mode,
+          requiresWorkspaceId: ext.requires_workspace_id,
+          showWhen: ext.show_when ? {
+            runtimeCodes: ext.show_when.runtime_codes,
+          } : undefined,
+          propsSchema: ext.props_schema,
+          importPath: ext.import_path,
+          export: ext.export || 'default',
+        }));
+        setSettingsPanels(panels);
       } else {
-        console.error('[Site-Hub Debug] Failed to load settings panels:', response.status, response.statusText);
+        console.error('Failed to load runtime settings panels:', response.status, response.statusText);
       }
     } catch (error) {
-      console.error('[Site-Hub Debug] Failed to load settings panels:', error);
+      console.error('Failed to load runtime settings panels:', error);
     }
   };
 
@@ -143,22 +218,26 @@ export function RuntimeEnvironmentsSettings() {
     }
   };
 
-  const loadExtensionComponent = (panel: SettingsPanel) => {
+  const loadExtensionComponent = (
+    panel: SettingsPanel
+  ): React.LazyExoticComponent<React.ComponentType<RuntimeSettingsExtensionProps>> => {
     const rawContextKey = convertImportPathToContextKey(panel.importPath);
     const contextKey = normalizeCapabilityContextKey(rawContextKey);
 
     return lazy(async () => {
       if (!contextKey || !capabilityComponentKeys.has(contextKey)) {
-        return { default: () => null };
+        return { default: (() => null) as React.ComponentType<RuntimeSettingsExtensionProps> };
       }
 
       try {
         const moduleLoader = capabilityComponentsContext(contextKey);
         const module = typeof moduleLoader === 'function' ? await moduleLoader() : await moduleLoader;
-        return { default: module[panel.export || 'default'] || module.default };
+        return {
+          default: (module[panel.export || 'default'] || module.default) as React.ComponentType<RuntimeSettingsExtensionProps>,
+        };
       } catch (error) {
-        console.error('[Site-Hub Debug] Failed to load component:', panel.componentCode, 'from', contextKey, error);
-        return { default: () => null };
+        console.error('Failed to load runtime settings component:', panel.componentCode, 'from', contextKey, error);
+        return { default: (() => null) as React.ComponentType<RuntimeSettingsExtensionProps> };
       }
     });
   };
@@ -173,11 +252,7 @@ export function RuntimeEnvironmentsSettings() {
       const response = await fetch('/api/v1/runtime-environments');
       if (response.ok) {
         const data = await response.json();
-        console.log('[Site-Hub Debug] Runtimes loaded:', data);
         const runtimesList = data.runtimes || [];
-        console.log('[Site-Hub Debug] Runtimes list:', runtimesList);
-        const siteHubRuntime = runtimesList.find((r: RuntimeEnvironment) => r.id === 'site-hub');
-        console.log('[Site-Hub Debug] Site-Hub runtime found:', siteHubRuntime);
         setRuntimes(runtimesList);
       } else {
         // Fallback to default (Local-Core only)
@@ -333,13 +408,20 @@ export function RuntimeEnvironmentsSettings() {
       {/* Runtime Configuration Modal */}
       {selectedRuntime && (() => {
         const runtime = runtimes.find(r => r.id === selectedRuntime);
+        const runtimeModalPanel = resolveRuntimeModalPanel(runtime, settingsPanels);
         const isSiteHub = selectedRuntime === 'site-hub' || runtime?.config_url?.includes('anafter.co');
         const isGcaLocal = selectedRuntime === 'gca-local';
         return (
           <BaseModal
             isOpen={true}
             onClose={() => setSelectedRuntime(null)}
-            title={isGcaLocal ? 'GCA Auth — OAuth Credentials' : (runtime?.name || t('runtimeConfiguration' as any) || 'Runtime Configuration')}
+            title={
+              isGcaLocal
+                ? 'GCA Auth — OAuth Credentials'
+                : runtimeModalPanel
+                  ? runtimeModalPanel.title
+                  : (runtime?.name || t('runtimeConfiguration' as any) || 'Runtime Configuration')
+            }
             maxWidth={isGcaLocal ? 'max-w-lg' : 'max-w-2xl'}
           >
             {isGcaLocal ? (
@@ -351,6 +433,19 @@ export function RuntimeEnvironmentsSettings() {
                 }}
                 onCancel={() => setSelectedRuntime(null)}
               />
+            ) : runtimeModalPanel ? (
+              (() => {
+                const RuntimePanelComponent = loadExtensionComponent(runtimeModalPanel);
+                return (
+                  <Suspense fallback={
+                    <div className="text-sm text-gray-500 dark:text-gray-400 py-4">
+                      {t('loading' as any) || 'Loading'} {runtimeModalPanel.title}...
+                    </div>
+                  }>
+                    <RuntimePanelComponent runtimeId={selectedRuntime} runtime={runtime} />
+                  </Suspense>
+                );
+              })()
             ) : isSiteHub ? (
               <SiteHubSettingsForm
                 runtime={runtime!}
@@ -396,18 +491,16 @@ export function RuntimeEnvironmentsSettings() {
 
       {/* Dynamic Settings Panels (Capability Slot) */}
       {settingsPanels.map((panel) => {
-        console.log('[Site-Hub Debug] Processing panel:', panel.componentCode, panel);
+        if (panel.displayMode === 'runtime_modal') {
+          return null;
+        }
         // Check showWhen conditions
         if (panel.showWhen?.runtimeCodes) {
           const runtimeCodes = getRuntimeCodes();
-          console.log('[Site-Hub Debug] Panel requires runtime codes:', panel.showWhen.runtimeCodes);
-          console.log('[Site-Hub Debug] Available runtime codes:', runtimeCodes);
           const hasRequiredRuntime = panel.showWhen.runtimeCodes.some(
             code => runtimeCodes.includes(code)
           );
-          console.log('[Site-Hub Debug] Has required runtime:', hasRequiredRuntime, 'for panel', panel.componentCode);
           if (!hasRequiredRuntime) {
-            console.log('[Site-Hub Debug] Panel', panel.componentCode, 'will not be rendered (missing required runtime)');
             return null;
           }
         }
@@ -420,15 +513,12 @@ export function RuntimeEnvironmentsSettings() {
           const workspaceId = typeof window !== 'undefined'
             ? window.location.pathname.match(/\/workspaces\/([^\/]+)/)?.[1]
             : null;
-          console.log('[Site-Hub Debug] Panel requires workspaceId:', workspaceId, 'for panel', panel.componentCode);
           if (workspaceId) {
             props.workspaceId = workspaceId;
           } else {
-            console.warn('[Site-Hub Debug] Panel', panel.componentCode, 'requires workspaceId but not found in URL');
+            console.warn('Runtime settings panel requires workspaceId but none was found:', panel.componentCode);
           }
         }
-
-        console.log('[Site-Hub Debug] Rendering panel:', panel.componentCode, 'with props:', props);
 
         return (
           <Section
