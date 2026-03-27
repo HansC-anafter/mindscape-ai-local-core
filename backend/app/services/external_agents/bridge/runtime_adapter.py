@@ -65,6 +65,30 @@ def parse_dispatch_response(
     )
 
 
+def _build_cancelled_response(
+    *,
+    execution_id: str,
+    start_time: Optional[float] = None,
+    transport: str = "unknown",
+    detail: Optional[str] = None,
+) -> RuntimeExecResponse:
+    """Normalize cancellation into a regular failure response."""
+    elapsed = 0.0 if start_time is None else max(0.0, time.monotonic() - start_time)
+    message = detail or "Execution cancelled while waiting for runtime response"
+    return RuntimeExecResponse(
+        success=False,
+        output="",
+        duration_seconds=elapsed,
+        error=message,
+        exit_code=-1,
+        agent_metadata={
+            "transport": transport,
+            "execution_id": execution_id,
+            "status": "cancelled",
+        },
+    )
+
+
 # ============================================================
 #  HostBridgeRuntimeAdapter
 # ============================================================
@@ -349,6 +373,22 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
                     duration_seconds=0,
                     error=f"Unknown transport strategy: {self.strategy}",
                 )
+        except asyncio.CancelledError as exc:
+            logger.warning(
+                "%s execution cancelled for workspace=%s: %s",
+                self.RUNTIME_NAME,
+                request.workspace_id,
+                exc or "cancelled",
+            )
+            response = _build_cancelled_response(
+                execution_id=execution_id,
+                transport=self.strategy,
+                detail=(
+                    "Execution cancelled while waiting for runtime response"
+                    if not str(exc)
+                    else f"Execution cancelled while waiting for runtime response: {exc}"
+                ),
+            )
         except Exception as e:
             logger.exception("Gemini CLI execution failed with exception")
             response = RuntimeExecResponse(
@@ -447,6 +487,24 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
                 )
             return response
 
+        except asyncio.CancelledError as exc:
+            logger.warning(
+                "WS dispatch cancelled for exec=%s after %.1fs: %s",
+                execution_id,
+                time.monotonic() - start_time,
+                exc or "cancelled",
+            )
+            detail = (
+                "Execution cancelled while waiting for WS dispatch result"
+                if not str(exc)
+                else f"Execution cancelled while waiting for WS dispatch result: {exc}"
+            )
+            return _build_cancelled_response(
+                execution_id=execution_id,
+                start_time=start_time,
+                transport="ws_push",
+                detail=detail,
+            )
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.exception(f"WS dispatch failed for exec={execution_id}: {e}")
