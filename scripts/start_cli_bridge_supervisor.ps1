@@ -3,7 +3,7 @@
 # Keeps one start_cli_bridge.ps1 watcher alive per surface.
 
 param(
-    [string]$Surfaces = $(if ($env:MINDSCAPE_BRIDGE_SURFACES) { $env:MINDSCAPE_BRIDGE_SURFACES } else { "gemini_cli,codex_cli,claude_code_cli" }),
+    [string]$Surfaces = $(if ($env:MINDSCAPE_BRIDGE_SURFACES) { $env:MINDSCAPE_BRIDGE_SURFACES } else { "" }),
     [string]$WorkspaceId = $env:MINDSCAPE_WORKSPACE_ID,
     [string]$Host_ = $(if ($env:MINDSCAPE_WS_HOST) { $env:MINDSCAPE_WS_HOST } else { "localhost:8200" }),
     [switch]$All,
@@ -23,12 +23,17 @@ if ($Help) {
     Write-Host "Usage: .\scripts\start_cli_bridge_supervisor.ps1 [OPTIONS]"
     Write-Host ""
     Write-Host "Options:"
-    Write-Host "  -Surfaces CSV      Comma-separated surfaces (default: gemini_cli,codex_cli,claude_code_cli)"
+    Write-Host "  -Surfaces CSV      Comma-separated surfaces (required)"
     Write-Host "  -All               Connect all workspaces for each surface"
     Write-Host "  -WorkspaceId ID    Passed through to start_cli_bridge.ps1"
     Write-Host "  -Host_ HOST:PORT   Passed through to start_cli_bridge.ps1"
     Write-Host "  -Help              Show this help"
     exit 0
+}
+
+if (-not $Surfaces) {
+    Write-Err "Surfaces are required. Pass -Surfaces or set MINDSCAPE_BRIDGE_SURFACES."
+    exit 1
 }
 
 if (-not (Test-Path $BridgeScript)) {

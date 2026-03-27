@@ -8,6 +8,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-export MINDSCAPE_SURFACE="${MINDSCAPE_SURFACE:-gemini_cli}"
+export MINDSCAPE_SURFACE="gemini_cli"
 
 exec "$REPO_ROOT/scripts/start_cli_bridge.sh" "$@"

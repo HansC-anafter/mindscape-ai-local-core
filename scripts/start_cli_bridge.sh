@@ -7,9 +7,9 @@
 # Mindscape backend running in Docker.
 #
 # Usage:
-#   ./scripts/start_cli_bridge.sh                    # auto-detect workspace
-#   ./scripts/start_cli_bridge.sh --all              # connect ALL workspaces
-#   ./scripts/start_cli_bridge.sh --workspace-id ID  # explicit workspace
+#   ./scripts/start_cli_bridge.sh --surface codex_cli
+#   ./scripts/start_cli_bridge.sh --all --surface codex_cli
+#   ./scripts/start_cli_bridge.sh --workspace-id ID --surface codex_cli
 #   ./scripts/start_cli_bridge.sh --help
 #
 # Requirements:
@@ -26,7 +26,7 @@ CLIENT_SCRIPT="$PROJECT_DIR/backend/app/services/external_agents/bridge/host_ws_
 # Default config
 BACKEND_HOST="${MINDSCAPE_WS_HOST:-localhost:8200}"
 WORKSPACE_ID="${MINDSCAPE_WORKSPACE_ID:-}"
-SURFACE="${MINDSCAPE_SURFACE:-gemini_cli}"
+SURFACE="${MINDSCAPE_SURFACE:-}"
 ALL_MODE=false
 
 # Colors
@@ -74,13 +74,13 @@ while [[ $# -gt 0 ]]; do
             echo "  --workspace-id ID   Workspace to connect to (auto-detected if omitted)"
             echo "  --all               Connect to ALL workspaces"
             echo "  --host HOST:PORT    Backend host (default: localhost:8200)"
-            echo "  --surface SURFACE   Agent surface type (default: gemini_cli)"
+            echo "  --surface SURFACE   Agent surface type (required)"
             echo "  -h, --help          Show this help"
             echo ""
             echo "Environment variables:"
             echo "  MINDSCAPE_WS_HOST        Backend host (default: localhost:8200)"
             echo "  MINDSCAPE_WORKSPACE_ID   Workspace ID"
-            echo "  MINDSCAPE_SURFACE        Surface type (default: gemini_cli)"
+            echo "  MINDSCAPE_SURFACE        Surface type"
             exit 0
             ;;
         *)
@@ -89,6 +89,11 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ -z "$SURFACE" ]]; then
+    log_error "Surface is required. Pass --surface or set MINDSCAPE_SURFACE."
+    exit 1
+fi
 
 print_banner
 

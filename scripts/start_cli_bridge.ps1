@@ -6,9 +6,9 @@
 # Mindscape backend running in Docker.
 #
 # Usage:
-#   .\scripts\start_cli_bridge.ps1                         # auto-detect workspace
-#   .\scripts\start_cli_bridge.ps1 -All                    # connect ALL workspaces
-#   .\scripts\start_cli_bridge.ps1 -WorkspaceId <ID>       # explicit workspace
+#   .\scripts\start_cli_bridge.ps1 -Surface codex_cli
+#   .\scripts\start_cli_bridge.ps1 -All -Surface codex_cli
+#   .\scripts\start_cli_bridge.ps1 -WorkspaceId <ID> -Surface codex_cli
 #
 # Requirements:
 #   - Python 3.8+ with 'websockets' package
@@ -18,7 +18,7 @@
 param(
     [string]$WorkspaceId = $env:MINDSCAPE_WORKSPACE_ID,
     [string]$Host_ = $(if ($env:MINDSCAPE_WS_HOST) { $env:MINDSCAPE_WS_HOST } else { "localhost:8200" }),
-    [string]$Surface = $(if ($env:MINDSCAPE_SURFACE) { $env:MINDSCAPE_SURFACE } else { "gemini_cli" }),
+    [string]$Surface = $(if ($env:MINDSCAPE_SURFACE) { $env:MINDSCAPE_SURFACE } else { "" }),
     [switch]$All,
     [switch]$Help
 )
@@ -48,9 +48,14 @@ if ($Help) {
     Write-Host "  -WorkspaceId ID   Workspace to connect to (auto-detected if omitted)"
     Write-Host "  -All              Connect to ALL workspaces"
     Write-Host "  -Host_ HOST:PORT  Backend host (default: localhost:8200)"
-    Write-Host "  -Surface SURFACE  Agent surface type (default: gemini_cli)"
+    Write-Host "  -Surface SURFACE  Agent surface type (required)"
     Write-Host "  -Help             Show this help"
     exit 0
+}
+
+if (-not $Surface) {
+    Write-Err "Surface is required. Pass -Surface or set MINDSCAPE_SURFACE."
+    exit 1
 }
 
 Write-Banner

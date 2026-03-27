@@ -9,13 +9,14 @@ This script runs in the host environment to:
   5. Send back ack, progress, and result messages
 
 Usage:
-    python host_ws_client.py --workspace-id ws-123 [--host localhost:8000]
+    python host_ws_client.py --workspace-id ws-123 --surface codex_cli
     python host_ws_client.py --workspace-id ws-123 --auth-secret my_secret
 
 Environment Variables:
     MINDSCAPE_WS_HOST       Backend host (default: localhost:8000)
     MINDSCAPE_AUTH_SECRET    HMAC auth secret (optional, skipped in dev mode)
     MINDSCAPE_WORKSPACE_ID  Workspace ID
+    MINDSCAPE_SURFACE       Required surface type
 """
 
 import argparse
@@ -80,14 +81,18 @@ class HostBridgeWSClient:
         host: str = "localhost:8000",
         auth_secret: Optional[str] = None,
         client_id: Optional[str] = None,
-        surface: str = "gemini_cli",
+        surface: Optional[str] = None,
         task_handler: Optional[Callable] = None,
     ):
+        normalized_surface = (surface or "").strip()
+        if not normalized_surface:
+            raise ValueError("surface is required for HostBridgeWSClient")
+
         self.workspace_id = workspace_id
         self.host = host
         self.auth_secret = auth_secret
         self.client_id = client_id or str(uuid.uuid4())
-        self.surface = surface
+        self.surface = normalized_surface
         self.task_handler = task_handler or self._default_task_handler
 
         self._ws = None
@@ -752,8 +757,8 @@ def main():
     )
     parser.add_argument(
         "--surface",
-        default="gemini_cli",
-        help="Surface type (default: gemini_cli)",
+        default=os.environ.get("MINDSCAPE_SURFACE", "").strip() or None,
+        help="Surface type (required, or set MINDSCAPE_SURFACE)",
     )
     parser.add_argument(
         "--workspace-root",
@@ -761,6 +766,8 @@ def main():
         help="Workspace root directory for task execution",
     )
     args = parser.parse_args()
+    if not args.surface:
+        parser.error("--surface is required (or set MINDSCAPE_SURFACE)")
 
     # Auto-resolve host from PortConfigService if not provided
     if not args.host:

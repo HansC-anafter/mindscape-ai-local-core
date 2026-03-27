@@ -33,7 +33,10 @@ router = APIRouter()
 async def reserve_pending_tasks_endpoint(
     workspace_id: str = Query(..., description="Workspace ID"),
     client_id: str = Query(..., description="Client ID for lease tracking"),
-    surface: str = Query(default="gemini_cli", description="Surface type"),
+    surface: Optional[str] = Query(
+        default=None,
+        description="Optional surface type filter. Omit to avoid implicit filtering.",
+    ),
     limit: int = Query(default=5, ge=1, le=20, description="Max tasks to reserve"),
     lease_seconds: float = Query(
         default=60.0, ge=10, le=300, description="Lease duration"

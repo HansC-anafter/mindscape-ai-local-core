@@ -15,6 +15,7 @@ Usage:
     executor = HostBridgeTaskExecutor(workspace_root="/path/to/project")
     client = HostBridgeWSClient(
         workspace_id="ws-123",
+        surface="codex_cli",
         task_handler=executor,
     )
 """
@@ -142,7 +143,7 @@ class HostBridgeTaskExecutor:
         timeout: int = DEFAULT_TASK_TIMEOUT,
         command_builder: Optional[Callable[[ExecutionContext], List[str]]] = None,
         progress_callback: Optional[ProgressCallback] = None,
-        runtime_surface: str = "gemini_cli",
+        runtime_surface: Optional[str] = None,
     ):
         """
         Args:
@@ -156,7 +157,9 @@ class HostBridgeTaskExecutor:
         self.timeout = timeout
         self.command_builder = command_builder or self._default_command_builder
         self.progress_callback = progress_callback
-        self.runtime_surface = runtime_surface or "gemini_cli"
+        self.runtime_surface = (runtime_surface or "").strip().lower()
+        if not self.runtime_surface:
+            raise ValueError("runtime_surface is required for HostBridgeTaskExecutor")
 
         # Track active executions for cancellation
         self._active: Dict[str, asyncio.subprocess.Process] = {}
@@ -257,7 +260,7 @@ class HostBridgeTaskExecutor:
         ctx: ExecutionContext,
         timeout: int,
     ) -> ExecutionResult:
-        runtime_surface = (self.runtime_surface or "gemini_cli").strip().lower()
+        runtime_surface = self.runtime_surface
         if runtime_surface == "gemini_cli":
             return await self._execute_via_gemini_runtime_bridge(ctx, timeout=timeout)
         if runtime_surface == "codex_cli":

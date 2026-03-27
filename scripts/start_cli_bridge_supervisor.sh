@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BRIDGE_SCRIPT="$PROJECT_DIR/scripts/start_cli_bridge.sh"
-SURFACES_CSV="${MINDSCAPE_BRIDGE_SURFACES:-gemini_cli,codex_cli,claude_code_cli}"
+SURFACES_CSV="${MINDSCAPE_BRIDGE_SURFACES:-}"
 BRIDGE_ARGS=()
 RUNNING_SURFACES=()
 RUNNING_PIDS=()
@@ -20,7 +20,7 @@ usage() {
 Usage: ./scripts/start_cli_bridge_supervisor.sh [OPTIONS]
 
 Options:
-  --surfaces CSV   Comma-separated surfaces (default: gemini_cli,codex_cli,claude_code_cli)
+  --surfaces CSV   Comma-separated surfaces (required)
   --all            Connect all workspaces for each surface
   --workspace-id   Passed through to start_cli_bridge.sh
   --host           Passed through to start_cli_bridge.sh
@@ -53,6 +53,11 @@ done
 
 if [[ ! -f "$BRIDGE_SCRIPT" ]]; then
     log_error "Bridge script not found: $BRIDGE_SCRIPT"
+    exit 1
+fi
+
+if [[ -z "$SURFACES_CSV" ]]; then
+    log_error "Surfaces are required. Pass --surfaces or set MINDSCAPE_BRIDGE_SURFACES."
     exit 1
 fi
 

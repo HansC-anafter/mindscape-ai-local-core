@@ -30,12 +30,12 @@ async def agent_websocket(
     websocket: WebSocket,
     workspace_id: str,
     client_id: Optional[str] = Query(default=None),
-    surface: str = Query(default="gemini_cli"),
+    surface: str = Query(..., description="Surface type"),
 ):
     """
     WebSocket endpoint for IDE agent connections.
 
-    Connect:  ws://host/ws/agent/{workspace_id}?client_id=xxx&surface=gemini_cli
+    Connect:  ws://host/ws/agent/{workspace_id}?client_id=xxx&surface=codex_cli
 
     Protocol (JSON messages):
 

@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS ws_connections (
     client_id VARCHAR(64) NOT NULL UNIQUE,
     worker_pid INTEGER NOT NULL,
     worker_instance_id VARCHAR(128),
-    surface_type VARCHAR(32) DEFAULT 'gemini_cli',
+    surface_type VARCHAR(32),
     authenticated BOOLEAN DEFAULT FALSE,
     connected_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_heartbeat TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -94,6 +94,10 @@ def _get_core_db_connection():
                     "ADD COLUMN IF NOT EXISTS worker_instance_id "
                     "VARCHAR(128)"
                 )
+                cur.execute(
+                    "ALTER TABLE ws_connections "
+                    "ALTER COLUMN surface_type DROP DEFAULT"
+                )
                 # Migrate existing tables: add last_progress_at if missing
                 cur.execute(
                     "ALTER TABLE pending_dispatch "
@@ -118,7 +122,7 @@ class ConnectionMixin:
         websocket: Any,
         workspace_id: str,
         client_id: Optional[str] = None,
-        surface_type: str = "gemini_cli",
+        surface_type: Optional[str] = None,
     ) -> AgentClient:
         """
         Accept and register a new IDE agent connection.
@@ -126,6 +130,10 @@ class ConnectionMixin:
         Returns the AgentClient after accepting the WebSocket.
         Authentication happens as a separate step via handle_auth().
         """
+        normalized_surface = (surface_type or "").strip()
+        if not normalized_surface:
+            raise ValueError("surface_type is required for agent connections")
+
         await websocket.accept()
 
         cid = client_id or str(uuid.uuid4())
@@ -146,7 +154,7 @@ class ConnectionMixin:
             websocket=websocket,
             client_id=cid,
             workspace_id=workspace_id,
-            surface_type=surface_type,
+            surface_type=normalized_surface,
         )
 
         # If auth not required, auto-authenticate (dev mode)
@@ -159,12 +167,12 @@ class ConnectionMixin:
         self._db_register_connection(
             workspace_id=workspace_id,
             client_id=cid,
-            surface_type=surface_type,
+            surface_type=normalized_surface,
             authenticated=client.authenticated,
         )
 
         logger.info(
-            f"[AgentWS] Client {cid} ({surface_type}) connected to "
+            f"[AgentWS] Client {cid} ({normalized_surface}) connected to "
             f"workspace {workspace_id} "
             f"(auth={'skip' if client.authenticated else 'pending'})"
         )
