@@ -10,6 +10,8 @@ The run() method drives a bounded multi-round governance meeting.
 """
 
 import logging
+import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -54,6 +56,11 @@ from backend.app.services.orchestration.meeting._tool_discovery import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now_iso() -> str:
+    """Return a timezone-aware UTC timestamp encoded for metadata storage."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass
@@ -291,46 +298,189 @@ class MeetingEngine(
         # Cache user_message for _build_tool_query_from_context()
         # MUST be set before _rag_tool_cache pre-fetch below.
         self._last_user_message = user_message
+        current_stage = "agenda_and_rag"
 
-        # S1: Agenda decomposition + RAG pre-fetch
-        await self._stage_agenda_and_rag(user_message)
+        try:
+            # S1: Agenda decomposition + RAG pre-fetch
+            self._mark_pipeline_stage_start(current_stage)
+            await self._stage_agenda_and_rag(user_message)
+            self._mark_pipeline_stage_complete(current_stage)
 
-        # S2: Playbook cache + RequestContract compile
-        await self._stage_compile_contract(user_message)
+            # S2: Playbook cache + RequestContract compile
+            current_stage = "compile_contract"
+            self._mark_pipeline_stage_start(current_stage)
+            await self._stage_compile_contract(user_message)
+            self._mark_pipeline_stage_complete(current_stage)
 
-        # S3: Multi-round deliberation
-        decision, planner_proposals, critic_notes, converged = (
-            await self._stage_deliberation(user_message)
+            # S3: Multi-round deliberation
+            current_stage = "deliberation"
+            self._mark_pipeline_stage_start(current_stage)
+            decision, planner_proposals, critic_notes, converged = (
+                await self._stage_deliberation(user_message)
+            )
+            self._mark_pipeline_stage_complete(current_stage)
+
+            # S4: Action intent extraction + null-tool gate
+            current_stage = "extract_actions"
+            self._mark_pipeline_stage_start(current_stage)
+            action_intents, action_items = await self._stage_extract_actions(
+                decision=decision,
+                user_message=user_message,
+                critic_notes=critic_notes,
+                planner_proposals=planner_proposals,
+            )
+            self._mark_pipeline_stage_complete(current_stage)
+
+            # S5: Policy gate check + emit action items
+            current_stage = "policy_gate"
+            self._mark_pipeline_stage_start(current_stage)
+            self._stage_policy_gate_and_emit(action_items)
+            self._mark_pipeline_stage_complete(current_stage)
+
+            # S6: Decompose + IR compile + DAG dispatch
+            current_stage = "dispatch"
+            self._mark_pipeline_stage_start(current_stage)
+            compiled_ir, dispatch_result = await self._stage_decompose_and_dispatch(
+                decision=decision,
+                action_intents=action_intents,
+                action_items=action_items,
+                handoff_in=handoff_in,
+            )
+            self._mark_pipeline_stage_complete(current_stage)
+
+            # S7: Finalize (minutes, supervisor, completion status)
+            current_stage = "finalize"
+            self._mark_pipeline_stage_start(current_stage)
+            result = self._stage_finalize(
+                user_message=user_message,
+                decision=decision,
+                critic_notes=critic_notes,
+                action_items=action_items,
+                converged=converged,
+                compiled_ir=compiled_ir,
+                dispatch_result=dispatch_result,
+            )
+            self._mark_pipeline_stage_complete(current_stage)
+            return result
+        except Exception as exc:
+            self._mark_pipeline_stage_failed(current_stage, exc)
+            self._persist_pre_deliberation_failure_if_needed(current_stage, exc)
+            raise
+
+    def _mark_pipeline_stage_start(self, stage: str) -> None:
+        """Persist the current pipeline stage for mid-run inspection."""
+        self._pipeline_stage_started_at_monotonic = time.monotonic()
+        if self.session.metadata is None:
+            self.session.metadata = {}
+        self.session.metadata["pipeline_stage"] = stage
+        self.session.metadata["pipeline_stage_status"] = "started"
+        self.session.metadata["pipeline_stage_started_at"] = _utc_now_iso()
+        self.session.metadata["pipeline_stage_updated_at"] = (
+            self.session.metadata["pipeline_stage_started_at"]
+        )
+        self._append_pipeline_stage_history(stage, "started")
+        self._persist_session_diagnostics(
+            f"Meeting pipeline stage started: session={self.session.id} stage={stage}"
         )
 
-        # S4: Action intent extraction + null-tool gate
-        action_intents, action_items = await self._stage_extract_actions(
-            decision=decision,
-            user_message=user_message,
-            critic_notes=critic_notes,
-            planner_proposals=planner_proposals,
+    def _mark_pipeline_stage_complete(self, stage: str) -> None:
+        """Persist stage completion timing for postmortem analysis."""
+        duration_ms = self._pipeline_stage_duration_ms()
+        if self.session.metadata is None:
+            self.session.metadata = {}
+        self.session.metadata["pipeline_stage"] = stage
+        self.session.metadata["pipeline_stage_status"] = "completed"
+        self.session.metadata["pipeline_stage_duration_ms"] = duration_ms
+        self.session.metadata["pipeline_stage_updated_at"] = _utc_now_iso()
+        self._append_pipeline_stage_history(
+            stage,
+            "completed",
+            duration_ms=duration_ms,
+        )
+        self._persist_session_diagnostics(
+            "Meeting pipeline stage completed: "
+            f"session={self.session.id} stage={stage} duration_ms={duration_ms}"
         )
 
-        # S5: Policy gate check + emit action items
-        self._stage_policy_gate_and_emit(action_items)
-
-        # S6: Decompose + IR compile + DAG dispatch
-        compiled_ir, dispatch_result = await self._stage_decompose_and_dispatch(
-            decision=decision,
-            action_intents=action_intents,
-            action_items=action_items,
-            handoff_in=handoff_in,
+    def _mark_pipeline_stage_failed(self, stage: str, exc: Exception) -> None:
+        """Persist the last known failing stage even if the session never started."""
+        duration_ms = self._pipeline_stage_duration_ms()
+        if self.session.metadata is None:
+            self.session.metadata = {}
+        self.session.metadata["pipeline_stage"] = stage
+        self.session.metadata["pipeline_stage_status"] = "failed"
+        self.session.metadata["pipeline_stage_duration_ms"] = duration_ms
+        self.session.metadata["pipeline_stage_error"] = str(exc)
+        self.session.metadata["pipeline_stage_updated_at"] = _utc_now_iso()
+        self._append_pipeline_stage_history(
+            stage,
+            "failed",
+            duration_ms=duration_ms,
+            error=str(exc),
+        )
+        self._persist_session_diagnostics(
+            "Meeting pipeline stage failed: "
+            f"session={self.session.id} stage={stage} duration_ms={duration_ms} "
+            f"error={exc}"
         )
 
-        # S7: Finalize (minutes, supervisor, completion status)
-        return self._stage_finalize(
-            user_message=user_message,
-            decision=decision,
-            critic_notes=critic_notes,
-            action_items=action_items,
-            converged=converged,
-            compiled_ir=compiled_ir,
-            dispatch_result=dispatch_result,
+    def _append_pipeline_stage_history(
+        self,
+        stage: str,
+        status: str,
+        *,
+        duration_ms: Optional[int] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Append a compact pipeline-stage history entry to session metadata."""
+        if self.session.metadata is None:
+            self.session.metadata = {}
+        history = self.session.metadata.setdefault("pipeline_stage_history", [])
+        entry: Dict[str, Any] = {
+            "stage": stage,
+            "status": status,
+            "timestamp": _utc_now_iso(),
+        }
+        if duration_ms is not None:
+            entry["duration_ms"] = duration_ms
+        if error:
+            entry["error"] = error
+        history.append(entry)
+
+    def _pipeline_stage_duration_ms(self) -> int:
+        started = getattr(self, "_pipeline_stage_started_at_monotonic", None)
+        if started is None:
+            return 0
+        return int(max(0.0, time.monotonic() - started) * 1000)
+
+    def _persist_session_diagnostics(self, log_message: str) -> None:
+        try:
+            self.session_store.update(self.session)
+        except Exception as exc:
+            logger.warning("Failed to persist meeting session diagnostics: %s", exc)
+        logger.info(log_message)
+
+    def _persist_pre_deliberation_failure_if_needed(
+        self,
+        stage: str,
+        exc: Exception,
+    ) -> None:
+        """Close out planned sessions that fail before `_start_session()` runs."""
+        if self.session.status != MeetingStatus.PLANNED or self.session.ended_at:
+            return
+        if self.session.metadata is None:
+            self.session.metadata = {}
+        self.session.status = MeetingStatus.FAILED
+        self.session.metadata["pipeline_failure"] = {
+            "stage": stage,
+            "error": str(exc),
+            "failed_at": _utc_now_iso(),
+            "before_deliberation": True,
+        }
+        self.session.end()
+        self._persist_session_diagnostics(
+            "Meeting pipeline failed before deliberation: "
+            f"session={self.session.id} stage={stage} error={exc}"
         )
 
     # ------------------------------------------------------------------ #
