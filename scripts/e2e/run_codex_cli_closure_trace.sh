@@ -111,7 +111,7 @@ capture_json_get \
 if [[ "${MANAGED_BRIDGE_MODE}" == "1" ]]; then
   for _ in $(seq 1 12); do
     if jq -e --arg ws "${WORKSPACE_ID}" --arg client_id "${BRIDGE_CLIENT_ID}" '
-      .workspaces[$ws].clients
+      (.workspaces[$ws].clients // [])
       | any(.client_id == $client_id and .surface_type == "codex_cli" and .authenticated == true)
     ' "${TRACE_DIR}/00_provider_status.json" >/dev/null; then
       break
@@ -128,7 +128,7 @@ if [[ "${MANAGED_BRIDGE_MODE}" == "1" ]]; then
     "這一輪必須在 provider status 中看到 workspace \`${WORKSPACE_ID}\`，且存在 \`client_id=${BRIDGE_CLIENT_ID}\`、\`surface=codex_cli\`、\`authenticated=true\`。"
 
   jq -e --arg ws "${WORKSPACE_ID}" --arg client_id "${BRIDGE_CLIENT_ID}" '
-    .workspaces[$ws].clients
+    (.workspaces[$ws].clients // [])
     | any(.client_id == $client_id and .surface_type == "codex_cli" and .authenticated == true)
   ' "${TRACE_DIR}/00_provider_status.json" >/dev/null
 else
@@ -138,7 +138,7 @@ else
     "這一輪必須在 provider status 中看到 workspace \`${WORKSPACE_ID}\`，且 client surface 為 \`codex_cli\`、\`authenticated=true\`。"
 
   jq -e --arg ws "${WORKSPACE_ID}" '
-    .workspaces[$ws].clients
+    (.workspaces[$ws].clients // [])
     | any(.surface_type == "codex_cli" and .authenticated == true)
   ' "${TRACE_DIR}/00_provider_status.json" >/dev/null
 fi
