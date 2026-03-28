@@ -232,6 +232,13 @@ class MessageHandlersMixin:
         workspace filesystem.
         """
         execution_id = data.get("execution_id", "")
+        started_at = time.monotonic()
+        logger.info(
+            "[AgentWS] Begin result handling: client=%s surface=%s execution_id=%s",
+            client.client_id,
+            client.surface_type,
+            execution_id,
+        )
 
         # Check ownership before popping (use get first)
         err = self._verify_ownership(client, execution_id)
@@ -346,7 +353,8 @@ class MessageHandlersMixin:
             self._completed.popitem(last=False)  # FIFO eviction
 
         logger.info(
-            f"[AgentWS] Result received for {execution_id}: " f"status={result_status}"
+            f"[AgentWS] Result received for {execution_id}: "
+            f"status={result_status} handle_ms={int((time.monotonic() - started_at) * 1000)}"
         )
         if result_status not in ("completed", "dispatched_to_ide"):
             logger.warning(

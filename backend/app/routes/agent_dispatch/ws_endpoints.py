@@ -100,10 +100,27 @@ async def agent_websocket(
                 )
                 continue
 
+            if data.get("type") == "result":
+                logger.info(
+                    "[AgentWS] Result frame received: client=%s workspace=%s surface=%s execution_id=%s",
+                    client.client_id,
+                    workspace_id,
+                    surface,
+                    data.get("execution_id", ""),
+                )
+
             response = await manager.handle_message(client, data)
 
             if response:
                 await websocket.send_text(json.dumps(response))
+                if response.get("type") == "result_ack":
+                    logger.info(
+                        "[AgentWS] Result ack sent: client=%s workspace=%s surface=%s execution_id=%s",
+                        client.client_id,
+                        workspace_id,
+                        surface,
+                        response.get("execution_id", ""),
+                    )
 
             # If auth failed, disconnect
             if response and response.get("type") == "auth_failed":
