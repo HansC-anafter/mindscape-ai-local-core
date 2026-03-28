@@ -464,6 +464,30 @@ class MeetingEngine(
             logger.warning("Failed to persist meeting session diagnostics: %s", exc)
         logger.info(log_message)
 
+    def _persist_round_progress(self, round_number: int, status: str) -> None:
+        """Persist the latest deliberation round progress for live polling."""
+        if self.session.metadata is None:
+            self.session.metadata = {}
+        self.session.metadata["last_round_status"] = status
+        self.session.metadata["last_round_updated_at"] = _utc_now_iso()
+        try:
+            self.session_store.update(self.session)
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist meeting round progress: session=%s round=%s status=%s error=%s",
+                self.session.id,
+                round_number,
+                status,
+                exc,
+            )
+        else:
+            logger.info(
+                "Persisted meeting round progress: session=%s round=%s status=%s",
+                self.session.id,
+                round_number,
+                status,
+            )
+
     def _persist_pre_deliberation_failure_if_needed(
         self,
         stage: str,
@@ -719,9 +743,11 @@ class MeetingEngine(
                 if self._is_converged(round_num, max_rounds, facilitator_turn.content):
                     converged = True
                     self._emit_round_event(round_num, status="converged")
+                    self._persist_round_progress(round_num, "converged")
                     break
 
                 self._emit_round_event(round_num, status="completed")
+                self._persist_round_progress(round_num, "completed")
         except Exception as exc:
             run_error = exc
             logger.error(

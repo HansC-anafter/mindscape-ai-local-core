@@ -34,6 +34,16 @@ class _PipelineHarness(MeetingEngine):
         raise AssertionError("deliberation should not run after agenda failure")
 
 
+class _RoundProgressHarness(MeetingEngine):
+    def __init__(self, session: MeetingSession) -> None:
+        self.session = session
+        self.session_store = _FakeSessionStore()
+        self.workspace = SimpleNamespace(id=session.workspace_id)
+        self.profile_id = "profile-001"
+        self.thread_id = session.thread_id
+        self.project_id = session.project_id
+
+
 @pytest.mark.asyncio
 async def test_run_persists_pipeline_stage_on_pre_deliberation_failure():
     session = MeetingSession.new(
@@ -58,3 +68,21 @@ async def test_run_persists_pipeline_stage_on_pre_deliberation_failure():
     assert engine.session_store.updated_sessions
     assert session.metadata["pipeline_stage_history"][0]["status"] == "started"
     assert session.metadata["pipeline_stage_history"][-1]["status"] == "failed"
+
+
+def test_persist_round_progress_updates_session_for_live_polling():
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        agenda=["Trace deliberation progress"],
+    )
+    engine = _RoundProgressHarness(session=session)
+
+    session.round_count = 2
+    engine._persist_round_progress(2, "completed")
+
+    assert engine.session_store.updated_sessions
+    assert engine.session_store.updated_sessions[-1] is session
+    assert session.metadata["last_round_status"] == "completed"
+    assert session.metadata["last_round_updated_at"]
