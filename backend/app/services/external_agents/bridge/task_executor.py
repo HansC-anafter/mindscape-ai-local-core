@@ -582,9 +582,7 @@ class HostBridgeTaskExecutor:
         timeout: int,
     ) -> ExecutionResult:
         binary = self._resolve_runtime_binary("codex_cli")
-        cwd = ctx.sandbox_path or self.workspace_root
-        if not os.path.isdir(cwd):
-            cwd = self.workspace_root
+        cwd, snapshot_root = self._resolve_cli_runtime_paths(ctx)
 
         control_cmd = self._build_codex_control_command(binary, ctx.control_action)
         if control_cmd:
@@ -595,6 +593,7 @@ class HostBridgeTaskExecutor:
                     control_cmd,
                     cwd,
                     runtime_name="codex_cli",
+                    snapshot_root=snapshot_root,
                 ),
                 timeout=timeout,
             )
@@ -636,6 +635,7 @@ class HostBridgeTaskExecutor:
                     cwd,
                     runtime_name="codex_cli",
                     last_message_path=last_message_path,
+                    snapshot_root=snapshot_root,
                     extra_env=extra_env if isinstance(extra_env, dict) else None,
                 ),
                 timeout=timeout,
@@ -653,9 +653,7 @@ class HostBridgeTaskExecutor:
     ) -> ExecutionResult:
         binary = self._resolve_runtime_binary("claude_code_cli")
         prompt = self._build_runtime_prompt(ctx)
-        cwd = ctx.sandbox_path or self.workspace_root
-        if not os.path.isdir(cwd):
-            cwd = self.workspace_root
+        cwd, snapshot_root = self._resolve_cli_runtime_paths(ctx)
         auth_bundle = await self._fetch_runtime_auth_env("claude_code_cli", ctx)
         extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
 
@@ -680,10 +678,34 @@ class HostBridgeTaskExecutor:
                 cmd,
                 cwd,
                 runtime_name="claude_code_cli",
+                snapshot_root=snapshot_root,
                 extra_env=extra_env if isinstance(extra_env, dict) else None,
             ),
             timeout=timeout,
         )
+
+    def _resolve_cli_runtime_paths(self, ctx: ExecutionContext) -> tuple[str, str]:
+        """Resolve the CLI working dir and the optional diff snapshot root.
+
+        Host bridges receive sandbox paths from backend dispatch payloads, but those
+        paths may only exist inside the backend container. When the host cannot see
+        that sandbox, we still let CLI runtimes execute from the workspace root for
+        repository context, but we must not recursively snapshot the whole workspace.
+        """
+        sandbox_path = (ctx.sandbox_path or "").strip()
+        if sandbox_path and os.path.isdir(sandbox_path):
+            return sandbox_path, sandbox_path
+
+        cwd = self.workspace_root if os.path.isdir(self.workspace_root) else os.getcwd()
+        if sandbox_path:
+            logger.warning(
+                "[TaskExecutor] Host sandbox %r unavailable for %s; "
+                "using cwd=%r without file snapshot",
+                sandbox_path,
+                ctx.execution_id,
+                cwd,
+            )
+        return cwd, ""
 
     async def _run_cli_agent_subprocess(
         self,
@@ -692,9 +714,15 @@ class HostBridgeTaskExecutor:
         cwd: str,
         runtime_name: str,
         last_message_path: Optional[str] = None,
+        snapshot_root: Optional[str] = None,
         extra_env: Optional[Dict[str, str]] = None,
     ) -> ExecutionResult:
-        before_files = self._snapshot_files(cwd)
+        resolved_snapshot_root = (snapshot_root or "").strip()
+        before_files = (
+            self._snapshot_files(resolved_snapshot_root)
+            if resolved_snapshot_root
+            else {}
+        )
         env = os.environ.copy()
         env["MINDSCAPE_AGENT_RUNTIME"] = runtime_name
         env["MINDSCAPE_AGENT_EXECUTION_ID"] = ctx.execution_id
@@ -734,7 +762,11 @@ class HostBridgeTaskExecutor:
         except asyncio.CancelledError:
             pass
 
-        after_files = self._snapshot_files(cwd)
+        after_files = (
+            self._snapshot_files(resolved_snapshot_root)
+            if resolved_snapshot_root
+            else {}
+        )
         files_created, files_modified = self._diff_file_snapshots(before_files, after_files)
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
