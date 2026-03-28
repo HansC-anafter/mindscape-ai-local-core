@@ -393,11 +393,11 @@ export default function IntegratedSystemStatusCard({
                   <div className="text-sm font-bold text-blue-700 dark:text-blue-300 mb-1.5">🪟 Windows (PowerShell)</div>
                   <div className="relative">
                     <pre className="bg-gray-900 text-green-400 rounded p-2 text-[10px] font-mono overflow-x-auto whitespace-pre-wrap break-all">
-                      {`.\u005Cscripts\u005Cstart_cli_bridge.ps1 -All`}
+                      {`.\u005Cscripts\u005Cstart_cli_bridge_supervisor.ps1 -All`}
                     </pre>
                     <button
                       onClick={() => {
-                        navigator.clipboard.writeText(`.\\scripts\\start_cli_bridge.ps1 -All`);
+                        navigator.clipboard.writeText(`.\\scripts\\start_cli_bridge_supervisor.ps1 -All`);
                         setCopiedAll(true);
                         setTimeout(() => setCopiedAll(false), 1500);
                       }}

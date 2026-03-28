@@ -22,8 +22,8 @@ npm run build
 
 # ── 2. Install default CLI agent (skip if already present) ───────────────
 #    Only gemini-cli is installed by default (free tier available).
-#    Claude Code / Codex are installed on-demand via start_cli_bridge.sh
-#    when the user configures them.
+#    Claude Code / Codex are connected on-demand via
+#    start_cli_bridge_supervisor.sh when the user configures them.
 if command -v gemini &>/dev/null; then
     echo "   ✅ gemini-cli already installed ($(command -v gemini))"
 else

@@ -156,8 +156,9 @@ class HostBridgeWSClient:
             if not runtime_cmd:
                 raise RuntimeError(
                     "GEMINI_CLI_RUNTIME_CMD is not set. "
-                    "Start this client via scripts/start_cli_bridge.sh "
-                    "or scripts/start_ws_bridge.sh which set the required "
+                    "Start this client via "
+                    "scripts/start_cli_bridge_supervisor.sh "
+                    "--surfaces gemini_cli --all, which sets the required "
                     "Gemini bridge command."
                 )
 
@@ -482,8 +483,8 @@ class HostBridgeWSClient:
                 logger.error(
                     "AUTH FAILURE detected (exit 41). "
                     "Disconnecting so status shows unavailable. "
-                    "Restart with scripts/start_cli_bridge.sh "
-                    f"--surface {self.surface} to fix."
+                    "Restart with scripts/start_cli_bridge_supervisor.sh "
+                    f"--surfaces {self.surface} --all to fix."
                 )
                 await self.stop()
 

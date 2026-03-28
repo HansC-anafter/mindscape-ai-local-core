@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Mindscape CLI Bridge
+# Mindscape CLI Bridge Worker
+#
+# Internal per-surface worker script used by
+# `scripts/start_cli_bridge_supervisor.sh`.
 #
 # Starts the IDE WebSocket client on the HOST machine to bridge
 # external CLI agents (Gemini CLI, Claude Code, etc.) to the
 # Mindscape backend running in Docker.
 #
-# Usage:
-#   ./scripts/start_cli_bridge.sh --surface codex_cli
-#   ./scripts/start_cli_bridge.sh --all --surface codex_cli
-#   ./scripts/start_cli_bridge.sh --workspace-id ID --surface codex_cli
-#   ./scripts/start_cli_bridge.sh --help
+# For normal interactive use, prefer:
+#   ./scripts/start_cli_bridge_supervisor.sh --surfaces codex_cli --all
 #
 # Requirements:
 #   - Python 3.8+ with 'websockets' package

@@ -357,7 +357,8 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
                         duration_seconds=0,
                         error=(
                             "No WebSocket client connected. "
-                            f"Run scripts/start_cli_bridge.sh --surface {self.RUNTIME_NAME} "
+                            "Run scripts/start_cli_bridge_supervisor.sh "
+                            f"--surfaces {self.RUNTIME_NAME} --all "
                             "to connect the host bridge."
                         ),
                     )
