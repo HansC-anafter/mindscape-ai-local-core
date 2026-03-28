@@ -1,4 +1,5 @@
 import asyncio
+import urllib.error
 
 import pytest
 
@@ -126,6 +127,69 @@ async def test_result_ack_wait_falls_back_after_timeout(monkeypatch):
     )
 
     assert fallback_calls == [result_message]
+
+
+@pytest.mark.asyncio
+async def test_rest_fallback_queues_result_after_repeated_transient_failure(monkeypatch):
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+    )
+    client.RESULT_REST_RETRY_ATTEMPTS = 2
+    client.RESULT_REST_RETRY_BASE_DELAY = 0.01
+
+    def _always_fail(_result_message):
+        raise urllib.error.URLError("backend restarting")
+
+    monkeypatch.setattr(client, "_submit_result_via_rest_sync", _always_fail)
+
+    delivered = await client._submit_result_via_rest({"execution_id": "exec-queued"})
+
+    assert delivered is False
+    assert client._pending_rest_results["exec-queued"]["execution_id"] == "exec-queued"
+
+
+@pytest.mark.asyncio
+async def test_flush_pending_results_drains_queue_on_success(monkeypatch):
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+    )
+    client._remember_pending_rest_result("exec-1", {"execution_id": "exec-1"})
+
+    delivered = []
+
+    async def _fake_submit(result_message, *, queue_on_failure=True):
+        delivered.append((result_message["execution_id"], queue_on_failure))
+        return True
+
+    monkeypatch.setattr(client, "_submit_result_via_rest", _fake_submit)
+
+    await client._flush_pending_results()
+
+    assert delivered == [("exec-1", False)]
+    assert client._pending_rest_results == {}
+
+
+@pytest.mark.asyncio
+async def test_welcome_schedules_pending_result_flush(monkeypatch):
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+    )
+    client._remember_pending_rest_result("exec-1", {"execution_id": "exec-1"})
+    flushed = asyncio.Event()
+
+    async def _fake_flush():
+        flushed.set()
+
+    monkeypatch.setattr(client, "_flush_pending_results", _fake_flush)
+
+    await client._handle_message({"type": "welcome", "client_id": "c-1", "flushed_tasks": 0})
+    await asyncio.wait_for(flushed.wait(), timeout=0.1)
 
 
 def test_pending_result_ack_counts_as_transport_work():

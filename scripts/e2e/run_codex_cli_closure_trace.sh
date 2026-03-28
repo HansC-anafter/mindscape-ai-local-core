@@ -11,6 +11,7 @@ TRACE_DIR="${ROOT}/data/e2e-traces/${RUN_ID}/closure"
 COMPILE_TIMEOUT_SECONDS="${COMPILE_TIMEOUT_SECONDS:-240}"
 SESSION_POLL_INTERVAL_SECONDS="${SESSION_POLL_INTERVAL_SECONDS:-15}"
 SESSION_POLL_MAX_ATTEMPTS="${SESSION_POLL_MAX_ATTEMPTS:-24}"
+SESSION_POLL_GRACE_ATTEMPTS="${SESSION_POLL_GRACE_ATTEMPTS:-4}"
 SECRET_KEY="${HANDOFF_BUNDLE_SECRET:-local-e2e-secret-${RUN_ID}}"
 MANAGED_BRIDGE_MODE="${MANAGED_BRIDGE_MODE:-0}"
 BRIDGE_CLIENT_ID="${BRIDGE_CLIENT_ID:-e2e-codex-${RUN_ID}}"
@@ -337,9 +338,22 @@ poll_log="${TRACE_DIR}/03_session_polls.ndjson"
 terminal_state=""
 
 for attempt in $(seq 1 "${SESSION_POLL_MAX_ATTEMPTS}"); do
-  capture_json_get \
+  if ! capture_json_get \
     "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
-    "${TRACE_DIR}/03_session_after_close.json"
+    "${TRACE_DIR}/03_session_after_close.json"; then
+    jq -nc \
+      --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg session_id "${session_id}" \
+      --arg error "session poll unavailable" \
+      '{
+        polled_at: $polled_at,
+        id: $session_id,
+        error: $error
+      }' >>"${poll_log}"
+    wait_for_backend_ready 40 2 || true
+    sleep "${SESSION_POLL_INTERVAL_SECONDS}"
+    continue
+  fi
 
   jq -c --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
     {
@@ -361,6 +375,49 @@ for attempt in $(seq 1 "${SESSION_POLL_MAX_ATTEMPTS}"); do
   fi
   sleep "${SESSION_POLL_INTERVAL_SECONDS}"
 done
+
+if [[ -z "${terminal_state}" ]]; then
+  for attempt in $(seq 1 "${SESSION_POLL_GRACE_ATTEMPTS}"); do
+    if capture_json_get \
+      "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
+      "${TRACE_DIR}/03_session_after_close.json"; then
+      jq -c --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+        {
+          polled_at: $polled_at,
+          id,
+          status,
+          round_count,
+          ended_at,
+          pipeline_stage: (.metadata.pipeline_stage // null),
+          pipeline_stage_status: (.metadata.pipeline_stage_status // null),
+          canonical_memory_item_id: (.metadata.canonical_memory_item_id // null),
+          grace_poll: true
+        }
+      ' "${TRACE_DIR}/03_session_after_close.json" >>"${poll_log}"
+
+      status="$(jq -r '.status' "${TRACE_DIR}/03_session_after_close.json")"
+      if [[ "${status}" == "closed" || "${status}" == "failed" ]]; then
+        terminal_state="${status}"
+        break
+      fi
+    else
+      jq -nc \
+        --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg session_id "${session_id}" \
+        --arg error "grace session poll unavailable" \
+        '{
+          polled_at: $polled_at,
+          id: $session_id,
+          error: $error,
+          grace_poll: true
+        }' >>"${poll_log}"
+      wait_for_backend_ready 40 2 || true
+    fi
+    sleep "${SESSION_POLL_INTERVAL_SECONDS}"
+  done
+fi
+
+terminal_state="${terminal_state:-active_or_timeout}"
 
 write_note \
   "${TRACE_DIR}/03_session_after_close.md" \
@@ -496,5 +553,5 @@ jq -n \
 echo "session_id=${session_id}"
 echo "execution_id=${execution_id}"
 echo "memory_item_id=${memory_item_id}"
-echo "terminal_state=${terminal_state:-active_or_timeout}"
+echo "terminal_state=${terminal_state}"
 echo "summary=${TRACE_DIR}/summary.json"

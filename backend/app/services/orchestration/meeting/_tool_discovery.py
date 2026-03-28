@@ -8,7 +8,7 @@ and Layer-C gap-refetch for null actuators.
 import asyncio
 import logging
 import time
-from typing import Any, List
+from typing import Any, Awaitable, Callable, List
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,26 @@ class MeetingToolDiscoveryMixin:
     @staticmethod
     def _layer_c_remaining_budget(deadline: float) -> float:
         return max(0.0, deadline - time.monotonic())
+
+    @staticmethod
+    async def _run_isolated_async_call(
+        coro_factory: Callable[[], Awaitable[Any]],
+        *,
+        timeout: float,
+    ) -> Any:
+        """Run a potentially blocking async helper in a worker thread.
+
+        Layer-C retrieval helpers eventually touch sync DB drivers and embed
+        generation paths. Wrapping them in ``wait_for()`` alone does not
+        prevent them from monopolizing the main event loop. Run them in a
+        separate thread so timeout enforcement remains effective for the
+        meeting pipeline.
+        """
+
+        return await asyncio.wait_for(
+            asyncio.to_thread(lambda: asyncio.run(coro_factory())),
+            timeout=timeout,
+        )
 
     async def _ensure_agenda_decomposed(self, user_message: str) -> bool:
         """Layer 0c: decompose single-item agenda into sub-tasks.
@@ -129,8 +149,8 @@ class MeetingToolDiscoveryMixin:
                 aug = self._verb_augment(title)
                 q = f"{title} {aug}".strip() if aug else title
                 try:
-                    hits = await asyncio.wait_for(
-                        retrieve_relevant_tools(
+                    hits = await self._run_isolated_async_call(
+                        lambda: retrieve_relevant_tools(
                             q,
                             top_k=3,
                             workspace_id=self.session.workspace_id,
@@ -217,8 +237,8 @@ class MeetingToolDiscoveryMixin:
                     if not title:
                         continue
                     try:
-                        pb_matches, _ = await asyncio.wait_for(
-                            tes.search_rrf(
+                        pb_matches, _ = await self._run_isolated_async_call(
+                            lambda: tes.search_rrf(
                                 query=title,
                                 top_k=5,
                                 min_score=0.10,

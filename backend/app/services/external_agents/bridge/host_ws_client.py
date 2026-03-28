@@ -123,6 +123,10 @@ class HostBridgeWSClient:
         self._recent_results: "OrderedDict[str, tuple[float, Dict[str, Any]]]" = (
             OrderedDict()
         )
+        self._pending_rest_results: "OrderedDict[str, Dict[str, Any]]" = (
+            OrderedDict()
+        )
+        self._pending_rest_flush_task: Optional[asyncio.Task] = None
 
     @property
     def ws_url(self) -> str:
@@ -361,8 +365,10 @@ class HostBridgeWSClient:
                 f"Welcome! client_id={msg.get('client_id')}, "
                 f"flushed={msg.get('flushed_tasks', 0)} pending tasks"
             )
+            self._schedule_pending_result_flush()
         elif msg_type == "auth_ok":
             logger.info(f"Authenticated! flushed={msg.get('flushed_tasks', 0)} tasks")
+            self._schedule_pending_result_flush()
         elif msg_type == "auth_failed":
             logger.error(f"Auth failed: {msg.get('error')}")
             await self.stop()
@@ -375,6 +381,7 @@ class HostBridgeWSClient:
             waiter = self._result_ack_waiters.pop(execution_id, None)
             if waiter and not waiter.done():
                 waiter.set_result(True)
+            self._pending_rest_results.pop(execution_id, None)
             logger.debug(f"Result acknowledged: {msg.get('execution_id')}")
         elif msg_type == "error":
             logger.error(f"Server error: {msg.get('error')}")
@@ -614,7 +621,12 @@ class HostBridgeWSClient:
             body = response.read().decode("utf-8")
         return json.loads(body) if body else {}
 
-    async def _submit_result_via_rest(self, result_message: Dict[str, Any]) -> None:
+    async def _submit_result_via_rest(
+        self,
+        result_message: Dict[str, Any],
+        *,
+        queue_on_failure: bool = True,
+    ) -> bool:
         execution_id = result_message.get("execution_id", "")
         max_attempts = max(1, int(self.RESULT_REST_RETRY_ATTEMPTS))
         base_delay = max(0.1, float(self.RESULT_REST_RETRY_BASE_DELAY))
@@ -630,7 +642,8 @@ class HostBridgeWSClient:
                     execution_id,
                     response.get("message", "accepted"),
                 )
-                return
+                self._pending_rest_results.pop(execution_id, None)
+                return True
             except urllib.error.HTTPError as exc:
                 if exc.code == 404:
                     logger.info(
@@ -638,7 +651,8 @@ class HostBridgeWSClient:
                         "backend likely already accepted or resolved the execution.",
                         execution_id,
                     )
-                    return
+                    self._pending_rest_results.pop(execution_id, None)
+                    return True
                 if exc.code >= 500 and attempt < max_attempts:
                     delay = base_delay * (2 ** (attempt - 1))
                     logger.warning(
@@ -657,7 +671,7 @@ class HostBridgeWSClient:
                     execution_id,
                     exc.code,
                 )
-                return
+                break
             except (urllib.error.URLError, OSError, json.JSONDecodeError, RuntimeError) as exc:
                 if attempt < max_attempts:
                     delay = base_delay * (2 ** (attempt - 1))
@@ -678,7 +692,51 @@ class HostBridgeWSClient:
                     max_attempts,
                     exc,
                 )
-                return
+                break
+
+        if queue_on_failure:
+            self._remember_pending_rest_result(execution_id, result_message)
+            logger.warning(
+                "Queued result %s for retry after reconnect; pending=%d",
+                execution_id,
+                len(self._pending_rest_results),
+            )
+        return False
+
+    def _remember_pending_rest_result(
+        self,
+        execution_id: str,
+        result_message: Dict[str, Any],
+    ) -> None:
+        self._pending_rest_results[execution_id] = copy.deepcopy(result_message)
+        self._pending_rest_results.move_to_end(execution_id)
+        while len(self._pending_rest_results) > self.RECENT_RESULT_MAX_SIZE:
+            self._pending_rest_results.popitem(last=False)
+
+    def _schedule_pending_result_flush(self) -> None:
+        if not self._pending_rest_results:
+            return
+        task = self._pending_rest_flush_task
+        if task and not task.done():
+            return
+        task = asyncio.create_task(self._flush_pending_results())
+        self._pending_rest_flush_task = task
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        task.add_done_callback(lambda _: setattr(self, "_pending_rest_flush_task", None))
+
+    async def _flush_pending_results(self) -> None:
+        if not self._pending_rest_results:
+            return
+        pending_items = list(self._pending_rest_results.items())
+        logger.info("Flushing %d pending result(s) after reconnect", len(pending_items))
+        for execution_id, result_message in pending_items:
+            delivered = await self._submit_result_via_rest(
+                result_message,
+                queue_on_failure=False,
+            )
+            if delivered:
+                self._pending_rest_results.pop(execution_id, None)
 
     def _prune_recent_results(self) -> None:
         now = time.monotonic()

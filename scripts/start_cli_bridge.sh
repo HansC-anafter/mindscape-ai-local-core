@@ -49,6 +49,46 @@ log_info()  { echo -e "${GREEN}[INFO]${NC}  $1"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+python_has_websockets() {
+    local python_bin="$1"
+    [[ -n "$python_bin" && -x "$python_bin" ]] || return 1
+    "$python_bin" -c "import websockets" >/dev/null 2>&1
+}
+
+resolve_python_bin() {
+    local explicit_bin="${MINDSCAPE_PYTHON_BIN:-}"
+    if [[ -n "$explicit_bin" ]]; then
+        echo "$explicit_bin"
+        return 0
+    fi
+
+    local candidates=()
+    local candidate=""
+    local resolved=""
+
+    resolved="$(command -v python3 2>/dev/null || true)"
+    [[ -n "$resolved" ]] && candidates+=("$resolved")
+    resolved="$(command -v python 2>/dev/null || true)"
+    [[ -n "$resolved" ]] && candidates+=("$resolved")
+    candidates+=("/opt/miniconda3/bin/python3" "/opt/homebrew/bin/python3" "/usr/local/bin/python3")
+
+    for candidate in "${candidates[@]}"; do
+        [[ -n "$candidate" && -x "$candidate" ]] || continue
+        if python_has_websockets "$candidate"; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    resolved="$(command -v python3 2>/dev/null || true)"
+    if [[ -n "$resolved" ]]; then
+        echo "$resolved"
+        return 0
+    fi
+
+    return 1
+}
+
 describe_process_context() {
     echo "pid=$$ ppid=$PPID"
 }
@@ -127,18 +167,19 @@ print_banner
 # --- Pre-flight checks ---
 
 # 1. Check Python
-PYTHON_BIN="${MINDSCAPE_PYTHON_BIN:-$(command -v python3 || true)}"
+PYTHON_BIN="$(resolve_python_bin || true)"
 if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
     log_error "python3 not found. Please install Python 3.8+"
     exit 1
 fi
 
 # 2. Check websockets package
-if ! "$PYTHON_BIN" -c "import websockets" 2>/dev/null; then
-    log_warn "'websockets' package not found. Installing..."
-    "$PYTHON_BIN" -m pip install websockets --quiet
-    log_info "websockets installed"
+if ! python_has_websockets "$PYTHON_BIN"; then
+    log_error "Selected Python cannot import 'websockets': $PYTHON_BIN"
+    log_error "Set MINDSCAPE_PYTHON_BIN to a Python environment that already has the dependency."
+    exit 1
 fi
+log_info "Using Python: $PYTHON_BIN"
 
 # 3. Check client script exists
 if [[ ! -f "$CLIENT_SCRIPT" ]]; then
