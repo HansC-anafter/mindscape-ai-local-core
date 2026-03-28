@@ -31,6 +31,10 @@ class MeetingExecutionContext(BaseModel):
         default=None,
         description="Resolved executor runtime ID",
     )
+    executor_target_client_id: Optional[str] = Field(
+        default=None,
+        description="Optional explicit bridge client target for executor runtime",
+    )
     executor_specs: List[Dict[str, Any]] = Field(
         default_factory=list,
         description="Executor spec entries from workspace",

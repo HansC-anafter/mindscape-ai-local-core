@@ -27,6 +27,7 @@ CLIENT_SCRIPT="$PROJECT_DIR/backend/app/services/external_agents/bridge/host_ws_
 BACKEND_HOST="${MINDSCAPE_WS_HOST:-localhost:8200}"
 WORKSPACE_ID="${MINDSCAPE_WORKSPACE_ID:-}"
 SURFACE="${MINDSCAPE_SURFACE:-}"
+CLIENT_ID="${MINDSCAPE_CLIENT_ID:-}"
 ALL_MODE=false
 
 # Colors
@@ -78,6 +79,10 @@ while [[ $# -gt 0 ]]; do
             SURFACE="$2"
             shift 2
             ;;
+        --client-id)
+            CLIENT_ID="$2"
+            shift 2
+            ;;
         --all)
             ALL_MODE=true
             shift
@@ -90,12 +95,14 @@ while [[ $# -gt 0 ]]; do
             echo "  --all               Connect to ALL workspaces"
             echo "  --host HOST:PORT    Backend host (default: localhost:8200)"
             echo "  --surface SURFACE   Agent surface type (required)"
+            echo "  --client-id ID      Explicit client ID (single-workspace mode only)"
             echo "  -h, --help          Show this help"
             echo ""
             echo "Environment variables:"
             echo "  MINDSCAPE_WS_HOST        Backend host (default: localhost:8200)"
             echo "  MINDSCAPE_WORKSPACE_ID   Workspace ID"
             echo "  MINDSCAPE_SURFACE        Surface type"
+            echo "  MINDSCAPE_CLIENT_ID      Explicit client ID"
             exit 0
             ;;
         *)
@@ -107,6 +114,11 @@ done
 
 if [[ -z "$SURFACE" ]]; then
     log_error "Surface is required. Pass --surface or set MINDSCAPE_SURFACE."
+    exit 1
+fi
+
+if [[ "$ALL_MODE" == "true" && -n "$CLIENT_ID" ]]; then
+    log_error "--client-id is only supported in single-workspace mode."
     exit 1
 fi
 
@@ -385,9 +397,15 @@ else
     log_info "Press Ctrl+C to stop"
     echo ""
 
+    CLIENT_ARGS=()
+    if [[ -n "$CLIENT_ID" ]]; then
+        CLIENT_ARGS+=(--client-id "$CLIENT_ID")
+    fi
+
     exec "$PYTHON_BIN" "$CLIENT_SCRIPT" \
         --workspace-id "$WORKSPACE_ID" \
         --host "$BACKEND_HOST" \
         --surface "$SURFACE" \
+        "${CLIENT_ARGS[@]}" \
         --workspace-root "$MINDSCAPE_WORKSPACE_ROOT"
 fi

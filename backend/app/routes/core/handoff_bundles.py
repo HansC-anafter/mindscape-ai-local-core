@@ -6,15 +6,20 @@ handoff bundles. These are Layer 0 kernel routes for cross-boundary
 task delegation.
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.app.models.compile_job import CompileJob
 from backend.app.models.handoff import Commitment, HandoffIn
 from backend.app.models.signed_bundle import SignedHandoffBundle
+from backend.app.services.compile_job_task_registry import compile_job_task_registry
 from backend.app.services.handoff_bundle_service import HandoffBundleService
+from backend.app.services.stores.compile_job_store import CompileJobStore
 
 logger = logging.getLogger(__name__)
 
@@ -166,15 +171,29 @@ class CompileRequest(BaseModel):
     thread_id: str = Field(..., description="Conversation thread ID")
     secret_key: Optional[str] = Field(None, description="Override secret")
     model_name: Optional[str] = Field(None, description="LLM model override")
+    executor_target_client_id: Optional[str] = Field(
+        None,
+        description="Optional explicit bridge client target for executor runtime",
+    )
+
+
+@router.get("/compile-jobs/{job_id}")
+async def get_compile_job(job_id: str) -> Dict[str, Any]:
+    """Get compile job status by ID."""
+    store = CompileJobStore()
+    job = store.get_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Compile job not found")
+    return job.to_dict()
 
 
 @router.post("/compile")
-async def compile_bundle(request: CompileRequest) -> Dict[str, Any]:
-    """Full intake pipeline: verify -> extract -> MeetingEngine compile -> persist TaskIR.
+async def compile_bundle(request: CompileRequest) -> JSONResponse:
+    """Accept a compile job and run the meeting pipeline in the background.
 
     This is the primary intake entry point for cross-boundary handoffs.
-    It verifies the bundle, extracts the HandoffIn, runs the meeting
-    engine to produce a compiled TaskIR, and persists it.
+    It verifies the bundle, extracts the HandoffIn, creates a bounded
+    meeting session, and schedules the meeting compile in the background.
 
     ADR-R1: Routes through IngressRouter to share the same routing
     contract as the chat entry point.
@@ -189,6 +208,7 @@ async def compile_bundle(request: CompileRequest) -> Dict[str, Any]:
             status_code=400,
             detail=f"Compile requires handoff_in bundle, got {bundle.payload_type}",
         )
+    handoff_in = HandoffIn(**bundle.payload)
 
     # Resolve workspace context
     try:
@@ -221,20 +241,73 @@ async def compile_bundle(request: CompileRequest) -> Dict[str, Any]:
         entry_point="compile",
     )
 
-    svc = HandoffBundleService()
-    try:
-        result = await svc.intake_and_compile(
-            bundle=bundle,
-            workspace=workspace,
-            runtime_profile=runtime_profile,
-            profile_id=request.profile_id,
-            thread_id=request.thread_id,
-            project_id=request.project_id,
-            secret_key=request.secret_key,
-            model_name=request.model_name,
-            route_decision=route_decision,
+    compile_job_store = CompileJobStore()
+    session, session_reused = HandoffBundleService.get_or_create_compile_session(
+        handoff_in=handoff_in,
+        workspace=workspace,
+        profile_id=request.profile_id,
+        thread_id=request.thread_id,
+        project_id=request.project_id,
+    )
+    compile_job_metadata = {
+        "entry_point": "compile",
+        "route_kind": getattr(route_decision, "route_kind", None),
+        "model_name": request.model_name,
+        "active_session_reused": session_reused,
+    }
+    if request.executor_target_client_id:
+        compile_job_metadata["executor_target_client_id"] = (
+            request.executor_target_client_id
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
 
-    return result
+    compile_job = CompileJob.new(
+        workspace_id=request.workspace_id,
+        project_id=request.project_id,
+        thread_id=request.thread_id,
+        profile_id=request.profile_id,
+        session_id=session.id,
+        handoff_id=(bundle.payload or {}).get("handoff_id"),
+        source_device_id=bundle.source_device_id,
+        metadata=compile_job_metadata,
+    )
+    compile_job_store.create(compile_job)
+
+    svc = HandoffBundleService()
+
+    async def _run_compile_in_background() -> None:
+        try:
+            await svc.compile_handoff_in(
+                handoff_in=handoff_in,
+                workspace=workspace,
+                runtime_profile=runtime_profile,
+                profile_id=request.profile_id,
+                thread_id=request.thread_id,
+                project_id=request.project_id,
+                model_name=request.model_name,
+                source_device_id=bundle.source_device_id,
+                route_decision=route_decision,
+                compile_job_id=compile_job.id,
+                compile_job_store=compile_job_store,
+                session_override=session,
+                session_reused_override=session_reused,
+                executor_target_client_id=request.executor_target_client_id,
+            )
+        except Exception as exc:
+            logger.error("Background compile job %s failed: %s", compile_job.id, exc)
+        finally:
+            compile_job_task_registry.unregister(compile_job.id)
+
+    task = asyncio.create_task(_run_compile_in_background())
+    compile_job_task_registry.register(compile_job.id, task)
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+            "compile_job_id": compile_job.id,
+            "session_id": session.id,
+            "workspace_id": request.workspace_id,
+            "project_id": request.project_id,
+            "thread_id": request.thread_id,
+        },
+    )

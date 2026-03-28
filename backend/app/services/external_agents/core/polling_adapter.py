@@ -43,6 +43,7 @@ def build_dispatch_payload(
         "execution_id": execution_id,
         "workspace_id": request.workspace_id or "",
         "agent_id": agent_id,
+        "target_client_id": agent_cfg.get("target_client_id"),
         "task": request.task,
         "allowed_tools": request.allowed_tools,
         "max_duration": request.max_duration_seconds,
@@ -222,6 +223,7 @@ class PollingRuntimeAdapter(BaseRuntimeAdapter):
         workspace_id = request.workspace_id or ""
 
         manager = get_agent_dispatch_manager()
+        target_client_id = (request.agent_config or {}).get("target_client_id")
 
         # Create a future that submit_result will resolve (event notification)
         loop = asyncio.get_event_loop()
@@ -267,6 +269,7 @@ class PollingRuntimeAdapter(BaseRuntimeAdapter):
             execution_id=execution_id,
             workspace_id=workspace_id,
             payload=dispatch_payload,
+            target_client_id=target_client_id,
         )
         manager._enqueue_pending(pending)
         logger.info(

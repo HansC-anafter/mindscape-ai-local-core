@@ -179,6 +179,65 @@ class HandoffBundleService:
     # -- Full intake pipeline -----------------------------------------------
 
     @staticmethod
+    def get_or_create_compile_session(
+        *,
+        handoff_in: HandoffIn,
+        workspace: Any,
+        profile_id: str,
+        thread_id: str,
+        project_id: str,
+    ) -> tuple[Any, bool]:
+        """Return an active meeting session or create a new bounded episode."""
+        from backend.app.services.stores.meeting_session_store import (
+            MeetingSessionStore,
+        )
+
+        session_store = MeetingSessionStore()
+        workspace_id = getattr(workspace, "id", handoff_in.workspace_id)
+        session = session_store.get_active_session(workspace_id, project_id)
+        session_reused = session is not None
+        if session:
+            return session, session_reused
+
+        from backend.app.models.meeting_session import MeetingSession
+
+        lens_id = None
+        try:
+            from backend.app.services.stores.graph_store import GraphStore
+            from backend.app.services.lens.effective_lens_resolver import (
+                EffectiveLensResolver,
+            )
+            from backend.app.services.lens.session_override_store import (
+                InMemorySessionStore,
+            )
+
+            graph_store = GraphStore()
+            session_override_store = InMemorySessionStore()
+            resolver = EffectiveLensResolver(graph_store, session_override_store)
+            effective = resolver.resolve(
+                profile_id=profile_id,
+                workspace_id=workspace_id,
+            )
+            lens_id = effective.global_preset_id
+        except Exception as exc:
+            logger.warning("[HandoffBundle] Failed to resolve lens_id: %s", exc)
+
+        session = MeetingSession.new(
+            workspace_id=workspace_id,
+            project_id=project_id,
+            thread_id=thread_id,
+            lens_id=lens_id,
+            agenda=(
+                [g[:200].strip() for g in (handoff_in.goals or []) if g.strip()][:10]
+                or [handoff_in.intent_summary[:200].strip()]
+                if hasattr(handoff_in, "intent_summary") and handoff_in.intent_summary
+                else None
+            ),
+        )
+        session_store.create(session)
+        return session, session_reused
+
+    @staticmethod
     async def intake_and_compile(
         bundle: SignedHandoffBundle,
         workspace: Any,
@@ -189,6 +248,9 @@ class HandoffBundleService:
         secret_key: Optional[str] = None,
         model_name: Optional[str] = None,
         route_decision: Any = None,
+        compile_job_id: Optional[str] = None,
+        compile_job_store: Any = None,
+        executor_target_client_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Verify bundle, extract HandoffIn, and compile via MeetingEngine.
 
@@ -235,6 +297,9 @@ class HandoffBundleService:
             model_name=model_name,
             source_device_id=bundle.source_device_id,
             route_decision=route_decision,
+            compile_job_id=compile_job_id,
+            compile_job_store=compile_job_store,
+            executor_target_client_id=executor_target_client_id,
         )
 
     @staticmethod
@@ -248,6 +313,11 @@ class HandoffBundleService:
         model_name: Optional[str] = None,
         source_device_id: Optional[str] = None,
         route_decision: Any = None,
+        compile_job_id: Optional[str] = None,
+        compile_job_store: Any = None,
+        session_override: Any = None,
+        session_reused_override: Optional[bool] = None,
+        executor_target_client_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Compile a HandoffIn via MeetingEngine (no bundle verification).
 
@@ -274,54 +344,32 @@ class HandoffBundleService:
             build_execution_launcher,
         )
         from backend.app.services.orchestration.meeting import MeetingEngine
-        from backend.app.services.stores.meeting_session_store import (
-            MeetingSessionStore,
-        )
-
-        session_store = MeetingSessionStore()
-        workspace_id = getattr(workspace, "id", handoff_in.workspace_id)
-        session = session_store.get_active_session(workspace_id, project_id)
-        if not session:
-            from backend.app.models.meeting_session import MeetingSession
-
-            # Resolve lens_id via EffectiveLensResolver
-            lens_id = None
-            try:
-                from backend.app.services.stores.graph_store import GraphStore
-                from backend.app.services.lens.effective_lens_resolver import (
-                    EffectiveLensResolver,
-                )
-                from backend.app.services.lens.session_override_store import (
-                    InMemorySessionStore,
-                )
-
-                graph_store = GraphStore()
-                session_override_store = InMemorySessionStore()
-                resolver = EffectiveLensResolver(graph_store, session_override_store)
-                effective = resolver.resolve(
-                    profile_id=profile_id,
-                    workspace_id=workspace_id,
-                )
-                lens_id = effective.global_preset_id
-            except Exception as exc:
-                logger.warning("[HandoffBundle] Failed to resolve lens_id: %s", exc)
-
-            session = MeetingSession.new(
-                workspace_id=workspace_id,
-                project_id=project_id,
+        if session_override is not None:
+            session = session_override
+            session_reused = bool(session_reused_override)
+        else:
+            session, session_reused = HandoffBundleService.get_or_create_compile_session(
+                handoff_in=handoff_in,
+                workspace=workspace,
+                profile_id=profile_id,
                 thread_id=thread_id,
-                lens_id=lens_id,
-                agenda=(
-                    [g[:200].strip() for g in (handoff_in.goals or []) if g.strip()][
-                        :10
-                    ]
-                    or [handoff_in.intent_summary[:200].strip()]
-                    if hasattr(handoff_in, "intent_summary")
-                    and handoff_in.intent_summary
-                    else None
-                ),
+                project_id=project_id,
             )
-            session_store.create(session)
+
+        if compile_job_store and compile_job_id:
+            running_metadata = {
+                "active_session_reused": session_reused,
+                "route_kind": getattr(route_decision, "route_kind", None),
+            }
+            if executor_target_client_id:
+                running_metadata["executor_target_client_id"] = (
+                    executor_target_client_id
+                )
+            compile_job_store.mark_running(
+                compile_job_id,
+                session_id=session.id,
+                metadata=running_metadata,
+            )
 
         from backend.app.services.mindscape_store import MindscapeStore
 
@@ -336,6 +384,9 @@ class HandoffBundleService:
             runtime_profile=runtime_profile,
             route_decision=route_decision,
         )
+        if executor_target_client_id:
+            execution_context.executor_target_client_id = executor_target_client_id
+            session.metadata["executor_target_client_id"] = executor_target_client_id
 
         engine = MeetingEngine(
             session=session,
@@ -358,43 +409,67 @@ class HandoffBundleService:
             f"Source: {source_device_id or 'unknown'}"
         )
 
-        meeting_result = await engine.run(intake_message, handoff_in=handoff_in)
+        try:
+            meeting_result = await engine.run(intake_message, handoff_in=handoff_in)
 
-        result = {
-            "status": "compiled",
-            "session_id": meeting_result.session_id,
-            "decision": meeting_result.decision,
-            "action_items_count": len(meeting_result.action_items),
-            "task_ir_id": None,
-            "persisted": False,
-        }
+            result = {
+                "status": "compiled",
+                "session_id": meeting_result.session_id,
+                "decision": meeting_result.decision,
+                "action_items_count": len(meeting_result.action_items),
+                "task_ir_id": None,
+                "persisted": False,
+            }
 
-        # Persist compiled TaskIR via PostgresTaskIRStore
-        if meeting_result.task_ir:
-            result["task_ir_id"] = meeting_result.task_ir.task_id
-            try:
-                from backend.app.services.stores.postgres.task_ir_store import (
-                    PostgresTaskIRStore,
+            # Persist compiled TaskIR via PostgresTaskIRStore
+            if meeting_result.task_ir:
+                result["task_ir_id"] = meeting_result.task_ir.task_id
+                try:
+                    from backend.app.services.stores.postgres.task_ir_store import (
+                        PostgresTaskIRStore,
+                    )
+
+                    ir_store = PostgresTaskIRStore()
+                    ir_store.replace_task_ir(meeting_result.task_ir)
+                    result["persisted"] = True
+                    logger.info(
+                        "Persisted TaskIR %s from intake",
+                        meeting_result.task_ir.task_id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to persist TaskIR from intake: %s",
+                        exc,
+                        exc_info=True,
+                    )
+
+            if compile_job_store and compile_job_id:
+                compile_job_store.mark_succeeded(
+                    compile_job_id,
+                    session_id=meeting_result.session_id,
+                    result={
+                        "status": result["status"],
+                        "session_id": result["session_id"],
+                        "task_ir_id": result["task_ir_id"],
+                        "persisted": result["persisted"],
+                        "action_items_count": result["action_items_count"],
+                    },
+                    metadata={"handoff_id": handoff_in.handoff_id},
                 )
 
-                ir_store = PostgresTaskIRStore()
-                ir_store.replace_task_ir(meeting_result.task_ir)
-                result["persisted"] = True
-                logger.info(
-                    "Persisted TaskIR %s from intake",
-                    meeting_result.task_ir.task_id,
+            logger.info(
+                "Intake complete: handoff %s -> TaskIR %s (persisted=%s)",
+                handoff_in.handoff_id,
+                result["task_ir_id"],
+                result["persisted"],
+            )
+            return result
+        except Exception as exc:
+            if compile_job_store and compile_job_id:
+                compile_job_store.mark_failed(
+                    compile_job_id,
+                    str(exc),
+                    session_id=session.id if session else None,
+                    metadata={"handoff_id": handoff_in.handoff_id},
                 )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to persist TaskIR from intake: %s",
-                    exc,
-                    exc_info=True,
-                )
-
-        logger.info(
-            "Intake complete: handoff %s -> TaskIR %s (persisted=%s)",
-            handoff_in.handoff_id,
-            result["task_ir_id"],
-            result["persisted"],
-        )
-        return result
+            raise

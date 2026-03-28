@@ -12,6 +12,10 @@ COMPILE_TIMEOUT_SECONDS="${COMPILE_TIMEOUT_SECONDS:-240}"
 SESSION_POLL_INTERVAL_SECONDS="${SESSION_POLL_INTERVAL_SECONDS:-15}"
 SESSION_POLL_MAX_ATTEMPTS="${SESSION_POLL_MAX_ATTEMPTS:-24}"
 SECRET_KEY="${HANDOFF_BUNDLE_SECRET:-local-e2e-secret-${RUN_ID}}"
+MANAGED_BRIDGE_MODE="${MANAGED_BRIDGE_MODE:-0}"
+BRIDGE_CLIENT_ID="${BRIDGE_CLIENT_ID:-e2e-codex-${RUN_ID}}"
+BRIDGE_PID=""
+BRIDGE_LOG="${TRACE_DIR}/00b_bridge_supervisor.log"
 
 PROJECT_ID="proj-e2e-${RUN_ID}"
 THREAD_ID="e2e-${RUN_ID}"
@@ -31,6 +35,27 @@ require_bin() {
 require_bin curl
 require_bin jq
 
+cleanup() {
+  if [[ -n "${BRIDGE_PID}" ]]; then
+    kill "${BRIDGE_PID}" 2>/dev/null || true
+    wait "${BRIDGE_PID}" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+wait_for_backend_ready() {
+  local attempts="${1:-20}"
+  local delay_seconds="${2:-2}"
+  local i
+  for i in $(seq 1 "${attempts}"); do
+    if curl -fsS --max-time 5 "${BASE_URL}/health" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "${delay_seconds}"
+  done
+  return 1
+}
+
 write_note() {
   local path="$1"
   shift
@@ -48,19 +73,60 @@ capture_json_get() {
 echo "run_id=${RUN_ID}"
 echo "trace_dir=${TRACE_DIR}"
 
+wait_for_backend_ready 20 2
+
+if [[ "${MANAGED_BRIDGE_MODE}" == "1" ]]; then
+  bash "${ROOT}/scripts/start_cli_bridge_supervisor.sh" \
+    --surfaces codex_cli \
+    --workspace-id "${WORKSPACE_ID}" \
+    --host "${BASE_URL#http://}" \
+    --client-id "${BRIDGE_CLIENT_ID}" \
+    >"${BRIDGE_LOG}" 2>&1 &
+  BRIDGE_PID="$!"
+  write_note \
+    "${TRACE_DIR}/00b_bridge_supervisor.md" \
+    "這輪 E2E 由腳本自管一條 supervisor bridge，而不是只依賴 ambient Codex client。" \
+    "bridge client_id 固定為 \`${BRIDGE_CLIENT_ID}\`，compile 會顯式把 meeting executor-runtime 綁到這條 bridge。"
+fi
+
 capture_json_get \
   "${BASE_URL}/api/v1/mcp/agent/status" \
   "${TRACE_DIR}/00_provider_status.json"
 
-write_note \
-  "${TRACE_DIR}/00_provider_status.md" \
-  "證明這輪 Closure E2E 使用的是既有 workspace，而不是新的隔離 workspace。" \
-  "這一輪必須在 provider status 中看到 workspace \`${WORKSPACE_ID}\`，且 client surface 為 \`codex_cli\`、\`authenticated=true\`。"
+if [[ "${MANAGED_BRIDGE_MODE}" == "1" ]]; then
+  for _ in $(seq 1 12); do
+    if jq -e --arg ws "${WORKSPACE_ID}" --arg client_id "${BRIDGE_CLIENT_ID}" '
+      .workspaces[$ws].clients
+      | any(.client_id == $client_id and .surface_type == "codex_cli" and .authenticated == true)
+    ' "${TRACE_DIR}/00_provider_status.json" >/dev/null; then
+      break
+    fi
+    sleep 2
+    capture_json_get \
+      "${BASE_URL}/api/v1/mcp/agent/status" \
+      "${TRACE_DIR}/00_provider_status.json"
+  done
 
-jq -e --arg ws "${WORKSPACE_ID}" '
-  .workspaces[$ws].clients
-  | any(.surface_type == "codex_cli" and .authenticated == true)
-' "${TRACE_DIR}/00_provider_status.json" >/dev/null
+  write_note \
+    "${TRACE_DIR}/00_provider_status.md" \
+    "證明這輪 Closure E2E 使用自管 supervisor bridge，而不是只依賴 ambient Codex client。" \
+    "這一輪必須在 provider status 中看到 workspace \`${WORKSPACE_ID}\`，且存在 \`client_id=${BRIDGE_CLIENT_ID}\`、\`surface=codex_cli\`、\`authenticated=true\`。"
+
+  jq -e --arg ws "${WORKSPACE_ID}" --arg client_id "${BRIDGE_CLIENT_ID}" '
+    .workspaces[$ws].clients
+    | any(.client_id == $client_id and .surface_type == "codex_cli" and .authenticated == true)
+  ' "${TRACE_DIR}/00_provider_status.json" >/dev/null
+else
+  write_note \
+    "${TRACE_DIR}/00_provider_status.md" \
+    "證明這輪 Closure E2E 使用的是既有 workspace，而不是新的隔離 workspace。" \
+    "這一輪必須在 provider status 中看到 workspace \`${WORKSPACE_ID}\`，且 client surface 為 \`codex_cli\`、\`authenticated=true\`。"
+
+  jq -e --arg ws "${WORKSPACE_ID}" '
+    .workspaces[$ws].clients
+    | any(.surface_type == "codex_cli" and .authenticated == true)
+  ' "${TRACE_DIR}/00_provider_status.json" >/dev/null
+fi
 
 jq -n \
   --arg handoff_id "${HANDOFF_ID}" \
@@ -127,6 +193,8 @@ jq -n \
   --arg profile_id "${PROFILE_ID}" \
   --arg thread_id "${THREAD_ID}" \
   --arg secret_key "${SECRET_KEY}" \
+  --arg executor_target_client_id "${BRIDGE_CLIENT_ID}" \
+  --argjson managed_bridge_mode "$( [[ "${MANAGED_BRIDGE_MODE}" == "1" ]] && echo true || echo false )" \
   --slurpfile packaged "${TRACE_DIR}/01_package_response.json" \
   '{
     bundle: $packaged[0],
@@ -134,7 +202,8 @@ jq -n \
     project_id: $project_id,
     profile_id: $profile_id,
     thread_id: $thread_id,
-    secret_key: $secret_key
+    secret_key: $secret_key,
+    executor_target_client_id: (if $managed_bridge_mode then $executor_target_client_id else null end)
   }' >"${TRACE_DIR}/02_compile_request.json"
 
 write_note \
@@ -175,14 +244,44 @@ rm -f "${tmp_body}" "${tmp_headers}"
 
 write_note \
   "${TRACE_DIR}/02_compile_response.md" \
-  "這裡記錄 compile client 的原始結果，不直接把它當成全流程成敗。" \
-  "若 \`curl_exit=28\` 或 HTTP 非 200，但 backend 已建立 session 並持續推進，應歸類為 compile timeout false negative。"
+  "這裡記錄 compile client 的原始結果。新契約下，預期應快速返回 \`202 Accepted\`，而不是同步等完整 compile 跑完。" \
+  "若 \`curl_exit=28\`，現在比較像 ingress 本身卡住；若拿到 \`202\`，後續就以 compile job / session state 為主。"
+
+compile_job_id="$(jq -r '
+  .body_raw
+  | fromjson? // {}
+  | .compile_job_id // empty
+' "${TRACE_DIR}/02_compile_response.json")"
 
 session_id="$(jq -r '
   .body_raw
   | fromjson? // {}
   | .session_id // empty
 ' "${TRACE_DIR}/02_compile_response.json")"
+
+jq -n \
+  --arg compile_job_id "${compile_job_id}" \
+  --arg session_id "${session_id}" \
+  '{
+    compile_job_id: $compile_job_id,
+    session_id: $session_id
+  }' >"${TRACE_DIR}/02a_compile_acceptance.json"
+
+write_note \
+  "${TRACE_DIR}/02a_compile_acceptance.md" \
+  "這一步只看 compile ingress 是否快速交出 \`compile_job_id\` 與 \`session_id\`。" \
+  "若兩者都存在，代表已切到 async compile contract；後續不再等待同步 compile body。"
+
+if [[ -n "${compile_job_id}" ]]; then
+  capture_json_get \
+    "${BASE_URL}/api/handoff-bundles/compile-jobs/${compile_job_id}" \
+    "${TRACE_DIR}/02c_compile_job.json"
+
+  write_note \
+    "${TRACE_DIR}/02c_compile_job.md" \
+    "這是 compile job 的第一個快照。正常情況下應先看到 \`accepted\`，之後再轉成 \`running/succeeded/failed\`。" \
+    "它用來證明 compile 真相來源已從同步 HTTP body 轉成 first-class job object。"
+fi
 
 capture_json_get \
   "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions?limit=50" \
@@ -216,8 +315,8 @@ fi
 
 write_note \
   "${TRACE_DIR}/02b_session_lookup.md" \
-  "即使 compile client 沒有立即返回，這一步仍可用 project_id/thread_id 對回 backend session。" \
-  "後續的 Closure E2E 以 session state 與 artifact/memory 證據為主，不只看 compile HTTP response。"
+  "新契約下，session_id 應直接由 compile accepted response 帶回；session list fallback 只用於診斷意外情況。" \
+  "後續的 Closure E2E 以 session state 與 artifact/memory 證據為主，不再把 compile response body 當主真相來源。"
 
 poll_log="${TRACE_DIR}/03_session_polls.ndjson"
 : >"${poll_log}"

@@ -439,6 +439,7 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
         }
 
         try:
+            target_client_id = (request.agent_config or {}).get("target_client_id")
             # Send and wait for result
             # ws_manager.dispatch_and_wait handles:
             #   - sending the dispatch message
@@ -449,6 +450,7 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
                 message=ws_message,
                 execution_id=execution_id,
                 timeout=request.max_duration_seconds or self.RESULT_TIMEOUT,
+                target_client_id=target_client_id,
             )
 
             # Check if dispatch_and_wait returned a timeout status

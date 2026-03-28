@@ -319,6 +319,11 @@ class MeetingGenerationMixin:
                 "project_id": self.project_id,
                 "conversation_context": system_prompt,
                 "model": model,  # per-agent model hint for runtime bridge
+                "target_client_id": getattr(
+                    getattr(self, "ctx", None),
+                    "executor_target_client_id",
+                    None,
+                ),
             },
         )
         if not result.success:

@@ -10,8 +10,13 @@ from backend.app.services.external_agents.core.base_adapter import RuntimeExecRe
 
 
 class _FakeWSManager:
-    def __init__(self, expected_surface: str):
+    def __init__(
+        self,
+        expected_surface: str,
+        expected_target_client_id: str | None = None,
+    ):
         self.expected_surface = expected_surface
+        self.expected_target_client_id = expected_target_client_id
         self.messages = []
 
     def has_connections(self, workspace_id=None, surface_type=None):
@@ -28,7 +33,7 @@ class _FakeWSManager:
         target_client_id=None,
     ):
         assert workspace_id == "ws-1"
-        assert target_client_id is None
+        assert target_client_id == self.expected_target_client_id
         assert message["type"] == "dispatch"
         assert message["agent_id"] == self.expected_surface
         self.messages.append(message)
@@ -65,3 +70,24 @@ async def test_surface_adapter_execute_uses_surface_specific_ws_dispatch(
     assert response.success is True
     assert response.output == f"ok:{surface}"
     assert response.agent_metadata["transport"] == "ws_push"
+
+
+@pytest.mark.asyncio
+async def test_surface_adapter_execute_propagates_target_client_id():
+    adapter = CodexCLIAdapter(
+        ws_manager=_FakeWSManager(
+            "codex_cli",
+            expected_target_client_id="client-e2e-001",
+        )
+    )
+
+    response = await adapter.execute(
+        RuntimeExecRequest(
+            task="ping",
+            sandbox_path="/tmp",
+            workspace_id="ws-1",
+            agent_config={"target_client_id": "client-e2e-001"},
+        )
+    )
+
+    assert response.success is True
