@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 async def run_startup(app: FastAPI):
     """Initialize database tables and background tasks on startup"""
+    logger.info("Application startup hook entered (pid=%s)", os.getpid())
 
     # Register playbook handlers
     try:
@@ -359,6 +360,7 @@ async def run_startup(app: FastAPI):
 
 async def run_shutdown(app: FastAPI):
     """Cleanup on shutdown"""
+    logger.warning("Application shutdown hook entered (pid=%s)", os.getpid())
     if hasattr(app.state, "cloud_connector"):
         connector = app.state.cloud_connector
         if connector:

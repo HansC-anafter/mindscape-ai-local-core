@@ -110,7 +110,14 @@ async def agent_websocket(
                 await websocket.close(code=4001, reason="Authentication failed")
                 break
 
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as exc:
+        logger.warning(
+            "[AgentWS] Disconnect for client %s workspace=%s surface=%s code=%s",
+            client.client_id,
+            workspace_id,
+            surface,
+            getattr(exc, "code", None),
+        )
         manager.disconnect(client)
     except Exception as e:
         logger.error(f"[AgentWS] Error for client {client.client_id}: {e}")
@@ -208,7 +215,13 @@ async def agent_control_websocket(
                     json.dumps({"type": "pong", "ts": time.time()})
                 )
 
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as exc:
+        logger.warning(
+            "[AgentWS-Control] Disconnect for bridge %s owner=%s code=%s",
+            bridge_id,
+            owner_user_id,
+            getattr(exc, "code", None),
+        )
         manager.unregister_control_client(bridge_id)
     except Exception as e:
         logger.error(f"[AgentWS-Control] Error for bridge {bridge_id}: {e}")
