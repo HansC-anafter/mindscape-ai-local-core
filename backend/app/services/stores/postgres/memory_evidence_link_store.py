@@ -39,6 +39,39 @@ class MemoryEvidenceLinkStore(PostgresStoreBase):
             )
         return link
 
+    def upsert(self, link: MemoryEvidenceLink) -> MemoryEvidenceLink:
+        with self.transaction() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO memory_evidence_links (
+                        id, memory_item_id, evidence_type, evidence_id,
+                        link_role, excerpt, confidence, metadata, created_at
+                    ) VALUES (
+                        :id, :memory_item_id, :evidence_type, :evidence_id,
+                        :link_role, :excerpt, :confidence, :metadata, :created_at
+                    )
+                    ON CONFLICT (memory_item_id, evidence_type, evidence_id, link_role)
+                    DO UPDATE SET
+                        excerpt = EXCLUDED.excerpt,
+                        confidence = EXCLUDED.confidence,
+                        metadata = EXCLUDED.metadata
+                    """
+                ),
+                {
+                    "id": link.id,
+                    "memory_item_id": link.memory_item_id,
+                    "evidence_type": link.evidence_type,
+                    "evidence_id": link.evidence_id,
+                    "link_role": link.link_role,
+                    "excerpt": link.excerpt,
+                    "confidence": link.confidence,
+                    "metadata": self.serialize_json(link.metadata),
+                    "created_at": link.created_at,
+                },
+            )
+        return link
+
     def exists(
         self,
         *,

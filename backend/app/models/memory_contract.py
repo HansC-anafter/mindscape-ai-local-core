@@ -341,17 +341,21 @@ class MemoryEvidenceLink:
         memory_item_id: str,
         task: Task,
     ) -> "MemoryEvidenceLink":
+        execution_id = task.execution_id or task.id
+        task_status = (
+            task.status.value if hasattr(task.status, "value") else str(task.status)
+        )
         return MemoryEvidenceLink(
             memory_item_id=memory_item_id,
             evidence_type="task_execution",
-            evidence_id=task.execution_id or task.id,
+            evidence_id=execution_id,
             link_role="supports",
             excerpt=_build_task_execution_excerpt(task),
-            confidence=0.79 if str(task.status) == "succeeded" else 0.68,
+            confidence=0.79 if task_status == "succeeded" else 0.68,
             metadata={
                 "task_id": task.id,
-                "execution_id": task.execution_id,
-                "status": str(task.status),
+                "execution_id": execution_id,
+                "status": task_status,
                 "pack_id": task.pack_id,
                 "task_type": task.task_type,
                 "completed_at": task.completed_at.isoformat()

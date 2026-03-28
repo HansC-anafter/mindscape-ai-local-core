@@ -500,6 +500,34 @@ class MeetingSessionStore(PostgresStoreBase):
             rows = conn.execute(query, {"session_id": session_id}).fetchall()
             return [self._row_to_meeting_decision(row) for row in rows]
 
+    def update_decision(self, decision: MeetingDecision) -> MeetingDecision:
+        """Persist updates to a structured meeting decision."""
+        with self.transaction() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE meeting_decisions
+                    SET category = :category,
+                        content = :content,
+                        status = :status,
+                        resolved_by_task_id = :resolved_by_task_id,
+                        source_action_item = :source_action_item
+                    WHERE id = :id
+                    """
+                ),
+                {
+                    "id": decision.id,
+                    "category": decision.category,
+                    "content": decision.content,
+                    "status": decision.status,
+                    "resolved_by_task_id": decision.resolved_by_task_id,
+                    "source_action_item": self.serialize_json(
+                        decision.source_action_item
+                    ),
+                },
+            )
+        return decision
+
     def _row_to_meeting_decision(self, row: Any) -> MeetingDecision:
         data = row._mapping if hasattr(row, "_mapping") else row
         created_at = data["created_at"]

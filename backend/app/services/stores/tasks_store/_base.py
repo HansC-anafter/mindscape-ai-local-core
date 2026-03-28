@@ -703,9 +703,9 @@ class TasksStoreCrudMixin:
             or _utc_now(),
             blocked_reason=getattr(row, "blocked_reason", None),
             blocked_payload=blocked_payload,
-            queue_shard=normalize_queue_partition(
-                getattr(row, "queue_shard", None),
-                fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+            queue_shard=_resolve_queue_shard(
+                row.pack_id,
+                execution_context,
             ),
             concurrency_key=getattr(row, "concurrency_key", None),
             frontier_state=getattr(row, "frontier_state", "cold") or "cold",
@@ -737,6 +737,16 @@ def _publish_terminal_event(
     if status_raw.lower() not in _TERMINAL:
         return
     try:
+        if task_obj is not None:
+            try:
+                from backend.app.services.memory.writeback.meeting_terminal_evidence_refresh_service import (
+                    MeetingTerminalEvidenceRefreshService,
+                )
+
+                MeetingTerminalEvidenceRefreshService().refresh_for_task(task_obj)
+            except Exception:
+                pass  # non-fatal
+
         import json
         import os
 
