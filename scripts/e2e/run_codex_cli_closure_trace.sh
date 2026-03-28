@@ -67,7 +67,21 @@ EOF
 capture_json_get() {
   local url="$1"
   local out_json="$2"
-  curl -sS "${url}" | jq '.' >"${out_json}"
+  local attempts="${3:-5}"
+  local delay_seconds="${4:-2}"
+  local tmp_json
+  local i
+
+  tmp_json="$(mktemp)"
+  for i in $(seq 1 "${attempts}"); do
+    if curl -sS --max-time 15 "${url}" | jq '.' >"${tmp_json}"; then
+      mv "${tmp_json}" "${out_json}"
+      return 0
+    fi
+    sleep "${delay_seconds}"
+  done
+  rm -f "${tmp_json}"
+  return 1
 }
 
 echo "run_id=${RUN_ID}"
