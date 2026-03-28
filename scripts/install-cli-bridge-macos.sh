@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLIST_TEMPLATE="$PROJECT_DIR/scripts/config/ai.mindscape.cli-bridge.plist"
 PLIST_DST="$HOME/Library/LaunchAgents/ai.mindscape.cli-bridge.plist"
+LEGACY_PLIST_DST="$HOME/Library/LaunchAgents/com.mindscape.cli-bridge.plist"
 
 escape_sed_replacement() {
     printf '%s' "$1" | sed -e 's/[&|]/\\&/g'
@@ -40,6 +41,12 @@ fi
 
 mkdir -p "$PROJECT_DIR/logs"
 mkdir -p "$HOME/Library/LaunchAgents"
+
+if [[ -f "$LEGACY_PLIST_DST" ]]; then
+    echo "Removing legacy CLI Bridge launchd agent: $LEGACY_PLIST_DST"
+    launchctl unload "$LEGACY_PLIST_DST" 2>/dev/null || true
+    rm -f "$LEGACY_PLIST_DST"
+fi
 
 PATH_VALUE="${PATH:-}"
 for entry in /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin; do

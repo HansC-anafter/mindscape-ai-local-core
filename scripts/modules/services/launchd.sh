@@ -77,10 +77,17 @@ setup_cli_bridge_launchd() {
   local project_root="${PROJECT_ROOT:-.}"
   local install_script="$project_root/scripts/install-cli-bridge-macos.sh"
   local plist_dst="$HOME/Library/LaunchAgents/ai.mindscape.cli-bridge.plist"
+  local legacy_plist_dst="$HOME/Library/LaunchAgents/com.mindscape.cli-bridge.plist"
 
   if [ ! -f "$project_root/scripts/start_cli_bridge_supervisor.sh" ]; then
     echo "  WARNING: CLI bridge supervisor not found, skipping"
     return 0
+  fi
+
+  if [ -f "$legacy_plist_dst" ]; then
+    echo "  Removing legacy CLI Bridge launchd agent..."
+    launchctl unload "$legacy_plist_dst" 2>/dev/null || true
+    rm -f "$legacy_plist_dst"
   fi
 
   if launchctl list 2>/dev/null | grep -q "ai.mindscape.cli-bridge"; then

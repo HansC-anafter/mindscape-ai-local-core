@@ -417,13 +417,13 @@ export default function IntegratedSystemStatusCard({
                     <pre className="bg-gray-900 text-green-400 rounded p-2 text-[10px] font-mono overflow-x-auto whitespace-pre-wrap break-all">
                       {bridgeScriptPath
                         ? `${bridgeScriptPath} --all`
-                        : `./scripts/start_cli_bridge.sh --all`}
+                        : `./scripts/start_cli_bridge_supervisor.sh --all`}
                     </pre>
                     <button
                       onClick={() => {
                         const cmd = bridgeScriptPath
                           ? `${bridgeScriptPath} --all`
-                          : `./scripts/start_cli_bridge.sh --all`;
+                          : `./scripts/start_cli_bridge_supervisor.sh --all`;
                         navigator.clipboard.writeText(cmd);
                         setCopied(true);
                         setTimeout(() => setCopied(false), 1500);

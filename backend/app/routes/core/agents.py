@@ -86,12 +86,12 @@ async def list_agents():
         # HOST_PROJECT_PATH is set in docker-compose.yml to the host's project root
         host_root = os.environ.get("HOST_PROJECT_PATH")
         if host_root:
-            bridge_path = Path(host_root) / "scripts" / "start_cli_bridge.sh"
+            bridge_path = Path(host_root) / "scripts" / "start_cli_bridge_supervisor.sh"
             script_path = str(bridge_path)
         else:
             # Fallback for non-Docker environments
             project_root = Path(__file__).resolve().parents[4]
-            bridge_path = project_root / "scripts" / "start_cli_bridge.sh"
+            bridge_path = project_root / "scripts" / "start_cli_bridge_supervisor.sh"
             script_path = str(bridge_path) if bridge_path.exists() else None
 
         logger.info(f"[AgentsAPI] Listed {len(agents)} agents")

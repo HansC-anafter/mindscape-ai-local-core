@@ -202,11 +202,11 @@ async def list_workspace_agents(
 
         host_root = os.environ.get("HOST_PROJECT_PATH")
         if host_root:
-            bridge_path = Path(host_root) / "scripts" / "start_cli_bridge.sh"
+            bridge_path = Path(host_root) / "scripts" / "start_cli_bridge_supervisor.sh"
             script_path = str(bridge_path)
         else:
             project_root = Path(__file__).resolve().parents[4]
-            bridge_path = project_root / "scripts" / "start_cli_bridge.sh"
+            bridge_path = project_root / "scripts" / "start_cli_bridge_supervisor.sh"
             script_path = str(bridge_path) if bridge_path.exists() else None
 
         return WorkspaceAgentListResponse(
