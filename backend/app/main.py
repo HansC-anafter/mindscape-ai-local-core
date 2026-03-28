@@ -119,54 +119,9 @@ async def health_check():
     must avoid blocking provider network probes. Detailed workspace/tool health
     remains available through the dedicated workspace/system health endpoints.
     """
-    from backend.app.services.system_health_checker import SystemHealthChecker
+    from backend.app.app_bootstrap.root_health import build_root_health_payload
 
-    health_checker = SystemHealthChecker()
-
-    # Perform basic system checks (without workspace requirement)
-    issues = []
-
-    # Keep root /health fast: configuration-only LLM check, no external API probe.
-    llm_status = await health_checker._check_llm_configuration(
-        "default-user",
-        issues,
-        probe_external=False,
-    )
-
-    # Check Vector DB connection
-    vector_db_status = await health_checker._check_vector_db(issues)
-
-    # Check backend service
-    backend_status = await health_checker._check_backend_service(issues)
-
-    # Check OCR service
-    ocr_status = await health_checker._check_ocr_service(issues)
-
-    # Determine overall status
-    overall_status = "healthy"
-    if any(i.severity == "error" for i in issues):
-        overall_status = "unhealthy"
-    elif any(i.severity == "warning" for i in issues):
-        overall_status = "degraded"
-
-    return {
-        "status": overall_status,
-        "service": "my-agent-mindscape-backend",
-        "version": "1.0.0",
-        "components": {
-            "backend": backend_status.get("status", "unknown"),
-            "llm_configured": llm_status.get("configured", False),
-            "llm_available": llm_status.get("available", False),
-            "vector_db_connected": vector_db_status.get("connected", False),
-            "ocr_service": ocr_status.get("status", "unknown"),
-        },
-        "llm_configured": llm_status.get("configured", False),
-        "llm_available": llm_status.get("available", False),
-        "llm_provider": llm_status.get("provider"),
-        "vector_db_connected": vector_db_status.get("connected", False),
-        "ocr_service": ocr_status,
-        "issues": [issue.to_dict() for issue in issues] if issues else [],
-    }
+    return await build_root_health_payload()
 
 
 # Service URLs reachable from inside Docker (backend proxies these for the frontend)
