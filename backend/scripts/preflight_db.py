@@ -16,6 +16,7 @@ import os
 import sys
 import time
 import subprocess
+from pathlib import Path
 
 
 def ensure_databases():
@@ -150,6 +151,74 @@ def run_migrations():
         return False
 
 
+def _repair_script_path() -> str:
+    script_dir = Path(__file__).resolve().parent
+    return str(script_dir / "repair_alembic_state.py")
+
+
+def _backend_dir() -> str:
+    return str(Path(__file__).resolve().parents[1])
+
+
+def try_repair_alembic_state(apply: bool) -> bool:
+    """Run the repo-owned alembic repair helper.
+
+    This is only intended for populated databases whose alembic_version table is
+    empty. The helper performs its own sentinel-table validation before
+    stamping heads.
+    """
+    repair_script = _repair_script_path()
+    if not os.path.exists(repair_script):
+        print(f"[preflight] Alembic repair helper not found at {repair_script}")
+        return False
+
+    cmd = [sys.executable, repair_script]
+    if apply:
+        cmd.append("--apply")
+
+    mode = "apply" if apply else "dry-run"
+    print(f"[preflight] Running Alembic repair helper ({mode})...")
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=_backend_dir(),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.stdout:
+            print(f"[preflight] repair stdout: {result.stdout[:5000]}")
+        if result.stderr:
+            print(f"[preflight] repair stderr: {result.stderr[:5000]}")
+
+        if result.returncode != 0:
+            print(
+                f"[preflight] Alembic repair helper failed in {mode} mode "
+                f"(exit {result.returncode})"
+            )
+            return False
+
+        stdout = result.stdout or ""
+        if "ALEMBIC_REPAIR_NOOP_ALREADY_STAMPED" in stdout:
+            return True
+        if not apply and "ALEMBIC_REPAIR_DRY_RUN_OK" in stdout:
+            return True
+        if apply and "ALEMBIC_REPAIR_STAMPED_VERSIONS" in stdout:
+            return True
+
+        print(
+            f"[preflight] Alembic repair helper returned success but did not emit "
+            f"an expected marker in {mode} mode"
+        )
+        return False
+    except subprocess.TimeoutExpired:
+        print(f"[preflight] Alembic repair helper timed out in {mode} mode")
+        return False
+    except Exception as e:
+        print(f"[preflight] Alembic repair helper error in {mode} mode: {e}")
+        return False
+
+
 def verify_critical_tables():
     """Verify that critical PostgreSQL tables exist. Returns True if all OK."""
     try:
@@ -208,7 +277,15 @@ def verify_critical_tables():
 if __name__ == "__main__":
     db_ok = ensure_databases()
     if db_ok:
-        migration_ok = run_migrations()
+        repair_ok = False
+        if try_repair_alembic_state(apply=False):
+            print(
+                "[preflight] Detected populated unstamped Alembic state; "
+                "attempting automatic head stamp before upgrade."
+            )
+            repair_ok = try_repair_alembic_state(apply=True)
+
+        migration_ok = repair_ok or run_migrations()
         if not migration_ok:
             print("[preflight] WARNING: Alembic migration returned failure")
             # Clean up stale alembic_version entries if tables are missing
