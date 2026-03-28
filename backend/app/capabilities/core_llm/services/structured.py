@@ -16,6 +16,7 @@ async def extract(
     schema_description: str,
     example_output: Optional[Dict[str, Any]] = None,
     llm_provider: Optional[Any] = None,
+    model_name: Optional[str] = None,
     locale: Optional[str] = None,
     target_language: Optional[str] = None,
     profile_id: Optional[str] = None  # Accept but not used (for compatibility with workflow_orchestrator)
@@ -27,7 +28,8 @@ async def extract(
         text: Long text to extract from
         schema_description: Expected JSON schema description
         example_output: Example output (optional)
-        llm_provider: LLM provider object (optional)
+        llm_provider: LLM provider object (required)
+        model_name: Explicit model name (required)
         locale: Locale code (e.g., "zh-TW", "en"). Deprecated: use target_language instead.
         target_language: Target language for extraction (e.g., "zh-TW", "en", "ja-JP").
                         Primary parameter. Priority: target_language > locale
@@ -39,10 +41,15 @@ async def extract(
     """
     try:
         if not llm_provider:
-            # Use the standard system method for creating LLM provider (same as workspace chat)
-            from ....shared.llm_provider_helper import create_llm_provider_manager, get_llm_provider_from_settings
-            llm_manager = create_llm_provider_manager()
-            llm_provider = get_llm_provider_from_settings(llm_manager)
+            raise ValueError(
+                "core_llm.structured_extract requires explicit llm_provider; "
+                "implicit provider resolution has been removed"
+            )
+        if not model_name or not str(model_name).strip():
+            raise ValueError(
+                "core_llm.structured_extract requires explicit model_name; "
+                "implicit chat_model fallback has been removed"
+            )
 
         target_lang = target_language or locale
 
@@ -79,20 +86,11 @@ Please output the extraction result in JSON format."""
             user_prompt=user_prompt
         )
 
-        # Get conversation model from system settings (same as generate.py)
-        from ....services.system_settings_store import SystemSettingsStore
-        settings_store = SystemSettingsStore()
-        chat_setting = settings_store.get_setting("chat_model")
-
-        model_to_use = None
-        if chat_setting and chat_setting.value:
-            model_to_use = str(chat_setting.value)
-
         # Call LLM
         result = await call_llm(
             messages=messages,
             llm_provider=llm_provider,
-            model=model_to_use,
+            model=str(model_name).strip(),
             temperature=0.3,  # Use lower temperature for structured extraction
             max_tokens=8192  # Allow full schema output; capped again in provider
         )

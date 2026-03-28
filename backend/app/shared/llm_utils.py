@@ -110,6 +110,13 @@ async def call_llm(
             - usage: Token usage information (if available)
     """
     try:
+        if not model or not str(model).strip():
+            raise ValueError(
+                "call_llm requires an explicit model; implicit default/env model selection "
+                "has been removed"
+            )
+        resolved_model = str(model).strip()
+
         # If llm_provider is LLMProviderManager, get the actual provider based on model
         if hasattr(llm_provider, 'get_provider'):
             # Get provider from user settings (no fallback)
@@ -117,8 +124,8 @@ async def call_llm(
             try:
                 provider = get_llm_provider_from_settings(
                     llm_provider,
-                    model_name=model,
-                    default_model="gpt-4o-mini",
+                    model_name=resolved_model,
+                    default_model=None,
                     purpose="llm_utils.call_llm",
                 )
             except ValueError as e:
@@ -144,12 +151,7 @@ async def call_llm(
             if 'temperature' in sig.parameters:
                 params['temperature'] = temperature
 
-            if not model:
-                import os
-                from backend.app.services.conversation.model_context_presets import get_model_name_from_env
-                model = get_model_name_from_env() or "gpt-4o-mini"
-
-            model_name = model
+            model_name = resolved_model
             from backend.app.shared.inference_config import InferenceConfig
             resolved_max = InferenceConfig.get_max_tokens(
                 model_name, caller_default=max_tokens

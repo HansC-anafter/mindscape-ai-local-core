@@ -104,7 +104,9 @@ async def map_capability_to_roles(
     capability_name: str,
     summary_for_roles: str,
     profile_id: str = "default-user",
-    target_language: str = "zh-TW"
+    target_language: str = "zh-TW",
+    llm_provider: Optional[Any] = None,
+    model_name: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Map a capability pack to AI roles using LLM
@@ -136,6 +138,20 @@ async def map_capability_to_roles(
                 "name": role.name,
                 "description": role.description
             })
+
+        if not llm_provider or not model_name or not str(model_name).strip():
+            logger.info(
+                "Skipping LLM role mapping for %s because no explicit provider/model was supplied",
+                capability_id,
+            )
+            fallback_mapping = _create_fallback_mapping(
+                capability_id,
+                capability_name,
+                summary_for_roles,
+                {role.id for role in roles},
+                target_language=target_language,
+            )
+            return [fallback_mapping] if fallback_mapping else []
 
         # Prepare prompt for LLM
         prompt = f"""You are helping to map a newly installed capability pack to AI roles.
@@ -206,6 +222,8 @@ Return only valid JSON, no additional text."""
             text=prompt,
             schema_description=schema_description,
             example_output=example_output,
+            llm_provider=llm_provider,
+            model_name=str(model_name).strip(),
             target_language=target_language
         )
 
@@ -331,7 +349,7 @@ def save_role_capability_mappings(
                     saved_count += 1
                 except Exception as e:
                     logger.error(
-                        f\"Failed to save mapping for role {mapping.get('role_id')}: {e}\"
+                        f"Failed to save mapping for role {mapping.get('role_id')}: {e}"
                     )
 
         logger.info(f"Saved {saved_count} role-capability mappings for {capability_id} (fallback: {has_fallback})")

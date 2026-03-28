@@ -249,19 +249,9 @@ class RequestContract(BaseModel):
             )
 
             if not model_name:
-                from backend.app.services.system_settings_store import (
-                    SystemSettingsStore,
+                _log.debug(
+                    "compile_with_llm: no explicit model_name; skipping LLM compile"
                 )
-
-                try:
-                    setting = SystemSettingsStore().get_setting("chat_model")
-                    if setting and setting.value:
-                        model_name = str(setting.value)
-                except Exception:
-                    pass
-
-            if not model_name:
-                _log.debug("compile_with_llm: no model_name, falling back to regex")
                 return cls.compile_from_agenda(user_message, agenda, workspace_id)
 
             manager = get_llm_provider_manager()

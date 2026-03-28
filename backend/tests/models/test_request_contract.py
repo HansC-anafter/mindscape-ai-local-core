@@ -40,3 +40,32 @@ async def test_compile_with_llm_times_out_and_falls_back(monkeypatch):
         "列出 2 到 3 個立即下一步",
     ]
     assert contract.workspace_scope == "ws-test"
+
+
+@pytest.mark.asyncio
+async def test_compile_with_llm_without_explicit_model_skips_llm(monkeypatch):
+    from backend.features.workspace.chat.utils import llm_provider as llm_provider_module
+
+    def _should_not_call(*args, **kwargs):
+        raise AssertionError("LLM provider lookup should not run without explicit model_name")
+
+    monkeypatch.setattr(
+        llm_provider_module,
+        "get_llm_provider_manager",
+        _should_not_call,
+    )
+    monkeypatch.setattr(
+        llm_provider_module,
+        "get_llm_provider",
+        _should_not_call,
+    )
+
+    contract = await RequestContract.compile_with_llm(
+        user_message="整理合作方向的 3 個關鍵點",
+        agenda=["整理合作方向的 3 個關鍵點"],
+        workspace_id="ws-test",
+        model_name=None,
+    )
+
+    assert [d.id for d in contract.deliverables] == ["D1"]
+    assert contract.deliverables[0].name == "整理合作方向的 3 個關鍵點"

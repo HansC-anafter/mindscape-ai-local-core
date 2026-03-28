@@ -17,6 +17,7 @@ async def run(
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
     llm_provider: Optional[Any] = None,
+    model_name: Optional[str] = None,
     locale: Optional[str] = None,
     target_language: Optional[str] = None,
     workspace_id: Optional[str] = None,
@@ -32,7 +33,8 @@ async def run(
         system_prompt: System prompt (optional)
         temperature: Temperature parameter (default 0.7)
         max_tokens: Maximum token count (optional)
-        llm_provider: LLM provider object (optional, will be retrieved from profile)
+        llm_provider: LLM provider object (required)
+        model_name: Explicit model name (required)
         locale: Locale code (e.g., "zh-TW", "en"). Deprecated: use target_language instead.
         target_language: Target language for output (e.g., "zh-TW", "en", "ja-JP").
                         Primary parameter. Priority: target_language > locale
@@ -44,72 +46,14 @@ async def run(
     """
     try:
         if not llm_provider:
-            from ....services.agent_runner import LLMProviderManager
-            from ....services.config_store import ConfigStore
-            from ....services.system_settings_store import SystemSettingsStore
-            from ....services.model_config_store import ModelConfigStore
-            from ....models.model_provider import ModelType
-            import os
-
-            # Get conversation model from system settings first
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-
-            if not chat_setting or not chat_setting.value:
-                raise ValueError(
-                    "LLM model not configured. Please select a model in the system settings panel."
-                )
-
-            model_name = str(chat_setting.value)
-            if not model_name or model_name.strip() == "":
-                raise ValueError(
-                    "LLM model is empty. Please select a valid model in the system settings panel."
-                )
-
-            logger.info(f"Using configured conversation model: {model_name}")
-
-            # Get model config to determine provider
-            model_store = ModelConfigStore()
-            all_models = model_store.get_all_models(model_type=ModelType.CHAT, enabled=True)
-            model_config = None
-            provider_name = None
-
-            for m in all_models:
-                if m.model_name == model_name:
-                    model_config = m
-                    provider_name = m.provider_name
-                    break
-
-            # Fallback: if model name contains "gemini", use vertex-ai
-            if not provider_name and "gemini" in model_name.lower():
-                provider_name = "vertex-ai"
-
-            config_store = ConfigStore()
-            config = config_store.get_or_create_config(profile_id or "default-user")
-
-            openai_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
-            anthropic_key = config.agent_backend.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-
-            # Get Vertex AI configuration from system settings
-            vertex_service_account_json = None
-            vertex_project_id = None
-            vertex_location = None
-
-            if provider_name == "vertex-ai" or (model_name and "gemini" in model_name.lower()):
-                service_account_setting = settings_store.get_setting("vertex_ai_service_account_json")
-                project_id_setting = settings_store.get_setting("vertex_ai_project_id")
-                location_setting = settings_store.get_setting("vertex_ai_location")
-
-                vertex_service_account_json = service_account_setting.value if service_account_setting and service_account_setting.value else os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-                vertex_project_id = project_id_setting.value if project_id_setting and project_id_setting.value else os.getenv("GOOGLE_CLOUD_PROJECT")
-                vertex_location = location_setting.value if location_setting and location_setting.value else os.getenv("VERTEX_LOCATION", "us-central1")
-
-            llm_provider = LLMProviderManager(
-                openai_key=openai_key,
-                anthropic_key=anthropic_key,
-                vertex_api_key=vertex_service_account_json,
-                vertex_project_id=vertex_project_id,
-                vertex_location=vertex_location
+            raise ValueError(
+                "core_llm.generate requires explicit llm_provider; "
+                "implicit provider resolution has been removed"
+            )
+        if not model_name or not str(model_name).strip():
+            raise ValueError(
+                "core_llm.generate requires explicit model_name; "
+                "implicit chat_model fallback has been removed"
             )
 
         target_lang = target_language or locale
@@ -169,31 +113,11 @@ async def run(
             user_prompt=prompt
         )
 
-        # Get conversation model from system settings
-        # Must be configured by user in settings panel, no fallback allowed
-        from ....services.system_settings_store import SystemSettingsStore
-        settings_store = SystemSettingsStore()
-        chat_setting = settings_store.get_setting("chat_model")
-
-        if not chat_setting or not chat_setting.value:
-            raise ValueError(
-                "LLM model not configured. Please select a model in the system settings panel."
-            )
-
-        conversation_model = str(chat_setting.value)
-        if not conversation_model or conversation_model.strip() == "":
-            raise ValueError(
-                "LLM model is empty. Please select a valid model in the system settings panel."
-            )
-
-        logger.info(f"Using conversation model from settings: {conversation_model}")
-        model_to_use = conversation_model
-
         # Call LLM
         result = await call_llm(
             messages=messages,
             llm_provider=llm_provider,
-            model=model_to_use,
+            model=str(model_name).strip(),
             temperature=temperature,
             max_tokens=max_tokens
         )

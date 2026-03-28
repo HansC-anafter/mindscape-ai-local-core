@@ -168,6 +168,16 @@ async def chat_workspace_instruction(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    from backend.app.services.system_settings_store import SystemSettingsStore
+
+    chat_setting = SystemSettingsStore().get_setting("chat_model")
+    model_name = str(chat_setting.value).strip() if chat_setting and chat_setting.value else ""
+    if not model_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Workspace instruction assistant requires an explicit configured chat_model.",
+        )
+
     schema_json = json.dumps(
         InstructionAssistantOutput.model_json_schema(),
         ensure_ascii=False,
@@ -205,6 +215,7 @@ Generate a concise assistant message and a structured patch.
             text=prompt_text,
             schema_description=schema_description,
             llm_provider=llm_provider,
+            model_name=model_name,
             target_language=getattr(workspace, "default_locale", None) or "zh-TW",
         )
         assistant_output = _coerce_assistant_output(result.get("extracted_data"))

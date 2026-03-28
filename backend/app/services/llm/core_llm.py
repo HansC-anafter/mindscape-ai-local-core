@@ -1,21 +1,16 @@
 """Compatibility shim for legacy `app.services.llm.core_llm` imports.
 
 Capability packs such as `performance_direction` still call `core_llm_call()`
-through this path. This shim makes that path real again and delegates to:
-
-1. workspace-bound external runtimes (`codex_cli`, `claude_code_cli`, `gemini_cli`)
-2. managed `core_llm.generate` when no executor runtime is configured
+through this path. Hidden managed-provider fallback has been removed; callers
+must route through a workspace-bound runtime or provide a new explicit managed
+LLM path elsewhere.
 """
 
 from __future__ import annotations
 
-import json
-import logging
 from typing import Any, Optional
 
 from ...shared.llm_utils import extract_json_from_text
-
-logger = logging.getLogger(__name__)
 
 
 def _build_runtime_task(
@@ -94,34 +89,6 @@ async def _call_via_runtime(
     return output
 
 
-async def _call_via_managed_llm(
-    *,
-    workspace_id: Optional[str],
-    profile_id: Optional[str],
-    system_prompt: Optional[str],
-    user_message: str,
-    response_format: str,
-    model: Optional[str],
-    kwargs: dict[str, Any],
-) -> Any:
-    from ...capabilities.core_llm.services.generate import run as generate_text
-
-    result = await generate_text(
-        prompt=user_message,
-        system_prompt=system_prompt,
-        workspace_id=workspace_id,
-        profile_id=profile_id,
-        **kwargs,
-    )
-    text = str(result.get("text", "") or "").strip()
-    if response_format == "json":
-        parsed = extract_json_from_text(text)
-        if parsed is None:
-            raise ValueError("Managed core_llm did not return valid JSON")
-        return parsed
-    return text
-
-
 async def core_llm_call(
     *,
     user_message: str,
@@ -147,17 +114,7 @@ async def core_llm_call(
             model=model,
         )
 
-    logger.info(
-        "core_llm_call falling back to managed provider path (workspace_id=%s, runtime=%s)",
-        workspace_id,
-        resolved_runtime,
-    )
-    return await _call_via_managed_llm(
-        workspace_id=workspace_id,
-        profile_id=profile_id,
-        system_prompt=system_prompt,
-        user_message=user_message,
-        response_format=response_format,
-        model=model,
-        kwargs=kwargs,
+    raise RuntimeError(
+        "core_llm_call requires an explicit workspace executor runtime; "
+        "hidden managed LLM fallback has been removed"
     )
