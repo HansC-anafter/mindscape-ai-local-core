@@ -374,7 +374,8 @@ class PlaybookPreflight:
 
             # 1. Check agent availability
             agent_available, agent_error = await self._check_agent_availability(
-                agent_id
+                agent_id,
+                workspace_id=getattr(workspace, "id", None),
             )
             if not agent_available:
                 return PlaybookPreflightResult(
@@ -452,6 +453,7 @@ class PlaybookPreflight:
     async def _check_agent_availability(
         self,
         agent_id: str,
+        workspace_id: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         """
         Check if the external agent is installed and available.
@@ -478,8 +480,38 @@ class PlaybookPreflight:
             if not adapter:
                 return False, f"Agent '{agent_id}' adapter not found"
 
-            # Check if agent CLI is available
-            is_available = await adapter.is_available()
+            availability_detail: Optional[Dict[str, Any]] = None
+            if hasattr(adapter, "get_availability_detail"):
+                try:
+                    availability_detail = adapter.get_availability_detail(
+                        workspace_id=workspace_id
+                    )
+                except TypeError:
+                    availability_detail = adapter.get_availability_detail()
+
+            if availability_detail is not None:
+                if availability_detail.get("available"):
+                    return True, None
+
+                reason = str(availability_detail.get("reason") or "").strip()
+                transport = str(availability_detail.get("transport") or "").strip()
+                if reason in {"no_ws_client", "no_surface_bridge"}:
+                    return (
+                        False,
+                        f"Agent '{agent_id}' bridge is not connected for workspace '{workspace_id or 'unknown'}'",
+                    )
+                if reason == "no_active_runner":
+                    return False, f"Agent '{agent_id}' runner is not active"
+                if reason:
+                    detail = f" ({transport}/{reason})" if transport else f" ({reason})"
+                    return False, f"Agent '{agent_id}' is not available{detail}"
+                return False, f"Agent '{agent_id}' is not available"
+
+            # Fallback for older adapters without structured availability detail
+            try:
+                is_available = await adapter.is_available(workspace_id=workspace_id)
+            except TypeError:
+                is_available = await adapter.is_available()
             if not is_available:
                 return (
                     False,
