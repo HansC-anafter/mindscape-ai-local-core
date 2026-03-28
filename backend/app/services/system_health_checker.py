@@ -114,9 +114,15 @@ class SystemHealthChecker:
     async def _check_llm_configuration(
         self,
         profile_id: str,
-        issues: List[HealthIssue]
+        issues: List[HealthIssue],
+        probe_external: bool = True,
     ) -> Dict[str, Any]:
-        """Check LLM API key configuration by actually testing the connection"""
+        """Check LLM configuration.
+
+        When ``probe_external`` is false, only inspect local configuration and
+        avoid live provider API calls. This keeps liveness probes fast and
+        prevents external provider latency from stalling the backend event loop.
+        """
         try:
             if profile_id == "default-user":
                 from backend.app.services.mindscape_store import MindscapeStore
@@ -186,7 +192,13 @@ class SystemHealthChecker:
                         api_key = None
                         vertex_ai_configured = False
 
-                    if api_key or vertex_ai_configured:
+                    if not probe_external:
+                        if provider == "vertex-ai":
+                            configured = vertex_ai_configured
+                        else:
+                            configured = bool(api_key)
+                        available = configured
+                    elif api_key or vertex_ai_configured:
                         # Test connection with a simple API call
                         try:
                             if provider == "openai":

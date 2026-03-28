@@ -113,7 +113,12 @@ async def reset_rate_limit(request: Request):
 
 @app.get("/health")
 async def health_check():
-    """Overall health check with system component status"""
+    """Fast backend liveness/readiness probe.
+
+    Docker and local bridge startup scripts hit this endpoint frequently, so it
+    must avoid blocking provider network probes. Detailed workspace/tool health
+    remains available through the dedicated workspace/system health endpoints.
+    """
     from backend.app.services.system_health_checker import SystemHealthChecker
 
     health_checker = SystemHealthChecker()
@@ -121,8 +126,12 @@ async def health_check():
     # Perform basic system checks (without workspace requirement)
     issues = []
 
-    # Check LLM configuration
-    llm_status = await health_checker._check_llm_configuration("default-user", issues)
+    # Keep root /health fast: configuration-only LLM check, no external API probe.
+    llm_status = await health_checker._check_llm_configuration(
+        "default-user",
+        issues,
+        probe_external=False,
+    )
 
     # Check Vector DB connection
     vector_db_status = await health_checker._check_vector_db(issues)
