@@ -49,6 +49,14 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_reasoning_traces_remote_parent ON reasoning_traces(remote_parent_trace_id)",
 ]
 
+LEGACY_COLUMN_REPAIRS = [
+    "ALTER TABLE reasoning_traces ADD COLUMN IF NOT EXISTS parent_trace_id TEXT",
+    "ALTER TABLE reasoning_traces ADD COLUMN IF NOT EXISTS supersedes TEXT",
+    "ALTER TABLE reasoning_traces ADD COLUMN IF NOT EXISTS meeting_session_id TEXT",
+    "ALTER TABLE reasoning_traces ADD COLUMN IF NOT EXISTS device_id TEXT",
+    "ALTER TABLE reasoning_traces ADD COLUMN IF NOT EXISTS remote_parent_trace_id TEXT",
+]
+
 
 class ReasoningTracesStore(PostgresStoreBase):
     """Store for SGR reasoning trace persistence (Postgres)."""
@@ -60,6 +68,8 @@ class ReasoningTracesStore(PostgresStoreBase):
         """Create the reasoning_traces table if it does not exist."""
         with self.transaction() as conn:
             conn.execute(text(TABLE_DDL))
+            for ddl in LEGACY_COLUMN_REPAIRS:
+                conn.execute(text(ddl))
             for idx in INDEX_DDL:
                 conn.execute(text(idx))
         logger.info("reasoning_traces table ensured")
