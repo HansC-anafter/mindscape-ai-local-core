@@ -69,6 +69,7 @@ class RequestContract(BaseModel):
     )
     workspace_scope: str = Field(default="", description="Target workspace ID")
     source_message: str = Field(default="", description="Original user message")
+    LLM_TIMEOUT_S: float = 15.0
 
     @classmethod
     def compile_from_agenda(
@@ -232,6 +233,7 @@ class RequestContract(BaseModel):
 
         Falls back to ``compile_from_agenda`` on any LLM error.
         """
+        import asyncio as _asyncio
         import inspect as _inspect
         import json as _json
         import logging
@@ -299,7 +301,10 @@ class RequestContract(BaseModel):
             if "messages" not in kwargs:
                 kwargs["messages"] = messages
 
-            raw = await provider.chat_completion(**kwargs)
+            raw = await _asyncio.wait_for(
+                provider.chat_completion(**kwargs),
+                timeout=float(getattr(cls, "LLM_TIMEOUT_S", 15.0)),
+            )
             text = raw.strip()
             if text.startswith("```"):
                 text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()

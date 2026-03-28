@@ -12,6 +12,7 @@ COMPILE_TIMEOUT_SECONDS="${COMPILE_TIMEOUT_SECONDS:-240}"
 SESSION_POLL_INTERVAL_SECONDS="${SESSION_POLL_INTERVAL_SECONDS:-15}"
 SESSION_POLL_MAX_ATTEMPTS="${SESSION_POLL_MAX_ATTEMPTS:-24}"
 SESSION_POLL_GRACE_ATTEMPTS="${SESSION_POLL_GRACE_ATTEMPTS:-4}"
+SESSION_POLL_EXTENSION_ATTEMPTS="${SESSION_POLL_EXTENSION_ATTEMPTS:-12}"
 SECRET_KEY="${HANDOFF_BUNDLE_SECRET:-local-e2e-secret-${RUN_ID}}"
 MANAGED_BRIDGE_MODE="${MANAGED_BRIDGE_MODE:-0}"
 BRIDGE_CLIENT_ID="${BRIDGE_CLIENT_ID:-e2e-codex-${RUN_ID}}"
@@ -83,6 +84,16 @@ capture_json_get() {
   done
   rm -f "${tmp_json}"
   return 1
+}
+
+refresh_compile_job_snapshot() {
+  if [[ -z "${compile_job_id:-}" ]]; then
+    return 1
+  fi
+
+  capture_json_get \
+    "${BASE_URL}/api/handoff-bundles/compile-jobs/${compile_job_id}" \
+    "${TRACE_DIR}/02c_compile_job.json"
 }
 
 echo "run_id=${RUN_ID}"
@@ -336,19 +347,28 @@ write_note \
 poll_log="${TRACE_DIR}/03_session_polls.ndjson"
 : >"${poll_log}"
 terminal_state=""
+last_round_count="0"
+last_pipeline_stage=""
+last_pipeline_stage_status=""
+compile_job_status=""
 
 for attempt in $(seq 1 "${SESSION_POLL_MAX_ATTEMPTS}"); do
   if ! capture_json_get \
     "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
     "${TRACE_DIR}/03_session_after_close.json"; then
+    if refresh_compile_job_snapshot; then
+      compile_job_status="$(jq -r '.status // empty' "${TRACE_DIR}/02c_compile_job.json")"
+    fi
     jq -nc \
       --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --arg session_id "${session_id}" \
       --arg error "session poll unavailable" \
+      --arg compile_job_status "${compile_job_status}" \
       '{
         polled_at: $polled_at,
         id: $session_id,
-        error: $error
+        error: $error,
+        compile_job_status: ($compile_job_status | select(length > 0))
       }' >>"${poll_log}"
     wait_for_backend_ready 40 2 || true
     sleep "${SESSION_POLL_INTERVAL_SECONDS}"
@@ -369,6 +389,9 @@ for attempt in $(seq 1 "${SESSION_POLL_MAX_ATTEMPTS}"); do
   ' "${TRACE_DIR}/03_session_after_close.json" >>"${poll_log}"
 
   status="$(jq -r '.status' "${TRACE_DIR}/03_session_after_close.json")"
+  last_round_count="$(jq -r '.round_count // 0' "${TRACE_DIR}/03_session_after_close.json")"
+  last_pipeline_stage="$(jq -r '.metadata.pipeline_stage // empty' "${TRACE_DIR}/03_session_after_close.json")"
+  last_pipeline_stage_status="$(jq -r '.metadata.pipeline_stage_status // empty' "${TRACE_DIR}/03_session_after_close.json")"
   if [[ "${status}" == "closed" || "${status}" == "failed" ]]; then
     terminal_state="${status}"
     break
@@ -381,6 +404,9 @@ if [[ -z "${terminal_state}" ]]; then
     if capture_json_get \
       "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
       "${TRACE_DIR}/03_session_after_close.json"; then
+      if refresh_compile_job_snapshot; then
+        compile_job_status="$(jq -r '.status // empty' "${TRACE_DIR}/02c_compile_job.json")"
+      fi
       jq -c --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
         {
           polled_at: $polled_at,
@@ -396,25 +422,94 @@ if [[ -z "${terminal_state}" ]]; then
       ' "${TRACE_DIR}/03_session_after_close.json" >>"${poll_log}"
 
       status="$(jq -r '.status' "${TRACE_DIR}/03_session_after_close.json")"
+      last_round_count="$(jq -r '.round_count // 0' "${TRACE_DIR}/03_session_after_close.json")"
+      last_pipeline_stage="$(jq -r '.metadata.pipeline_stage // empty' "${TRACE_DIR}/03_session_after_close.json")"
+      last_pipeline_stage_status="$(jq -r '.metadata.pipeline_stage_status // empty' "${TRACE_DIR}/03_session_after_close.json")"
       if [[ "${status}" == "closed" || "${status}" == "failed" ]]; then
         terminal_state="${status}"
         break
       fi
     else
+      if refresh_compile_job_snapshot; then
+        compile_job_status="$(jq -r '.status // empty' "${TRACE_DIR}/02c_compile_job.json")"
+      fi
       jq -nc \
         --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --arg session_id "${session_id}" \
         --arg error "grace session poll unavailable" \
+        --arg compile_job_status "${compile_job_status}" \
         '{
           polled_at: $polled_at,
           id: $session_id,
           error: $error,
-          grace_poll: true
+          grace_poll: true,
+          compile_job_status: ($compile_job_status | select(length > 0))
         }' >>"${poll_log}"
       wait_for_backend_ready 40 2 || true
     fi
     sleep "${SESSION_POLL_INTERVAL_SECONDS}"
   done
+fi
+
+if [[ -z "${terminal_state}" ]]; then
+  refresh_compile_job_snapshot || true
+  compile_job_status="$(jq -r '.status // empty' "${TRACE_DIR}/02c_compile_job.json" 2>/dev/null || true)"
+
+  if [[ "${last_round_count}" -ge 3 ]] && [[ "${last_pipeline_stage}" =~ ^(extract_actions|dispatch|finalize)$ || "${compile_job_status}" == "running" ]]; then
+    for attempt in $(seq 1 "${SESSION_POLL_EXTENSION_ATTEMPTS}"); do
+      refresh_compile_job_snapshot || true
+      compile_job_status="$(jq -r '.status // empty' "${TRACE_DIR}/02c_compile_job.json" 2>/dev/null || true)"
+
+      if capture_json_get \
+        "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
+        "${TRACE_DIR}/03_session_after_close.json"; then
+        jq -c \
+          --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          --arg compile_job_status "${compile_job_status}" '
+          {
+            polled_at: $polled_at,
+            id,
+            status,
+            round_count,
+            ended_at,
+            pipeline_stage: (.metadata.pipeline_stage // null),
+            pipeline_stage_status: (.metadata.pipeline_stage_status // null),
+            canonical_memory_item_id: (.metadata.canonical_memory_item_id // null),
+            compile_job_status: ($compile_job_status | select(length > 0)),
+            extended_poll: true
+          }
+        ' "${TRACE_DIR}/03_session_after_close.json" >>"${poll_log}"
+
+        status="$(jq -r '.status' "${TRACE_DIR}/03_session_after_close.json")"
+        last_round_count="$(jq -r '.round_count // 0' "${TRACE_DIR}/03_session_after_close.json")"
+        last_pipeline_stage="$(jq -r '.metadata.pipeline_stage // empty' "${TRACE_DIR}/03_session_after_close.json")"
+        last_pipeline_stage_status="$(jq -r '.metadata.pipeline_stage_status // empty' "${TRACE_DIR}/03_session_after_close.json")"
+        if [[ "${status}" == "closed" || "${status}" == "failed" ]]; then
+          terminal_state="${status}"
+          break
+        fi
+      else
+        jq -nc \
+          --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          --arg session_id "${session_id}" \
+          --arg error "extended session poll unavailable" \
+          --arg compile_job_status "${compile_job_status}" '
+          {
+            polled_at: $polled_at,
+            id: $session_id,
+            error: $error,
+            compile_job_status: ($compile_job_status | select(length > 0)),
+            extended_poll: true
+          }' >>"${poll_log}"
+        wait_for_backend_ready 40 2 || true
+      fi
+
+      if [[ "${compile_job_status}" == "succeeded" || "${compile_job_status}" == "failed" ]] && [[ "${last_pipeline_stage}" == "finalize" && "${last_pipeline_stage_status}" == "completed" ]]; then
+        break
+      fi
+      sleep "${SESSION_POLL_INTERVAL_SECONDS}"
+    done
+  fi
 fi
 
 terminal_state="${terminal_state:-active_or_timeout}"
@@ -533,6 +628,8 @@ jq -n \
   --arg workspace_id "${WORKSPACE_ID}" \
   --arg project_id "${PROJECT_ID}" \
   --arg thread_id "${THREAD_ID}" \
+  --arg compile_job_id "${compile_job_id}" \
+  --arg compile_job_status "${compile_job_status}" \
   --arg session_id "${session_id}" \
   --arg execution_id "${execution_id}" \
   --arg memory_item_id "${memory_item_id}" \
@@ -543,6 +640,8 @@ jq -n \
     workspace_id: $workspace_id,
     project_id: $project_id,
     thread_id: $thread_id,
+    compile_job_id: $compile_job_id,
+    compile_job_status: $compile_job_status,
     session_id: $session_id,
     execution_id: $execution_id,
     memory_item_id: $memory_item_id,
