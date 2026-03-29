@@ -19,8 +19,14 @@ logger = logging.getLogger(__name__)
 class SeedExtractor:
     """Extract semantic seeds from content using LLM and generate embeddings"""
 
-    def __init__(self, llm_provider=None, postgres_config=None):
+    def __init__(
+        self,
+        llm_provider=None,
+        model_name: Optional[str] = None,
+        postgres_config=None,
+    ):
         self.llm_provider = llm_provider
+        self.model_name = str(model_name).strip() if model_name else None
         self.postgres_config = postgres_config or self._get_postgres_config()
 
     def _get_postgres_config(self):
@@ -60,8 +66,10 @@ class SeedExtractor:
         Returns:
             List of extracted seeds with embeddings
         """
-        if not self.llm_provider:
-            logger.warning("LLM provider not available, skipping seed extraction")
+        if not self.llm_provider or not self.model_name:
+            logger.warning(
+                "Explicit llm_provider/model_name not available, skipping seed extraction"
+            )
             return []
 
         try:
@@ -101,15 +109,9 @@ Return format:
             # Use replace instead of format to avoid issues with JSON braces
             prompt = prompt_template_str.replace("{{content}}", content)
 
-            # Get model name from system settings (no fallback, no hardcoding)
-            from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
-            model_name = get_model_name_from_chat_model()
-            if not model_name:
-                raise ValueError("chat_model not configured in system settings. Please configure chat_model in Settings.")
-
             response = await self.llm_provider.chat_completion(
                 messages=[{"role": "user", "content": prompt}],
-                model=model_name
+                model=self.model_name,
             )
 
             # Log raw response for debugging
@@ -324,4 +326,3 @@ Return format:
                 ''')
         except Exception as e:
             logger.warning(f"Could not create vector index: {e}")
-
