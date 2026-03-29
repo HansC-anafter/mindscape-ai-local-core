@@ -51,7 +51,13 @@ class IntentStewardService:
     MIN_CONFIDENCE_THRESHOLD = 0.7
     MAX_PREFILTERED_SIGNALS = 20
 
-    def __init__(self, store: MindscapeStore, default_locale: str = "en"):
+    def __init__(
+        self,
+        store: MindscapeStore,
+        default_locale: str = "en",
+        llm_provider=None,
+        model_name: Optional[str] = None,
+    ):
         """
         Initialize Intent Steward Service
 
@@ -61,6 +67,8 @@ class IntentStewardService:
         """
         self.store = store
         self.default_locale = default_locale
+        self.llm_provider = llm_provider
+        self.model_name = str(model_name).strip() if model_name else None
         self.intent_tags_store = IntentTagsStore()
         self.timeline_items_store = PostgresTimelineItemsStore()
         self.events_store = PostgresEventsStore()
@@ -443,27 +451,13 @@ class IntentStewardService:
         """
         try:
             from ...shared.llm_utils import build_prompt, call_llm
-            from ...shared.llm_provider_helper import get_llm_provider_from_settings
-            from ...services.system_settings_store import SystemSettingsStore
             import json
 
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-
-            if not chat_setting or not chat_setting.value:
-                logger.warning("No chat model configured for LLM analysis")
-                return None
-
-            model_name = str(chat_setting.value)
-
-            from ...shared.llm_provider_helper import create_llm_provider_manager
-
-            llm_manager = create_llm_provider_manager()
-
-            try:
-                llm_provider = get_llm_provider_from_settings(llm_manager)
-            except Exception as e:
-                logger.warning(f"Could not get LLM provider: {e}")
+            if not self.llm_provider or not self.model_name:
+                logger.info(
+                    "IntentSteward: explicit llm_provider/model_name not configured, "
+                    "skipping LLM signal analysis"
+                )
                 return None
 
             signals_text = "\n".join(
@@ -553,8 +547,8 @@ Return only valid JSON, no additional text."""
 
             response = await call_llm(
                 messages=messages,
-                llm_provider=llm_provider,
-                model=model_name,
+                llm_provider=self.llm_provider,
+                model=self.model_name,
                 temperature=0.3,
                 max_tokens=2000,
             )

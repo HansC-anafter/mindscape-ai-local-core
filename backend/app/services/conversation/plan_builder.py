@@ -37,7 +37,6 @@ from backend.app.services.external_backend import (
     validate_mindscape_boundary,
     filter_mindscape_results,
 )
-from ...shared.llm_provider_helper import get_llm_provider_from_settings
 from backend.app.core.trace import get_trace_recorder, TraceNodeType, TraceStatus
 
 logger = logging.getLogger(__name__)
@@ -53,6 +52,7 @@ class PlanBuilder:
         capability_profile: Optional[str] = None,
         stage_router: Optional[Any] = None,
         model_name: Optional[str] = None,
+        llm_provider: Optional[Any] = None,
     ):
         """Initialize PlanBuilder."""
         self.store = store
@@ -60,13 +60,12 @@ class PlanBuilder:
         self.capability_profile = capability_profile
         self.stage_router = stage_router
         self.model_name = model_name  # Direct model name (highest priority)
+        self.llm_provider = llm_provider
         from ...services.config_store import ConfigStore
 
         self.config_store = ConfigStore()
         self.external_backend = None
         self._external_backend_loaded = False
-        # Cache LLMProviderManager to avoid recreating it on every call
-        self._llm_manager_cache: Dict[str, Any] = {}  # profile_id -> LLMProviderManager
 
     def _select_model_for_plan(
         self, risk_level: str = "read", profile_id: Optional[str] = None
@@ -141,50 +140,10 @@ class PlanBuilder:
         """
         try:
             from ...capabilities.core_llm.services.structured import extract
-            from ...services.agent_runner import LLMProviderManager
-            import os
-            import json
-
-            config = self.config_store.get_or_create_config(profile_id)
-            # Reuse cached LLMProviderManager
-            cache_key = profile_id or "default-user"
-            if cache_key not in self._llm_manager_cache:
-                from backend.app.shared.llm_provider_helper import (
-                    create_llm_provider_manager,
-                )
-
-                self._llm_manager_cache[cache_key] = create_llm_provider_manager(
-                    openai_key=config.agent_backend.openai_api_key,
-                    anthropic_key=config.agent_backend.anthropic_api_key,
-                    vertex_api_key=config.agent_backend.vertex_api_key,
-                    vertex_project_id=config.agent_backend.vertex_project_id,
-                    vertex_location=config.agent_backend.vertex_location,
-                )
-            llm_manager = self._llm_manager_cache[cache_key]
-
-            # Get user's selected chat model to determine provider
-            from backend.app.services.system_settings_store import SystemSettingsStore
-
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-            provider_name = None
-
-            if chat_setting:
-                provider_name = chat_setting.metadata.get("provider")
-                if not provider_name:
-                    model_name = str(chat_setting.value)
-                    if "gemini" in model_name.lower():
-                        provider_name = "vertex-ai"
-                    elif "gpt" in model_name.lower() or "text-" in model_name.lower():
-                        provider_name = "openai"
-                    elif "claude" in model_name.lower():
-                        provider_name = "anthropic"
-
-            try:
-                llm_provider = get_llm_provider_from_settings(llm_manager)
-            except ValueError as e:
-                logger.warning(
-                    f"LLM provider not available: {e}, falling back to rule-based planning"
+            if not self.llm_provider or not self.model_name:
+                logger.info(
+                    "PlanBuilder: explicit llm_provider/model_name not configured, "
+                    "using rule-based planning"
                 )
                 return []
 
@@ -195,7 +154,6 @@ class PlanBuilder:
 
             timeline_items_store = PostgresTimelineItemsStore()
 
-            # Use _select_model_for_plan to select model (with fallback to chat_model)
             # Determine risk_level from project_assignment_decision or default to "read"
             risk_level = "read"
             if project_assignment_decision:
@@ -713,7 +671,8 @@ Message analysis hints:
                     text=context_with_history,
                     schema_description=schema_description,
                     example_output=example_output,
-                    llm_provider=llm_provider,
+                    llm_provider=self.llm_provider,
+                    model_name=model_name,
                 )
                 llm_end_time = _utc_now()
                 latency_ms = int((llm_end_time - llm_start_time).total_seconds() * 1000)

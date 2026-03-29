@@ -36,7 +36,12 @@ logger = logging.getLogger(__name__)
 class WorkspaceSeedService:
     """Service for processing workspace seeds and generating blueprints"""
 
-    def __init__(self, store):
+    def __init__(
+        self,
+        store,
+        llm_provider=None,
+        model_name: Optional[str] = None,
+    ):
         """
         Initialize seed service
 
@@ -44,6 +49,8 @@ class WorkspaceSeedService:
             store: MindscapeStore instance (provides database connection)
         """
         self.store = store
+        self.llm_provider = llm_provider
+        self.model_name = str(model_name).strip() if model_name else None
         self.workspaces_store = PostgresWorkspacesStore()
         self.intents_store = PostgresIntentsStore()
         self.events_store = PostgresEventsStore()
@@ -158,38 +165,11 @@ class WorkspaceSeedService:
         if not workspace:
             raise ValueError(f"Workspace {workspace_id} not found")
 
-        profile_id = workspace.owner_user_id
-
-        # Get LLM provider
-        from backend.app.shared.llm_provider_helper import (
-            create_llm_provider_manager,
-            get_llm_provider_from_settings,
-        )
-        from backend.app.services.config_store import ConfigStore
-        from backend.app.services.system_settings_store import SystemSettingsStore
-
-        config_store = ConfigStore()
-        settings_store = SystemSettingsStore()
-
-        config = config_store.get_or_create_config(profile_id)
-
-        llm_manager = create_llm_provider_manager(
-            openai_key=config.agent_backend.openai_api_key,
-            anthropic_key=config.agent_backend.anthropic_api_key,
-            vertex_api_key=config.agent_backend.vertex_api_key,
-            vertex_project_id=config.agent_backend.vertex_project_id,
-            vertex_location=config.agent_backend.vertex_location,
-        )
-
-        try:
-            llm_provider = get_llm_provider_from_settings(llm_manager)
-        except ValueError as e:
-            logger.warning(f"LLM provider not available: {e}, using fallback")
-            return self._generate_fallback_digest(text_content, seed_type)
-
-        chat_setting = settings_store.get_setting("chat_model")
-        if not chat_setting or not chat_setting.value:
-            logger.warning("Chat model not configured, using fallback")
+        if not self.llm_provider or not self.model_name:
+            logger.warning(
+                "WorkspaceSeedService: explicit llm_provider/model_name not configured, "
+                "using deterministic fallback digest"
+            )
             return self._generate_fallback_digest(text_content, seed_type)
 
         # Key rule: if URLs seed, add hard rule in prompt
@@ -238,7 +218,8 @@ Please generate a structured digest according to the schema description.
             result = await extract(
                 text=full_text,
                 schema_description=schema_description,
-                llm_provider=llm_provider,
+                llm_provider=self.llm_provider,
+                model_name=self.model_name,
                 target_language=locale,
             )
 

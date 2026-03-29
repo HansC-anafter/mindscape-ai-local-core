@@ -40,6 +40,8 @@ class SpecialPackExecutors:
         store,
         config_store,
         event_emitter: Optional[TaskEventsEmitter] = None,
+        llm_provider: Optional[Any] = None,
+        model_name: Optional[str] = None,
     ):
         """
         Initialize SpecialPackExecutors
@@ -56,6 +58,8 @@ class SpecialPackExecutors:
         self.store = store
         self.config_store = config_store
         self.event_emitter = event_emitter
+        self.llm_provider = llm_provider
+        self.model_name = str(model_name).strip() if model_name else None
 
     async def execute_semantic_seeds(
         self,
@@ -308,41 +312,35 @@ class SpecialPackExecutors:
             List of extracted intent texts
         """
         try:
+            if not self.llm_provider or not self.model_name:
+                logger.info(
+                    "SpecialPackExecutors: explicit llm_provider/model_name not configured, "
+                    "skipping seed extraction from files"
+                )
+                return []
+
             from ...capabilities.semantic_seeds.services.seed_extractor import (
                 SeedExtractor,
             )
-            from backend.app.shared.llm_provider_helper import (
-                create_llm_provider_manager,
-                get_llm_provider_from_settings,
+            extractor = SeedExtractor(
+                llm_provider=self.llm_provider,
+                model_name=self.model_name,
+            )
+            combined_content = "\n\n".join(file_contents[:3])
+
+            seeds = await extractor.extract_seeds_from_content(
+                user_id=profile_id,
+                content=combined_content,
+                source_type="conversation",
+                source_id=message_id,
+                source_context=message,
             )
 
-            config = self.config_store.get_or_create_config(profile_id)
-            llm_manager = create_llm_provider_manager(
-                openai_key=config.agent_backend.openai_api_key,
-                anthropic_key=config.agent_backend.anthropic_api_key,
-                vertex_api_key=config.agent_backend.vertex_api_key,
-                vertex_project_id=config.agent_backend.vertex_project_id,
-                vertex_location=config.agent_backend.vertex_location,
-            )
-            llm_provider = get_llm_provider_from_settings(llm_manager)
-
-            if llm_provider:
-                extractor = SeedExtractor(llm_provider=llm_provider)
-                combined_content = "\n\n".join(file_contents[:3])
-
-                seeds = await extractor.extract_seeds_from_content(
-                    user_id=profile_id,
-                    content=combined_content,
-                    source_type="conversation",
-                    source_id=message_id,
-                    source_context=message,
-                )
-
-                return [
-                    seed.get("text", "")
-                    for seed in seeds
-                    if seed.get("type") in ["intent", "project"]
-                ]
+            return [
+                seed.get("text", "")
+                for seed in seeds
+                if seed.get("type") in ["intent", "project"]
+            ]
 
         except Exception as e:
             logger.warning(
@@ -366,42 +364,36 @@ class SpecialPackExecutors:
             List of extracted intent texts
         """
         try:
+            if not self.llm_provider or not self.model_name:
+                logger.info(
+                    "SpecialPackExecutors: explicit llm_provider/model_name not configured, "
+                    "skipping seed extraction from message"
+                )
+                return []
+
             from ...capabilities.semantic_seeds.services.seed_extractor import (
                 SeedExtractor,
             )
-            from backend.app.shared.llm_provider_helper import (
-                create_llm_provider_manager,
-                get_llm_provider_from_settings,
+            extractor = SeedExtractor(
+                llm_provider=self.llm_provider,
+                model_name=self.model_name,
             )
-
-            config = self.config_store.get_or_create_config(profile_id)
-            llm_manager = create_llm_provider_manager(
-                openai_key=config.agent_backend.openai_api_key,
-                anthropic_key=config.agent_backend.anthropic_api_key,
-                vertex_api_key=config.agent_backend.vertex_api_key,
-                vertex_project_id=config.agent_backend.vertex_project_id,
-                vertex_location=config.agent_backend.vertex_location,
+            seeds = await extractor.extract_seeds_from_content(
+                user_id=profile_id,
+                content=message,
+                source_type="conversation",
+                source_id=message_id,
+                source_context=message,
             )
-            llm_provider = get_llm_provider_from_settings(llm_manager)
-
-            if llm_provider:
-                extractor = SeedExtractor(llm_provider=llm_provider)
-                seeds = await extractor.extract_seeds_from_content(
-                    user_id=profile_id,
-                    content=message,
-                    source_type="conversation",
-                    source_id=message_id,
-                    source_context=message,
-                )
-                extracted_intents = [
-                    seed.get("text", "")
-                    for seed in seeds
-                    if seed.get("type") in ["intent", "project"]
-                ]
-                logger.info(
-                    f"SpecialPackExecutors: Extracted {len(extracted_intents)} intents from message content"
-                )
-                return extracted_intents
+            extracted_intents = [
+                seed.get("text", "")
+                for seed in seeds
+                if seed.get("type") in ["intent", "project"]
+            ]
+            logger.info(
+                f"SpecialPackExecutors: Extracted {len(extracted_intents)} intents from message content"
+            )
+            return extracted_intents
 
         except Exception as e:
             logger.warning(

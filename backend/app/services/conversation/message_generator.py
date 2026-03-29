@@ -8,7 +8,7 @@ Also generates HandoffPlan for multi-step workflows.
 
 import logging
 import json
-from typing import Dict, Any, Optional, List, Callable
+from typing import Dict, Any, Optional, List
 from backend.app.capabilities.core_llm.services.generate import run as llm_generate
 from ...models.playbook import HandoffPlan, WorkflowStep, PlaybookKind, InteractionMode
 from ...services.intent_analyzer import IntentAnalysisResult
@@ -23,31 +23,26 @@ class MessageGenerator:
     def __init__(
         self,
         llm_provider=None,
+        model_name: Optional[str] = None,
         default_locale: str = "en",
-        llm_provider_factory: Optional[Callable[[], Any]] = None,
     ):
         """
         Initialize MessageGenerator
 
         Args:
-            llm_provider: LLM provider instance (optional)
+            llm_provider: Explicit LLM provider instance
+            model_name: Explicit model name for llm_provider
             default_locale: Default locale for messages
-            llm_provider_factory: Optional lazy provider factory
         """
         self.llm_provider = llm_provider
+        self.model_name = str(model_name).strip() if model_name else None
         self.default_locale = default_locale
-        self.llm_provider_factory = llm_provider_factory
 
-    def _ensure_llm_provider(self):
-        """Build the provider lazily so Gemini-only paths do not touch Vertex eagerly."""
-        if self.llm_provider is None and self.llm_provider_factory:
-            try:
-                self.llm_provider = self.llm_provider_factory()
-            except Exception as e:
-                logger.warning(
-                    "Failed to lazily initialize llm_provider: %s", e, exc_info=True
-                )
-        return self.llm_provider
+    def _get_llm_backend(self):
+        """Return explicit LLM backend or signal deterministic fallback."""
+        if self.llm_provider is None or not self.model_name:
+            return None, None
+        return self.llm_provider, self.model_name
 
     async def generate_readonly_feedback(
         self,
@@ -67,7 +62,7 @@ class MessageGenerator:
             Natural feedback message describing what was automatically analyzed
         """
         try:
-            provider = self._ensure_llm_provider()
+            provider, model_name = self._get_llm_backend()
             if not provider:
                 # Fallback to i18n template if LLM not available
                 summary = timeline_item.get('summary', '')
@@ -120,6 +115,7 @@ Generate a natural feedback message for the user describing what was analyzed an
                 system_prompt=system_prompt,
                 temperature=0.7,
                 llm_provider=provider,
+                model_name=model_name,
                 target_language=locale or self.default_locale
             )
 
@@ -168,7 +164,7 @@ Generate a natural feedback message for the user describing what was analyzed an
             Natural suggestion message explaining what can be added
         """
         try:
-            provider = self._ensure_llm_provider()
+            provider, model_name = self._get_llm_backend()
             if not provider:
                 # Fallback to i18n template
                 from ...services.i18n_service import I18nService
@@ -223,6 +219,7 @@ Generate a natural suggestion message encouraging the user to add this to their 
                 system_prompt=system_prompt,
                 temperature=0.7,
                 llm_provider=provider,
+                model_name=model_name,
                 target_language=locale or self.default_locale
             )
 
@@ -262,7 +259,7 @@ Generate a natural suggestion message encouraging the user to add this to their 
             Dict with confirmation message and buttons
         """
         try:
-            provider = self._ensure_llm_provider()
+            provider, model_name = self._get_llm_backend()
             if not provider:
                 # Fallback to i18n template
                 from ...services.i18n_service import I18nService
@@ -328,6 +325,7 @@ Generate a detailed confirmation message asking the user to confirm this action.
                 system_prompt=system_prompt,
                 temperature=0.5,  # Lower temperature for more consistent confirmations
                 llm_provider=provider,
+                model_name=model_name,
                 target_language=locale or self.default_locale
             )
 
@@ -418,12 +416,7 @@ Generate a detailed confirmation message asking the user to confirm this action.
         Returns:
             Dict with 'message' (user-friendly text) and optional 'handoff_plan'
         """
-        provider = self._ensure_llm_provider()
-        if not provider:
-            return {
-                "message": "I understand your request, but I need an LLM provider to generate a workflow plan.",
-                "handoff_plan": None
-            }
+        provider, model_name = self._get_llm_backend()
 
         if not intent_result.is_multi_step or not intent_result.workflow_steps:
             return {
@@ -449,6 +442,12 @@ Generate a detailed confirmation message asking the user to confirm this action.
             return {
                 "message": "I understand your request, but encountered an error planning the workflow.",
                 "handoff_plan": None
+            }
+
+        if not provider:
+            return {
+                "message": f"I'll help you with that. I've planned a workflow with {len(handoff_plan.steps)} steps.",
+                "handoff_plan": handoff_plan,
             }
 
         system_prompt = """You are a helpful AI assistant that understands user requests and creates execution plans.
@@ -496,6 +495,7 @@ HandoffPlan JSON:
                 system_prompt=system_prompt,
                 temperature=0.7,
                 llm_provider=provider,
+                model_name=model_name,
                 target_language=locale or self.default_locale
             )
 
@@ -552,7 +552,7 @@ HandoffPlan JSON:
         Returns:
             Natural language summary of workflow execution
         """
-        provider = self._ensure_llm_provider()
+        provider, model_name = self._get_llm_backend()
         if not provider:
             from ...services.i18n_service import I18nService
             i18n = I18nService(default_locale=locale or self.default_locale)
@@ -601,6 +601,7 @@ Generate a natural summary message for the user."""
                 system_prompt=system_prompt,
                 temperature=0.7,
                 llm_provider=provider,
+                model_name=model_name,
                 target_language=locale or self.default_locale
             )
 

@@ -55,7 +55,6 @@ from backend.app.services.conversation.coordinator_facade import CoordinatorFaca
 from backend.app.services.conversation.qa_response_generator import QAResponseGenerator
 from backend.app.services.conversation.message_generator import MessageGenerator
 from backend.app.services.conversation.intent_extractor import IntentExtractor
-from backend.app.services.conversation.llm_provider_factory import build_llm_provider
 from backend.app.core.ports.identity_port import IdentityPort
 from backend.app.core.ports.intent_registry_port import IntentRegistryPort
 
@@ -140,11 +139,7 @@ class ConversationOrchestrator:
             default_locale=default_locale,
         )
 
-        message_generator = MessageGenerator(
-            llm_provider=None,
-            llm_provider_factory=build_llm_provider,
-            default_locale=default_locale,
-        )
+        message_generator = MessageGenerator(default_locale=default_locale)
         self.message_generator = message_generator
 
         from backend.app.services.playbook_service import PlaybookService
@@ -329,12 +324,7 @@ class ConversationOrchestrator:
         Returns:
             Natural feedback message text describing what was automatically analyzed.
         """
-        message_generator = MessageGenerator(
-            llm_provider=None,
-            llm_provider_factory=build_llm_provider,
-            default_locale=self.default_locale,
-        )
-        return await message_generator.generate_readonly_feedback(
+        return await self.message_generator.generate_readonly_feedback(
             timeline_item=timeline_item,
             task_result=task_result,
             locale=self.default_locale,

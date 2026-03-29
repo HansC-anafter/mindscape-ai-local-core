@@ -23,9 +23,18 @@ class LocalIntentRegistryAdapter(IntentRegistryPort):
     Future: Can be extended to load intent definitions from built-in YAML.
     """
 
-    def __init__(self, default_locale: str = "en"):
+    def __init__(
+        self,
+        default_locale: str = "en",
+        llm_provider: Optional[Any] = None,
+        model_name: Optional[str] = None,
+    ):
         self.default_locale = default_locale
-        self.llm_extractor = IntentLLMExtractor(default_locale=default_locale)
+        self.llm_extractor = IntentLLMExtractor(
+            default_locale=default_locale,
+            llm_provider=llm_provider,
+            model_name=model_name,
+        )
 
     async def resolve_intent(
         self,
@@ -64,4 +73,3 @@ class LocalIntentRegistryAdapter(IntentRegistryPort):
         - planning.simple_todo
         """
         return []
-

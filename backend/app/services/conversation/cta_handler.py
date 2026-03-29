@@ -28,7 +28,6 @@ from ...services.stores.tasks_store import TasksStore
 from ...services.stores.timeline_items_store import TimelineItemsStore
 from ...services.mindscape_store import MindscapeStore
 from ...services.i18n_service import get_i18n_service
-from ...shared.llm_provider_helper import get_llm_provider_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -968,18 +967,11 @@ class CTAHandler:
         Returns:
             Dict with confirmation message and buttons
         """
-        from backend.app.services.message_generator import MessageGenerator
-        from ...services.agent_runner import LLMProviderManager
-        import os
+        from backend.app.services.conversation.message_generator import (
+            MessageGenerator,
+        )
 
-        # Initialize LLM provider
-        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
-        llm_manager = create_llm_provider_manager()
-        llm_provider = get_llm_provider_from_settings(llm_manager)
-
-        # Use MessageGenerator with LLM
         message_generator = MessageGenerator(
-            llm_provider=llm_provider,
             default_locale=self.i18n.default_locale
         )
 

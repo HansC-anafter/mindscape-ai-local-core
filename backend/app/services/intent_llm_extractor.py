@@ -6,7 +6,6 @@ using existing core_llm generate service.
 """
 
 import logging
-import os
 import json
 import re
 from typing import Dict, Any, List, Optional
@@ -22,8 +21,15 @@ logger = logging.getLogger(__name__)
 class IntentLLMExtractor:
     """Extract intents/themes from message + context using LLM"""
 
-    def __init__(self, default_locale: str = "en"):
+    def __init__(
+        self,
+        default_locale: str = "en",
+        llm_provider: Optional[Any] = None,
+        model_name: Optional[str] = None,
+    ):
         self.default_locale = default_locale
+        self.llm_provider = llm_provider
+        self.model_name = str(model_name).strip() if model_name else None
 
     async def extract(
         self,
@@ -47,6 +53,12 @@ class IntentLLMExtractor:
         """
         if not llm_generate:
             logger.warning("core_llm generate not available, skipping LLM intent extraction")
+            return {"intents": [], "themes": []}
+        if not self.llm_provider or not self.model_name:
+            logger.info(
+                "IntentLLMExtractor: explicit llm_provider/model_name not configured, "
+                "skipping LLM intent extraction"
+            )
             return {"intents": [], "themes": []}
 
         system_prompt = """You are an intent extraction assistant. Analyze the user's message and context to extract:
@@ -83,7 +95,8 @@ Extract intents and themes from the message and context above."""
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=0.2,
-                llm_provider=None,
+                llm_provider=self.llm_provider,
+                model_name=self.model_name,
                 target_language=locale or self.default_locale
             )
             text = (result or {}).get("text", "") or ""
@@ -182,4 +195,3 @@ Extract intents and themes from the message and context above."""
 
         logger.warning(f"Failed to parse JSON from LLM response: {text[:200]}...")
         return {}
-
