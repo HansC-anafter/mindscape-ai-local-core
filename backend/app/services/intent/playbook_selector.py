@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class PlaybookSelector:
     """Layer 3: Playbook selection and context preparation"""
 
-    def __init__(self, playbook_service=None, llm_provider=None):
+    def __init__(self, playbook_service=None, llm_provider=None, model_name: Optional[str] = None):
         """
         Initialize PlaybookSelector
 
@@ -40,6 +40,7 @@ class PlaybookSelector:
             )
         self.playbook_service = playbook_service
         self.llm_provider = llm_provider
+        self.model_name = model_name.strip() if isinstance(model_name, str) and model_name.strip() else None
         self.use_new_interface = True
 
     async def select_playbook(
@@ -161,9 +162,9 @@ Return the playbook_code of the best matching playbook in JSON format:
 If no playbook matches well, return {{"playbook_code": null, "confidence": 0.0, "reason": "..."}}
 """
 
-        if not self.llm_provider:
+        if not self.llm_provider or not self.model_name:
             logger.warning(
-                "LLM provider not available, cannot use LLM for playbook matching"
+                "Explicit LLM backend not available, cannot use LLM for playbook matching"
             )
             return None
 
@@ -174,23 +175,10 @@ If no playbook matches well, return {{"playbook_code": null, "confidence": 0.0, 
                 user_prompt=prompt,
             )
 
-            # Get model name from system settings, or use None to let llm_provider use its default
-            from backend.app.shared.llm_provider_helper import (
-                get_model_name_from_chat_model,
-            )
-
-            model_name = None
-            try:
-                model_name = get_model_name_from_chat_model()
-            except Exception as e:
-                logger.debug(
-                    f"Failed to get model name from chat_model: {e}, using llm_provider default"
-                )
-
-            # Use unified call_llm tool with existing llm_provider
-            # If model_name is None, call_llm will use llm_provider's default model
             response_dict = await call_llm(
-                messages=messages, llm_provider=self.llm_provider, model=model_name
+                messages=messages,
+                llm_provider=self.llm_provider,
+                model=self.model_name,
             )
 
             response_text = response_dict.get("text", "")

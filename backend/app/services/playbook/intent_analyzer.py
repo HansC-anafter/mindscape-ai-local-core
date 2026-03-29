@@ -176,8 +176,20 @@ class ToolSlotIntentAnalyzer:
                 registry = CapabilityProfileRegistry()
 
                 # Get fast and strong models
-                fast_model = registry.select_model(CapabilityProfile.FAST, llm_manager, profile_id=profile_id) or "gpt-3.5-turbo"
-                strong_model = registry.select_model(CapabilityProfile.PRECISE, llm_manager, profile_id=profile_id) or "gpt-4o"
+                fast_model = registry.select_model(
+                    CapabilityProfile.FAST,
+                    llm_manager,
+                    profile_id=profile_id,
+                )
+                strong_model = registry.select_model(
+                    CapabilityProfile.PRECISE,
+                    llm_manager,
+                    profile_id=profile_id,
+                )
+                if not fast_model or not strong_model:
+                    raise ValueError(
+                        "No explicit model selection available for utility-based escalation"
+                    )
 
                 # Map risk level
                 utility_risk_level = None
@@ -315,11 +327,23 @@ class ToolSlotIntentAnalyzer:
             fast_profile = CapabilityProfile.FAST
             model_name = registry.select_model(fast_profile, llm_manager, profile_id=profile_id)
 
-            # Fallback to chat_model if capability profile selection fails
             if not model_name:
-                from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
-                model_name = get_model_name_from_chat_model() or "gpt-3.5-turbo"
-                logger.debug(f"Using chat_model fallback for fast recall: {model_name}")
+                logger.info(
+                    "Skipping LLM fast recall because no explicit model selection was resolved"
+                )
+                return ToolSlotAnalysisResult(
+                    relevant_tools=[
+                        ToolRelevanceResult(
+                            tool_slot=tool.slot,
+                            relevance_score=0.5,
+                            reasoning="Fallback: explicit model selection unavailable",
+                        )
+                        for tool in available_tools[:top_k]
+                    ],
+                    confidence=0.3,
+                    escalation_required=True,
+                    reasons=["No explicit model selection for fast recall"],
+                )
 
             # Use existing LLM analysis but with relaxed criteria (return more tools)
             # Modify prompt to emphasize recall over precision
@@ -413,11 +437,16 @@ class ToolSlotIntentAnalyzer:
 
             model_name = registry.select_model(precision_profile, llm_manager, profile_id=profile_id)
 
-            # Fallback to chat_model if capability profile selection fails
             if not model_name:
-                from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
-                model_name = get_model_name_from_chat_model() or "gpt-4"
-                logger.debug(f"Using chat_model fallback for strong precision: {model_name}")
+                logger.info(
+                    "Skipping LLM strong precision because no explicit model selection was resolved"
+                )
+                return ToolSlotAnalysisResult(
+                    relevant_tools=candidate_tools[:top_k],
+                    confidence=0.5,
+                    escalation_required=False,
+                    reasons=["No explicit model selection for strong precision"],
+                )
 
             # Use candidate tools directly in a precision-focused analysis
             result = await self._llm_analyze_relevance_with_model(
@@ -644,6 +673,12 @@ Return JSON format:
 
         try:
             # Get LLM provider
+            if not model_name or not str(model_name).strip():
+                logger.info(
+                    "Skipping LLM intent analysis because no explicit model_name was supplied"
+                )
+                return ToolSlotAnalysisResult(relevant_tools=[])
+
             if not self.llm_provider_manager:
                 from backend.app.services.config_store import ConfigStore
                 from backend.app.services.playbook.llm_provider_manager import PlaybookLLMProviderManager
@@ -664,13 +699,16 @@ Return JSON format:
                         try:
                             provider = llm_manager.get_provider(provider_name)
                         except Exception as e:
-                            logger.debug(f"Failed to get provider {provider_name}: {e}, using default")
-                            provider = self.llm_provider_manager.get_llm_provider(llm_manager)
+                            logger.debug(f"Failed to get provider {provider_name}: {e}")
+                            provider = None
                     else:
-                        provider = self.llm_provider_manager.get_llm_provider(llm_manager)
+                        provider = None
                 else:
-                    provider = self.llm_provider_manager.get_llm_provider(llm_manager)
-                    model_name = self.llm_provider_manager.get_model_name() or "gpt-4o-mini"
+                    provider = None
+                if not provider:
+                    raise ValueError(
+                        f"No explicit provider available for model '{model_name}'"
+                    )
             except Exception as e:
                 logger.warning(f"Failed to get LLM provider: {e}, skipping intent analysis")
                 return ToolSlotAnalysisResult(relevant_tools=[])
@@ -789,7 +827,7 @@ Return JSON format:
         playbook_code: Optional[str] = None
     ) -> ToolSlotAnalysisResult:
         """
-        Use LLM to analyze tool relevance (legacy method, uses default model)
+        Legacy helper for balanced relevance analysis.
 
         Args:
             user_message: User message
@@ -800,13 +838,15 @@ Return JSON format:
         Returns:
             ToolSlotAnalysisResult with relevance scores
         """
-        # Use default model (fallback to chat_model)
+        logger.info(
+            "Skipping legacy LLM intent analysis because no explicit model was supplied"
+        )
         return await self._llm_analyze_relevance_with_model(
             user_message=user_message,
             available_tools=available_tools,
             conversation_history=conversation_history,
             playbook_code=playbook_code,
-            model_name=None,  # Will use default
+            model_name=None,
             emphasis="balanced"
         )
 

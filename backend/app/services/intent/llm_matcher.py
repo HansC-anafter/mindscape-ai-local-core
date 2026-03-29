@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class LLMBasedIntentMatcher:
     """LLM-based matching for semantic understanding"""
 
-    def __init__(self, llm_provider=None):
+    def __init__(self, llm_provider=None, model_name: Optional[str] = None):
         # Validate llm_provider is a provider object, not a string
         if llm_provider is not None:
             if isinstance(llm_provider, str):
@@ -36,6 +36,7 @@ class LLMBasedIntentMatcher:
                 self.llm_provider = llm_provider
         else:
             self.llm_provider = None
+        self.model_name = model_name.strip() if isinstance(model_name, str) and model_name.strip() else None
 
     async def determine_interaction_type(
         self, user_input: str, channel: str = "api", model_name: Optional[str] = None
@@ -46,7 +47,11 @@ class LLMBasedIntentMatcher:
         Returns:
             (InteractionType, confidence)
         """
-        if not self.llm_provider:
+        resolved_model_name = (
+            model_name.strip() if isinstance(model_name, str) and model_name.strip() else self.model_name
+        )
+
+        if not self.llm_provider or not resolved_model_name:
             return InteractionType.UNKNOWN, 0.0
 
         # Double-check provider has required method
@@ -75,20 +80,6 @@ Return in JSON format:
 """
 
         try:
-            # Get model name from system settings
-            from backend.app.services.system_settings_store import SystemSettingsStore
-            from backend.app.shared.llm_provider_helper import (
-                get_model_name_from_chat_model,
-            )
-
-            try:
-                # Use provided model, or system setting, or fallback
-                model_name = (
-                    model_name or get_model_name_from_chat_model() or "gpt-4o-mini"
-                )
-            except:
-                model_name = model_name or "gpt-4o-mini"
-
             # Build messages using build_prompt
             messages = build_prompt(
                 system_prompt="You are an intent analysis assistant. Analyze user input to determine interaction type.",
@@ -96,7 +87,9 @@ Return in JSON format:
             )
 
             response_dict = await call_llm(
-                messages=messages, llm_provider=self.llm_provider, model=model_name
+                messages=messages,
+                llm_provider=self.llm_provider,
+                model=resolved_model_name,
             )
 
             response_text = response_dict.get("text", "")
@@ -142,7 +135,11 @@ Return in JSON format:
         Returns:
             (TaskDomain, confidence)
         """
-        if not self.llm_provider:
+        resolved_model_name = (
+            model_name.strip() if isinstance(model_name, str) and model_name.strip() else self.model_name
+        )
+
+        if not self.llm_provider or not resolved_model_name:
             return TaskDomain.UNKNOWN, 0.0
 
         # Build few-shot examples from active intents
@@ -178,19 +175,6 @@ Return in JSON format:
 """
 
         try:
-            # Get model name from system settings
-            from backend.app.shared.llm_provider_helper import (
-                get_model_name_from_chat_model,
-            )
-
-            try:
-                # Use provided model, or system setting, or fallback
-                model_name = (
-                    model_name or get_model_name_from_chat_model() or "gpt-4o-mini"
-                )
-            except:
-                model_name = model_name or "gpt-4o-mini"
-
             # Build messages using build_prompt
             messages = build_prompt(
                 system_prompt="You are a task domain analysis assistant. Analyze user input to determine task domain.",
@@ -198,7 +182,9 @@ Return in JSON format:
             )
 
             response_dict = await call_llm(
-                messages=messages, llm_provider=self.llm_provider, model=model_name
+                messages=messages,
+                llm_provider=self.llm_provider,
+                model=resolved_model_name,
             )
 
             response_text = response_dict.get("text", "")

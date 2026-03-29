@@ -145,10 +145,6 @@ class ToolSlotInfoCollector:
                 from backend.app.services.system_settings_store import (
                     SystemSettingsStore,
                 )
-                from backend.app.shared.llm_provider_helper import (
-                    get_model_name_from_chat_model,
-                )
-
                 # Priority: stage_router > capability_profile > SystemSettings > chat_model
                 selected_model_name = None
                 profile_id = None  # Can be passed from context if available
@@ -220,10 +216,11 @@ class ToolSlotInfoCollector:
                             f"Failed to use SystemSettings: {e}, trying next option"
                         )
 
-                # 4. Fallback to chat_model
                 if not selected_model_name:
-                    selected_model_name = get_model_name_from_chat_model()
-                    logger.debug(f"Using chat_model fallback: {selected_model_name}")
+                    logger.info(
+                        "Skipping LLM intent filtering because no explicit model selection was resolved"
+                    )
+                    return slot_info_map
 
                 # Initialize LLM provider manager for intent analysis (if not provided)
                 if not llm_provider_manager:

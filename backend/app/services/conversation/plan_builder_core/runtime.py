@@ -130,18 +130,10 @@ def select_model_for_plan(
     except Exception as exc:
         logger.debug("Failed to use SystemSettings: %s, trying next option", exc)
 
-    from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
-
-    model_name = get_model_name_from_chat_model()
-    if model_name:
-        logger.debug("Using chat_model fallback: %s", model_name)
-        return model_name
-
     logger.error(
-        "PlanBuilder: All model selection methods failed. "
-        "Configure chat_model in system settings."
+        "PlanBuilder: All explicit model selection methods failed."
     )
-    raise ValueError("No chat model configured. Set chat_model in system settings.")
+    raise ValueError("No explicit model selection available for plan builder.")
 
 
 async def ensure_external_backend_loaded(

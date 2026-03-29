@@ -10,10 +10,6 @@ import logging
 from typing import Optional, Dict, Any, List
 from backend.app.models.project import Project, ProjectAssignmentOutput
 from backend.app.models.workspace import Workspace
-from backend.app.shared.llm_provider_helper import (
-    ManagedLLMDisabledForRuntime,
-    build_managed_llm_provider,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +22,16 @@ class ProjectAssignmentAgent:
     appropriate human owner and AI PM assignments.
     """
 
-    def __init__(self, llm_provider=None):
+    def __init__(self, llm_provider=None, model_name: Optional[str] = None):
         """
         Initialize Project Assignment Agent
 
         Args:
-            llm_provider: Optional LLM provider (will be created from settings if None)
+            llm_provider: Optional explicit LLM provider
+            model_name: Optional explicit model name paired with llm_provider
         """
         self.llm_provider = llm_provider
+        self.model_name = model_name.strip() if isinstance(model_name, str) and model_name.strip() else None
 
     async def suggest_assignment(
         self,
@@ -136,21 +134,23 @@ Respond in JSON format:
         workspace: Workspace,
     ) -> tuple[Optional[Any], Optional[str]]:
         """Resolve managed LLM provider/model, respecting executor runtime bindings."""
-        try:
-            provider, selection = build_managed_llm_provider(
-                workspace=workspace,
-                purpose="project_assignment",
-                default_model="gpt-4o-mini",
+        if self.llm_provider and self.model_name:
+            return self.llm_provider, self.model_name
+
+        resolved_runtime = getattr(workspace, "resolved_executor_runtime", None) or getattr(
+            workspace, "executor_runtime", None
+        )
+        if resolved_runtime:
+            logger.info(
+                "ProjectAssignmentAgent bypassing managed LLM because workspace is bound to runtime %s",
+                resolved_runtime,
             )
-        except ManagedLLMDisabledForRuntime as exc:
-            logger.info("ProjectAssignmentAgent bypassing managed LLM: %s", exc)
-            return None, None
-        except ValueError as exc:
-            logger.warning("ProjectAssignmentAgent failed to resolve LLM selection: %s", exc)
             return None, None
 
-        self.llm_provider = provider
-        return provider, selection.model_name
+        logger.info(
+            "ProjectAssignmentAgent skipping LLM because no explicit provider/model was supplied"
+        )
+        return None, None
 
     def _format_members(self, members: list) -> str:
         """Format workspace members for prompt"""
@@ -291,8 +291,16 @@ Respond in JSON format:
                 }
             ]
 
-            model_name = get_model_name_from_chat_model() or "gemini-pro"
-            response = await self.llm_provider.chat_completion(messages, model=model_name)
+            if not self.llm_provider or not self.model_name:
+                return {
+                    "relation": "ambiguous",
+                    "project_id": last_project_id,
+                    "confidence": 0.0,
+                    "reasoning": "No explicit LLM backend configured for project assignment.",
+                    "candidates": project_candidates,
+                }
+
+            response = await self.llm_provider.chat_completion(messages, model=self.model_name)
             result_text = response.content if hasattr(response, 'content') else str(response)
 
             # Parse response

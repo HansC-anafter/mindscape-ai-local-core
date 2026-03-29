@@ -262,7 +262,7 @@ def get_model_name_from_chat_model(default: Optional[str] = None) -> Optional[st
     chat_setting = settings_store.get_setting("chat_model")
 
     if not chat_setting:
-        return default
+        return None
 
     return str(chat_setting.value)
 
