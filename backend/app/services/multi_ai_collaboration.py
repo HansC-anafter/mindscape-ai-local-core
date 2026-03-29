@@ -257,13 +257,10 @@ class MultiAICollaborationService:
                         from backend.app.capabilities.semantic_seeds.services.seed_extractor import (
                             SeedExtractor,
                         )
-                        from backend.app.services.agent_runner import LLMProviderManager
-                        from backend.app.services.config_store import ConfigStore
                         from backend.app.shared.i18n_loader import (
                             get_locale_from_context,
                         )
                         from backend.app.services.mindscape_store import MindscapeStore
-                        import os
 
                         # Get locale from context (workspace/profile)
                         store = MindscapeStore()
@@ -288,102 +285,39 @@ class MultiAICollaborationService:
 
                         # Initialize LLM provider for SeedExtractor
                         from backend.app.shared.llm_provider_helper import (
-                            get_llm_provider_from_settings,
+                            build_managed_llm_provider,
                         )
-                        from backend.app.services.system_settings_store import (
-                            SystemSettingsStore,
-                        )
-                        import json
-
-                        config_store = ConfigStore()
-                        config = config_store.get_or_create_config(profile_id)
-                        openai_key = config.agent_backend.openai_api_key or os.getenv(
-                            "OPENAI_API_KEY"
-                        )
-                        anthropic_key = (
-                            config.agent_backend.anthropic_api_key
-                            or os.getenv("ANTHROPIC_API_KEY")
-                        )
-
-                        # Get Vertex AI config from system settings (like core_llm does)
-                        settings_store = SystemSettingsStore()
-                        vertex_service_account_json = None
-                        vertex_project_id = None
                         try:
-                            service_account_setting = settings_store.get_setting(
-                                "vertex_ai_service_account_json"
-                            )
-                            project_id_setting = settings_store.get_setting(
-                                "vertex_ai_project_id"
-                            )
-                            if (
-                                service_account_setting
-                                and service_account_setting.value
-                            ):
-                                if isinstance(service_account_setting.value, dict):
-                                    vertex_service_account_json = json.dumps(
-                                        service_account_setting.value
-                                    )
-                                else:
-                                    vertex_service_account_json = str(
-                                        service_account_setting.value
-                                    )
-                            else:
-                                vertex_service_account_json = os.getenv(
-                                    "GOOGLE_APPLICATION_CREDENTIALS"
-                                )
-                            vertex_project_id = (
-                                project_id_setting.value
-                                if project_id_setting and project_id_setting.value
-                                else os.getenv("GOOGLE_CLOUD_PROJECT")
+                            llm_provider, selection = build_managed_llm_provider(
+                                workspace=workspace,
+                                purpose="multi_ai_collaboration.semantic_seeds",
                             )
                         except Exception as e:
-                            logger.debug(
-                                f"Failed to get Vertex AI from system settings: {e}, using env vars"
-                            )
-                            vertex_service_account_json = os.getenv(
-                                "GOOGLE_APPLICATION_CREDENTIALS"
-                            )
-                            vertex_project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-
-                        # Fallback to user config if system settings not available
-                        if not vertex_service_account_json:
-                            vertex_service_account_json = (
-                                config.agent_backend.vertex_api_key
-                            )
-                        if not vertex_project_id:
-                            vertex_project_id = config.agent_backend.vertex_project_id
-
-                        from backend.app.shared.llm_provider_helper import (
-                            create_llm_provider_manager,
-                        )
-
-                        llm_manager = create_llm_provider_manager(
-                            openai_key=openai_key,
-                            anthropic_key=anthropic_key,
-                            vertex_api_key=vertex_service_account_json,
-                            vertex_project_id=vertex_project_id,
-                            vertex_location=config.agent_backend.vertex_location
-                            or os.getenv("VERTEX_LOCATION", "us-central1"),
-                        )
-                        try:
-                            llm_provider = get_llm_provider_from_settings(llm_manager)
-                        except (ValueError, Exception) as e:
                             logger.warning(
-                                f"Failed to get LLM provider from settings: {e}, trying direct provider"
+                                "Skipping managed semantic seed extraction without explicit "
+                                "LLM selection: %s",
+                                e,
                             )
-                            if vertex_service_account_json and vertex_project_id:
-                                llm_provider = llm_manager.get_provider("vertex-ai")
-                            elif openai_key:
-                                llm_provider = llm_manager.get_provider("openai")
-                            elif anthropic_key:
-                                llm_provider = llm_manager.get_provider("anthropic")
-                            else:
-                                llm_provider = None
+                            inferred_intents = self._infer_intents_from_filename(
+                                file_info.get("name", ""), locale=locale
+                            )
+                            return {
+                                "enabled": True,
+                                "themes": [file_info.get("detected_type", "document")],
+                                "intents": inferred_intents,
+                                "action": "add_to_mindscape",
+                            }
 
-                        seed_extractor = SeedExtractor(llm_provider=llm_provider)
+                        seed_extractor = SeedExtractor(
+                            llm_provider=llm_provider,
+                            model_name=selection.model_name,
+                        )
                         logger.info(
-                            f"Initialized SeedExtractor with LLM provider and locale={locale} for file: {file_info.get('name')}"
+                            "Initialized SeedExtractor with explicit managed model=%s "
+                            "locale=%s for file: %s",
+                            selection.model_name,
+                            locale,
+                            file_info.get("name"),
                         )
 
                         seeds = await seed_extractor.extract_seeds_from_content(

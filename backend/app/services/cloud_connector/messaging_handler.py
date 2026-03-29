@@ -16,7 +16,7 @@ import logging
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Awaitable, Callable, Dict, Any, Optional
 
 from websockets.client import WebSocketClientProtocol
 
@@ -42,6 +42,7 @@ class MessagingHandler:
         websocket: WebSocketClientProtocol,
         device_id: str,
         workspace_id: Optional[str] = None,
+        summary_generator: Optional[Callable[[str], Awaitable[str]]] = None,
     ):
         """
         Initialize messaging handler.
@@ -50,10 +51,12 @@ class MessagingHandler:
             websocket: WebSocket connection to Cloud
             device_id: Local-Core device identifier
             workspace_id: Default workspace ID (fallback if no binding found)
+            summary_generator: Optional explicit summary callable for long replies
         """
         self.websocket = websocket
         self.device_id = device_id
         self.workspace_id = workspace_id
+        self._summary_generator = summary_generator
         self._active_sessions: Dict[str, asyncio.Task] = {}
         # Dedup guard: track in-progress request_ids to prevent duplicate LLM calls
         self._processed_requests: Dict[str, float] = {}
@@ -627,8 +630,8 @@ class MessagingHandler:
         """
         Generate a concise summary (<=100 chars) for LINE Flex card display.
 
-        Uses LLM (Gemini Flash) for quality summarization.
-        Falls back to smart truncation at sentence boundary on failure.
+        Uses an explicit injected summary generator when available.
+        Falls back to smart truncation at sentence boundary.
 
         Args:
             reply_text: Full AI response text
@@ -640,45 +643,21 @@ class MessagingHandler:
         if len(reply_text) <= 100:
             return reply_text
 
-        # Try LLM-based summary
-        try:
-            from backend.app.shared.llm_provider_helper import create_llm_provider_manager
-
-            manager = create_llm_provider_manager(provider_name="vertex-ai")
-            provider = manager.get_provider("vertex-ai")
-
-            if provider:
-                result = await provider.chat_completion(
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": (
-                                "Summarize the following AI response in one sentence, "
-                                "max 80 characters. Use the same language as the "
-                                "original text. Output ONLY the summary, nothing else."
-                                f"\n\n{reply_text[:2000]}"
-                            ),
-                        }
-                    ],
-                    model="gemini-2.0-flash",
-                    temperature=0.3,
-                    max_tokens=60,
+        if self._summary_generator:
+            try:
+                summary = (await self._summary_generator(reply_text)).strip()
+                if summary and len(summary) <= 100:
+                    logger.info(
+                        "[MessagingHandler] Explicit summary generated: %s chars",
+                        len(summary),
+                    )
+                    return summary
+            except Exception as summary_err:
+                logger.warning(
+                    "[MessagingHandler] Explicit summary generator failed, using "
+                    "truncation: %s",
+                    summary_err,
                 )
-
-                if result and result.get("content"):
-                    summary = result["content"].strip()
-                    if len(summary) <= 100:
-                        logger.info(
-                            f"[MessagingHandler] LLM summary generated: "
-                            f"{len(summary)} chars"
-                        )
-                        return summary
-
-        except Exception as llm_err:
-            logger.warning(
-                f"[MessagingHandler] LLM summary failed, using truncation: "
-                f"{llm_err}"
-            )
 
         # Fallback: smart truncation at sentence boundary
         return self._truncate_at_boundary(reply_text, max_len=100)
