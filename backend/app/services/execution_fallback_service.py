@@ -17,8 +17,6 @@ def _utc_now():
     return datetime.now(timezone.utc)
 from typing import Dict, Any, Optional
 
-from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
-
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +26,7 @@ async def generate_fallback_artifact(
     profile_id: str,
     expected_artifacts: Optional[list] = None,
     llm_provider: Any = None,
-    model_name: str = "gpt-4o-mini"
+    model_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Generate a basic artifact using LLM when no playbook matches
@@ -77,21 +75,16 @@ IMPORTANT: This is a generic drafting flow. The output may need refinement with 
 """
 
     try:
-        if llm_provider:
+        if llm_provider and model_name and hasattr(llm_provider, "chat_completion"):
             from backend.app.shared.llm_utils import build_prompt
             messages = build_prompt(system_prompt=system_prompt, user_prompt=user_request)
 
-            provider = get_llm_provider_from_settings(llm_provider)
-            if provider and hasattr(provider, 'chat_completion'):
-                content = await provider.chat_completion(
-                    messages=messages,
-                    model=model_name,
-                    temperature=0.7,
-                    max_tokens=4000
-                )
-            else:
-                # Fallback: return a template
-                content = _generate_template_content(user_request, target_format)
+            content = await llm_provider.chat_completion(
+                messages=messages,
+                model=model_name,
+                temperature=0.7,
+                max_tokens=4000
+            )
         else:
             # No LLM provider - generate template
             content = _generate_template_content(user_request, target_format)
@@ -188,4 +181,3 @@ async def _store_artifact_as_event(
         logger.info(f"[FallbackArtifact] Stored artifact as MindEvent: {artifact['id']}")
     except Exception as e:
         logger.warning(f"[FallbackArtifact] Failed to store artifact as event: {e}")
-

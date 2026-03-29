@@ -3,16 +3,12 @@ Playbook Optimization Service
 Uses LLM to analyze usage patterns and generate optimization suggestions
 """
 
-import os
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from backend.app.models.personalized_playbook import OptimizationSuggestion, UsageAnalysis
-from backend.app.services.playbook_store import PlaybookStore
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.agent_runner import LLMProviderManager
-from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +16,14 @@ logger = logging.getLogger(__name__)
 class PlaybookOptimizationService:
     """Service for analyzing Playbook usage and generating optimization suggestions"""
 
-    def __init__(self):
-        self.playbook_store = PlaybookStore()
+    def __init__(
+        self,
+        llm_provider: Optional[Any] = None,
+        model_name: Optional[str] = None,
+    ):
         self.mindscape_store = MindscapeStore()
+        self.llm_provider = llm_provider
+        self.model_name = str(model_name).strip() if model_name else None
 
     async def analyze_usage(
         self,
@@ -34,9 +35,6 @@ class PlaybookOptimizationService:
 
         Returns usage statistics and patterns
         """
-        # Get user meta for usage stats
-        user_meta = self.playbook_store.get_user_meta(profile_id, playbook_code)
-
         # Get execution history from events
         events = self.mindscape_store.list_events(
             profile_id=profile_id,
@@ -101,6 +99,13 @@ class PlaybookOptimizationService:
         Returns:
             List of optimization suggestions
         """
+        if not self.llm_provider or not self.model_name:
+            logger.info(
+                "PlaybookOptimizationService: explicit llm_provider/model_name not configured, "
+                "skipping optimization suggestions"
+            )
+            return []
+
         # Get usage analysis if not provided
         if usage_analysis is None:
             usage_analysis = await self.analyze_usage(profile_id, playbook_code)
@@ -122,29 +127,11 @@ class PlaybookOptimizationService:
 
         # Call LLM
         try:
-            # Get LLM provider with profile-specific keys
-            from backend.app.services.config_store import ConfigStore
-            config_store = ConfigStore()
-            config = config_store.get_or_create_config(profile_id)
-
-            from backend.app.shared.llm_provider_helper import create_llm_provider_manager
-
-            openai_key = config.agent_backend.openai_api_key
-            anthropic_key = config.agent_backend.anthropic_api_key
-            llm_manager = create_llm_provider_manager(
-                openai_key=openai_key,
-                anthropic_key=anthropic_key
-            )
-            try:
-                provider = get_llm_provider_from_settings(llm_manager)
-            except ValueError as e:
-                logger.warning(f"No LLM provider available: {e}")
-                return []
-
-            response = await provider.generate_text(
-                prompt=prompt,
+            response = await self.llm_provider.chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                model=self.model_name,
                 max_tokens=2000,
-                temperature=0.7
+                temperature=0.7,
             )
 
             # Parse LLM response into suggestions

@@ -5,7 +5,6 @@ Implements multi-factor policy for triggering conversation summary generation.
 """
 
 import logging
-import os
 from typing import List, Any, Tuple, Optional
 
 logger = logging.getLogger(__name__)
@@ -14,16 +13,23 @@ logger = logging.getLogger(__name__)
 class SummaryPolicy:
     """Determines when to trigger summary generation using multi-factor policy"""
 
-    def __init__(self, store: Any = None, model_name: Optional[str] = None):
+    def __init__(
+        self,
+        store: Any = None,
+        model_name: Optional[str] = None,
+        llm_provider: Optional[Any] = None,
+    ):
         """
         Initialize SummaryPolicy
 
         Args:
             store: MindscapeStore instance
             model_name: Model name for LLM calls
+            llm_provider: Explicit provider for summary generation
         """
         self.store = store
         self.model_name = model_name
+        self.llm_provider = llm_provider
 
     async def should_summarize(
         self,
@@ -304,7 +310,6 @@ class SummaryPolicy:
             summary_type: Type of summary (HISTORY_SUMMARY or EPISODE_SUMMARY)
         """
         try:
-            from backend.app.services.agent_runner import LLMProviderManager
             from backend.app.models.mindscape import MindEvent, EventType, EventActor
             from datetime import datetime
             import uuid
@@ -312,33 +317,12 @@ class SummaryPolicy:
             # Combine messages into a single text
             conversation_text = "\n".join(messages_to_summarize)
 
-            # Generate summary using LLM
-            from backend.app.services.config_store import ConfigStore
-            from backend.app.shared.llm_provider_helper import (
-                get_llm_provider_from_settings,
-                create_llm_provider_manager,
-            )
-
-            config_store = ConfigStore()
-            config = config_store.get_or_create_config(profile_id or "default-user")
-
-            # Get API key from config (same as main LLM calls) or fallback to env
-            openai_key = None
-            if hasattr(config, "agent_backend") and hasattr(
-                config.agent_backend, "openai_api_key"
-            ):
-                openai_key = config.agent_backend.openai_api_key
-            elif isinstance(config, dict):
-                openai_key = config.get("openai_api_key")
-
-            if not openai_key:
-                openai_key = os.getenv("OPENAI_API_KEY")
-
-            llm_manager = create_llm_provider_manager(openai_key=openai_key)
-            provider = get_llm_provider_from_settings(llm_manager)
-
-            if not provider:
-                raise ValueError("OpenAI API key is not configured or is invalid")
+            if not self.llm_provider or not self.model_name or not str(self.model_name).strip():
+                logger.info(
+                    "SummaryPolicy: explicit llm_provider/model_name not configured, "
+                    "skipping summary generation"
+                )
+                return
 
             summary_prompt = f"""Please generate a concise summary of the following conversation history, focusing on:
 1. User's main goals and needs
@@ -359,13 +343,7 @@ Please generate the summary in English, keep it within 300 words."""
                 {"role": "user", "content": summary_prompt},
             ]
 
-            # Model must be configured - no fallback allowed
-            if not self.model_name or self.model_name.strip() == "":
-                raise ValueError(
-                    "LLM model not configured. Please select a model in the system settings panel."
-                )
-
-            summary_text = await provider.chat_completion(
+            summary_text = await self.llm_provider.chat_completion(
                 messages=messages,
                 model=self.model_name,
                 max_tokens=500,

@@ -8,9 +8,6 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional
 from backend.app.shared.llm_utils import build_prompt, call_llm
-from backend.app.services.agent_runner import LLMProviderManager
-from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +17,8 @@ async def export_i18n_for_locale(
     source_locale: str,
     target_locale: str,
     output_path: Optional[Path] = None,
-    llm_provider: Optional[Any] = None
+    llm_provider: Optional[Any] = None,
+    model_name: Optional[str] = None,
 ) -> Path:
     """
     Export i18n file for target locale by translating from source locale
@@ -57,12 +55,11 @@ async def export_i18n_for_locale(
         # Ensure output directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Get LLM provider
-        if not llm_provider:
-            openai_key = os.getenv("OPENAI_API_KEY")
-            anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-            llm_manager = LLMProviderManager(openai_key=openai_key, anthropic_key=anthropic_key)
-            llm_provider = get_llm_provider_from_settings(llm_manager)
+        if not llm_provider or not model_name or not str(model_name).strip():
+            raise ValueError(
+                "export_i18n_for_locale requires explicit llm_provider and model_name; "
+                "implicit provider/model resolution has been removed"
+            )
 
         # Translate all keys recursively
         translated_data = await _translate_i18n_data(
@@ -70,7 +67,8 @@ async def export_i18n_for_locale(
             source_locale=source_locale,
             target_locale=target_locale,
             namespace=namespace,
-            llm_provider=llm_provider
+            llm_provider=llm_provider,
+            model_name=str(model_name).strip(),
         )
 
         # Add header comment
@@ -107,6 +105,7 @@ async def _translate_i18n_data(
     target_locale: str,
     namespace: str,
     llm_provider: Any,
+    model_name: str,
     parent_key: str = ""
 ) -> Dict[str, Any]:
     """
@@ -136,6 +135,7 @@ async def _translate_i18n_data(
                 target_locale=target_locale,
                 namespace=namespace,
                 llm_provider=llm_provider,
+                model_name=model_name,
                 parent_key=current_key
             )
         elif isinstance(value, str):
@@ -146,7 +146,8 @@ async def _translate_i18n_data(
                     source_locale=source_locale,
                     target_locale=target_locale,
                     context_key=current_key,
-                    llm_provider=llm_provider
+                    llm_provider=llm_provider,
+                    model_name=model_name,
                 )
                 translated[key] = translated_value
             else:
@@ -163,7 +164,8 @@ async def _translate_string(
     source_locale: str,
     target_locale: str,
     context_key: str,
-    llm_provider: Any
+    llm_provider: Any,
+    model_name: str,
 ) -> str:
     """
     Translate a single string using LLM
@@ -198,9 +200,11 @@ Translate only the content, do not add explanations."""
 
     messages = build_prompt(system_prompt=system_prompt, user_prompt=user_prompt)
 
-    # Call LLM
-    from backend.app.shared.llm_utils import call_llm
-    result = await call_llm(messages=messages, llm_provider=llm_provider)
+    result = await call_llm(
+        messages=messages,
+        llm_provider=llm_provider,
+        model=model_name,
+    )
 
     translated = result.get("text", text).strip()
 
@@ -211,7 +215,6 @@ Translate only the content, do not add explanations."""
             translated = "\n".join(lines[1:-1])
 
     return translated
-
 
 
 
