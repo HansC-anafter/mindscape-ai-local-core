@@ -71,3 +71,27 @@ async def test_cloud_connector_prefers_fresh_gce_metadata_token_for_site_hub_ws(
     token = await connector.get_device_token()
 
     assert token == "ya29.test-metadata-token"
+
+
+@pytest.mark.asyncio
+async def test_cloud_connector_prefers_relay_token_before_device_token_issuance(monkeypatch):
+    monkeypatch.setenv("DEVICE_ID", "test-device-01")
+
+    connector = CloudConnector(cloud_ws_url="ws://example.test/api/v1/executor/ws")
+
+    async def _fake_metadata_token():
+        return "ya29.test-metadata-token"
+
+    async def _fake_user_token():
+        return "header.payload.signature"
+
+    async def _fail_issue_device_token(_user_token):
+        raise AssertionError("device-token issuance should not run when relay token is available")
+
+    connector._get_gce_metadata_google_access_token = _fake_metadata_token
+    connector._get_device_token_user_token = _fake_user_token
+    connector._issue_device_token = _fail_issue_device_token
+
+    token = await connector.get_device_token()
+
+    assert token == "ya29.test-metadata-token"
