@@ -212,8 +212,8 @@ class CloudConnector:
 
         Resolution order:
         1. Explicit device-token env var
-        2. Issue a device token from a site-hub user token (JWT)
-        3. Reuse a Google OAuth access token for site-hub relay compatibility
+        2. Reuse a fresh Google OAuth access token for site-hub relay compatibility
+        3. Issue a device token from a site-hub user token (JWT)
         4. Raise ValueError
 
         Safety / compatibility notes:
@@ -232,18 +232,18 @@ class CloudConnector:
             logger.info("Using explicit device token for CloudConnector WebSocket authentication")
             return device_token
 
-        user_token = await self._get_device_token_user_token()
-        if user_token:
-            issued_token = await self._issue_device_token(user_token)
-            logger.info("Issued device token for CloudConnector WebSocket authentication")
-            return issued_token
-
         relay_token = await self._get_relay_websocket_auth_token()
         if relay_token:
             logger.warning(
                 "Falling back to Google OAuth access token for site-hub relay WebSocket authentication"
             )
             return relay_token
+
+        user_token = await self._get_device_token_user_token()
+        if user_token:
+            issued_token = await self._issue_device_token(user_token)
+            logger.info("Issued device token for CloudConnector WebSocket authentication")
+            return issued_token
 
         logger.error(
             "No usable execution-control WebSocket credential available. "
