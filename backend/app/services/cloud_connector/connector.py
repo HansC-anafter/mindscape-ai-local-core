@@ -27,6 +27,28 @@ from .activity_relay import ActivityRelay
 logger = logging.getLogger(__name__)
 
 
+def _normalize_optional_string(value: Optional[str]) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _looks_like_jwt(value: Optional[str]) -> bool:
+    token = _normalize_optional_string(value)
+    if not token:
+        return False
+    parts = token.split(".")
+    return len(parts) == 3 and all(parts)
+
+
+def _looks_like_google_access_token(value: Optional[str]) -> bool:
+    token = _normalize_optional_string(value)
+    if not token:
+        return False
+    return token.startswith("ya29.")
+
+
 class CloudConnector:
     """
     Cloud Connector for Local-Core to execution-control communication.
@@ -186,37 +208,184 @@ class CloudConnector:
 
     async def get_device_token(self) -> str:
         """
-        Get device token for WebSocket authentication.
+        Get WebSocket authentication token for execution-control transport.
 
-        Token resolution order:
-        1. CLOUD_PROVIDER_TOKEN / CLOUD_API_TOKEN environment variable
-        2. OAuth access_token from the cloud provider runtime in the database
-        3. Raise ValueError if no valid token is available
+        Resolution order:
+        1. Explicit device-token env var
+        2. Issue a device token from a site-hub user token (JWT)
+        3. Reuse a Google OAuth access token for site-hub relay compatibility
+        4. Raise ValueError
+
+        Safety / compatibility notes:
+        - Device tokens remain the preferred credential for executor identity
+        - Site-hub relay currently also accepts Google OAuth access tokens
+          (`ya29.*`) for `/api/v1/executor/ws`; keep that fallback to avoid
+          breaking the existing OAuth-gated gateway path
+        - Site-hub JWTs may only be used to mint a device token through the
+          official `/api/v1/device-tokens` endpoint
 
         Returns:
-            Access token for WebSocket authentication
+            Authentication token for WebSocket registration
         """
-        # Priority 1: explicit env var
-        user_token = os.getenv("CLOUD_PROVIDER_TOKEN") or os.getenv("CLOUD_API_TOKEN")
+        device_token = self._get_explicit_device_token()
+        if device_token:
+            logger.info("Using explicit device token for CloudConnector WebSocket authentication")
+            return device_token
 
-        # Priority 2: OAuth token from cloud provider runtime in DB
-        if not user_token:
-            user_token = await self._get_runtime_oauth_token()
+        user_token = await self._get_device_token_user_token()
+        if user_token:
+            issued_token = await self._issue_device_token(user_token)
+            logger.info("Issued device token for CloudConnector WebSocket authentication")
+            return issued_token
 
-        if not user_token:
-            logger.error(
-                "No auth token available for CloudConnector. "
-                "Set CLOUD_PROVIDER_TOKEN / CLOUD_API_TOKEN env var, "
-                "or connect an OAuth runtime in the database."
+        relay_token = await self._get_relay_websocket_auth_token()
+        if relay_token:
+            logger.warning(
+                "Falling back to Google OAuth access token for site-hub relay WebSocket authentication"
             )
+            return relay_token
+
+        logger.error(
+            "No usable execution-control WebSocket credential available. "
+            "Set EXECUTION_CONTROL_DEVICE_TOKEN / CLOUD_DEVICE_TOKEN, "
+            "provide EXECUTION_CONTROL_USER_TOKEN / CLOUD_EXECUTION_USER_TOKEN, "
+            "or ensure a connected runtime can yield a Google OAuth access token."
+        )
+        raise ValueError(
+            "CloudConnector requires a WebSocket auth token. Provide "
+            "EXECUTION_CONTROL_DEVICE_TOKEN (preferred), a site-hub JWT via "
+            "EXECUTION_CONTROL_USER_TOKEN so local-core can mint one, or a "
+            "connected runtime Google OAuth token for site-hub relay compatibility."
+        )
+
+    def _get_explicit_device_token(self) -> Optional[str]:
+        for env_name in (
+            "EXECUTION_CONTROL_DEVICE_TOKEN",
+            "CLOUD_DEVICE_TOKEN",
+            "SITE_HUB_DEVICE_TOKEN",
+        ):
+            token = _normalize_optional_string(os.getenv(env_name))
+            if token:
+                return token
+        return None
+
+    async def _get_device_token_user_token(self) -> Optional[str]:
+        for env_name in (
+            "EXECUTION_CONTROL_USER_TOKEN",
+            "CLOUD_EXECUTION_USER_TOKEN",
+            "SITE_HUB_USER_TOKEN",
+            "CLOUD_PROVIDER_TOKEN",
+            "CLOUD_API_TOKEN",
+        ):
+            candidate = _normalize_optional_string(os.getenv(env_name))
+            if not candidate:
+                continue
+            if _looks_like_jwt(candidate):
+                return candidate
+            if _looks_like_google_access_token(candidate):
+                logger.warning(
+                    "Ignoring %s for device-token issuance because it looks like a Google access token, not a site-hub JWT",
+                    env_name,
+                )
+                continue
+            logger.warning(
+                "Ignoring %s for device-token issuance because it is not JWT-shaped",
+                env_name,
+            )
+
+        runtime_token = await self._get_runtime_oauth_token()
+        if _looks_like_jwt(runtime_token):
+            logger.info(
+                "Using runtime OAuth token as site-hub JWT for device-token issuance"
+            )
+            return runtime_token
+        if _looks_like_google_access_token(runtime_token):
+            logger.warning(
+                "Ignoring runtime OAuth token for device-token issuance because it is a Google access token"
+            )
+        elif _normalize_optional_string(runtime_token):
+            logger.warning(
+                "Ignoring runtime OAuth token for device-token issuance because it is not JWT-shaped"
+            )
+        return None
+
+    async def _get_relay_websocket_auth_token(self) -> Optional[str]:
+        metadata_token = await self._get_gce_metadata_google_access_token()
+        if metadata_token:
+            return metadata_token
+
+        for env_name in (
+            "CLOUD_PROVIDER_TOKEN",
+            "CLOUD_API_TOKEN",
+            "EXECUTION_CONTROL_USER_TOKEN",
+            "CLOUD_EXECUTION_USER_TOKEN",
+            "SITE_HUB_USER_TOKEN",
+        ):
+            candidate = _normalize_optional_string(os.getenv(env_name))
+            if _looks_like_google_access_token(candidate):
+                return candidate
+
+        runtime_token = await self._get_runtime_oauth_token()
+        if _looks_like_google_access_token(runtime_token):
+            return runtime_token
+        return None
+
+    async def _get_gce_metadata_google_access_token(self) -> Optional[str]:
+        metadata_url = (
+            "http://metadata.google.internal/computeMetadata/v1/"
+            "instance/service-accounts/default/token"
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                response = await client.get(
+                    metadata_url,
+                    headers={"Metadata-Flavor": "Google"},
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:
+            logger.debug("GCE metadata access token unavailable: %s", exc)
+            return None
+
+        token = _normalize_optional_string(payload.get("access_token"))
+        if not _looks_like_google_access_token(token):
+            if token:
+                logger.warning(
+                    "Ignoring GCE metadata token because it is not a Google access token"
+                )
+            return None
+
+        logger.info(
+            "Using fresh Google access token from GCE metadata service for site-hub relay WebSocket authentication"
+        )
+        return token
+
+    async def _issue_device_token(self, user_token: str) -> str:
+        base_url = self._resolve_execution_control_base_url()
+        if not base_url:
             raise ValueError(
-                "CloudConnector requires authentication. "
-                "No OAuth token available (env vars not set, "
-                "runtime OAuth token not found)."
+                "Execution control API URL not configured for device-token issuance"
             )
 
-        logger.info("Using OAuth token for CloudConnector WebSocket authentication")
-        return user_token
+        request_payload = {
+            "device_id": self.device_id,
+            "tenant_id": self.tenant_id,
+            "user_token": user_token,
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                f"{base_url.rstrip('/')}/api/v1/device-tokens",
+                json=request_payload,
+            )
+            response.raise_for_status()
+            payload = response.json()
+
+        token = _normalize_optional_string(payload.get("token"))
+        if not token:
+            raise ValueError("Device token issuance succeeded but returned no token")
+        return token
 
     async def _get_runtime_oauth_token(self) -> str | None:
         """
@@ -496,15 +665,19 @@ class CloudConnector:
                     "Execution control API URL not configured. "
                     "Set Runtime Environments config_url or "
                     "EXECUTION_CONTROL_API_URL / SITE_HUB_API_URL / CLOUD_API_URL."
-            )
-            api_key = os.getenv("CLOUD_API_KEY", "") or os.getenv(
-                "CLOUD_PROVIDER_TOKEN", ""
+                )
+            api_key = (
+                _normalize_optional_string(os.getenv("EXECUTION_CONTROL_USER_TOKEN"))
+                or _normalize_optional_string(os.getenv("CLOUD_EXECUTION_USER_TOKEN"))
+                or _normalize_optional_string(os.getenv("SITE_HUB_USER_TOKEN"))
+                or _normalize_optional_string(os.getenv("CLOUD_API_KEY"))
+                or _normalize_optional_string(os.getenv("CLOUD_PROVIDER_TOKEN"))
             )
             headers = {
                 "X-Device-Id": self._device_id,
             }
-            if isinstance(api_key, str) and api_key.strip():
-                headers["Authorization"] = f"Bearer {api_key.strip()}"
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
             self._http_client: Optional[httpx.AsyncClient] = httpx.AsyncClient(
                 base_url=control_plane_api_url,
                 headers=headers,
