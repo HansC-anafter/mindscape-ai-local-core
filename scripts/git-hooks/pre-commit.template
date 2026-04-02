@@ -39,6 +39,7 @@ is_whitelisted() {
     local file="$1"
     for w in "${whitelist[@]}"; do
         [ "$file" = "$w" ] && return 0
+        [[ "$file" == ${w}* ]] && return 0
     done
     return 1
 }
@@ -71,6 +72,25 @@ if [ -n "$blocked" ]; then
     echo "============================================================"
     echo ""
     exit 1
+fi
+
+# --- core_llm compatibility boundary guard ---
+BOUNDARY_SCRIPT="$REPO_ROOT/scripts/ci/validate_core_llm_boundary.py"
+if [ -f "$BOUNDARY_SCRIPT" ]; then
+    if ! python3 "$BOUNDARY_SCRIPT"; then
+        echo ""
+        echo "============================================================"
+        echo "  COMMIT BLOCKED: core_llm compatibility boundary violation"
+        echo "============================================================"
+        echo ""
+        echo "  The manifest-backed core_llm capability path is shim-only."
+        echo "  Edit backend/app/system_capabilities/core_llm/ instead."
+        echo ""
+        echo "  Script: scripts/ci/validate_core_llm_boundary.py"
+        echo "============================================================"
+        echo ""
+        exit 1
+    fi
 fi
 
 # --- Content pattern scanning (catch hardcoded secrets / project IDs) ---

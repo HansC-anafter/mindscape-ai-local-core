@@ -37,8 +37,11 @@ jobs:
           # Check for feature-specific models
           FEATURE_MODELS=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E "backend/app/models/sonic_space/|backend/app/models/yogacoach/" || true)
           
-          # Check for capability files
-          CAPABILITY_FILES=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E "backend/app/capabilities/|web-console/src/app/capabilities/" || true)
+          # Allow the tracked core_llm compatibility shim surface only.
+          ALLOWED_CORE_LLM_SHIMS=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E "^backend/app/capabilities/core_llm/(__init__\\.py|manifest\\.yaml|services/(__init__|data_utils|generate|multimodal|structured)\\.py)$" || true)
+
+          # Check for capability files outside the allowed shim surface
+          CAPABILITY_FILES=$(git diff --name-only $BASE_SHA..$HEAD_SHA | grep -E "backend/app/capabilities/|web-console/src/app/capabilities/" | grep -v -E "^backend/app/capabilities/core_llm/(__init__\\.py|manifest\\.yaml|services/(__init__|data_utils|generate|multimodal|structured)\\.py)$" || true)
           
           # Report errors
           ERRORS=0
@@ -61,6 +64,11 @@ jobs:
             ERRORS=1
           fi
           
+          if [ -n "$ALLOWED_CORE_LLM_SHIMS" ]; then
+            echo "ℹ️ Allowed core_llm compatibility shim files detected:"
+            echo "$ALLOWED_CORE_LLM_SHIMS" | sed 's/^/   - /'
+          fi
+
           if [ -n "$CAPABILITY_FILES" ]; then
             echo "❌ Error: Capability files detected:"
             echo "$CAPABILITY_FILES" | sed 's/^/   - /'
@@ -78,6 +86,9 @@ jobs:
           fi
           
           echo "✅ No protected capability files detected"
+
+      - name: Validate core_llm compatibility boundary
+        run: python3 scripts/ci/validate_core_llm_boundary.py
       
       - name: Verify .gitignore patterns
         run: |
@@ -100,4 +111,3 @@ jobs:
           fi
           
           echo "✅ .gitignore verification complete"
-

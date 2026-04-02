@@ -9,6 +9,9 @@ Certain files should be installed via `CapabilityInstaller` rather than committe
 - **Feature-specific playbooks** (e.g., Sonic Space, Yoga Coach)
 - **Feature-specific models** (e.g., `sonic_space/`, `yogacoach/`)
 - **Capability files** (already protected by `.gitignore`)
+- **Exception**: `backend/app/capabilities/core_llm/` is a tracked compatibility shim for
+  a local-core system capability. Its runtime logic must live in
+  `backend/app/system_capabilities/core_llm/`.
 
 ## Protection Mechanisms
 
@@ -97,6 +100,7 @@ jobs:
 - **Core models**: All models in `backend/app/models/` except feature-specific ones
 - **Core code**: All application code, routes, services
 - **Configuration**: Docker, package.json, etc.
+- **System-capability source**: `backend/app/system_capabilities/core_llm/**`
 
 ### ❌ Blocked
 
@@ -104,6 +108,8 @@ jobs:
 - **Feature-specific i18n**: `yoga_*.md`, `sonic_*.md` in i18n directories
 - **Feature-specific models**: `sonic_space/`, `yogacoach/`
 - **Capability files**: Anything in `backend/app/capabilities/` or `web-console/src/app/capabilities/`
+  except the explicitly allowed `core_llm` shim files enforced by `.protected-paths`
+  and CI
 
 ## Installation via CapabilityInstaller
 
@@ -177,10 +183,12 @@ To add new protected patterns:
 3. **Review staged files** with `git status` before committing
 4. **Keep system playbooks** in the repository (they're core functionality)
 5. **Document exceptions** if any protected files need to be committed
+6. **Keep compatibility shims thin**: if a pack path is allowlisted as a shim,
+   edit the corresponding source directory instead of adding logic under
+   `backend/app/capabilities/`
 
 ## Related Documentation
 
 - [CapabilityInstaller Service](../backend/app/services/capability_installer.py)
 - [Adapter Compilation Guide](./adapter-compilation-guide.md)
 - [Playbook Development Guide](../playbook-development/getting-started.md)
-

@@ -1,6 +1,7 @@
 """
-Core LLM 能力包
-通用 LLM 生成、結構化萃取等核心 LLM 操作工具
+Compatibility shim package for the local-core ``core_llm`` system capability.
+
+Edit ``backend.app.system_capabilities.core_llm`` instead.
 """
 
 __all__ = []

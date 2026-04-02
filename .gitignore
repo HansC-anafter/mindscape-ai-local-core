@@ -91,12 +91,27 @@ test_*.yaml
 !backend/tests/services/memory/legacy_metadata_memory_projection_adapter_test.py
 !backend/tests/services/memory/memory_promotion_service_test.py
 !backend/tests/services/memory/memory_engine_closure_integration_test.py
+!backend/tests/services/compile_job_reconciler_test.py
+!backend/tests/services/compile_job_store_stream_events_test.py
+!backend/tests/services/test_core_llm_shim_boundary.py
+!backend/tests/services/test_core_llm_multimodal_payloads.py
 !backend/tests/services/orchestration/meeting/test_session_memory_linkage.py
+!backend/tests/services/orchestration/meeting/test_round_router.py
+!backend/tests/services/orchestration/meeting/test_program_spec_bridge.py
+!backend/tests/services/orchestration/meeting/test_program_run_runtime.py
 !backend/tests/services/orchestration/meeting/test_workflow_evidence_prompt_context.py
+!backend/tests/services/orchestration/meeting/test_wave_closure_trace_validator.py
+!backend/tests/services/conversation/test_workspace_preferred_model_legacy_paths.py
 !backend/tests/services/governance_context_read_model_test.py
 !backend/tests/services/governance/test_memory_impact_graph_read_model.py
 !backend/tests/services/memory_packet_compiler_test.py
 !backend/tests/routes/core/test_workspace_memory_impact_graph_api.py
+!backend/tests/routes/core/test_workspace_crud_executor_runtime_update.py
+!backend/tests/routes/core/handoff_bundles_api_test.py
+!backend/tests/routes/core/meeting_compile_job_projection_api_test.py
+!backend/tests/routes/core/workspace_chat_model_preference_api_test.py
+!backend/tests/routes/core/workspace_program_runs_api_test.py
+!backend/tests/test_workspace_query_database_tool_metadata.py
 !web-console/src/lib/__tests__/time.test.ts
 !backend/tests/test_workspace_instruction_chat_merge.py
 !web-console/src/app/workspaces/**/instruction/page.test.tsx
@@ -149,8 +164,10 @@ docker-compose.override.yml
 # ============================================
 # HARD BARRIER: No cloud components in local-core
 # ============================================
-# These paths should always be empty; files here indicate architecture violations.
-# All files installed via CapabilityInstaller should be excluded.
+# These paths should generally stay empty install targets.
+# Tracked compatibility shims under backend/app/capabilities/core_llm and
+# backend/app/capabilities/core_files are governed exceptions, not authoring surfaces.
+# All other files installed via CapabilityInstaller should be excluded.
 /web-console/src/app/capabilities/
 !/web-console/src/app/capabilities/.gitkeep
 /backend/app/capabilities/
