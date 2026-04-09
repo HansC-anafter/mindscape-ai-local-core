@@ -61,6 +61,8 @@ interface Task {
   playbook_id?: string;
   task_type?: string;
   status: string;
+  status_phase?: string;
+  status_phase_group?: string;
   title?: string;
   summary?: string;
   message_id?: string;

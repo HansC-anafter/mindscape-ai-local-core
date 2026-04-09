@@ -7,6 +7,37 @@ import { parseServerTimestamp } from '@/lib/time';
 import { subscribeEventStream, UnifiedEvent } from '@/components/workspace/eventProjector';
 import { WorkflowEvidenceSummary } from '@/components/workspace/meeting/WorkflowEvidenceSummary';
 
+interface CompileJobSummary {
+  id: string;
+  status: 'accepted' | 'running' | 'succeeded' | 'failed' | string;
+  session_id?: string | null;
+  error?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  metadata?: Record<string, any>;
+}
+
+interface RoutingPromptModeSummary {
+  total_decisions?: number;
+  sparse_count?: number;
+  compressed_count?: number;
+  fallback_count?: number;
+  adaptive_count?: number;
+  sparse_ratio?: number;
+  compressed_ratio?: number;
+  fallback_ratio?: number;
+  adaptive_ratio?: number;
+  health_status?: 'healthy' | 'warning' | 'critical' | string;
+  health_reason?: string;
+  last_prompt_mode?: 'sparse' | 'compressed_sparse' | 'full_context_fallback' | string;
+  last_prompt_role_id?: string;
+  last_prompt_reason?: string;
+  last_round_number?: number;
+  last_recorded_at?: string;
+}
+
 interface ProjectCardData {
   projectId: string;
   projectName: string;
@@ -54,6 +85,8 @@ interface ProjectCardData {
     action_item_count?: number;
     last_activity?: string | null;
     minutes_preview?: string;
+    compile_job?: CompileJobSummary | null;
+    routing_prompt_mode_summary?: RoutingPromptModeSummary | null;
   };
 }
 
@@ -83,6 +116,101 @@ function formatRelativeTime(timestamp: string): string {
   if (diffHours < 24) return `${diffHours} 小時前`;
   if (diffDays < 7) return `${diffDays} 天前`;
   return date.toLocaleDateString('zh-TW');
+}
+
+function getCompileJobStyle(status?: string | null): string {
+  const styles: Record<string, string> = {
+    accepted: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
+    running: 'bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300',
+    succeeded: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
+    failed: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+  };
+  return styles[status || ''] || 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-400';
+}
+
+function getCompileJobLabel(status?: string | null): string {
+  const labels: Record<string, string> = {
+    accepted: 'Accepted',
+    running: 'Running',
+    succeeded: 'Succeeded',
+    failed: 'Failed',
+  };
+  return labels[status || ''] || 'Unknown';
+}
+
+function getCompileJobSummary(job?: CompileJobSummary | null): string {
+  if (!job) return '';
+  if (job.status === 'failed') {
+    return job.error?.trim() || 'Compile failed before the meeting session closed.';
+  }
+  if (job.status === 'accepted') {
+    return `Compile accepted ${formatRelativeTime(job.updated_at || job.created_at || '')}`;
+  }
+  if (job.status === 'running') {
+    return `Compile running ${formatRelativeTime(job.updated_at || job.started_at || '')}`;
+  }
+  return `Compile finished ${formatRelativeTime(job.completed_at || job.updated_at || '')}`;
+}
+
+function formatRatioPercent(value?: number): string {
+  return `${Math.round((value || 0) * 100)}%`;
+}
+
+function deriveRoutingHealthSummary(
+  summary?: RoutingPromptModeSummary | null,
+): RoutingPromptModeSummary | null {
+  if (!summary?.total_decisions) {
+    return summary || null;
+  }
+  if (summary.health_status) {
+    return summary;
+  }
+  const fallbackCount = Number(summary.fallback_count || 0);
+  const fallbackRatio = Number(summary.fallback_ratio || 0);
+  const compressedRatio = Number(summary.compressed_ratio || 0);
+  const adaptiveRatio = Number(summary.adaptive_ratio || 0);
+  let healthStatus: RoutingPromptModeSummary['health_status'] = 'healthy';
+  let healthReason: RoutingPromptModeSummary['health_reason'] = 'stable_sparse';
+  if (fallbackCount >= 2 || fallbackRatio >= 0.5) {
+    healthStatus = 'critical';
+    healthReason = 'fallback_pressure';
+  } else if (fallbackCount >= 1) {
+    healthStatus = 'warning';
+    healthReason = 'fallback_present';
+  } else if (compressedRatio >= 0.5 || adaptiveRatio >= 0.5) {
+    healthStatus = 'warning';
+    healthReason = 'compression_pressure';
+  }
+  return {
+    ...summary,
+    health_status: healthStatus,
+    health_reason: healthReason,
+  };
+}
+
+function getRoutingHealthStyle(status?: string): string {
+  const styles: Record<string, string> = {
+    healthy: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300',
+    warning: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
+    critical: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+  };
+  return styles[status || ''] || 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-400';
+}
+
+function getRoutingHealthLabel(status?: string): string {
+  const labels: Record<string, string> = {
+    healthy: 'Routing Stable',
+    warning: 'Routing Pressure',
+    critical: 'Fallback Risk',
+  };
+  return labels[status || ''] || 'Routing Unknown';
+}
+
+function getRoutingHealthSummaryText(summary?: RoutingPromptModeSummary | null): string {
+  if (!summary?.total_decisions) {
+    return '';
+  }
+  return `Routing · fallback ${formatRatioPercent(summary.fallback_ratio)} · compressed ${formatRatioPercent(summary.compressed_ratio)}`;
 }
 
 function EventItem({
@@ -288,7 +416,7 @@ export default function ProjectCard({
 
     const unsubscribe = subscribeEventStream(effectiveWorkspaceId, {
       apiUrl,
-      eventTypes: ['meeting_round', 'meeting_start', 'meeting_end', 'decision_proposal', 'decision_final'],
+      eventTypes: ['meeting_round', 'meeting_start', 'meeting_end', 'decision_proposal', 'decision_final', 'compile_job_updated', 'round_routing_warning'],
       projectId: project.id,
       onEvent: (event: UnifiedEvent) => {
         if (event.type === 'meeting_start') {
@@ -395,6 +523,9 @@ export default function ProjectCard({
     cardData?.meeting?.enabled ?? project.metadata?.meeting_enabled
   );
   const meetingActive = Boolean(cardData?.meeting?.active);
+  const routingPromptSummary = deriveRoutingHealthSummary(
+    cardData?.meeting?.routing_prompt_mode_summary,
+  );
 
   const handleToggleMeeting = async (enabled: boolean) => {
     if (apiUrl == null || !effectiveWorkspaceId || meetingUpdating) return;
@@ -425,6 +556,8 @@ export default function ProjectCard({
             action_item_count: prev.meeting?.action_item_count ?? 0,
             last_activity: prev.meeting?.last_activity ?? null,
             minutes_preview: prev.meeting?.minutes_preview ?? '',
+            routing_prompt_mode_summary:
+              prev.meeting?.routing_prompt_mode_summary ?? null,
           },
         };
       });
@@ -514,8 +647,12 @@ export default function ProjectCard({
       return;
     }
     const params = new URLSearchParams({ project_id: project.id, open_patch: '1' });
-    if (cardData?.meeting?.session_id) {
-      params.set('session_id', cardData.meeting.session_id);
+    const sessionId =
+      cardData?.meeting?.session_id ||
+      cardData?.meeting?.compile_job?.session_id ||
+      '';
+    if (sessionId) {
+      params.set('session_id', sessionId);
     }
     router.push(`/workspaces/${effectiveWorkspaceId}/meetings?${params.toString()}`);
   };
@@ -634,6 +771,14 @@ export default function ProjectCard({
                 ⏸️ {cardData.stats.pendingConfirmations}
               </span>
             )}
+            {routingPromptSummary?.total_decisions && (
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded ${getRoutingHealthStyle(routingPromptSummary.health_status)}`}
+                title={getRoutingHealthSummaryText(routingPromptSummary)}
+              >
+                {getRoutingHealthLabel(routingPromptSummary.health_status)}
+              </span>
+            )}
             <button
               type="button"
               onClick={(e) => {
@@ -724,6 +869,34 @@ export default function ProjectCard({
                     <div className="text-[10px] text-secondary dark:text-gray-400">
                       Round {cardData.meeting?.round_count || 0}/{cardData.meeting?.max_rounds || 5} · Action Items {cardData.meeting?.action_item_count || 0}
                     </div>
+                    {routingPromptSummary?.total_decisions && (
+                      <div className="rounded border border-default/60 dark:border-gray-700 bg-white/70 dark:bg-gray-950/30 px-2 py-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${getRoutingHealthStyle(routingPromptSummary.health_status)}`}
+                          >
+                            {getRoutingHealthLabel(routingPromptSummary.health_status)}
+                          </span>
+                          <span className="text-[10px] text-secondary dark:text-gray-400 truncate">
+                            {getRoutingHealthSummaryText(routingPromptSummary)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {cardData.meeting?.compile_job && (
+                      <div className="rounded border border-default/60 dark:border-gray-700 bg-white/70 dark:bg-gray-950/30 px-2 py-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${getCompileJobStyle(cardData.meeting.compile_job.status)}`}
+                          >
+                            Compile {getCompileJobLabel(cardData.meeting.compile_job.status)}
+                          </span>
+                          <span className="text-[10px] text-secondary dark:text-gray-400 truncate">
+                            {getCompileJobSummary(cardData.meeting.compile_job)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     {workflowEvidenceProfile && (
                       <WorkflowEvidenceSummary
                         label="Workflow Evidence"
@@ -736,8 +909,14 @@ export default function ProjectCard({
                         renderedSectionCount={workflowEvidenceRenderedSections}
                         budgetUtilizationRatio={workflowEvidenceUtilizationRatio}
                         href={`/workspaces/${effectiveWorkspaceId}/meetings?${new URLSearchParams(
-                          cardData.meeting?.session_id
-                            ? { project_id: project.id, session_id: cardData.meeting.session_id }
+                          (cardData.meeting?.session_id || cardData.meeting?.compile_job?.session_id)
+                            ? {
+                              project_id: project.id,
+                              session_id:
+                                cardData.meeting?.session_id ||
+                                cardData.meeting?.compile_job?.session_id ||
+                                '',
+                            }
                             : { project_id: project.id }
                         ).toString()}`}
                         compact

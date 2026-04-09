@@ -37,7 +37,12 @@ export function useMessageHandling(
 ) {
   const { messages, setMessages } = useMessages();
   const { input, setInput, isStreaming, setIsStreaming, firstChunkReceived, setFirstChunkReceived } = useUIState();
-  const { setContextTokenCount, setIsFallbackUsed } = useWorkspaceMetadata();
+  const {
+    setContextTokenCount,
+    setIsFallbackUsed,
+    currentChatModel,
+    availableChatModels,
+  } = useWorkspaceMetadata();
   const { loadContextTokenCount } = useWorkspaceData(workspaceId, apiUrl, { enabled: false });
   const { scrollToBottom } = useScrollManagement();
   const { sendMessage, isLoading: sendLoading, error: sendError } = useSendMessage(
@@ -121,6 +126,9 @@ export function useMessageHandling(
 
       let assistantMessageId: string | null = null;
       let accumulatedText = '';
+      const selectedModelName = availableChatModels.find(
+        (model) => model.id === currentChatModel
+      )?.model_name;
 
       const messageText = currentInput || (currentFiles.length > 0 ? `${t('uploadedFile')}：${currentFiles.map(f => f.name).join(', ')}` : '');
 
@@ -132,6 +140,7 @@ export function useMessageHandling(
         files: fileIds,
         mode: 'auto',
         stream: true,
+        model_name: selectedModelName,
         onChunk: (chunk: string, metadata?: any) => {
           if (!accumulatedText) {
             setFirstChunkReceived(true);
@@ -218,6 +227,8 @@ export function useMessageHandling(
     onFileAnalyzed,
     onMessageSent,
     onError,
+    currentChatModel,
+    availableChatModels,
   ]);
 
   const { copiedAll, setCopiedAll } = useUIState();
@@ -277,4 +288,3 @@ export function useMessageHandling(
     error: sendError,
   };
 }
-

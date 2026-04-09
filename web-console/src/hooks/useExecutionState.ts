@@ -34,7 +34,18 @@ export interface TimelineEntry {
 }
 
 export interface PipelineStage {
-  stage: 'intent_extraction' | 'playbook_selection' | 'task_assignment' | 'execution_start' | 'no_action_needed' | 'no_playbook_found' | 'execution_error';
+  stage:
+    | 'intent_extraction'
+    | 'playbook_selection'
+    | 'task_assignment'
+    | 'execution_start'
+    | 'no_action_needed'
+    | 'no_playbook_found'
+    | 'execution_error'
+    | 'compile_accepted'
+    | 'compile_running'
+    | 'compile_succeeded'
+    | 'compile_failed';
   message: string;
   streaming?: boolean;
 }
@@ -83,7 +94,7 @@ type SSEEvent =
   | { type: 'thinking_start' }
   | { type: 'thinking_step'; step: string }
   | { type: 'execution_plan'; plan: { id?: string; summary?: string; steps: Array<{ id: string; name: string; icon?: string; status: string }>; ai_team_members?: Array<{ pack_id: string; name: string; name_zh?: string; role: string; icon: string }> } }
-  | { type: 'pipeline_stage'; run_id: string; stage: string; message: string; metadata?: any }
+  | { type: 'pipeline_stage'; run_id?: string; stage: string; message: string; metadata?: any; streaming?: boolean }
   | { type: 'run_started'; run_id: string }
   | { type: 'run_completed'; run_id: string }
   | { type: 'run_failed'; run_id: string; error?: string }
@@ -253,7 +264,7 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
             pipelineStage: {
               stage: event.stage as PipelineStage['stage'],
               message: event.message,
-              streaming: true
+              streaming: event.streaming ?? true
             },
             aiTeamMembers: updatedMembers
           };
@@ -813,4 +824,3 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
 }
 
 export default useExecutionState;
-

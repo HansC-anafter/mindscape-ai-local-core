@@ -81,6 +81,10 @@ interface ActivePlaybook {
   pack_id?: string;
   display_name: string;
   status: string;
+  runningCount?: number;
+  mlxActiveCount?: number;
+  waitingCount?: number;
+  preparingCount?: number;
 }
 
 interface ActivePlaybookIndicatorProps {
@@ -128,14 +132,29 @@ export default function ActivePlaybookIndicator({
     // Collect RUNNING playbooks
     runningTasks.forEach((task: any) => {
       const key = task.pack_id || task.playbook_id || task.task_type || '';
-      if (key && !playbookMap.has(key)) {
-        playbookMap.set(key, {
-          playbook_id: task.playbook_id,
-          pack_id: task.pack_id,
-          display_name: task.pack_id || task.playbook_id || task.task_type || 'Unknown',
-          status: task.status
-        });
+      if (!key) {
+        return;
       }
+      const phase = (task.status_phase || task.execution_context?.status_phase || '').toString().trim().toLowerCase();
+      const existing = playbookMap.get(key) || {
+        playbook_id: task.playbook_id,
+        pack_id: task.pack_id,
+        display_name: task.pack_id || task.playbook_id || task.task_type || 'Unknown',
+        status: task.status,
+        runningCount: 0,
+        mlxActiveCount: 0,
+        waitingCount: 0,
+        preparingCount: 0,
+      };
+      existing.runningCount = (existing.runningCount || 0) + 1;
+      if (phase === 'mlx_active') {
+        existing.mlxActiveCount = (existing.mlxActiveCount || 0) + 1;
+      } else if (phase === 'waiting_mlx') {
+        existing.waitingCount = (existing.waitingCount || 0) + 1;
+      } else if (phase === 'preparing') {
+        existing.preparingCount = (existing.preparingCount || 0) + 1;
+      }
+      playbookMap.set(key, existing);
     });
 
     // Count unique pending tasks (if no running tasks)
@@ -319,7 +338,16 @@ export default function ActivePlaybookIndicator({
     const name = playbook.display_name
       .replace(/[_-]/g, ' ')
       .replace(/\b\w/g, (l) => l.toUpperCase());
-    return name;
+    const active = Number(playbook.mlxActiveCount || 0);
+    const waiting = Number(playbook.waitingCount || 0);
+    const preparing = Number(playbook.preparingCount || 0);
+    const running = Number(playbook.runningCount || 0);
+    const detailBits: string[] = [];
+    if (active > 0) detailBits.push(`${active} active`);
+    if (waiting > 0) detailBits.push(`${waiting} waiting`);
+    if (preparing > 0) detailBits.push(`${preparing} preparing`);
+    if (detailBits.length === 0 && running > 1) detailBits.push(`×${running}`);
+    return detailBits.length > 0 ? `${name} · ${detailBits.join(' / ')}` : name;
   };
 
   // Always render the indicator area, even if empty (to maintain layout)

@@ -120,6 +120,24 @@ export interface UnifiedEvent {
     workflow_evidence_total_dropped_count?: number;
     workflow_evidence_rendered_section_count?: number;
     workflow_evidence_budget_utilization_ratio?: number;
+
+    // COMPILE_JOB_UPDATED
+    compile_job_id?: string;
+    session_id?: string;
+    error?: string;
+    terminal?: boolean;
+
+    // ROUND_ROUTING_GRAPH
+    round_number?: number;
+    edge_count?: number;
+    packet_count?: number;
+    metadata?: Record<string, any>;
+    routing_prompt_mode?: string;
+    routing_prompt_reason?: string;
+    routing_prompt_role_id?: string;
+    routing_health_status?: string;
+    routing_health_reason?: string;
+    compressed_packet_char_limit?: number;
   };
   entity_ids?: Record<string, string>;
   metadata?: Record<string, any>;
@@ -555,6 +573,8 @@ export function eventToTimelineItem(event: UnifiedEvent): TimelineItem | null {
     'branch_proposed',
     'meeting_start',
     'memory_writeback',
+    'compile_job_updated',
+    'round_routing_graph',
   ];
 
   if (!importantTypes.includes(event.type)) {
@@ -609,6 +629,78 @@ export function eventToTimelineItem(event: UnifiedEvent): TimelineItem | null {
         navigationHref = `/workspaces/${event.workspace_id}/governance?${params.toString()}`;
       }
       break;
+    case 'compile_job_updated': {
+      const status = event.payload.status || 'updated';
+      summary = `Compile job ${status}`;
+      if (event.workspace_id && event.payload.session_id) {
+        const params = new URLSearchParams();
+        params.set('session_id', event.payload.session_id);
+        if (event.project_id) {
+          params.set('project_id', event.project_id);
+        }
+        navigationHref = `/workspaces/${event.workspace_id}/meetings?${params.toString()}`;
+      }
+      break;
+    }
+    case 'round_routing_graph': {
+      const roundNumber = event.payload.round_number || '?';
+      const edgeCount = event.payload.edge_count || 0;
+      const promptMode = event.payload?.metadata?.routing_prompt_mode || '';
+      const healthStatus = event.payload?.metadata?.routing_health_status || '';
+      const promptModeLabel =
+        promptMode === 'compressed_sparse'
+          ? 'compressed'
+          : promptMode === 'full_context_fallback'
+            ? 'fallback'
+            : promptMode === 'sparse'
+              ? 'sparse'
+              : '';
+      const healthLabel =
+        healthStatus === 'critical'
+          ? 'fallback risk'
+          : healthStatus === 'warning'
+            ? 'routing pressure'
+            : healthStatus === 'healthy'
+              ? 'stable'
+              : '';
+      summary = `Round ${roundNumber} routing graph: ${edgeCount} edges${promptModeLabel ? ` · ${promptModeLabel}` : ''}${healthLabel ? ` · ${healthLabel}` : ''}`;
+      if (event.workspace_id && event.payload.meeting_session_id) {
+        const params = new URLSearchParams();
+        params.set('session_id', event.payload.meeting_session_id);
+        if (event.project_id) {
+          params.set('project_id', event.project_id);
+        }
+        navigationHref = `/workspaces/${event.workspace_id}/meetings?${params.toString()}`;
+      }
+      break;
+    }
+    case 'round_routing_warning': {
+      const roundNumber = event.payload.round_number || '?';
+      const promptMode = event.payload.routing_prompt_mode || '';
+      const healthStatus = event.payload.routing_health_status || '';
+      const promptModeLabel =
+        promptMode === 'compressed_sparse'
+          ? ' · compressed'
+          : promptMode === 'full_context_fallback'
+            ? ' · fallback'
+            : '';
+      const healthLabel =
+        healthStatus === 'critical'
+          ? ' · fallback risk'
+          : healthStatus === 'warning'
+            ? ' · routing pressure'
+            : '';
+      summary = (event.payload.summary || `Round ${roundNumber} routing warning`) + promptModeLabel + healthLabel;
+      if (event.workspace_id && event.payload.meeting_session_id) {
+        const params = new URLSearchParams();
+        params.set('session_id', event.payload.meeting_session_id);
+        if (event.project_id) {
+          params.set('project_id', event.project_id);
+        }
+        navigationHref = `/workspaces/${event.workspace_id}/meetings?${params.toString()}`;
+      }
+      break;
+    }
     default:
       summary = `${event.type} event`;
   }
@@ -793,6 +885,9 @@ function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
     'meeting_start',
     'meeting_end',
     'memory_writeback',
+    'compile_job_updated',
+    'round_routing_graph',
+    'round_routing_warning',
     'decision_made',
     'reasoning_committed',
     'intent_patched',

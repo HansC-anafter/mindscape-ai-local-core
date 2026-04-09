@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
+import { getApiBaseUrl } from '@/lib/api-url';
+import { fetchWithApiFallback } from '@/lib/api-fetch';
 
 interface ComponentErrorBoundaryProps {
   children: React.ReactNode;
@@ -58,118 +60,168 @@ interface CapabilityInfo {
 export default function CapabilityPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params?.workspaceId as string;
   const capabilityCode = params?.capabilityCode as string;
+  const requestedComponentCode = String(searchParams?.get('component') || '').trim();
 
-  // Resolve API URL from env or config
-  const apiUrl = typeof window !== 'undefined'
-    ? window.location.origin.replace(/:\d+$/, ':8200')
-    : 'http://localhost:8200';
+  // Use the browser-accessible backend URL when available; fall back to the
+  // same-origin proxy only for internal/non-browser hosts.
+  const apiUrl = getApiBaseUrl();
 
   const [capabilityInfo, setCapabilityInfo] = useState<CapabilityInfo | null>(null);
+  const [capabilityId, setCapabilityId] = useState<string | null>(null);
   const [uiComponents, setUIComponents] = useState<UIComponentInfo[]>([]);
   const [loadedComponents, setLoadedComponents] = useState<Map<string, React.ComponentType<any>>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const [metadataLoading, setMetadataLoading] = useState(true);
+  const [componentsLoading, setComponentsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadCapabilityData();
-  }, [capabilityCode]);
+    let cancelled = false;
 
-  const loadCapabilityData = async () => {
-    setLoading(true);
-    setError(null);
+    const loadCapabilityMetadata = async () => {
+      setMetadataLoading(true);
+      setComponentsLoading(false);
+      setError(null);
+      setLoadedComponents(new Map());
+      setCapabilityInfo(null);
+      setCapabilityId(null);
+      setUIComponents([]);
 
-    try {
-      // Fetch all installed capabilities then find the matching one
-      const listResponse = await fetch(
-        `${apiUrl}/api/v1/capability-packs/installed-capabilities`
-      );
+      try {
+        const listResponse = await fetchWithApiFallback(
+          '/api/v1/capability-packs/installed-capabilities',
+          undefined,
+          apiUrl,
+        );
 
-      if (!listResponse.ok) {
-        throw new Error(`Failed to load capabilities list: ${listResponse.status}`);
+        if (!listResponse.ok) {
+          throw new Error(`Failed to load capabilities list: ${listResponse.status}`);
+        }
+
+        const capabilitiesList = await listResponse.json();
+        const capabilityData = capabilitiesList.find(
+          (cap: CapabilityInfo) =>
+            cap.code === capabilityCode || cap.id === capabilityCode
+        );
+
+        if (!capabilityData) {
+          throw new Error(`Capability "${capabilityCode}" 未找到或未安裝`);
+        }
+
+        const nextCapabilityId = capabilityData.id || capabilityCode;
+        const componentsResponse = await fetchWithApiFallback(
+          `/api/v1/capability-packs/installed-capabilities/${nextCapabilityId}/ui-components`,
+          undefined,
+          apiUrl,
+        );
+
+        if (!componentsResponse.ok) {
+          console.warn(`No UI components found for ${capabilityCode}`);
+          if (!cancelled) {
+            setCapabilityInfo(capabilityData);
+            setCapabilityId(nextCapabilityId);
+            setUIComponents([]);
+          }
+          return;
+        }
+
+        const componentsData = await componentsResponse.json();
+        if (!cancelled) {
+          setCapabilityInfo(capabilityData);
+          setCapabilityId(nextCapabilityId);
+          setUIComponents(componentsData || []);
+        }
+      } catch (err) {
+        console.error(`[CapabilityPage] Failed to load capability ${capabilityCode}:`, err);
+        const errorMessage = err instanceof Error
+          ? err.message
+          : 'Failed to load capability';
+        if (!cancelled) {
+          setError(errorMessage);
+        }
+      } finally {
+        if (!cancelled) {
+          setMetadataLoading(false);
+        }
       }
+    };
 
-      const capabilitiesList = await listResponse.json();
-      const capabilityData = capabilitiesList.find(
-        (cap: CapabilityInfo) =>
-          cap.code === capabilityCode || cap.id === capabilityCode
-      );
+    void loadCapabilityMetadata();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, capabilityCode]);
 
-      if (!capabilityData) {
-        throw new Error(`Capability "${capabilityCode}" 未找到或未安裝`);
-      }
+  useEffect(() => {
+    let cancelled = false;
 
-      setCapabilityInfo(capabilityData);
-
-      // Backend UI components API matches by id, not code
-      const capabilityId = capabilityData.id || capabilityCode;
-
-      // Load UI components info
-      const componentsResponse = await fetch(
-        `${apiUrl}/api/v1/capability-packs/installed-capabilities/${capabilityId}/ui-components`
-      );
-
-      if (!componentsResponse.ok) {
-        console.warn(`No UI components found for ${capabilityCode}`);
-        setUIComponents([]);
-        setLoading(false);
+    const loadCapabilityComponents = async () => {
+      if (!capabilityId || uiComponents.length === 0) {
+        setLoadedComponents(new Map());
+        setComponentsLoading(false);
         return;
       }
 
-      const componentsData = await componentsResponse.json();
-      setUIComponents(componentsData || []);
+      setComponentsLoading(true);
 
-      // Prioritize main page components (components with code ending in "Page" or "StudioPage")
-      // These are typically the entry points that contain the full layout
-      const mainPageComponents = componentsData.filter((c: UIComponentInfo) =>
+      const mainPageComponents = uiComponents.filter((c: UIComponentInfo) =>
         c.code && (c.code.endsWith('Page') || c.code.endsWith('StudioPage'))
       );
-      const otherComponents = componentsData.filter((c: UIComponentInfo) =>
+      const otherComponents = uiComponents.filter((c: UIComponentInfo) =>
         c.code && !c.code.endsWith('Page') && !c.code.endsWith('StudioPage')
       );
-
-      // Load main page components first, then others only if no main page component found
       const componentsToLoad = mainPageComponents.length > 0
         ? mainPageComponents
         : otherComponents;
 
-      const newComponents = new Map<string, React.ComponentType<any>>();
+      const loadedComponentEntries = await Promise.all(
+        componentsToLoad.map(async (componentInfo: UIComponentInfo) => {
+          try {
+            const Component = await loadCapabilityUIComponent(
+              capabilityId,
+              componentInfo.code,
+              apiUrl
+            );
 
-      for (const componentInfo of componentsToLoad) {
-        try {
-          const Component = await loadCapabilityUIComponent(
-            capabilityId,
-            componentInfo.code,
-            apiUrl
-          );
+            if (!Component) {
+              return null;
+            }
 
-          if (Component) {
-            const key = `${capabilityId}:${componentInfo.code}`;
-            newComponents.set(key, Component);
+            return [
+              `${capabilityId}:${componentInfo.code}`,
+              Component,
+            ] as const;
+          } catch (err) {
+            console.warn(`Failed to load component ${componentInfo.code}:`, err);
+            return null;
           }
-        } catch (err) {
-          console.warn(`Failed to load component ${componentInfo.code}:`, err);
-        }
+        })
+      );
+
+      if (cancelled) {
+        return;
       }
 
-      setLoadedComponents(newComponents);
-    } catch (err) {
-      console.error(`[CapabilityPage] Failed to load capability ${capabilityCode}:`, err);
-      const errorMessage = err instanceof Error
-        ? err.message
-        : 'Failed to load capability';
-      setError(errorMessage);
-      // Set loading to false even on error to display error UI
-    } finally {
-      setLoading(false);
-    }
-  };
+      setLoadedComponents(new Map<string, React.ComponentType<any>>(
+        loadedComponentEntries.filter(
+          (entry): entry is readonly [string, React.ComponentType<any>] => entry !== null
+        )
+      ));
+      setComponentsLoading(false);
+    };
 
-  if (loading) {
+    void loadCapabilityComponents();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, capabilityId, uiComponents]);
+
+  if (metadataLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-gray-500 dark:text-gray-400">Loading capability UI...</div>
+        <div className="text-sm text-gray-500 dark:text-gray-400">Loading capability metadata...</div>
       </div>
     );
   }
@@ -221,10 +273,15 @@ export default function CapabilityPage() {
     );
   }
 
-  const mainPageComponent = Array.from(loadedComponents.entries()).find(([key]) => {
+  const mainPageEntries = Array.from(loadedComponents.entries()).filter(([key]) => {
     const [, componentCode] = key.split(':');
     return componentCode.endsWith('Page') || componentCode.endsWith('StudioPage');
   });
+  const mainPageComponent =
+    mainPageEntries.find(([key]) => {
+      const [, componentCode] = key.split(':');
+      return requestedComponentCode && componentCode === requestedComponentCode;
+    }) || mainPageEntries[0];
 
   // If main page component exists, render it fullscreen without wrapper
   if (mainPageComponent) {
@@ -308,7 +365,9 @@ export default function CapabilityPage() {
 
         {loadedComponents.size === 0 && (
           <div className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
-            No components loaded. Some components may have failed to load.
+            {componentsLoading
+              ? 'Loading capability components...'
+              : 'No components loaded. Some components may have failed to load.'}
           </div>
         )}
       </div>

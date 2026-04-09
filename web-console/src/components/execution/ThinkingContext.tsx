@@ -3,7 +3,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 export interface PipelineStage {
-  stage: 'intent_extraction' | 'playbook_selection' | 'task_assignment' | 'execution_start' | 'no_action_needed' | 'no_playbook_found' | 'execution_error';
+  stage:
+    | 'intent_extraction'
+    | 'playbook_selection'
+    | 'task_assignment'
+    | 'execution_start'
+    | 'no_action_needed'
+    | 'no_playbook_found'
+    | 'execution_error'
+    | 'compile_accepted'
+    | 'compile_running'
+    | 'compile_succeeded'
+    | 'compile_failed';
   message: string;
   streaming?: boolean;
 }

@@ -22,8 +22,8 @@ interface UIComponentInfo {
 }
 
 /**
- * Pre-register all capability components using require.context
- * Webpack processes this at build time and creates a context function
+ * Pre-register all capability components using require.context.
+ * Use lazy mode so capability bundles are split and loaded on demand.
  */
 // @ts-ignore - require.context is a webpack feature, not standard TypeScript
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -31,7 +31,7 @@ const rawCapabilityComponentsContext = require.context(
   '../app/capabilities',
   true,
   /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._)).*\.tsx$/,
-  'sync'
+  'lazy'
 );
 const rawKeys = typeof rawCapabilityComponentsContext.keys === 'function'
   ? rawCapabilityComponentsContext.keys()

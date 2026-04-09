@@ -178,7 +178,7 @@ export function MessagesContainer({
         visible={isStreaming || !!pipelineStage}
         isStreaming={isStreaming}
         firstChunkReceived={firstChunkReceived}
-        pipelineStage={pipelineStage?.message}
+        pipelineStage={pipelineStage}
       />
 
       <div ref={messagesEndRef} />
@@ -209,4 +209,3 @@ export function MessagesContainer({
     </div>
   );
 }
-

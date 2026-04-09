@@ -144,6 +144,9 @@ function WorkspaceChatContent({
 
   // Get sendMessage from useSendMessage for suggestion execution
   const { sendMessage } = useSendMessage(workspaceId, apiUrl, projectId, threadId);  // 🆕 傳遞 threadId
+  const selectedChatModelName = availableChatModels.find(
+    (model) => model.id === currentChatModel
+  )?.model_name;
 
   const handleExecuteSuggestion = async (suggestion: Suggestion) => {
     try {
@@ -154,6 +157,7 @@ function WorkspaceChatContent({
         },
         mode: 'auto',
         stream: true,
+        model_name: selectedChatModelName,
       });
     } catch (err) {
       console.error('Failed to execute suggestion:', err);
@@ -166,11 +170,12 @@ function WorkspaceChatContent({
         message: retryData.message,
         mode: 'auto',
         stream: true,
+        model_name: selectedChatModelName,
       });
     } catch (err) {
       console.error('Retry failed:', err);
     }
-  }, [sendMessage]);
+  }, [sendMessage, selectedChatModelName]);
 
   useWorkspaceData(workspaceId, apiUrl, {
     enabled: true,

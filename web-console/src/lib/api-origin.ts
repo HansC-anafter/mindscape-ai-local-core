@@ -2,6 +2,24 @@ function isLoopbackHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 }
 
+export function normalizeBrowserReachableUrl(configuredUrl?: string): string | undefined {
+  if (!configuredUrl || !configuredUrl.startsWith('http')) {
+    return configuredUrl;
+  }
+
+  try {
+    const url = new URL(configuredUrl);
+    const hostname = url.hostname.trim().toLowerCase();
+    if (hostname === 'localhost' || hostname === '::1') {
+      url.hostname = '127.0.0.1';
+      return url.toString().replace(/\/$/, '');
+    }
+    return configuredUrl.replace(/\/$/, '');
+  } catch {
+    return configuredUrl;
+  }
+}
+
 function isPrivateIpv4(hostname: string): boolean {
   if (!/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
     return false;
@@ -57,7 +75,26 @@ export function shouldUseSameOriginProxyForBrowser(configuredUrl?: string): bool
 
   try {
     const url = new URL(configuredUrl);
-    return url.hostname === window.location.hostname || isBrowserInternalHostname(url.hostname);
+    const configuredHost = url.hostname.trim().toLowerCase();
+    const browserHost = window.location.hostname.trim().toLowerCase();
+    const configuredIsDirectBrowserHost =
+      isLoopbackHostname(configuredHost) || isPrivateIpv4(configuredHost);
+    const browserIsDirectBrowserHost =
+      isLoopbackHostname(browserHost) || isPrivateIpv4(browserHost);
+
+    // In local-core dev/runtime, NEXT_PUBLIC_API_URL typically points to a
+    // browser-reachable backend URL such as localhost:8200. Sending those
+    // requests through Next rewrites is less stable than hitting the backend
+    // directly, and backend CORS already allows the frontend origin.
+    if (configuredHost === browserHost) {
+      return false;
+    }
+
+    if (configuredIsDirectBrowserHost && browserIsDirectBrowserHost) {
+      return false;
+    }
+
+    return isBrowserInternalHostname(configuredHost);
   } catch {
     return true;
   }

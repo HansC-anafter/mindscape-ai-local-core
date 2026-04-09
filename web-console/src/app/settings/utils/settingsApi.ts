@@ -81,7 +81,7 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
   apiUrlPromise = (async () => {
     const initialUrl = getInitialApiUrl();
 
-    // If using same-origin proxy (remote access), skip all port config resolution
+    // If using same-origin proxy for internal/non-browser hosts, skip port config resolution
     if (initialUrl === '') {
       apiUrlCache = '';
       lastValidationTime = Date.now();

@@ -13,14 +13,29 @@ interface RequestOptions {
 }
 
 export interface ChatModelData {
-  chat_model?: {
+  current_selection?: {
+    id: string;
+    label: string;
     model_name: string;
     provider: string;
+    source_kind: 'executor_runtime' | 'direct_llm';
+    runtime_id?: string | null;
+    available: boolean;
+    auth_status?: string | null;
+    disabled_reason?: string | null;
   };
-  available_chat_models?: Array<{
+  available_models?: Array<{
+    id: string;
+    label: string;
     model_name: string;
     provider: string;
+    source_kind: 'executor_runtime' | 'direct_llm';
+    runtime_id?: string | null;
+    available: boolean;
+    auth_status?: string | null;
+    disabled_reason?: string | null;
   }>;
+  resolved_executor_runtime?: string | null;
   [key: string]: any;
 }
 
@@ -153,8 +168,12 @@ class LLMConfigService {
     }
 
     try {
+      const endpoint = workspaceId
+        ? `${apiUrl}/api/v1/workspaces/${workspaceId}/chat-model-preference`
+        : `${apiUrl}/api/v1/system-settings/llm-models`;
+
       const response = await fetch(
-        `${apiUrl}/api/v1/system-settings/llm-models`,
+        endpoint,
         {
           headers: {
             'Accept': 'application/json',
@@ -254,4 +273,3 @@ if (typeof window !== 'undefined') {
     llmConfigService.cleanupExpiredCache();
   }, 10 * 60 * 1000);
 }
-

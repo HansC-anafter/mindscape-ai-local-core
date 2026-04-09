@@ -14,6 +14,7 @@ interface SendMessageOptions {
   stream?: boolean;
   project_id?: string;  // Current project ID
   thread_id?: string | null;  // 🆕 Conversation thread ID
+  model_name?: string;
   onChunk?: (chunk: string) => void;
   onComplete?: (fullText: string, contextTokens?: number) => void;
 }
@@ -57,6 +58,7 @@ export function useSendMessage(
       stream = false,
       project_id,
       thread_id,  // 🆕 從 options 獲取（優先級高於 hook 參數）
+      model_name,
       onChunk,
       onComplete
     } = options;
@@ -111,6 +113,7 @@ export function useSendMessage(
               confirm,
               mode,
               stream: true,
+              model_name,
               project_id: finalProjectId,  // Pass project_id to API
               thread_id: finalThreadId  // 🆕 Pass thread_id to API
             }),
@@ -440,6 +443,7 @@ export function useSendMessage(
               timeline_item_id,
               confirm,
               mode,
+              model_name,
               project_id: finalProjectId,  // Pass project_id to API
               thread_id: finalThreadId  // 🆕 Pass thread_id to API
             })
@@ -491,6 +495,5 @@ export function useSendMessage(
     error
   };
 }
-
 
 
