@@ -85,6 +85,12 @@ class QualityGateState(str, Enum):
 
 OBJECT_REUSE_SCHEMA_VERSION = "object_reuse.v1"
 OBJECT_WORKLOAD_SNAPSHOT_SCHEMA_VERSION = "object_workload_snapshot.v1"
+CHARACTER_BINDING_MODES = {"reference_only", "adapter_only", "hybrid"}
+PERFORMANCE_MODES = {"portrait_animation", "audio_driven_talking_head"}
+PERFORMANCE_REPLAY_SCOPES = {
+    "same_identity_only",
+    "retargetable_cross_identity",
+}
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
@@ -115,6 +121,13 @@ def _normalize_string_list(values: Any) -> list[str]:
         seen.add(key)
         normalized.append(value)
     return normalized
+
+
+def _normalize_choice(value: Any, allowed: set[str]) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in allowed:
+        return normalized
+    return ""
 
 
 def _normalize_bbox_payload(value: Any) -> Optional[dict[str, int]]:
@@ -169,6 +182,26 @@ def _normalize_usage_bindings_payload(values: Any) -> list[dict[str, Any]]:
                 ),
             }
         )
+    return normalized
+
+
+def _normalize_structured_dict_list(values: Any) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in values:
+        if isinstance(raw, dict):
+            payload = dict(raw)
+        elif hasattr(raw, "model_dump"):
+            payload = dict(raw.model_dump(mode="json"))
+        else:
+            continue
+        marker = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        normalized.append(payload)
     return normalized
 
 
@@ -367,6 +400,186 @@ class ObjectWorkloadSnapshot(BaseModel):
         return self
 
 
+class SceneControlRef(BaseModel):
+    control_kind: str = ""
+    ref: dict[str, Any] = Field(default_factory=dict)
+    provider: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneControlRef":
+        self.control_kind = str(self.control_kind or "").strip()
+        self.provider = str(self.provider or "").strip()
+        if not isinstance(self.ref, dict):
+            self.ref = {}
+        if not isinstance(self.metadata, dict):
+            self.metadata = {}
+        return self
+
+
+class SceneSpatialMetadata(BaseModel):
+    coordinate_system: str = ""
+    unit_scale: float = 1.0
+    up_axis: str = "Y"
+    forward_axis: str = "-Z"
+    grounding_mode: str = ""
+
+
+class MediaAssetRef(BaseModel):
+    workspace_artifact_id: str = ""
+    storage_key: str = ""
+    local_path: str = ""
+    url: str = ""
+    mime_type: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "MediaAssetRef":
+        self.workspace_artifact_id = str(self.workspace_artifact_id or "").strip()
+        self.storage_key = str(self.storage_key or "").strip()
+        self.local_path = str(self.local_path or "").strip()
+        self.url = str(self.url or "").strip()
+        self.mime_type = str(self.mime_type or "").strip()
+        if not isinstance(self.metadata, dict):
+            self.metadata = {}
+        return self
+
+    def has_locator(self) -> bool:
+        return any(
+            (
+                self.workspace_artifact_id,
+                self.storage_key,
+                self.local_path,
+                self.url,
+            )
+        )
+
+
+class CaptureBundleRef(BaseModel):
+    capture_bundle_id: str = ""
+    source_kind: str = ""
+    workspace_artifact_id: str = ""
+    video_ref: Optional[MediaAssetRef] = None
+    frame_refs: list[MediaAssetRef] = Field(default_factory=list)
+    multiview_frame_count: int = 0
+    producer_tool: str = ""
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "CaptureBundleRef":
+        self.capture_bundle_id = str(self.capture_bundle_id or "").strip()
+        self.source_kind = str(self.source_kind or "").strip()
+        self.workspace_artifact_id = str(self.workspace_artifact_id or "").strip()
+        self.multiview_frame_count = max(int(self.multiview_frame_count or 0), 0)
+        self.producer_tool = str(self.producer_tool or "").strip()
+        if self.multiview_frame_count == 0 and self.frame_refs:
+            self.multiview_frame_count = len(self.frame_refs)
+        return self
+
+    def suggests_reconstruction(self) -> bool:
+        return (
+            (self.video_ref is not None and self.video_ref.has_locator())
+            or self.multiview_frame_count >= 20
+            or len(self.frame_refs) >= 20
+        )
+
+
+class SceneConsistencyContract(BaseModel):
+    must_hold: list[str] = Field(default_factory=list)
+    allowed_variation: list[str] = Field(default_factory=list)
+    degradation_policy: str = "reference_only"
+
+    @model_validator(mode="after")
+    def normalize_lists(self) -> "SceneConsistencyContract":
+        self.must_hold = _normalize_string_list(self.must_hold)
+        self.allowed_variation = _normalize_string_list(self.allowed_variation)
+        self.degradation_policy = str(self.degradation_policy or "reference_only").strip()
+        return self
+
+
+class SceneBinding(BaseModel):
+    scene_id: str = ""
+    scene_scope: str = "default"
+    package_id: str = ""
+    variant_id: str = "main"
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneBinding":
+        self.scene_id = str(self.scene_id or "").strip()
+        self.scene_scope = str(self.scene_scope or "default").strip() or "default"
+        self.package_id = str(self.package_id or "").strip()
+        self.variant_id = str(self.variant_id or "main").strip() or "main"
+        return self
+
+
+class ScenePackageSelector(BaseModel):
+    artifact_id: str = ""
+    package_id: str = ""
+    scene_scope: str = "default"
+    variant_id: str = "main"
+    provider: str = ""
+    status: str = "generated"
+    generation_mode: str = ""
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "ScenePackageSelector":
+        self.artifact_id = str(self.artifact_id or "").strip()
+        self.package_id = str(self.package_id or "").strip()
+        self.scene_scope = str(self.scene_scope or "default").strip() or "default"
+        self.variant_id = str(self.variant_id or "main").strip() or "main"
+        self.provider = str(self.provider or "").strip()
+        self.status = str(self.status or "generated").strip() or "generated"
+        self.generation_mode = str(self.generation_mode or "").strip()
+        return self
+
+    def has_selector_fields(self) -> bool:
+        return any(
+            [
+                self.artifact_id,
+                self.package_id,
+                self.provider,
+                self.generation_mode,
+                self.scene_scope not in {"", "default"},
+                self.variant_id not in {"", "main"},
+                self.status not in {"", "generated"},
+            ]
+        )
+
+
+class ScenePackageRef(BaseModel):
+    artifact_id: str = ""
+    package_id: str = ""
+    provider: str = ""
+    generation_mode: str = ""
+    scene_scope: str = "default"
+    variant_id: str = "main"
+    status: str = "generated"
+    scene_subject_policy: str = ""
+    subject_removal_status: str = ""
+    swap_ready: bool = False
+    source_reference_ids: list[str] = Field(default_factory=list)
+    control_refs: list[SceneControlRef] = Field(default_factory=list)
+    spatial_metadata: SceneSpatialMetadata = Field(default_factory=SceneSpatialMetadata)
+    consistency_contract: SceneConsistencyContract = Field(default_factory=SceneConsistencyContract)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "ScenePackageRef":
+        self.artifact_id = str(self.artifact_id or "").strip()
+        self.package_id = str(self.package_id or "").strip()
+        self.provider = str(self.provider or "").strip()
+        self.generation_mode = str(self.generation_mode or "").strip()
+        self.scene_scope = str(self.scene_scope or "default").strip() or "default"
+        self.variant_id = str(self.variant_id or "main").strip() or "main"
+        self.status = str(self.status or "generated").strip() or "generated"
+        self.scene_subject_policy = str(self.scene_subject_policy or "").strip()
+        self.subject_removal_status = str(self.subject_removal_status or "").strip()
+        self.swap_ready = bool(self.swap_ready)
+        self.source_reference_ids = _normalize_string_list(self.source_reference_ids)
+        if not isinstance(self.provenance, dict):
+            self.provenance = {}
+        return self
+
+
 class DirectionIR(BaseModel):
     ir_id: str = Field(default_factory=lambda: f"ir_{uuid.uuid4().hex[:12]}")
     intent: SceneIntent = Field(default_factory=SceneIntent)
@@ -377,12 +590,86 @@ class DirectionIR(BaseModel):
     composition_anchors: list[str] = Field(default_factory=list)
     style_anchors: list[str] = Field(default_factory=list)
     subject_anchors: list[str] = Field(default_factory=list)
+    role_requirements: list[dict[str, Any]] = Field(default_factory=list)
+    character_bindings: list[dict[str, Any]] = Field(default_factory=list)
+    character_package_refs: list[dict[str, Any]] = Field(default_factory=list)
+    character_binding_mode: str = ""
+    performance_requirements: list[str] = Field(default_factory=list)
+    performance_bindings: list[dict[str, Any]] = Field(default_factory=list)
+    performance_package_refs: list[dict[str, Any]] = Field(default_factory=list)
+    speaker_audio_refs: list[dict[str, Any]] = Field(default_factory=list)
+    driving_clip_refs: list[dict[str, Any]] = Field(default_factory=list)
+    performance_mode: str = ""
+    runtime_capability_requirements: list[str] = Field(default_factory=list)
+    review_prerequisites: list[str] = Field(default_factory=list)
+    performance_replay_scope: str = ""
+    require_retargetable_performance_replay: bool = False
+    scene_generation_requirements: list[str] = Field(default_factory=list)
+    scene_bindings: list[SceneBinding] = Field(default_factory=list)
+    scene_package_refs: list[ScenePackageRef] = Field(default_factory=list)
     object_targets: list[ObjectTarget] = Field(default_factory=list)
     object_constraints: list[str] = Field(default_factory=list)
     source_reference_ids: list[str] = Field(default_factory=list)
+    subject_reference_ids: list[str] = Field(default_factory=list)
     lens_stack: list[dict[str, Any]] = Field(default_factory=list)
     runtime_hints: dict[str, Any] = Field(default_factory=dict)
     compilation_provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_extended_contract(self) -> "DirectionIR":
+        self.role_requirements = _normalize_structured_dict_list(
+            self.role_requirements
+        )
+        self.character_bindings = _normalize_structured_dict_list(
+            self.character_bindings
+        )
+        self.character_package_refs = _normalize_structured_dict_list(
+            self.character_package_refs
+        )
+        self.character_binding_mode = _normalize_choice(
+            self.character_binding_mode,
+            CHARACTER_BINDING_MODES,
+        )
+        self.performance_requirements = _normalize_string_list(
+            self.performance_requirements
+        )
+        self.performance_bindings = _normalize_structured_dict_list(
+            self.performance_bindings
+        )
+        self.performance_package_refs = _normalize_structured_dict_list(
+            self.performance_package_refs
+        )
+        self.speaker_audio_refs = _normalize_structured_dict_list(
+            self.speaker_audio_refs
+        )
+        self.driving_clip_refs = _normalize_structured_dict_list(
+            self.driving_clip_refs
+        )
+        self.performance_mode = _normalize_choice(
+            self.performance_mode,
+            PERFORMANCE_MODES,
+        )
+        self.runtime_capability_requirements = _normalize_string_list(
+            self.runtime_capability_requirements
+        )
+        self.review_prerequisites = _normalize_string_list(
+            self.review_prerequisites
+        )
+        self.performance_replay_scope = _normalize_choice(
+            self.performance_replay_scope,
+            PERFORMANCE_REPLAY_SCOPES,
+        )
+        self.require_retargetable_performance_replay = bool(
+            self.require_retargetable_performance_replay
+        )
+        self.scene_generation_requirements = _normalize_string_list(
+            self.scene_generation_requirements
+        )
+        self.source_reference_ids = _normalize_string_list(self.source_reference_ids)
+        self.subject_reference_ids = _normalize_string_list(
+            self.subject_reference_ids
+        )
+        return self
 
 
 class Scene(BaseModel):
@@ -393,6 +680,11 @@ class Scene(BaseModel):
     energy_level: float = 0.5
     reference_ids: list[str] = Field(default_factory=list)
     direction_ir: Optional[DirectionIR] = None
+    scene_package_selector: Optional[ScenePackageSelector] = None
+    scene_package_ref: Optional[ScenePackageRef] = None
+    scene_consistency_contract: SceneConsistencyContract = Field(
+        default_factory=SceneConsistencyContract
+    )
     object_assets: list[ObjectAssetRef] = Field(default_factory=list)
     object_reuse_plan: Optional[ObjectReusePlan] = None
     object_workload_snapshot: Optional[ObjectWorkloadSnapshot] = None

@@ -26,6 +26,14 @@ tools:
         temperature:
           type: number
           default: 0.3
+        max_tokens:
+          type: integer
+          description: "Optional completion cap for local/cloud multimodal analysis"
+        reasoning_trace_mode:
+          type: string
+          enum: [suppress, capture]
+          default: suppress
+          description: "Whether to suppress reasoning traces or capture them in a separate channel when supported"
         _model_override:
           type: string
           description: "Model override from resolver chain (internal, injected by workflow_orchestrator)"

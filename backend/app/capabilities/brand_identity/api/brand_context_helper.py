@@ -46,13 +46,15 @@ except (ImportError, SyntaxError, IndentationError) as e:
 # Import LLM provider
 try:
     from backend.app.shared.llm_provider_helper import (
-        build_managed_llm_provider,
+        create_llm_provider_manager,
+        get_llm_provider_from_settings
     )
     LLM_PROVIDER_AVAILABLE = True
 except (ImportError, SyntaxError, IndentationError) as e:
     logging.warning(f"LLM provider not available ({type(e).__name__}): {e}")
     LLM_PROVIDER_AVAILABLE = False
-    build_managed_llm_provider = None  # type: ignore
+    create_llm_provider_manager = None  # type: ignore
+    get_llm_provider_from_settings = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -233,12 +235,7 @@ async def _generate_brand_context_from_workspace(
             logger.warning("LLM provider not available, cannot generate brand context")
             return None
 
-        generated_assets = await _generate_basic_brand_assets(
-            available_data,
-            workspace_id,
-            artifacts_store,
-            workspace=workspace,
-        )
+        generated_assets = await _generate_basic_brand_assets(available_data, workspace_id, artifacts_store)
 
         if generated_assets:
             return BrandContextResponse(
@@ -321,8 +318,7 @@ def _assess_data_quality(available_data: Dict[str, Any]) -> Dict[str, Any]:
 async def _generate_basic_brand_assets(
     available_data: Dict[str, Any],
     workspace_id: str,
-    artifacts_store: ArtifactsStore,
-    workspace: Optional[Any] = None,
+    artifacts_store: ArtifactsStore
 ) -> Optional[Dict[str, Any]]:
     """
     Generate basic brand assets (MI, Personas, Storylines) from minimal data.
@@ -338,20 +334,13 @@ async def _generate_basic_brand_assets(
         return None
 
     try:
-        if not build_managed_llm_provider:
-            return None
+        # Get LLM provider
+        provider_manager = create_llm_provider_manager()
+        provider_name = get_llm_provider_from_settings()
+        llm_provider = provider_manager.get_provider(provider_name)
 
-        try:
-            llm_provider, selection = build_managed_llm_provider(
-                workspace=workspace,
-                purpose="brand_identity.auto_generate",
-            )
-        except Exception as exc:
-            logger.info(
-                "Skipping auto-generated brand context without explicit managed "
-                "LLM selection: %s",
-                exc,
-            )
+        if not llm_provider:
+            logger.error(f"LLM provider {provider_name} not available")
             return None
 
         # Build prompt for minimal brand asset generation
@@ -408,10 +397,14 @@ Return JSON in this format:
   ]
 }}"""
 
+        # Call LLM
+        from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
+        model_name = get_model_name_from_chat_model()
+
         messages = [{"role": "user", "content": prompt}]
         response = await llm_provider.chat_completion(
             messages=messages,
-            model=selection.model_name,
+            model=model_name,
             temperature=0.7,
             max_tokens=2048
         )
