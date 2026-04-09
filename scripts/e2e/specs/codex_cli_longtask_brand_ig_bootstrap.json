@@ -1,0 +1,110 @@
+{
+  "theme_id": "codex_cli_longtask_brand_ig_bootstrap",
+  "intent_summary": "請為新品牌建立角色 operating system，並輸出第一週 Instagram 啟動計畫與 reel hook bank。",
+  "goals": [
+    "定義角色定位、語氣、價值主張與紅線",
+    "規劃 7 天 IG post / reel 的內容節奏、CTA 與產出順序",
+    "整理至少 12 個可直接使用的 reel hooks 與執行注意事項"
+  ],
+  "non_goals": [
+    "不要輸出品牌 logo 或視覺設計稿",
+    "不要承諾未經驗證的營收、流量或轉換結果",
+    "不要把 daily operation 擴張成三個月完整 campaign"
+  ],
+  "human_instructions": "先在 meeting 內完成 deliberation，再外派 execution。最終必須落成三份 markdown deliverables，並保留 execution、artifact、memory evidence。若執行途中遇到 runtime quota 或 usage limit，視為正常的外部容量事件；不要因此改寫任務目標、縮減交付定義或誤判產品邏輯失敗。應保留當前 deliberation、dispatch、artifact 與 memory evidence，待 quota 恢復後從最近有效狀態續跑。",
+  "deliverables": [
+    {
+      "filename": "persona_operating_system.md",
+      "mime_type": "text/markdown",
+      "description": "品牌角色 operating system 與邊界規則",
+      "required_sections": [
+        "角色定位",
+        "受眾成熟度分層",
+        "價值主張",
+        "語氣規則",
+        "品牌紅線",
+        "禁用語",
+        "承諾上限",
+        "CTA 邊界",
+        "來源狀態標記",
+        "升級條件"
+      ],
+      "min_chars": 800
+    },
+    {
+      "filename": "instagram_week1_calendar.md",
+      "mime_type": "text/markdown",
+      "description": "第一週 Instagram post / reel 發布節奏",
+      "required_sections": [
+        "Day 1",
+        "Day 2",
+        "Day 3",
+        "Day 4",
+        "Day 5",
+        "Day 6",
+        "Day 7"
+      ],
+      "day_entry_markers": [
+        "Day 1",
+        "Day 2",
+        "Day 3",
+        "Day 4",
+        "Day 5",
+        "Day 6",
+        "Day 7"
+      ],
+      "min_day_entries": 7,
+      "min_chars": 900
+    },
+    {
+      "filename": "reel_hook_bank.md",
+      "mime_type": "text/markdown",
+      "description": "可直接投入 reel 腳本的 hook bank",
+      "required_sections": [
+        "Hook Bank",
+        "適用情境",
+        "風險",
+        "CTA"
+      ],
+      "hook_markers": [
+        "適用情境",
+        "風險",
+        "CTA"
+      ],
+      "min_hook_entries": 12,
+      "min_chars": 900
+    }
+  ],
+  "quality_rules": {
+    "placeholder_tokens": [
+      "TODO",
+      "TBD",
+      "待補",
+      "placeholder"
+    ],
+    "line_placeholder_patterns": [
+      "^\\s*\\?\\s*$",
+      "^\\s*略\\s*$"
+    ]
+  },
+  "cross_doc_rules": [
+    {
+      "id": "persona_calendar_cta_alignment",
+      "description": "calendar 的 CTA 與承諾不得超出 persona operating system 的 CTA 邊界與承諾上限"
+    },
+    {
+      "id": "persona_hook_promise_alignment",
+      "description": "hook bank 的 promise 不得超出 persona operating system 的承諾上限"
+    },
+    {
+      "id": "calendar_hook_alignment",
+      "description": "hook bank 應能支撐 week1 calendar 的內容節奏"
+    }
+  ],
+  "required_governance_evidence": {
+    "meeting_decision": 1,
+    "task_execution": 1,
+    "artifact_result": 1,
+    "session_digest": 1
+  }
+}

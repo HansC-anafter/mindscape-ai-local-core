@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mask-path", default="")
     parser.add_argument("--mask-url", default="")
     parser.add_argument("--strategy", default="conservative")
+    parser.add_argument("--completion-backend", default="")
     parser.add_argument("--impact-region-bbox-json", default="")
     return parser.parse_args()
 
@@ -46,6 +47,8 @@ def main() -> int:
         "--strategy",
         str(args.strategy or "conservative"),
     ]
+    if args.completion_backend:
+        command.extend(["--completion-backend", str(args.completion_backend)])
     if args.image_path:
         command.extend(["--image-path", args.image_path])
     if args.image_url:

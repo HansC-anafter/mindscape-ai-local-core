@@ -4,6 +4,13 @@ set -euo pipefail
 
 ROOT="/Users/shock/Projects_local/workspace/mindscape-ai-local-core"
 BASE_URL="${BASE_URL:-http://localhost:8200}"
+CONTAINER_BASE_URL="${CONTAINER_BASE_URL:-http://127.0.0.1:8200}"
+HTTP_TRANSPORT="${HTTP_TRANSPORT:-auto}"
+HTTP_TRANSPORT_FAILOVER="${HTTP_TRANSPORT_FAILOVER:-1}"
+BACKEND_CONTAINER_NAME="${BACKEND_CONTAINER_NAME:-mindscape-ai-local-core-backend}"
+BACKEND_READY_ATTEMPTS="${BACKEND_READY_ATTEMPTS:-60}"
+BACKEND_READY_DELAY_SECONDS="${BACKEND_READY_DELAY_SECONDS:-2}"
+HEALTH_MAX_TIME_SECONDS="${HEALTH_MAX_TIME_SECONDS:-5}"
 WORKSPACE_ID="${WORKSPACE_ID:-ws-memory-engine-e2e-codex-054234}"
 PROFILE_ID="${PROFILE_ID:-default-user}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)_closure_codex}"
@@ -15,9 +22,13 @@ SESSION_POLL_GRACE_ATTEMPTS="${SESSION_POLL_GRACE_ATTEMPTS:-4}"
 SESSION_POLL_EXTENSION_ATTEMPTS="${SESSION_POLL_EXTENSION_ATTEMPTS:-12}"
 SECRET_KEY="${HANDOFF_BUNDLE_SECRET:-local-e2e-secret-${RUN_ID}}"
 MANAGED_BRIDGE_MODE="${MANAGED_BRIDGE_MODE:-0}"
+PROVIDER_STATUS_REQUIRED="${PROVIDER_STATUS_REQUIRED:-0}"
+WORKSPACE_CODEX_CLI_REQUIRED="${WORKSPACE_CODEX_CLI_REQUIRED:-1}"
 BRIDGE_CLIENT_ID="${BRIDGE_CLIENT_ID:-e2e-codex-${RUN_ID}}"
 BRIDGE_PID=""
 BRIDGE_LOG="${TRACE_DIR}/00b_bridge_supervisor.log"
+ACTIVE_BASE_URL="${BASE_URL}"
+HTTP_TRANSPORT_SELECTED=""
 
 PROJECT_ID="proj-e2e-${RUN_ID}"
 THREAD_ID="e2e-${RUN_ID}"
@@ -37,6 +48,33 @@ require_bin() {
 require_bin curl
 require_bin jq
 
+http_curl() {
+  local exit_code=0
+
+  if [[ "${HTTP_TRANSPORT_SELECTED}" == "backend_container" ]]; then
+    docker exec "${BACKEND_CONTAINER_NAME}" curl "$@"
+    exit_code="$?"
+  else
+    curl "$@"
+    exit_code="$?"
+  fi
+
+  if [[ "${exit_code}" -eq 0 ]]; then
+    return 0
+  fi
+
+  if maybe_failover_transport; then
+    if [[ "${HTTP_TRANSPORT_SELECTED}" == "backend_container" ]]; then
+      docker exec "${BACKEND_CONTAINER_NAME}" curl "$@"
+      return $?
+    fi
+    curl "$@"
+    return $?
+  fi
+
+  return "${exit_code}"
+}
+
 cleanup() {
   if [[ -n "${BRIDGE_PID}" ]]; then
     kill "${BRIDGE_PID}" 2>/dev/null || true
@@ -50,12 +88,108 @@ wait_for_backend_ready() {
   local delay_seconds="${2:-2}"
   local i
   for i in $(seq 1 "${attempts}"); do
-    if curl -fsS --max-time 5 "${BASE_URL}/health" >/dev/null 2>&1; then
+    if http_curl -fsS --max-time 5 "${ACTIVE_BASE_URL}/health" >/dev/null 2>&1; then
       return 0
     fi
     sleep "${delay_seconds}"
   done
   return 1
+}
+
+activate_transport() {
+  case "${1}" in
+    host)
+      HTTP_TRANSPORT_SELECTED="host"
+      ACTIVE_BASE_URL="${BASE_URL}"
+      ;;
+    backend_container)
+      HTTP_TRANSPORT_SELECTED="backend_container"
+      ACTIVE_BASE_URL="${CONTAINER_BASE_URL}"
+      ;;
+    *)
+      echo "unsupported transport activation: ${1}" >&2
+      exit 1
+      ;;
+  esac
+}
+
+probe_transport_health() {
+  local transport="$1"
+  if [[ "${transport}" == "backend_container" ]]; then
+    docker exec "${BACKEND_CONTAINER_NAME}" curl -fsS --max-time "${HEALTH_MAX_TIME_SECONDS}" "${CONTAINER_BASE_URL}/health" >/dev/null 2>&1
+    return $?
+  fi
+
+  curl -fsS --max-time "${HEALTH_MAX_TIME_SECONDS}" "${BASE_URL}/health" >/dev/null 2>&1
+}
+
+maybe_failover_transport() {
+  local previous_transport="${HTTP_TRANSPORT_SELECTED:-}"
+  local target_transport=""
+
+  if [[ "${HTTP_TRANSPORT_FAILOVER}" != "1" ]]; then
+    return 1
+  fi
+
+  case "${previous_transport}" in
+    host)
+      target_transport="backend_container"
+      ;;
+    backend_container)
+      target_transport="host"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  if [[ "${target_transport}" == "backend_container" && "${MANAGED_BRIDGE_MODE}" == "1" ]]; then
+    return 1
+  fi
+
+  if ! probe_transport_health "${target_transport}"; then
+    return 1
+  fi
+
+  activate_transport "${target_transport}"
+  echo "http transport failover: ${previous_transport} -> ${target_transport}" >&2
+  return 0
+}
+
+select_http_transport() {
+  local attempt
+  case "${HTTP_TRANSPORT}" in
+    host)
+      activate_transport "host"
+      ;;
+    backend_container)
+      activate_transport "backend_container"
+      ;;
+    auto)
+      for attempt in $(seq 1 "${BACKEND_READY_ATTEMPTS}"); do
+        if curl -fsS --max-time "${HEALTH_MAX_TIME_SECONDS}" "${BASE_URL}/health" >/dev/null 2>&1; then
+          activate_transport "host"
+          return 0
+        fi
+        if docker exec "${BACKEND_CONTAINER_NAME}" curl -fsS --max-time "${HEALTH_MAX_TIME_SECONDS}" "${CONTAINER_BASE_URL}/health" >/dev/null 2>&1; then
+          activate_transport "backend_container"
+          return 0
+        fi
+        sleep "${BACKEND_READY_DELAY_SECONDS}"
+      done
+      echo "unable to reach backend via host or backend_container transport after ${BACKEND_READY_ATTEMPTS} attempts" >&2
+      exit 1
+      ;;
+    *)
+      echo "unsupported HTTP_TRANSPORT=${HTTP_TRANSPORT}" >&2
+      exit 1
+      ;;
+  esac
+
+  if [[ "${HTTP_TRANSPORT_SELECTED}" == "backend_container" && "${MANAGED_BRIDGE_MODE}" == "1" ]]; then
+    echo "backend_container transport is incompatible with MANAGED_BRIDGE_MODE=1" >&2
+    exit 1
+  fi
 }
 
 write_note() {
@@ -64,6 +198,62 @@ write_note() {
   cat >"${path}" <<EOF
 $*
 EOF
+}
+
+write_summary_json() {
+  local tmp_summary
+  tmp_summary="$(mktemp "${TRACE_DIR}/summary.XXXXXX.json")"
+
+  jq -n \
+    --arg run_id "${RUN_ID}" \
+    --arg workspace_id "${WORKSPACE_ID}" \
+    --arg project_id "${PROJECT_ID}" \
+    --arg thread_id "${THREAD_ID}" \
+    --arg compile_job_id "${compile_job_id:-}" \
+    --arg compile_job_status "${compile_job_status:-}" \
+    --arg session_id "${session_id:-}" \
+    --arg execution_id "${execution_id:-}" \
+    --arg memory_item_id "${memory_item_id:-}" \
+    --arg terminal_state "${terminal_state:-}" \
+    --arg trace_dir "${TRACE_DIR}" \
+    --argjson environment_restart_detected "${environment_restart_detected:-false}" \
+    --arg environment_restart_reason "${environment_restart_reason:-}" \
+    --arg provider_status_reason "${provider_status_reason:-}" \
+    --arg provider_status_available "${provider_status_available:-0}" \
+    --arg provider_status_matched "${provider_status_matched:-0}" \
+    --arg program_spec_source "${program_spec_source:-}" \
+    --arg program_spec_workstream_count "${program_spec_workstream_count:-}" \
+    --arg program_spec_structured "${program_spec_structured:-0}" \
+    '{
+      run_id: $run_id,
+      workspace_id: $workspace_id,
+      project_id: $project_id,
+      thread_id: $thread_id,
+      compile_job_id: (if ($compile_job_id | length) > 0 then $compile_job_id else null end),
+      compile_job_status: (if ($compile_job_status | length) > 0 then $compile_job_status else null end),
+      session_id: (if ($session_id | length) > 0 then $session_id else null end),
+      execution_id: (if ($execution_id | length) > 0 then $execution_id else null end),
+      memory_item_id: (if ($memory_item_id | length) > 0 then $memory_item_id else null end),
+      terminal_state: (if ($terminal_state | length) > 0 then $terminal_state else null end),
+      environment_restart_detected: $environment_restart_detected,
+      environment_restart_reason: (if ($environment_restart_reason | length) > 0 then $environment_restart_reason else null end),
+      provider_status: {
+        available: ($provider_status_available == "1"),
+        matched: ($provider_status_matched == "1"),
+        reason: (if ($provider_status_reason | length) > 0 then $provider_status_reason else null end)
+      },
+      program_spec_source: (if ($program_spec_source | length) > 0 then $program_spec_source else null end),
+      program_spec_workstream_count: (
+        if ($program_spec_workstream_count | length) > 0
+        then (($program_spec_workstream_count | tonumber?) // null)
+        else null
+        end
+      ),
+      program_spec_structured: ($program_spec_structured == "1"),
+      trace_dir: $trace_dir
+    }' >"${tmp_summary}"
+
+  mv "${tmp_summary}" "${TRACE_DIR}/summary.json"
 }
 
 capture_json_get() {
@@ -76,7 +266,7 @@ capture_json_get() {
 
   tmp_json="$(mktemp)"
   for i in $(seq 1 "${attempts}"); do
-    if curl -sS --max-time 15 "${url}" | jq '.' >"${tmp_json}"; then
+    if http_curl -sS --max-time 15 "${url}" | jq '.' >"${tmp_json}"; then
       mv "${tmp_json}" "${out_json}"
       return 0
     fi
@@ -86,26 +276,243 @@ capture_json_get() {
   return 1
 }
 
+post_json_file() {
+  local input_json="$1"
+  local url="$2"
+  local out_json="$3"
+  local exit_code=0
+
+  if [[ "${HTTP_TRANSPORT_SELECTED}" == "backend_container" ]]; then
+    docker exec -i "${BACKEND_CONTAINER_NAME}" \
+      curl -sS \
+      -H 'Content-Type: application/json' \
+      --data-binary @- \
+      "${url}" <"${input_json}" | jq '.' >"${out_json}"
+    return $?
+  fi
+
+  set +e
+  curl -sS \
+    -H 'Content-Type: application/json' \
+    --data @"${input_json}" \
+    "${url}" | jq '.' >"${out_json}"
+  exit_code="$?"
+  set -e
+
+  if [[ "${exit_code}" -eq 0 ]]; then
+    return 0
+  fi
+
+  if maybe_failover_transport && [[ "${HTTP_TRANSPORT_SELECTED}" == "backend_container" ]]; then
+    docker exec -i "${BACKEND_CONTAINER_NAME}" \
+      curl -sS \
+      -H 'Content-Type: application/json' \
+      --data-binary @- \
+      "${url}" <"${input_json}" | jq '.' >"${out_json}"
+    return $?
+  fi
+
+  return "${exit_code}"
+}
+
+capture_post_json_response() {
+  local input_json="$1"
+  local url="$2"
+  local headers_out="$3"
+  local body_out="$4"
+  local timeout_seconds="$5"
+  local exit_code=0
+  local remote_headers=""
+  local remote_body=""
+
+  if [[ "${HTTP_TRANSPORT_SELECTED}" == "backend_container" ]]; then
+    remote_headers="/tmp/closure_headers_$$.$RANDOM.txt"
+    remote_body="/tmp/closure_body_$$.$RANDOM.json"
+    set +e
+    docker exec -i \
+      -e REMOTE_HEADERS="${remote_headers}" \
+      -e REMOTE_BODY="${remote_body}" \
+      -e REMOTE_TIMEOUT="${timeout_seconds}" \
+      -e REMOTE_URL="${url}" \
+      "${BACKEND_CONTAINER_NAME}" \
+      sh -lc 'curl -sS -D "$REMOTE_HEADERS" -o "$REMOTE_BODY" --max-time "$REMOTE_TIMEOUT" -H "Content-Type: application/json" --data-binary @- "$REMOTE_URL"' \
+      <"${input_json}"
+    exit_code="$?"
+    set -e
+
+    if docker exec "${BACKEND_CONTAINER_NAME}" test -f "${remote_headers}" >/dev/null 2>&1; then
+      docker exec "${BACKEND_CONTAINER_NAME}" cat "${remote_headers}" >"${headers_out}"
+    else
+      : >"${headers_out}"
+    fi
+
+    if docker exec "${BACKEND_CONTAINER_NAME}" test -f "${remote_body}" >/dev/null 2>&1; then
+      docker exec "${BACKEND_CONTAINER_NAME}" cat "${remote_body}" >"${body_out}"
+    else
+      : >"${body_out}"
+    fi
+
+    docker exec "${BACKEND_CONTAINER_NAME}" rm -f "${remote_headers}" "${remote_body}" >/dev/null 2>&1 || true
+    return "${exit_code}"
+  fi
+
+  set +e
+  curl -sS \
+    -D "${headers_out}" \
+    -o "${body_out}" \
+    --max-time "${timeout_seconds}" \
+    -H 'Content-Type: application/json' \
+    --data @"${input_json}" \
+    "${url}"
+  exit_code="$?"
+  set -e
+
+  if [[ "${exit_code}" -eq 0 ]]; then
+    return 0
+  fi
+
+  if maybe_failover_transport && [[ "${HTTP_TRANSPORT_SELECTED}" == "backend_container" ]]; then
+    remote_headers="/tmp/closure_headers_$$.$RANDOM.txt"
+    remote_body="/tmp/closure_body_$$.$RANDOM.json"
+    set +e
+    docker exec -i \
+      -e REMOTE_HEADERS="${remote_headers}" \
+      -e REMOTE_BODY="${remote_body}" \
+      -e REMOTE_TIMEOUT="${timeout_seconds}" \
+      -e REMOTE_URL="${url}" \
+      "${BACKEND_CONTAINER_NAME}" \
+      sh -lc 'curl -sS -D "$REMOTE_HEADERS" -o "$REMOTE_BODY" --max-time "$REMOTE_TIMEOUT" -H "Content-Type: application/json" --data-binary @- "$REMOTE_URL"' \
+      <"${input_json}"
+    exit_code="$?"
+    set -e
+
+    if docker exec "${BACKEND_CONTAINER_NAME}" test -f "${remote_headers}" >/dev/null 2>&1; then
+      docker exec "${BACKEND_CONTAINER_NAME}" cat "${remote_headers}" >"${headers_out}"
+    else
+      : >"${headers_out}"
+    fi
+
+    if docker exec "${BACKEND_CONTAINER_NAME}" test -f "${remote_body}" >/dev/null 2>&1; then
+      docker exec "${BACKEND_CONTAINER_NAME}" cat "${remote_body}" >"${body_out}"
+    else
+      : >"${body_out}"
+    fi
+
+    docker exec "${BACKEND_CONTAINER_NAME}" rm -f "${remote_headers}" "${remote_body}" >/dev/null 2>&1 || true
+    return "${exit_code}"
+  fi
+
+  return "${exit_code}"
+}
+
+provider_status_matches_expectation() {
+  local provider_status_path="$1"
+  if [[ ! -f "${provider_status_path}" ]]; then
+    return 1
+  fi
+
+  if [[ "${MANAGED_BRIDGE_MODE}" == "1" ]]; then
+    jq -e --arg ws "${WORKSPACE_ID}" --arg client_id "${BRIDGE_CLIENT_ID}" '
+      (.workspaces[$ws].clients // [])
+      | any(.client_id == $client_id and .surface_type == "codex_cli" and .authenticated == true)
+    ' "${provider_status_path}" >/dev/null
+    return $?
+  fi
+
+  jq -e --arg ws "${WORKSPACE_ID}" '
+    (.workspaces[$ws].clients // [])
+    | any(.surface_type == "codex_cli" and .authenticated == true)
+  ' "${provider_status_path}" >/dev/null
+}
+
 refresh_compile_job_snapshot() {
   if [[ -z "${compile_job_id:-}" ]]; then
     return 1
   fi
 
   capture_json_get \
-    "${BASE_URL}/api/handoff-bundles/compile-jobs/${compile_job_id}" \
+    "${ACTIVE_BASE_URL}/api/handoff-bundles/compile-jobs/${compile_job_id}" \
     "${TRACE_DIR}/02c_compile_job.json"
+}
+
+refresh_session_snapshot() {
+  if [[ -z "${session_id:-}" ]]; then
+    return 1
+  fi
+
+  capture_json_get \
+    "${ACTIVE_BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
+    "${TRACE_DIR}/03_session_after_close.json"
+}
+
+refresh_session_events_snapshot() {
+  if [[ -z "${session_id:-}" ]]; then
+    return 1
+  fi
+
+  local tmp_events
+  tmp_events="$(mktemp "${TRACE_DIR}/tmp_session_events.XXXXXX")"
+  if http_curl -sS --max-time 60 \
+    "${ACTIVE_BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}/events?limit=2000" \
+    | jq '.' >"${tmp_events}"; then
+    mv "${tmp_events}" "${TRACE_DIR}/04_session_events.json"
+    return 0
+  fi
+
+  rm -f "${tmp_events}"
+  return 1
+}
+
+capture_backend_runtime_state() {
+  local out_json="$1"
+
+  if ! command -v docker >/dev/null 2>&1; then
+    jq -n \
+      --arg container_name "${BACKEND_CONTAINER_NAME}" \
+      '{available: false, container_name: $container_name, error: "docker_unavailable"}' \
+      >"${out_json}"
+    return 0
+  fi
+
+  if ! docker inspect "${BACKEND_CONTAINER_NAME}" >/dev/null 2>&1; then
+    jq -n \
+      --arg container_name "${BACKEND_CONTAINER_NAME}" \
+      '{available: false, container_name: $container_name, error: "container_not_found"}' \
+      >"${out_json}"
+    return 0
+  fi
+
+  docker inspect "${BACKEND_CONTAINER_NAME}" | jq '
+    .[0]
+    | {
+        available: true,
+        container_name: (.Name | ltrimstr("/")),
+        container_id: .Id,
+        status: .State.Status,
+        running: (.State.Running // false),
+        started_at: .State.StartedAt,
+        finished_at: .State.FinishedAt,
+        restart_count: (.RestartCount // 0),
+        health_status: (.State.Health.Status // null)
+      }
+  ' >"${out_json}"
 }
 
 echo "run_id=${RUN_ID}"
 echo "trace_dir=${TRACE_DIR}"
 
+select_http_transport
+echo "http_transport=${HTTP_TRANSPORT_SELECTED}"
+echo "active_base_url=${ACTIVE_BASE_URL}"
+
 wait_for_backend_ready 20 2
+capture_backend_runtime_state "${TRACE_DIR}/00_backend_runtime_before.json"
 
 if [[ "${MANAGED_BRIDGE_MODE}" == "1" ]]; then
   bash "${ROOT}/scripts/start_cli_bridge_supervisor.sh" \
     --surfaces codex_cli \
     --workspace-id "${WORKSPACE_ID}" \
-    --host "${BASE_URL#http://}" \
+    --host "${ACTIVE_BASE_URL#http://}" \
     --client-id "${BRIDGE_CLIENT_ID}" \
     >"${BRIDGE_LOG}" 2>&1 &
   BRIDGE_PID="$!"
@@ -115,43 +522,102 @@ if [[ "${MANAGED_BRIDGE_MODE}" == "1" ]]; then
     "bridge client_id 固定為 \`${BRIDGE_CLIENT_ID}\`，compile 會顯式把 meeting executor-runtime 綁到這條 bridge。"
 fi
 
-capture_json_get \
-  "${BASE_URL}/api/v1/mcp/agent/status" \
-  "${TRACE_DIR}/00_provider_status.json"
+provider_status_available=0
+provider_status_matched=0
+provider_status_reason="provider_status_probe_unavailable"
 
-if [[ "${MANAGED_BRIDGE_MODE}" == "1" ]]; then
+if capture_json_get \
+  "${ACTIVE_BASE_URL}/api/v1/mcp/agent/status" \
+  "${TRACE_DIR}/00_provider_status.json"; then
+  provider_status_available=1
+  provider_status_reason="provider_status_probe_captured"
+else
+  jq -n \
+    --arg probe_url "${ACTIVE_BASE_URL}/api/v1/mcp/agent/status" \
+    --arg error "provider status probe unavailable" \
+    '{available: false, probe_url: $probe_url, error: $error}' \
+    >"${TRACE_DIR}/00_provider_status.json"
+fi
+
+if [[ "${provider_status_available}" == "1" && "${MANAGED_BRIDGE_MODE}" == "1" ]]; then
   for _ in $(seq 1 12); do
-    if jq -e --arg ws "${WORKSPACE_ID}" --arg client_id "${BRIDGE_CLIENT_ID}" '
-      (.workspaces[$ws].clients // [])
-      | any(.client_id == $client_id and .surface_type == "codex_cli" and .authenticated == true)
-    ' "${TRACE_DIR}/00_provider_status.json" >/dev/null; then
+    if provider_status_matches_expectation "${TRACE_DIR}/00_provider_status.json"; then
+      provider_status_matched=1
+      provider_status_reason="matched_bridge_client"
       break
     fi
     sleep 2
     capture_json_get \
-      "${BASE_URL}/api/v1/mcp/agent/status" \
-      "${TRACE_DIR}/00_provider_status.json"
+      "${ACTIVE_BASE_URL}/api/v1/mcp/agent/status" \
+      "${TRACE_DIR}/00_provider_status.json" || true
   done
 
   write_note \
     "${TRACE_DIR}/00_provider_status.md" \
-    "證明這輪 Closure E2E 使用自管 supervisor bridge，而不是只依賴 ambient Codex client。" \
-    "這一輪必須在 provider status 中看到 workspace \`${WORKSPACE_ID}\`，且存在 \`client_id=${BRIDGE_CLIENT_ID}\`、\`surface=codex_cli\`、\`authenticated=true\`。"
+    "這份 provider status 現在是 advisory environment probe，不再 hard-block Closure 主鏈。" \
+    "若可用，理想情況仍應看到 workspace \`${WORKSPACE_ID}\`，且存在 \`client_id=${BRIDGE_CLIENT_ID}\`、\`surface=codex_cli\`、\`authenticated=true\`。"
 
-  jq -e --arg ws "${WORKSPACE_ID}" --arg client_id "${BRIDGE_CLIENT_ID}" '
-    (.workspaces[$ws].clients // [])
-    | any(.client_id == $client_id and .surface_type == "codex_cli" and .authenticated == true)
-  ' "${TRACE_DIR}/00_provider_status.json" >/dev/null
+  if [[ "${provider_status_matched}" != "1" ]]; then
+    provider_status_reason="expected_bridge_client_not_observed"
+  fi
 else
   write_note \
     "${TRACE_DIR}/00_provider_status.md" \
-    "證明這輪 Closure E2E 使用的是既有 workspace，而不是新的隔離 workspace。" \
-    "這一輪必須在 provider status 中看到 workspace \`${WORKSPACE_ID}\`，且 client surface 為 \`codex_cli\`、\`authenticated=true\`。"
+    "這份 provider status 現在是 advisory environment probe，不再 hard-block Closure 主鏈。" \
+    "若可用，理想情況仍應看到 workspace \`${WORKSPACE_ID}\`，且 client surface 為 \`codex_cli\`、\`authenticated=true\`。"
 
-  jq -e --arg ws "${WORKSPACE_ID}" '
-    (.workspaces[$ws].clients // [])
-    | any(.surface_type == "codex_cli" and .authenticated == true)
-  ' "${TRACE_DIR}/00_provider_status.json" >/dev/null
+  if [[ "${provider_status_available}" == "1" ]] && provider_status_matches_expectation "${TRACE_DIR}/00_provider_status.json"; then
+    provider_status_matched=1
+    provider_status_reason="workspace_codex_cli_authenticated"
+  elif [[ "${provider_status_available}" == "1" ]]; then
+    provider_status_reason="workspace_codex_cli_not_observed"
+  fi
+fi
+
+jq -n \
+  --argjson available "$( [[ "${provider_status_available}" == "1" ]] && echo true || echo false )" \
+  --argjson matched "$( [[ "${provider_status_matched}" == "1" ]] && echo true || echo false )" \
+  --argjson required "$( [[ "${PROVIDER_STATUS_REQUIRED}" == "1" ]] && echo true || echo false )" \
+  --argjson managed_bridge_mode "$( [[ "${MANAGED_BRIDGE_MODE}" == "1" ]] && echo true || echo false )" \
+  --arg workspace_id "${WORKSPACE_ID}" \
+  --arg client_id "${BRIDGE_CLIENT_ID}" \
+  --arg reason "${provider_status_reason}" \
+  '{
+    available: $available,
+    matched: $matched,
+    required: $required,
+    managed_bridge_mode: $managed_bridge_mode,
+    workspace_id: $workspace_id,
+    expected_client_id: $client_id,
+    reason: $reason
+  }' >"${TRACE_DIR}/00_provider_status_check.json"
+
+if [[ "${PROVIDER_STATUS_REQUIRED}" == "1" ]]; then
+  if [[ "${provider_status_available}" != "1" || "${provider_status_matched}" != "1" ]]; then
+    echo "provider status requirement not satisfied" >&2
+    exit 1
+  fi
+fi
+
+if [[ "${MANAGED_BRIDGE_MODE}" != "1" && "${WORKSPACE_CODEX_CLI_REQUIRED}" == "1" ]]; then
+  if [[ "${provider_status_available}" == "1" && "${provider_status_matched}" != "1" ]]; then
+    terminal_state="preflight_failed"
+    compile_job_id=""
+    compile_job_status=""
+    session_id=""
+    execution_id=""
+    memory_item_id=""
+    environment_restart_detected="false"
+    environment_restart_reason=""
+    write_note \
+      "${TRACE_DIR}/02_compile_response.md" \
+      "Closure preflight stopped before compile because this workspace does not currently expose an authenticated codex_cli client." \
+      "對這條 codex-cli closure trace 而言，workspace-specific codex surface 是主鏈前提，不再允許 advisory mismatch 直接進 deliberation。"
+    write_summary_json
+    echo "workspace codex_cli surface not observed for ${WORKSPACE_ID}; aborting closure trace before compile" >&2
+    echo "summary=${TRACE_DIR}/summary.json"
+    exit 2
+  fi
 fi
 
 jq -n \
@@ -202,11 +668,10 @@ write_note \
   "這是 fresh Closure E2E 的 handoff package request。" \
   "它會在 compile 前先產出可驗證簽章的 handoff bundle，並顯式帶同一把 secret，避免 backend 未配置 \`HANDOFF_BUNDLE_SECRET\` 時出現假失敗。"
 
-curl -sS \
-  -H 'Content-Type: application/json' \
-  --data @"${TRACE_DIR}/01_package_request.json" \
-  "${BASE_URL}/api/handoff-bundles/package" \
-  | jq '.' >"${TRACE_DIR}/01_package_response.json"
+post_json_file \
+  "${TRACE_DIR}/01_package_request.json" \
+  "${ACTIVE_BASE_URL}/api/handoff-bundles/package" \
+  "${TRACE_DIR}/01_package_response.json"
 
 write_note \
   "${TRACE_DIR}/01_package_response.md" \
@@ -237,16 +702,15 @@ write_note \
   "這一步走的是正式的 meeting ingress：\`POST /api/handoff-bundles/compile\`。" \
   "project_id 和 thread_id 都是本輪唯一值，避免重用舊 active session 造成判讀污染。"
 
-tmp_body="$(mktemp)"
-tmp_headers="$(mktemp)"
+tmp_body="$(mktemp "${TRACE_DIR}/tmp_compile_body.XXXXXX")"
+tmp_headers="$(mktemp "${TRACE_DIR}/tmp_compile_headers.XXXXXX")"
 set +e
-curl -sS \
-  -D "${tmp_headers}" \
-  -o "${tmp_body}" \
-  --max-time "${COMPILE_TIMEOUT_SECONDS}" \
-  -H 'Content-Type: application/json' \
-  --data @"${TRACE_DIR}/02_compile_request.json" \
-  "${BASE_URL}/api/handoff-bundles/compile"
+capture_post_json_response \
+  "${TRACE_DIR}/02_compile_request.json" \
+  "${ACTIVE_BASE_URL}/api/handoff-bundles/compile" \
+  "${tmp_headers}" \
+  "${tmp_body}" \
+  "${COMPILE_TIMEOUT_SECONDS}"
 compile_exit="$?"
 set -e
 
@@ -300,7 +764,7 @@ write_note \
 
 if [[ -n "${compile_job_id}" ]]; then
   capture_json_get \
-    "${BASE_URL}/api/handoff-bundles/compile-jobs/${compile_job_id}" \
+    "${ACTIVE_BASE_URL}/api/handoff-bundles/compile-jobs/${compile_job_id}" \
     "${TRACE_DIR}/02c_compile_job.json"
 
   write_note \
@@ -310,7 +774,7 @@ if [[ -n "${compile_job_id}" ]]; then
 fi
 
 capture_json_get \
-  "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions?limit=50" \
+  "${ACTIVE_BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions?limit=50" \
   "${TRACE_DIR}/02b_session_list.json"
 
 if [[ -z "${session_id}" ]]; then
@@ -354,7 +818,7 @@ compile_job_status=""
 
 for attempt in $(seq 1 "${SESSION_POLL_MAX_ATTEMPTS}"); do
   if ! capture_json_get \
-    "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
+    "${ACTIVE_BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
     "${TRACE_DIR}/03_session_after_close.json"; then
     if refresh_compile_job_snapshot; then
       compile_job_status="$(jq -r '.status // empty' "${TRACE_DIR}/02c_compile_job.json")"
@@ -375,18 +839,25 @@ for attempt in $(seq 1 "${SESSION_POLL_MAX_ATTEMPTS}"); do
     continue
   fi
 
-  jq -c --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
-    {
-      polled_at: $polled_at,
+	  jq -c --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+	    {
+	      polled_at: $polled_at,
       id,
       status,
-      round_count,
-      ended_at,
-      pipeline_stage: (.metadata.pipeline_stage // null),
-      pipeline_stage_status: (.metadata.pipeline_stage_status // null),
-      canonical_memory_item_id: (.metadata.canonical_memory_item_id // null)
-    }
-  ' "${TRACE_DIR}/03_session_after_close.json" >>"${poll_log}"
+	      round_count,
+	      ended_at,
+	      pipeline_stage: (.metadata.pipeline_stage // null),
+	      pipeline_stage_status: (.metadata.pipeline_stage_status // null),
+	      canonical_memory_item_id: (.metadata.canonical_memory_item_id // null),
+	      program_spec_source: (.metadata.last_program_spec_source // null),
+	      program_spec_workstream_count: (
+	        if (.metadata.last_program_spec_workstream_count != null)
+	        then .metadata.last_program_spec_workstream_count
+	        else ((.metadata.last_program_spec.workstreams // []) | length)
+	        end
+	      )
+	    }
+	  ' "${TRACE_DIR}/03_session_after_close.json" >>"${poll_log}"
 
   status="$(jq -r '.status' "${TRACE_DIR}/03_session_after_close.json")"
   last_round_count="$(jq -r '.round_count // 0' "${TRACE_DIR}/03_session_after_close.json")"
@@ -402,7 +873,7 @@ done
 if [[ -z "${terminal_state}" ]]; then
   for attempt in $(seq 1 "${SESSION_POLL_GRACE_ATTEMPTS}"); do
     if capture_json_get \
-      "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
+      "${ACTIVE_BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
       "${TRACE_DIR}/03_session_after_close.json"; then
       if refresh_compile_job_snapshot; then
         compile_job_status="$(jq -r '.status // empty' "${TRACE_DIR}/02c_compile_job.json")"
@@ -455,13 +926,13 @@ if [[ -z "${terminal_state}" ]]; then
   refresh_compile_job_snapshot || true
   compile_job_status="$(jq -r '.status // empty' "${TRACE_DIR}/02c_compile_job.json" 2>/dev/null || true)"
 
-  if [[ "${last_round_count}" -ge 3 ]] && [[ "${last_pipeline_stage}" =~ ^(extract_actions|dispatch|finalize)$ || "${compile_job_status}" == "running" ]]; then
+  if [[ "${last_round_count}" -ge 3 ]] && { [[ "${last_pipeline_stage}" =~ ^(extract_actions|dispatch|finalize)$ ]] || [[ "${compile_job_status}" == "running" ]]; }; then
     for attempt in $(seq 1 "${SESSION_POLL_EXTENSION_ATTEMPTS}"); do
       refresh_compile_job_snapshot || true
       compile_job_status="$(jq -r '.status // empty' "${TRACE_DIR}/02c_compile_job.json" 2>/dev/null || true)"
 
       if capture_json_get \
-        "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
+        "${ACTIVE_BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}" \
         "${TRACE_DIR}/03_session_after_close.json"; then
         jq -c \
           --arg polled_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -520,9 +991,9 @@ write_note \
   "判讀重點是 session 是否 closed、action_items 是否帶 execution_id，以及 metadata 是否已出現 canonical memory 與 impact trace。"
 
 set +e
-curl -sS \
+http_curl -sS \
   --max-time 30 \
-  "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}/events" \
+  "${ACTIVE_BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/meeting-sessions/${session_id}/events?limit=2000" \
   | jq '.' >"${TRACE_DIR}/04_session_events.json"
 events_exit="$?"
 set -e
@@ -584,14 +1055,13 @@ if [[ "${terminal_state}" == "closed" && -n "${execution_id}" ]]; then
     "這是 synthetic completion payload，用來驗證 execution result landing 與 artifact 生成。" \
     "它故意帶 progress 與 markdown attachment，讓 progress snapshot 和 landed artifact 都有可觀測內容。"
 
-  curl -sS \
-    -H 'Content-Type: application/json' \
-    --data @"${TRACE_DIR}/05_completion_request.json" \
-    "${BASE_URL}/api/v1/mcp/agent/result" \
-    | jq '.' >"${TRACE_DIR}/05_completion_response.json"
+  post_json_file \
+    "${TRACE_DIR}/05_completion_request.json" \
+    "${ACTIVE_BASE_URL}/api/v1/mcp/agent/result" \
+    "${TRACE_DIR}/05_completion_response.json"
 
   capture_json_get \
-    "${BASE_URL}/api/v1/mcp/agent/result/${execution_id}" \
+    "${ACTIVE_BASE_URL}/api/v1/mcp/agent/result/${execution_id}" \
     "${TRACE_DIR}/06_landed_result.json"
 
   write_note \
@@ -600,7 +1070,7 @@ if [[ "${terminal_state}" == "closed" && -n "${execution_id}" ]]; then
     "若 attachment index 裡有 partner_brief.md，表示執行輸出確實已落成資產，而不是只停留在 task.result。"
 
   capture_json_get \
-    "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/executions/${execution_id}/progress-snapshot" \
+    "${ACTIVE_BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/executions/${execution_id}/progress-snapshot" \
     "${TRACE_DIR}/07_progress_snapshot.json"
 
   write_note \
@@ -609,45 +1079,74 @@ if [[ "${terminal_state}" == "closed" && -n "${execution_id}" ]]; then
     "這一步不是重看 task 狀態，而是檢查 artifact content 的 progress 是否真的可回讀。"
 
   capture_json_get \
-    "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/governance/memory" \
+    "${ACTIVE_BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/governance/memory" \
     "${TRACE_DIR}/08_memory_list.json"
 
   if [[ -n "${memory_item_id}" ]]; then
     capture_json_get \
-      "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/governance/memory/${memory_item_id}" \
+      "${ACTIVE_BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/governance/memory/${memory_item_id}" \
       "${TRACE_DIR}/09_memory_detail.json"
 
     capture_json_get \
-      "${BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/governance/memory-impact-graph?session_id=${session_id}" \
+      "${ACTIVE_BASE_URL}/api/v1/workspaces/${WORKSPACE_ID}/governance/memory-impact-graph?session_id=${session_id}" \
       "${TRACE_DIR}/10_memory_impact_graph.json"
   fi
 fi
 
-jq -n \
-  --arg run_id "${RUN_ID}" \
-  --arg workspace_id "${WORKSPACE_ID}" \
-  --arg project_id "${PROJECT_ID}" \
-  --arg thread_id "${THREAD_ID}" \
-  --arg compile_job_id "${compile_job_id}" \
-  --arg compile_job_status "${compile_job_status}" \
-  --arg session_id "${session_id}" \
-  --arg execution_id "${execution_id}" \
-  --arg memory_item_id "${memory_item_id}" \
-  --arg terminal_state "${terminal_state}" \
-  --arg trace_dir "${TRACE_DIR}" \
-  '{
-    run_id: $run_id,
-    workspace_id: $workspace_id,
-    project_id: $project_id,
-    thread_id: $thread_id,
-    compile_job_id: $compile_job_id,
-    compile_job_status: $compile_job_status,
-    session_id: $session_id,
-    execution_id: $execution_id,
-    memory_item_id: $memory_item_id,
-    terminal_state: $terminal_state,
-    trace_dir: $trace_dir
-  }' >"${TRACE_DIR}/summary.json"
+if [[ "${terminal_state}" == "closed" ]]; then
+  refresh_session_snapshot || true
+  refresh_session_events_snapshot || true
+fi
+
+if [[ -n "${compile_job_id}" ]]; then
+  refresh_compile_job_snapshot || true
+  compile_job_status="$(jq -r '.status // empty' "${TRACE_DIR}/02c_compile_job.json" 2>/dev/null || true)"
+
+  if [[ "${terminal_state}" == "closed" && "${compile_job_status}" != "succeeded" ]] || [[ "${terminal_state}" == "failed" && "${compile_job_status}" != "failed" ]]; then
+    for _ in $(seq 1 12); do
+      sleep 10
+      refresh_compile_job_snapshot || true
+      compile_job_status="$(jq -r '.status // empty' "${TRACE_DIR}/02c_compile_job.json" 2>/dev/null || true)"
+      if [[ "${compile_job_status}" == "succeeded" || "${compile_job_status}" == "failed" ]]; then
+        break
+      fi
+    done
+  fi
+fi
+
+capture_backend_runtime_state "${TRACE_DIR}/11_backend_runtime_after.json"
+
+backend_runtime_before_id="$(jq -r '.container_id // empty' "${TRACE_DIR}/00_backend_runtime_before.json" 2>/dev/null || true)"
+backend_runtime_before_started_at="$(jq -r '.started_at // empty' "${TRACE_DIR}/00_backend_runtime_before.json" 2>/dev/null || true)"
+backend_runtime_after_id="$(jq -r '.container_id // empty' "${TRACE_DIR}/11_backend_runtime_after.json" 2>/dev/null || true)"
+backend_runtime_after_started_at="$(jq -r '.started_at // empty' "${TRACE_DIR}/11_backend_runtime_after.json" 2>/dev/null || true)"
+pipeline_failure_stage="$(jq -r '.metadata.pipeline_failure.stage // empty' "${TRACE_DIR}/03_session_after_close.json" 2>/dev/null || true)"
+program_spec_source="$(jq -r '.metadata.last_program_spec_source // empty' "${TRACE_DIR}/03_session_after_close.json" 2>/dev/null || true)"
+program_spec_workstream_count="$(jq -r '
+  if (.metadata.last_program_spec_workstream_count != null)
+  then .metadata.last_program_spec_workstream_count
+  else ((.metadata.last_program_spec.workstreams // []) | length)
+  end
+' "${TRACE_DIR}/03_session_after_close.json" 2>/dev/null || true)"
+program_spec_structured="0"
+if [[ "${program_spec_source}" == "executor_structured" ]]; then
+  program_spec_structured="1"
+fi
+environment_restart_detected="false"
+environment_restart_reason=""
+
+if [[ -n "${backend_runtime_before_id}" && -n "${backend_runtime_after_id}" && "${backend_runtime_before_id}" != "${backend_runtime_after_id}" ]]; then
+  environment_restart_detected="true"
+  environment_restart_reason="backend_container_id_changed"
+elif [[ -n "${backend_runtime_before_started_at}" && -n "${backend_runtime_after_started_at}" && "${backend_runtime_before_started_at}" != "${backend_runtime_after_started_at}" ]]; then
+  environment_restart_detected="true"
+  environment_restart_reason="backend_container_started_at_changed"
+elif [[ "${pipeline_failure_stage}" == "startup_recovery" ]]; then
+  environment_restart_detected="true"
+  environment_restart_reason="session_startup_recovery_failure"
+fi
+
+write_summary_json
 
 echo "session_id=${session_id}"
 echo "execution_id=${execution_id}"
