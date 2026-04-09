@@ -15,6 +15,14 @@ interface ComfyUIRuntimeConfigured {
   port?: number;
   health_host?: string;
   listen?: string;
+  talking_head_backend_preset?: string;
+  talking_head_backend_repo?: string;
+  talking_head_backend_family?: string;
+  talking_head_backend_ref?: string;
+  talking_head_backend_dir?: string;
+  talking_head_viseme_bridge_repo?: string;
+  talking_head_viseme_bridge_ref?: string;
+  talking_head_viseme_bridge_dir?: string;
 }
 
 interface ComfyUIRuntimeEffective extends ComfyUIRuntimeConfigured {
@@ -29,6 +37,28 @@ interface ComfyUIRuntimeEffective extends ComfyUIRuntimeConfigured {
   listen: string;
   install_path_configured: boolean;
   source_map: Record<string, string>;
+  talking_head_source_install?: TalkingHeadSourceInstallSummary;
+}
+
+interface TalkingHeadSourceInstallSummary {
+  preset_id: string;
+  backend_family: string;
+  supports_auto_install: boolean;
+  backend_contract_verification_mode?: string;
+  declared_runtime_install_specs?: string[];
+  declared_node_classes?: string[];
+  default_backend_repo?: string;
+  default_backend_ref?: string;
+  default_viseme_bridge_repo?: string;
+  default_viseme_bridge_ref?: string;
+  resolved_backend_repo?: string;
+  resolved_backend_repo_source?: string;
+  resolved_viseme_bridge_repo?: string;
+  resolved_viseme_bridge_repo_source?: string;
+  resolved_backend_dir?: string;
+  resolved_viseme_bridge_dir?: string;
+  configuration_state: string;
+  configuration_blockers: string[];
 }
 
 interface ComfyUIRuntimeSettingsResponse {
@@ -73,6 +103,26 @@ interface ChooseDirectoryResponse {
   path: string;
 }
 
+interface TalkingHeadBackendPresetOption {
+  preset_id: string;
+  display_name: string;
+  description?: string;
+  backend_family?: string;
+  supports_auto_install?: boolean;
+  contract_verification_mode?: string;
+  declared_runtime_install_specs?: string[];
+  declared_node_classes?: string[];
+  default_backend_repo?: string;
+  default_backend_ref?: string;
+  default_viseme_repo?: string;
+  default_viseme_ref?: string;
+}
+
+interface TalkingHeadBackendPresetsResponse {
+  default_preset_id: string;
+  presets: TalkingHeadBackendPresetOption[];
+}
+
 const defaultForm: ComfyUIRuntimeConfigured = {
   install_path: '',
   main_py: '',
@@ -82,6 +132,14 @@ const defaultForm: ComfyUIRuntimeConfigured = {
   port: 8188,
   health_host: '127.0.0.1',
   listen: '0.0.0.0',
+  talking_head_backend_preset: 'liveportrait_manual_bootstrap',
+  talking_head_backend_repo: '',
+  talking_head_backend_family: 'liveportrait_style_audio_driven_custom_nodes',
+  talking_head_backend_ref: 'main',
+  talking_head_backend_dir: '',
+  talking_head_viseme_bridge_repo: '',
+  talking_head_viseme_bridge_ref: 'main',
+  talking_head_viseme_bridge_dir: '',
 };
 
 const displayValue = (value?: string | number | null) => {
@@ -94,6 +152,32 @@ const displayValue = (value?: string | number | null) => {
 
 const truthyLabel = (value: boolean) => (value ? 'yes' : 'no');
 
+const deriveTalkingHeadDir = (installPath: string, dirName: string) => {
+  const normalized = installPath.trim().replace(/\/+$/, '');
+  if (!normalized) {
+    return '';
+  }
+  return `${normalized}/custom_nodes/${dirName}`;
+};
+
+const FALLBACK_TALKING_HEAD_PRESET_OPTIONS: TalkingHeadBackendPresetOption[] = [
+  {
+    preset_id: 'liveportrait_manual_bootstrap',
+    display_name: 'LivePortrait Manual Bootstrap',
+    backend_family: 'liveportrait_style_audio_driven_custom_nodes',
+  },
+  {
+    preset_id: 'custom_source_install',
+    display_name: 'Custom Source Install',
+    backend_family: 'custom_audio_driven_talking_head_runtime',
+  },
+  {
+    preset_id: 'manual_existing_nodes',
+    display_name: 'Manual Existing Nodes',
+    backend_family: 'manual_existing_nodes',
+  },
+];
+
 export default function ComfyUIRuntimeSettingsPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -105,6 +189,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
   const [config, setConfig] = useState<ComfyUIRuntimeConfigured>(defaultForm);
   const [effective, setEffective] = useState<ComfyUIRuntimeEffective | null>(null);
   const [validationResult, setValidationResult] = useState<HostValidationResult | null>(null);
+  const [presetOptions, setPresetOptions] = useState<TalkingHeadBackendPresetOption[]>(FALLBACK_TALKING_HEAD_PRESET_OPTIONS);
 
   useEffect(() => {
     void loadConfig();
@@ -114,12 +199,21 @@ export default function ComfyUIRuntimeSettingsPanel() {
     try {
       setLoading(true);
       setError(null);
-      const data = await settingsApi.get<ComfyUIRuntimeSettingsResponse>('/api/v1/capabilities/comfyui_runtime/runtime-config');
+      const [data, presetsPayload] = await Promise.all([
+        settingsApi.get<ComfyUIRuntimeSettingsResponse>('/api/v1/capabilities/comfyui_runtime/runtime-config'),
+        settingsApi.get<TalkingHeadBackendPresetsResponse>('/api/v1/capabilities/comfyui_runtime/talking-head/backend-presets').catch(
+          () => ({
+            default_preset_id: defaultForm.talking_head_backend_preset || 'liveportrait_manual_bootstrap',
+            presets: FALLBACK_TALKING_HEAD_PRESET_OPTIONS,
+          }),
+        ),
+      ]);
       setConfig({
         ...defaultForm,
         ...data.configured,
       });
       setEffective(data.effective);
+      setPresetOptions(presetsPayload.presets?.length ? presetsPayload.presets : FALLBACK_TALKING_HEAD_PRESET_OPTIONS);
       setValidationResult(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '載入 ComfyUI runtime 設定失敗');
@@ -142,6 +236,14 @@ export default function ComfyUIRuntimeSettingsPanel() {
           ? prev.extra_model_paths_config
           : result.detected.extra_model_paths_config.path,
       log_file: prev.log_file?.trim() ? prev.log_file : result.detected.log_file.path,
+      talking_head_backend_dir:
+        prev.talking_head_backend_dir?.trim()
+          ? prev.talking_head_backend_dir
+          : deriveTalkingHeadDir(path, 'mindscape_liveportrait_audio_runtime'),
+      talking_head_viseme_bridge_dir:
+        prev.talking_head_viseme_bridge_dir?.trim()
+          ? prev.talking_head_viseme_bridge_dir
+          : deriveTalkingHeadDir(path, 'mindscape_viseme_alignment_bridge'),
     }));
   };
 
@@ -234,6 +336,14 @@ export default function ComfyUIRuntimeSettingsPanel() {
           port: config.port,
           health_host: config.health_host || '',
           listen: config.listen || '',
+          talking_head_backend_preset: config.talking_head_backend_preset || '',
+          talking_head_backend_repo: config.talking_head_backend_repo || '',
+          talking_head_backend_family: config.talking_head_backend_family || '',
+          talking_head_backend_ref: config.talking_head_backend_ref || '',
+          talking_head_backend_dir: config.talking_head_backend_dir || '',
+          talking_head_viseme_bridge_repo: config.talking_head_viseme_bridge_repo || '',
+          talking_head_viseme_bridge_ref: config.talking_head_viseme_bridge_ref || '',
+          talking_head_viseme_bridge_dir: config.talking_head_viseme_bridge_dir || '',
         }
       );
       setEffective(response.effective);
@@ -271,6 +381,11 @@ export default function ComfyUIRuntimeSettingsPanel() {
 
   const inputClass =
     'w-full rounded-md border border-default dark:border-gray-600 bg-surface-accent dark:bg-gray-900 px-3 py-2 text-sm text-primary dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-500';
+  const selectedPreset =
+    presetOptions.find((option) => option.preset_id === (config.talking_head_backend_preset || ''))
+    || presetOptions[0]
+    || null;
+  const effectiveTalkingHeadSourceInstall = effective?.talking_head_source_install || null;
 
   if (loading) {
     return <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">載入中...</div>;
@@ -332,8 +447,114 @@ export default function ComfyUIRuntimeSettingsPanel() {
               <div className="mt-1 break-all">{displayValue(effective.python_bin)}</div>
               <div className="mt-1 opacity-75">source: {effective.source_map.python_bin}</div>
             </div>
+            <div>
+              <div className="font-medium text-primary dark:text-gray-200">Talking-head backend preset</div>
+              <div className="mt-1 break-all">{displayValue(effective.talking_head_backend_preset)}</div>
+              <div className="mt-1 opacity-75">source: {effective.source_map.talking_head_backend_preset}</div>
+            </div>
+            <div>
+              <div className="font-medium text-primary dark:text-gray-200">Talking-head backend family</div>
+              <div className="mt-1 break-all">{displayValue(effective.talking_head_backend_family)}</div>
+              <div className="mt-1 opacity-75">source: {effective.source_map.talking_head_backend_family}</div>
+            </div>
+            <div>
+              <div className="font-medium text-primary dark:text-gray-200">Talking-head backend repo</div>
+              <div className="mt-1 break-all">{displayValue(effective.talking_head_backend_repo)}</div>
+              <div className="mt-1 opacity-75">source: {effective.source_map.talking_head_backend_repo}</div>
+            </div>
+            <div>
+              <div className="font-medium text-primary dark:text-gray-200">Talking-head backend dir</div>
+              <div className="mt-1 break-all">{displayValue(effective.talking_head_backend_dir)}</div>
+              <div className="mt-1 opacity-75">source: {effective.source_map.talking_head_backend_dir}</div>
+            </div>
+            <div>
+              <div className="font-medium text-primary dark:text-gray-200">Viseme bridge repo</div>
+              <div className="mt-1 break-all">{displayValue(effective.talking_head_viseme_bridge_repo)}</div>
+              <div className="mt-1 opacity-75">source: {effective.source_map.talking_head_viseme_bridge_repo}</div>
+            </div>
+            <div>
+              <div className="font-medium text-primary dark:text-gray-200">Viseme bridge dir</div>
+              <div className="mt-1 break-all">{displayValue(effective.talking_head_viseme_bridge_dir)}</div>
+              <div className="mt-1 opacity-75">source: {effective.source_map.talking_head_viseme_bridge_dir}</div>
+            </div>
           </div>
         )}
+
+        {effectiveTalkingHeadSourceInstall ? (
+          <div className="mt-4 rounded-lg border border-default dark:border-gray-700 bg-surface-accent dark:bg-gray-900/40 p-4 text-xs text-secondary dark:text-gray-400">
+            <div className="text-sm font-medium text-primary dark:text-gray-100">
+              Talking-head source-install summary
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div>
+                <div className="font-medium text-primary dark:text-gray-200">configuration_state</div>
+                <div className="mt-1 break-all">{displayValue(effectiveTalkingHeadSourceInstall.configuration_state)}</div>
+              </div>
+              <div>
+                <div className="font-medium text-primary dark:text-gray-200">supports_auto_install</div>
+                <div className="mt-1">{truthyLabel(effectiveTalkingHeadSourceInstall.supports_auto_install)}</div>
+              </div>
+              <div>
+                <div className="font-medium text-primary dark:text-gray-200">backend_contract_verification_mode</div>
+                <div className="mt-1 break-all">{displayValue(effectiveTalkingHeadSourceInstall.backend_contract_verification_mode)}</div>
+              </div>
+              <div>
+                <div className="font-medium text-primary dark:text-gray-200">resolved_backend_repo_source</div>
+                <div className="mt-1 break-all">{displayValue(effectiveTalkingHeadSourceInstall.resolved_backend_repo_source)}</div>
+              </div>
+              <div>
+                <div className="font-medium text-primary dark:text-gray-200">resolved_viseme_bridge_repo_source</div>
+                <div className="mt-1 break-all">{displayValue(effectiveTalkingHeadSourceInstall.resolved_viseme_bridge_repo_source)}</div>
+              </div>
+              <div>
+                <div className="font-medium text-primary dark:text-gray-200">default backend repo</div>
+                <div className="mt-1 break-all">{displayValue(effectiveTalkingHeadSourceInstall.default_backend_repo)}</div>
+                <div className="mt-1 opacity-75">ref: {displayValue(effectiveTalkingHeadSourceInstall.default_backend_ref)}</div>
+              </div>
+              <div>
+                <div className="font-medium text-primary dark:text-gray-200">default viseme bridge repo</div>
+                <div className="mt-1 break-all">{displayValue(effectiveTalkingHeadSourceInstall.default_viseme_bridge_repo)}</div>
+                <div className="mt-1 opacity-75">ref: {displayValue(effectiveTalkingHeadSourceInstall.default_viseme_bridge_ref)}</div>
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="font-medium text-primary dark:text-gray-200">declared_runtime_install_specs</div>
+              {(effectiveTalkingHeadSourceInstall.declared_runtime_install_specs || []).length ? (
+                <div className="mt-1 space-y-1">
+                  {(effectiveTalkingHeadSourceInstall.declared_runtime_install_specs || []).map((item) => (
+                    <div key={item}>- {item}</div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-1">無</div>
+              )}
+            </div>
+            <div className="mt-3">
+              <div className="font-medium text-primary dark:text-gray-200">declared_node_classes</div>
+              {(effectiveTalkingHeadSourceInstall.declared_node_classes || []).length ? (
+                <div className="mt-1 space-y-1">
+                  {(effectiveTalkingHeadSourceInstall.declared_node_classes || []).map((item) => (
+                    <div key={item}>- {item}</div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-1">無</div>
+              )}
+            </div>
+            <div className="mt-3">
+              <div className="font-medium text-primary dark:text-gray-200">configuration_blockers</div>
+              {effectiveTalkingHeadSourceInstall.configuration_blockers.length ? (
+                <div className="mt-1 space-y-1">
+                  {effectiveTalkingHeadSourceInstall.configuration_blockers.map((item) => (
+                    <div key={item}>- {item}</div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-1">無</div>
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">
@@ -495,6 +716,142 @@ export default function ComfyUIRuntimeSettingsPanel() {
               onChange={(e) => setConfig((prev) => ({ ...prev, port: Number(e.target.value || 8188) }))}
               className={inputClass}
             />
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-default dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 p-4">
+          <div className="mb-3">
+            <div className="text-sm font-medium text-primary dark:text-gray-100">Talking-head Source Install</div>
+            <p className="mt-1 text-xs text-secondary dark:text-gray-400">
+              這些欄位會直接驅動 talking-head runtime bootstrap。若 repo URL 留空，系統只會檢查指定 custom node 目錄，不會自動 clone。
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">Backend preset</label>
+              <select
+                value={config.talking_head_backend_preset || 'liveportrait_manual_bootstrap'}
+                onChange={(e) => {
+                  const presetId = e.target.value;
+                  const preset = presetOptions.find((item) => item.preset_id === presetId);
+                  setConfig((prev) => ({
+                    ...prev,
+                    talking_head_backend_preset: presetId,
+                    talking_head_backend_family: preset?.backend_family || prev.talking_head_backend_family,
+                  }));
+                }}
+                className={inputClass}
+              >
+                {presetOptions.map((option) => (
+                  <option key={option.preset_id} value={option.preset_id}>
+                    {option.display_name}
+                  </option>
+                ))}
+              </select>
+              {selectedPreset ? (
+                <div className="mt-2 rounded-md border border-default dark:border-gray-700 bg-surface-accent dark:bg-gray-900/40 p-3 text-xs text-secondary dark:text-gray-400">
+                  <div>{selectedPreset.description || '此 preset 會提供 backend family 與 deployment-level 預設 repo/ref。'}</div>
+                  <div className="mt-2">supports_auto_install: {truthyLabel(Boolean(selectedPreset.supports_auto_install))}</div>
+                  <div className="mt-1">contract verification mode: {displayValue(selectedPreset.contract_verification_mode)}</div>
+                  <div className="mt-1 break-all">default backend repo: {displayValue(selectedPreset.default_backend_repo)}</div>
+                  <div className="mt-1">default backend ref: {displayValue(selectedPreset.default_backend_ref)}</div>
+                  <div className="mt-1 break-all">default viseme bridge repo: {displayValue(selectedPreset.default_viseme_repo)}</div>
+                  <div className="mt-1">default viseme bridge ref: {displayValue(selectedPreset.default_viseme_ref)}</div>
+                  <div className="mt-2">declared runtime specs:</div>
+                  {(selectedPreset.declared_runtime_install_specs || []).length ? (
+                    <div className="mt-1 space-y-1">
+                      {(selectedPreset.declared_runtime_install_specs || []).map((item) => (
+                        <div key={item}>- {item}</div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-1">無</div>
+                  )}
+                  <div className="mt-2">declared node classes:</div>
+                  {(selectedPreset.declared_node_classes || []).length ? (
+                    <div className="mt-1 space-y-1">
+                      {(selectedPreset.declared_node_classes || []).map((item) => (
+                        <div key={item}>- {item}</div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-1">無</div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">Backend family</label>
+              <select
+                value={config.talking_head_backend_family || 'liveportrait_style_audio_driven_custom_nodes'}
+                onChange={(e) => setConfig((prev) => ({ ...prev, talking_head_backend_family: e.target.value }))}
+                className={inputClass}
+              >
+                <option value="liveportrait_style_audio_driven_custom_nodes">LivePortrait-style source install</option>
+                <option value="custom_audio_driven_talking_head_runtime">Custom source-install runtime</option>
+                <option value="manual_existing_nodes">Manual existing nodes</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">Backend repo URL</label>
+              <input
+                type="text"
+                value={config.talking_head_backend_repo || ''}
+                onChange={(e) => setConfig((prev) => ({ ...prev, talking_head_backend_repo: e.target.value }))}
+                placeholder="https://github.com/.../liveportrait-runtime.git"
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">Backend git ref</label>
+              <input
+                type="text"
+                value={config.talking_head_backend_ref || ''}
+                onChange={(e) => setConfig((prev) => ({ ...prev, talking_head_backend_ref: e.target.value }))}
+                placeholder="main"
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">Backend custom node dir</label>
+              <input
+                type="text"
+                value={config.talking_head_backend_dir || ''}
+                onChange={(e) => setConfig((prev) => ({ ...prev, talking_head_backend_dir: e.target.value }))}
+                placeholder="可留空，自動推導"
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">Viseme bridge repo URL</label>
+              <input
+                type="text"
+                value={config.talking_head_viseme_bridge_repo || ''}
+                onChange={(e) => setConfig((prev) => ({ ...prev, talking_head_viseme_bridge_repo: e.target.value }))}
+                placeholder="https://github.com/.../viseme-bridge.git"
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">Viseme bridge git ref</label>
+              <input
+                type="text"
+                value={config.talking_head_viseme_bridge_ref || ''}
+                onChange={(e) => setConfig((prev) => ({ ...prev, talking_head_viseme_bridge_ref: e.target.value }))}
+                placeholder="main"
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">Viseme bridge custom node dir</label>
+              <input
+                type="text"
+                value={config.talking_head_viseme_bridge_dir || ''}
+                onChange={(e) => setConfig((prev) => ({ ...prev, talking_head_viseme_bridge_dir: e.target.value }))}
+                placeholder="可留空，自動推導"
+                className={inputClass}
+              />
+            </div>
           </div>
         </div>
 

@@ -3,8 +3,15 @@
 import React, { createContext, useContext, useState, useMemo, ReactNode } from 'react';
 
 export interface ChatModel {
+  id: string;
+  label: string;
   model_name: string;
   provider: string;
+  source_kind: 'executor_runtime' | 'direct_llm';
+  runtime_id?: string | null;
+  available: boolean;
+  auth_status?: string | null;
+  disabled_reason?: string | null;
 }
 
 export interface WorkspaceMetadataState {
@@ -69,4 +76,3 @@ export function useWorkspaceMetadata() {
   }
   return context;
 }
-

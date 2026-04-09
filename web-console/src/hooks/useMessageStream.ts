@@ -17,6 +17,45 @@ export interface UseMessageStreamOptions {
     enabled?: boolean;
 }
 
+function mapCompileJobToPipelineStage(status?: string, error?: string): {
+    stage: string;
+    message: string;
+    streaming: boolean;
+} {
+    switch ((status || '').toLowerCase()) {
+        case 'accepted':
+            return {
+                stage: 'compile_accepted',
+                message: 'Compile 已接受，正在排隊執行…',
+                streaming: true,
+            };
+        case 'running':
+            return {
+                stage: 'compile_running',
+                message: 'Compile 執行中，正在啟動會議編譯…',
+                streaming: true,
+            };
+        case 'succeeded':
+            return {
+                stage: 'compile_succeeded',
+                message: 'Compile 完成，會議結果已落地。',
+                streaming: false,
+            };
+        case 'failed':
+            return {
+                stage: 'compile_failed',
+                message: error ? `Compile 失敗：${error}` : 'Compile 失敗，請檢查 job 與 session trace。',
+                streaming: false,
+            };
+        default:
+            return {
+                stage: 'task_assignment',
+                message: 'Compile 狀態已更新。',
+                streaming: false,
+            };
+    }
+}
+
 /**
  * Transform SSE event to ChatMessage format
  */
@@ -97,7 +136,7 @@ export function useMessageStream(
 
         const unsubscribe = subscribeEventStream(workspaceId, {
             apiUrl,
-            eventTypes: ['message', 'pipeline_stage', 'execution_plan', 'run_started', 'run_completed', 'run_failed', 'step_start', 'step_progress', 'step_complete', 'step_error', 'chunk', 'stream_start', 'stream_end', 'meeting_stage'],
+            eventTypes: ['message', 'pipeline_stage', 'execution_plan', 'run_started', 'run_completed', 'run_failed', 'step_start', 'step_progress', 'step_complete', 'step_error', 'chunk', 'stream_start', 'stream_end', 'meeting_stage', 'compile_job_updated'],
             onEvent: (event) => {
                 // ── Strict Thread Isolation ──
                 const eventPayload = event.payload as any;
@@ -134,6 +173,29 @@ export function useMessageStream(
                             type: 'pipeline_stage',
                             stage: stagePayload?.stage || 'meeting',
                             message: stagePayload?.message || 'Processing…',
+                        }
+                    }));
+                    return;
+                }
+
+                if (event.type === 'compile_job_updated') {
+                    const stagePayload = event.payload as any;
+                    const mappedStage = mapCompileJobToPipelineStage(
+                        stagePayload?.status,
+                        stagePayload?.error
+                    );
+                    window.dispatchEvent(new CustomEvent('execution-event', {
+                        detail: {
+                            type: 'pipeline_stage',
+                            stage: mappedStage.stage,
+                            message: mappedStage.message,
+                            streaming: mappedStage.streaming,
+                            metadata: {
+                                ...event.metadata,
+                                compile_job_id: stagePayload?.compile_job_id,
+                                session_id: stagePayload?.session_id,
+                                compile_status: stagePayload?.status,
+                            },
                         }
                     }));
                     return;

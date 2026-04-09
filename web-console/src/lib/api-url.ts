@@ -3,15 +3,19 @@
  * All frontend code should use these functions to get the API URL instead of hardcoding ports
  */
 
-import { shouldUseSameOriginProxyForBrowser } from './api-origin';
+import {
+  normalizeBrowserReachableUrl,
+  shouldUseSameOriginProxyForBrowser,
+} from './api-origin';
 
 /**
  * Get initial API URL (synchronous, for initialization)
- * Browser requests should prefer Next.js same-origin rewrites to avoid
- * fragile cross-port CORS behavior in forwarded/dev-proxy environments.
+ * Browser requests prefer the configured backend URL when it is directly
+ * reachable (for example localhost:8200 in local-core dev/runtime), and fall
+ * back to the same-origin proxy only for internal/non-browser hosts.
  */
 export function getApiBaseUrl(): string {
-  const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
+  const configuredUrl = normalizeBrowserReachableUrl(process.env.NEXT_PUBLIC_API_URL);
 
   if (typeof window !== 'undefined') {
     if (shouldUseSameOriginProxyForBrowser(configuredUrl)) {

@@ -13,6 +13,8 @@ import { useChatModel } from '@/hooks/useChatModel';
 import { useExecutorSpecs, ExecutorSpec } from '@/hooks/useExecutorSpecs';
 import IntentChips from '../../app/workspaces/components/IntentChips';
 import { useToast } from '@/components/Toast';
+import type { ChatModel } from '@/contexts/WorkspaceMetadataContext';
+import { llmConfigService } from '@/services/LLMConfigService';
 
 interface AgentInfo {
   id: string;
@@ -66,7 +68,7 @@ export function InputArea({
     setExecutorRuntime,
   } = useWorkspaceMetadata();
   const { messages } = useMessages();
-  const { selectModel } = useChatModel(apiUrl, { workspaceId });
+  const { selectModel, loadModel } = useChatModel(apiUrl, { workspaceId });
   const { specs, resolvedRuntime, addSpec, setPrimary, removeSpec } = useExecutorSpecs(workspaceId, apiUrl);
 
   // Fetch available agents from API
@@ -143,6 +145,8 @@ export function InputArea({
             : 'Switched back to Mindscape LLM',
           duration: 3000,
         });
+        llmConfigService.invalidateCache(apiUrl, workspaceId, 'default-user');
+        await loadModel(0, true);
       }
     } catch (err) {
       console.error('[InputArea] Error setting executor:', err);
@@ -184,14 +188,20 @@ export function InputArea({
     }
   };
 
-  const handleModelChange = async (modelName: string, provider: string) => {
+  const handleModelChange = async (model: ChatModel) => {
     try {
       const response = await fetch(
-        `${apiUrl}/api/v1/system-settings/llm-models/chat?model_name=${encodeURIComponent(modelName)}&provider=${encodeURIComponent(provider)}`,
-        { method: 'PUT', headers: { 'Content-Type': 'application/json' } }
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/chat-model-preference`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selection_id: model.id }),
+        }
       );
       if (response.ok) {
-        selectModel(modelName);
+        llmConfigService.invalidateCache(apiUrl, workspaceId, 'default-user');
+        selectModel(model.id);
+        await loadModel(0, true);
       }
     } catch (err) {
       console.error('Failed to update chat model:', err);
@@ -304,4 +314,3 @@ export function InputArea({
     </form>
   );
 }
-

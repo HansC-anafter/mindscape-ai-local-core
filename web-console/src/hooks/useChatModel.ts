@@ -2,13 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { llmConfigService } from '@/services/LLMConfigService';
-import { useEnabledModels } from '@/app/settings/hooks/useEnabledModels';
-import { useWorkspaceMetadata } from '@/contexts/WorkspaceMetadataContext';
-
-interface ChatModelInfo {
-  model_name: string;
-  provider: string;
-}
+import { useWorkspaceMetadata, type ChatModel } from '@/contexts/WorkspaceMetadataContext';
 
 interface UseChatModelOptions {
   workspaceId?: string;
@@ -17,7 +11,7 @@ interface UseChatModelOptions {
   enabled?: boolean;
   maxRetries?: number;
   retryDelay?: number;
-  onSuccess?: (model: ChatModelInfo | null) => void;
+  onSuccess?: (model: ChatModel | null) => void;
   onError?: (error: Error) => void;
 }
 
@@ -33,7 +27,6 @@ export function useChatModel(
   apiUrl: string,
   options?: UseChatModelOptions
 ) {
-  const { enabledModels: enabledChatModels, loading: modelsLoading } = useEnabledModels('chat');
   const {
     currentChatModel,
     setCurrentChatModel,
@@ -58,13 +51,15 @@ export function useChatModel(
     onError,
   } = options || {};
 
-  const loadModel = useCallback(async (retryCount = 0) => {
+  const requestKey = `${apiUrl}:${workspaceId || 'default'}:${profileId}`;
+
+  const loadModel = useCallback(async (retryCount = 0, force = false) => {
     if (!enabled || apiUrl == null) {
       return;
     }
 
     // Prevent duplicate loads for the same API URL
-    if (loadedApiUrlRef.current === apiUrl || !isMountedRef.current) {
+    if ((!force && loadedApiUrlRef.current === requestKey) || !isMountedRef.current) {
       return;
     }
 
@@ -91,25 +86,13 @@ export function useChatModel(
         return;
       }
 
-      // Set current model if available
-      if (data.chat_model) {
-        setCurrentChatModel(data.chat_model.model_name);
-      }
-
-      // Set available models from enabled models only (respects user's toggle settings)
-      if (!modelsLoading) {
-        setAvailableChatModels(
-          enabledChatModels.map(m => ({
-            model_name: m.model_name,
-            provider: m.provider,
-          }))
-        );
-      }
+      setCurrentChatModel(data.current_selection?.id || '');
+      setAvailableChatModels(data.available_models || []);
 
       // Mark as loaded only on success
-      loadedApiUrlRef.current = apiUrl;
+      loadedApiUrlRef.current = requestKey;
       setIsLoading(false);
-      onSuccess?.(data.chat_model || null);
+      onSuccess?.(data.current_selection || null);
     } catch (err: any) {
       if (!isMountedRef.current) {
         return;
@@ -130,7 +113,7 @@ export function useChatModel(
       if (isContentLengthError && retryCount < maxRetries) {
         // Retry after a delay
         setTimeout(() => {
-          loadModel(retryCount + 1);
+          loadModel(retryCount + 1, force);
         }, retryDelay * (retryCount + 1));
         return;
       }
@@ -151,32 +134,19 @@ export function useChatModel(
     enabled,
     maxRetries,
     retryDelay,
-    enabledChatModels,
-    modelsLoading,
     setCurrentChatModel,
     setAvailableChatModels,
     onSuccess,
     onError,
+    requestKey,
   ]);
-
-  // Update available models when enabledChatModels changes
-  useEffect(() => {
-    if (enabledChatModels.length > 0 && !modelsLoading) {
-      setAvailableChatModels(
-        enabledChatModels.map(m => ({
-          model_name: m.model_name,
-          provider: m.provider,
-        }))
-      );
-    }
-  }, [enabledChatModels, modelsLoading, setAvailableChatModels]);
 
   // Initial load on mount or when dependencies change
   useEffect(() => {
     isMountedRef.current = true;
     if (enabled && apiUrl) {
       // Reset loaded flag when API URL changes
-      if (loadedApiUrlRef.current !== apiUrl) {
+      if (loadedApiUrlRef.current !== requestKey) {
         loadedApiUrlRef.current = null;
       }
       loadModel();
@@ -188,11 +158,11 @@ export function useChatModel(
         abortControllerRef.current.abort();
       }
     };
-  }, [apiUrl, enabled, loadModel]);
+  }, [apiUrl, enabled, loadModel, requestKey]);
 
-  const selectModel = useCallback((modelName: string) => {
+  const selectModel = useCallback((selectionId: string) => {
     if (isMountedRef.current) {
-      setCurrentChatModel(modelName);
+      setCurrentChatModel(selectionId);
     }
   }, [setCurrentChatModel]);
 
@@ -205,4 +175,3 @@ export function useChatModel(
     selectModel,
   };
 }
-

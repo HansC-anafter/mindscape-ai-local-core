@@ -12,7 +12,7 @@ interface InputBottomBarProps {
   availableChatModels: ChatModel[];
 
   contextTokenCount: number | null;
-  onModelChange: (modelName: string, provider: string) => Promise<void>;
+  onModelChange: (model: ChatModel) => Promise<void>;
   onFileUpload: () => void;
   onSend: () => void;
   isLoading: boolean;
@@ -95,10 +95,10 @@ export function InputBottomBar({
         <select
           value={currentChatModel || ''}
           onChange={async (e) => {
-            const selectedModel = e.target.value;
-            const model = availableChatModels.find(m => m.model_name === selectedModel);
+            const selectedModelId = e.target.value;
+            const model = availableChatModels.find(m => m.id === selectedModelId);
             if (model) {
-              await onModelChange(model.model_name, model.provider);
+              await onModelChange(model);
             }
           }}
           className="text-xs px-2 py-1 border border-default dark:border-gray-600 rounded bg-surface-secondary dark:bg-gray-800 text-primary dark:text-gray-300 hover:bg-surface-accent dark:hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-accent dark:focus:ring-blue-400"
@@ -106,8 +106,8 @@ export function InputBottomBar({
         >
           {availableChatModels.length > 0 ? (
             availableChatModels.map((model) => (
-              <option key={model.model_name} value={model.model_name}>
-                {model.model_name}
+              <option key={model.id} value={model.id} disabled={!model.available}>
+                {model.label}{!model.available && model.disabled_reason ? ` (${model.disabled_reason})` : ''}
               </option>
             ))
           ) : (
@@ -144,7 +144,9 @@ export function InputBottomBar({
 
         {currentChatModel && (
           <>
-            <span className="text-xs text-gray-500 dark:text-gray-300">✓ {currentChatModel}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-300">
+              ✓ {availableChatModels.find(model => model.id === currentChatModel)?.label || currentChatModel}
+            </span>
             {contextTokenCount !== null && (
               <span className="text-xs text-gray-400 dark:text-gray-400" title="Context tokens">
                 {contextTokenCount >= 1000
@@ -186,4 +188,3 @@ export function InputBottomBar({
     </div>
   );
 }
-
