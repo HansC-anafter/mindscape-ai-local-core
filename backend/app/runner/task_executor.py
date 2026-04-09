@@ -1,6 +1,7 @@
 """Runner task executor — subprocess spawn and task lifecycle management."""
 
 import asyncio
+import dataclasses
 import json
 import logging
 import multiprocessing as mp
@@ -23,12 +24,37 @@ from backend.app.services.runner_topology import (
 )
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
+from backend.app.services.task_pause_contract import (
+    is_user_pause_reserved_task,
+)
 
-from backend.app.runner.concurrency import _build_inputs, _resolve_lock_keys
+from backend.app.runner.concurrency import (
+    _build_inputs,
+    _release_lock_keys_safely,
+    _resolve_lock_keys,
+    _runner_lock_ttl_seconds,
+)
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.utils import _env_int, _utc_now
 
 logger = logging.getLogger(__name__)
+
+
+def _json_safe_default(value: Any) -> Any:
+    """Serialize common tool payload objects for runner IPC."""
+    if dataclasses.is_dataclass(value):
+        return dataclasses.asdict(value)
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        return model_dump(mode="json")
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        return isoformat()
+    if isinstance(value, set):
+        return list(value)
+    if hasattr(value, "__dict__"):
+        return dict(value.__dict__)
+    return str(value)
 
 
 def _resolve_execution_attempt_inputs(
@@ -303,11 +329,13 @@ def _initialize_capability_packages_for_runner() -> None:
 
         from backend.app.services.capability_registry import get_registry, load_capabilities
         from backend.app.services.capability_tool_loader import load_all_capability_tools
+        from backend.app.services.tools.registry import register_external_agent_tools
 
         app_dir = Path(__file__).resolve().parent.parent
         capabilities_dir = (app_dir / "capabilities").resolve()
         load_capabilities(capabilities_dir)
         load_all_capability_tools()
+        register_external_agent_tools()
 
         registry = get_registry()
         logger.info(
@@ -360,7 +388,11 @@ def _child_execute_playbook(payload: Dict[str, Any]) -> None:
 
                 try:
                     with open(result_file, "w") as f:
-                        _json.dump(result.to_dict(), f)
+                        _json.dump(
+                            result.to_dict(),
+                            f,
+                            default=_json_safe_default,
+                        )
                 except Exception:
                     pass
         else:
@@ -485,6 +517,47 @@ async def _mark_task_succeeded(
             TaskStatus.CANCELLED_BY_USER,
             TaskStatus.FAILED,
         ):
+            if latest.task_type == "tool_execution" and tool_result is None:
+                await _mark_task_failed(
+                    tasks_store,
+                    latest.id,
+                    runner_id,
+                    "Tool execution exited cleanly but produced no result payload",
+                    redis_queue,
+                )
+                return
+
+            latest_ctx = (
+                latest.execution_context
+                if isinstance(latest.execution_context, dict)
+                else {}
+            )
+            if is_user_pause_reserved_task(latest):
+                logger.info(
+                    "Runner task %s exited cleanly after cooperative user pause; "
+                    "preserving paused-reserved state",
+                    latest.id,
+                )
+                if redis_queue:
+                    await redis_queue.ack_task(latest.id)
+                return
+            if latest.status == TaskStatus.PENDING and latest_ctx.get("pending_reason"):
+                logger.warning(
+                    "Runner task %s exited cleanly but runtime demoted it to PENDING "
+                    "(reason=%s); returning it to delayed queue instead of marking success",
+                    latest.id,
+                    latest_ctx.get("pending_reason"),
+                )
+                if redis_queue:
+                    await redis_queue.nack_task_to_delayed(
+                        latest.id,
+                        delay_sec=_env_int(
+                            "LOCAL_CORE_RUNNER_RECOVERABLE_DELAY_SECONDS",
+                            15,
+                        ),
+                    )
+                return
+
             ctxs = (
                 latest.execution_context
                 if isinstance(latest.execution_context, dict)
@@ -513,12 +586,105 @@ async def _mark_task_succeeded(
                 new_state="DONE",
                 reason="execution_completed",
             )
+
+            if latest.task_type == "tool_execution" and tool_result is not None:
+                await _process_tool_task_completion(
+                    task=latest,
+                    tool_result=tool_result,
+                )
             
         # 2. Redis Ack MUST ALWAYS happen even if DB state was skipped
         if redis_queue:
             await redis_queue.ack_task(task_id)
     except Exception as e:
         logger.error(f"Failed to mark task {task_id} as succeeded: {e}", exc_info=True)
+
+
+def _normalize_tool_result_for_governance(tool_result: Dict[str, Any]) -> Dict[str, Any]:
+    """Shape tool results so GovernanceEngine can land them like playbook results."""
+    normalized = dict(tool_result or {})
+    if "result_json" not in normalized:
+        normalized["result_json"] = dict(tool_result or {})
+
+    if "output" not in normalized:
+        raw_output = normalized.get("result")
+        if isinstance(raw_output, str):
+            normalized["output"] = raw_output
+        elif raw_output is not None:
+            try:
+                normalized["output"] = json.dumps(
+                    raw_output,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=str,
+                )
+            except Exception:
+                normalized["output"] = str(raw_output)
+        else:
+            normalized["output"] = ""
+    return normalized
+
+
+async def _process_tool_task_completion(
+    task: Task,
+    tool_result: Dict[str, Any],
+    *,
+    governance_cls=None,
+    workspaces_store_cls=None,
+) -> None:
+    """Route local tool_execution success through GovernanceEngine landing."""
+    workspace_id = str(getattr(task, "workspace_id", "") or "").strip()
+    execution_id = str(getattr(task, "execution_id", "") or getattr(task, "id", "")).strip()
+    if not workspace_id or not execution_id:
+        return
+
+    if governance_cls is None:
+        from backend.app.services.orchestration.governance_engine import (
+            GovernanceEngine,
+        )
+
+        governance_cls = GovernanceEngine
+    if workspaces_store_cls is None:
+        from backend.app.services.stores.postgres.workspaces_store import (
+            PostgresWorkspacesStore,
+        )
+
+        workspaces_store_cls = PostgresWorkspacesStore
+
+    execution_context = (
+        task.execution_context if isinstance(task.execution_context, dict) else {}
+    )
+    task_params = task.params if isinstance(task.params, dict) else {}
+    task_context = task_params.get("context") if isinstance(task_params.get("context"), dict) else {}
+
+    try:
+        workspaces_store = workspaces_store_cls()
+        workspace = await workspaces_store.get_workspace(workspace_id)
+        storage_base = getattr(workspace, "storage_base_path", None) if workspace else None
+        artifacts_dir = getattr(workspace, "artifacts_dir", None) or "artifacts"
+
+        governance = governance_cls()
+        governance.process_completion(
+            workspace_id=workspace_id,
+            execution_id=execution_id,
+            result_data=_normalize_tool_result_for_governance(tool_result),
+            storage_base_path=storage_base,
+            artifacts_dirname=artifacts_dir,
+            thread_id=execution_context.get("thread_id")
+            or task_params.get("thread_id")
+            or task_context.get("thread_id"),
+            project_id=getattr(task, "project_id", None)
+            or execution_context.get("project_id")
+            or task_params.get("project_id")
+            or task_context.get("project_id"),
+            task_id=getattr(task, "id", None),
+            playbook_code=getattr(task, "pack_id", None),
+        )
+    except Exception:
+        logger.exception(
+            "Governance landing failed for tool_execution task %s",
+            getattr(task, "id", None),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -545,7 +711,7 @@ async def _run_single_task(
 
     ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
     lock_keys = _resolve_lock_keys(ctx, task.pack_id)
-    lock_ttl_seconds = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
+    lock_ttl_seconds = _runner_lock_ttl_seconds()
     stop_event = threading.Event()
     hb_thread: Optional[threading.Thread] = None
     lock_renew_thread = None
@@ -991,12 +1157,9 @@ async def _run_single_task(
                 lock_renew_thread.join(timeout=1.0)
             except Exception:
                 pass
-        # Release lock
-        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
-        lock_keys = _resolve_lock_keys(ctx, task.pack_id)
-        if redis_queue and lock_keys:
-            for held_key in lock_keys:
-                try:
-                    await redis_queue.release_lock(lock_key=held_key, owner_id=runner_id)
-                except Exception:
-                    pass
+        await _release_lock_keys_safely(
+            redis_queue,
+            lock_keys,
+            runner_id,
+            release_context=f"task_executor_finally:{task.id}",
+        )

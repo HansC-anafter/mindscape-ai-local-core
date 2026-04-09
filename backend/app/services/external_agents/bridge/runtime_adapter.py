@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -28,6 +29,27 @@ from backend.app.services.external_agents.core.base_adapter import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r; falling back to %.2f", name, raw, default)
+        return default
+    if value < minimum:
+        logger.warning(
+            "Invalid %s=%.3f below minimum %.3f; falling back to %.2f",
+            name,
+            value,
+            minimum,
+            default,
+        )
+        return default
+    return value
 
 
 # ============================================================
@@ -58,6 +80,11 @@ def parse_dispatch_response(
         error=raw.get("error"),
         exit_code=0 if status in ("completed", "dispatched_to_ide") else 1,
         agent_metadata={
+            **(
+                raw.get("metadata")
+                if isinstance(raw.get("metadata"), dict)
+                else {}
+            ),
             "transport": raw.get("metadata", {}).get("transport", "unknown"),
             "execution_id": raw.get("execution_id", ""),
             "governance": raw.get("governance", {}),
@@ -132,6 +159,10 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
     # must expire quickly so reconnects are visible to retry loops.
     WS_AVAILABLE_CACHE_TTL: float = 30.0
     WS_UNAVAILABLE_CACHE_TTL: float = 1.0
+    # If a surface was recently connected, tolerate a brief reconnect gap
+    # before declaring the runtime unavailable for the next meeting turn.
+    WS_RECONNECT_GRACE_SECONDS: float = 20.0
+    WS_RECONNECT_POLL_INTERVAL: float = 1.0
 
     def __init__(
         self,
@@ -156,6 +187,17 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
         self.ws_manager = ws_manager
         self.sampling_gate = sampling_gate
         self.mcp_server = mcp_server
+        self.WS_RECONNECT_GRACE_SECONDS = _env_float(
+            "MINDSCAPE_WS_RECONNECT_GRACE_SECONDS",
+            self.WS_RECONNECT_GRACE_SECONDS,
+            minimum=0.0,
+        )
+        self.WS_RECONNECT_POLL_INTERVAL = _env_float(
+            "MINDSCAPE_WS_RECONNECT_POLL_INTERVAL",
+            self.WS_RECONNECT_POLL_INTERVAL,
+            minimum=0.1,
+        )
+        self._last_ws_connected_at: Dict[Optional[str], float] = {}
 
     async def is_available(self, workspace_id: str = None) -> bool:
         """
@@ -218,13 +260,23 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
                 )
             )
             if ws_connected:
+                self._last_ws_connected_at[cache_key] = now
                 available = True
                 transport = "ws"
                 reason = "ws_connected"
             else:
-                available = False
-                transport = None
-                reason = "no_ws_client"
+                last_connected_at = self._last_ws_connected_at.get(cache_key)
+                if (
+                    last_connected_at is not None
+                    and (now - last_connected_at) <= self.WS_RECONNECT_GRACE_SECONDS
+                ):
+                    available = True
+                    transport = "ws"
+                    reason = "recent_reconnect_grace"
+                else:
+                    available = False
+                    transport = None
+                    reason = "no_ws_client"
         elif self.strategy == "polling":
             available = self._has_active_polling_runners()
             transport = "polling" if available else None
@@ -298,6 +350,27 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
         except ImportError:
             logger.debug("agent_websocket module not available")
 
+    def _has_ws_connection(self, workspace_id: Optional[str]) -> bool:
+        return self.ws_manager is not None and (
+            hasattr(self.ws_manager, "has_connections")
+            and self.ws_manager.has_connections(
+                workspace_id=workspace_id,
+                surface_type=self.RUNTIME_NAME,
+            )
+        )
+
+    async def _wait_for_ws_reconnect(self, workspace_id: Optional[str]) -> bool:
+        if self.WS_RECONNECT_GRACE_SECONDS <= 0:
+            return False
+
+        deadline = time.monotonic() + self.WS_RECONNECT_GRACE_SECONDS
+        while time.monotonic() < deadline:
+            if self._has_ws_connection(workspace_id):
+                self._last_ws_connected_at[workspace_id] = time.monotonic()
+                return True
+            await asyncio.sleep(self.WS_RECONNECT_POLL_INTERVAL)
+        return self._has_ws_connection(workspace_id)
+
     async def execute(self, request: RuntimeExecRequest) -> RuntimeExecResponse:
         """
         Execute a task by dispatching to the host bridge.
@@ -324,10 +397,7 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
             logger.info(
                 "%s: ws_manager has surface connection? %s",
                 self.__class__.__name__,
-                self.ws_manager.has_connections(
-                    workspace_id=request.workspace_id or None,
-                    surface_type=self.RUNTIME_NAME,
-                ),
+                self._has_ws_connection(request.workspace_id or None),
             )
 
         self.log_execution_start(request)
@@ -339,13 +409,41 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
             if self.strategy == "ws":
                 # Fail-fast: if no WS client is connected, return an
                 # immediate error instead of queuing and timing out.
-                ws_connected = self.ws_manager is not None and (
-                    hasattr(self.ws_manager, "has_connections")
-                    and self.ws_manager.has_connections(
-                        workspace_id=request.workspace_id or None,
-                        surface_type=self.RUNTIME_NAME,
+                workspace_id = request.workspace_id or None
+                target_client_id = (request.agent_config or {}).get("target_client_id")
+                ws_connected = self._has_ws_connection(workspace_id)
+                if not ws_connected:
+                    last_connected_at = self._last_ws_connected_at.get(workspace_id)
+                    if last_connected_at is not None:
+                        logger.warning(
+                            "%s: WS client temporarily unavailable for workspace=%s; "
+                            "waiting up to %.1fs for reconnect",
+                            self.__class__.__name__,
+                            workspace_id,
+                            self.WS_RECONNECT_GRACE_SECONDS,
+                        )
+                        ws_connected = await self._wait_for_ws_reconnect(workspace_id)
+                if (
+                    not ws_connected
+                    and target_client_id
+                    and self.ws_manager is not None
+                    and hasattr(self.ws_manager, "dispatch_and_wait")
+                ):
+                    # Runner subprocesses and non-socket-owning workers do not
+                    # share the in-memory client registry with the socket-owning
+                    # backend worker. In that case a direct local WS presence
+                    # check is a false negative; we must still allow
+                    # dispatch_and_wait() to route via cross-worker pub/sub or
+                    # DB fallback to the real worker that owns the client.
+                    logger.info(
+                        "%s: no direct WS client detected for workspace=%s but "
+                        "target_client_id=%s was provided; proceeding via "
+                        "dispatch_and_wait cross-worker routing",
+                        self.__class__.__name__,
+                        workspace_id,
+                        target_client_id,
                     )
-                )
+                    ws_connected = True
                 if not ws_connected:
                     logger.warning(
                         "%s: no WS client connected, failing fast instead of queuing",

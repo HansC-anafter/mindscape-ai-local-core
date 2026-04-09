@@ -35,36 +35,303 @@ class MeetingActionItemsMixin:
         fallback inside SemanticNormalizer itself.
         """
         from backend.app.models.action_intent import ActionIntent
+        from backend.app.services.orchestration.meeting.program_spec_bridge import (
+            action_intents_from_program_spec,
+            parse_program_spec_from_output,
+        )
         from backend.app.services.orchestration.meeting.semantic_normalizer import (
             SemanticNormalizer,
         )
 
-        executor_turn = await self._role_turn(
-            "executor",
-            round_num=max(1, self.session.round_count),
-            user_message=user_message,
-            decision=decision,
-            planner_proposals=planner_proposals,
-            critic_notes=critic_notes,
-        )
-        self._emit_turn(executor_turn)
+        self._pending_program_spec = None
+        self._pending_program_spec_source = None
 
-        # L2: SemanticNormalizer is the sole normalization authority
-        normalizer = SemanticNormalizer()
+        try:
+            if hasattr(self, "_prepare_round_routing_graph"):
+                try:
+                    self._prepare_round_routing_graph(
+                        round_number=max(1, self.session.round_count),
+                        next_role_id="executor",
+                        facilitator_summary=getattr(
+                            self,
+                            "_current_round_facilitator_summary",
+                            decision,
+                        ),
+                        decision=decision,
+                        planner_proposals=planner_proposals,
+                        critic_notes=critic_notes,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to prepare executor routing graph: %s",
+                        exc,
+                    )
+
+            executor_turn = await self._role_turn(
+                "executor",
+                round_num=max(1, self.session.round_count),
+                user_message=user_message,
+                decision=decision,
+                planner_proposals=planner_proposals,
+                critic_notes=critic_notes,
+            )
+            self._emit_turn(executor_turn)
+
+            workspace_id = getattr(self.session, "workspace_id", None)
+            structured_program_spec = parse_program_spec_from_output(
+                executor_turn.content,
+                fallback_scale=self._resolve_program_spec_scale(),
+                coverage_snapshot=self._get_program_spec_coverage_snapshot(),
+            )
+            if structured_program_spec is not None:
+                intents = action_intents_from_program_spec(
+                    structured_program_spec,
+                    default_workspace_id=workspace_id,
+                )
+                self._pending_program_spec = structured_program_spec
+                self._pending_program_spec_source = "executor_structured"
+                return intents
+
+            # L2: SemanticNormalizer is the sole normalization authority
+            normalizer = SemanticNormalizer()
+
+            intents = normalizer.normalize(
+                executor_output=executor_turn.content,
+                decision=decision,
+                workspace_id=workspace_id,
+            )
+
+            # Stamp meeting_session_id onto each intent for session correlation
+            for intent in intents:
+                if not intent.target_workspace_id:
+                    intent.target_workspace_id = workspace_id
+
+            return intents
+        except Exception as exc:
+            fallback_intents = self._build_request_contract_fallback_action_intents(
+                decision=decision,
+                user_message=user_message,
+                error=exc,
+            )
+            if fallback_intents is not None:
+                return fallback_intents
+            raise
+
+    @staticmethod
+    def _is_runtime_quota_or_rate_limit_error(exc: Exception) -> bool:
+        text = str(exc or "").lower()
+        patterns = (
+            "usage limit",
+            "rate limit",
+            "quota",
+            "too many requests",
+            "resource_exhausted",
+            "resource exhausted",
+            "exhausted your capacity",
+        )
+        return any(pattern in text for pattern in patterns)
+
+    def _build_request_contract_fallback_action_intents(
+        self,
+        *,
+        decision: str,
+        user_message: str,
+        error: Exception,
+    ) -> Optional[List["ActionIntent"]]:
+        from backend.app.models.action_intent import IntentConfidence
+        from backend.app.models.program_spec import ProgramSpec, Workstream
+        from backend.app.services.orchestration.meeting.program_spec_bridge import (
+            action_intents_from_program_spec,
+        )
+
+        if not self._is_runtime_quota_or_rate_limit_error(error):
+            return None
+
+        contract = getattr(self, "_request_contract", None)
+        raw_deliverables = getattr(contract, "deliverables", None)
+        if not raw_deliverables:
+            session_metadata = getattr(self.session, "metadata", None) or {}
+            raw_contract = session_metadata.get("request_contract")
+            if isinstance(raw_contract, dict):
+                raw_deliverables = raw_contract.get("deliverables")
+
+        normalized_deliverables: List[Dict[str, Any]] = []
+        for index, raw_deliverable in enumerate(raw_deliverables or [], start=1):
+            if hasattr(raw_deliverable, "model_dump"):
+                candidate = raw_deliverable.model_dump(mode="json")
+            elif isinstance(raw_deliverable, dict):
+                candidate = dict(raw_deliverable)
+            else:
+                candidate = {
+                    "id": getattr(raw_deliverable, "id", None),
+                    "name": getattr(raw_deliverable, "name", None),
+                    "quantity": getattr(raw_deliverable, "quantity", None),
+                    "acceptance_criteria": getattr(
+                        raw_deliverable,
+                        "acceptance_criteria",
+                        None,
+                    ),
+                }
+
+            deliverable_id = str(candidate.get("id") or f"D{index}").strip()
+            deliverable_name = str(
+                candidate.get("name") or f"deliverable_{index}"
+            ).strip()
+            if not deliverable_id or not deliverable_name:
+                continue
+            normalized_deliverables.append(
+                {
+                    "id": deliverable_id,
+                    "name": deliverable_name,
+                    "quantity": candidate.get("quantity"),
+                    "acceptance_criteria": candidate.get("acceptance_criteria") or [],
+                }
+            )
+
+        if not normalized_deliverables:
+            return None
+
+        workstreams: List[Workstream] = []
+        target_outputs: List[str] = []
+        for index, deliverable in enumerate(normalized_deliverables, start=1):
+            deliverable_id = deliverable["id"]
+            deliverable_name = deliverable["name"]
+            acceptance_criteria = [
+                str(item).strip()
+                for item in deliverable.get("acceptance_criteria") or []
+                if str(item).strip()
+            ]
+            description_lines = [
+                f"Create the requested deliverable '{deliverable_name}'.",
+            ]
+            decision_text = str(decision or "").strip()
+            if decision_text:
+                description_lines.append(decision_text)
+            elif str(user_message or "").strip():
+                description_lines.append(str(user_message or "").strip())
+            if acceptance_criteria:
+                description_lines.append(
+                    "Acceptance criteria: " + "; ".join(acceptance_criteria)
+                )
+            workstreams.append(
+                Workstream(
+                    id=f"WS_{deliverable_id}",
+                    name=deliverable_name,
+                    description=" ".join(
+                        part.strip() for part in description_lines if part.strip()
+                    ),
+                    produces_deliverables=[deliverable_id],
+                    estimated_units=max(int(deliverable.get("quantity") or 1), 1),
+                    eligible_engines=[],
+                )
+            )
+            target_outputs.append(deliverable_name)
+
+        if not workstreams:
+            return None
+
+        fallback_program_spec = ProgramSpec(
+            workstreams=workstreams,
+            milestones=[],
+            dependency_graph={workstream.id: [] for workstream in workstreams},
+            target_outputs=target_outputs,
+            scale=self._resolve_program_spec_scale(),
+            coverage_snapshot=self._get_program_spec_coverage_snapshot(),
+        )
         workspace_id = getattr(self.session, "workspace_id", None)
-
-        intents = normalizer.normalize(
-            executor_output=executor_turn.content,
-            decision=decision,
-            workspace_id=workspace_id,
+        intents = action_intents_from_program_spec(
+            fallback_program_spec,
+            default_workspace_id=workspace_id,
         )
 
-        # Stamp meeting_session_id onto each intent for session correlation
-        for intent in intents:
-            if not intent.target_workspace_id:
-                intent.target_workspace_id = workspace_id
+        for intent, deliverable in zip(intents, normalized_deliverables):
+            intent.confidence = IntentConfidence.HIGH
+            intent.input_params = {
+                "deliverable_id": deliverable["id"],
+                "deliverable_name": deliverable["name"],
+            }
 
+        self._pending_program_spec = fallback_program_spec
+        self._pending_program_spec_source = "request_contract_fallback"
+        logger.warning(
+            "Executor action extraction failed with quota/rate-limit error; "
+            "bootstrapping ProgramSpec from %d request-contract deliverables "
+            "for session %s: %s",
+            len(intents),
+            getattr(self.session, "id", None),
+            error,
+        )
         return intents
+
+    def _resolve_program_spec_scale(self):
+        from backend.app.models.request_contract import ScaleEstimate
+
+        raw_scale = getattr(getattr(self, "_request_contract", None), "scale_estimate", None)
+        raw_value = getattr(raw_scale, "value", raw_scale)
+        try:
+            return ScaleEstimate(str(raw_value))
+        except ValueError:
+            return ScaleEstimate.STANDARD
+
+    def _get_program_spec_coverage_snapshot(self) -> Optional[Dict[str, Any]]:
+        metadata = getattr(self.session, "metadata", None) or {}
+        snapshot = metadata.get("last_coverage_matrix")
+        return snapshot if isinstance(snapshot, dict) else None
+
+    def _persist_program_spec(
+        self,
+        program_spec: "ProgramSpec",
+        *,
+        source: str,
+    ) -> None:
+        if self.session.metadata is None:
+            self.session.metadata = {}
+        payload = program_spec.model_dump(mode="json")
+        self.session.metadata["last_program_spec"] = payload
+        self.session.metadata["last_program_spec_source"] = source
+        self.session.metadata["last_program_spec_workstream_count"] = len(
+            program_spec.workstreams
+        )
+        self.session.metadata["last_program_spec_recorded_at"] = datetime.now(
+            timezone.utc
+        ).isoformat()
+        try:
+            self.session_store.update(self.session)
+        except Exception as exc:
+            logger.warning("Failed to persist session after ProgramSpec bridge: %s", exc)
+
+    def _persist_program_spec_from_final_intents(
+        self,
+        action_intents: List["ActionIntent"],
+        *,
+        decision: str,
+    ) -> None:
+        from backend.app.services.orchestration.meeting.program_spec_bridge import (
+            bootstrap_program_spec_from_intents,
+            merge_program_spec_with_intents,
+        )
+
+        pending_program_spec = getattr(self, "_pending_program_spec", None)
+        pending_source = getattr(self, "_pending_program_spec_source", None)
+        try:
+            if pending_program_spec is not None:
+                final_program_spec = merge_program_spec_with_intents(
+                    pending_program_spec,
+                    action_intents,
+                )
+                source = str(pending_source or "structured_seed")
+            else:
+                final_program_spec = bootstrap_program_spec_from_intents(
+                    action_intents,
+                    decision=decision,
+                    fallback_scale=self._resolve_program_spec_scale(),
+                    coverage_snapshot=self._get_program_spec_coverage_snapshot(),
+                )
+                source = "action_intent_bootstrap"
+            self._persist_program_spec(final_program_spec, source=source)
+        finally:
+            self._pending_program_spec = None
+            self._pending_program_spec_source = None
 
     async def _land_action_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """Create a task projection for an action item.

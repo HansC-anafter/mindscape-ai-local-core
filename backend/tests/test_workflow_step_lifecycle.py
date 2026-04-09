@@ -13,6 +13,7 @@ if _backend_root not in sys.path:
 
 from backend.app.services.workflow.step_lifecycle import (
     build_gate_pause_result,
+    build_step_pause_result,
     maybe_invoke_step_hook,
     resolve_gate_action,
 )
@@ -94,4 +95,33 @@ def test_build_gate_pause_result_embeds_checkpoint_and_sandbox() -> None:
     assert result["sandbox_id"] == "sbx-1"
     assert result["checkpoint"]["paused_step_id"] == "gate-step"
     assert result["checkpoint"]["sandbox_id"] == "sbx-1"
+    assert result["checkpoint"]["created_at"] == created_at.isoformat()
+
+
+def test_build_step_pause_result_copies_pause_mode_to_parent_checkpoint() -> None:
+    created_at = datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    result = build_step_pause_result(
+        step_id="analyze_following",
+        execution_id="exec-1",
+        playbook_code="demo_playbook",
+        sandbox_id="sbx-1",
+        completed_steps={"prepare"},
+        step_outputs={
+            "analyze_following": {
+                "status": "paused",
+                "checkpoint": {"pause_mode": "user_reserved"},
+            }
+        },
+        partial_outputs={"summary": {"count": 4}},
+        created_at=created_at,
+        pause_reason="user_reserved",
+        step_checkpoint={"pause_mode": "user_reserved", "requested_by": "user"},
+    )
+
+    assert result["status"] == "paused"
+    assert result["pause_reason"] == "user_reserved"
+    assert result["checkpoint"]["paused_step_id"] == "analyze_following"
+    assert result["checkpoint"]["pause_mode"] == "user_reserved"
+    assert result["checkpoint"]["requested_by"] == "user"
     assert result["checkpoint"]["created_at"] == created_at.isoformat()

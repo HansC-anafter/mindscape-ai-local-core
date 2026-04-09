@@ -46,6 +46,22 @@ class ChatOrchestratorService:
     def __init__(self, orchestrator: ConversationOrchestrator):
         self.orchestrator = orchestrator
 
+    def _resolve_llm_path_model_name(self, request, workspace) -> Optional[str]:
+        """Resolve legacy LLM-path model with workspace preference priority."""
+        try:
+            from backend.app.services.conversation.chat_model_resolution import (
+                resolve_conversational_model_name,
+            )
+
+            return resolve_conversational_model_name(
+                request.model_name,
+                workspace=workspace,
+                db_path=getattr(self.orchestrator.store, "db_path", None),
+            )
+        except Exception as e:
+            logger.warning("Failed to resolve chat model for legacy LLM path: %s", e)
+            return request.model_name
+
     async def run_background_chat(
         self,
         request: WorkspaceChatRequest,
@@ -458,26 +474,16 @@ class ChatOrchestratorService:
         )
 
         # Resolve model name
-        model_name = model_name_override or request.model_name
-        if not model_name:
-            try:
-                from backend.app.services.system_settings_store import (
-                    SystemSettingsStore,
-                )
-
-                settings_store = SystemSettingsStore()
-                chat_setting = settings_store.get_setting("chat_model")
-                if chat_setting and chat_setting.value:
-                    model_name = str(chat_setting.value)
-            except Exception as e:
-                logger.warning("Failed to fetch default chat model: %s", e)
+        model_name = model_name_override or self._resolve_llm_path_model_name(
+            request, workspace
+        )
 
         if not model_name or str(model_name).strip() == "":
             await self._create_error_event(
                 workspace_id,
                 profile_id,
                 session.thread_id,
-                "No chat model configured. Set chat_model in system settings.",
+                "No chat model configured. Set workspace preferred_chat_model or system chat_model.",
             )
             return
 

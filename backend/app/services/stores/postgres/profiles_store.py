@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List
 from sqlalchemy import text
 
 from ..postgres_base import PostgresStoreBase
-from app.models.mindscape import MindscapeProfile, UserPreferences
+from backend.app.models.mindscape import MindscapeProfile, UserPreferences
 
 logger = logging.getLogger(__name__)
 

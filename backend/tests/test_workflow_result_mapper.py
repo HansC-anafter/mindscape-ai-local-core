@@ -41,7 +41,7 @@ def test_map_tool_result_to_step_outputs_supports_empty_field_passthrough() -> N
         tool_result=tool_result,
     )
 
-    assert mapped == {"result": tool_result}
+    assert mapped == {"result": tool_result, "status": "completed"}
 
 
 def test_map_tool_result_to_step_outputs_raises_for_missing_required_field() -> None:
@@ -57,10 +57,75 @@ def test_map_tool_result_to_step_outputs_raises_for_missing_required_field() -> 
         raise AssertionError("expected ValueError for missing nested output")
 
 
+def test_map_tool_result_to_step_outputs_preserves_pause_control_fields() -> None:
+    mapped = map_tool_result_to_step_outputs(
+        step_id="step-pause",
+        output_defs={"summary": "summary"},
+        tool_result={
+            "status": "paused",
+            "pause_reason": "user_reserved",
+            "checkpoint": {"pause_mode": "user_reserved"},
+            "summary": {"count": 3},
+        },
+    )
+
+    assert mapped == {
+        "summary": {"count": 3},
+        "status": "paused",
+        "pause_reason": "user_reserved",
+        "checkpoint": {"pause_mode": "user_reserved"},
+    }
+
+
+def test_map_tool_result_to_step_outputs_preserves_filtered_transport_telemetry() -> None:
+    mapped = map_tool_result_to_step_outputs(
+        step_id="step-telemetry",
+        output_defs={"results": "results"},
+        tool_result={
+            "status": "success",
+            "request_id": "req-telemetry-001",
+            "_telemetry": {
+                "provider": "mlx",
+                "request_id": "req-telemetry-001",
+                "finish_reason": "length",
+                "reasoning_trace_mode": "capture",
+                "response_source": "capture_leak_non_json",
+                "image_payload_total_bytes": 12345,
+            },
+            "results": [{"description": "payload"}],
+        },
+    )
+
+    assert mapped == {
+        "results": [{"description": "payload"}],
+        "status": "success",
+        "request_id": "req-telemetry-001",
+        "_telemetry": {
+            "provider": "mlx",
+            "request_id": "req-telemetry-001",
+            "finish_reason": "length",
+            "reasoning_trace_mode": "capture",
+            "response_source": "capture_leak_non_json",
+        },
+    }
+
+
 def test_map_sub_playbook_result_to_step_outputs() -> None:
     mapped = map_sub_playbook_result_to_step_outputs(
         {"summary": "report", "grade": "score"},
-        {"report": "ok", "score": 42, "ignored": True},
+        {
+            "status": "paused",
+            "pause_reason": "user_reserved",
+            "checkpoint": {"pause_mode": "user_reserved"},
+            "outputs": {"report": "ok", "score": 42},
+            "ignored": True,
+        },
     )
 
-    assert mapped == {"summary": "ok", "grade": 42}
+    assert mapped == {
+        "summary": "ok",
+        "grade": 42,
+        "status": "paused",
+        "pause_reason": "user_reserved",
+        "checkpoint": {"pause_mode": "user_reserved"},
+    }

@@ -24,6 +24,9 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from backend.app.models.execution_metadata import GOVERNANCE_PAYLOAD_FIELDS
+from backend.app.services.playbook_run_executor_core.input_normalization import (
+    normalize_meeting_session_input_aliases,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +134,7 @@ class PackDispatchAdapter:
             thread_id = getattr(session, "thread_id", None)
             if thread_id and "thread_id" not in inputs:
                 inputs["thread_id"] = thread_id
+            inputs = normalize_meeting_session_input_aliases(inputs)
 
         if project_id and "project_id" not in inputs:
             inputs["project_id"] = project_id

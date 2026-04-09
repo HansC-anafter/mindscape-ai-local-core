@@ -19,6 +19,10 @@ from backend.app.services.orchestration.meeting._prompt_context import (
     build_workflow_evidence_context,
     format_workspace_identity,
 )
+from backend.app.services.orchestration.meeting.round_router import (
+    is_dynamic_sparse_routing_enabled,
+    packets_for_role,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +52,22 @@ _ROLE_TURN_DIRECTIVES: dict[str, str] = {
 
 class MeetingPromptsMixin:
     """Mixin providing prompt construction methods for MeetingEngine."""
+
+    def _build_memory_context_summary_block(self) -> str:
+        """Return governed content-memory summary for meeting prompt injection."""
+        summary = getattr(self, "_memory_context_summary", "") or ""
+        if summary:
+            return str(summary)
+        metadata = getattr(getattr(self, "session", None), "metadata", None) or {}
+        return str(metadata.get("memory_context_summary") or "")
+
+    def _build_world_card_context_block(self) -> str:
+        """Return bounded world-card text for meeting prompt injection."""
+        world_card = getattr(self, "_world_card_text", "") or ""
+        if world_card:
+            return str(world_card)
+        metadata = getattr(getattr(self, "session", None), "metadata", None) or {}
+        return str(metadata.get("world_card_text") or "")
 
     def _build_workspace_instruction_block(self) -> str:
         """Build workspace instruction block for meeting agent turns.
@@ -366,7 +386,6 @@ class MeetingPromptsMixin:
         critic_notes: List[str],
     ) -> str:
         """Build the full prompt for a single deliberation role turn."""
-        history = self._history_snippet()
         agenda = self.session.agenda or [user_message]
         agenda_text = "\n".join([f"- {a}" for a in agenda])
         latest_proposal = planner_proposals[-1] if planner_proposals else "(none)"
@@ -451,10 +470,27 @@ class MeetingPromptsMixin:
             f"Agenda:\n{agenda_text}\n\n"
             f"User request:\n{user_message}\n\n"
             f"Current decision draft:\n{decision or '(not finalized)'}\n\n"
-            f"Latest planner proposal:\n{latest_proposal}\n\n"
-            f"Latest critic note:\n{latest_critic}\n\n"
-            f"Recent turns:\n{history}\n\n"
         )
+
+        routing_block = self._build_dynamic_routing_block(
+            role_id=role_id,
+            round_num=round_num,
+        )
+        if routing_block:
+            common += routing_block
+        else:
+            fallback_notice = self._build_dynamic_routing_fallback_notice(
+                role_id=role_id,
+                round_num=round_num,
+            )
+            if fallback_notice:
+                common += fallback_notice
+            history = self._history_snippet()
+            common += (
+                f"Latest planner proposal:\n{latest_proposal}\n\n"
+                f"Latest critic note:\n{latest_critic}\n\n"
+                f"Recent turns:\n{history}\n\n"
+            )
 
         # A1: Inject lens context (AgentSpec Agent Core requirement)
         lens_ctx = self._build_lens_context()
@@ -502,6 +538,22 @@ class MeetingPromptsMixin:
                 f"=== Previous Meeting Decisions ===\n"
                 f"{prev_ctx}\n"
                 f"=== End Previous Decisions ===\n\n"
+            )
+
+        memory_ctx = self._build_memory_context_summary_block()
+        if memory_ctx:
+            common += (
+                f"=== Governed Memory Context ===\n"
+                f"{memory_ctx}\n"
+                f"=== End Governed Memory Context ===\n\n"
+            )
+
+        world_card_ctx = self._build_world_card_context_block()
+        if world_card_ctx:
+            common += (
+                f"=== World Card Projection ===\n"
+                f"{world_card_ctx}\n"
+                f"=== End World Card Projection ===\n\n"
             )
 
         workflow_evidence_ctx = getattr(self, "_workflow_evidence_context", "")
@@ -585,28 +637,195 @@ class MeetingPromptsMixin:
             tool_constraint = (
                 "MANDATORY: The workspace has been configured with specific tools / "
                 "playbooks (see Available Tools / Available Playbooks above). "
-                "At least one action item in your JSON array MUST have a non-null "
-                "tool_name (chosen exactly from Available Tools) OR a non-null "
-                "playbook_code (chosen exactly from Available Playbooks). "
-                "Action items with both tool_name=null AND playbook_code=null are "
-                "only allowed when no configured tool is relevant to that specific step. "
+                "At least one structured workstream or legacy action item MUST bind to "
+                "a configured actuator using eligible_engines / playbook_code / tool_name. "
+                "Use playbook:<code> for playbooks and tool:<name> for direct tools. "
+                "Entries with no actuator binding are only allowed when no configured "
+                "tool is relevant to that specific step. "
             )
 
         return (
             common
             + playbook_block
-            + "As executor, produce a JSON array of action items covering all required steps. "
-            'Schema: [{"title":"...","description":"...","assigned_to":"executor",'
+            + "As executor, prefer producing a single JSON object describing a ProgramSpec. "
+            'Preferred schema: {"workstreams":[{"id":"WS1","name":"...","description":"...",'
+            '"estimated_units":1,"eligible_engines":["playbook:<code>"|"tool:<name>"],'
+            '"depends_on":["WS0"]}],"milestones":[{"id":"M1","name":"...",'
+            '"depends_on_streams":["WS1"],"deliverables":["..."]}],"dependency_graph":{"WS1":["WS0"]},'
+            '"target_outputs":["..."],"scale":"trivial|standard|program|campaign"} '
+            "Use eligible_engines to bind each workstream to Available Playbooks or Available Tools. "
+            "If you cannot reliably produce the structured object, fallback to the legacy JSON array of action items. "
+            'Legacy schema: [{"title":"...","description":"...","assigned_to":"executor",'
             '"priority":"low|medium|high","playbook_code":null,'
             '"tool_name":null,"input_params":null,"blocked_by":null}] '
-            "playbook_code MUST be selected from Available Playbooks above, or null "
-            "if none match. "
+            "playbook_code MUST be selected from Available Playbooks above, or null if none match. "
             "tool_name is for direct tool invocation without a playbook. "
-            "Use tool_name exactly as listed in Available Tools, including the "
-            "namespace prefix (e.g., pack.tool). "
+            "Use tool_name exactly as listed in Available Tools, including the namespace prefix (e.g., pack.tool). "
             "blocked_by is a list of action item indices (0-based) that must complete first. "
+            "Output JSON only. No markdown, no commentary. "
             + tool_constraint
         )
+
+    def _build_dynamic_routing_block(
+        self,
+        *,
+        role_id: str,
+        round_num: int,
+    ) -> str:
+        """Inject sparse incremental packet context for planner/critic turns."""
+        if role_id not in {"planner", "critic", "executor"}:
+            return ""
+        if not is_dynamic_sparse_routing_enabled():
+            return ""
+
+        graph = getattr(self, "_current_round_routing_graph", None)
+        if not graph or getattr(graph, "round_number", None) != round_num:
+            return ""
+
+        graph_next_role = (getattr(graph, "metadata", {}) or {}).get("next_role_id")
+        if graph_next_role and graph_next_role != role_id:
+            return ""
+        prompt_mode = self._get_dynamic_routing_prompt_mode(
+            role_id=role_id,
+            round_num=round_num,
+        )
+        if prompt_mode == "full_context_fallback":
+            return ""
+
+        visible_packets = packets_for_role(graph, role_id)
+        if not visible_packets:
+            return ""
+
+        metadata = getattr(graph, "metadata", {}) or {}
+        packet_char_limit = None
+        heading = "=== Routed Incremental Packets ==="
+        mode_guidance = (
+            "Treat the packets below as the incremental delta for this turn. "
+            "Global briefing remains authoritative; do not assume hidden context beyond these packets."
+        )
+        if prompt_mode == "compressed_sparse":
+            packet_char_limit = int(metadata.get("compressed_packet_char_limit") or 96)
+            heading = "=== Compressed Routed Packets ==="
+            mode_guidance = (
+                "Context pressure was detected for this turn. The packet previews below "
+                "have been further compressed; stay grounded in them and do not reconstruct "
+                "missing detail unless you explicitly identify a dependency gap."
+            )
+
+        packet_lines = []
+        for packet in visible_packets:
+            preview = packet.content_preview or packet.summary or "(no content)"
+            if packet_char_limit:
+                preview = _truncate_dynamic_packet_preview(preview, packet_char_limit)
+            packet_lines.append(
+                f"- [{packet.packet_scope}] {packet.source_role_id}: {preview}"
+            )
+
+        unmatched_need_count = len(getattr(graph, "unmatched_need_ids", []) or [])
+        unmatched_packet_count = len(getattr(graph, "unmatched_packet_ids", []) or [])
+        closing_heading = (
+            "=== End Compressed Routed Packets ===\n\n"
+            if prompt_mode == "compressed_sparse"
+            else "=== End Routed Incremental Packets ===\n\n"
+        )
+
+        return (
+            f"{heading}\n"
+            f"Round goal:\n{getattr(getattr(graph, 'goal', None), 'summary', '(none)')}\n\n"
+            f"{mode_guidance}\n\n"
+            "Packets for your role:\n"
+            + "\n".join(packet_lines)
+            + "\n\n"
+            f"Routing diagnostics: unmatched needs={unmatched_need_count}, unmatched packets={unmatched_packet_count}\n"
+            + closing_heading
+        )
+
+    def _build_dynamic_routing_fallback_notice(
+        self,
+        *,
+        role_id: str,
+        round_num: int,
+    ) -> str:
+        """Explain when sparse routing has been bypassed for safety."""
+        fallback_reason = self._get_dynamic_routing_fallback_reason(
+            role_id=role_id,
+            round_num=round_num,
+        )
+        if fallback_reason == "starved_role":
+            return (
+                "=== Routing Fallback ===\n"
+                "Sparse routing was bypassed for this turn because the current role "
+                "did not receive a safe incremental packet set. Use the full planner/critic "
+                "context below as the authoritative input.\n"
+                "=== End Routing Fallback ===\n\n"
+            )
+        return ""
+
+    def _get_dynamic_routing_fallback_reason(
+        self,
+        *,
+        role_id: str,
+        round_num: int,
+    ) -> str | None:
+        """Return the reason sparse routing should fall back to full context."""
+        if role_id not in {"planner", "critic", "executor"}:
+            return None
+        if not is_dynamic_sparse_routing_enabled():
+            return None
+
+        graph = getattr(self, "_current_round_routing_graph", None)
+        if not graph or getattr(graph, "round_number", None) != round_num:
+            return None
+
+        metadata = getattr(graph, "metadata", {}) or {}
+        fallback_role_id = metadata.get("fallback_role_id")
+        if metadata.get("fallback_to_full_context") and (
+            not fallback_role_id or fallback_role_id == role_id
+        ):
+            reason = str(metadata.get("fallback_reason") or "").strip()
+            return reason or "routing_fallback"
+
+        role_packet_stats = metadata.get("role_packet_stats") or {}
+        role_status = str(
+            ((role_packet_stats.get(role_id) or {}).get("status") or "")
+        ).strip().lower()
+        if role_status == "starved":
+            metadata["fallback_to_full_context"] = True
+            metadata["fallback_role_id"] = role_id
+            metadata.setdefault("fallback_reason", "starved_role")
+            return str(metadata.get("fallback_reason") or "starved_role")
+        return None
+
+    def _get_dynamic_routing_prompt_mode(
+        self,
+        *,
+        role_id: str,
+        round_num: int,
+    ) -> str:
+        """Return the sparse-routing prompt mode for the current role turn."""
+        if role_id not in {"planner", "critic", "executor"}:
+            return "sparse"
+        if not is_dynamic_sparse_routing_enabled():
+            return "sparse"
+
+        graph = getattr(self, "_current_round_routing_graph", None)
+        if not graph or getattr(graph, "round_number", None) != round_num:
+            return "sparse"
+
+        metadata = getattr(graph, "metadata", {}) or {}
+        prompt_role_id = metadata.get("routing_prompt_role_id")
+        if prompt_role_id and prompt_role_id != role_id:
+            return "sparse"
+
+        prompt_mode = str(metadata.get("routing_prompt_mode") or "").strip()
+        if prompt_mode:
+            return prompt_mode
+        if self._get_dynamic_routing_fallback_reason(
+            role_id=role_id,
+            round_num=round_num,
+        ):
+            return "full_context_fallback"
+        return "sparse"
 
     def _history_snippet(self) -> str:
         """Return a concise summary of recent turn history."""
@@ -775,3 +994,12 @@ class MeetingPromptsMixin:
         if len(user_message) > 60:
             topic += "..."
         return f"Meeting Minutes — {topic}"
+
+
+def _truncate_dynamic_packet_preview(value: str, limit: int) -> str:
+    """Trim packet preview text further when sparse routing enters compressed mode."""
+    value = (value or "").strip()
+    if len(value) <= limit:
+        return value
+    clipped = value[: max(0, limit - 3)].rstrip()
+    return f"{clipped}..."

@@ -4,7 +4,7 @@ from typing import Any, Dict
 from sqlalchemy.engine import Engine
 from sqlalchemy import create_engine
 
-from app.database.config import get_postgres_url_core, get_postgres_url_vector
+from backend.app.database.config import get_postgres_url_core, get_postgres_url_vector
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,10 @@ class ConnectionFactory:
             return self._postgres_engines[role]
 
         # Reuse centralized engines from engine.py (single pool per role per process)
-        from app.database.engine import engine_postgres_core, engine_postgres_vector
+        from backend.app.database.engine import (
+            engine_postgres_core,
+            engine_postgres_vector,
+        )
 
         if role == "vector" and engine_postgres_vector:
             self._postgres_engines[role] = engine_postgres_vector

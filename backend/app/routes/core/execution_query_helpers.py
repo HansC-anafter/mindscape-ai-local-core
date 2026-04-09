@@ -7,6 +7,8 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy import text
 
+from backend.app.services.task_execution_projection import project_execution_for_api
+
 from .execution_ordering import build_execution_order_clause
 from .execution_status_utils import trim_execution_context_for_status
 
@@ -121,6 +123,13 @@ def load_global_execution_rows(
             )::json AS execution_context,
             t.storyline_tags,
             t.created_at,
+            t.next_eligible_at,
+            t.blocked_reason,
+            t.blocked_payload,
+            t.queue_shard,
+            t.concurrency_key,
+            t.frontier_state,
+            t.frontier_enqueued_at,
             t.started_at,
             t.completed_at,
             t.error,
@@ -156,13 +165,20 @@ def load_global_execution_rows(
         return conn.execute(text(" ".join(query_parts)), params).fetchall()
 
 
-def serialize_global_execution(tasks_store, task, row: Any, queue_cache) -> Dict[str, Any]:
+def serialize_global_execution(
+    tasks_store,
+    task,
+    row: Any,
+    queue_cache,
+    *,
+    watchdog_state: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Convert a task row into the public global-execution payload."""
-    payload = task.model_dump()
-    execution_context = payload.get("execution_context") or {}
-    payload["playbook_code"] = payload.get("pack_id") or execution_context.get("playbook_code")
-    payload["execution_id"] = payload.get("execution_id") or payload.get("id")
-    payload["workspace_name"] = _get_row_value(row, "workspace_name")
-    payload["queue_position"] = queue_cache.get_position(tasks_store, task)
-    payload["queue_total"] = queue_cache.get_total(payload.get("queue_shard") or "default")
-    return payload
+    projected = project_execution_for_api(
+        task.model_dump(),
+        queue_position=queue_cache.get_position(tasks_store, task),
+        queue_total=queue_cache.get_total(getattr(task, "queue_shard", None) or "default"),
+        watchdog_state=watchdog_state,
+    )
+    projected["workspace_name"] = _get_row_value(row, "workspace_name")
+    return projected

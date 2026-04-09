@@ -4,7 +4,14 @@ import asyncio
 import logging
 from typing import Any, Awaitable, Callable, Dict, Optional
 
+from backend.app.services.execution_core.errors import RecoverableStepError
+
 logger = logging.getLogger(__name__)
+
+
+def _should_reraise_recoverable_immediately(exc: RecoverableStepError) -> bool:
+    """Fail fast for provider outages so a single task does not fake-run for minutes."""
+    return False
 
 
 async def execute_step_with_retry(
@@ -59,6 +66,12 @@ async def execute_step_with_retry(
                         attempt,
                     )
                 return result
+            if result.get("status") == "paused":
+                logger.info(
+                    "Step %s paused; returning checkpoint without retry",
+                    step.playbook_code,
+                )
+                return result
 
             last_error = result.get("error", "Unknown error")
             error_type = classify_error_fn(last_error)
@@ -74,7 +87,11 @@ async def execute_step_with_retry(
                 return result
         except Exception as exc:
             last_error = str(exc)
-            error_type = classify_error_fn(last_error)
+            error_type = (
+                exc.error_type
+                if isinstance(exc, RecoverableStepError)
+                else classify_error_fn(last_error)
+            )
             logger.warning(
                 "Step %s failed (attempt %s/%s): %s",
                 step.playbook_code,
@@ -82,6 +99,9 @@ async def execute_step_with_retry(
                 retry_policy.max_retries + 1,
                 exc,
             )
+
+            if isinstance(exc, RecoverableStepError) and _should_reraise_recoverable_immediately(exc):
+                raise exc
 
             if (
                 retry_policy.retryable_errors
@@ -102,6 +122,9 @@ async def execute_step_with_retry(
 
             if attempt < retry_policy.max_retries:
                 continue
+
+            if isinstance(exc, RecoverableStepError):
+                raise exc
 
             return {
                 "status": "error",

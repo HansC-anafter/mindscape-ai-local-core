@@ -156,6 +156,46 @@ def test_install_bundles_copies_pack_local_bundle_assets(tmp_path):
     ]
 
 
+def test_install_scripts_copies_pack_scripts_with_subdirectories(tmp_path):
+    local_core_root = tmp_path / "local-core"
+    capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
+    capabilities_dir.mkdir(parents=True)
+
+    cap_dir = tmp_path / "extracted" / "comfyui_runtime"
+    scripts_dir = cap_dir / "scripts"
+    lib_dir = scripts_dir / "lib"
+    lib_dir.mkdir(parents=True)
+
+    (scripts_dir / "bootstrap_local_comfyui_preview.sh").write_text(
+        "#!/usr/bin/env bash\necho bootstrap\n",
+        encoding="utf-8",
+    )
+    (lib_dir / "comfyui_runtime_config.sh").write_text(
+        "echo config\n",
+        encoding="utf-8",
+    )
+
+    installer = RuntimeAssetsInstaller(
+        local_core_root=local_core_root,
+        capabilities_dir=capabilities_dir,
+    )
+    result = InstallResult(capability_code="comfyui_runtime")
+
+    installer.install_scripts(cap_dir, "comfyui_runtime", result)
+
+    target_scripts_dir = capabilities_dir / "comfyui_runtime" / "scripts"
+    assert (
+        target_scripts_dir / "bootstrap_local_comfyui_preview.sh"
+    ).read_text(encoding="utf-8") == "#!/usr/bin/env bash\necho bootstrap\n"
+    assert (
+        target_scripts_dir / "lib" / "comfyui_runtime_config.sh"
+    ).read_text(encoding="utf-8") == "echo config\n"
+    assert set(result.installed.get("scripts", [])) == {
+        "bootstrap_local_comfyui_preview.sh",
+        "lib/comfyui_runtime_config.sh",
+    }
+
+
 def test_install_migrations_blocks_conflicting_revision_before_copy(tmp_path):
     local_core_root = tmp_path / "local-core"
     capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
@@ -293,3 +333,116 @@ def test_install_migrations_allows_same_filename_reinstall_without_conflict(tmp_
     assert result.migration_status in (None, {})
     assert result.installed.get("migrations") == [incoming_migration.name]
     assert "UPGRADED = True" in existing_migration.read_text(encoding="utf-8")
+
+
+def test_install_migrations_accepts_scene_package_selector_revision_chain(tmp_path):
+    local_core_root = tmp_path / "local-core"
+    capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
+    alembic_versions_dir = (
+        local_core_root / "backend" / "alembic_migrations" / "postgres" / "versions"
+    )
+    capabilities_dir.mkdir(parents=True)
+    alembic_versions_dir.mkdir(parents=True)
+
+    cap_dir = tmp_path / "extracted" / "performance_direction"
+    versions_dir = cap_dir / "migrations" / "versions"
+    versions_dir.mkdir(parents=True)
+    (cap_dir / "migrations.yaml").write_text(
+        "\n".join(
+            [
+                "db: postgres",
+                "depends_on: []",
+                "revisions:",
+                '  - "001_create_direction_tables"',
+                '  - "20260322000001"',
+                '  - "20260330000001"',
+                '  - "20260330000002"',
+                '  - "20260330000003"',
+                "migration_paths:",
+                '  - "migrations/versions/"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (versions_dir / "001_create_direction_tables.py").write_text(
+        "\n".join(
+            [
+                'revision = "001_create_direction_tables"',
+                "down_revision = None",
+                'branch_labels = ("performance_direction",)',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (versions_dir / "20260322000001_add_storyboard_manifest_artifact_type.py").write_text(
+        "\n".join(
+            [
+                'revision = "20260322000001"',
+                'down_revision = "001_create_direction_tables"',
+                "branch_labels = None",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    incoming_migration = (
+        versions_dir / "20260330000001_add_scene_package_artifact_selectors.py"
+    )
+    incoming_migration.write_text(
+        "\n".join(
+            [
+                'revision = "20260330000001"',
+                'down_revision = "20260322000001"',
+                'branch_labels = ("performance_direction",)',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    scene_generation_job_migration = (
+        versions_dir / "20260330000002_create_scene_generation_jobs.py"
+    )
+    scene_generation_job_migration.write_text(
+        "\n".join(
+            [
+                'revision = "20260330000002"',
+                'down_revision = "20260330000001"',
+                'branch_labels = ("performance_direction",)',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    retry_schedule_migration = (
+        versions_dir / "20260330000003_add_scene_generation_retry_schedule_fields.py"
+    )
+    retry_schedule_migration.write_text(
+        "\n".join(
+            [
+                'revision = "20260330000003"',
+                'down_revision = "20260330000002"',
+                'branch_labels = ("performance_direction",)',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    installer = RuntimeAssetsInstaller(
+        local_core_root=local_core_root,
+        capabilities_dir=capabilities_dir,
+    )
+    result = InstallResult(capability_code="performance_direction")
+
+    installer.install_migrations(cap_dir, "performance_direction", result)
+
+    assert set(result.installed.get("migrations", [])) == {
+        "001_create_direction_tables.py",
+        "20260322000001_add_storyboard_manifest_artifact_type.py",
+        "20260330000001_add_scene_package_artifact_selectors.py",
+        "20260330000002_create_scene_generation_jobs.py",
+        "20260330000003_add_scene_generation_retry_schedule_fields.py",
+    }
+    assert not result.errors

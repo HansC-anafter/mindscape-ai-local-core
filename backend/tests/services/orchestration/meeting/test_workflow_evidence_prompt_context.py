@@ -16,6 +16,9 @@ from backend.app.services.orchestration.meeting._prompt_context import (
     build_workflow_evidence_context,
 )
 from backend.app.services.orchestration.meeting._prompts import MeetingPromptsMixin
+from backend.app.services.orchestration.meeting.round_router import (
+    build_round_routing_graph,
+)
 from backend.app.services.stores.stage_results_store import StageResult
 
 
@@ -126,7 +129,12 @@ def _make_task(
 
 
 class _PromptHarness(MeetingPromptsMixin):
-    def __init__(self, workflow_evidence_context: str) -> None:
+    def __init__(
+        self,
+        workflow_evidence_context: str,
+        *,
+        current_round_routing_graph=None,
+    ) -> None:
         self._locale = "en"
         self.project_id = "proj-001"
         self.profile_id = "profile-001"
@@ -137,6 +145,7 @@ class _PromptHarness(MeetingPromptsMixin):
         self._active_intent_ids = []
         self._effective_lens = None
         self._workflow_evidence_context = workflow_evidence_context
+        self._current_round_routing_graph = current_round_routing_graph
         self.store = SimpleNamespace(list_intents=lambda profile_id, project_id=None: [])
         self.session = SimpleNamespace(
             id="meeting-001",
@@ -298,6 +307,108 @@ def test_build_turn_prompt_injects_workflow_evidence_block():
     assert "=== Workflow Evidence ===" in prompt
     assert "Direction shortlist prepared" in prompt
     assert "=== End Workflow Evidence ===" in prompt
+
+
+def test_build_turn_prompt_uses_sparse_routing_packets_when_healthy(monkeypatch):
+    monkeypatch.setenv("MEETING_DYNAMIC_ROUTING_ENABLED", "true")
+    graph = build_round_routing_graph(
+        session_id="meeting-001",
+        round_number=2,
+        agenda=["Review the latest workflow materials"],
+        facilitator_summary="Keep the current round focused on critique and convergence.",
+        planner_proposals=["Planner proposal for review."],
+        critic_notes=["Critic note for planner."],
+    )
+    graph.metadata["next_role_id"] = "planner"
+    harness = _PromptHarness(
+        workflow_evidence_context="",
+        current_round_routing_graph=graph,
+    )
+
+    prompt = harness._build_turn_prompt(
+        role_id="planner",
+        round_num=2,
+        user_message="Review the latest brand direction evidence.",
+        decision=None,
+        planner_proposals=["Planner proposal for review."],
+        critic_notes=["Critic note for planner."],
+    )
+
+    assert "=== Routed Incremental Packets ===" in prompt
+    assert "Critic note for planner." in prompt
+    assert "=== Routing Fallback ===" not in prompt
+
+
+def test_build_turn_prompt_falls_back_to_full_context_for_starved_role(monkeypatch):
+    monkeypatch.setenv("MEETING_DYNAMIC_ROUTING_ENABLED", "true")
+    graph = build_round_routing_graph(
+        session_id="meeting-001",
+        round_number=2,
+        agenda=["Review the latest workflow materials"],
+        facilitator_summary="Keep the current round focused on critique and convergence.",
+        planner_proposals=["Planner proposal for review."],
+        critic_notes=["Critic note for planner."],
+    )
+    graph.metadata["next_role_id"] = "planner"
+    graph.metadata["fallback_to_full_context"] = True
+    graph.metadata["fallback_role_id"] = "planner"
+    graph.metadata["fallback_reason"] = "starved_role"
+    graph.metadata["starved_role_ids"] = ["planner"]
+    graph.metadata["role_packet_stats"]["planner"]["status"] = "starved"
+    harness = _PromptHarness(
+        workflow_evidence_context="",
+        current_round_routing_graph=graph,
+    )
+
+    prompt = harness._build_turn_prompt(
+        role_id="planner",
+        round_num=2,
+        user_message="Review the latest brand direction evidence.",
+        decision=None,
+        planner_proposals=["Planner proposal for review."],
+        critic_notes=["Critic note for planner."],
+    )
+
+    assert "=== Routed Incremental Packets ===" not in prompt
+    assert "=== Routing Fallback ===" in prompt
+    assert "Latest planner proposal:" in prompt
+    assert "Latest critic note:" in prompt
+
+
+def test_build_turn_prompt_compresses_sparse_packets_on_context_pressure(monkeypatch):
+    monkeypatch.setenv("MEETING_DYNAMIC_ROUTING_ENABLED", "true")
+    graph = build_round_routing_graph(
+        session_id="meeting-001",
+        round_number=2,
+        agenda=["Review the latest workflow materials"],
+        facilitator_summary="Keep the current round focused on critique and convergence.",
+        planner_proposals=["Planner proposal for review." * 20],
+        critic_notes=["Critic note for planner." * 20],
+    )
+    graph.metadata["next_role_id"] = "planner"
+    graph.metadata["routing_prompt_mode"] = "compressed_sparse"
+    graph.metadata["routing_prompt_role_id"] = "planner"
+    graph.metadata["routing_prompt_reason"] = "context_pressure"
+    graph.metadata["compressed_packet_char_limit"] = 48
+    harness = _PromptHarness(
+        workflow_evidence_context="",
+        current_round_routing_graph=graph,
+    )
+
+    prompt = harness._build_turn_prompt(
+        role_id="planner",
+        round_num=2,
+        user_message="Review the latest brand direction evidence.",
+        decision=None,
+        planner_proposals=["Planner proposal for review." * 20],
+        critic_notes=["Critic note for planner." * 20],
+    )
+
+    assert "=== Compressed Routed Packets ===" in prompt
+    assert "Context pressure was detected for this turn." in prompt
+    assert "=== End Compressed Routed Packets ===" in prompt
+    assert "- [sparse] critic:" in prompt
+    assert "..." in prompt
 
 
 def test_review_meeting_prioritizes_stage_and_governance_sections():

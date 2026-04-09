@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional, Any
 from sqlalchemy import text
-from app.database.connection_factory import ConnectionFactory
+from backend.app.database.connection_factory import ConnectionFactory
 
 logger = logging.getLogger(__name__)
 

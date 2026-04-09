@@ -6,10 +6,10 @@ Implements hard/soft rule separation strategy.
 Supports different compile targets via plugins.
 """
 from typing import List, Optional
-from app.models.lens_kernel import EffectiveLens, CompiledLensContext
-from app.models.graph import GraphNodeType, LensNodeState
-from app.models.lens_composition import LensComposition, LensReference, LensRole, LensModality
-from app.services.lens.compile_targets import CompileTarget, CompileTargetPlugin, CopyCompileTarget, VisualCompileTarget
+from backend.app.models.lens_kernel import EffectiveLens, CompiledLensContext
+from backend.app.models.graph import GraphNodeType, LensNodeState
+from backend.app.models.lens_composition import LensComposition, LensReference, LensRole, LensModality
+from backend.app.services.lens.compile_targets import CompileTarget, CompileTargetPlugin, CopyCompileTarget, VisualCompileTarget
 
 
 class GraphToCompositionCompiler:

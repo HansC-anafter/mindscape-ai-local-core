@@ -8,16 +8,16 @@ import logging
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
-from app.services.stores.graph_store import GraphStore
-from app.services.lens.effective_lens_resolver import EffectiveLensResolver
-from app.services.lens.session_override_store import InMemorySessionStore
-from app.services.lens.graph_to_composition_compiler import GraphToCompositionCompiler
-from app.services.lens.lens_snapshot_store import LensSnapshotStore
-from app.services.lens.lens_receipt_store import LensReceiptStore
-from app.models.lens_kernel import EffectiveLens
-from app.models.lens_snapshot import LensSnapshot
-from app.models.lens_receipt import LensReceipt, TriggeredNode
-from app.core.feature_flags import FeatureFlags
+from backend.app.services.stores.graph_store import GraphStore
+from backend.app.services.lens.effective_lens_resolver import EffectiveLensResolver
+from backend.app.services.lens.session_override_store import InMemorySessionStore
+from backend.app.services.lens.graph_to_composition_compiler import GraphToCompositionCompiler
+from backend.app.services.lens.lens_snapshot_store import LensSnapshotStore
+from backend.app.services.lens.lens_receipt_store import LensReceiptStore
+from backend.app.models.lens_kernel import EffectiveLens
+from backend.app.models.lens_snapshot import LensSnapshot
+from backend.app.models.lens_receipt import LensReceipt, TriggeredNode
+from backend.app.core.feature_flags import FeatureFlags
 
 logger = logging.getLogger(__name__)
 

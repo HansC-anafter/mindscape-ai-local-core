@@ -4,6 +4,11 @@ Helpers for projecting task execution records into API-friendly views.
 
 from typing import Any, Dict, Iterable, Optional
 
+from backend.app.services.task_pause_contract import project_task_status
+from backend.app.services.task_phase_projection import (
+    derive_task_status_phase,
+)
+
 
 def _as_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -63,8 +68,11 @@ def project_execution_for_api(
     *,
     queue_position: Any,
     queue_total: Any,
+    watchdog_state: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     projected = dict(task_payload)
+    projected["task_status"] = projected.get("status")
+    projected["status"] = project_task_status(projected)
     execution_context = _as_dict(projected.get("execution_context"))
     projected["playbook_code"] = projected.get("pack_id") or execution_context.get(
         "playbook_code"
@@ -74,12 +82,16 @@ def project_execution_for_api(
     projected["queue_total"] = queue_total
     projected["parent_execution_id"] = projected.get("parent_execution_id")
     projected["remote_execution_summary"] = build_remote_execution_summary(projected)
+    projected.update(
+        derive_task_status_phase(projected, watchdog_state=watchdog_state)
+    )
     return projected
 
 
 def build_execution_group_summary(executions: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     items = list(executions)
     statuses = [_normalize_status(item.get("status", "")) for item in items]
+    phases = [_normalize_status(item.get("status_phase", "")) for item in items]
     remote_summaries = [
         summary
         for summary in (item.get("remote_execution_summary") for item in items)
@@ -91,6 +103,10 @@ def build_execution_group_summary(executions: Iterable[Dict[str, Any]]) -> Dict[
         "failed": sum(1 for s in statuses if s == "failed"),
         "running": sum(1 for s in statuses if s == "running"),
         "pending": sum(1 for s in statuses if s == "pending"),
+        "paused": sum(1 for s in statuses if s == "paused"),
+        "preparing": sum(1 for phase in phases if phase == "preparing"),
+        "waiting_mlx": sum(1 for phase in phases if phase == "waiting_mlx"),
+        "mlx_active": sum(1 for phase in phases if phase == "mlx_active"),
         "remote_workflow_step_children": sum(
             1 for summary in remote_summaries if summary.get("is_workflow_step_child")
         ),

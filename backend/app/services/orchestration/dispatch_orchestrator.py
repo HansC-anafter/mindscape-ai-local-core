@@ -16,8 +16,11 @@ Design:
 from __future__ import annotations
 
 import asyncio
+import inspect
+import json
 import logging
 import re
+import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
@@ -93,6 +96,10 @@ class DispatchOrchestrator:
         # Optional spec-aware dispatch adapter.
         self._pack_dispatch_adapter = pack_dispatch_adapter
 
+        # Best-effort execution context carried across one execute() call.
+        self._current_governance: Any = None
+        self._workspace_runtime_context_cache: Dict[str, Dict[str, Any]] = {}
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -113,6 +120,8 @@ class DispatchOrchestrator:
 
         phases = task_ir.phases
         self._normalize_phase_inputs(phases, action_items)
+        self._current_governance = self._extract_governance_context(task_ir)
+        self._workspace_runtime_context_cache = {}
 
         # Activity stream: dispatch started
         await self._publish_activity(
@@ -391,12 +400,20 @@ class DispatchOrchestrator:
             attempt.mark_skipped(f"pre_blocked:{landing_status}")
             return {"status": "skipped", "reason": landing_status}
 
+        self._hydrate_phase_deliverable_targets_from_action_item(phase, action_item)
+
         # Resolve target workspace
         target_ws = (
             phase.target_workspace_id
             or action_item.get("target_workspace_id")
             or getattr(self.session, "workspace_id", None)
             or ""
+        )
+
+        await self._promote_deliverable_phase_to_external_agent(
+            phase=phase,
+            action_item=action_item,
+            target_workspace_id=target_ws,
         )
 
         # G4: Per-phase lens binding
@@ -423,19 +440,7 @@ class DispatchOrchestrator:
 
         # Resolve engine/adapter — derive from phase attributes, never
         # fall back to nonexistent "generic" playbook.
-        engine = phase.preferred_engine
-        if not engine:
-            if phase.tool_name:
-                engine = f"tool:{phase.tool_name}"
-            elif getattr(phase, "playbook_code", None):
-                engine = f"playbook:{phase.playbook_code}"
-            else:
-                engine = "agent:auto"  # let agent pick the playbook
-        playbook_code = self._extract_playbook_code(engine)
-
-        # tool:* engine → clear playbook_code to reach tool dispatch branch
-        if engine and engine.startswith("tool:"):
-            playbook_code = None
+        engine, playbook_code = self._normalize_phase_engine_binding(phase)
 
         # Build IR provenance snapshot for downstream traceability
         ir_provenance = self._build_ir_provenance(
@@ -458,6 +463,7 @@ class DispatchOrchestrator:
                 # Playbook dispatch path
                 result = await self._launch_playbook(
                     playbook_code=playbook_code,
+                    phase=phase,
                     action_item=action_item,
                     target_workspace_id=target_ws,
                     attempt=attempt,
@@ -489,13 +495,22 @@ class DispatchOrchestrator:
                 }
             elif phase.tool_name:
                 # Tool execution path
-                result = await self._dispatch_tool(
-                    phase=phase,
-                    action_item=action_item,
-                    target_workspace_id=target_ws,
-                    attempt=attempt,
-                    ir_provenance=ir_provenance,
-                )
+                if self._should_execute_tool_inline(phase):
+                    result = await self._execute_tool_inline(
+                        phase=phase,
+                        action_item=action_item,
+                        target_workspace_id=target_ws,
+                        attempt=attempt,
+                        ir_provenance=ir_provenance,
+                    )
+                else:
+                    result = await self._dispatch_tool(
+                        phase=phase,
+                        action_item=action_item,
+                        target_workspace_id=target_ws,
+                        attempt=attempt,
+                        ir_provenance=ir_provenance,
+                    )
                 attempt.mark_completed(result)
                 task_id = (
                     str(result.get("task_id", "")).strip()
@@ -574,6 +589,7 @@ class DispatchOrchestrator:
     async def _launch_playbook(
         self,
         playbook_code: str,
+        phase: PhaseIR,
         action_item: Dict[str, Any],
         target_workspace_id: str,
         attempt: PhaseAttempt,
@@ -607,7 +623,13 @@ class DispatchOrchestrator:
         # Feature 1: IR provenance for downstream traceability
         inputs["ir_provenance"] = ir_provenance
 
-        # Merge any explicit input_params from TaskIR phase
+        # Carry structured phase inputs (for example ProgramSpec deliverable
+        # bindings) into the playbook contract, then allow action-item level
+        # overrides to win if they were explicitly set later in the pipeline.
+        phase_params = getattr(phase, "input_params", None)
+        if isinstance(phase_params, dict):
+            inputs.update(phase_params)
+
         extra_params = action_item.get("input_params")
         if isinstance(extra_params, dict):
             inputs.update(extra_params)
@@ -618,7 +640,7 @@ class DispatchOrchestrator:
                 inputs = self._pack_dispatch_adapter.prepare_handoff(
                     playbook_code=playbook_code,
                     raw_inputs=inputs,
-                    phase=None,  # phase object not passed to this method
+                    phase=phase,
                     action_item=action_item,
                     session=self.session,
                     profile_id=self.profile_id,
@@ -693,6 +715,194 @@ class DispatchOrchestrator:
         except Exception:
             raise
 
+    @staticmethod
+    def _should_execute_tool_inline(phase: PhaseIR) -> bool:
+        tool_name = str(getattr(phase, "tool_name", "") or "").strip()
+        return tool_name in {"external_agent_execute", "core.external_agent_execute"}
+
+    async def _execute_tool_inline(
+        self,
+        *,
+        phase: PhaseIR,
+        action_item: Dict[str, Any],
+        target_workspace_id: str,
+        attempt: PhaseAttempt,
+        ir_provenance: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Execute bridge-bound external-agent tools in the backend process.
+
+        These tools depend on the backend process's live agent-dispatch manager.
+        If we queue them to a separate runner process, availability probes can
+        false-negative because that process cannot see the in-memory WS clients.
+        """
+        from backend.app.models.workspace import Task, TaskStatus
+        from backend.app.services.orchestration.governance_engine import (
+            GovernanceEngine,
+        )
+        from backend.app.services.stores.postgres.workspaces_store import (
+            PostgresWorkspacesStore,
+        )
+        from backend.app.services.tools.registry import (
+            get_mindscape_tool,
+            register_external_agent_tools,
+        )
+
+        attempt.mark_started()
+
+        tool_inputs = self._build_tool_inputs(phase=phase, action_item=action_item)
+        tool_name = str(phase.tool_name or "").strip()
+        execution_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+
+        task = Task(
+            id=execution_id,
+            workspace_id=target_workspace_id,
+            message_id=attempt.id,
+            execution_id=execution_id,
+            pack_id=tool_name or "meeting_dispatch",
+            task_type="tool_execution",
+            status=TaskStatus.RUNNING,
+            params={
+                "tool_name": tool_name,
+                "input_params": tool_inputs,
+                "context": (
+                    dict(tool_inputs.get("context"))
+                    if isinstance(tool_inputs.get("context"), dict)
+                    else {}
+                ),
+                "title": phase.name,
+                "description": phase.description or "",
+            },
+            execution_context={
+                "phase_id": attempt.phase_id,
+                "attempt_id": attempt.id,
+                "task_ir_id": attempt.task_ir_id,
+                "profile_id": self.profile_id,
+                "project_id": self.project_id,
+                "inputs": tool_inputs,
+                "tool_name": tool_name,
+                "capability_profile": phase.capability_profile,
+                "status": "running",
+                "thread_id": getattr(self.session, "thread_id", None),
+                **ir_provenance,
+            },
+            meeting_session_id=getattr(self.session, "id", None),
+            project_id=self.project_id,
+            created_at=now,
+            started_at=now,
+        )
+        if self.tasks_store:
+            self.tasks_store.create_task(task)
+
+        tool = get_mindscape_tool(tool_name)
+        if tool is None and self._should_execute_tool_inline(phase):
+            register_external_agent_tools()
+            tool = get_mindscape_tool(tool_name)
+        if tool is None:
+            error_msg = f"Tool not registered: {tool_name}"
+            if self.tasks_store:
+                self.tasks_store.update_task_status(
+                    task.id,
+                    TaskStatus.FAILED,
+                    result={"error": error_msg, "tool_name": tool_name},
+                    error=error_msg,
+                    completed_at=datetime.now(timezone.utc),
+                )
+            raise RuntimeError(error_msg)
+
+        tool_result = await tool.execute(
+            **self._filter_tool_execute_kwargs(tool, tool_inputs)
+        )
+        if not isinstance(tool_result, dict):
+            tool_result = {"output": str(tool_result or "")}
+
+        success = bool(tool_result.get("success", True))
+        error_msg = str(tool_result.get("error") or "").strip()
+        if success and error_msg:
+            success = False
+
+        governance_result: Dict[str, Any] | None = None
+        if success:
+            storage_base = None
+            artifacts_dir = "artifacts"
+            try:
+                workspace = await PostgresWorkspacesStore().get_workspace(
+                    target_workspace_id
+                )
+                if workspace is not None:
+                    storage_base = getattr(workspace, "storage_base_path", None)
+                    artifacts_dir = getattr(workspace, "artifacts_dir", None) or "artifacts"
+            except Exception as exc:
+                logger.warning(
+                    "Inline external-agent workspace lookup failed for %s: %s",
+                    target_workspace_id,
+                    exc,
+                )
+
+            governance_result = GovernanceEngine().process_completion(
+                workspace_id=target_workspace_id,
+                execution_id=execution_id,
+                result_data=tool_result,
+                storage_base_path=storage_base,
+                artifacts_dirname=artifacts_dir,
+                thread_id=getattr(self.session, "thread_id", None),
+                project_id=self.project_id,
+                task_id=task.id,
+                playbook_code=tool_name,
+            ) or {"success": False}
+            if not governance_result.get("success", False):
+                landing_failure = governance_result.get("landing_failure") or {}
+                failure_code = str(landing_failure.get("error_code") or "").strip()
+                failure_msg = str(
+                    landing_failure.get("message")
+                    or landing_failure.get("error")
+                    or failure_code
+                    or "governance_landing_failed"
+                ).strip()
+                tool_result = {
+                    **tool_result,
+                    "governance": governance_result,
+                }
+                if self.tasks_store:
+                    self.tasks_store.update_task_status(
+                        task.id,
+                        TaskStatus.FAILED,
+                        result=tool_result,
+                        error=failure_msg,
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                raise RuntimeError(failure_msg)
+
+        if not success:
+            error_msg = error_msg or "external agent execution failed"
+            if self.tasks_store:
+                self.tasks_store.update_task_status(
+                    task.id,
+                    TaskStatus.FAILED,
+                    result=tool_result,
+                    error=error_msg,
+                    completed_at=datetime.now(timezone.utc),
+                )
+            raise RuntimeError(error_msg)
+
+        terminal_result = dict(tool_result)
+        if governance_result:
+            terminal_result["governance"] = governance_result
+        if self.tasks_store:
+            self.tasks_store.update_task_status(
+                task.id,
+                TaskStatus.SUCCEEDED,
+                result=terminal_result,
+                completed_at=datetime.now(timezone.utc),
+            )
+
+        return {
+            "task_id": task.id,
+            "execution_id": task.execution_id or task.id,
+            "tool_name": tool_name,
+            "result": terminal_result,
+        }
+
     async def _dispatch_tool(
         self,
         phase: PhaseIR,
@@ -704,9 +914,10 @@ class DispatchOrchestrator:
         """Dispatch a tool_execution task."""
         import uuid
 
-        from app.models.workspace import Task, TaskStatus
+        from backend.app.models.workspace import Task, TaskStatus
 
         attempt.mark_started()
+        tool_inputs = self._build_tool_inputs(phase=phase, action_item=action_item)
         task = Task(
             id=str(uuid.uuid4()),
             workspace_id=target_workspace_id,
@@ -716,7 +927,12 @@ class DispatchOrchestrator:
             status=TaskStatus.PENDING,
             params={
                 "tool_name": phase.tool_name,
-                "input_params": phase.input_params or {},
+                "input_params": tool_inputs,
+                "context": (
+                    dict(tool_inputs.get("context"))
+                    if isinstance(tool_inputs.get("context"), dict)
+                    else {}
+                ),
                 "title": phase.name,
                 "description": phase.description or "",
             },
@@ -727,7 +943,7 @@ class DispatchOrchestrator:
                 "profile_id": self.profile_id,
                 "project_id": self.project_id,
                 # Runner reads execution_context.inputs as tool arguments
-                "inputs": phase.input_params or {},
+                "inputs": tool_inputs,
                 "tool_name": phase.tool_name,
                 # v3.1 F3: capability_profile for model routing in runner
                 "capability_profile": phase.capability_profile,
@@ -766,7 +982,7 @@ class DispatchOrchestrator:
             try:
                 import uuid
 
-                from app.models.workspace import Task, TaskStatus
+                from backend.app.models.workspace import Task, TaskStatus
 
                 task = Task(
                     id=str(uuid.uuid4()),
@@ -842,6 +1058,98 @@ class DispatchOrchestrator:
         )
         self._attempts[phase.id] = attempt
         return attempt
+
+    def _build_tool_inputs(
+        self,
+        *,
+        phase: PhaseIR,
+        action_item: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Compose tool arguments from phase inputs plus action-item overrides."""
+        tool_inputs = dict(phase.input_params or {})
+        extra_params = action_item.get("input_params")
+        if (
+            phase.tool_name in {"external_agent_execute", "core.external_agent_execute"}
+            and isinstance(extra_params, dict)
+        ):
+            allowed_top_level = {
+                "agent",
+                "task",
+                "allowed_tools",
+                "denied_tools",
+                "max_duration",
+                "context",
+            }
+            context = (
+                dict(tool_inputs.get("context"))
+                if isinstance(tool_inputs.get("context"), dict)
+                else {}
+            )
+            context_inputs = (
+                dict(context.get("inputs"))
+                if isinstance(context.get("inputs"), dict)
+                else {}
+            )
+            for key, value in extra_params.items():
+                if key in allowed_top_level and key != "context":
+                    tool_inputs[key] = value
+                    continue
+                if key == "context" and isinstance(value, dict):
+                    context.update(value)
+                    nested_inputs = value.get("inputs")
+                    if isinstance(nested_inputs, dict):
+                        context_inputs.update(nested_inputs)
+                    continue
+                context[key] = value
+                context_inputs.setdefault(key, value)
+            if context_inputs:
+                context["inputs"] = context_inputs
+            if context:
+                tool_inputs["context"] = context
+        elif isinstance(extra_params, dict):
+            tool_inputs.update(extra_params)
+
+        if phase.tool_name in {
+            "review.maybe_suggest_review",
+            "review.record_review_completed",
+        }:
+            profile_id = str(tool_inputs.get("profile_id") or "").strip()
+            if not profile_id:
+                profile_id = str(self.profile_id or "").strip()
+            if profile_id:
+                tool_inputs["profile_id"] = profile_id
+
+        return tool_inputs
+
+    @staticmethod
+    def _filter_tool_execute_kwargs(tool: Any, tool_inputs: Dict[str, Any]) -> Dict[str, Any]:
+        execute = getattr(tool, "execute", None)
+        if not callable(execute):
+            return dict(tool_inputs or {})
+        try:
+            signature = inspect.signature(execute)
+        except (TypeError, ValueError):
+            return dict(tool_inputs or {})
+
+        if any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        ):
+            return dict(tool_inputs or {})
+
+        allowed = {
+            name
+            for name, parameter in signature.parameters.items()
+            if name != "self"
+            and parameter.kind
+            in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            )
+        }
+        return {
+            key: value for key, value in dict(tool_inputs or {}).items() if key in allowed
+        }
 
     def _normalize_phase_inputs(
         self,
@@ -1014,6 +1322,111 @@ class DispatchOrchestrator:
         """Extract playbook code from engine string (e.g. 'playbook:generic')."""
         return extract_playbook_code(engine)
 
+    @staticmethod
+    def _extract_tool_name(engine: Optional[str]) -> Optional[str]:
+        """Extract tool name from engine string (e.g. 'tool:core.external_agent_execute')."""
+        if not engine or not isinstance(engine, str):
+            return None
+        normalized = engine.strip()
+        if not normalized.startswith("tool:"):
+            return None
+        candidate = normalized.split(":", 1)[1].strip()
+        return candidate or None
+
+    @staticmethod
+    def _is_registered_tool_name(tool_name: Optional[str]) -> bool:
+        """Best-effort check for known tool IDs without assuming a warmed registry."""
+        normalized = str(tool_name or "").strip()
+        if not normalized:
+            return False
+
+        try:
+            from backend.app.services.tools.registry import get_mindscape_tool
+
+            if get_mindscape_tool(normalized) is not None:
+                return True
+        except Exception:
+            pass
+
+        try:
+            from backend.app.services.capability_registry import TOOL_REGISTRY
+
+            if normalized in TOOL_REGISTRY:
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    @staticmethod
+    def _is_known_playbook_code(playbook_code: Optional[str]) -> bool:
+        """Best-effort check for playbook codes using the local playbook loader."""
+        normalized = str(playbook_code or "").strip()
+        if not normalized:
+            return False
+
+        try:
+            from backend.app.services.playbook_loaders import PlaybookJsonLoader
+
+            return PlaybookJsonLoader.load_playbook_json(normalized) is not None
+        except Exception:
+            return False
+
+    def _normalize_phase_engine_binding(
+        self,
+        phase: PhaseIR,
+    ) -> tuple[str, Optional[str]]:
+        """Canonicalize mis-bound phase actuators before dispatch.
+
+        Meeting/compiler output occasionally serializes a playbook code into
+        `phase.tool_name`, which makes the runner try `tool_execution` on a
+        playbook identifier like `page_outline` or `cis_mind_identity`.
+        Reclassify that shape back to playbook dispatch, while leaving real
+        registered tools alone.
+        """
+        engine = str(getattr(phase, "preferred_engine", "") or "").strip()
+        tool_name = str(getattr(phase, "tool_name", "") or "").strip()
+
+        if not tool_name:
+            derived_tool_name = self._extract_tool_name(engine)
+            if derived_tool_name:
+                tool_name = derived_tool_name
+                phase.tool_name = derived_tool_name
+
+        playbook_code = self._extract_playbook_code(engine)
+        if engine.startswith("tool:"):
+            playbook_code = None
+
+        if (
+            tool_name
+            and not self._is_registered_tool_name(tool_name)
+            and self._is_known_playbook_code(tool_name)
+        ):
+            playbook_code = tool_name
+            engine = f"playbook:{tool_name}"
+            phase.preferred_engine = engine
+            phase.tool_name = None
+            logger.info(
+                "Reclassified phase %s actuator %s from tool dispatch to playbook dispatch",
+                getattr(phase, "id", None),
+                tool_name,
+            )
+            return engine, playbook_code
+
+        if not engine:
+            if tool_name:
+                engine = f"tool:{tool_name}"
+            elif getattr(phase, "playbook_code", None):
+                engine = f"playbook:{phase.playbook_code}"
+            else:
+                engine = "agent:auto"
+            phase.preferred_engine = engine
+
+        playbook_code = self._extract_playbook_code(engine)
+        if engine.startswith("tool:"):
+            playbook_code = None
+        return engine, playbook_code
+
     def _build_ir_provenance(
         self,
         *,
@@ -1056,3 +1469,436 @@ class DispatchOrchestrator:
     def get_all_attempts(self) -> Dict[str, PhaseAttempt]:
         """Get all phase attempts."""
         return dict(self._attempts)
+
+    @staticmethod
+    def _extract_governance_context(task_ir: Optional[TaskIR]) -> Any:
+        metadata = getattr(task_ir, "metadata", None)
+        if metadata is None:
+            return None
+        getter = getattr(metadata, "get_governance", None)
+        if callable(getter):
+            try:
+                return getter()
+            except Exception:
+                return None
+        governance = getattr(metadata, "governance", None)
+        return governance if isinstance(governance, dict) else None
+
+    @staticmethod
+    def _extract_deliverable_targets(phase: PhaseIR) -> List[Dict[str, Any]]:
+        params = getattr(phase, "input_params", None)
+        if not isinstance(params, dict):
+            return []
+
+        targets: List[Dict[str, Any]] = []
+        raw_targets = params.get("deliverable_targets")
+        if isinstance(raw_targets, list):
+            for raw_target in raw_targets:
+                if not isinstance(raw_target, dict):
+                    continue
+                normalized = {
+                    key: str(raw_target.get(key) or "").strip()
+                    for key in ("deliverable_id", "deliverable_name", "deliverable_path")
+                    if str(raw_target.get(key) or "").strip()
+                }
+                if normalized:
+                    targets.append(normalized)
+
+        single_target = {
+            key: str(params.get(key) or "").strip()
+            for key in ("deliverable_id", "deliverable_name", "deliverable_path")
+            if str(params.get(key) or "").strip()
+        }
+        if single_target:
+            seen = {
+                (
+                    target.get("deliverable_id"),
+                    target.get("deliverable_name"),
+                    target.get("deliverable_path"),
+                )
+                for target in targets
+            }
+            key = (
+                single_target.get("deliverable_id"),
+                single_target.get("deliverable_name"),
+                single_target.get("deliverable_path"),
+            )
+            if key not in seen:
+                targets.insert(0, single_target)
+        return targets
+
+    @staticmethod
+    def _hydrate_phase_deliverable_targets_from_action_item(
+        phase: PhaseIR,
+        action_item: Dict[str, Any],
+    ) -> None:
+        action_params = action_item.get("input_params")
+        if not isinstance(action_params, dict):
+            return
+
+        phase_params = getattr(phase, "input_params", None)
+        if not isinstance(phase_params, dict):
+            phase_params = {}
+            phase.input_params = phase_params
+
+        raw_action_targets = action_params.get("deliverable_targets")
+        if (
+            isinstance(raw_action_targets, list)
+            and raw_action_targets
+            and not isinstance(phase_params.get("deliverable_targets"), list)
+        ):
+            normalized_targets: List[Dict[str, str]] = []
+            for raw_target in raw_action_targets:
+                if not isinstance(raw_target, dict):
+                    continue
+                normalized = {
+                    key: str(raw_target.get(key) or "").strip()
+                    for key in ("deliverable_id", "deliverable_name", "deliverable_path")
+                    if str(raw_target.get(key) or "").strip()
+                }
+                if normalized:
+                    normalized_targets.append(normalized)
+            if normalized_targets:
+                phase_params["deliverable_targets"] = normalized_targets
+
+        for key in ("deliverable_id", "deliverable_name", "deliverable_path"):
+            existing = str(phase_params.get(key) or "").strip()
+            if existing:
+                continue
+            candidate = str(action_params.get(key) or "").strip()
+            if candidate:
+                phase_params[key] = candidate
+
+    def _resolve_governance_deliverables_for_phase(
+        self,
+        phase: PhaseIR,
+    ) -> List[Dict[str, Any]]:
+        governance = self._current_governance
+        if governance is None:
+            return []
+        raw_deliverables = getattr(governance, "deliverables", None)
+        if not isinstance(raw_deliverables, list):
+            return []
+
+        targets = self._extract_deliverable_targets(phase)
+        target_ids = {
+            str(target.get("deliverable_id") or "").strip()
+            for target in targets
+            if str(target.get("deliverable_id") or "").strip()
+        }
+        target_names = {
+            str(target.get("deliverable_name") or "").strip()
+            for target in targets
+            if str(target.get("deliverable_name") or "").strip()
+        }
+        target_paths = {
+            str(target.get("deliverable_path") or "").strip()
+            for target in targets
+            if str(target.get("deliverable_path") or "").strip()
+        }
+
+        matched: List[Dict[str, Any]] = []
+        for raw in raw_deliverables:
+            if hasattr(raw, "model_dump"):
+                candidate = raw.model_dump(mode="json")
+            elif isinstance(raw, dict):
+                candidate = dict(raw)
+            else:
+                continue
+
+            candidate_id = str(candidate.get("id") or "").strip()
+            candidate_name = str(candidate.get("name") or "").strip()
+            if (
+                (candidate_id and candidate_id in target_ids)
+                or (candidate_name and candidate_name in target_names)
+                or (candidate_name and candidate_name in target_paths)
+            ):
+                matched.append(candidate)
+        return matched
+
+    def _should_reroute_deliverable_phase_to_external_agent(
+        self,
+        phase: PhaseIR,
+    ) -> bool:
+        tool_name = str(getattr(phase, "tool_name", "") or "").strip()
+        preferred_engine = str(getattr(phase, "preferred_engine", "") or "").strip()
+        if tool_name in {"external_agent_execute", "core.external_agent_execute"}:
+            return False
+        if preferred_engine in {
+            "tool:external_agent_execute",
+            "tool:core.external_agent_execute",
+        }:
+            return False
+        if tool_name.startswith("filesystem_"):
+            return False
+        if not tool_name and preferred_engine and not preferred_engine.startswith("agent:"):
+            return False
+
+        targets = self._extract_deliverable_targets(phase)
+        if not targets:
+            return False
+
+        governance_deliverables = self._resolve_governance_deliverables_for_phase(phase)
+        requested_output_type = str(
+            getattr(self._current_governance, "requested_output_type", "") or ""
+        ).strip()
+        if requested_output_type == "text/markdown":
+            return True
+        for target in targets:
+            deliverable_path = str(target.get("deliverable_path") or "").strip().lower()
+            if deliverable_path.endswith(".md"):
+                return True
+        for deliverable in governance_deliverables:
+            if str(deliverable.get("mime_type") or "").strip().lower() == "text/markdown":
+                return True
+        return False
+
+    async def _resolve_workspace_runtime_context(
+        self,
+        workspace_id: str,
+    ) -> Dict[str, Any]:
+        normalized_workspace_id = str(workspace_id or "").strip()
+        if not normalized_workspace_id:
+            return {}
+        cached = self._workspace_runtime_context_cache.get(normalized_workspace_id)
+        if cached is not None:
+            return dict(cached)
+
+        resolved: Dict[str, Any] = {}
+        try:
+            from backend.app.services.stores.postgres.workspaces_store import (
+                PostgresWorkspacesStore,
+            )
+
+            workspace = await PostgresWorkspacesStore().get_workspace(normalized_workspace_id)
+        except Exception:
+            workspace = None
+
+        if workspace is not None:
+            storage_base = str(getattr(workspace, "storage_base_path", "") or "").strip()
+            executor_runtime = str(getattr(workspace, "executor_runtime", "") or "").strip()
+            if storage_base:
+                resolved["workspace_storage_base"] = storage_base
+            if executor_runtime:
+                resolved["agent_id"] = executor_runtime
+
+        session_metadata = getattr(self.session, "metadata", None) or {}
+        execution_snapshot = session_metadata.get("execution_context_snapshot")
+        if isinstance(execution_snapshot, dict):
+            runtime_id = str(execution_snapshot.get("executor_runtime_id") or "").strip()
+            if runtime_id and not resolved.get("agent_id"):
+                resolved["agent_id"] = runtime_id
+        target_client_id = str(session_metadata.get("executor_target_client_id") or "").strip()
+        if target_client_id:
+            resolved["target_client_id"] = target_client_id
+
+        if not resolved.get("agent_id"):
+            resolved["agent_id"] = "codex_cli"
+
+        if not resolved.get("workspace_storage_base"):
+            # Match WorkspaceAgentExecutor's fallback workspace root so deliverable
+            # phases can still bind to a workspace-scoped external-agent sandbox
+            # even when the ephemeral workspace record is not yet persisted.
+            resolved["workspace_storage_base"] = (
+                f"/tmp/mindscape/workspaces/{normalized_workspace_id}"
+            )
+
+        self._workspace_runtime_context_cache[normalized_workspace_id] = dict(resolved)
+        return resolved
+
+    @staticmethod
+    def _render_prompt_section(title: str, body: str) -> str:
+        normalized_body = str(body or "").strip()
+        if not normalized_body:
+            return ""
+        return f"{title}:\n{normalized_body}"
+
+    def _build_external_agent_deliverable_task(
+        self,
+        *,
+        phase: PhaseIR,
+        action_item: Dict[str, Any],
+    ) -> str:
+        targets = self._extract_deliverable_targets(phase)
+        governance_deliverables = self._resolve_governance_deliverables_for_phase(phase)
+        governance = self._current_governance
+
+        prompt_lines = [
+            "Create the requested workspace deliverable in markdown.",
+            "Write the file inside the current workspace sandbox and also return a concise completion summary.",
+            "Do not leave placeholders such as TODO, TBD, 待補, or placeholder.",
+        ]
+
+        if len(targets) == 1:
+            target = targets[0]
+            deliverable_path = str(target.get("deliverable_path") or "").strip()
+            deliverable_name = str(target.get("deliverable_name") or "").strip()
+            if deliverable_path:
+                prompt_lines.append(f"Target file: {deliverable_path}")
+            if deliverable_name:
+                prompt_lines.append(f"Deliverable: {deliverable_name}")
+        elif targets:
+            prompt_lines.append("Create all of these deliverables:")
+            for target in targets:
+                prompt_lines.append(
+                    "- {path} :: {name}".format(
+                        path=str(target.get("deliverable_path") or "(unnamed)").strip(),
+                        name=str(target.get("deliverable_name") or "").strip() or "deliverable",
+                    )
+                )
+
+        phase_summary = "\n".join(
+            line
+            for line in (
+                f"Phase: {str(getattr(phase, 'name', '') or '').strip()}",
+                f"Description: {str(getattr(phase, 'description', '') or '').strip()}",
+                f"Action item: {str(action_item.get('description') or action_item.get('title') or '').strip()}",
+            )
+            if line.split(":", 1)[1].strip()
+        )
+        if phase_summary:
+            prompt_lines.append("")
+            prompt_lines.append(self._render_prompt_section("Workstream Context", phase_summary))
+
+        if governance is not None:
+            goals = getattr(governance, "goals", None)
+            if isinstance(goals, list) and goals:
+                prompt_lines.append("")
+                prompt_lines.append(
+                    self._render_prompt_section(
+                        "Goals",
+                        "\n".join(f"- {str(goal).strip()}" for goal in goals if str(goal).strip()),
+                    )
+                )
+            non_goals = getattr(governance, "non_goals", None)
+            if isinstance(non_goals, list) and non_goals:
+                prompt_lines.append("")
+                prompt_lines.append(
+                    self._render_prompt_section(
+                        "Non-Goals",
+                        "\n".join(
+                            f"- {str(non_goal).strip()}"
+                            for non_goal in non_goals
+                            if str(non_goal).strip()
+                        ),
+                    )
+                )
+            human_instructions = str(
+                getattr(governance, "human_instructions", "") or ""
+            ).strip()
+            if human_instructions:
+                prompt_lines.append("")
+                prompt_lines.append(
+                    self._render_prompt_section("Human Instructions", human_instructions)
+                )
+
+        if governance_deliverables:
+            deliverable_lines: List[str] = []
+            for deliverable in governance_deliverables:
+                line_parts = []
+                name = str(deliverable.get("name") or "").strip()
+                description = str(deliverable.get("description") or "").strip()
+                mime_type = str(deliverable.get("mime_type") or "").strip()
+                if name:
+                    line_parts.append(name)
+                if description:
+                    line_parts.append(description)
+                if mime_type:
+                    line_parts.append(f"mime={mime_type}")
+                if line_parts:
+                    deliverable_lines.append("- " + " | ".join(line_parts))
+            if deliverable_lines:
+                prompt_lines.append("")
+                prompt_lines.append(
+                    self._render_prompt_section(
+                        "Deliverable Requirements",
+                        "\n".join(deliverable_lines),
+                    )
+                )
+
+        upstream_context = action_item.get("_upstream_context")
+        if isinstance(upstream_context, dict) and upstream_context:
+            try:
+                upstream_text = json.dumps(
+                    upstream_context,
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+            except Exception:
+                upstream_text = str(upstream_context)
+            prompt_lines.append("")
+            prompt_lines.append(
+                self._render_prompt_section("Upstream Phase Outputs", upstream_text[:4000])
+            )
+
+        return "\n".join(line for line in prompt_lines if line).strip()
+
+    async def _promote_deliverable_phase_to_external_agent(
+        self,
+        *,
+        phase: PhaseIR,
+        action_item: Dict[str, Any],
+        target_workspace_id: str,
+    ) -> None:
+        if not self._should_reroute_deliverable_phase_to_external_agent(phase):
+            return
+
+        runtime_context = await self._resolve_workspace_runtime_context(target_workspace_id)
+        storage_base = str(runtime_context.get("workspace_storage_base") or "").strip()
+        agent_id = str(runtime_context.get("agent_id") or "").strip()
+        if not storage_base or not agent_id:
+            logger.warning(
+                "Deliverable phase %s kept original tool %s because workspace runtime context is incomplete",
+                getattr(phase, "id", None),
+                getattr(phase, "tool_name", None),
+            )
+            return
+
+        deliverable_targets = self._extract_deliverable_targets(phase)
+        original_tool_name = str(getattr(phase, "tool_name", "") or "").strip()
+        transport_inputs: Dict[str, Any] = {}
+        if deliverable_targets:
+            transport_inputs["deliverable_targets"] = [dict(target) for target in deliverable_targets]
+            primary = deliverable_targets[0]
+            for key in ("deliverable_id", "deliverable_name", "deliverable_path"):
+                value = str(primary.get(key) or "").strip()
+                if value:
+                    transport_inputs[key] = value
+
+        agent_context: Dict[str, Any] = {
+            "workspace_id": target_workspace_id,
+            "workspace_storage_base": storage_base,
+            "project_id": self.project_id,
+            "thread_id": getattr(self.session, "thread_id", None),
+            "auth_workspace_id": target_workspace_id,
+            "source_workspace_id": target_workspace_id,
+            "intent_id": str(getattr(phase, "source_intent_id", "") or phase.id).strip(),
+            "inputs": dict(transport_inputs),
+        }
+        for key, value in transport_inputs.items():
+            agent_context[key] = value
+
+        target_client_id = str(runtime_context.get("target_client_id") or "").strip()
+        if target_client_id:
+            agent_context["target_client_id"] = target_client_id
+        if original_tool_name:
+            agent_context["source_tool_name"] = original_tool_name
+
+        phase.tool_name = "core.external_agent_execute"
+        phase.preferred_engine = "tool:core.external_agent_execute"
+        phase.input_params = {
+            "agent": agent_id,
+            "task": self._build_external_agent_deliverable_task(
+                phase=phase,
+                action_item=action_item,
+            ),
+            "max_duration": 900,
+            "context": agent_context,
+        }
+        logger.info(
+            "Promoted deliverable phase %s from tool %s to external agent %s",
+            getattr(phase, "id", None),
+            original_tool_name or "(none)",
+            agent_id,
+        )

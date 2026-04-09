@@ -162,6 +162,76 @@ def test_materialize_followup_request_artifacts_creates_and_supersedes_requests(
         "binding_mode": "hybrid",
         "scene_context": {
             "scene_manifest": {"scene_id": "A01", "shot_type": "medium"},
+            "scene_package_selector": {
+                "artifact_id": "scenepkg_artifact_001",
+                "package_id": "scenepkg_demo",
+                "scene_scope": "hero",
+                "variant_id": "golden_hour",
+                "provider": "world_labs",
+                "status": "generated",
+                "generation_mode": "generated_world",
+            },
+            "scene_package_ref": {
+                "artifact_id": "scenepkg_artifact_001",
+                "package_id": "scenepkg_demo",
+                "provider": "world_labs",
+                "generation_mode": "generated_world",
+                "scene_scope": "hero",
+                "variant_id": "golden_hour",
+                "status": "generated",
+                "control_refs": [
+                    {
+                        "control_kind": "canonical_image",
+                        "ref": {"storage_key": "scene_controls/a01_canonical.png"},
+                        "provider": "world_labs",
+                        "metadata": {},
+                    },
+                    {
+                        "control_kind": "depth_map",
+                        "ref": {"storage_key": "scene_controls/a01_depth.exr"},
+                        "provider": "world_labs",
+                        "metadata": {},
+                    },
+                ],
+                "spatial_metadata": {
+                    "coordinate_system": "rhs",
+                    "unit_scale": 1.0,
+                    "up_axis": "Y",
+                    "forward_axis": "-Z",
+                    "grounding_mode": "floor_locked",
+                },
+                "consistency_contract": {
+                    "must_hold": ["layout", "key_props"],
+                    "allowed_variation": ["background_extras"],
+                    "degradation_policy": "reference_only",
+                },
+            },
+            "scene_consistency_contract": {
+                "must_hold": ["layout", "key_props"],
+                "allowed_variation": ["background_extras"],
+                "degradation_policy": "reference_only",
+            },
+            "scene_control_refs": [
+                {
+                    "control_kind": "canonical_image",
+                    "ref": {"storage_key": "scene_controls/a01_canonical.png"},
+                    "provider": "world_labs",
+                    "metadata": {},
+                },
+                {
+                    "control_kind": "depth_map",
+                    "ref": {"storage_key": "scene_controls/a01_depth.exr"},
+                    "provider": "world_labs",
+                    "metadata": {},
+                },
+            ],
+            "scene_spatial_metadata": {
+                "coordinate_system": "rhs",
+                "unit_scale": 1.0,
+                "up_axis": "Y",
+                "forward_axis": "-Z",
+                "grounding_mode": "floor_locked",
+            },
             "object_workload_snapshot": {
                 "impact_region_mode": "contact_zone",
                 "source_image_ref": {"storage_key": "refs/source_demo.png"},
@@ -234,6 +304,76 @@ def test_materialize_followup_request_artifacts_creates_and_supersedes_requests(
     assert rerender_artifact is not None
     assert rerender_artifact.content["dispatch_context"]["scene_context"] == {
         "scene_manifest": {"scene_id": "A01", "shot_type": "medium"},
+        "scene_package_selector": {
+            "artifact_id": "scenepkg_artifact_001",
+            "package_id": "scenepkg_demo",
+            "scene_scope": "hero",
+            "variant_id": "golden_hour",
+            "provider": "world_labs",
+            "status": "generated",
+            "generation_mode": "generated_world",
+        },
+        "scene_package_ref": {
+            "artifact_id": "scenepkg_artifact_001",
+            "package_id": "scenepkg_demo",
+            "provider": "world_labs",
+            "generation_mode": "generated_world",
+            "scene_scope": "hero",
+            "variant_id": "golden_hour",
+            "status": "generated",
+            "control_refs": [
+                {
+                    "control_kind": "canonical_image",
+                    "ref": {"storage_key": "scene_controls/a01_canonical.png"},
+                    "provider": "world_labs",
+                    "metadata": {},
+                },
+                {
+                    "control_kind": "depth_map",
+                    "ref": {"storage_key": "scene_controls/a01_depth.exr"},
+                    "provider": "world_labs",
+                    "metadata": {},
+                },
+            ],
+            "spatial_metadata": {
+                "coordinate_system": "rhs",
+                "unit_scale": 1.0,
+                "up_axis": "Y",
+                "forward_axis": "-Z",
+                "grounding_mode": "floor_locked",
+            },
+            "consistency_contract": {
+                "must_hold": ["layout", "key_props"],
+                "allowed_variation": ["background_extras"],
+                "degradation_policy": "reference_only",
+            },
+        },
+        "scene_consistency_contract": {
+            "must_hold": ["layout", "key_props"],
+            "allowed_variation": ["background_extras"],
+            "degradation_policy": "reference_only",
+        },
+        "scene_control_refs": [
+            {
+                "control_kind": "canonical_image",
+                "ref": {"storage_key": "scene_controls/a01_canonical.png"},
+                "provider": "world_labs",
+                "metadata": {},
+            },
+            {
+                "control_kind": "depth_map",
+                "ref": {"storage_key": "scene_controls/a01_depth.exr"},
+                "provider": "world_labs",
+                "metadata": {},
+            },
+        ],
+        "scene_spatial_metadata": {
+            "coordinate_system": "rhs",
+            "unit_scale": 1.0,
+            "up_axis": "Y",
+            "forward_axis": "-Z",
+            "grounding_mode": "floor_locked",
+        },
         "object_workload_snapshot": {
             "impact_region_mode": "contact_zone",
             "source_image_ref": {"storage_key": "refs/source_demo.png"},
@@ -522,6 +662,59 @@ async def test_dispatch_followup_request_executes_rerender_and_completes_request
                         "scene_payload": {
                             "scene_id": "A01",
                             "scene_manifest": {"shot": "close_up"},
+                            "scene_package_selector": {
+                                "artifact_id": "scenepkg_artifact_001",
+                                "package_id": "scenepkg_demo",
+                                "scene_scope": "hero",
+                                "variant_id": "golden_hour",
+                                "provider": "world_labs",
+                                "status": "generated",
+                                "generation_mode": "generated_world",
+                            },
+                            "scene_package_ref": {
+                                "artifact_id": "scenepkg_artifact_001",
+                                "package_id": "scenepkg_demo",
+                                "provider": "world_labs",
+                                "generation_mode": "generated_world",
+                                "scene_scope": "hero",
+                                "variant_id": "golden_hour",
+                                "status": "generated",
+                                "control_refs": [
+                                    {
+                                        "control_kind": "canonical_image",
+                                        "ref": {
+                                            "storage_key": "scene_controls/a01_canonical.png"
+                                        },
+                                        "provider": "world_labs",
+                                        "metadata": {},
+                                    },
+                                    {
+                                        "control_kind": "depth_map",
+                                        "ref": {
+                                            "storage_key": "scene_controls/a01_depth.exr"
+                                        },
+                                        "provider": "world_labs",
+                                        "metadata": {},
+                                    },
+                                ],
+                                "spatial_metadata": {
+                                    "coordinate_system": "rhs",
+                                    "unit_scale": 1.0,
+                                    "up_axis": "Y",
+                                    "forward_axis": "-Z",
+                                    "grounding_mode": "floor_locked",
+                                },
+                                "consistency_contract": {
+                                    "must_hold": ["layout", "key_props"],
+                                    "allowed_variation": ["background_extras"],
+                                    "degradation_policy": "reference_only",
+                                },
+                            },
+                            "scene_consistency_contract": {
+                                "must_hold": ["layout", "key_props"],
+                                "allowed_variation": ["background_extras"],
+                                "degradation_policy": "reference_only",
+                            },
                             "object_workload_snapshot": {
                                 "source_scene_id": "SC_SOURCE_01",
                                 "impact_region_mode": "contact_zone",
@@ -529,6 +722,84 @@ async def test_dispatch_followup_request_executes_rerender_and_completes_request
                             },
                         },
                         "scene_manifest": {"shot": "close_up"},
+                        "scene_package_selector": {
+                            "artifact_id": "scenepkg_artifact_001",
+                            "package_id": "scenepkg_demo",
+                            "scene_scope": "hero",
+                            "variant_id": "golden_hour",
+                            "provider": "world_labs",
+                            "status": "generated",
+                            "generation_mode": "generated_world",
+                        },
+                        "scene_package_ref": {
+                            "artifact_id": "scenepkg_artifact_001",
+                            "package_id": "scenepkg_demo",
+                            "provider": "world_labs",
+                            "generation_mode": "generated_world",
+                            "scene_scope": "hero",
+                            "variant_id": "golden_hour",
+                            "status": "generated",
+                            "control_refs": [
+                                {
+                                    "control_kind": "canonical_image",
+                                    "ref": {
+                                        "storage_key": "scene_controls/a01_canonical.png"
+                                    },
+                                    "provider": "world_labs",
+                                    "metadata": {},
+                                },
+                                {
+                                    "control_kind": "depth_map",
+                                    "ref": {
+                                        "storage_key": "scene_controls/a01_depth.exr"
+                                    },
+                                    "provider": "world_labs",
+                                    "metadata": {},
+                                },
+                            ],
+                            "spatial_metadata": {
+                                "coordinate_system": "rhs",
+                                "unit_scale": 1.0,
+                                "up_axis": "Y",
+                                "forward_axis": "-Z",
+                                "grounding_mode": "floor_locked",
+                            },
+                            "consistency_contract": {
+                                "must_hold": ["layout", "key_props"],
+                                "allowed_variation": ["background_extras"],
+                                "degradation_policy": "reference_only",
+                            },
+                        },
+                        "scene_consistency_contract": {
+                            "must_hold": ["layout", "key_props"],
+                            "allowed_variation": ["background_extras"],
+                            "degradation_policy": "reference_only",
+                        },
+                        "scene_control_refs": [
+                            {
+                                "control_kind": "canonical_image",
+                                "ref": {
+                                    "storage_key": "scene_controls/a01_canonical.png"
+                                },
+                                "provider": "world_labs",
+                                "metadata": {},
+                            },
+                            {
+                                "control_kind": "depth_map",
+                                "ref": {
+                                    "storage_key": "scene_controls/a01_depth.exr"
+                                },
+                                "provider": "world_labs",
+                                "metadata": {},
+                            },
+                        ],
+                        "scene_spatial_metadata": {
+                            "coordinate_system": "rhs",
+                            "unit_scale": 1.0,
+                            "up_axis": "Y",
+                            "forward_axis": "-Z",
+                            "grounding_mode": "floor_locked",
+                        },
                         "object_workload_snapshot": {
                             "source_scene_id": "SC_SOURCE_01",
                             "impact_region_mode": "contact_zone",
@@ -598,6 +869,55 @@ async def test_dispatch_followup_request_executes_rerender_and_completes_request
     assert dispatch_artifact.metadata["kind"] == "visual_acceptance_followup_dispatch"
     assert dispatch_artifact.metadata["dispatch_status"] == "completed"
     assert dispatch_artifact.content["storyboard"]["scenes"][0]["scene_id"] == "A01"
+    assert dispatch_artifact.content["storyboard"]["scenes"][0]["scene_package_selector"] == {
+        "artifact_id": "scenepkg_artifact_001",
+        "package_id": "scenepkg_demo",
+        "scene_scope": "hero",
+        "variant_id": "golden_hour",
+        "provider": "world_labs",
+        "status": "generated",
+        "generation_mode": "generated_world",
+    }
+    assert dispatch_artifact.content["storyboard"]["scenes"][0]["scene_package_ref"] == {
+        "artifact_id": "scenepkg_artifact_001",
+        "package_id": "scenepkg_demo",
+        "provider": "world_labs",
+        "generation_mode": "generated_world",
+        "scene_scope": "hero",
+        "variant_id": "golden_hour",
+        "status": "generated",
+        "control_refs": [
+            {
+                "control_kind": "canonical_image",
+                "ref": {"storage_key": "scene_controls/a01_canonical.png"},
+                "provider": "world_labs",
+                "metadata": {},
+            },
+            {
+                "control_kind": "depth_map",
+                "ref": {"storage_key": "scene_controls/a01_depth.exr"},
+                "provider": "world_labs",
+                "metadata": {},
+            },
+        ],
+        "spatial_metadata": {
+            "coordinate_system": "rhs",
+            "unit_scale": 1.0,
+            "up_axis": "Y",
+            "forward_axis": "-Z",
+            "grounding_mode": "floor_locked",
+        },
+        "consistency_contract": {
+            "must_hold": ["layout", "key_props"],
+            "allowed_variation": ["background_extras"],
+            "degradation_policy": "reference_only",
+        },
+    }
+    assert dispatch_artifact.content["storyboard"]["scenes"][0]["scene_consistency_contract"] == {
+        "must_hold": ["layout", "key_props"],
+        "allowed_variation": ["background_extras"],
+        "degradation_policy": "reference_only",
+    }
     assert dispatch_artifact.content["dispatch_result"]["status"] == "preview_done"
 
     updated_bundle = store.get_artifact("vrb_demo")

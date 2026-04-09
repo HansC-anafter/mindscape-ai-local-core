@@ -24,6 +24,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shlex
 import shutil
 import tempfile
@@ -68,6 +69,7 @@ class ExecutionContext:
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
     recommended_pack_codes: List[str] = field(default_factory=list)
     file_hint: str = ""
+    inputs: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dispatch(cls, msg: Dict[str, Any]) -> "ExecutionContext":
@@ -93,6 +95,7 @@ class ExecutionContext:
             uploaded_files=ctx.get("uploaded_files", []),
             recommended_pack_codes=ctx.get("recommended_pack_codes", []),
             file_hint=ctx.get("file_hint", ""),
+            inputs=ctx.get("inputs", {}) if isinstance(ctx.get("inputs", {}), dict) else {},
         )
 
 
@@ -106,9 +109,10 @@ class ExecutionResult:
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     files_modified: List[str] = field(default_factory=list)
     files_created: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload = {
             "status": self.status,
             "output": self.output,
             "error": self.error,
@@ -116,6 +120,9 @@ class ExecutionResult:
             "files_modified": self.files_modified,
             "files_created": self.files_created,
         }
+        if self.metadata:
+            payload["metadata"] = self.metadata
+        return payload
 
 
 # Type for progress callback: async fn(execution_id, percent, message)
@@ -439,6 +446,7 @@ class HostBridgeTaskExecutor:
             "task": ctx.task,
             "allowed_tools": ctx.allowed_tools,
             "max_duration": timeout,
+            "model": ctx.model,
             "backend_api_url": backend_url,
             "context": {
                 "project_id": ctx.project_id,
@@ -582,7 +590,7 @@ class HostBridgeTaskExecutor:
         timeout: int,
     ) -> ExecutionResult:
         binary = self._resolve_runtime_binary("codex_cli")
-        cwd, snapshot_root = self._resolve_cli_runtime_paths(ctx)
+        cwd, snapshot_root, snapshot_paths = self._resolve_cli_runtime_paths(ctx)
 
         control_cmd = self._build_codex_control_command(binary, ctx.control_action)
         if control_cmd:
@@ -594,6 +602,7 @@ class HostBridgeTaskExecutor:
                     cwd,
                     runtime_name="codex_cli",
                     snapshot_root=snapshot_root,
+                    snapshot_paths=snapshot_paths,
                 ),
                 timeout=timeout,
             )
@@ -636,6 +645,7 @@ class HostBridgeTaskExecutor:
                     runtime_name="codex_cli",
                     last_message_path=last_message_path,
                     snapshot_root=snapshot_root,
+                    snapshot_paths=snapshot_paths,
                     extra_env=extra_env if isinstance(extra_env, dict) else None,
                 ),
                 timeout=timeout,
@@ -653,7 +663,7 @@ class HostBridgeTaskExecutor:
     ) -> ExecutionResult:
         binary = self._resolve_runtime_binary("claude_code_cli")
         prompt = self._build_runtime_prompt(ctx)
-        cwd, snapshot_root = self._resolve_cli_runtime_paths(ctx)
+        cwd, snapshot_root, snapshot_paths = self._resolve_cli_runtime_paths(ctx)
         auth_bundle = await self._fetch_runtime_auth_env("claude_code_cli", ctx)
         extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
 
@@ -679,33 +689,85 @@ class HostBridgeTaskExecutor:
                 cwd,
                 runtime_name="claude_code_cli",
                 snapshot_root=snapshot_root,
+                snapshot_paths=snapshot_paths,
                 extra_env=extra_env if isinstance(extra_env, dict) else None,
             ),
             timeout=timeout,
         )
 
-    def _resolve_cli_runtime_paths(self, ctx: ExecutionContext) -> tuple[str, str]:
+    @staticmethod
+    def _expected_snapshot_paths(ctx: ExecutionContext) -> List[str]:
+        inputs = ctx.inputs if isinstance(ctx.inputs, dict) else {}
+        candidates: List[str] = []
+
+        deliverable_path = inputs.get("deliverable_path")
+        if isinstance(deliverable_path, str) and deliverable_path.strip():
+            raw = deliverable_path.strip()
+            candidates.append(raw)
+            basename = os.path.basename(raw)
+            if basename and basename != raw:
+                candidates.append(basename)
+
+        deliverable_targets = inputs.get("deliverable_targets")
+        if isinstance(deliverable_targets, list):
+            for item in deliverable_targets:
+                if not isinstance(item, dict):
+                    continue
+                raw = (item.get("deliverable_path") or "").strip()
+                if not raw:
+                    continue
+                candidates.append(raw)
+                basename = os.path.basename(raw)
+                if basename and basename != raw:
+                    candidates.append(basename)
+
+        deduped: List[str] = []
+        seen: set[str] = set()
+        for raw in candidates:
+            normalized = raw.replace("\\", "/").lstrip("./")
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(normalized)
+        return deduped
+
+    def _resolve_cli_runtime_paths(
+        self,
+        ctx: ExecutionContext,
+    ) -> tuple[str, str, List[str]]:
         """Resolve the CLI working dir and the optional diff snapshot root.
 
         Host bridges receive sandbox paths from backend dispatch payloads, but those
         paths may only exist inside the backend container. When the host cannot see
         that sandbox, we still let CLI runtimes execute from the workspace root for
-        repository context, but we must not recursively snapshot the whole workspace.
+        repository context. When a deliverable path is known, we probe only that
+        expected file so markdown assets can still be landed.
         """
         sandbox_path = (ctx.sandbox_path or "").strip()
         if sandbox_path and os.path.isdir(sandbox_path):
-            return sandbox_path, sandbox_path
+            return sandbox_path, sandbox_path, []
 
         cwd = self.workspace_root if os.path.isdir(self.workspace_root) else os.getcwd()
+        expected_paths = self._expected_snapshot_paths(ctx)
         if sandbox_path:
-            logger.warning(
-                "[TaskExecutor] Host sandbox %r unavailable for %s; "
-                "using cwd=%r without file snapshot",
-                sandbox_path,
-                ctx.execution_id,
-                cwd,
-            )
-        return cwd, ""
+            if expected_paths:
+                logger.warning(
+                    "[TaskExecutor] Host sandbox %r unavailable for %s; "
+                    "using cwd=%r with targeted snapshot for %s",
+                    sandbox_path,
+                    ctx.execution_id,
+                    cwd,
+                    expected_paths,
+                )
+            else:
+                logger.warning(
+                    "[TaskExecutor] Host sandbox %r unavailable for %s; "
+                    "using cwd=%r without file snapshot",
+                    sandbox_path,
+                    ctx.execution_id,
+                    cwd,
+                )
+        return cwd, (cwd if expected_paths else ""), expected_paths
 
     async def _run_cli_agent_subprocess(
         self,
@@ -715,11 +777,12 @@ class HostBridgeTaskExecutor:
         runtime_name: str,
         last_message_path: Optional[str] = None,
         snapshot_root: Optional[str] = None,
+        snapshot_paths: Optional[List[str]] = None,
         extra_env: Optional[Dict[str, str]] = None,
     ) -> ExecutionResult:
         resolved_snapshot_root = (snapshot_root or "").strip()
         before_files = (
-            self._snapshot_files(resolved_snapshot_root)
+            self._snapshot_files(resolved_snapshot_root, only_paths=snapshot_paths)
             if resolved_snapshot_root
             else {}
         )
@@ -763,7 +826,7 @@ class HostBridgeTaskExecutor:
             pass
 
         after_files = (
-            self._snapshot_files(resolved_snapshot_root)
+            self._snapshot_files(resolved_snapshot_root, only_paths=snapshot_paths)
             if resolved_snapshot_root
             else {}
         )
@@ -772,16 +835,27 @@ class HostBridgeTaskExecutor:
         stdout = stdout_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
         stderr = stderr_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
         output = stdout
+        synthesized_error: Optional[str] = None
 
-        if last_message_path and os.path.isfile(last_message_path):
-            try:
-                output = Path(last_message_path).read_text(encoding="utf-8").strip() or output
-            except OSError:
-                pass
-        if not output and stderr:
-            output = stderr
+        if runtime_name == "codex_cli":
+            output, synthesized_error = self._resolve_codex_cli_output(
+                stdout=stdout,
+                stderr=stderr,
+                last_message_path=last_message_path,
+            )
+        else:
+            if last_message_path and os.path.isfile(last_message_path):
+                try:
+                    output = (
+                        Path(last_message_path).read_text(encoding="utf-8").strip()
+                        or output
+                    )
+                except OSError:
+                    pass
+            if not output and stderr:
+                output = stderr
 
-        if proc.returncode == 0:
+        if proc.returncode == 0 and not synthesized_error:
             logger.info(
                 "[TaskExecutor] %s subprocess pid=%s finished with code 0 for %s",
                 runtime_name,
@@ -793,6 +867,24 @@ class HostBridgeTaskExecutor:
                 output=output or "(no response from agent)",
                 files_modified=files_modified,
                 files_created=files_created,
+                metadata={"effective_sandbox_path": resolved_snapshot_root or cwd},
+            )
+        if synthesized_error:
+            logger.warning(
+                "[TaskExecutor] %s subprocess pid=%s produced no usable agent message "
+                "for %s: %s",
+                runtime_name,
+                proc.pid,
+                ctx.execution_id,
+                synthesized_error,
+            )
+            return ExecutionResult(
+                status="failed",
+                output=output,
+                error=synthesized_error,
+                files_modified=files_modified,
+                files_created=files_created,
+                metadata={"effective_sandbox_path": resolved_snapshot_root or cwd},
             )
         logger.warning(
             "[TaskExecutor] %s subprocess pid=%s finished with code %s for %s",
@@ -807,13 +899,84 @@ class HostBridgeTaskExecutor:
             error=f"Exit code {proc.returncode}: {stderr[:500] or stdout[:500]}",
             files_modified=files_modified,
             files_created=files_created,
+            metadata={"effective_sandbox_path": resolved_snapshot_root or cwd},
         )
 
+    @classmethod
+    def _resolve_codex_cli_output(
+        cls,
+        *,
+        stdout: str,
+        stderr: str,
+        last_message_path: Optional[str],
+    ) -> tuple[str, Optional[str]]:
+        """Prefer Codex's final agent message; reject transcript-only fallbacks."""
+        last_message = ""
+        if last_message_path and os.path.isfile(last_message_path):
+            try:
+                last_message = Path(last_message_path).read_text(
+                    encoding="utf-8"
+                ).strip()
+            except OSError:
+                last_message = ""
+        if last_message:
+            return last_message, None
+
+        transcript_only = "OpenAI Codex v" in stdout and "User instructions:" in stdout
+        no_last_message = "no last agent message" in stderr.lower()
+        codex_error = cls._extract_codex_cli_error(stdout=stdout, stderr=stderr)
+
+        if codex_error:
+            return "", codex_error
+        if no_last_message or transcript_only:
+            detail = "Codex CLI completed without producing a final agent message"
+            if stderr:
+                detail = f"{detail}; {stderr[:400]}"
+            return "", detail
+
+        output = stdout or stderr
+        return output, None
+
     @staticmethod
-    def _snapshot_files(root: str) -> Dict[str, tuple[int, int]]:
+    def _extract_codex_cli_error(*, stdout: str, stderr: str) -> Optional[str]:
+        """Pull the most relevant Codex CLI error line from stderr/stdout."""
+        for source in (stderr, stdout):
+            if not source:
+                continue
+            matches = re.findall(
+                r"(?:^|\n)(?:\[[^\n]*\]\s*)?ERROR:\s*(.+)",
+                source,
+                flags=re.MULTILINE,
+            )
+            if matches:
+                return matches[-1].strip()
+        return None
+
+    @staticmethod
+    def _snapshot_files(
+        root: str,
+        *,
+        only_paths: Optional[List[str]] = None,
+    ) -> Dict[str, tuple[int, int]]:
         if not root or not os.path.isdir(root):
             return {}
         snapshot: Dict[str, tuple[int, int]] = {}
+        if only_paths:
+            for rel_path in only_paths:
+                if not isinstance(rel_path, str):
+                    continue
+                normalized = rel_path.replace("\\", "/").lstrip("./")
+                if not normalized:
+                    continue
+                full_path = os.path.join(root, normalized)
+                if not os.path.isfile(full_path):
+                    continue
+                try:
+                    stat = os.stat(full_path)
+                except OSError:
+                    continue
+                snapshot[normalized] = (stat.st_mtime_ns, stat.st_size)
+            return snapshot
         skip_dirs = {".git", "__pycache__", "node_modules", ".pytest_cache"}
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [name for name in dirnames if name not in skip_dirs]

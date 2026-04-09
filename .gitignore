@@ -88,6 +88,10 @@ test_*.yaml
 !backend/tests/routes/test_agent_dispatch_pubsub.py
 !backend/tests/services/memory/meeting_memory_writeback_orchestrator_test.py
 !backend/tests/services/memory/digest_extraction_projection_test.py
+!backend/tests/services/test_world_memory_writeback.py
+!backend/tests/services/test_world_memory_motion_projection.py
+!backend/tests/services/test_world_memory_geo_projection.py
+!backend/tests/services/test_world_memory_context_export.py
 !backend/tests/services/memory/legacy_metadata_memory_projection_adapter_test.py
 !backend/tests/services/memory/memory_promotion_service_test.py
 !backend/tests/services/memory/memory_engine_closure_integration_test.py
@@ -171,6 +175,8 @@ docker-compose.override.yml
 /web-console/src/app/capabilities/
 !/web-console/src/app/capabilities/.gitkeep
 /backend/app/capabilities/
+!/backend/app/capabilities/
+/backend/app/capabilities/*
 !/backend/app/capabilities/.gitkeep
 
 # Capability-installed playbooks (installed via API, not committed directly)

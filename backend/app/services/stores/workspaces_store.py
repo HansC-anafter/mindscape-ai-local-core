@@ -446,7 +446,7 @@ class WorkspacesStore(StoreBase):
                 else None
             )
             if blueprint_data:
-                from app.models.workspace_blueprint import WorkspaceBlueprint
+                from backend.app.models.workspace_blueprint import WorkspaceBlueprint
 
                 workspace_blueprint = WorkspaceBlueprint.model_validate(blueprint_data)
             else:

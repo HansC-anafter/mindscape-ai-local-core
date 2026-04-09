@@ -69,6 +69,13 @@ class SemanticNormalizer:
             )
             return intents
 
+        if self._looks_like_cli_transcript(executor_output):
+            logger.warning(
+                "[SemanticNormalizer] Ignoring CLI transcript payload without "
+                "actionable content"
+            )
+            return []
+
         # Fallback: bullet-point parsing
         intents = self._parse_bullets(executor_output, workspace_id)
         if intents:
@@ -268,6 +275,18 @@ class SemanticNormalizer:
                     )
 
         return intents
+
+    @staticmethod
+    def _looks_like_cli_transcript(text: str) -> bool:
+        """Detect raw CLI transcript/banner output that should not become intents."""
+        if not text:
+            return False
+        markers = (
+            "OpenAI Codex v",
+            "User instructions:",
+            "reasoning summaries:",
+        )
+        return all(marker in text for marker in markers)
 
     @staticmethod
     def _infer_capability_profile(playbook_code: str) -> Optional[str]:

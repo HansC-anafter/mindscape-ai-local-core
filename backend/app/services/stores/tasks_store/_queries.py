@@ -8,18 +8,35 @@ from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
 
-from app.models.workspace import Task, TaskStatus
+from backend.app.models.workspace import Task, TaskStatus
 from backend.app.services.runner_topology import (
     build_queue_partition_filter_clause,
     queue_partition_matches,
+    resolve_task_routing_target,
 )
 from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
+from backend.app.services.task_pause_contract import (
+    USER_PAUSE_RESERVED_BLOCKED_REASON,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class TasksStoreQueryMixin:
     """Read-only query methods for TasksStore."""
+
+    def _task_matches_requested_queue_shard(
+        self,
+        task: Task,
+        queue_shard: Optional[str],
+    ) -> bool:
+        if not queue_shard:
+            return True
+        try:
+            target = resolve_task_routing_target(task)
+            return queue_partition_matches(target.queue_partition, queue_shard)
+        except Exception:
+            return queue_partition_matches(getattr(task, "queue_shard", None), queue_shard)
 
     def _resolve_effective_concurrency_key(self, task: Task) -> Optional[str]:
         """Recompute the current lock key from task context.
@@ -427,7 +444,7 @@ class TasksStoreQueryMixin:
             FROM tasks
             WHERE task_type IN (:task_type_pb, :task_type_tool)
             AND status = :status
-            AND next_eligible_at <= :now
+            AND COALESCE(next_eligible_at, created_at) <= :now
             AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
             """
         ]
@@ -449,27 +466,71 @@ class TasksStoreQueryMixin:
                 queue_shard,
                 param_prefix="queue_partition",
             )
-            query_parts.append(f"AND {queue_clause}")
+            query_parts.append(f"AND ({queue_clause} OR queue_shard IS NULL)")
             params.update(queue_params)
 
-        query_parts.append("ORDER BY next_eligible_at ASC, created_at ASC, id ASC")
+        query_parts.append(
+            """
+            ORDER BY
+                CASE
+                    WHEN COALESCE(params->>'reference_id', params->'inputs'->>'reference_id', '') = '' THEN 1
+                    ELSE 0
+                END ASC,
+                CASE
+                    WHEN COALESCE(execution_context->'runner_reaper'->>'action', '') <> '' THEN 1
+                    ELSE 0
+                END ASC,
+                COALESCE(next_eligible_at, created_at) ASC,
+                created_at ASC,
+                id ASC
+            """
+        )
         query_parts.append("LIMIT :limit")
         params["limit"] = scan_limit
 
         with self.get_connection() as conn:
             rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
             candidates = [self._row_to_task(row) for row in rows]
+        if queue_shard:
+            candidates = [
+                task
+                for task in candidates
+                if self._task_matches_requested_queue_shard(task, queue_shard)
+            ]
 
         running_tasks = self.list_running_playbook_execution_tasks(
             workspace_id=None,
             limit=scan_limit,
         )
+        reserved_query = text(
+            """
+            SELECT *
+            FROM tasks
+            WHERE task_type IN (:task_type_pb, :task_type_tool)
+              AND status = :pending_status
+              AND blocked_reason = :blocked_reason
+            ORDER BY created_at ASC
+            LIMIT :limit
+            """
+        )
+        with self.get_connection() as conn:
+            reserved_rows = conn.execute(
+                reserved_query,
+                {
+                    "task_type_pb": "playbook_execution",
+                    "task_type_tool": "tool_execution",
+                    "pending_status": TaskStatus.PENDING.value,
+                    "blocked_reason": USER_PAUSE_RESERVED_BLOCKED_REASON,
+                    "limit": scan_limit,
+                },
+            ).fetchall()
+        reserved_tasks = [self._row_to_task(row) for row in reserved_rows]
         active_keys = {
             key
-            for task in running_tasks
+            for task in [*running_tasks, *reserved_tasks]
             if (
                 not queue_shard
-                or queue_partition_matches(getattr(task, "queue_shard", None), queue_shard)
+                or self._task_matches_requested_queue_shard(task, queue_shard)
             )
             for key in [self._resolve_effective_concurrency_key(task)]
             if key
@@ -494,7 +555,7 @@ class TasksStoreQueryMixin:
             WHERE task_type IN (:task_type_pb, :task_type_tool)
               AND status = :status
               AND blocked_reason = :blocked_reason
-              AND next_eligible_at <= :now
+              AND COALESCE(next_eligible_at, created_at) <= :now
             """
         ]
         params: Dict[str, Any] = {
@@ -512,7 +573,7 @@ class TasksStoreQueryMixin:
                 queue_shard,
                 param_prefix="queue_partition",
             )
-            query_parts.append(f"AND {queue_clause}")
+            query_parts.append(f"AND ({queue_clause} OR queue_shard IS NULL)")
             params.update(queue_params)
 
         query_parts.append(
@@ -523,7 +584,7 @@ class TasksStoreQueryMixin:
                     WHEN COALESCE(execution_context->'admission'->>'visibility', '') = 'visible' THEN 0
                     ELSE 1
                 END ASC,
-                next_eligible_at ASC,
+                COALESCE(next_eligible_at, created_at) ASC,
                 created_at ASC,
                 id ASC
             """
@@ -532,7 +593,67 @@ class TasksStoreQueryMixin:
 
         with self.get_connection() as conn:
             rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
-            return [self._row_to_task(row) for row in rows]
+            tasks = [self._row_to_task(row) for row in rows]
+        if queue_shard:
+            tasks = [
+                task
+                for task in tasks
+                if self._task_matches_requested_queue_shard(task, queue_shard)
+            ]
+        return tasks
+
+    def list_due_blocked_tasks(
+        self,
+        *,
+        blocked_reason: str,
+        queue_shard: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Task]:
+        query_parts = [
+            """
+            SELECT *
+            FROM tasks
+            WHERE task_type IN (:task_type_pb, :task_type_tool)
+              AND status = :status
+              AND blocked_reason = :blocked_reason
+              AND COALESCE(next_eligible_at, created_at) <= :now
+            """
+        ]
+        params: Dict[str, Any] = {
+            "task_type_pb": "playbook_execution",
+            "task_type_tool": "tool_execution",
+            "status": TaskStatus.PENDING.value,
+            "blocked_reason": blocked_reason,
+            "now": datetime.now(timezone.utc),
+            "limit": limit,
+        }
+
+        if queue_shard:
+            queue_clause, queue_params = build_queue_partition_filter_clause(
+                "queue_shard",
+                queue_shard,
+                param_prefix="queue_partition",
+            )
+            query_parts.append(f"AND ({queue_clause} OR queue_shard IS NULL)")
+            params.update(queue_params)
+
+        query_parts.append(
+            """
+            ORDER BY COALESCE(next_eligible_at, created_at) ASC, created_at ASC, id ASC
+            """
+        )
+        query_parts.append("LIMIT :limit")
+
+        with self.get_connection() as conn:
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+            tasks = [self._row_to_task(row) for row in rows]
+        if queue_shard:
+            tasks = [
+                task
+                for task in tasks
+                if self._task_matches_requested_queue_shard(task, queue_shard)
+            ]
+        return tasks
 
     def list_runnable_agent_dispatch_tasks(
         self, workspace_id: Optional[str] = None, limit: int = 5

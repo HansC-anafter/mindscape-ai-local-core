@@ -46,7 +46,7 @@ class HandoffRegistryStore:
         rather than silently duplicated.
         """
         try:
-            from app.database.engine import SessionLocalCore
+            from backend.app.database.engine import SessionLocalCore
             from backend.app.models.handoff_registry import HandoffRegistry
 
             if SessionLocalCore is None:
@@ -112,7 +112,7 @@ class HandoffRegistryStore:
     ) -> None:
         """Update the status of an existing registry entry."""
         try:
-            from app.database.engine import SessionLocalCore
+            from backend.app.database.engine import SessionLocalCore
             from backend.app.models.handoff_registry import HandoffRegistry
 
             if SessionLocalCore is None:
@@ -159,7 +159,7 @@ class HandoffRegistryStore:
         Non-fatal: errors are logged but never raised.
         """
         try:
-            from app.database.engine import SessionLocalCore
+            from backend.app.database.engine import SessionLocalCore
             from backend.app.models.handoff_registry import HandoffRegistry
             from sqlalchemy.sql import func
 

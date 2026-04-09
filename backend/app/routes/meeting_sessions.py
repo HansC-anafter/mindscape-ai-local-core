@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from backend.app.models.meeting_session import MeetingSession
 from backend.app.models.mindscape import EventActor, EventType, MindEvent
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.stores.compile_job_store import CompileJobStore
 from backend.app.services.stores.meeting_session_store import MeetingSessionStore
 
 logger = logging.getLogger(__name__)
@@ -66,12 +67,108 @@ class SessionResponse(BaseModel):
     metadata: dict = {}
 
 
-def _session_to_response(session: MeetingSession) -> dict:
+def _compile_job_to_summary(job) -> Optional[dict]:
+    if not job:
+        return None
+    return {
+        "id": job.id,
+        "status": job.status.value if hasattr(job.status, "value") else job.status,
+        "session_id": job.session_id,
+        "error": job.error,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "metadata": job.public_metadata() if hasattr(job, "public_metadata") else job.metadata,
+    }
+
+
+def _program_spec_summary(session: Optional[MeetingSession]) -> Optional[dict]:
+    if not session:
+        return None
+    metadata = getattr(session, "metadata", None) or {}
+    program_spec = metadata.get("last_program_spec")
+    if not isinstance(program_spec, dict):
+        return None
+    workstreams = program_spec.get("workstreams")
+    target_outputs = program_spec.get("target_outputs")
+    return {
+        "source": metadata.get("last_program_spec_source"),
+        "structured": metadata.get("last_program_spec_source") == "executor_structured",
+        "workstream_count": (
+            metadata.get("last_program_spec_workstream_count")
+            if isinstance(metadata.get("last_program_spec_workstream_count"), int)
+            else len(workstreams)
+            if isinstance(workstreams, list)
+            else 0
+        ),
+        "milestone_count": (
+            len(program_spec.get("milestones"))
+            if isinstance(program_spec.get("milestones"), list)
+            else 0
+        ),
+        "scale": program_spec.get("scale"),
+        "target_outputs": target_outputs if isinstance(target_outputs, list) else [],
+    }
+
+
+def _program_run_summary(session: Optional[MeetingSession]) -> Optional[dict]:
+    if not session:
+        return None
+    metadata = getattr(session, "metadata", None) or {}
+    program_run_id = metadata.get("program_run_id")
+    if not program_run_id:
+        return None
+    cursor_state = metadata.get("program_run_cursor_state")
+    if not isinstance(cursor_state, dict):
+        cursor_state = {}
+    target_outputs = metadata.get("program_run_target_outputs")
+    return {
+        "id": program_run_id,
+        "source": metadata.get("program_run_source"),
+        "status": metadata.get("program_run_status"),
+        "workstream_count": (
+            metadata.get("program_run_workstream_count")
+            if isinstance(metadata.get("program_run_workstream_count"), int)
+            else 0
+        ),
+        "milestone_count": (
+            metadata.get("program_run_milestone_count")
+            if isinstance(metadata.get("program_run_milestone_count"), int)
+            else 0
+        ),
+        "target_outputs": target_outputs if isinstance(target_outputs, list) else [],
+        "remaining_work_count": int(cursor_state.get("remaining_work_count") or 0),
+        "recorded_at": metadata.get("program_run_recorded_at"),
+    }
+
+
+def _session_to_response(
+    session: MeetingSession,
+    *,
+    compile_job_store: Optional[CompileJobStore] = None,
+    include_state: bool = False,
+) -> dict:
     d = session.to_dict()
-    # Remove state snapshots from list responses for brevity
-    d.pop("state_before", None)
-    d.pop("state_after", None)
-    d.pop("state_diff", None)
+    if not include_state:
+        # Remove state snapshots from list responses for brevity
+        d.pop("state_before", None)
+        d.pop("state_after", None)
+        d.pop("state_diff", None)
+    if compile_job_store and session.id:
+        try:
+            d["compile_job"] = _compile_job_to_summary(
+                compile_job_store.get_latest_for_session(session.id)
+            )
+        except Exception as exc:
+            logger.warning(
+                "[MeetingSession] Failed to resolve compile job for session %s: %s",
+                session.id,
+                exc,
+            )
+            d["compile_job"] = None
+    d["program_spec_summary"] = _program_spec_summary(session)
+    d["program_run_summary"] = _program_run_summary(session)
     return d
 
 
@@ -232,19 +329,24 @@ async def abort_session(
 async def get_session(workspace_id: str, session_id: str):
     """Get a specific meeting session by ID."""
     store = MeetingSessionStore()
+    compile_job_store = CompileJobStore()
     session = store.get_by_id(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     if session.workspace_id != workspace_id:
         raise HTTPException(status_code=403, detail="Workspace mismatch")
-    return session.to_dict()
+    return _session_to_response(
+        session,
+        compile_job_store=compile_job_store,
+        include_state=True,
+    )
 
 
 @router.get("/{session_id}/events")
 async def get_session_events(
     workspace_id: str,
     session_id: str,
-    limit: int = Query(500, ge=1, le=2000),
+    limit: int = Query(2000, ge=1, le=2000),
 ):
     """Get replay events bound to a meeting session."""
     session_store = MeetingSessionStore()
@@ -277,6 +379,7 @@ async def list_sessions(
 ):
     """List meeting sessions for a workspace (newest first)."""
     store = MeetingSessionStore()
+    compile_job_store = CompileJobStore()
     sessions = store.list_by_workspace(
         workspace_id,
         project_id=project_id,
@@ -284,7 +387,10 @@ async def list_sessions(
         offset=offset,
     )
     return {
-        "sessions": [_session_to_response(s) for s in sessions],
+        "sessions": [
+            _session_to_response(s, compile_job_store=compile_job_store)
+            for s in sessions
+        ],
         "total": len(sessions),
         "limit": limit,
         "offset": offset,

@@ -8,7 +8,7 @@ Session Override Store is pluggable to support different storage backends:
 """
 from abc import ABC, abstractmethod
 from typing import Optional, Dict
-from app.models.graph import LensNodeState
+from backend.app.models.graph import LensNodeState
 
 
 class SessionOverrideStore(ABC):

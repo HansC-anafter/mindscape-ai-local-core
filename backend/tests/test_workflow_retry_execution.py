@@ -12,6 +12,7 @@ if _backend_root not in sys.path:
     sys.path.insert(0, _backend_root)
 
 from backend.app.services.workflow.retry_execution import execute_step_with_retry
+from backend.app.services.execution_core.errors import RecoverableStepError
 
 
 @pytest.mark.asyncio
@@ -82,6 +83,47 @@ async def test_execute_step_with_retry_stops_on_non_retryable_error_result() -> 
 
 
 @pytest.mark.asyncio
+async def test_execute_step_with_retry_returns_paused_without_retrying() -> None:
+    step = SimpleNamespace(
+        playbook_code="demo_step",
+        kind="system_tool",
+        retry_policy=SimpleNamespace(max_retries=2, retryable_errors=["timeout"]),
+    )
+    calls = []
+
+    async def execute_workflow_step(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {
+            "status": "paused",
+            "pause_reason": "user_reserved",
+            "checkpoint": {"pause_mode": "user_reserved"},
+        }
+
+    result = await execute_step_with_retry(
+        step=step,
+        workflow_context={},
+        previous_results={},
+        execution_id="exec-1",
+        workspace_id="ws-1",
+        profile_id=None,
+        project_id=None,
+        step_index=0,
+        execute_workflow_step_fn=execute_workflow_step,
+        get_default_retry_policy_fn=lambda kind: None,
+        calculate_retry_delay_fn=lambda attempt, retry_policy: 0.1,
+        classify_error_fn=lambda error: "other",
+        sleep_fn=lambda delay: _record_sleep([], delay),
+    )
+
+    assert result == {
+        "status": "paused",
+        "pause_reason": "user_reserved",
+        "checkpoint": {"pause_mode": "user_reserved"},
+    }
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_execute_step_with_retry_returns_exhausted_error_after_exception_retries() -> None:
     step = SimpleNamespace(
         playbook_code="demo_step",
@@ -113,6 +155,80 @@ async def test_execute_step_with_retry_returns_exhausted_error_after_exception_r
     assert result["error_type"] == "timeout"
     assert result["attempts"] == 2
     assert result["retries_exhausted"] is True
+    assert sleeps == [0.25]
+
+
+@pytest.mark.asyncio
+async def test_execute_step_with_retry_reraises_provider_unavailable_immediately() -> None:
+    step = SimpleNamespace(
+        playbook_code="demo_step",
+        kind="system_tool",
+        retry_policy=SimpleNamespace(max_retries=1, retryable_errors=[]),
+    )
+    sleeps = []
+
+    async def execute_workflow_step(*args, **kwargs):
+        raise RecoverableStepError(
+            "vision_analyze",
+            "provider_unavailable",
+            "Multimodal endpoint unreachable or returned no results",
+        )
+
+    with pytest.raises(RecoverableStepError) as exc_info:
+        await execute_step_with_retry(
+            step=step,
+            workflow_context={},
+            previous_results={},
+            execution_id="exec-1",
+            workspace_id="ws-1",
+            profile_id=None,
+            project_id=None,
+            step_index=0,
+            execute_workflow_step_fn=execute_workflow_step,
+            get_default_retry_policy_fn=lambda kind: None,
+            calculate_retry_delay_fn=lambda attempt, retry_policy: 0.25,
+            classify_error_fn=lambda error: "timeout" if "timeout" in error else "other",
+            sleep_fn=lambda delay: _record_sleep(sleeps, delay),
+        )
+
+    assert exc_info.value.error_type == "provider_unavailable"
+    assert sleeps == []
+
+
+@pytest.mark.asyncio
+async def test_execute_step_with_retry_reraises_exhausted_other_recoverable_step_error() -> None:
+    step = SimpleNamespace(
+        playbook_code="demo_step",
+        kind="system_tool",
+        retry_policy=SimpleNamespace(max_retries=1, retryable_errors=[]),
+    )
+    sleeps = []
+
+    async def execute_workflow_step(*args, **kwargs):
+        raise RecoverableStepError(
+            "vision_analyze",
+            "temporary_capacity",
+            "Backend asked to retry later",
+        )
+
+    with pytest.raises(RecoverableStepError) as exc_info:
+        await execute_step_with_retry(
+            step=step,
+            workflow_context={},
+            previous_results={},
+            execution_id="exec-1",
+            workspace_id="ws-1",
+            profile_id=None,
+            project_id=None,
+            step_index=0,
+            execute_workflow_step_fn=execute_workflow_step,
+            get_default_retry_policy_fn=lambda kind: None,
+            calculate_retry_delay_fn=lambda attempt, retry_policy: 0.25,
+            classify_error_fn=lambda error: "timeout" if "timeout" in error else "other",
+            sleep_fn=lambda delay: _record_sleep(sleeps, delay),
+        )
+
+    assert exc_info.value.error_type == "temporary_capacity"
     assert sleeps == [0.25]
 
 

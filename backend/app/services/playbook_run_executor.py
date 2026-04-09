@@ -33,6 +33,9 @@ from backend.app.services.playbook_run_executor_core.invocation_modes import (
     execute_conversation_invocation as executor_execute_conversation_invocation,
     merge_plan_node_inputs as executor_merge_plan_node_inputs,
 )
+from backend.app.services.playbook_run_executor_core.input_normalization import (
+    normalize_meeting_session_input_aliases,
+)
 from backend.app.services.playbook_run_executor_core.runtime_workflow import (
     execute_runtime_workflow as executor_execute_runtime_workflow,
 )
@@ -215,7 +218,7 @@ class PlaybookRunExecutor:
 
         # Normalize inputs and inject execution context fields for placeholder rendering and tool parameter injection.
         # Enables resolving {{input.workspace_id}}, {{input.project_id}}, {{input.profile_id}}.
-        normalized_inputs = inputs.copy() if inputs else {}
+        normalized_inputs = normalize_meeting_session_input_aliases(inputs)
         if workspace_id and "workspace_id" not in normalized_inputs:
             normalized_inputs["workspace_id"] = workspace_id
         if project_id and "project_id" not in normalized_inputs:

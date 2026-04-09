@@ -179,6 +179,61 @@ def test_auto_task_deferred_when_shard_over_budget(monkeypatch):
     )
 
 
+def test_pin_reference_ignores_oldest_pending_age_gate(monkeypatch):
+    service = TaskAdmissionService()
+    task = _build_task(
+        visibility="background",
+        queue_shard="vision_local",
+        producer_kind="pin_reference",
+    )
+
+    monkeypatch.setenv("LOCAL_CORE_TASK_ADMISSION_ENABLED", "1")
+    monkeypatch.setenv("LOCAL_CORE_TASK_ADMISSION_PENDING_LIMIT", "256")
+    monkeypatch.setenv("LOCAL_CORE_TASK_ADMISSION_OLDEST_PENDING_AGE_SECONDS", "300")
+    monkeypatch.setattr(
+        service,
+        "_load_queue_pressure",
+        lambda *_args, **_kwargs: AdmissionPressure(
+            queue_shard="vision_local",
+            pending_total=5,
+            running_total=0,
+            oldest_pending_at=_utc_now() - timedelta(hours=12),
+        ),
+    )
+
+    decision = service.evaluate_on_create(object(), task)
+
+    assert decision.allow is True
+
+
+def test_pin_reference_still_respects_pending_limit(monkeypatch):
+    service = TaskAdmissionService()
+    task = _build_task(
+        visibility="background",
+        queue_shard="vision_local",
+        producer_kind="pin_reference",
+    )
+
+    monkeypatch.setenv("LOCAL_CORE_TASK_ADMISSION_ENABLED", "1")
+    monkeypatch.setenv("LOCAL_CORE_TASK_ADMISSION_PENDING_LIMIT", "4")
+    monkeypatch.setenv("LOCAL_CORE_TASK_ADMISSION_OLDEST_PENDING_AGE_SECONDS", "300")
+    monkeypatch.setattr(
+        service,
+        "_load_queue_pressure",
+        lambda *_args, **_kwargs: AdmissionPressure(
+            queue_shard="vision_local",
+            pending_total=5,
+            running_total=0,
+            oldest_pending_at=_utc_now() - timedelta(hours=12),
+        ),
+    )
+
+    decision = service.evaluate_on_create(object(), task)
+
+    assert decision.allow is False
+    assert decision.blocked_payload["reason"] == "pending_limit"
+
+
 def test_visible_auto_ranks_above_background_auto(monkeypatch):
     service = TaskAdmissionService()
     background_task = _build_task(visibility="background")
@@ -327,6 +382,30 @@ def test_load_queue_pressure_accepts_legacy_alias_rows_under_canonical_partition
 
     assert pressure.pending_total == 1
     assert pressure.running_total == 1
+
+
+def test_load_queue_pressure_accepts_blank_blocked_reason_for_ready_rows():
+    service = TaskAdmissionService()
+    store = _SqliteTasksStore()
+    now = _utc_now()
+
+    store.insert_rows(
+        _task_row(
+            task_id="blank-blocked-ready",
+            status="pending",
+            created_at=now - timedelta(minutes=4),
+            next_eligible_at=now - timedelta(minutes=1),
+            blocked_reason="",
+            frontier_state="ready",
+            frontier_enqueued_at=now - timedelta(minutes=1),
+        )
+    )
+
+    pressure = service._load_queue_pressure(store, "browser_local")
+
+    assert pressure.pending_total == 1
+    assert pressure.running_total == 0
+    assert pressure.oldest_pending_at is not None
 
 
 def test_resolve_limits_accepts_legacy_alias_env_names(monkeypatch):

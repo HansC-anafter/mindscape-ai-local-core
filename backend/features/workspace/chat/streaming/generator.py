@@ -123,7 +123,11 @@ async def generate_streaming_response(
             logger.warning("Intent extractor failed in streaming path: %s", e)
 
         # 6. Resolve model name
-        model_name = _resolve_model_name(request)
+        model_name = _resolve_model_name(
+            request,
+            workspace=workspace,
+            db_path=getattr(orchestrator.store, "db_path", None),
+        )
 
         # 7. Get execution settings
         timeline_items_store = TimelineItemsStore(orchestrator.store.db_path)
@@ -331,15 +335,25 @@ async def generate_streaming_response(
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
 
-def _resolve_model_name(request) -> Optional[str]:
-    """Resolve model name from request or system settings."""
+def _resolve_model_name(
+    request,
+    *,
+    workspace: Optional[Workspace] = None,
+    db_path: Optional[str] = None,
+) -> Optional[str]:
+    """Resolve model name from request, workspace preference, or system settings."""
     model_name = getattr(request, "model_name", None)
     if not model_name:
         try:
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-            if chat_setting and chat_setting.value:
-                model_name = str(chat_setting.value)
+            from backend.app.services.conversation.chat_model_resolution import (
+                resolve_conversational_model_name,
+            )
+
+            model_name = resolve_conversational_model_name(
+                model_name,
+                workspace=workspace,
+                db_path=db_path,
+            )
         except Exception as e:
             logger.warning("Failed to fetch model_name from settings: %s", e)
 

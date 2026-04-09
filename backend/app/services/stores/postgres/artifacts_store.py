@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 
 from ..postgres_base import PostgresStoreBase
-from app.models.workspace import Artifact, ArtifactType, PrimaryActionType
+from backend.app.models.workspace import Artifact, ArtifactType, PrimaryActionType
 from ..artifacts_store import ArtifactsStore
 
 logger = logging.getLogger(__name__)

@@ -41,18 +41,20 @@ async def build_streaming_context(
     Returns:
         Context string or None
     """
-    # Resolve model_name from SystemSettingsStore if not provided (D1: deduplicated)
+    # Resolve model_name from workspace preference or system settings if not provided
     if not model_name or str(model_name).strip() == "":
         try:
-            from backend.app.services.system_settings_store import SystemSettingsStore
+            from backend.app.services.conversation.chat_model_resolution import (
+                resolve_conversational_model_name,
+            )
 
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-            if chat_setting and chat_setting.value:
-                model_name = str(chat_setting.value)
-                logger.info(
-                    f"Resolved model_name from SystemSettingsStore: {model_name}"
-                )
+            model_name = resolve_conversational_model_name(
+                model_name,
+                workspace=workspace,
+                db_path=getattr(store, "db_path", None),
+            )
+            if model_name:
+                logger.info(f"Resolved model_name for streaming context: {model_name}")
         except Exception as e:
             logger.warning(
                 f"Failed to resolve model_name in build_streaming_context: {e}"

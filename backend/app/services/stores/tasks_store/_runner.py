@@ -8,7 +8,12 @@ from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
 
-from app.models.workspace import Task, TaskStatus
+from backend.app.models.workspace import Task, TaskStatus
+from backend.app.services.task_pause_contract import (
+    USER_PAUSE_RESERVED_BLOCKED_REASON,
+    USER_PAUSE_RESERVED_MODE,
+    is_user_pause_requested,
+)
 
 from ._base import _utc_now
 
@@ -18,6 +23,86 @@ logger = logging.getLogger(__name__)
 class TasksStoreRunnerMixin:
     """Runner lifecycle operations for TasksStore."""
 
+    def _find_running_concurrency_conflict(
+        self,
+        conn,
+        *,
+        task_id: str,
+        pack_id: str,
+        execution_context: Optional[Dict[str, Any]],
+        persisted_concurrency_key: Optional[str] = None,
+    ) -> Optional[str]:
+        """Return overlapping lock key if another RUNNING task already owns it."""
+        try:
+            from backend.app.runner.concurrency import _resolve_lock_keys
+        except Exception:
+            _resolve_lock_keys = None
+
+        current_ctx = execution_context if isinstance(execution_context, dict) else {}
+        current_keys = set()
+        if _resolve_lock_keys is not None:
+            try:
+                current_keys.update(_resolve_lock_keys(current_ctx, pack_id))
+            except Exception:
+                pass
+        if not current_keys and isinstance(persisted_concurrency_key, str) and persisted_concurrency_key.strip():
+            current_keys.add(persisted_concurrency_key.strip())
+        if not current_keys:
+            return None
+
+        rows = conn.execute(
+            text(
+                """
+                SELECT id, pack_id, execution_context, concurrency_key
+                FROM tasks
+                WHERE (
+                        status = :running_status
+                        OR (
+                            status = :pending_status
+                            AND blocked_reason = :pause_reserved_reason
+                        )
+                      )
+                  AND id <> :task_id
+                """
+            ),
+            {
+                "running_status": TaskStatus.RUNNING.value,
+                "pending_status": TaskStatus.PENDING.value,
+                "pause_reserved_reason": USER_PAUSE_RESERVED_BLOCKED_REASON,
+                "task_id": task_id,
+            },
+        ).fetchall()
+
+        for row in rows:
+            other_ctx: Dict[str, Any] = {}
+            raw_ctx = getattr(row, "execution_context", None)
+            if raw_ctx:
+                try:
+                    other_ctx = self.deserialize_json(raw_ctx, {})
+                except Exception:
+                    other_ctx = {}
+
+            other_keys = set()
+            other_pack_id = getattr(row, "pack_id", "")
+            if _resolve_lock_keys is not None:
+                try:
+                    other_keys.update(_resolve_lock_keys(other_ctx, other_pack_id))
+                except Exception:
+                    pass
+            other_concurrency_key = getattr(row, "concurrency_key", None)
+            if (
+                not other_keys
+                and isinstance(other_concurrency_key, str)
+                and other_concurrency_key.strip()
+            ):
+                other_keys.add(other_concurrency_key.strip())
+
+            overlap = current_keys.intersection(other_keys)
+            if overlap:
+                return sorted(overlap)[0]
+
+        return None
+
     def try_claim_task(self, task_id: str, runner_id: str) -> bool:
         now = _utc_now()
 
@@ -25,7 +110,7 @@ class TasksStoreRunnerMixin:
             row = conn.execute(
                 text(
                     """
-                    SELECT status, execution_context
+                    SELECT status, execution_context, pack_id, concurrency_key
                     FROM tasks
                     WHERE id = :task_id
                 """
@@ -43,6 +128,22 @@ class TasksStoreRunnerMixin:
             raw_ctx = getattr(row, "execution_context", None)
             if raw_ctx:
                 existing_ctx = self.deserialize_json(raw_ctx, {})
+
+            conflict_key = self._find_running_concurrency_conflict(
+                conn,
+                task_id=task_id,
+                pack_id=str(getattr(row, "pack_id", "") or ""),
+                execution_context=existing_ctx,
+                persisted_concurrency_key=getattr(row, "concurrency_key", None),
+            )
+            if conflict_key:
+                logger.warning(
+                    "DB claim blocked by running concurrency conflict task_id=%s runner_id=%s lock_key=%s",
+                    task_id,
+                    runner_id,
+                    conflict_key,
+                )
+                return False
 
             ctx = dict(existing_ctx) if isinstance(existing_ctx, dict) else {}
             ctx["runner_id"] = runner_id
@@ -144,6 +245,34 @@ class TasksStoreRunnerMixin:
             return False  # just revived — keep running
 
         return self.should_abort_task(task_id)
+
+    def get_task_control_signal(self, task_id: str) -> Optional[Dict[str, str]]:
+        """Return a child-safe control signal for cooperative task exits."""
+        task = self.get_task(task_id)
+        if not task:
+            return {"kind": "missing", "message": "Runner task record missing"}
+
+        if task.status == TaskStatus.CANCELLED_BY_USER:
+            return {"kind": "cancelled", "message": task.error or "Cancelled by user"}
+        if (
+            task.status == TaskStatus.FAILED
+            and (task.error or "") != "Execution interrupted by server restart"
+        ):
+            return {"kind": "failed", "message": task.error or "Task failed externally"}
+        if task.status == TaskStatus.EXPIRED:
+            return {"kind": "expired", "message": task.error or "Task expired externally"}
+
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        if is_user_pause_requested(ctx):
+            control = ctx.get("control") if isinstance(ctx.get("control"), dict) else {}
+            return {
+                "kind": "pause",
+                "message": (
+                    control.get("message")
+                    or f"User pause requested ({USER_PAUSE_RESERVED_MODE})"
+                ),
+            }
+        return None
 
     def should_abort_task(self, task_id: str) -> bool:
         """Return True when the runner should abort the task without mutating heartbeat."""

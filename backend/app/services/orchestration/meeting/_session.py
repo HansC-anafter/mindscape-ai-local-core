@@ -18,6 +18,86 @@ logger = logging.getLogger(__name__)
 class MeetingSessionMixin:
     """Mixin providing session lifecycle methods for MeetingEngine."""
 
+    async def _prefetch_governed_context_packet(self) -> None:
+        """Prefetch governed content/world context for meeting prompt injection."""
+        try:
+            from backend.app.services.governance.governance_context_read_model import (
+                GovernanceContextReadModel,
+            )
+            from backend.app.services.mindscape_store import MindscapeStore
+
+            read_model = GovernanceContextReadModel(store=MindscapeStore())
+            governance_packet = await read_model.build_for_workspace(
+                getattr(self, "workspace", None),
+                profile_id=getattr(self, "profile_id", None),
+                project_id=getattr(self, "project_id", None)
+                or getattr(getattr(self, "session", None), "project_id", None),
+                session_id=getattr(getattr(self, "session", None), "id", None),
+            )
+            memory_context_summary = read_model.format_memory_packet_for_context(
+                governance_packet
+            )
+            self._governance_packet = governance_packet or None
+            self._memory_context_summary = memory_context_summary or ""
+            self._world_memory_packet = (
+                governance_packet.get("world_memory_packet")
+                if isinstance(governance_packet, dict)
+                else None
+            )
+            self._world_card_projection = (
+                governance_packet.get("world_card_projection")
+                if isinstance(governance_packet, dict)
+                else None
+            )
+            self._world_card_text = (
+                governance_packet.get("world_card_text", "")
+                if isinstance(governance_packet, dict)
+                else ""
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to prefetch governed meeting context for session %s: %s",
+                getattr(getattr(self, "session", None), "id", "unknown"),
+                exc,
+            )
+            self._governance_packet = None
+            self._memory_context_summary = ""
+            self._world_memory_packet = None
+            self._world_card_projection = None
+            self._world_card_text = ""
+
+    def _persist_prefetched_governed_context(self) -> None:
+        """Persist prefetched governed content/world context into session metadata."""
+        if self.session.metadata is None:
+            self.session.metadata = {}
+
+        governance_packet = getattr(self, "_governance_packet", None)
+        if isinstance(governance_packet, dict):
+            if governance_packet.get("governance_context"):
+                self.session.metadata["governance_context"] = governance_packet.get(
+                    "governance_context"
+                )
+            if governance_packet.get("memory_packet"):
+                self.session.metadata["memory_packet"] = governance_packet.get(
+                    "memory_packet"
+                )
+            if governance_packet.get("world_memory_packet"):
+                self.session.metadata["world_memory_packet"] = governance_packet.get(
+                    "world_memory_packet"
+                )
+            if governance_packet.get("world_card_projection"):
+                self.session.metadata["world_card_projection"] = governance_packet.get(
+                    "world_card_projection"
+                )
+            if governance_packet.get("world_card_text"):
+                self.session.metadata["world_card_text"] = governance_packet.get(
+                    "world_card_text"
+                )
+
+        memory_context_summary = getattr(self, "_memory_context_summary", "")
+        if memory_context_summary:
+            self.session.metadata["memory_context_summary"] = memory_context_summary
+
     @staticmethod
     def _packet_has_core_layer(core: Optional[Dict[str, Any]]) -> bool:
         if not core:
@@ -267,6 +347,7 @@ class MeetingSessionMixin:
         *,
         selected_packet_node_ids: List[str],
         canonical_memory: Optional[Dict[str, Any]],
+        world_memory_writeback: Optional[Dict[str, Any]],
         meeting_decision_ids: List[str],
         action_items: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
@@ -296,6 +377,12 @@ class MeetingSessionMixin:
             ),
             "writeback_run_id": (
                 canonical_memory.get("writeback_run_id") if canonical_memory else None
+            ),
+            "world_snapshot_node_id": (
+                f"world_snapshot:{world_memory_writeback.get('snapshot_id')}"
+                if world_memory_writeback
+                and world_memory_writeback.get("snapshot_id")
+                else None
             ),
         }
         return {
@@ -478,6 +565,7 @@ class MeetingSessionMixin:
         self.session.start()
         self.session.status = MeetingStatus.ACTIVE
         self.session.state_before = self._capture_state_snapshot()
+        self._persist_prefetched_governed_context()
 
         # Feature 4: Snapshot MeetingExecutionContext into session metadata
         ctx = getattr(self, "ctx", None)
@@ -620,6 +708,7 @@ class MeetingSessionMixin:
 
         # ADR-001 v2 Phase 1: Emit session_digest (L1→L2 bridge)
         canonical_memory = None
+        world_memory_writeback = None
         try:
             from backend.app.services.memory.writeback.meeting_memory_writeback_orchestrator import (
                 MeetingMemoryWritebackOrchestrator,
@@ -679,9 +768,31 @@ class MeetingSessionMixin:
                 exc,
             )
 
+        try:
+            from backend.app.system_capabilities.world_memory_core.services.world_memory_writeback_orchestrator import (
+                WorldMemoryWritebackOrchestrator,
+            )
+
+            world_orchestrator = WorldMemoryWritebackOrchestrator()
+            world_memory_writeback = world_orchestrator.run_for_closed_session(
+                session=self.session,
+                workspace=getattr(self, "workspace", None),
+                profile_id=getattr(self, "profile_id", ""),
+            )
+            if world_memory_writeback.get("updated"):
+                self.session.metadata["world_memory_writeback"] = world_memory_writeback
+                self.session_store.update(self.session)
+        except Exception as exc:
+            logger.warning(
+                "Failed to execute world-memory writeback for %s: %s",
+                self.session.id,
+                exc,
+            )
+
         self.session.metadata["memory_impact_trace"] = self._build_memory_impact_trace(
             selected_packet_node_ids=selected_packet_node_ids,
             canonical_memory=canonical_memory,
+            world_memory_writeback=world_memory_writeback,
             meeting_decision_ids=[
                 getattr(decision, "id", "")
                 for decision in decisions
@@ -700,6 +811,7 @@ class MeetingSessionMixin:
                 "state_diff": self.session.state_diff,
                 "dispatch_result": dispatch_result,
                 "canonical_memory": canonical_memory,
+                "world_memory_writeback": world_memory_writeback,
             },
         )
 

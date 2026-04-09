@@ -4,9 +4,9 @@ Preset Diff Service
 比较两个 Preset 的差异
 """
 from typing import Dict
-from app.services.stores.graph_store import GraphStore
-from app.models.graph import LensProfileNode, LensNodeState, GraphNode
-from app.models.preset_diff import PresetDiff, NodeStateChange
+from backend.app.services.stores.graph_store import GraphStore
+from backend.app.models.graph import LensProfileNode, LensNodeState, GraphNode
+from backend.app.models.preset_diff import PresetDiff, NodeStateChange
 
 
 class PresetDiffService:

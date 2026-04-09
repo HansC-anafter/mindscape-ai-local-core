@@ -421,3 +421,51 @@ class WorkspaceChatResponse(BaseModel):
     pending_tasks: list[dict] = Field(
         default_factory=list, description="Pending task status cards"
     )
+
+
+class WorkspaceChatModelOption(BaseModel):
+    """Workspace-scoped conversational model option."""
+
+    id: str = Field(..., description="Stable option identifier")
+    label: str = Field(..., description="User-facing label")
+    model_name: str = Field(..., description="Underlying model name")
+    provider: str = Field(..., description="Provider or origin provider name")
+    source_kind: str = Field(
+        ...,
+        description="Selection source kind: executor_runtime | direct_llm",
+    )
+    runtime_id: Optional[str] = Field(
+        None, description="Executor runtime id when source_kind=executor_runtime"
+    )
+    available: bool = Field(
+        default=True, description="Whether the option is currently runnable"
+    )
+    auth_status: Optional[str] = Field(
+        None, description="Runtime auth status summary when available"
+    )
+    disabled_reason: Optional[str] = Field(
+        None, description="Reason shown when the option is unavailable"
+    )
+
+
+class WorkspaceChatModelPreferenceRequest(BaseModel):
+    """Update the workspace-scoped chat model preference."""
+
+    selection_id: str = Field(..., description="Selected option id")
+
+
+class WorkspaceChatModelPreferenceResponse(BaseModel):
+    """Workspace-scoped chat model preference payload."""
+
+    workspace_id: str = Field(..., description="Workspace id")
+    current_selection: Optional[WorkspaceChatModelOption] = Field(
+        None, description="Current persisted or derived selection"
+    )
+    available_models: List[WorkspaceChatModelOption] = Field(
+        default_factory=list,
+        description="Available model options for this workspace surface",
+    )
+    resolved_executor_runtime: Optional[str] = Field(
+        None,
+        description="Primary executor runtime bound to the workspace, if any",
+    )

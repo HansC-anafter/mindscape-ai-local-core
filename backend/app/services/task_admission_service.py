@@ -8,11 +8,14 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy import text
 
-from app.models.workspace import Task
+from backend.app.models.workspace import Task
+from backend.app.services.task_pause_contract import (
+    USER_PAUSE_RESERVED_BLOCKED_REASON,
+)
 from backend.app.services.runner_topology import (
     DEFAULT_LOCAL_QUEUE_PARTITION,
-    build_queue_partition_filter_clause,
     normalize_queue_partition,
+    queue_partition_aliases,
     queue_partition_env_suffixes,
 )
 
@@ -155,6 +158,11 @@ class TaskAdmissionService:
             should_defer = True
             defer_reason = "pending_limit"
         elif (
+            not self._ignore_oldest_pending_age_gate(
+                queue_shard=queue_shard,
+                policy=policy,
+            )
+            and
             limits.oldest_pending_age_seconds > 0
             and pressure.oldest_pending_age_seconds >= limits.oldest_pending_age_seconds
         ):
@@ -220,6 +228,22 @@ class TaskAdmissionService:
             "producer_kind": producer_kind,
         }
 
+    def _ignore_oldest_pending_age_gate(
+        self,
+        *,
+        queue_shard: str,
+        policy: Dict[str, str],
+    ) -> bool:
+        producer_kind = str(policy.get("producer_kind") or "").strip().lower()
+        if producer_kind != "pin_reference":
+            return False
+
+        # Pin-triggered reference analysis should continue to admit against the
+        # live local-vision path even when there is an ancient ready backlog on
+        # the same shard. Keep the pending-limit guard in place, but do not let
+        # a stale oldest-pending age block all new analyze requests forever.
+        return _normalize_queue_shard(queue_shard) == "vision_local"
+
     def _resolve_limits(self, queue_shard: str, visibility: str) -> AdmissionLimits:
         base_pending_limit = self._resolve_partition_env_limit(
             queue_shard=queue_shard,
@@ -269,55 +293,79 @@ class TaskAdmissionService:
         )
 
     def _load_queue_pressure(self, tasks_store: Any, queue_shard: str) -> AdmissionPressure:
-        queue_clause, queue_params = build_queue_partition_filter_clause(
-            "queue_shard",
-            queue_shard,
-            param_prefix="queue_partition",
-        )
-        query = text(
-            f"""
-            SELECT
-                COUNT(*) FILTER (
-                    WHERE status = 'pending'
-                      AND COALESCE(blocked_reason, '') = :unblocked_reason
-                      AND COALESCE(next_eligible_at, created_at) <= :now
-                      AND COALESCE(frontier_state, :legacy_ready_state) IN (
-                        :ready_frontier_state,
-                        :legacy_ready_state
-                      )
-                ) AS pending_total,
-                COUNT(*) FILTER (
-                    WHERE status = 'running'
-                ) AS running_total,
-                MIN(COALESCE(frontier_enqueued_at, next_eligible_at, created_at)) FILTER (
-                    WHERE status = 'pending'
-                      AND COALESCE(blocked_reason, '') = :unblocked_reason
-                      AND COALESCE(next_eligible_at, created_at) <= :now
-                      AND COALESCE(frontier_state, :legacy_ready_state) IN (
-                        :ready_frontier_state,
-                        :legacy_ready_state
-                      )
-                ) AS oldest_pending_at
-            FROM tasks
-            WHERE task_type IN (:task_type_pb, :task_type_tool)
-              AND status IN (:pending_status, :running_status)
-              AND {queue_clause}
-            """
-        )
-        params = {
+        aliases = queue_partition_aliases(queue_shard)
+        if not aliases:
+            aliases = (queue_shard,)
+
+        base_params = {
             "task_type_pb": _RUNNER_TASK_TYPES[0],
             "task_type_tool": _RUNNER_TASK_TYPES[1],
             "pending_status": "pending",
             "running_status": "running",
+            "pause_reserved_reason": USER_PAUSE_RESERVED_BLOCKED_REASON,
             "now": _utc_now(),
-            "ready_frontier_state": "ready",
-            "legacy_ready_state": "",
             "unblocked_reason": "",
         }
-        params.update(queue_params)
+
+        pending_query = text(
+            """
+            SELECT
+                COUNT(*) AS pending_total,
+                MIN(COALESCE(frontier_enqueued_at, next_eligible_at, created_at)) AS oldest_pending_at
+            FROM tasks
+            WHERE task_type IN (:task_type_pb, :task_type_tool)
+              AND status = :pending_status
+              AND queue_shard = :queue_shard
+              AND frontier_state = 'ready'
+              AND (
+                    blocked_reason IS NULL
+                    OR blocked_reason = :unblocked_reason
+                  )
+              AND (
+                    next_eligible_at <= :now
+                    OR (
+                        next_eligible_at IS NULL
+                        AND created_at <= :now
+                    )
+                  )
+            """
+        )
+        running_query = text(
+            """
+            SELECT COUNT(*) AS running_total
+            FROM tasks
+            WHERE task_type IN (:task_type_pb, :task_type_tool)
+              AND (
+                    status = :running_status
+                    OR (
+                        status = :pending_status
+                        AND blocked_reason = :pause_reserved_reason
+                    )
+                  )
+              AND queue_shard = :queue_shard
+            """
+        )
+
         try:
             with tasks_store.get_connection() as conn:
-                row = conn.execute(query, params).fetchone()
+                pending_total = 0
+                running_total = 0
+                oldest_pending_at = None
+                for alias in aliases:
+                    params = dict(base_params, queue_shard=alias)
+                    pending_row = conn.execute(pending_query, params).fetchone()
+                    pending_total += int(_row_value(pending_row, "pending_total", 0) or 0)
+                    alias_oldest_pending_at = _coerce_datetime(
+                        _row_value(pending_row, "oldest_pending_at")
+                    )
+                    if alias_oldest_pending_at and (
+                        oldest_pending_at is None
+                        or alias_oldest_pending_at < oldest_pending_at
+                    ):
+                        oldest_pending_at = alias_oldest_pending_at
+
+                    running_row = conn.execute(running_query, params).fetchone()
+                    running_total += int(_row_value(running_row, "running_total", 0) or 0)
         except Exception as exc:
             logger.warning(
                 "Task admission pressure query failed for shard=%s: %s",
@@ -333,9 +381,9 @@ class TaskAdmissionService:
 
         return AdmissionPressure(
             queue_shard=queue_shard,
-            pending_total=int(_row_value(row, "pending_total", 0) or 0),
-            running_total=int(_row_value(row, "running_total", 0) or 0),
-            oldest_pending_at=_coerce_datetime(_row_value(row, "oldest_pending_at")),
+            pending_total=pending_total,
+            running_total=running_total,
+            oldest_pending_at=oldest_pending_at,
         )
 
     def _resolve_partition_env_limit(

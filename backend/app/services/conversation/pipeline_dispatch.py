@@ -195,17 +195,21 @@ async def dispatch_to_agent(
             file_context_lines
         )
 
+    context_overrides = {
+        "conversation_context": context_str or "",
+        "thread_id": thread_id,
+        "project_id": project_id,
+        "uploaded_files": enriched_files or [],
+        "recommended_pack_codes": recommended_pack_codes,
+        "file_hint": file_hint,
+    }
+    if model_name:
+        context_overrides["model"] = model_name
+
     agent_response: AgentExecutionResponse = await executor.execute(
         task=task_message,
         agent_id=executor_runtime,
-        context_overrides={
-            "conversation_context": context_str or "",
-            "thread_id": thread_id,
-            "project_id": project_id,
-            "uploaded_files": enriched_files or [],
-            "recommended_pack_codes": recommended_pack_codes,
-            "file_hint": file_hint,
-        },
+        context_overrides=context_overrides,
     )
 
     exec_time = agent_response.execution_time_seconds
@@ -349,16 +353,17 @@ async def dispatch_to_llm(
     # Resolve model
     if not model_name:
         try:
-            from backend.app.services.system_settings_store import (
-                SystemSettingsStore,
+            from backend.app.services.conversation.chat_model_resolution import (
+                resolve_conversational_model_name,
             )
 
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-            if chat_setting and chat_setting.value:
-                model_name = str(chat_setting.value)
+            model_name = resolve_conversational_model_name(
+                model_name,
+                workspace=workspace,
+                db_path=getattr(store, "db_path", None),
+            )
         except Exception as e:
-            logger.warning(f"Failed to fetch default chat model: {e}")
+            logger.warning(f"Failed to fetch conversational model: {e}")
 
     if not model_name or str(model_name).strip() == "":
         result.success = False

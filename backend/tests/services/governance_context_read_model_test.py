@@ -10,6 +10,7 @@ from backend.app.models.personal_governance.personal_knowledge import (
     KnowledgeStatus,
     PersonalKnowledge,
 )
+from backend.app.services import capability_registry
 from backend.app.services.governance.governance_context_read_model import (
     GovernanceContextReadModel,
 )
@@ -238,3 +239,317 @@ async def test_governance_context_read_model_compiles_selected_packet():
     assert "Old stale goal" not in formatted
     assert "Already done" not in formatted
     assert "stale episode should not be included" not in formatted.lower()
+
+
+@pytest.mark.asyncio
+async def test_governance_context_read_model_includes_world_memory_sidecars(
+    monkeypatch,
+):
+    workspace = SimpleNamespace(
+        id="ws-1",
+        owner_user_id="profile-1",
+        primary_project_id="proj-1",
+        mode="research",
+        execution_mode="hybrid",
+        runtime_profile=SimpleNamespace(metadata={"memory_scope": "extended"}),
+        sandbox_config={"tool_policies": {"network": "restricted"}},
+        metadata={"mind_lens": {"label": "Research editor"}},
+    )
+
+    def _fake_export_context(self, **kwargs):
+        assert kwargs["workspace_id"] == "ws-1"
+        return {
+            "world_memory_packet": {
+                "workspace_id": "ws-1",
+                "snapshot_id": "snap-1",
+                "source": "synthetic",
+                "scene_id": "scene.demo",
+                "current_zone": "main_floor",
+            },
+            "world_card_projection": {
+                "title": "World Card",
+                "summary_lines": ["Scene: scene.demo", "Zone: main_floor"],
+                "constraints": [],
+                "suggested_focus": [],
+                "metadata": {"source": "synthetic"},
+            },
+            "world_card_text": "World Card\n- Scene: scene.demo\n- Zone: main_floor",
+        }
+
+    monkeypatch.setattr(
+        "backend.app.system_capabilities.world_memory_core.services.context_export_facade.ContextExportFacade.export_context",
+        _fake_export_context,
+    )
+
+    read_model = GovernanceContextReadModel(
+        store=SimpleNamespace(),
+        workspace_core_memory_service=_FakeWorkspaceCoreMemoryService(),
+        project_memory_service=_FakeProjectMemoryService(),
+        member_profile_memory_service=_FakeMemberProfileMemoryService(),
+        personal_knowledge_store=_FakePersonalKnowledgeStore(),
+        goal_ledger_store=_FakeGoalLedgerStore(),
+        memory_item_store=_FakeMemoryItemStore(),
+    )
+
+    packet = await read_model.build_for_workspace(workspace)
+
+    assert packet["world_memory_packet"]["scene_id"] == "scene.demo"
+    assert packet["world_card_projection"]["summary_lines"][1] == "Zone: main_floor"
+    assert "Zone: main_floor" in packet["world_card_text"]
+
+
+@pytest.mark.asyncio
+async def test_governance_context_read_model_builds_geo_context_via_installed_capability(
+    monkeypatch,
+):
+    workspace = SimpleNamespace(
+        id="ws-1",
+        owner_user_id="profile-1",
+        primary_project_id="proj-1",
+        mode="research",
+        execution_mode="hybrid",
+        runtime_profile=SimpleNamespace(metadata={"memory_scope": "extended"}),
+        sandbox_config={"tool_policies": {"network": "restricted"}},
+        metadata={
+            "mind_lens": {"label": "Research editor"},
+            "google_geo_seed": {
+                "geocode_result": {
+                    "lat": 25.033,
+                    "lng": 121.565,
+                    "formatted_address": "Taipei 101",
+                    "place_id": "place-101",
+                },
+                "place_context": {
+                    "place_id": "place-101",
+                    "name": "Taipei 101",
+                    "formatted_address": "Taipei City",
+                    "types": ["point_of_interest"],
+                },
+                "route_context": {
+                    "mode": "walking",
+                    "distance_meters": 800,
+                    "duration_seconds": 600,
+                    "origin_label": "hotel",
+                    "destination_label": "taipei101",
+                },
+            },
+        },
+    )
+
+    class _FakeRegistry:
+        def get_capability(self, capability_code):
+            if capability_code == "google_geo_layer":
+                return {"manifest": {"code": capability_code}}
+            return None
+
+        def get_tool(self, tool_name):
+            if tool_name == "google_geo_layer.ggl_bind_dual_world_context":
+                return {"name": tool_name}
+            return None
+
+    async def _fake_call_tool_async(capability, tool, **kwargs):
+        if capability == "google_geo_layer":
+            assert tool == "ggl_bind_dual_world_context"
+            assert kwargs["geocode_result"]["place_id"] == "place-101"
+            return {
+                "geo_anchor": {
+                    "provider": "google_maps_platform",
+                    "lat": 25.033,
+                    "lng": 121.565,
+                    "place_id": "place-101",
+                    "formatted_address": "Taipei 101",
+                },
+                "venue_context": {
+                    "provider": "google_maps_platform",
+                    "place_id": "place-101",
+                    "name": "Taipei 101",
+                    "formatted_address": "Taipei City",
+                    "types": ["point_of_interest"],
+                },
+                "route_context": {
+                    "provider": "google_maps_platform",
+                    "mode": "walking",
+                    "distance_meters": 800,
+                    "duration_seconds": 600,
+                },
+                "streetview_context": None,
+            }
+
+    def _fake_export_context(self, **kwargs):
+        assert kwargs["geo_context"]["venue_context"]["name"] == "Taipei 101"
+        return {
+            "world_memory_packet": {
+                "workspace_id": "ws-1",
+                "snapshot_id": "snap-geo",
+                "source": "synthetic",
+                "scene_id": "scene.demo",
+                "current_zone": "main_floor",
+                "geo_anchor": kwargs["geo_context"]["geo_anchor"],
+                "venue_context": kwargs["geo_context"]["venue_context"],
+                "route_context": kwargs["geo_context"]["route_context"],
+            },
+            "world_card_projection": {
+                "title": "World Card",
+                "summary_lines": [
+                    "Scene: scene.demo",
+                    "Venue: Taipei 101",
+                    "Route: walking 800m / 600s",
+                ],
+                "constraints": [],
+                "suggested_focus": [],
+                "metadata": {"source": "synthetic"},
+            },
+            "world_card_text": "World Card\n- Venue: Taipei 101",
+        }
+
+    monkeypatch.setattr(capability_registry, "get_registry", lambda: _FakeRegistry())
+    monkeypatch.setattr(capability_registry, "call_tool_async", _fake_call_tool_async)
+    monkeypatch.setattr(
+        "backend.app.system_capabilities.world_memory_core.services.context_export_facade.ContextExportFacade.export_context",
+        _fake_export_context,
+    )
+
+    read_model = GovernanceContextReadModel(
+        store=SimpleNamespace(),
+        workspace_core_memory_service=_FakeWorkspaceCoreMemoryService(),
+        project_memory_service=_FakeProjectMemoryService(),
+        member_profile_memory_service=_FakeMemberProfileMemoryService(),
+        personal_knowledge_store=_FakePersonalKnowledgeStore(),
+        goal_ledger_store=_FakeGoalLedgerStore(),
+        memory_item_store=_FakeMemoryItemStore(),
+    )
+
+    packet = await read_model.build_for_workspace(workspace)
+
+    assert packet["world_memory_packet"]["geo_anchor"]["place_id"] == "place-101"
+    assert packet["world_card_projection"]["summary_lines"][1] == "Venue: Taipei 101"
+    assert "Taipei 101" in packet["world_card_text"]
+
+
+@pytest.mark.asyncio
+async def test_governance_context_read_model_forwards_provider_neutral_motion_context(
+    monkeypatch,
+):
+    workspace = SimpleNamespace(
+        id="ws-1",
+        owner_user_id="profile-1",
+        primary_project_id="proj-1",
+        mode="research",
+        execution_mode="hybrid",
+        runtime_profile=SimpleNamespace(metadata={"memory_scope": "extended"}),
+        sandbox_config={"tool_policies": {"network": "restricted"}},
+        metadata={
+            "mind_lens": {"label": "Research editor"},
+            "motion_context": {
+                "motion_id": "motion_demo",
+                "provider": "comfyui_kimodo",
+                "status": "completed",
+                "duration_sec": 4.0,
+                "fps": 30,
+                "skeleton_family": "soma",
+                "skeleton_version": "77j_v1",
+                "coordinate_space": "y_up",
+                "artifact_refs": [
+                    {
+                        "artifact_kind": "preview",
+                        "format": "mp4",
+                        "storage_key": "motion/demo/preview.mp4",
+                    }
+                ],
+                "motion_constraints": {"timing_policy": {"fps": 30}},
+            },
+        },
+    )
+
+    def _fake_export_context(self, **kwargs):
+        assert kwargs["motion_context"]["motion_id"] == "motion_demo"
+        assert kwargs["motion_context"]["artifact_refs"][0]["artifact_kind"] == "preview"
+        return {
+            "world_memory_packet": {
+                "workspace_id": "ws-1",
+                "snapshot_id": "snap-motion",
+                "source": "synthetic",
+                "scene_id": "scene.demo",
+                "current_zone": "main_floor",
+                "active_motion": kwargs["motion_context"]["active_motion"]
+                if "active_motion" in kwargs["motion_context"]
+                else {
+                    "motion_id": kwargs["motion_context"]["motion_id"],
+                    "provider": kwargs["motion_context"]["provider"],
+                },
+                "motion_artifact_refs": kwargs["motion_context"]["artifact_refs"],
+                "motion_constraints": kwargs["motion_context"]["motion_constraints"],
+            },
+            "world_card_projection": {
+                "title": "World Card",
+                "summary_lines": ["Scene: scene.demo", "Active motion: motion_demo"],
+                "constraints": ["motion_timing_policy={'fps': 30}"],
+                "suggested_focus": [],
+                "metadata": {"source": "synthetic"},
+            },
+            "world_card_text": "World Card\n- Active motion: motion_demo",
+        }
+
+    monkeypatch.setattr(
+        "backend.app.system_capabilities.world_memory_core.services.context_export_facade.ContextExportFacade.export_context",
+        _fake_export_context,
+    )
+
+    read_model = GovernanceContextReadModel(
+        store=SimpleNamespace(),
+        workspace_core_memory_service=_FakeWorkspaceCoreMemoryService(),
+        project_memory_service=_FakeProjectMemoryService(),
+        member_profile_memory_service=_FakeMemberProfileMemoryService(),
+        personal_knowledge_store=_FakePersonalKnowledgeStore(),
+        goal_ledger_store=_FakeGoalLedgerStore(),
+        memory_item_store=_FakeMemoryItemStore(),
+    )
+
+    packet = await read_model.build_for_workspace(workspace)
+
+    assert packet["world_memory_packet"]["active_motion"]["motion_id"] == "motion_demo"
+    assert (
+        packet["world_memory_packet"]["motion_artifact_refs"][0]["artifact_kind"]
+        == "preview"
+    )
+    assert "Active motion: motion_demo" in packet["world_card_text"]
+
+
+@pytest.mark.asyncio
+async def test_governance_context_read_model_degrades_when_world_memory_export_raises(
+    monkeypatch,
+):
+    workspace = SimpleNamespace(
+        id="ws-1",
+        owner_user_id="profile-1",
+        primary_project_id="proj-1",
+        mode="research",
+        execution_mode="hybrid",
+        runtime_profile=SimpleNamespace(metadata={"memory_scope": "extended"}),
+        sandbox_config={"tool_policies": {"network": "restricted"}},
+        metadata={"mind_lens": {"label": "Research editor"}},
+    )
+
+    def _boom(self, **kwargs):
+        raise RuntimeError("export failed")
+
+    monkeypatch.setattr(
+        "backend.app.system_capabilities.world_memory_core.services.context_export_facade.ContextExportFacade.export_context",
+        _boom,
+    )
+
+    read_model = GovernanceContextReadModel(
+        store=SimpleNamespace(),
+        workspace_core_memory_service=_FakeWorkspaceCoreMemoryService(),
+        project_memory_service=_FakeProjectMemoryService(),
+        member_profile_memory_service=_FakeMemberProfileMemoryService(),
+        personal_knowledge_store=_FakePersonalKnowledgeStore(),
+        goal_ledger_store=_FakeGoalLedgerStore(),
+        memory_item_store=_FakeMemoryItemStore(),
+    )
+
+    packet = await read_model.build_for_workspace(workspace)
+
+    assert "world_memory_packet" not in packet
+    assert "world_card_projection" not in packet
+    assert "world_card_text" not in packet

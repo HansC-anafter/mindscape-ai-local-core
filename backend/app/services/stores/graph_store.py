@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from app.services.stores.postgres_base import PostgresStoreBase
-from app.services.stores.base import StoreError, StoreNotFoundError, StoreValidationError
+from backend.app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.services.stores.base import StoreError, StoreNotFoundError, StoreValidationError
 from ...models.graph import (
     GraphNode, GraphNodeCreate, GraphNodeUpdate, GraphNodeResponse,
     GraphEdge, GraphEdgeCreate, GraphEdgeUpdate,

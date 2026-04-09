@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 from sqlalchemy import text
 
-from app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 if TYPE_CHECKING:
     from backend.app.services.mindscape_graph_service import GraphOverlay

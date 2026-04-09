@@ -5,13 +5,50 @@ Generates personalized welcome messages and initial suggestions for new workspac
 """
 
 import logging
-from typing import Tuple, List, Dict
+from typing import Any, Tuple, List, Dict
 
 from backend.app.models.workspace import Workspace
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.i18n_service import get_i18n_service
 
 logger = logging.getLogger(__name__)
+
+
+async def _resolve_workspace_llm_selection(
+    workspace: Workspace,
+    store: MindscapeStore,
+    profile_id: str,
+) -> Tuple[str, Any]:
+    """Resolve workspace-scoped model/provider for welcome generation."""
+    from backend.app.services.conversation.chat_model_resolution import (
+        resolve_conversational_model_name,
+    )
+    from backend.features.workspace.chat.utils.llm_provider import (
+        get_llm_provider,
+        get_llm_provider_manager,
+    )
+
+    model_name = resolve_conversational_model_name(
+        workspace=workspace,
+        db_path=getattr(store, "db_path", None),
+    )
+    if not model_name or not model_name.strip():
+        raise ValueError(
+            "No conversational model configured. Set workspace preferred_chat_model "
+            "or system chat_model before generating welcome content."
+        )
+
+    provider_manager = get_llm_provider_manager(
+        profile_id=profile_id,
+        db_path=getattr(store, "db_path", None),
+    )
+    llm_provider, _ = get_llm_provider(
+        model_name=model_name,
+        llm_provider_manager=provider_manager,
+        profile_id=profile_id,
+        db_path=getattr(store, "db_path", None),
+    )
+    return model_name, llm_provider
 
 
 async def _generate_personalized_suggestions(
@@ -22,6 +59,7 @@ async def _generate_personalized_suggestions(
     available_playbooks: List[Dict[str, str]],
     locale: str,
     model_name: str,
+    llm_provider: Any,
 ) -> List[str]:
     """
     Generate personalized suggestions using AI based on workspace context
@@ -111,6 +149,8 @@ Produce 2-4 actionable starter steps (one per line, no numbering), each <= 15 wo
             max_tokens=200,
             locale=locale,
             workspace_id=workspace.id,
+            llm_provider=llm_provider,
+            model_name=model_name,
         )
 
         suggestions_text = (
@@ -211,43 +251,19 @@ class WorkspaceWelcomeService:
                     from backend.app.services.conversation.context_builder import (
                         ContextBuilder,
                     )
-                    from backend.app.services.conversation.qa_response_generator import (
-                        QAResponseGenerator,
-                    )
                     from backend.app.services.stores.postgres.timeline_items_store import (
                         PostgresTimelineItemsStore,
                     )
                     from backend.app.capabilities.core_llm.services.generate import (
                         run as generate_text,
                     )
-                    from backend.app.services.system_settings_store import (
-                        SystemSettingsStore,
-                    )
 
                     timeline_items_store = PostgresTimelineItemsStore()
-                    qa_generator = QAResponseGenerator(
+                    model_name, llm_provider = await _resolve_workspace_llm_selection(
+                        workspace=workspace,
                         store=store,
-                        timeline_items_store=timeline_items_store,
-                        default_locale=locale,
+                        profile_id=profile_id,
                     )
-
-                    from backend.app.services.system_settings_store import (
-                        SystemSettingsStore,
-                    )
-
-                    settings_store = SystemSettingsStore()
-                    chat_setting = settings_store.get_setting("chat_model")
-
-                    if not chat_setting or not chat_setting.value:
-                        raise ValueError(
-                            "LLM model not configured. Please select a model in the system settings panel."
-                        )
-
-                    model_name = str(chat_setting.value)
-                    if not model_name or model_name.strip() == "":
-                        raise ValueError(
-                            "LLM model is empty. Please select a valid model in the system settings panel."
-                        )
 
                     context_builder = ContextBuilder(
                         store=store,
@@ -376,6 +392,8 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                         locale=locale,
                         workspace_id=workspace.id,
                         available_playbooks=available_playbooks,
+                        llm_provider=llm_provider,
+                        model_name=model_name,
                     )
                     welcome_message = (
                         result.get("text", "")
@@ -497,6 +515,7 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                         available_playbooks=available_playbooks,
                         locale=locale,
                         model_name=model_name,
+                        llm_provider=llm_provider,
                     )
 
                 except Exception as e:
@@ -518,62 +537,58 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                 )
                 # For returning users, also generate personalized suggestions
                 try:
-                    from backend.app.services.system_settings_store import (
-                        SystemSettingsStore,
+                    model_name, llm_provider = await _resolve_workspace_llm_selection(
+                        workspace=workspace,
+                        store=store,
+                        profile_id=profile_id,
                     )
+                    active_intents = []
+                    try:
+                        from backend.app.models.mindscape import IntentStatus
 
-                    settings_store = SystemSettingsStore()
-                    chat_setting = settings_store.get_setting("chat_model")
-                    if chat_setting and chat_setting.value:
-                        model_name = str(chat_setting.value)
-                        active_intents = []
-                        try:
-                            from backend.app.models.mindscape import IntentStatus
-
-                            intents = store.list_intents(
-                                profile_id=profile_id, status=IntentStatus.ACTIVE
-                            )
-                            active_intents = [
-                                {"title": i.title, "description": i.description or ""}
-                                for i in intents[:5]
-                            ]
-                        except Exception:
-                            pass
-
-                        available_playbooks = []
-                        try:
-                            from backend.app.services.playbook_loader import (
-                                PlaybookLoader,
-                            )
-
-                            playbook_loader = PlaybookLoader()
-                            file_playbooks = playbook_loader.load_all_playbooks()
-                            for pb in file_playbooks:
-                                metadata = (
-                                    pb.metadata if hasattr(pb, "metadata") else None
-                                )
-                                if metadata and metadata.playbook_code:
-                                    available_playbooks.append(
-                                        {
-                                            "playbook_code": metadata.playbook_code,
-                                            "name": metadata.name,
-                                            "description": metadata.description or "",
-                                        }
-                                    )
-                        except Exception:
-                            pass
-
-                        suggestions = await _generate_personalized_suggestions(
-                            workspace=workspace,
-                            store=store,
-                            profile_id=profile_id,
-                            active_intents=active_intents,
-                            available_playbooks=available_playbooks,
-                            locale=locale,
-                            model_name=model_name,
+                        intents = store.list_intents(
+                            profile_id=profile_id, status=IntentStatus.ACTIVE
                         )
-                    else:
-                        suggestions = []
+                        active_intents = [
+                            {"title": i.title, "description": i.description or ""}
+                            for i in intents[:5]
+                        ]
+                    except Exception:
+                        pass
+
+                    available_playbooks = []
+                    try:
+                        from backend.app.services.playbook_loader import (
+                            PlaybookLoader,
+                        )
+
+                        playbook_loader = PlaybookLoader()
+                        file_playbooks = playbook_loader.load_all_playbooks()
+                        for pb in file_playbooks:
+                            metadata = (
+                                pb.metadata if hasattr(pb, "metadata") else None
+                            )
+                            if metadata and metadata.playbook_code:
+                                available_playbooks.append(
+                                    {
+                                        "playbook_code": metadata.playbook_code,
+                                        "name": metadata.name,
+                                        "description": metadata.description or "",
+                                    }
+                                )
+                    except Exception:
+                        pass
+
+                    suggestions = await _generate_personalized_suggestions(
+                        workspace=workspace,
+                        store=store,
+                        profile_id=profile_id,
+                        active_intents=active_intents,
+                        available_playbooks=available_playbooks,
+                        locale=locale,
+                        model_name=model_name,
+                        llm_provider=llm_provider,
+                    )
                 except Exception as e:
                     logger.warning(
                         f"Failed to generate suggestions for returning user: {e}"

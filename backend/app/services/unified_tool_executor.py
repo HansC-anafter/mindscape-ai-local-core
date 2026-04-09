@@ -20,6 +20,7 @@ def _utc_now():
 from pathlib import Path
 import importlib
 import inspect
+import sys
 
 from backend.app.models.playbook import ToolDependency
 from backend.app.services.tools.base import MindscapeTool
@@ -47,6 +48,73 @@ try:
     import yaml  # type: ignore
 except Exception:  # pragma: no cover
     yaml = None
+
+
+def _resolve_backend_target(module: Any, target_path: str) -> Optional[Any]:
+    """Resolve manifest backend targets including dotted class methods."""
+    try:
+        target: Any = module
+        parts = [part for part in str(target_path).split(".") if part]
+        if not parts:
+            return None
+
+        for index, part in enumerate(parts):
+            next_target = getattr(target, part, None)
+            if next_target is None:
+                return None
+            if index < len(parts) - 1 and inspect.isclass(next_target):
+                next_target = next_target()
+            target = next_target
+        return target
+    except Exception:
+        return None
+
+
+def _materialize_mindscape_tool(target: Any) -> Optional[MindscapeTool]:
+    if isinstance(target, MindscapeTool):
+        return target
+    if inspect.isclass(target) and issubclass(target, MindscapeTool):
+        return target()
+    return None
+
+
+def _unwrap_tool_payload(result: Any) -> Any:
+    if hasattr(result, "success") and hasattr(result, "result"):
+        if not getattr(result, "success", False):
+            raise RuntimeError(getattr(result, "error", None) or "Tool execution failed")
+        return getattr(result, "result", None)
+    return result
+
+
+async def _execute_materialized_tool(tool: MindscapeTool, kwargs: Dict[str, Any]) -> Any:
+    tool_result = await tool.safe_execute(**kwargs)
+    if not tool_result.success:
+        raise RuntimeError(tool_result.error or f"Tool {tool.name} execution failed")
+    return _unwrap_tool_payload(tool_result.result)
+
+
+def _import_capability_backend_module(module_path: str) -> Any:
+    """Import capability backend modules across repo/runtime path variants."""
+    if module_path.startswith("capabilities."):
+        app_dir = Path(__file__).resolve().parents[1]
+        app_dir_str = str(app_dir)
+        if app_dir_str not in sys.path:
+            sys.path.insert(0, app_dir_str)
+
+    candidates = [module_path]
+    if module_path.startswith("capabilities."):
+        candidates.append(module_path.replace("capabilities.", "backend.app.capabilities.", 1))
+        candidates.append(module_path.replace("capabilities.", "app.capabilities.", 1))
+
+    last_error: Optional[Exception] = None
+    for candidate in candidates:
+        try:
+            return importlib.import_module(candidate)
+        except Exception as exc:  # pragma: no cover - best-effort fallback
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise ImportError(f"Unable to import capability backend module: {module_path}")
 
 
 class ToolExecutionResult:
@@ -346,13 +414,13 @@ class UnifiedToolExecutor:
                 return None
 
             module_path, target = backend.rsplit(":", 1)
-            module = importlib.import_module(module_path)
-            fn = getattr(module, target, None)
+            module = _import_capability_backend_module(module_path)
+            fn = _resolve_backend_target(module, target)
             if fn is None:
                 return None
 
             class CapabilityToolWrapper(MindscapeTool):
-                def __init__(self, _fn):
+                def __init__(self, _target):
                     metadata = ToolMetadata(
                         name=tool_code,
                         description=(
@@ -367,17 +435,49 @@ class UnifiedToolExecutor:
                         danger_level=ToolDangerLevel.LOW,
                     )
                     super().__init__(metadata)
-                    self._fn = _fn
+                    self._target = _target
 
-                # Capability tools often accept flexible kwargs; do not drop unknown args.
                 def validate_input(self, **kwargs) -> Dict[str, Any]:  # type: ignore[override]
+                    tool = _materialize_mindscape_tool(self._target)
+                    if tool is not None:
+                        return tool.validate_input(**kwargs)
+
+                    if callable(self._target):
+                        try:
+                            signature = inspect.signature(self._target)
+                        except (TypeError, ValueError):
+                            return kwargs
+                        if not signature.parameters:
+                            try:
+                                materialized = self._target()
+                            except TypeError:
+                                return kwargs
+                            tool = _materialize_mindscape_tool(materialized)
+                            if tool is not None:
+                                self._target = tool
+                                return tool.validate_input(**kwargs)
                     return kwargs
 
                 async def execute(self, **kwargs) -> Any:  # type: ignore[override]
-                    result = self._fn(**kwargs)
+                    tool = _materialize_mindscape_tool(self._target)
+                    if tool is not None:
+                        return await _execute_materialized_tool(tool, kwargs)
+
+                    if not callable(self._target):
+                        return self._target
+
+                    signature = inspect.signature(self._target)
+                    if signature.parameters:
+                        result = self._target(**kwargs)
+                    else:
+                        result = self._target()
                     if inspect.isawaitable(result):
-                        return await result
-                    return result
+                        result = await result
+                    tool = _materialize_mindscape_tool(result)
+                    if tool is not None:
+                        self._target = tool
+                        return await _execute_materialized_tool(tool, kwargs)
+                    return _unwrap_tool_payload(result)
 
             return CapabilityToolWrapper(fn)
         except Exception as e:

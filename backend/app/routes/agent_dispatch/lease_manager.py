@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from .models import ReservedTask
+from .result_payloads import merge_dispatch_transport_inputs
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +264,18 @@ class LeaseManagerMixin:
                 )
                 return None
 
+        inflight = self._inflight.get(execution_id)
+        dispatch_payload = None
+        if reserved and getattr(reserved, "task", None):
+            dispatch_payload = reserved.task.payload
+        elif inflight and getattr(inflight, "payload", None):
+            dispatch_payload = inflight.payload
+
+        result_data = merge_dispatch_transport_inputs(
+            result_data,
+            dispatch_payload or {},
+        )
+
         # Persist result to DB (source of truth)
         workspace_id = None
         thread_id = None
@@ -304,7 +317,11 @@ class LeaseManagerMixin:
                     f"[AgentWS] DB task {execution_id} already "
                     f"{db_task.status.value}, no-op"
                 )
-                self._completed[execution_id] = time.monotonic()
+                self._mark_completed_execution(
+                    execution_id,
+                    result=result_data,
+                    status=result_data.get("status", "completed"),
+                )
                 return {"accepted": True, "duplicate": True}
         except Exception:
             logger.exception(
@@ -350,9 +367,11 @@ class LeaseManagerMixin:
                     queue.pop(i)
                     break
 
-        self._completed[execution_id] = time.monotonic()
-        while len(self._completed) > self.COMPLETED_MAX_SIZE:
-            self._completed.popitem(last=False)
+        self._mark_completed_execution(
+            execution_id,
+            result=result_data,
+            status=result_data.get("status", "completed"),
+        )
 
         if db_written or inflight:
             return {

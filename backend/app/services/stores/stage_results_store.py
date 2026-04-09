@@ -10,7 +10,7 @@ from datetime import datetime
 
 from sqlalchemy import text
 
-from app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 logger = logging.getLogger(__name__)
 

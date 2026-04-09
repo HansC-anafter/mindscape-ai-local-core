@@ -48,6 +48,7 @@ async def execute_playbook_slot(
     step: Any,
     current_depth: int,
     resolved_inputs: Dict[str, Any],
+    resume_checkpoint: Optional[Dict[str, Any]],
     execution_id: Optional[str],
     workspace_id: Optional[str],
     profile_id: Optional[str],
@@ -84,9 +85,13 @@ async def execute_playbook_slot(
         current_depth + 1,
     )
 
+    sub_playbook_inputs = dict(resolved_inputs)
+    if isinstance(resume_checkpoint, dict):
+        sub_playbook_inputs["_workflow_checkpoint"] = resume_checkpoint
+
     sub_result = await execute_playbook_steps_fn(
         sub_playbook_json,
-        resolved_inputs,
+        sub_playbook_inputs,
         execution_id=execution_id,
         workspace_id=workspace_id,
         profile_id=profile_id,

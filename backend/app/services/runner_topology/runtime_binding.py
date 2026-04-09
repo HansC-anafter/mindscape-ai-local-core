@@ -25,6 +25,14 @@ _RUNTIME_ENV_METADATA_FIELDS = (
     "target_device_id",
 )
 
+_LOCAL_RUNTIME_ID_ALIASES = {
+    "local",
+    "local-core",
+}
+_LOCAL_DISPATCH_MODE_ALIASES = _LOCAL_RUNTIME_ID_ALIASES | {
+    "docker_local",
+}
+
 
 @dataclass(frozen=True)
 class RuntimeBindingTarget:
@@ -44,16 +52,44 @@ def _normalized_string(value: Any) -> Optional[str]:
     return normalized or None
 
 
+def _is_local_runtime_alias(value: Any) -> bool:
+    token = _normalized_string(value)
+    return bool(token and token.lower() in _LOCAL_RUNTIME_ID_ALIASES)
+
+
+def _normalize_dispatch_mode(value: Any) -> Optional[str]:
+    token = _normalized_string(value)
+    if not token:
+        return None
+    if token.lower() in _LOCAL_DISPATCH_MODE_ALIASES:
+        return "docker_local"
+    return token
+
+
 def _normalize_runtime_affinity(value: Any) -> dict[str, str]:
     if isinstance(value, str):
         normalized = _normalized_string(value)
-        return {"runtime_id": normalized} if normalized else {}
+        if not normalized:
+            return {}
+        if normalized.lower() in _LOCAL_RUNTIME_ID_ALIASES:
+            return {"dispatch_mode": "docker_local"}
+        return {"runtime_id": normalized}
 
     if not isinstance(value, dict):
         return {}
 
     normalized: dict[str, str] = {}
-    for key in _RUNTIME_AFFINITY_FIELDS:
+    runtime_id = _normalized_string(value.get("runtime_id"))
+    if runtime_id and not _is_local_runtime_alias(runtime_id):
+        normalized["runtime_id"] = runtime_id
+
+    dispatch_mode = _normalize_dispatch_mode(value.get("dispatch_mode"))
+    if runtime_id and _is_local_runtime_alias(runtime_id) and not dispatch_mode:
+        dispatch_mode = "docker_local"
+    if dispatch_mode:
+        normalized["dispatch_mode"] = dispatch_mode
+
+    for key in ("runtime_url", "transport", "site_key", "device_id"):
         token = _normalized_string(value.get(key))
         if token:
             normalized[key] = token
@@ -83,10 +119,23 @@ def resolve_runtime_binding(
 ) -> RuntimeBindingTarget:
     task_affinity = resolve_task_runtime_affinity(task) if task is not None else {}
 
-    runtime_id = task_affinity.get("runtime_id") or _normalized_string(profile.runtime_id)
+    profile_runtime_id = _normalized_string(profile.runtime_id)
+    if _is_local_runtime_alias(profile_runtime_id):
+        profile_runtime_id = None
+
+    task_requests_local_dispatch = (
+        bool(task_affinity)
+        and task_affinity.get("dispatch_mode") == "docker_local"
+        and "runtime_id" not in task_affinity
+    )
+    runtime_id = (
+        None
+        if task_requests_local_dispatch
+        else task_affinity.get("runtime_id") or profile_runtime_id
+    )
     dispatch_mode = (
         task_affinity.get("dispatch_mode")
-        or _normalized_string(profile.dispatch_mode)
+        or _normalize_dispatch_mode(profile.dispatch_mode)
         or "docker_local"
     )
     runtime_url = task_affinity.get("runtime_url")
@@ -116,7 +165,7 @@ def resolve_runtime_binding(
 
 def _load_runtime_environment_snapshot(runtime_id: str) -> Optional[dict[str, Any]]:
     normalized_runtime_id = _normalized_string(runtime_id)
-    if not normalized_runtime_id or normalized_runtime_id == "local-core":
+    if not normalized_runtime_id or _is_local_runtime_alias(normalized_runtime_id):
         return None
 
     try:
@@ -173,7 +222,11 @@ def _normalize_runtime_environment_metadata(snapshot: Any) -> dict[str, str]:
 
     normalized: dict[str, str] = {}
     for key in _RUNTIME_ENV_METADATA_FIELDS:
-        token = _normalized_string(metadata.get(key))
+        token = (
+            _normalize_dispatch_mode(metadata.get(key))
+            if key == "dispatch_mode"
+            else _normalized_string(metadata.get(key))
+        )
         if token:
             normalized[key] = token
 
@@ -192,6 +245,8 @@ def resolve_runtime_dispatch_target(
 ) -> RuntimeBindingTarget:
     binding = resolve_runtime_binding(profile, task)
     runtime_id = binding.runtime_id
+    if _is_local_runtime_alias(runtime_id):
+        runtime_id = None
 
     dispatch_mode = binding.dispatch_mode
     if runtime_id and dispatch_mode == "docker_local":

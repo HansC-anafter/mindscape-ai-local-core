@@ -641,6 +641,11 @@ async def update_workspace(
             logger.info(
                 f"Updated execution_mode for workspace {workspace_id}: {request.execution_mode}"
             )
+        if hasattr(request, "meeting_enabled") and request.meeting_enabled is not None:
+            workspace.meeting_enabled = request.meeting_enabled
+            logger.info(
+                f"Updated meeting_enabled for workspace {workspace_id}: {request.meeting_enabled}"
+            )
         if (
             hasattr(request, "expected_artifacts")
             and request.expected_artifacts is not None
@@ -664,6 +669,22 @@ async def update_workspace(
             workspace.capability_profile = request.capability_profile
             logger.info(
                 f"Updated capability_profile for workspace {workspace_id}: {request.capability_profile}"
+            )
+        if (
+            hasattr(request, "executor_runtime")
+            and request.executor_runtime is not None
+        ):
+            workspace.executor_runtime = request.executor_runtime
+            logger.info(
+                f"Updated executor_runtime for workspace {workspace_id}: {request.executor_runtime}"
+            )
+        if hasattr(request, "sandbox_config") and request.sandbox_config is not None:
+            workspace.sandbox_config = request.sandbox_config
+            logger.info(f"Updated sandbox_config for workspace {workspace_id}")
+        if hasattr(request, "fallback_model") and request.fallback_model is not None:
+            workspace.fallback_model = request.fallback_model
+            logger.info(
+                f"Updated fallback_model for workspace {workspace_id}: {request.fallback_model}"
             )
 
         # Handle metadata merge-update (governance features, SGR settings, etc.)

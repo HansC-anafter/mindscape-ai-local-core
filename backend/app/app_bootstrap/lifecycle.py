@@ -1,10 +1,94 @@
 import os
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from backend.app.init_db import init_mindscape_tables
 
 logger = logging.getLogger(__name__)
+
+
+async def _sync_tool_rag_pack_embedding_state(
+    *,
+    tool_embedding_service,
+    activation_service,
+    installed_packs_store,
+):
+    """Reconcile pack embedding state without blocking the main event loop."""
+    synced = 0
+    pack_ids = await asyncio.to_thread(installed_packs_store.list_installed_pack_ids)
+    for pack_id in pack_ids:
+        try:
+            stats = await tool_embedding_service.get_capability_embedding_status(pack_id)
+            await asyncio.to_thread(
+                activation_service.record_embedding_observed,
+                pack_id=pack_id,
+                row_count=stats["row_count"],
+                latest_updated_at=stats["latest_updated_at"],
+            )
+            synced += 1
+        except Exception as sync_exc:
+            logger.warning(
+                "Tool RAG pack embedding state sync failed for %s: %s",
+                pack_id,
+                sync_exc,
+            )
+        await asyncio.sleep(0)
+    logger.info(
+        "Tool RAG pack embedding state sync completed: %d packs checked.",
+        synced,
+    )
+
+
+async def _run_compile_job_startup_recovery() -> None:
+    """Resume/reconcile orphaned compile jobs without blocking API startup."""
+    try:
+        from backend.app.services.compile_job_reconciler import CompileJobReconciler
+        from backend.app.services.stores.compile_job_store import CompileJobStore
+        from backend.app.services.stores.meeting_session_store import (
+            MeetingSessionStore,
+        )
+
+        # Yield once so uvicorn can finish startup and begin serving health checks.
+        await asyncio.sleep(0)
+        reconcile_summary = await CompileJobReconciler(
+            compile_job_store=CompileJobStore(),
+            meeting_session_store=MeetingSessionStore(),
+        ).recover_startup_orphans(limit=500)
+        logger.info(
+            "Compile job startup reconcile complete: inspected=%d resumed=%d succeeded=%d failed=%d session_failed=%d skipped=%d",
+            reconcile_summary["inspected"],
+            reconcile_summary["resumed"],
+            reconcile_summary["succeeded"],
+            reconcile_summary["failed"],
+            reconcile_summary["session_failed"],
+            reconcile_summary["skipped"],
+        )
+    except Exception as e:
+        logger.warning(
+            "Compile job startup recovery failed (non-blocking): %s",
+            e,
+            exc_info=True,
+        )
+
+
+async def _start_compile_job_startup_services() -> None:
+    """Start compile-job background services after API startup can complete."""
+    try:
+        from backend.app.services.compile_job_dispatch_manager import (
+            get_compile_job_dispatch_manager,
+        )
+
+        await asyncio.sleep(0)
+        get_compile_job_dispatch_manager().start_background_services()
+        logger.info("Compile job dispatch background services started")
+        await _run_compile_job_startup_recovery()
+    except Exception as e:
+        logger.warning(
+            "Compile job startup services failed (non-blocking): %s",
+            e,
+            exc_info=True,
+        )
 
 async def run_startup(app: FastAPI):
     """Initialize database tables and background tasks on startup"""
@@ -254,12 +338,56 @@ async def run_startup(app: FastAPI):
     except Exception as e:
         logger.warning(f"Meeting session table bootstrap failed (non-blocking): {e}")
 
+    try:
+        from backend.app.services.stores.compile_job_store import CompileJobStore
+
+        _compile_job_store = CompileJobStore()
+        _compile_job_store.ensure_table()
+        logger.info("compile_jobs table ensured (startup)")
+
+        asyncio.create_task(_start_compile_job_startup_services())
+        logger.info("Compile job startup services task scheduled")
+    except Exception as e:
+        logger.warning(
+            f"Compile job startup reconcile failed (non-blocking): {e}",
+            exc_info=True,
+        )
+
+    try:
+        from backend.app.capabilities.performance_direction.services.scene_generation_dispatch_manager import (
+            get_scene_generation_dispatch_manager,
+        )
+        from backend.app.services.stores.installed_packs_store import (
+            InstalledPacksStore,
+        )
+
+        if "performance_direction" in set(
+            InstalledPacksStore().list_enabled_pack_ids()
+        ):
+            started = (
+                get_scene_generation_dispatch_manager().start_background_services()
+            )
+            if started:
+                logger.info("Scene generation dispatch background services started")
+            else:
+                logger.info(
+                    "Scene generation dispatch startup skipped: scene_generation_jobs schema unavailable"
+                )
+        else:
+            logger.info(
+                "Scene generation dispatch startup skipped: performance_direction not enabled"
+            )
+    except Exception as e:
+        logger.warning(
+            f"Scene generation dispatch startup failed (non-blocking): {e}",
+            exc_info=True,
+        )
+
     # Tool RAG
     try:
         from backend.app.services.pack_activation_service import PackActivationService
         from backend.app.services.stores.installed_packs_store import InstalledPacksStore
         from backend.app.services.tool_embedding_service import ToolEmbeddingService
-        import asyncio
 
         async def _tool_rag_bootstrap():
             try:
@@ -273,25 +401,10 @@ async def run_startup(app: FastAPI):
                 except RuntimeError:
                     n = await tes.index_all_tools()
                     logger.info("Tool RAG single-model fallback bootstrap completed: %d tools indexed.", n)
-                synced = 0
-                for pack_id in installed_packs_store.list_installed_pack_ids():
-                    try:
-                        stats = await tes.get_capability_embedding_status(pack_id)
-                        activation_service.record_embedding_observed(
-                            pack_id=pack_id,
-                            row_count=stats["row_count"],
-                            latest_updated_at=stats["latest_updated_at"],
-                        )
-                        synced += 1
-                    except Exception as sync_exc:
-                        logger.warning(
-                            "Tool RAG pack embedding state sync failed for %s: %s",
-                            pack_id,
-                            sync_exc,
-                        )
-                logger.info(
-                    "Tool RAG pack embedding state sync completed: %d packs checked.",
-                    synced,
+                await _sync_tool_rag_pack_embedding_state(
+                    tool_embedding_service=tes,
+                    activation_service=activation_service,
+                    installed_packs_store=installed_packs_store,
                 )
             except Exception as e:
                 logger.warning("Tool RAG bootstrap failed: %s", e)
@@ -369,6 +482,59 @@ async def run_shutdown(app: FastAPI):
                 logger.info("Cloud Connector disconnected")
             except Exception as e:
                 logger.warning(f"Error disconnecting Cloud Connector: {e}")
+
+    try:
+        from backend.app.services.compile_job_dispatch_manager import (
+            get_compile_job_dispatch_manager,
+        )
+        from backend.app.services.compile_job_reconciler import CompileJobReconciler
+        from backend.app.services.compile_job_task_registry import (
+            compile_job_task_registry,
+        )
+        from backend.app.services.stores.compile_job_store import CompileJobStore
+        from backend.app.services.stores.meeting_session_store import (
+            MeetingSessionStore,
+        )
+
+        get_compile_job_dispatch_manager().stop_background_services()
+        logger.info("Compile job dispatch background services stopped")
+
+        in_flight_job_ids = [
+            item.job_id
+            for item in compile_job_task_registry.snapshot()
+        ]
+        shutdown_summary = CompileJobReconciler(
+            compile_job_store=CompileJobStore(),
+            meeting_session_store=MeetingSessionStore(),
+        ).requeue_running_jobs_for_shutdown(job_ids=in_flight_job_ids)
+        logger.info(
+            "Compile job graceful-shutdown requeue complete: inspected=%d requeued=%d session_reset=%d skipped=%d",
+            shutdown_summary["inspected"],
+            shutdown_summary["requeued"],
+            shutdown_summary["session_reset"],
+            shutdown_summary["skipped"],
+        )
+        for job_id in in_flight_job_ids:
+            compile_job_task_registry.cancel(job_id)
+            compile_job_task_registry.unregister(job_id)
+    except Exception as e:
+        logger.warning(
+            f"Error stopping compile job dispatch background services: {e}",
+            exc_info=True,
+        )
+
+    try:
+        from backend.app.capabilities.performance_direction.services.scene_generation_dispatch_manager import (
+            get_scene_generation_dispatch_manager,
+        )
+
+        get_scene_generation_dispatch_manager().stop_background_services()
+        logger.info("Scene generation dispatch background services stopped")
+    except Exception as e:
+        logger.warning(
+            f"Error stopping scene generation dispatch background services: {e}",
+            exc_info=True,
+        )
 
     try:
         from backend.app.routes.agent_dispatch import get_agent_dispatch_manager

@@ -257,6 +257,18 @@ class RedisRunnerQueueStore:
             logger.error(f"[Redis Lock] Failed release {lock_key}: {e}")
             return False
 
+    async def force_release_lock(self, lock_key: str) -> bool:
+        """Force-delete a lock key after the caller verified it is stale."""
+        client = await self._get_client()
+        if not client:
+            return False
+        try:
+            deleted = await client.delete(lock_key)
+            return bool(deleted)
+        except Exception as e:
+            logger.error(f"[Redis Lock] Failed force release {lock_key}: {e}")
+            return False
+
     async def get_lock_owner(self, lock_key: str) -> Optional[str]:
         client = await self._get_client()
         if not client:

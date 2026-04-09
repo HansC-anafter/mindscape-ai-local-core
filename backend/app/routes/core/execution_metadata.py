@@ -31,6 +31,7 @@ VALID_RESOURCE_CLASSES = {
 
 # Conservative default — unknown playbooks should NOT flood the api pool.
 DEFAULT_RESOURCE_CLASS = RESOURCE_CLASS_COMPUTE
+LOCAL_RUNTIME_AFFINITY_ALIASES = {"local", "local-core", "docker_local"}
 
 
 def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:
@@ -110,6 +111,48 @@ def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:
         meta["runtime_affinity"] = runtime_affinity
 
     return meta
+
+
+def seed_playbook_workload_execution_intent(
+    *,
+    playbook_code: Optional[str],
+    workspace_id: Optional[str],
+    inputs: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Seed workload_execution_intent for playbooks that rely on live policy resolution.
+
+    ``ig_analyze_pinned_reference`` routes only the ``vision_analyze`` step remotely.
+    The runner-side ExecutionIntentResolver can build the remote tool route correctly,
+    but only if the queued inputs already carry ``workload_execution_intent``.
+    """
+    seeded_inputs = dict(inputs) if isinstance(inputs, dict) else {}
+    normalized_playbook_code = str(playbook_code or "").strip()
+    normalized_workspace_id = str(workspace_id or "").strip()
+
+    if normalized_playbook_code != "ig_analyze_pinned_reference":
+        return seeded_inputs
+    if not normalized_workspace_id:
+        return seeded_inputs
+    if isinstance(seeded_inputs.get("workload_execution_intent"), dict):
+        return seeded_inputs
+
+    try:
+        from backend.app.capabilities.ig.services.vision_runtime_policy import (
+            build_reference_execution_intent,
+        )
+
+        seeded_inputs["workload_execution_intent"] = build_reference_execution_intent(
+            workspace_id=normalized_workspace_id
+        )
+    except Exception:
+        logger.warning(
+            "Failed to seed workload_execution_intent for playbook %s workspace %s",
+            normalized_playbook_code,
+            normalized_workspace_id,
+            exc_info=True,
+        )
+
+    return seeded_inputs
 
 
 def should_route_through_runner(
@@ -246,19 +289,40 @@ def _resolve_runtime_affinity_from_profile(
     if isinstance(declared, str):
         normalized = declared.strip()
         if normalized:
+            if normalized.lower() in LOCAL_RUNTIME_AFFINITY_ALIASES:
+                return {"dispatch_mode": "docker_local"}
             return {"runtime_id": normalized}
         return None
 
     if not isinstance(declared, dict):
         return None
 
-    normalized = {
-        key: value.strip()
-        for key, value in declared.items()
-        if key in {"runtime_id", "runtime_url", "transport", "dispatch_mode", "site_key", "device_id"}
-        and isinstance(value, str)
-        and value.strip()
-    }
+    normalized: Dict[str, str] = {}
+    runtime_id = declared.get("runtime_id")
+    if isinstance(runtime_id, str) and runtime_id.strip():
+        runtime_id = runtime_id.strip()
+        if runtime_id.lower() not in LOCAL_RUNTIME_AFFINITY_ALIASES:
+            normalized["runtime_id"] = runtime_id
+    dispatch_mode = declared.get("dispatch_mode")
+    if isinstance(dispatch_mode, str) and dispatch_mode.strip():
+        dispatch_mode = dispatch_mode.strip()
+        normalized["dispatch_mode"] = (
+            "docker_local"
+            if dispatch_mode.lower() in LOCAL_RUNTIME_AFFINITY_ALIASES
+            else dispatch_mode
+        )
+    elif isinstance(runtime_id, str) and runtime_id.lower() in LOCAL_RUNTIME_AFFINITY_ALIASES:
+        normalized["dispatch_mode"] = "docker_local"
+
+    normalized.update(
+        {
+            key: value.strip()
+            for key, value in declared.items()
+            if key in {"runtime_url", "transport", "site_key", "device_id"}
+            and isinstance(value, str)
+            and value.strip()
+        }
+    )
     return normalized or None
 
 

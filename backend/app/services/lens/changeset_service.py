@@ -8,12 +8,12 @@ import logging
 from typing import List, Optional, Dict
 from datetime import datetime, timezone
 
-from app.services.stores.graph_store import GraphStore
-from app.services.lens.effective_lens_resolver import EffectiveLensResolver
-from app.services.lens.session_override_store import SessionOverrideStore
-from app.models.changeset import ChangeSet, NodeChange
-from app.models.graph import LensNodeState
-from app.models.lens_kernel import EffectiveLens
+from backend.app.services.stores.graph_store import GraphStore
+from backend.app.services.lens.effective_lens_resolver import EffectiveLensResolver
+from backend.app.services.lens.session_override_store import SessionOverrideStore
+from backend.app.models.changeset import ChangeSet, NodeChange
+from backend.app.models.graph import LensNodeState
+from backend.app.models.lens_kernel import EffectiveLens
 import os
 
 logger = logging.getLogger(__name__)

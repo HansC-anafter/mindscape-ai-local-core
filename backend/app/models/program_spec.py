@@ -24,6 +24,18 @@ class Workstream(BaseModel):
     id: str = Field(..., description="Stable workstream ID")
     name: str = Field(default="", description="e.g. 'Research Stream'")
     description: str = Field(default="")
+    produces_deliverables: List[str] = Field(
+        default_factory=list,
+        description="RequestContract deliverable IDs this workstream produces",
+    )
+    reviews_deliverables: List[str] = Field(
+        default_factory=list,
+        description="RequestContract deliverable IDs this workstream reviews",
+    )
+    consumes_deliverables: List[str] = Field(
+        default_factory=list,
+        description="RequestContract deliverable IDs this workstream consumes",
+    )
     estimated_units: int = Field(default=1, ge=1, description="e.g. 10 papers")
     unit_template: Optional[str] = Field(
         default=None,

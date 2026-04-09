@@ -6,7 +6,6 @@ handoff bundles. These are Layer 0 kernel routes for cross-boundary
 task delegation.
 """
 
-import asyncio
 import logging
 from typing import Any, Dict, Optional
 
@@ -17,7 +16,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.models.compile_job import CompileJob
 from backend.app.models.handoff import Commitment, HandoffIn
 from backend.app.models.signed_bundle import SignedHandoffBundle
-from backend.app.services.compile_job_task_registry import compile_job_task_registry
 from backend.app.services.handoff_bundle_service import HandoffBundleService
 from backend.app.services.stores.compile_job_store import CompileJobStore
 
@@ -203,12 +201,21 @@ async def compile_bundle(request: CompileRequest) -> JSONResponse:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid bundle format: {exc}")
 
-    if bundle.payload_type != "handoff_in":
+    svc = HandoffBundleService()
+    try:
+        extracted = svc.extract_payload(bundle, secret_key=request.secret_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    if extracted["payload_type"] != "handoff_in":
         raise HTTPException(
             status_code=400,
-            detail=f"Compile requires handoff_in bundle, got {bundle.payload_type}",
+            detail=(
+                "Compile requires handoff_in bundle, "
+                f"got {extracted['payload_type']}"
+            ),
         )
-    handoff_in = HandoffIn(**bundle.payload)
+    handoff_in = extracted["payload"]
 
     # Resolve workspace context
     try:
@@ -223,8 +230,6 @@ async def compile_bundle(request: CompileRequest) -> JSONResponse:
                 status_code=404,
                 detail=f"Workspace {request.workspace_id} not found",
             )
-
-        runtime_profile = getattr(workspace, "runtime_profile", None)
     except ImportError:
         raise HTTPException(
             status_code=503,
@@ -254,6 +259,16 @@ async def compile_bundle(request: CompileRequest) -> JSONResponse:
         "route_kind": getattr(route_decision, "route_kind", None),
         "model_name": request.model_name,
         "active_session_reused": session_reused,
+        "_internal_recovery_context": {
+            "handoff_in": handoff_in.model_dump(mode="json"),
+            "workspace_id": request.workspace_id,
+            "project_id": request.project_id,
+            "profile_id": request.profile_id,
+            "thread_id": request.thread_id,
+            "model_name": request.model_name,
+            "source_device_id": bundle.source_device_id,
+            "executor_target_client_id": request.executor_target_client_id,
+        },
     }
     if request.executor_target_client_id:
         compile_job_metadata["executor_target_client_id"] = (
@@ -271,39 +286,24 @@ async def compile_bundle(request: CompileRequest) -> JSONResponse:
         metadata=compile_job_metadata,
     )
     compile_job_store.create(compile_job)
+    try:
+        from backend.app.services.compile_job_dispatch_manager import (
+            get_compile_job_dispatch_manager,
+        )
 
-    svc = HandoffBundleService()
-
-    async def _run_compile_in_background() -> None:
-        try:
-            await svc.compile_handoff_in(
-                handoff_in=handoff_in,
-                workspace=workspace,
-                runtime_profile=runtime_profile,
-                profile_id=request.profile_id,
-                thread_id=request.thread_id,
-                project_id=request.project_id,
-                model_name=request.model_name,
-                source_device_id=bundle.source_device_id,
-                route_decision=route_decision,
-                compile_job_id=compile_job.id,
-                compile_job_store=compile_job_store,
-                session_override=session,
-                session_reused_override=session_reused,
-                executor_target_client_id=request.executor_target_client_id,
-            )
-        except Exception as exc:
-            logger.error("Background compile job %s failed: %s", compile_job.id, exc)
-        finally:
-            compile_job_task_registry.unregister(compile_job.id)
-
-    task = asyncio.create_task(_run_compile_in_background())
-    compile_job_task_registry.register(compile_job.id, task)
+        get_compile_job_dispatch_manager().notify_pending_job()
+    except Exception as exc:
+        logger.warning(
+            "Failed to notify compile job dispatcher for %s: %s",
+            compile_job.id,
+            exc,
+        )
 
     return JSONResponse(
         status_code=202,
         content={
             "status": "accepted",
+            "job_id": compile_job.id,
             "compile_job_id": compile_job.id,
             "session_id": session.id,
             "workspace_id": request.workspace_id,

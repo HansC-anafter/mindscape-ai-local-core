@@ -9,10 +9,10 @@ Resolves effective lens by merging:
 from typing import Optional, Dict, Literal
 from datetime import datetime, timezone
 
-from app.services.stores.graph_store import GraphStore
-from app.services.lens.session_override_store import SessionOverrideStore
-from app.models.graph import GraphNode, LensNodeState
-from app.models.lens_kernel import (
+from backend.app.services.stores.graph_store import GraphStore
+from backend.app.services.lens.session_override_store import SessionOverrideStore
+from backend.app.models.graph import GraphNode, LensNodeState
+from backend.app.models.lens_kernel import (
     EffectiveLens, LensNode, compute_lens_hash
 )
 

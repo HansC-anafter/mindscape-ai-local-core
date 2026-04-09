@@ -18,6 +18,8 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
+from starlette.websockets import WebSocketState
+
 from .models import AgentClient, InflightTask, PendingTask
 
 logger = logging.getLogger(__name__)
@@ -43,6 +45,8 @@ CREATE TABLE IF NOT EXISTS pending_dispatch (
     id SERIAL PRIMARY KEY,
     execution_id VARCHAR(64) UNIQUE NOT NULL,
     workspace_id VARCHAR(64) NOT NULL,
+    target_client_id VARCHAR(64),
+    surface_type VARCHAR(32),
     payload JSONB NOT NULL,
     status VARCHAR(16) DEFAULT 'pending',
     result_data JSONB,
@@ -56,6 +60,23 @@ CREATE INDEX IF NOT EXISTS idx_pending_dispatch_status
     ON pending_dispatch(status);
 """
 _tables_ensured = False
+
+
+def _websocket_requires_accept(websocket: Any) -> bool:
+    """Return True only when the websocket is still in the initial handshake.
+
+    Starlette tracks websocket state in both ``client_state`` and
+    ``application_state``. Guarding only on ``client_state`` is insufficient:
+    during reconnect races the application side may already be connected or
+    closing, and attempting a second ``websocket.accept`` raises a runtime
+    state-transition error inside uvicorn.
+    """
+
+    return (
+        getattr(websocket, "client_state", None) == WebSocketState.CONNECTING
+        and getattr(websocket, "application_state", None)
+        == WebSocketState.CONNECTING
+    )
 
 
 def _get_worker_instance_id() -> str:
@@ -104,6 +125,16 @@ def _get_core_db_connection():
                     "ADD COLUMN IF NOT EXISTS last_progress_at "
                     "TIMESTAMP WITH TIME ZONE"
                 )
+                cur.execute(
+                    "ALTER TABLE pending_dispatch "
+                    "ADD COLUMN IF NOT EXISTS target_client_id "
+                    "VARCHAR(64)"
+                )
+                cur.execute(
+                    "ALTER TABLE pending_dispatch "
+                    "ADD COLUMN IF NOT EXISTS surface_type "
+                    "VARCHAR(32)"
+                )
             conn.commit()
             _tables_ensured = True
             logger.info("[AgentWS] Cross-worker tables ensured (on-demand)")
@@ -134,7 +165,8 @@ class ConnectionMixin:
         if not normalized_surface:
             raise ValueError("surface_type is required for agent connections")
 
-        await websocket.accept()
+        if _websocket_requires_accept(websocket):
+            await websocket.accept()
 
         cid = client_id or str(uuid.uuid4())
 

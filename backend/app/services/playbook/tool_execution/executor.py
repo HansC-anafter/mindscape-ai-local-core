@@ -41,6 +41,8 @@ class PlaybookToolExecutor:
         step_id: Optional[str] = None,
         factory_cluster: Optional[str] = None,
         project_id: Optional[str] = None,
+        llm_provider_override: Optional[Any] = None,
+        llm_model_name_override: Optional[str] = None,
         **kwargs,
     ) -> Any:
         
@@ -145,8 +147,13 @@ class PlaybookToolExecutor:
         tool_call_id = str(uuid.uuid4())
 
         # 5. Parameter Normalization
+        normalization_context = dict(self.execution_context)
+        if llm_provider_override is not None:
+            normalization_context["llm_provider"] = llm_provider_override
+        if llm_model_name_override:
+            normalization_context["model_name"] = llm_model_name_override
         normalized_kwargs = ToolParameterNormalizer.normalize(
-            tool_fqn, kwargs, self.execution_context, workspace_id
+            tool_fqn, kwargs, normalization_context, workspace_id
         )
 
         try:

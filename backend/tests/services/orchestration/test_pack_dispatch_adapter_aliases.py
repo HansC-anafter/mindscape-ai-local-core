@@ -31,7 +31,7 @@ def test_prepare_handoff_uses_request_contract_source_message_for_user_request()
     assert inputs["project_id"] == "proj-123"
 
 
-def test_prepare_handoff_does_not_alias_meeting_session_id_to_session_id():
+def test_prepare_handoff_aliases_meeting_session_id_to_session_id():
     adapter = PackDispatchAdapter()
     session = SimpleNamespace(
         id="meeting-123",
@@ -53,4 +53,4 @@ def test_prepare_handoff_does_not_alias_meeting_session_id_to_session_id():
     )
 
     assert inputs["meeting_session_id"] == "meeting-123"
-    assert "session_id" not in inputs
+    assert inputs["session_id"] == "meeting-123"

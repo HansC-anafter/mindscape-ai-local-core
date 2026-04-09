@@ -26,6 +26,24 @@ from backend.app.services.external_agents.core.base_adapter import (
 logger = logging.getLogger(__name__)
 
 
+def _extract_transport_inputs(agent_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    raw_inputs = agent_cfg.get("inputs")
+    if isinstance(raw_inputs, dict) and raw_inputs:
+        return dict(raw_inputs)
+
+    extracted: Dict[str, Any] = {}
+    for key in (
+        "deliverable_id",
+        "deliverable_name",
+        "deliverable_path",
+        "deliverable_targets",
+    ):
+        value = agent_cfg.get(key)
+        if value is not None:
+            extracted[key] = value
+    return extracted
+
+
 def build_dispatch_payload(
     request: RuntimeExecRequest,
     execution_id: str,
@@ -39,6 +57,32 @@ def build_dispatch_payload(
     # Extract conversation context and thread_id from agent_config
     # These are injected by chat_orchestrator_service when routing to agent
     agent_cfg = request.agent_config or {}
+    transport_inputs = _extract_transport_inputs(agent_cfg)
+    context = {
+        "project_id": request.project_id,
+        "intent_id": request.intent_id,
+        "lens_id": request.lens_id,
+        "auth_workspace_id": request.auth_workspace_id or request.workspace_id,
+        "source_workspace_id": request.source_workspace_id or request.workspace_id,
+        "sandbox_path": request.sandbox_path,
+        "conversation_context": agent_cfg.get("conversation_context", ""),
+        "thread_id": agent_cfg.get("thread_id", ""),
+        "uploaded_files": agent_cfg.get("uploaded_files", []),
+        "recommended_pack_codes": agent_cfg.get("recommended_pack_codes", []),
+        "file_hint": agent_cfg.get("file_hint", ""),
+        "control_action": agent_cfg.get("control_action", ""),
+    }
+    if transport_inputs:
+        context["inputs"] = dict(transport_inputs)
+        for key in (
+            "deliverable_id",
+            "deliverable_name",
+            "deliverable_path",
+            "deliverable_targets",
+        ):
+            value = transport_inputs.get(key)
+            if value is not None:
+                context[key] = value
     return {
         "execution_id": execution_id,
         "workspace_id": request.workspace_id or "",
@@ -48,20 +92,7 @@ def build_dispatch_payload(
         "allowed_tools": request.allowed_tools,
         "max_duration": request.max_duration_seconds,
         "model": agent_cfg.get("model"),  # per-agent model hint (P1.5)
-        "context": {
-            "project_id": request.project_id,
-            "intent_id": request.intent_id,
-            "lens_id": request.lens_id,
-            "auth_workspace_id": request.auth_workspace_id or request.workspace_id,
-            "source_workspace_id": request.source_workspace_id or request.workspace_id,
-            "sandbox_path": request.sandbox_path,
-            "conversation_context": agent_cfg.get("conversation_context", ""),
-            "thread_id": agent_cfg.get("thread_id", ""),
-            "uploaded_files": agent_cfg.get("uploaded_files", []),
-            "recommended_pack_codes": agent_cfg.get("recommended_pack_codes", []),
-            "file_hint": agent_cfg.get("file_hint", ""),
-            "control_action": agent_cfg.get("control_action", ""),
-        },
+        "context": context,
         "issued_at": datetime.now(timezone.utc).isoformat(),
     }
 

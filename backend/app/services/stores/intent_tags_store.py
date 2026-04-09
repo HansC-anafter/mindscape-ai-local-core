@@ -15,7 +15,7 @@ def _utc_now():
 
 from sqlalchemy import text
 
-from app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 from ...models.mindscape import IntentTag, IntentTagStatus, IntentSource
 
 logger = logging.getLogger(__name__)

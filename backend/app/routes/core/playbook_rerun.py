@@ -27,7 +27,11 @@ from .execution_hooks import (
     async_invoke_tool_slot,
     resolve_inputs_map,
 )
-from .execution_metadata import resolve_runner_metadata, should_route_through_runner
+from .execution_metadata import (
+    resolve_runner_metadata,
+    seed_playbook_workload_execution_intent,
+    should_route_through_runner,
+)
 from backend.app.services.runner_topology import DEFAULT_LOCAL_QUEUE_PARTITION
 
 logger = logging.getLogger(__name__)
@@ -327,6 +331,11 @@ async def rerun_playbook_execution(
                     normalized_inputs["project_id"] = project_id
                 if profile_id and "profile_id" not in normalized_inputs:
                     normalized_inputs["profile_id"] = profile_id
+                normalized_inputs = seed_playbook_workload_execution_intent(
+                    playbook_code=playbook_code,
+                    workspace_id=workspace_id,
+                    inputs=normalized_inputs,
+                )
 
                 from backend.app.models.workspace import (
                     PlaybookExecution,

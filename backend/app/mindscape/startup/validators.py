@@ -262,7 +262,10 @@ class StartupValidator:
                 strict_mode = os.getenv("MINDSCAPE_STRICT_VALIDATION", "1") == "1"
 
                 for error in checker.errors:
-                    message = f"File {file_path}: {error} - Use 'capabilities.*' instead (mindscape.capabilities.* is deprecated)"
+                    message = (
+                        f"File {file_path}: {error} - Import path violates current startup-validation rules; "
+                        "do not rely on deprecated mindscape.capabilities.* or forbidden direct capability-root imports in capability source files"
+                    )
 
                     if strict_mode:
                         # Production strict mode: violations treated as errors, will block startup
@@ -503,5 +506,4 @@ def run_startup_validation(app=None) -> bool:
         )
 
     return passed
-
 

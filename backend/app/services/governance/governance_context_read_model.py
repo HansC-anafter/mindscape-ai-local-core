@@ -122,30 +122,145 @@ class GovernanceContextReadModel:
             workspace_mode=getattr(workspace_ref, "mode", None),
         )
 
-        return {
-            "governance_context": {
-                "workspace_id": resolved_workspace_id,
-                "profile_id": resolved_profile_id,
-                "project_id": resolved_project_id,
-                "mode": getattr(workspace_ref, "mode", None),
-                "execution_mode": getattr(workspace_ref, "execution_mode", None),
-                "lens": lens_context,
-                "policy": policy_context,
-                "sources": {
-                    "canonical_item_count": len(canonical_items),
-                    "personal_knowledge_count": len(personal_knowledge),
-                    "goal_count": len(goal_entries),
-                    "has_project_memory": project_memory is not None,
-                    "has_member_memory": member_memory is not None,
-                },
+        governance_context = {
+            "workspace_id": resolved_workspace_id,
+            "profile_id": resolved_profile_id,
+            "project_id": resolved_project_id,
+            "mode": getattr(workspace_ref, "mode", None),
+            "execution_mode": getattr(workspace_ref, "execution_mode", None),
+            "lens": lens_context,
+            "policy": policy_context,
+            "sources": {
+                "canonical_item_count": len(canonical_items),
+                "personal_knowledge_count": len(personal_knowledge),
+                "goal_count": len(goal_entries),
+                "has_project_memory": project_memory is not None,
+                "has_member_memory": member_memory is not None,
             },
+        }
+
+        world_context = await self._safe_build_world_context(
+            workspace_id=resolved_workspace_id,
+            profile_id=resolved_profile_id,
+            project_id=resolved_project_id,
+            session_id=session_id,
+            governance_context=governance_context,
+            memory_packet=memory_packet,
+            geo_context=await self._safe_build_geo_context(workspace_ref),
+            motion_context=await self._safe_build_motion_context(workspace_ref),
+        )
+
+        response = {
+            "governance_context": governance_context,
             "memory_packet": memory_packet,
         }
+        if world_context:
+            response.update(world_context)
+        return response
 
     def format_memory_packet_for_context(
         self, governance_packet: Optional[Dict[str, Any]]
     ) -> str:
         return self.packet_compiler.compile_for_context(governance_packet)
+
+    async def _safe_build_world_context(
+        self,
+        *,
+        workspace_id: str,
+        profile_id: str,
+        project_id: Optional[str],
+        session_id: Optional[str],
+        governance_context: Dict[str, Any],
+        memory_packet: Dict[str, Any],
+        geo_context: Optional[Dict[str, Any]] = None,
+        motion_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            from backend.app.system_capabilities.world_memory_core.services.context_export_facade import (
+                ContextExportFacade,
+            )
+
+            result = ContextExportFacade().export_context(
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                project_id=project_id,
+                session_id=session_id,
+                governance_context=governance_context,
+                memory_packet=memory_packet,
+                geo_context=geo_context,
+                motion_context=motion_context,
+            )
+            return result if isinstance(result, dict) else None
+        except (ImportError, ModuleNotFoundError):
+            raise
+        except Exception as exc:
+            logger.debug(
+                "Failed to build world-memory context for workspace %s: %s",
+                workspace_id,
+                exc,
+            )
+            return None
+
+    async def _safe_build_geo_context(
+        self,
+        workspace_ref: Any,
+    ) -> Optional[Dict[str, Any]]:
+        metadata = getattr(workspace_ref, "metadata", None) or {}
+        if not isinstance(metadata, dict):
+            return None
+
+        # Provider-neutral context can be passed through directly when already present.
+        geo_context = metadata.get("geo_context")
+        if isinstance(geo_context, dict) and geo_context:
+            return geo_context
+
+        google_seed = metadata.get("google_geo_seed")
+        if not isinstance(google_seed, dict) or not google_seed:
+            return None
+
+        try:
+            from backend.app.services.capability_registry import (
+                call_tool_async,
+                get_registry,
+            )
+
+            registry = get_registry()
+            if not registry.get_capability("google_geo_layer"):
+                return None
+            if not registry.get_tool("google_geo_layer.ggl_bind_dual_world_context"):
+                return None
+
+            result = await call_tool_async(
+                "google_geo_layer",
+                "ggl_bind_dual_world_context",
+                geocode_result=google_seed.get("geocode_result"),
+                place_context=google_seed.get("place_context"),
+                route_context=google_seed.get("route_context"),
+                streetview_context=google_seed.get("streetview_context"),
+            )
+            return result if isinstance(result, dict) else None
+        except Exception as exc:
+            workspace_id = getattr(workspace_ref, "id", None)
+            logger.debug(
+                "Failed to build geo context for workspace %s: %s",
+                workspace_id,
+                exc,
+            )
+            return None
+
+    async def _safe_build_motion_context(
+        self,
+        workspace_ref: Any,
+    ) -> Optional[Dict[str, Any]]:
+        metadata = getattr(workspace_ref, "metadata", None) or {}
+        if not isinstance(metadata, dict):
+            return None
+
+        motion_context = metadata.get("motion_context")
+        if isinstance(motion_context, dict) and motion_context:
+            return motion_context
+
+        return None
 
     async def _safe_get_workspace_core_memory(self, workspace_id: str) -> Optional[Any]:
         try:

@@ -6,6 +6,7 @@ Uses VectorSearchService for embedding generation (Ollama-first, OpenAI-fallback
 and stores embeddings in the vector DB (mindscape_vectors).
 """
 
+import asyncio
 import logging
 import json
 from pathlib import Path
@@ -491,7 +492,7 @@ class ToolEmbeddingService:
             )
             return 0
 
-    async def get_capability_embedding_status(
+    def _get_capability_embedding_status_sync(
         self, capability_code: str
     ) -> Dict[str, Any]:
         """Return current embedding coverage for one capability code."""
@@ -522,6 +523,15 @@ class ToolEmbeddingService:
             "row_count": int(row[0] or 0),
             "latest_updated_at": row[1],
         }
+
+    async def get_capability_embedding_status(
+        self, capability_code: str
+    ) -> Dict[str, Any]:
+        """Async wrapper that keeps synchronous pg queries off the event loop."""
+        return await asyncio.to_thread(
+            self._get_capability_embedding_status_sync,
+            capability_code,
+        )
 
     # ------------------------------------------------------------------ #
     #  Read path

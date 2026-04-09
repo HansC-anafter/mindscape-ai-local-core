@@ -276,6 +276,8 @@ Please retry the tool call."""
                                 project_id=getattr(conv_manager, "project_id", None),
                                 execution_id=execution_id,
                                 step_id=None,
+                                llm_provider_override=provider,
+                                llm_model_name_override=model_name,
                                 **execution_kwargs,
                             )
                             display_name = tool_slot
@@ -289,6 +291,8 @@ Please retry the tool call."""
                                 profile_id=profile_id,
                                 execution_id=execution_id,
                                 step_id=None,
+                                llm_provider_override=provider,
+                                llm_model_name_override=model_name,
                                 **execution_kwargs,
                             )
                             display_name = tool_name

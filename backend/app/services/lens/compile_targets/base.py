@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Dict, Any
 
-from app.models.lens_kernel import EffectiveLens, CompiledLensContext
+from backend.app.models.lens_kernel import EffectiveLens, CompiledLensContext
 
 
 class CompileTarget(str, Enum):

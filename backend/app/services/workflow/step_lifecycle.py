@@ -116,3 +116,49 @@ def build_gate_pause_result(
     if sandbox_id:
         result["sandbox_id"] = sandbox_id
     return result
+
+
+def build_step_pause_result(
+    *,
+    step_id: str,
+    execution_id: Optional[str],
+    playbook_code: Optional[str],
+    sandbox_id: Optional[str],
+    completed_steps: set[str],
+    step_outputs: Dict[str, Dict[str, Any]],
+    partial_outputs: Dict[str, Any],
+    created_at: datetime,
+    pause_reason: Optional[str] = None,
+    step_checkpoint: Optional[Dict[str, Any]] = None,
+    gate: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Build the paused workflow payload for a paused step result."""
+    checkpoint = {
+        "execution_id": execution_id,
+        "playbook_code": playbook_code,
+        "sandbox_id": sandbox_id,
+        "paused_step_id": step_id,
+        "completed_steps": list(completed_steps),
+        "step_outputs": step_outputs,
+        "created_at": created_at.isoformat(),
+    }
+    if isinstance(step_checkpoint, dict):
+        for field_name in ("pause_mode", "pause_message", "paused_at", "requested_by"):
+            if step_checkpoint.get(field_name) is not None:
+                checkpoint[field_name] = step_checkpoint[field_name]
+    if gate is not None:
+        checkpoint["gate"] = gate
+
+    result = {
+        "status": "paused",
+        "pause_reason": pause_reason or "step_paused",
+        "paused_step_id": step_id,
+        "step_outputs": step_outputs,
+        "outputs": partial_outputs,
+        "checkpoint": checkpoint,
+    }
+    if gate is not None:
+        result["gate"] = gate
+    if sandbox_id:
+        result["sandbox_id"] = sandbox_id
+    return result

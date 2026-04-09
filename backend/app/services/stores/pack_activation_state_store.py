@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
-from app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 
 def _utc_now() -> datetime:

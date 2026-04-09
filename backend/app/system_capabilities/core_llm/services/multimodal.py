@@ -16,6 +16,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -53,6 +54,22 @@ _MLX_WRITE_TIMEOUT_SECONDS = max(
 _MLX_POOL_TIMEOUT_SECONDS = max(
     5.0,
     float(os.getenv("MULTIMODAL_MLX_POOL_TIMEOUT_SECONDS", "30")),
+)
+_MLX_RECOVERY_READY_TIMEOUT_SECONDS = max(
+    30.0,
+    float(os.getenv("MULTIMODAL_MLX_RECOVERY_READY_TIMEOUT_SECONDS", "240")),
+)
+_MLX_RECOVERY_READY_POLL_SECONDS = max(
+    1.0,
+    float(os.getenv("MULTIMODAL_MLX_RECOVERY_READY_POLL_SECONDS", "5")),
+)
+_MLX_RECOVERY_MAX_ATTEMPTS = max(
+    0,
+    int(os.getenv("MULTIMODAL_MLX_RECOVERY_MAX_ATTEMPTS", "1")),
+)
+_MLX_WARMUP_MAX_TOKENS = max(
+    8,
+    int(os.getenv("MULTIMODAL_MLX_WARMUP_MAX_TOKENS", "16")),
 )
 
 
@@ -219,6 +236,212 @@ def _detect_image_mime(b64_data: str) -> str:
     return "image/jpeg"
 
 
+def _coerce_openai_message_text(value: Any) -> str:
+    """Best-effort extraction for OpenAI-style message content variants."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        parts: List[str] = []
+        for item in value:
+            text = _coerce_openai_message_text(item)
+            if text:
+                parts.append(text)
+        return "\n".join(parts).strip()
+    if isinstance(value, dict):
+        for key in ("text", "content", "value", "output_text"):
+            text = _coerce_openai_message_text(value.get(key))
+            if text:
+                return text
+        return ""
+    return str(value).strip()
+
+
+def _normalize_reasoning_trace_mode(value: Any) -> str:
+    text = str(value or "suppress").strip().lower()
+    return "capture" if text == "capture" else "suppress"
+
+
+def _normalize_requested_max_tokens(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _build_mlx_system_message(trace_mode: str) -> str:
+    base = (
+        "You are a vision analysis API. "
+        "Return a single valid JSON object only. "
+        "Do not emit markdown fences."
+    )
+    if trace_mode == "capture":
+        return (
+            base
+            + " If auxiliary reasoning is emitted, keep it terse and evidence-focused. "
+            + " Do not narrate validation, field mapping, corrections, or repeated checks. "
+            + ' Never output phrases like "Thinking Process", "Field Mapping", "Correction on", or "One more check". '
+            + "Do not place prose before the JSON object in visible output. "
+            + "Start with '{' immediately."
+        )
+    return (
+        "/no_think\n"
+        + base
+        + " No thinking, no explanation. Start with '{' immediately."
+    )
+
+
+def _finalize_multimodal_result(
+    result: Dict[str, Any],
+    *,
+    request_id: str,
+    reference_id: str,
+    analysis_profile: str,
+    payload_stats: Dict[str, int],
+    provider_name: str,
+    reasoning_trace_mode: str,
+) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return result
+
+    result.setdefault("request_id", request_id)
+    telemetry = dict(result.get("_telemetry") or {})
+    telemetry.setdefault("request_id", request_id)
+    telemetry.setdefault("reference_id", reference_id)
+    telemetry.setdefault("analysis_profile", analysis_profile)
+    telemetry.setdefault("image_payload_count", payload_stats.get("image_payload_count", 0))
+    telemetry.setdefault(
+        "image_payload_total_bytes",
+        payload_stats.get("image_payload_total_bytes", 0),
+    )
+    telemetry.setdefault("provider", result.get("provider", provider_name))
+    telemetry.setdefault("reasoning_trace_mode", reasoning_trace_mode)
+    result["_telemetry"] = telemetry
+    return result
+
+
+def _looks_like_capture_reasoning_leak(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    if re.search(r"(?im)^\s*thinking process\s*:", normalized):
+        return True
+    if len(re.findall(r"(?i)\bone more check\b", normalized)) >= 2:
+        return True
+    if len(re.findall(r"(?i)\bcorrection on\b", normalized)) >= 2:
+        return True
+    if "JSON Structure Check" in normalized or "Field Mapping" in normalized:
+        return True
+    return False
+
+
+def _looks_like_mlx_disconnect(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return (
+        "server disconnected without sending a response" in text
+        or "remoteprotocolerror" in text
+        or "connection reset" in text
+        or "broken pipe" in text
+    )
+
+
+async def _wait_for_mlx_server_ready(
+    client: Any,
+    *,
+    base_url: str,
+    request_id: str,
+    reference_id: str,
+    analysis_profile: str,
+) -> bool:
+    import httpx
+
+    probe_url = f"{base_url}/v1/models"
+    deadline = time.monotonic() + _MLX_RECOVERY_READY_TIMEOUT_SECONDS
+    last_exc: Optional[BaseException] = None
+    attempt = 0
+    while time.monotonic() < deadline:
+        attempt += 1
+        try:
+            resp = await client.get(
+                probe_url,
+                timeout=httpx.Timeout(connect=5.0, read=5.0, write=5.0, pool=5.0),
+            )
+            resp.raise_for_status()
+            logger.info(
+                "[MultimodalAnalyze] MLX ready probe succeeded request_id=%s reference_id=%s profile=%s attempt=%d",
+                request_id,
+                reference_id,
+                analysis_profile,
+                attempt,
+            )
+            return True
+        except Exception as exc:
+            last_exc = exc
+            await asyncio.sleep(_MLX_RECOVERY_READY_POLL_SECONDS)
+    logger.warning(
+        "[MultimodalAnalyze] MLX ready probe timed out request_id=%s reference_id=%s profile=%s last_error=%s",
+        request_id,
+        reference_id,
+        analysis_profile,
+        last_exc,
+    )
+    return False
+
+
+async def _mlx_warmup_request(
+    client: Any,
+    *,
+    base_url: str,
+    model_name: str,
+    request_id: str,
+    reference_id: str,
+    analysis_profile: str,
+) -> None:
+    warmup_request_id = f"{request_id}_warmup"
+    warmup_headers = {
+        "X-MLX-Request-Id": warmup_request_id,
+        "X-MLX-Reference-Id": reference_id,
+        "X-MLX-Analysis-Profile": f"{analysis_profile}_warmup",
+        "X-MLX-Model-Id": model_name,
+        "X-MLX-Image-Payload-Count": "0",
+        "X-MLX-Image-Payload-Bytes": "0",
+    }
+    try:
+        resp = await client.post(
+            f"{base_url}/v1/chat/completions",
+            headers=warmup_headers,
+            json={
+                "model": model_name,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "Return only a compact JSON object.",
+                    },
+                    {
+                        "role": "user",
+                        "content": "Respond with {\"warm\":true}.",
+                    },
+                ],
+                "temperature": 0.0,
+                "max_tokens": _MLX_WARMUP_MAX_TOKENS,
+                "response_format": {"type": "json_object"},
+            },
+        )
+        resp.raise_for_status()
+        logger.info(
+            "[MultimodalAnalyze] MLX warmup request succeeded request_id=%s reference_id=%s profile=%s",
+            request_id,
+            reference_id,
+            analysis_profile,
+        )
+    finally:
+        await _clear_watchdog_state_async(warmup_request_id)
+
+
 async def vision_analyze(
     images: List[Dict[str, Any]],
     prompt: str = (
@@ -280,6 +503,10 @@ async def vision_analyze(
         or first_image.get("analysis_profile")
         or "unknown"
     )
+    reasoning_trace_mode = _normalize_reasoning_trace_mode(
+        kwargs.get("reasoning_trace_mode")
+    )
+    requested_max_tokens = _normalize_requested_max_tokens(kwargs.get("max_tokens"))
     payload_stats = _image_payload_stats(images)
 
     # ── Resolve model ──
@@ -317,8 +544,24 @@ async def vision_analyze(
         if temperature is None:
             temperature = 0.4
             
-        return await _route_cloud_llm(
-            images, prompt, model_name, "vertex-ai", temperature, workspace_id
+        result = await _route_cloud_llm(
+            images,
+            prompt,
+            model_name,
+            "vertex-ai",
+            temperature,
+            workspace_id,
+            max_tokens=requested_max_tokens,
+            reasoning_trace_mode=reasoning_trace_mode,
+        )
+        return _finalize_multimodal_result(
+            result,
+            request_id=request_id,
+            reference_id=reference_id,
+            analysis_profile=analysis_profile,
+            payload_stats=payload_stats,
+            provider_name="vertex-ai",
+            reasoning_trace_mode=reasoning_trace_mode,
         )
 
     elif provider_name == "openai" or provider_name == "anthropic":
@@ -330,8 +573,24 @@ async def vision_analyze(
         if temperature is None:
             temperature = 0.4
             
-        return await _route_cloud_llm(
-            images, prompt, model_name, provider_name, temperature, workspace_id
+        result = await _route_cloud_llm(
+            images,
+            prompt,
+            model_name,
+            provider_name,
+            temperature,
+            workspace_id,
+            max_tokens=requested_max_tokens,
+            reasoning_trace_mode=reasoning_trace_mode,
+        )
+        return _finalize_multimodal_result(
+            result,
+            request_id=request_id,
+            reference_id=reference_id,
+            analysis_profile=analysis_profile,
+            payload_stats=payload_stats,
+            provider_name=provider_name,
+            reasoning_trace_mode=reasoning_trace_mode,
         )
 
     elif provider_name == "mlx":
@@ -351,17 +610,18 @@ async def vision_analyze(
             reference_id=reference_id,
             analysis_profile=analysis_profile,
             payload_stats=payload_stats,
+            max_tokens=requested_max_tokens,
+            reasoning_trace_mode=reasoning_trace_mode,
         )
-        if isinstance(result, dict):
-            result.setdefault("request_id", request_id)
-            telemetry = dict(result.get("_telemetry") or {})
-            telemetry.setdefault("request_id", request_id)
-            telemetry.setdefault("reference_id", reference_id)
-            telemetry.setdefault("analysis_profile", analysis_profile)
-            telemetry.setdefault("image_payload_count", payload_stats["image_payload_count"])
-            telemetry.setdefault("image_payload_total_bytes", payload_stats["image_payload_total_bytes"])
-            result["_telemetry"] = telemetry
-        return result
+        return _finalize_multimodal_result(
+            result,
+            request_id=request_id,
+            reference_id=reference_id,
+            analysis_profile=analysis_profile,
+            payload_stats=payload_stats,
+            provider_name="mlx",
+            reasoning_trace_mode=reasoning_trace_mode,
+        )
 
     elif provider_name == "huggingface":
         if temperature is None:
@@ -374,8 +634,24 @@ async def vision_analyze(
         return await _route_huggingface(images, prompt, model_name, temperature)
 
     # Fallback for any other provider_name that might be passed
-    return await _route_cloud_llm(
-        images, prompt, model_name, provider_name, temperature, workspace_id
+    result = await _route_cloud_llm(
+        images,
+        prompt,
+        model_name,
+        provider_name,
+        temperature,
+        workspace_id,
+        max_tokens=requested_max_tokens,
+        reasoning_trace_mode=reasoning_trace_mode,
+    )
+    return _finalize_multimodal_result(
+        result,
+        request_id=request_id,
+        reference_id=reference_id,
+        analysis_profile=analysis_profile,
+        payload_stats=payload_stats,
+        provider_name=provider_name,
+        reasoning_trace_mode=reasoning_trace_mode,
     )
 
 
@@ -640,6 +916,8 @@ async def _route_mlx_server(
     reference_id: str = "",
     analysis_profile: str = "unknown",
     payload_stats: Optional[Dict[str, int]] = None,
+    max_tokens: Optional[int] = None,
+    reasoning_trace_mode: str = "suppress",
 ) -> Dict[str, Any]:
     """Route to an OpenAI-compatible vision endpoint.
 
@@ -701,10 +979,7 @@ async def _route_mlx_server(
     messages = [
         {
             "role": "system",
-            "content": "/no_think\nYou are a vision analysis API. "
-                       "Output ONLY the raw JSON object. "
-                       "No thinking, no explanation, no markdown. "
-                       "Start your response with '{' immediately.",
+            "content": _build_mlx_system_message(reasoning_trace_mode),
         },
         {
             "role": "user",
@@ -717,6 +992,19 @@ async def _route_mlx_server(
         server_progress_enabled=use_server_progress
     )
 
+    async def _post_completion(client: Any) -> Any:
+        return await client.post(
+            url,
+            headers=request_headers or None,
+            json={
+                "model": model_name,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": resolved_max,
+                "response_format": {"type": "json_object"},
+            },
+        )
+
     async with httpx.AsyncClient(
         timeout=_build_mlx_http_timeout(
             httpx,
@@ -725,7 +1013,10 @@ async def _route_mlx_server(
     ) as client:
         try:
             from ....shared.inference_config import InferenceConfig
-            resolved_max = InferenceConfig.get_max_tokens(model_name, caller_default=6144)
+            resolved_max = InferenceConfig.get_max_tokens(
+                model_name,
+                caller_default=max_tokens if max_tokens is not None else 12288,
+            )
             
             first_b64 = images[0].get("base64_jpeg", "")
             mime = _detect_image_mime(first_b64) if first_b64 else "unknown"
@@ -795,28 +1086,69 @@ async def _route_mlx_server(
                     )
                 try:
                     mlx_post_started = time.perf_counter()
-                    try:
-                        resp = await client.post(
-                            url,
-                            headers=request_headers or None,
-                            json={
-                                "model": model_name,
-                                "messages": messages,
-                                "temperature": temperature,
-                                "max_tokens": resolved_max,
-                                "response_format": {"type": "json_object"},
-                            },
-                        )
-                    except Exception as exc:
-                        if _should_preserve_watchdog_state_on_error(exc):
-                            clear_watchdog_state = False
+                    last_exc: Optional[BaseException] = None
+                    resp = None
+                    for recovery_attempt in range(_MLX_RECOVERY_MAX_ATTEMPTS + 1):
+                        try:
+                            resp = await _post_completion(client)
+                            break
+                        except Exception as exc:
+                            last_exc = exc
+                            if _should_preserve_watchdog_state_on_error(exc):
+                                clear_watchdog_state = False
+                                logger.warning(
+                                    "[MultimodalAnalyze] Preserving watchdog state after MLX timeout request_id=%s reference_id=%s profile=%s",
+                                    request_id,
+                                    reference_id,
+                                    analysis_profile,
+                                )
+                            if (
+                                recovery_attempt >= _MLX_RECOVERY_MAX_ATTEMPTS
+                                or not _looks_like_mlx_disconnect(exc)
+                            ):
+                                raise
                             logger.warning(
-                                "[MultimodalAnalyze] Preserving watchdog state after MLX timeout request_id=%s reference_id=%s profile=%s",
+                                "[MultimodalAnalyze] MLX disconnected during inference request_id=%s reference_id=%s profile=%s recovery_attempt=%d/%d",
                                 request_id,
                                 reference_id,
                                 analysis_profile,
+                                recovery_attempt + 1,
+                                _MLX_RECOVERY_MAX_ATTEMPTS,
                             )
-                        raise
+                            ready = await _wait_for_mlx_server_ready(
+                                client,
+                                base_url=base_url,
+                                request_id=request_id,
+                                reference_id=reference_id,
+                                analysis_profile=analysis_profile,
+                            )
+                            if not ready:
+                                raise exc
+                            try:
+                                await _mlx_warmup_request(
+                                    client,
+                                    base_url=base_url,
+                                    model_name=model_name,
+                                    request_id=request_id,
+                                    reference_id=reference_id,
+                                    analysis_profile=analysis_profile,
+                                )
+                            except Exception as warmup_exc:
+                                last_exc = warmup_exc
+                                if recovery_attempt >= _MLX_RECOVERY_MAX_ATTEMPTS:
+                                    raise
+                                logger.warning(
+                                    "[MultimodalAnalyze] MLX warmup failed request_id=%s reference_id=%s profile=%s recovery_attempt=%d/%d error=%s",
+                                    request_id,
+                                    reference_id,
+                                    analysis_profile,
+                                    recovery_attempt + 1,
+                                    _MLX_RECOVERY_MAX_ATTEMPTS,
+                                    warmup_exc,
+                                )
+                                continue
+                    if resp is None and last_exc is not None:
+                        raise last_exc
                     telemetry["mlx_post_ms"] = round(
                         (time.perf_counter() - mlx_post_started) * 1000.0,
                         3,
@@ -833,22 +1165,83 @@ async def _route_mlx_server(
             
             resp.raise_for_status()
             data = resp.json()
-            msg = data["choices"][0]["message"]
-            
+            choices = data.get("choices") if isinstance(data, dict) else None
+            first_choice = choices[0] if isinstance(choices, list) and choices else {}
+            msg = first_choice.get("message") if isinstance(first_choice, dict) else {}
+            finish_reason = ""
+            if isinstance(first_choice, dict):
+                finish_reason = str(first_choice.get("finish_reason") or "").strip()
+            if not finish_reason and isinstance(data, dict):
+                finish_reason = str(data.get("finish_reason") or "").strip()
+
             # Prefer content over reasoning; when both exist,
             # pick whichever looks like JSON (starts with '{').
-            resp_content = (msg.get("content") or "").strip()
-            reasoning = (msg.get("reasoning") or "").strip()
-            if resp_content and resp_content.startswith("{"):
+            resp_content = _coerce_openai_message_text(
+                msg.get("content") if isinstance(msg, dict) else None
+            )
+            reasoning = _coerce_openai_message_text(
+                (
+                    msg.get("reasoning")
+                    if isinstance(msg, dict)
+                    else None
+                )
+                or (
+                    msg.get("reasoning_content")
+                    if isinstance(msg, dict)
+                    else None
+                )
+                or (
+                    first_choice.get("text")
+                    if isinstance(first_choice, dict)
+                    else None
+                )
+                or (
+                    data.get("output_text")
+                    if isinstance(data, dict)
+                    else None
+                )
+            )
+            chosen_source = ""
+            if resp_content and resp_content.lstrip().startswith("{"):
                 text = resp_content
-            elif reasoning and reasoning.startswith("{"):
+                chosen_source = "content"
+            elif reasoning and reasoning.lstrip().startswith("{"):
                 text = reasoning
+                chosen_source = "reasoning"
             else:
                 text = resp_content or reasoning
+                chosen_source = "content" if resp_content else "reasoning"
+            capture_leak_non_json = bool(
+                reasoning_trace_mode == "capture"
+                and text
+                and not text.lstrip().startswith("{")
+                and _looks_like_capture_reasoning_leak(text)
+            )
+            if capture_leak_non_json:
+                chosen_source = "capture_leak_non_json"
                 
             if text:
                 telemetry["response_chars"] = len(text)
-                results.append({"shortcode": main_shortcode, "description": text})
+                telemetry["finish_reason"] = finish_reason
+                telemetry["response_source"] = chosen_source
+                result_telemetry = {
+                    "provider": "mlx",
+                    "request_id": request_id,
+                    "finish_reason": finish_reason,
+                    "reasoning_trace_mode": reasoning_trace_mode,
+                    "response_source": chosen_source,
+                }
+                result_item: Dict[str, Any] = {
+                    "shortcode": main_shortcode,
+                    "description": text,
+                    "_telemetry": result_telemetry,
+                }
+                if reasoning_trace_mode == "capture":
+                    if chosen_source == "content" and reasoning and reasoning != text:
+                        result_item["thinking"] = reasoning
+                    elif chosen_source == "reasoning" and resp_content and resp_content != text:
+                        result_item["thinking"] = resp_content
+                results.append(result_item)
                 logger.info(
                     "[MultimodalAnalyze][Perf] request_id=%s shortcode=%s reference_id=%s profile=%s payload_images=%d payload_bytes=%d queue_wait_ms=%.2f mlx_post_ms=%.2f response_chars=%d max_tokens=%d",
                     request_id,
@@ -861,6 +1254,16 @@ async def _route_mlx_server(
                     telemetry["mlx_post_ms"],
                     telemetry["response_chars"],
                     telemetry["resolved_max_tokens"],
+                )
+            else:
+                logger.warning(
+                    "[MultimodalAnalyze] Empty MLX response payload request_id=%s shortcode=%s reference_id=%s profile=%s choices_type=%s choices_count=%s",
+                    request_id,
+                    main_shortcode,
+                    reference_id,
+                    analysis_profile,
+                    type(choices).__name__,
+                    len(choices) if isinstance(choices, list) else -1,
                 )
         except Exception as e:
             logger.warning(
@@ -1006,6 +1409,9 @@ async def _route_cloud_llm(
     provider_name: str,
     temperature: float,
     workspace_id: Optional[str] = None,
+    *,
+    max_tokens: Optional[int] = None,
+    reasoning_trace_mode: str = "suppress",
 ) -> Dict[str, Any]:
     """Route to cloud LLM (OpenAI / Anthropic / Vertex AI) via call_llm."""
     from ....shared.llm_utils import call_llm
@@ -1088,6 +1494,7 @@ async def _route_cloud_llm(
             llm_provider=llm_provider,
             model=model_name,
             temperature=temperature,
+            max_tokens=max_tokens,
         )
         description = resp.get("text", "").strip()
         if description:
@@ -1109,6 +1516,14 @@ async def _route_cloud_llm(
         "model_id": model_name,
         "provider": provider_name,
         "results": results,
+        "_telemetry": {
+            "provider": provider_name,
+            "reasoning_trace_mode": (
+                "capture_unsupported_provider"
+                if reasoning_trace_mode == "capture"
+                else "suppress"
+            ),
+        },
     }
 
 

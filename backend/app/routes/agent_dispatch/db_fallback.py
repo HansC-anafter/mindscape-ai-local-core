@@ -21,12 +21,71 @@ logger = logging.getLogger(__name__)
 class DbFallbackMixin:
     """Mixin: PostgreSQL pending_dispatch cross-worker transport."""
 
+    def _collect_local_dispatch_filters(self) -> tuple[List[str], List[tuple[str, str]]]:
+        """Collect local client routes eligible to pick pending dispatch rows."""
+        local_client_ids: List[str] = []
+        workspace_surface_pairs: List[tuple[str, str]] = []
+        seen_client_ids: set[str] = set()
+        seen_workspace_surfaces: set[tuple[str, str]] = set()
+
+        for workspace_id, clients in self._clients.items():
+            for client in clients.values():
+                if not getattr(client, "authenticated", False):
+                    continue
+                client_id = str(getattr(client, "client_id", "") or "").strip()
+                surface_type = str(getattr(client, "surface_type", "") or "").strip()
+                if client_id and client_id not in seen_client_ids:
+                    seen_client_ids.add(client_id)
+                    local_client_ids.append(client_id)
+                if (
+                    workspace_id
+                    and surface_type
+                    and (workspace_id, surface_type) not in seen_workspace_surfaces
+                ):
+                    seen_workspace_surfaces.add((workspace_id, surface_type))
+                    workspace_surface_pairs.append((workspace_id, surface_type))
+
+        return local_client_ids, workspace_surface_pairs
+
+    @staticmethod
+    def _build_pending_dispatch_route_filter(
+        *,
+        local_client_ids: List[str],
+        workspace_surface_pairs: List[tuple[str, str]],
+    ) -> tuple[str, List[Any]]:
+        """Build SQL predicate limiting DB fallback picks to local routes."""
+        predicates: List[str] = []
+        params: List[Any] = []
+
+        client_ids = [client_id for client_id in local_client_ids if client_id]
+        if client_ids:
+            predicates.append("target_client_id = ANY(%s)")
+            params.append(client_ids)
+
+        for workspace_id, surface_type in workspace_surface_pairs:
+            predicates.append(
+                "("
+                "target_client_id IS NULL "
+                "AND workspace_id = %s "
+                "AND (surface_type IS NULL OR surface_type = %s)"
+                ")"
+            )
+            params.extend([workspace_id, surface_type])
+
+        if not predicates:
+            return "", []
+
+        return " OR ".join(predicates), params
+
     async def _cross_worker_dispatch_via_db(
         self,
         workspace_id: str,
         message: Dict[str, Any],
         execution_id: str,
         timeout: float = 600.0,
+        *,
+        target_client_id: str | None = None,
+        surface_type: str | None = None,
     ) -> Dict[str, Any]:
         """Dispatch a task via PostgreSQL for a remote worker to pick up."""
         try:
@@ -35,6 +94,8 @@ class DbFallbackMixin:
                 execution_id,
                 workspace_id,
                 message,
+                target_client_id,
+                surface_type,
             )
         except Exception as exc:
             logger.exception(
@@ -107,12 +168,19 @@ class DbFallbackMixin:
 
         while True:
             try:
-                if not self.has_local_connections():
+                (
+                    local_client_ids,
+                    workspace_surface_pairs,
+                ) = self._collect_local_dispatch_filters()
+                if not local_client_ids and not workspace_surface_pairs:
                     await asyncio.sleep(1.0)
                     continue
 
                 rows = await asyncio.to_thread(
-                    self._db_pick_pending_dispatches, limit=5
+                    self._db_pick_pending_dispatches,
+                    5,
+                    local_client_ids,
+                    workspace_surface_pairs,
                 )
                 if not rows:
                     no_client_backoff = 0
@@ -124,6 +192,10 @@ class DbFallbackMixin:
                     exec_id = row["execution_id"]
                     ws_id = row["workspace_id"]
                     payload = row["payload"]
+                    target_client_id = row.get("target_client_id")
+                    surface_type = row.get("surface_type") or payload.get(
+                        "agent_id"
+                    ) or payload.get("surface_type")
 
                     logger.info(
                         "[AgentWS] Consumer picked DB fallback task %s "
@@ -132,15 +204,21 @@ class DbFallbackMixin:
                         ws_id,
                     )
 
-                    surface_type = payload.get("agent_id") or payload.get(
-                        "surface_type"
-                    )
-                    client = self.get_client(ws_id, surface_type=surface_type)
+                    if target_client_id:
+                        client = self.get_client(
+                            ws_id,
+                            target_client_id,
+                            surface_type=surface_type,
+                        )
+                    else:
+                        client = self.get_client(ws_id, surface_type=surface_type)
                     if not client:
                         had_no_client = True
                         logger.warning(
-                            "[AgentWS] No local client for %s, marking task %s as no_client",
+                            "[AgentWS] No local client for %s (target_client_id=%s surface=%s), marking task %s as no_client",
                             ws_id,
+                            target_client_id,
+                            surface_type,
                             exec_id,
                         )
                         await asyncio.to_thread(
@@ -235,6 +313,8 @@ class DbFallbackMixin:
         execution_id: str,
         workspace_id: str,
         payload: Dict[str, Any],
+        target_client_id: str | None = None,
+        surface_type: str | None = None,
     ) -> None:
         """Insert a task into pending_dispatch table."""
         conn = _get_core_db_connection()
@@ -244,10 +324,16 @@ class DbFallbackMixin:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO pending_dispatch "
-                    "(execution_id, workspace_id, payload, status) "
-                    "VALUES (%s, %s, %s, 'pending') "
+                    "(execution_id, workspace_id, target_client_id, surface_type, payload, status) "
+                    "VALUES (%s, %s, %s, %s, %s, 'pending') "
                     "ON CONFLICT (execution_id) DO NOTHING",
-                    (execution_id, workspace_id, json.dumps(payload)),
+                    (
+                        execution_id,
+                        workspace_id,
+                        target_client_id,
+                        surface_type,
+                        json.dumps(payload),
+                    ),
                 )
             conn.commit()
         except Exception:
@@ -330,21 +416,37 @@ class DbFallbackMixin:
             conn.close()
 
     @staticmethod
-    def _db_pick_pending_dispatches(limit: int = 5) -> List[Dict[str, Any]]:
+    def _db_pick_pending_dispatches(
+        limit: int = 5,
+        local_client_ids: List[str] | None = None,
+        workspace_surface_pairs: List[tuple[str, str]] | None = None,
+    ) -> List[Dict[str, Any]]:
         """Pick pending tasks atomically using FOR UPDATE SKIP LOCKED."""
+        local_client_ids = list(local_client_ids or [])
+        workspace_surface_pairs = list(workspace_surface_pairs or [])
+        route_filter_sql, route_filter_params = (
+            DbFallbackMixin._build_pending_dispatch_route_filter(
+                local_client_ids=local_client_ids,
+                workspace_surface_pairs=workspace_surface_pairs,
+            )
+        )
+        if not route_filter_sql:
+            return []
+
         conn = _get_core_db_connection()
         if not conn:
             return []
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, execution_id, workspace_id, payload "
+                    "SELECT id, execution_id, workspace_id, target_client_id, surface_type, payload "
                     "FROM pending_dispatch "
                     "WHERE status IN ('pending', 'no_client') "
+                    f"AND ({route_filter_sql}) "
                     "ORDER BY created_at ASC "
                     "LIMIT %s "
                     "FOR UPDATE SKIP LOCKED",
-                    (limit,),
+                    (*route_filter_params, limit),
                 )
                 rows = cur.fetchall()
                 if not rows:
@@ -353,7 +455,14 @@ class DbFallbackMixin:
 
                 result = []
                 for row in rows:
-                    row_id, exec_id, ws_id, payload_data = row
+                    (
+                        row_id,
+                        exec_id,
+                        ws_id,
+                        target_client_id,
+                        surface_type,
+                        payload_data,
+                    ) = row
                     cur.execute(
                         "UPDATE pending_dispatch "
                         "SET status = 'picked', picked_by_pid = %s, "
@@ -367,6 +476,8 @@ class DbFallbackMixin:
                         {
                             "execution_id": exec_id,
                             "workspace_id": ws_id,
+                            "target_client_id": target_client_id,
+                            "surface_type": surface_type,
                             "payload": payload_data,
                         }
                     )

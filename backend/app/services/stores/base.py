@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Emit deprecation warning when module is imported
 warnings.warn(
     "StoreBase (sqlite3-based) is deprecated. "
-    "Use PostgresStoreBase from app.services.stores.postgres_base instead.",
+    "Use PostgresStoreBase from backend.app.services.stores.postgres_base instead.",
     DeprecationWarning,
     stacklevel=2,
 )

@@ -56,6 +56,8 @@ class StubEngine(MeetingPromptsMixin):
         self._project_context = None
         # Locale attribute used by _build_turn_prompt
         self._locale = "en"
+        self._memory_context_summary = ""
+        self._world_card_text = ""
 
 
 class TestBuildLensContext:
@@ -179,6 +181,25 @@ class TestBuildTurnPromptInjection:
             critic_notes=[],
         )
         assert "=== Active Intents ===" not in prompt
+
+    def test_governed_memory_and_world_card_blocks_injected_when_present(self):
+        engine = StubEngine()
+        engine._memory_context_summary = "Routing mode: director / standard\nCore directives:\n- Brand identity: Mindscape"
+        engine._world_card_text = "World Card\n- Scene: scene.demo\n- Zone: main_floor"
+
+        prompt = engine._build_turn_prompt(
+            role_id="planner",
+            round_num=1,
+            user_message="Plan the next move",
+            decision=None,
+            planner_proposals=[],
+            critic_notes=[],
+        )
+
+        assert "=== Governed Memory Context ===" in prompt
+        assert "Brand identity: Mindscape" in prompt
+        assert "=== World Card Projection ===" in prompt
+        assert "Scene: scene.demo" in prompt
 
 
 class FakeInstruction:

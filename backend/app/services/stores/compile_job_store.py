@@ -2,6 +2,7 @@
 Compile job store for handoff bundle compile lifecycle persistence.
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS compile_jobs (
 INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_compile_jobs_ws_created ON compile_jobs(workspace_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_compile_jobs_session ON compile_jobs(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_compile_jobs_ws_project_created ON compile_jobs(workspace_id, project_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_compile_jobs_status ON compile_jobs(status, updated_at DESC)",
 ]
 
@@ -98,6 +100,7 @@ class CompileJobStore(PostgresStoreBase):
                 ),
                 self._job_params(job),
             )
+        self._emit_stream_event(job)
         return job
 
     def get_by_id(self, job_id: str) -> Optional[CompileJob]:
@@ -129,6 +132,168 @@ class CompileJobStore(PostgresStoreBase):
                 {"workspace_id": workspace_id, "limit": limit},
             ).fetchall()
             return [self._row_to_job(row) for row in rows]
+
+    def list_incomplete(self, *, limit: int = 200) -> List[CompileJob]:
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT * FROM compile_jobs
+                    WHERE status IN ('accepted', 'running')
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"limit": limit},
+            ).fetchall()
+            return [self._row_to_job(row) for row in rows]
+
+    def list_accepted(self, *, limit: int = 200) -> List[CompileJob]:
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT * FROM compile_jobs
+                    WHERE status = 'accepted'
+                    ORDER BY created_at ASC
+                    LIMIT :limit
+                    """
+                ),
+                {"limit": limit},
+            ).fetchall()
+            return [self._row_to_job(row) for row in rows]
+
+    def try_claim_for_resume(
+        self,
+        job_id: str,
+        *,
+        session_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[CompileJob]:
+        existing = self.get_by_id(job_id)
+        if not existing:
+            raise StoreNotFoundError(f"Compile job not found: {job_id}")
+
+        merged_metadata = dict(existing.metadata or {})
+        if metadata:
+            merged_metadata.update(metadata)
+
+        with self.transaction() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    UPDATE compile_jobs
+                    SET status = 'running',
+                        session_id = COALESCE(:session_id, session_id),
+                        metadata = :metadata,
+                        started_at = COALESCE(started_at, now()),
+                        updated_at = now()
+                    WHERE id = :id
+                      AND status = 'accepted'
+                    RETURNING id
+                    """
+                ),
+                {
+                    "id": job_id,
+                    "session_id": session_id,
+                    "metadata": self.serialize_json(merged_metadata),
+                },
+            ).fetchone()
+
+        if not result:
+            return None
+        updated_job = self.get_by_id(job_id)
+        if updated_job:
+            self._emit_stream_event(updated_job)
+        return updated_job
+
+    def requeue_for_resume(
+        self,
+        job_id: str,
+        *,
+        session_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[CompileJob]:
+        existing = self.get_by_id(job_id)
+        if not existing:
+            raise StoreNotFoundError(f"Compile job not found: {job_id}")
+
+        merged_metadata = dict(existing.metadata or {})
+        if metadata:
+            merged_metadata.update(metadata)
+
+        with self.transaction() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    UPDATE compile_jobs
+                    SET status = 'accepted',
+                        session_id = COALESCE(:session_id, session_id),
+                        error = NULL,
+                        completed_at = NULL,
+                        started_at = NULL,
+                        metadata = :metadata,
+                        updated_at = now()
+                    WHERE id = :id
+                      AND status = 'running'
+                    RETURNING id
+                    """
+                ),
+                {
+                    "id": job_id,
+                    "session_id": session_id,
+                    "metadata": self.serialize_json(merged_metadata),
+                },
+            ).fetchone()
+
+        if not result:
+            return None
+        updated_job = self.get_by_id(job_id)
+        if updated_job:
+            self._emit_stream_event(updated_job)
+        return updated_job
+
+    def get_latest_for_project(
+        self,
+        workspace_id: str,
+        project_id: str,
+    ) -> Optional[CompileJob]:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT * FROM compile_jobs
+                    WHERE workspace_id = :workspace_id
+                      AND project_id = :project_id
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "workspace_id": workspace_id,
+                    "project_id": project_id,
+                },
+            ).fetchone()
+            if not row:
+                return None
+            return self._row_to_job(row)
+
+    def get_latest_for_session(self, session_id: str) -> Optional[CompileJob]:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT * FROM compile_jobs
+                    WHERE session_id = :session_id
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"session_id": session_id},
+            ).fetchone()
+            if not row:
+                return None
+            return self._row_to_job(row)
 
     def update(
         self,
@@ -194,13 +359,15 @@ class CompileJobStore(PostgresStoreBase):
         if not job:
             raise StoreNotFoundError(f"Compile job not found: {job_id}")
         job.mark_running(session_id=session_id, metadata=metadata)
-        return self.update(
+        updated_job = self.update(
             job_id,
             session_id=job.session_id,
             status=job.status.value,
             metadata=job.metadata,
             started_at=job.started_at,
         )
+        self._emit_stream_event(updated_job)
+        return updated_job
 
     def mark_succeeded(
         self,
@@ -214,7 +381,7 @@ class CompileJobStore(PostgresStoreBase):
         if not job:
             raise StoreNotFoundError(f"Compile job not found: {job_id}")
         job.mark_succeeded(session_id=session_id, result=result, metadata=metadata)
-        return self.update(
+        updated_job = self.update(
             job_id,
             session_id=job.session_id,
             status=job.status.value,
@@ -223,6 +390,8 @@ class CompileJobStore(PostgresStoreBase):
             metadata=job.metadata,
             completed_at=job.completed_at,
         )
+        self._emit_stream_event(updated_job)
+        return updated_job
 
     def mark_failed(
         self,
@@ -236,7 +405,7 @@ class CompileJobStore(PostgresStoreBase):
         if not job:
             raise StoreNotFoundError(f"Compile job not found: {job_id}")
         job.mark_failed(error, session_id=session_id, metadata=metadata)
-        return self.update(
+        updated_job = self.update(
             job_id,
             session_id=job.session_id,
             status=job.status.value,
@@ -244,6 +413,8 @@ class CompileJobStore(PostgresStoreBase):
             metadata=job.metadata,
             completed_at=job.completed_at,
         )
+        self._emit_stream_event(updated_job)
+        return updated_job
 
     def _job_params(self, job: CompileJob) -> Dict[str, Any]:
         return {
@@ -289,3 +460,82 @@ class CompileJobStore(PostgresStoreBase):
             started_at=row.started_at,
             completed_at=row.completed_at,
         )
+
+    @staticmethod
+    def build_stream_event(job: CompileJob) -> Dict[str, Any]:
+        status = job.status.value if hasattr(job.status, "value") else str(job.status)
+        event_timestamp = job.updated_at or job.created_at
+        event_ts_ms = (
+            int(event_timestamp.timestamp() * 1000)
+            if event_timestamp is not None
+            else 0
+        )
+        return {
+            "id": f"compile-job:{job.id}:{status}:{event_ts_ms}",
+            "type": "compile_job_updated",
+            "timestamp": event_timestamp.isoformat() if event_timestamp else None,
+            "actor": "system",
+            "workspace_id": job.workspace_id,
+            "project_id": job.project_id,
+            "profile_id": job.profile_id or "",
+            "thread_id": job.thread_id or job.session_id or job.id,
+            "payload": {
+                "compile_job_id": job.id,
+                "session_id": job.session_id,
+                "status": status,
+                "error": job.error,
+                "result": job.result,
+                "metadata": job.public_metadata(),
+                "created_at": (
+                    job.created_at.isoformat() if job.created_at else None
+                ),
+                "updated_at": (
+                    job.updated_at.isoformat() if job.updated_at else None
+                ),
+                "started_at": (
+                    job.started_at.isoformat() if job.started_at else None
+                ),
+                "completed_at": (
+                    job.completed_at.isoformat() if job.completed_at else None
+                ),
+                "terminal": status in ("succeeded", "failed"),
+            },
+            "metadata": {
+                "compile_job_id": job.id,
+                "compile_job_status": status,
+                "session_id": job.session_id,
+            },
+        }
+
+    def _emit_stream_event(self, job: Optional[CompileJob]) -> None:
+        if job is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        event = self.build_stream_event(job)
+        thread_id = (
+            event.get("thread_id")
+            or job.thread_id
+            or job.session_id
+            or job.id
+        )
+
+        async def _publish() -> None:
+            try:
+                from backend.app.services.cache.async_redis import publish_meeting_chunk
+
+                await publish_meeting_chunk(job.workspace_id, event, str(thread_id))
+            except Exception as exc:
+                logger.debug(
+                    "Failed to publish compile job stream event for %s: %s",
+                    job.id,
+                    exc,
+                )
+
+        try:
+            loop.create_task(_publish())
+        except Exception:
+            logger.debug("Failed to schedule compile job stream event for %s", job.id)

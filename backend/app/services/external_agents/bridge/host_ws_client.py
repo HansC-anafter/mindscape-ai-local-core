@@ -17,6 +17,9 @@ Environment Variables:
     MINDSCAPE_AUTH_SECRET    HMAC auth secret (optional, skipped in dev mode)
     MINDSCAPE_WORKSPACE_ID  Workspace ID
     MINDSCAPE_SURFACE       Required surface type
+    MINDSCAPE_RESULT_ACK_TIMEOUT  Ack wait timeout before REST fallback
+    MINDSCAPE_WS_OPEN_TIMEOUT  WebSocket opening handshake timeout
+    MINDSCAPE_WS_PONG_TIMEOUT  App-level pong timeout before stale reconnect
 """
 
 import argparse
@@ -27,8 +30,10 @@ import hmac
 import json
 import logging
 import os
+from pathlib import Path
 import signal
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -47,6 +52,35 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger("host_ws_client")
+
+
+def _env_float(name: str, default: float, *, minimum: Optional[float] = None) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r; falling back to %.1f", name, raw, default)
+        return default
+    if minimum is not None and value < minimum:
+        logger.warning(
+            "Invalid %s=%.3f below minimum %.3f; falling back to %.1f",
+            name,
+            value,
+            minimum,
+            default,
+        )
+        return default
+    return value
+
+
+def _safe_path_component(value: str) -> str:
+    cleaned = "".join(
+        ch if ch.isalnum() or ch in ("-", "_", ".") else "_"
+        for ch in (value or "").strip()
+    )
+    return cleaned or "unknown"
 
 
 def _runtime_identity() -> Dict[str, Any]:
@@ -86,6 +120,10 @@ class HostBridgeWSClient:
     # under meeting load; keep the WS path alive long enough to avoid
     # unnecessary REST fallback churn on healthy-but-slow deliveries.
     RESULT_ACK_TIMEOUT: float = 15.0
+    # Opening handshake can stall under heavy backend load; allow a
+    # longer window than the websockets default so reconnects do not
+    # flap during active long-running meetings.
+    WS_OPEN_TIMEOUT: float = 30.0
     RESULT_REST_RETRY_ATTEMPTS: int = 4
     RESULT_REST_RETRY_BASE_DELAY: float = 1.0
     # Keep recently delivered results around long enough to survive a
@@ -118,15 +156,32 @@ class HostBridgeWSClient:
         self._reconnect_attempt = 0
         self._pong_received = asyncio.Event()
         self._active_tasks = 0  # suppress pong-timeout during execution
+        self.RESULT_ACK_TIMEOUT = _env_float(
+            "MINDSCAPE_RESULT_ACK_TIMEOUT",
+            self.RESULT_ACK_TIMEOUT,
+            minimum=0.1,
+        )
+        self.WS_OPEN_TIMEOUT = _env_float(
+            "MINDSCAPE_WS_OPEN_TIMEOUT",
+            self.WS_OPEN_TIMEOUT,
+            minimum=1.0,
+        )
+        self.PONG_TIMEOUT = _env_float(
+            "MINDSCAPE_WS_PONG_TIMEOUT",
+            self.PONG_TIMEOUT,
+            minimum=1.0,
+        )
         self._result_ack_waiters: Dict[str, asyncio.Future[bool]] = {}
         self._background_tasks: Set[asyncio.Task] = set()
-        self._recent_results: "OrderedDict[str, tuple[float, Dict[str, Any]]]" = (
-            OrderedDict()
-        )
+        self._recent_results: (
+            "OrderedDict[str, tuple[float, float, Dict[str, Any]]]"
+        ) = OrderedDict()
         self._pending_rest_results: "OrderedDict[str, Dict[str, Any]]" = (
             OrderedDict()
         )
         self._pending_rest_flush_task: Optional[asyncio.Task] = None
+        self._result_spool_path = self._resolve_result_spool_path()
+        self._load_result_spool()
 
     @property
     def ws_url(self) -> str:
@@ -141,6 +196,146 @@ class HostBridgeWSClient:
         if self._active_tasks > 0:
             return True
         return any(not waiter.done() for waiter in self._result_ack_waiters.values())
+
+    def _pending_result_ack_count(self) -> int:
+        return sum(1 for waiter in self._result_ack_waiters.values() if not waiter.done())
+
+    def _resolve_result_spool_path(self) -> Path:
+        override = os.environ.get("MINDSCAPE_RESULT_SPOOL_PATH", "").strip()
+        if override:
+            path = Path(os.path.expanduser(override))
+            if path.suffix:
+                return path
+            return path / f"{_safe_path_component(self.client_id)}.json"
+
+        return (
+            Path(tempfile.gettempdir())
+            / "mindscape-bridge-results"
+            / _safe_path_component(self.workspace_id)
+            / _safe_path_component(self.surface)
+            / f"{_safe_path_component(self.client_id)}.json"
+        )
+
+    def _load_result_spool(self) -> None:
+        path = self._result_spool_path
+        if not path.exists():
+            return
+
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.warning("Failed to load result spool %s: %s", path, exc)
+            return
+
+        now_wall = time.time()
+        now_monotonic = time.monotonic()
+
+        pending_entries = payload.get("pending_rest_results") or []
+        if isinstance(pending_entries, dict):
+            pending_entries = [
+                {
+                    "execution_id": execution_id,
+                    "result_message": result_message,
+                }
+                for execution_id, result_message in pending_entries.items()
+            ]
+        for entry in pending_entries:
+            execution_id = str(entry.get("execution_id", "")).strip()
+            result_message = entry.get("result_message")
+            if not execution_id or not isinstance(result_message, dict):
+                continue
+            self._pending_rest_results[execution_id] = copy.deepcopy(result_message)
+
+        recent_entries = payload.get("recent_results") or []
+        if isinstance(recent_entries, dict):
+            recent_entries = [
+                {
+                    "execution_id": execution_id,
+                    "stored_at": entry.get("stored_at"),
+                    "result_message": entry.get("result_message"),
+                }
+                for execution_id, entry in recent_entries.items()
+                if isinstance(entry, dict)
+            ]
+        for entry in recent_entries:
+            execution_id = str(entry.get("execution_id", "")).strip()
+            result_message = entry.get("result_message")
+            stored_at_wall = entry.get("stored_at")
+            if not execution_id or not isinstance(result_message, dict):
+                continue
+            try:
+                stored_at_wall_value = float(stored_at_wall)
+            except (TypeError, ValueError):
+                stored_at_wall_value = now_wall
+            age_seconds = max(0.0, now_wall - stored_at_wall_value)
+            if age_seconds > self.RECENT_RESULT_TTL:
+                continue
+            stored_at_monotonic = now_monotonic - age_seconds
+            self._recent_results[execution_id] = (
+                stored_at_monotonic,
+                stored_at_wall_value,
+                copy.deepcopy(result_message),
+            )
+
+        self._prune_recent_results()
+        if self._pending_rest_results or self._recent_results:
+            logger.info(
+                "Loaded result spool %s (pending=%d recent=%d)",
+                path,
+                len(self._pending_rest_results),
+                len(self._recent_results),
+            )
+
+    def _persist_result_spool(self) -> None:
+        path = self._result_spool_path
+
+        if not self._pending_rest_results and not self._recent_results:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            except Exception as exc:
+                logger.warning("Failed to remove empty result spool %s: %s", path, exc)
+            return
+
+        payload = {
+            "workspace_id": self.workspace_id,
+            "client_id": self.client_id,
+            "surface": self.surface,
+            "updated_at": time.time(),
+            "pending_rest_results": [
+                {
+                    "execution_id": execution_id,
+                    "result_message": copy.deepcopy(result_message),
+                }
+                for execution_id, result_message in self._pending_rest_results.items()
+            ],
+            "recent_results": [
+                {
+                    "execution_id": execution_id,
+                    "stored_at": stored_at_wall,
+                    "result_message": copy.deepcopy(result_message),
+                }
+                for execution_id, (_stored_at_monotonic, stored_at_wall, result_message) in self._recent_results.items()
+            ],
+        }
+
+        tmp_path = path.with_suffix(f"{path.suffix or '.json'}.tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path.write_text(
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                encoding="utf-8",
+            )
+            os.replace(tmp_path, path)
+        except Exception as exc:
+            logger.warning("Failed to persist result spool %s: %s", path, exc)
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
 
     # ============================================================
     #  Main lifecycle
@@ -266,6 +461,7 @@ class HostBridgeWSClient:
         # ping will timeout → ConnectionClosed → reconnect.
         async with websockets.connect(
             self.ws_url,
+            open_timeout=self.WS_OPEN_TIMEOUT,
             ping_interval=20,
             ping_timeout=120,  # long timeout to survive task execution
         ) as ws:
@@ -316,17 +512,23 @@ class HostBridgeWSClient:
                         timeout=self.PONG_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
+                    pending_result_acks = self._pending_result_ack_count()
                     if self._has_pending_transport_work():
+                        if self._active_tasks == 0 and pending_result_acks > 0:
+                            logger.warning(
+                                "Pong timeout while awaiting %s result_ack(s) "
+                                "with no active task — forcing REST recovery and reconnect",
+                                pending_result_acks,
+                            )
+                            await self._recover_pending_result_acks_due_to_stale_connection()
+                            await self._ws.close()
+                            break
                         logger.info(
                             "Pong timeout but transport work is still pending "
                             "(active_tasks=%s pending_result_acks=%s) — "
                             "keeping connection alive",
                             self._active_tasks,
-                            sum(
-                                1
-                                for waiter in self._result_ack_waiters.values()
-                                if not waiter.done()
-                            ),
+                            pending_result_acks,
                         )
                         continue
                     logger.warning(
@@ -366,9 +568,11 @@ class HostBridgeWSClient:
                 f"flushed={msg.get('flushed_tasks', 0)} pending tasks"
             )
             self._schedule_pending_result_flush()
+            await self._send_resume_state()
         elif msg_type == "auth_ok":
             logger.info(f"Authenticated! flushed={msg.get('flushed_tasks', 0)} tasks")
             self._schedule_pending_result_flush()
+            await self._send_resume_state()
         elif msg_type == "auth_failed":
             logger.error(f"Auth failed: {msg.get('error')}")
             await self.stop()
@@ -382,7 +586,10 @@ class HostBridgeWSClient:
             if waiter and not waiter.done():
                 waiter.set_result(True)
             self._pending_rest_results.pop(execution_id, None)
+            self._persist_result_spool()
             logger.debug(f"Result acknowledged: {msg.get('execution_id')}")
+        elif msg_type == "resume_sync":
+            self._handle_resume_sync(msg)
         elif msg_type == "error":
             logger.error(f"Server error: {msg.get('error')}")
         else:
@@ -410,6 +617,64 @@ class HostBridgeWSClient:
             }
         )
         logger.info("Auth response sent")
+
+    def _build_resume_state_message(self) -> Dict[str, Any]:
+        self._prune_recent_results()
+        last_completed_at = 0.0
+        for _execution_id, (_stored_at_monotonic, stored_at_wall, _result) in (
+            self._recent_results.items()
+        ):
+            last_completed_at = max(last_completed_at, float(stored_at_wall or 0.0))
+        return {
+            "type": "resume_state",
+            "recent_execution_ids": list(self._recent_results.keys()),
+            "pending_rest_execution_ids": list(self._pending_rest_results.keys()),
+            "last_completed_at": last_completed_at,
+        }
+
+    async def _send_resume_state(self) -> None:
+        await self._send(self._build_resume_state_message())
+
+    def _handle_resume_sync(self, msg: Dict[str, Any]) -> None:
+        replayed = msg.get("replayed_completions") or []
+        duplicates = msg.get("duplicates_to_ignore") or []
+        reconciled: set[str] = set()
+
+        for entry in replayed:
+            if not isinstance(entry, dict):
+                continue
+            execution_id = str(entry.get("execution_id") or "").strip()
+            if execution_id:
+                reconciled.add(execution_id)
+
+        for raw_execution_id in duplicates:
+            execution_id = str(raw_execution_id or "").strip()
+            if execution_id:
+                reconciled.add(execution_id)
+
+        if not reconciled:
+            logger.info(
+                "Resume sync received: replay=%d dup=%d requeue=%d",
+                len(replayed),
+                len(duplicates),
+                len(msg.get("tasks_to_requeue") or []),
+            )
+            return
+
+        for execution_id in reconciled:
+            waiter = self._result_ack_waiters.pop(execution_id, None)
+            if waiter and not waiter.done():
+                waiter.set_result(True)
+            self._pending_rest_results.pop(execution_id, None)
+
+        self._persist_result_spool()
+        logger.info(
+            "Resume sync reconciled %d execution(s); replay=%d dup=%d requeue=%d",
+            len(reconciled),
+            len(replayed),
+            len(duplicates),
+            len(msg.get("tasks_to_requeue") or []),
+        )
 
     async def _handle_dispatch(self, msg: Dict[str, Any]) -> None:
         """
@@ -465,6 +730,11 @@ class HostBridgeWSClient:
                     "files_created": result.get("files_created", []),
                     "error": result.get("error"),
                     "metadata": {
+                        **(
+                            result.get("metadata")
+                            if isinstance(result.get("metadata"), dict)
+                            else {}
+                        ),
                         "runtime_id": result.get("runtime_id"),
                     },
                     "governance": {
@@ -573,6 +843,35 @@ class HostBridgeWSClient:
         else:
             self._result_ack_waiters.pop(execution_id, None)
 
+    async def _recover_pending_result_acks_due_to_stale_connection(self) -> None:
+        pending_execution_ids = [
+            execution_id
+            for execution_id, waiter in self._result_ack_waiters.items()
+            if not waiter.done()
+        ]
+        if not pending_execution_ids:
+            return
+
+        logger.warning(
+            "Recovering %d pending result_ack(s) via REST fallback after stale connection: %s",
+            len(pending_execution_ids),
+            pending_execution_ids,
+        )
+
+        for execution_id in pending_execution_ids:
+            waiter = self._result_ack_waiters.pop(execution_id, None)
+            if waiter and not waiter.done():
+                waiter.set_result(True)
+
+            result_message = self._get_recent_result(execution_id)
+            if result_message is None:
+                logger.warning(
+                    "Missing cached result for %s during stale-connection recovery",
+                    execution_id,
+                )
+                continue
+            await self._submit_result_via_rest(result_message)
+
     @property
     def backend_api_url(self) -> str:
         backend_url = os.environ.get("MINDSCAPE_BACKEND_API_URL", "").strip()
@@ -643,6 +942,7 @@ class HostBridgeWSClient:
                     response.get("message", "accepted"),
                 )
                 self._pending_rest_results.pop(execution_id, None)
+                self._persist_result_spool()
                 return True
             except urllib.error.HTTPError as exc:
                 if exc.code == 404:
@@ -652,6 +952,7 @@ class HostBridgeWSClient:
                         execution_id,
                     )
                     self._pending_rest_results.pop(execution_id, None)
+                    self._persist_result_spool()
                     return True
                 if exc.code >= 500 and attempt < max_attempts:
                     delay = base_delay * (2 ** (attempt - 1))
@@ -712,6 +1013,7 @@ class HostBridgeWSClient:
         self._pending_rest_results.move_to_end(execution_id)
         while len(self._pending_rest_results) > self.RECENT_RESULT_MAX_SIZE:
             self._pending_rest_results.popitem(last=False)
+        self._persist_result_spool()
 
     def _schedule_pending_result_flush(self) -> None:
         if not self._pending_rest_results:
@@ -740,8 +1042,9 @@ class HostBridgeWSClient:
 
     def _prune_recent_results(self) -> None:
         now = time.monotonic()
+        changed = False
         while self._recent_results:
-            execution_id, (stored_at, _result) = next(
+            execution_id, (stored_at, _stored_at_wall, _result) = next(
                 iter(self._recent_results.items())
             )
             if (
@@ -749,8 +1052,11 @@ class HostBridgeWSClient:
                 or now - stored_at > self.RECENT_RESULT_TTL
             ):
                 self._recent_results.pop(execution_id, None)
+                changed = True
                 continue
             break
+        if changed:
+            self._persist_result_spool()
 
     def _remember_result(
         self,
@@ -759,17 +1065,19 @@ class HostBridgeWSClient:
     ) -> None:
         self._recent_results[execution_id] = (
             time.monotonic(),
+            time.time(),
             copy.deepcopy(result_message),
         )
         self._recent_results.move_to_end(execution_id)
         self._prune_recent_results()
+        self._persist_result_spool()
 
     def _get_recent_result(self, execution_id: str) -> Optional[Dict[str, Any]]:
         self._prune_recent_results()
         cached = self._recent_results.get(execution_id)
         if not cached:
             return None
-        _stored_at, result_message = cached
+        _stored_at, _stored_at_wall, result_message = cached
         self._recent_results.move_to_end(execution_id)
         return copy.deepcopy(result_message)
 

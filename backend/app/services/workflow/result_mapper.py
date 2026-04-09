@@ -9,6 +9,53 @@ from backend.app.services.execution_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
+WORKFLOW_CONTROL_FIELDS = (
+    "status",
+    "checkpoint",
+    "pause_reason",
+    "paused_step_id",
+    "sandbox_id",
+    "gate",
+)
+WORKFLOW_RESULT_PASSTHROUGH_FIELDS = (
+    "request_id",
+    "provider",
+)
+WORKFLOW_TELEMETRY_FIELDS = (
+    "provider",
+    "request_id",
+    "finish_reason",
+    "reasoning_trace_mode",
+    "response_source",
+)
+
+
+def _preserve_workflow_control_fields(
+    *,
+    mapped_result: Dict[str, Any],
+    raw_result: Any,
+) -> Dict[str, Any]:
+    """Copy workflow-control fields that should survive output projection."""
+    if not isinstance(raw_result, dict):
+        return mapped_result
+
+    for field_name in WORKFLOW_CONTROL_FIELDS:
+        if field_name in raw_result:
+            mapped_result[field_name] = raw_result[field_name]
+    for field_name in WORKFLOW_RESULT_PASSTHROUGH_FIELDS:
+        if field_name in raw_result:
+            mapped_result[field_name] = raw_result[field_name]
+    telemetry = raw_result.get("_telemetry")
+    if isinstance(telemetry, dict):
+        filtered = {
+            field_name: telemetry[field_name]
+            for field_name in WORKFLOW_TELEMETRY_FIELDS
+            if field_name in telemetry and telemetry[field_name] not in (None, "")
+        }
+        if filtered:
+            mapped_result["_telemetry"] = filtered
+    return mapped_result
+
 
 def collect_final_outputs(
     output_defs: Dict[str, Any], step_outputs: Dict[str, Dict[str, Any]]
@@ -32,9 +79,20 @@ def map_sub_playbook_result_to_step_outputs(
 ) -> Dict[str, Any]:
     """Map sub-playbook final outputs through the parent step output definition."""
     step_output = {}
+    sub_outputs = (
+        sub_result.get("outputs")
+        if isinstance(sub_result, dict) and isinstance(sub_result.get("outputs"), dict)
+        else {}
+    )
     for output_name, source_field in output_defs.items():
-        step_output[output_name] = sub_result.get(source_field)
-    return step_output
+        if isinstance(sub_result, dict) and source_field in sub_result:
+            step_output[output_name] = sub_result.get(source_field)
+        else:
+            step_output[output_name] = sub_outputs.get(source_field)
+    return _preserve_workflow_control_fields(
+        mapped_result=step_output,
+        raw_result=sub_result,
+    )
 
 
 def map_tool_result_to_step_outputs(
@@ -99,7 +157,10 @@ def map_tool_result_to_step_outputs(
             step_output[output_name] = value
         else:
             step_output[output_name] = tool_result
-    return step_output
+    return _preserve_workflow_control_fields(
+        mapped_result=step_output,
+        raw_result=tool_result,
+    )
 
 
 def create_step_event(

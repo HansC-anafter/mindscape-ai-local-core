@@ -15,6 +15,8 @@ from . import (
     health,
     profiles,
     runtime,
+    chat_model_preference,
+    program_runs,
     pinned,
     stubs,
 )
@@ -36,6 +38,8 @@ router.include_router(workbench.router)
 router.include_router(health.router)
 router.include_router(profiles.router)
 router.include_router(runtime.router)
+router.include_router(chat_model_preference.router)
+router.include_router(program_runs.router)
 router.include_router(pinned.router)
 router.include_router(stubs.router)
 

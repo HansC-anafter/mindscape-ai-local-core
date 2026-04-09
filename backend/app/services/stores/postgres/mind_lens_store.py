@@ -11,7 +11,7 @@ from typing import List, Optional
 from sqlalchemy import text
 
 from ..postgres_base import PostgresStoreBase
-from app.models.mind_lens import MindLensSchema, MindLensInstance, LensSpec
+from backend.app.models.mind_lens import MindLensSchema, MindLensInstance, LensSpec
 from ..mind_lens_store import MindLensStore
 
 logger = logging.getLogger(__name__)
@@ -268,8 +268,8 @@ class PostgresMindLensStore(PostgresStoreBase):
 
     def _row_to_schema(self, row) -> MindLensSchema:
         """Convert database row to MindLensSchema."""
-        from app.models.mind_lens import Dimension
-        from app.models.mind_lens import MindLensSchema
+        from backend.app.models.mind_lens import Dimension
+        from backend.app.models.mind_lens import MindLensSchema
 
         # In SQLAlchemy result (from psycopg2), JSON columns are already deserialized to dict/list
         # But PostgresStoreBase.deserialize_json handles both string and dict.

@@ -165,4 +165,6 @@ class CrossWorkerMixin(
             message=message,
             execution_id=execution_id,
             timeout=timeout,
+            target_client_id=target_client_id,
+            surface_type=surface_type,
         )

@@ -14,12 +14,117 @@ from pydantic import BaseModel
 from backend.app.routes.workspace_dependencies import get_workspace, get_store
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.project.project_manager import ProjectManager
+from backend.app.services.stores.compile_job_store import CompileJobStore
 from backend.app.services.stores.meeting_session_store import MeetingSessionStore
 from backend.app.models.workspace import Workspace, ExecutionSession
 from backend.app.models.project import Project
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _compile_job_summary(job) -> Optional[Dict[str, Any]]:
+    if not job:
+        return None
+    return {
+        "id": job.id,
+        "status": job.status.value if hasattr(job.status, "value") else job.status,
+        "session_id": job.session_id,
+        "error": job.error,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "metadata": job.public_metadata() if hasattr(job, "public_metadata") else job.metadata,
+    }
+
+
+def _routing_prompt_mode_summary(session) -> Optional[Dict[str, Any]]:
+    if not session:
+        return None
+    metadata = getattr(session, "metadata", None) or {}
+    summary = metadata.get("round_routing_prompt_mode_summary")
+    if not isinstance(summary, dict):
+        return None
+    allowed_keys = [
+        "total_decisions",
+        "sparse_count",
+        "compressed_count",
+        "fallback_count",
+        "adaptive_count",
+        "sparse_ratio",
+        "compressed_ratio",
+        "fallback_ratio",
+        "adaptive_ratio",
+        "health_status",
+        "health_reason",
+        "last_prompt_mode",
+        "last_prompt_role_id",
+        "last_prompt_reason",
+        "last_round_number",
+        "last_recorded_at",
+    ]
+    return {key: summary.get(key) for key in allowed_keys if key in summary}
+
+
+def _program_spec_summary(session) -> Optional[Dict[str, Any]]:
+    if not session:
+        return None
+    metadata = getattr(session, "metadata", None) or {}
+    program_spec = metadata.get("last_program_spec")
+    if not isinstance(program_spec, dict):
+        return None
+    workstreams = program_spec.get("workstreams")
+    target_outputs = program_spec.get("target_outputs")
+    return {
+        "source": metadata.get("last_program_spec_source"),
+        "structured": metadata.get("last_program_spec_source") == "executor_structured",
+        "workstream_count": (
+            metadata.get("last_program_spec_workstream_count")
+            if isinstance(metadata.get("last_program_spec_workstream_count"), int)
+            else len(workstreams)
+            if isinstance(workstreams, list)
+            else 0
+        ),
+        "milestone_count": (
+            len(program_spec.get("milestones"))
+            if isinstance(program_spec.get("milestones"), list)
+            else 0
+        ),
+        "scale": program_spec.get("scale"),
+        "target_outputs": target_outputs if isinstance(target_outputs, list) else [],
+    }
+
+
+def _program_run_summary(session) -> Optional[Dict[str, Any]]:
+    if not session:
+        return None
+    metadata = getattr(session, "metadata", None) or {}
+    program_run_id = metadata.get("program_run_id")
+    if not program_run_id:
+        return None
+    cursor_state = metadata.get("program_run_cursor_state")
+    if not isinstance(cursor_state, dict):
+        cursor_state = {}
+    target_outputs = metadata.get("program_run_target_outputs")
+    return {
+        "id": program_run_id,
+        "source": metadata.get("program_run_source"),
+        "status": metadata.get("program_run_status"),
+        "workstream_count": (
+            metadata.get("program_run_workstream_count")
+            if isinstance(metadata.get("program_run_workstream_count"), int)
+            else 0
+        ),
+        "milestone_count": (
+            metadata.get("program_run_milestone_count")
+            if isinstance(metadata.get("program_run_milestone_count"), int)
+            else 0
+        ),
+        "target_outputs": target_outputs if isinstance(target_outputs, list) else [],
+        "remaining_work_count": int(cursor_state.get("remaining_work_count") or 0),
+        "recorded_at": metadata.get("program_run_recorded_at"),
+    }
 
 
 @router.get(
@@ -883,6 +988,24 @@ async def get_project_card(
                     break
             if not latest_meeting:
                 latest_meeting = latest_sessions[0]
+        latest_compile_job = None
+        try:
+            compile_job_store = CompileJobStore()
+            if latest_meeting:
+                latest_compile_job = compile_job_store.get_latest_for_session(
+                    latest_meeting.id
+                )
+            if not latest_compile_job:
+                latest_compile_job = compile_job_store.get_latest_for_project(
+                    workspace_id,
+                    project_id,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to resolve compile job summary for project %s: %s",
+                project_id,
+                exc,
+            )
         meeting_summary = {
             "enabled": meeting_enabled,
             "active": bool(active_meeting and active_meeting.is_active),
@@ -911,6 +1034,10 @@ async def get_project_card(
                 if latest_meeting
                 else ""
             ),
+            "compile_job": _compile_job_summary(latest_compile_job),
+            "routing_prompt_mode_summary": _routing_prompt_mode_summary(latest_meeting),
+            "program_spec_summary": _program_spec_summary(latest_meeting),
+            "program_run_summary": _program_run_summary(latest_meeting),
         }
 
         return {

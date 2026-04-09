@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional
 
+INTERNAL_METADATA_PREFIX = "_internal_"
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -130,9 +132,16 @@ class CompileJob:
             "status": self.status.value if hasattr(self.status, "value") else self.status,
             "result": self.result,
             "error": self.error,
-            "metadata": self.metadata,
+            "metadata": self.public_metadata(),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+    def public_metadata(self) -> Dict[str, Any]:
+        return {
+            key: value
+            for key, value in (self.metadata or {}).items()
+            if not str(key).startswith(INTERNAL_METADATA_PREFIX)
         }
