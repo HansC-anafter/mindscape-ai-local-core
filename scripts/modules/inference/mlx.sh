@@ -50,8 +50,10 @@ start_mlx_server() {
   local model="${MLX_MODEL:-mlx-community/Qwen3.5-9B-4bit}"
   local port="${MLX_PORT:-8210}"
   local host="${MLX_HOST:-0.0.0.0}"
+  local wrapper
   local python_bin
   python_bin="$(_find_mlx_python)"
+  wrapper="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../mlx-server" && pwd)/mindscape_mlx_vlm_server.py"
 
   [ -z "$python_bin" ] && { echo "  ✗ No Python found for MLX"; return 1; }
 
@@ -63,7 +65,7 @@ start_mlx_server() {
   ensure_mlx_vlm "$python_bin"
 
   echo "  Starting MLX VLM server: host=$host port=$port"
-  exec "$python_bin" -m mlx_vlm.server \
+  exec "$python_bin" "$wrapper" \
     --port "$port" \
     --host "$host"
 }

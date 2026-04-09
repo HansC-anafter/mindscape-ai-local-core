@@ -19,6 +19,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--mask-path", default="")
     parser.add_argument("--mask-url", default="")
     parser.add_argument("--strategy", default="conservative")
+    parser.add_argument("--completion-backend", default="")
     parser.add_argument("--impact-region-bbox-json", default="")
     return parser.parse_args()
 
@@ -64,6 +65,13 @@ def _completion_confidence(mask_gray, strategy: str) -> float:
     base = 0.86 if strategy == "conservative" else 0.78
     penalty = min(mask_ratio * 0.5, 0.25)
     return round(max(0.55, min(0.95, base - penalty)), 4)
+
+
+def _completion_confidence_for_method(mask_gray, strategy: str, *, method: str) -> float:
+    confidence = _completion_confidence(mask_gray, strategy)
+    if method == "opencv_inpaint_fastpath":
+        return round(max(0.45, confidence - 0.12), 4)
+    return confidence
 
 
 def _mask_bbox(mask_gray):
@@ -176,6 +184,49 @@ def _merge_completion_crop(image_rgb, completion_rgb, crop_box):
     return merged
 
 
+def _should_use_fast_completion(strategy: str, *, completion_backend: str = "") -> bool:
+    override = str(completion_backend or os.getenv("LAF_COMPLETION_BACKEND", "")).strip().lower()
+    if override in {"lama", "quality", "slow"}:
+        return False
+    if override in {"opencv", "fast"}:
+        return True
+    return strategy == "conservative"
+
+
+def _run_opencv_inpaint_completion(image_crop, mask_crop, *, strategy: str):
+    import cv2
+    import numpy as np
+
+    mask_uint8 = np.where(mask_crop > 0, 255, 0).astype("uint8")
+    image_bgr = cv2.cvtColor(
+        np.clip(image_crop, 0, 255).astype("uint8"),
+        cv2.COLOR_RGB2BGR,
+    )
+    radius = 9 if strategy == "aggressive" else 5
+    result_bgr = cv2.inpaint(
+        image_bgr,
+        mask_uint8,
+        radius,
+        cv2.INPAINT_TELEA,
+    )
+    return cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB)
+
+
+def _prepare_lama_mask(mask_crop, *, strategy: str):
+    import cv2
+    import numpy as np
+
+    mask_uint8 = np.where(mask_crop > 16, 255, 0).astype("uint8")
+    kernel_size = 11 if strategy == "aggressive" else 7
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (kernel_size, kernel_size),
+    )
+    return cv2.dilate(mask_uint8, kernel, iterations=1)
+
+
 def main() -> int:
     try:
         args = _parse_args()
@@ -201,30 +252,50 @@ def main() -> int:
         crop_box = cropped_inputs["crop_box"]
         crop_source = cropped_inputs["crop_source"]
 
-        import numpy as np
-        import cv2
-        import lama_cleaner.model.lama as lama_mod
-        from lama_cleaner.model.lama import LaMa
-        from lama_cleaner.schema import Config, HDStrategy, LDMSampler
-
-        weight_path = resolve_model_weight_artifact("lama")
-        lama_mod.LAMA_MODEL_URL = str(weight_path)
         requested_device = _resolve_device()
-        model = LaMa(requested_device)
-        device = str(getattr(model, "device", requested_device))
-        config = Config(
-            ldm_steps=1,
-            ldm_sampler=LDMSampler.plms,
-            hd_strategy=HDStrategy.ORIGINAL,
-            hd_strategy_crop_margin=64 if strategy == "aggressive" else 32,
-            hd_strategy_crop_trigger_size=1024 if strategy == "aggressive" else 768,
-            hd_strategy_resize_limit=1024 if strategy == "aggressive" else 768,
-        )
-        result_bgr = model(image_crop, mask_crop, config)
-        result_rgb_crop = cv2.cvtColor(
-            np.clip(result_bgr, 0, 255).astype("uint8"),
-            cv2.COLOR_BGR2RGB,
-        )
+        completion_method = "lama_background_completion"
+        checkpoint_path = ""
+        completion_backend = str(args.completion_backend or "").strip().lower()
+        if _should_use_fast_completion(
+            strategy,
+            completion_backend=completion_backend,
+        ):
+            result_rgb_crop = _run_opencv_inpaint_completion(
+                image_crop,
+                mask_crop,
+                strategy=strategy,
+            )
+            device = "cpu_fastpath"
+            completion_method = "opencv_inpaint_fastpath"
+        else:
+            import numpy as np
+            import cv2
+            import lama_cleaner.model.lama as lama_mod
+            from lama_cleaner.model.lama import LaMa
+            from lama_cleaner.schema import Config, HDStrategy, LDMSampler
+
+            weight_path = resolve_model_weight_artifact("lama")
+            checkpoint_path = str(weight_path)
+            lama_mod.LAMA_MODEL_URL = checkpoint_path
+            model = LaMa(requested_device)
+            device = str(getattr(model, "device", requested_device))
+            config = Config(
+                ldm_steps=1,
+                ldm_sampler=LDMSampler.plms,
+                hd_strategy=HDStrategy.ORIGINAL,
+                hd_strategy_crop_margin=64 if strategy == "aggressive" else 32,
+                hd_strategy_crop_trigger_size=1024 if strategy == "aggressive" else 768,
+                hd_strategy_resize_limit=1024 if strategy == "aggressive" else 768,
+            )
+            prepared_mask = _prepare_lama_mask(
+                mask_crop,
+                strategy=strategy,
+            )
+            result_bgr = model(image_crop, prepared_mask, config)
+            result_rgb_crop = cv2.cvtColor(
+                np.clip(result_bgr, 0, 255).astype("uint8"),
+                cv2.COLOR_BGR2RGB,
+            )
         result_rgb = _merge_completion_crop(image_rgb, result_rgb_crop, crop_box)
 
         from PIL import Image
@@ -235,13 +306,18 @@ def main() -> int:
             json.dumps(
                 {
                     "status": "ok",
-                    "completion_method": "lama_background_completion",
+                    "completion_method": completion_method,
                     "completion_png_base64": base64.b64encode(output.getvalue()).decode("ascii"),
-                    "confidence": _completion_confidence(mask_gray, strategy),
+                    "confidence": _completion_confidence_for_method(
+                        mask_gray,
+                        strategy,
+                        method=completion_method,
+                    ),
                     "device": device,
                     "requested_device": requested_device,
-                    "checkpoint_path": str(weight_path),
+                    "checkpoint_path": checkpoint_path,
                     "strategy": strategy,
+                    "completion_backend": completion_backend or "",
                     "crop_box": crop_box,
                     "crop_source": crop_source,
                 }
