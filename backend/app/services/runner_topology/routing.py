@@ -9,6 +9,7 @@ from .partitions import (
     BROWSER_LOCAL_QUEUE_PARTITION,
     DEFAULT_LOCAL_QUEUE_PARTITION,
     VISION_LOCAL_QUEUE_PARTITION,
+    canonical_queue_partition_for_pack,
     normalize_queue_partition,
 )
 from .profile_registry import (
@@ -56,7 +57,7 @@ def resolve_task_routing_target(task: Any) -> TaskRoutingTarget:
         )
         queue_partition = normalize_queue_partition(
             queue_hint,
-            fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+            fallback=canonical_queue_partition_for_pack(pack_id),
         )
         resource_class = (
             _normalized_string(task.get("resource_class"))
@@ -83,7 +84,7 @@ def resolve_task_routing_target(task: Any) -> TaskRoutingTarget:
         )
         queue_partition = normalize_queue_partition(
             queue_hint,
-            fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+            fallback=canonical_queue_partition_for_pack(pack_id),
         )
         resource_class = (
             _normalized_string(ctx.get("resource_class"))

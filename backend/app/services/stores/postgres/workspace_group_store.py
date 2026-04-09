@@ -7,7 +7,7 @@ from typing import List, Optional
 from sqlalchemy import text
 
 from ..postgres_base import PostgresStoreBase
-from app.models.workspace_group import WorkspaceGroup
+from backend.app.models.workspace_group import WorkspaceGroup
 
 logger = logging.getLogger(__name__)
 

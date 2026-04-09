@@ -1,6 +1,9 @@
 from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
     check_dispatch_policy,
 )
+from backend.app.services.playbook_run_executor_core.input_normalization import (
+    normalize_meeting_session_input_aliases,
+)
 
 
 def test_policy_gate_uses_request_contract_source_message_for_user_request():
@@ -33,7 +36,7 @@ def test_policy_gate_uses_request_contract_source_message_for_user_request():
     assert action_items[0]["policy_gate"]["status"] == "allowed"
 
 
-def test_policy_gate_does_not_alias_meeting_session_id_to_session_id():
+def test_policy_gate_aliases_meeting_session_id_to_session_id():
     action_items = [
         {
             "title": "建立來源邊界與事實矩陣",
@@ -59,6 +62,27 @@ def test_policy_gate_does_not_alias_meeting_session_id_to_session_id():
         },
     )
 
-    assert report["blocked_count"] == 1
-    assert report["items"][0]["blocks"][0]["missing_fields"] == ["session_id"]
-    assert action_items[0]["landing_status"] == "policy_blocked"
+    assert report["blocked_count"] == 0
+    assert report["items"][0]["status"] == "allowed"
+    assert action_items[0]["policy_gate"]["status"] == "allowed"
+
+
+def test_normalize_meeting_session_input_aliases_populates_legacy_session_id():
+    normalized = normalize_meeting_session_input_aliases(
+        {"meeting_session_id": "meeting-123"}
+    )
+
+    assert normalized["meeting_session_id"] == "meeting-123"
+    assert normalized["session_id"] == "meeting-123"
+
+
+def test_normalize_meeting_session_input_aliases_preserves_explicit_session_id():
+    normalized = normalize_meeting_session_input_aliases(
+        {
+            "meeting_session_id": "meeting-123",
+            "session_id": "session-explicit",
+        }
+    )
+
+    assert normalized["meeting_session_id"] == "meeting-123"
+    assert normalized["session_id"] == "session-explicit"

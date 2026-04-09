@@ -206,6 +206,51 @@ class TestAgentFailedFallback:
                 assert kw["is_fallback"] is True
 
 
+class TestRuntimeModelHintPropagation:
+
+    @pytest.mark.asyncio
+    async def test_dispatch_to_agent_forwards_model_hint_to_runtime_context(self):
+        from backend.app.services.conversation.pipeline_dispatch import (
+            dispatch_to_agent,
+        )
+
+        ws = _ws(fallback_model=None)
+        result = _result()
+        resp = SimpleNamespace(
+            success=False,
+            error="runtime-crash",
+            output="",
+            execution_time_seconds=0,
+            trace_id=None,
+        )
+
+        with patch(_AGENT_EXEC_SRC) as MockExec:
+            inst = AsyncMock()
+            inst.check_agent_available = AsyncMock(return_value=True)
+            inst.execute = AsyncMock(return_value=resp)
+            MockExec.return_value = inst
+
+            ret = await dispatch_to_agent(
+                workspace_id="ws",
+                profile_id="p",
+                thread_id="t",
+                project_id="pj",
+                message="hi",
+                user_event_id="ev",
+                executor_runtime="gemini-cli",
+                context_str="ctx",
+                store=MagicMock(),
+                workspace=ws,
+                result=result,
+                emit_pipeline_stage=AsyncMock(),
+                model_name="qwen3:8b",
+            )
+
+        assert ret.success is False
+        execute_kwargs = inst.execute.await_args.kwargs
+        assert execute_kwargs["context_overrides"]["model"] == "qwen3:8b"
+
+
 class TestDispatchToLLMNoModel:
 
     @pytest.mark.asyncio
@@ -235,6 +280,37 @@ class TestDispatchToLLMNoModel:
         assert ret.success is False
         assert "no chat model" in ret.error.lower()
 
+    def test_workspace_preferred_chat_model_resolver_takes_priority(self):
+        from backend.app.services.conversation.chat_model_resolution import (
+            resolve_conversational_model_name,
+        )
+
+        workspace = _ws()
+        workspace.metadata = {
+            "preferred_chat_model": {
+                "id": "executor_runtime:codex_cli:openai:gpt-5.4",
+                "model_name": "gpt-5.4",
+                "provider": "openai",
+                "source_kind": "executor_runtime",
+                "runtime_id": "codex_cli",
+            }
+        }
+
+        with patch(_SETTINGS_SRC_DISPATCH) as MockSettings:
+            inst = MagicMock()
+            inst.get_setting.return_value = SimpleNamespace(
+                value="qwen3:8b",
+                metadata={"provider": "ollama"},
+            )
+            MockSettings.return_value = inst
+
+            resolved = resolve_conversational_model_name(
+                explicit_model_name=None,
+                workspace=workspace,
+            )
+
+        assert resolved == "gpt-5.4"
+
 
 class TestPlanBuilderFailLoud:
 
@@ -258,7 +334,10 @@ class TestPlanBuilderFailLoud:
             inst.get_setting.return_value = None
             MockSettings.return_value = inst
 
-            with pytest.raises(ValueError, match="No chat model configured"):
+            with pytest.raises(
+                ValueError,
+                match="No explicit model selection available for plan builder.",
+            ):
                 builder._select_model_for_plan()
 
 

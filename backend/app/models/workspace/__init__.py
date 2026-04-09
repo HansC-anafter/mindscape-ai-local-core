@@ -30,6 +30,9 @@ from .core import (  # noqa: F401
     UpdateWorkspaceRequest,
     WorkspaceChatRequest,
     WorkspaceChatResponse,
+    WorkspaceChatModelOption,
+    WorkspaceChatModelPreferenceRequest,
+    WorkspaceChatModelPreferenceResponse,
 )
 
 from .task import (  # noqa: F401
@@ -88,6 +91,9 @@ __all__ = [
     "UpdateWorkspaceRequest",
     "WorkspaceChatRequest",
     "WorkspaceChatResponse",
+    "WorkspaceChatModelOption",
+    "WorkspaceChatModelPreferenceRequest",
+    "WorkspaceChatModelPreferenceResponse",
     # Task
     "Task",
     "TaskFeedback",

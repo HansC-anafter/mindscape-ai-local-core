@@ -22,6 +22,7 @@ import aiohttp
 import os
 import re
 import shutil
+import stat
 from datetime import datetime, timezone
 from contextlib import suppress
 
@@ -301,7 +302,7 @@ class ModelWeightsInstaller:
                 / model_info.model_id
             )
 
-            if view_path.exists():
+            if self._safe_path_exists(view_path):
                 model_info.local_path = view_path
                 model_info.status = ModelStatus.DOWNLOADED
                 # Verify on load
@@ -309,6 +310,9 @@ class ModelWeightsInstaller:
                     model_info.status = ModelStatus.VERIFIED
                 else:
                     model_info.status = ModelStatus.CORRUPTED
+            elif self._safe_path_lstat(view_path) is not None:
+                logger.warning("Clearing stale model view path: %s", view_path)
+                self._clear_path_artifact(view_path)
 
     def _parse_model_info(
         self, pack_code: str, data: Dict, manifest_dir: Optional[Path] = None
@@ -457,6 +461,37 @@ class ModelWeightsInstaller:
                 raise LicenseError(
                     f"Model {model_info.model_id} has restricted license: {model_info.license.spdx_id}"
                 )
+
+    @staticmethod
+    def _safe_path_exists(path: Path) -> bool:
+        """Return False instead of raising on stale filesystem metadata."""
+        try:
+            return path.exists()
+        except OSError as exc:
+            logger.warning("Failed to stat path %s: %s", path, exc)
+            return False
+
+    @staticmethod
+    def _safe_path_lstat(path: Path) -> Optional[os.stat_result]:
+        """Best-effort lexical existence check for cleanup paths."""
+        try:
+            return os.lstat(path)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            logger.warning("Failed to lstat path %s: %s", path, exc)
+            return None
+
+    def _clear_path_artifact(self, path: Path) -> None:
+        """Remove a file, symlink, or directory without trusting prior stat calls."""
+        stat_result = self._safe_path_lstat(path)
+        if stat_result is None:
+            return
+        if stat.S_ISDIR(stat_result.st_mode) and not stat.S_ISLNK(stat_result.st_mode):
+            shutil.rmtree(path, ignore_errors=True)
+            return
+        with suppress(FileNotFoundError, OSError):
+            path.unlink()
 
     @staticmethod
     def _parse_content_range_total(content_range: Optional[str]) -> Optional[int]:
@@ -665,11 +700,8 @@ class ModelWeightsInstaller:
         self, model_info: ModelInfo, store_dir: Path, view_dir: Path
     ) -> None:
         """Expose the store directory through the pack-scoped view path."""
-        if view_dir.exists() or view_dir.is_symlink():
-            if view_dir.is_symlink() or view_dir.is_file():
-                view_dir.unlink()
-            else:
-                shutil.rmtree(view_dir)
+        if self._safe_path_exists(view_dir) or self._safe_path_lstat(view_dir) is not None:
+            self._clear_path_artifact(view_dir)
 
         relative_target = os.path.relpath(store_dir, start=view_dir.parent)
         os.symlink(relative_target, view_dir)
@@ -687,11 +719,8 @@ class ModelWeightsInstaller:
                 f"Local bundle source not found for {model_info.pack_code}:{model_info.model_id}"
             )
 
-        if store_dir.exists() or store_dir.is_symlink():
-            if store_dir.is_symlink() or store_dir.is_file():
-                store_dir.unlink()
-            else:
-                shutil.rmtree(store_dir)
+        if self._safe_path_exists(store_dir) or self._safe_path_lstat(store_dir) is not None:
+            self._clear_path_artifact(store_dir)
         store_dir.mkdir(parents=True, exist_ok=True)
 
         if bundle_source.is_file():
@@ -769,7 +798,7 @@ class ModelWeightsInstaller:
                 continue
             seen_roots.add(root_key)
             candidate = root / "bundles" / bundle_id / relative_path
-            if candidate.exists():
+            if self._safe_path_exists(candidate):
                 return candidate
 
         return None
@@ -778,11 +807,8 @@ class ModelWeightsInstaller:
         self, source_path: Path, target_path: Path
     ) -> None:
         """Populate the cache store from a local bundle file."""
-        if target_path.exists() or target_path.is_symlink():
-            if target_path.is_symlink() or target_path.is_file():
-                target_path.unlink()
-            else:
-                shutil.rmtree(target_path)
+        if self._safe_path_exists(target_path) or self._safe_path_lstat(target_path) is not None:
+            self._clear_path_artifact(target_path)
 
         shutil.copy2(source_path, target_path)
 
@@ -851,7 +877,7 @@ class ModelWeightsInstaller:
 
         for file_info in model_info.files:
             file_path = model_info.local_path / file_info.filename
-            if not file_path.exists():
+            if not self._safe_path_exists(file_path):
                 return False
 
             if file_info.expected_hash and not self._is_placeholder_hash(
@@ -961,11 +987,11 @@ class ModelWeightsInstaller:
 
         def get_path_size(path: Path) -> int:
             total = 0
-            if path.exists():
+            if self._safe_path_exists(path):
                 if path.is_symlink():
                     # Follow symlink to get actual size of the target
                     target = path.resolve()
-                    if target.exists():
+                    if self._safe_path_exists(target):
                         for entry in target.rglob("*"):
                             if entry.is_file():
                                 total += entry.stat().st_size
@@ -981,7 +1007,7 @@ class ModelWeightsInstaller:
             for role_dir in self.cache_root.iterdir():
                 if role_dir.is_dir() and role_dir.name in self.ROLE_MAP.values():
                     pack_view = role_dir / "by_pack" / pack_code
-                    if pack_view.exists():
+                    if self._safe_path_exists(pack_view):
                         for model_entry in pack_view.iterdir():
                             pack_total += get_path_size(model_entry)
             usage[pack_code] = pack_total
@@ -991,7 +1017,7 @@ class ModelWeightsInstaller:
             for role_dir in self.cache_root.iterdir():
                 if role_dir.is_dir() and role_dir.name in self.ROLE_MAP.values():
                     store_dir = role_dir / "store"
-                    if store_dir.exists():
+                    if self._safe_path_exists(store_dir):
                         for entry in store_dir.rglob("*"):
                             if entry.is_file():
                                 global_total += entry.stat().st_size

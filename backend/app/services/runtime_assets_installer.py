@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class RuntimeAssetsInstaller:
-    """Install runtime assets (tools, services, API, schema, models, migrations, UI, manifest, root files, bundles)"""
+    """Install runtime assets (tools, services, scripts, API, schema, models, migrations, UI, manifest, root files, bundles)"""
 
     def __init__(self, local_core_root: Path, capabilities_dir: Path):
         """
@@ -64,7 +64,10 @@ class RuntimeAssetsInstaller:
         # 2. Install services
         self.install_services(cap_dir, capability_code, result)
 
-        # 2b. Install jobs directory
+        # 2b. Install scripts directory
+        self.install_scripts(cap_dir, capability_code, result)
+
+        # 2c. Install jobs directory
         self.install_jobs(cap_dir, capability_code, result)
 
         # 3. Install API endpoints
@@ -223,6 +226,33 @@ class RuntimeAssetsInstaller:
                 shutil.copytree(item, target_subdir)
                 logger.debug(f"Installed jobs subdirectory: {item.name}")
                 result.add_installed("jobs_dirs", item.name)
+
+    def install_scripts(
+        self, cap_dir: Path, capability_code: str, result: InstallResult
+    ):
+        """Install capability scripts directory preserving subdirectory structure."""
+        scripts_dir = cap_dir / "scripts"
+        if not scripts_dir.exists():
+            return
+
+        target_scripts_dir = self.capabilities_dir / capability_code / "scripts"
+        if target_scripts_dir.exists():
+            shutil.rmtree(target_scripts_dir)
+        shutil.copytree(scripts_dir, target_scripts_dir)
+
+        installed = []
+        for script_file in target_scripts_dir.rglob("*"):
+            if not script_file.is_file():
+                continue
+            if "__pycache__" in script_file.parts:
+                continue
+            installed.append(str(script_file.relative_to(target_scripts_dir)))
+
+        if installed:
+            result.extend_installed("scripts", installed)
+        logger.info(
+            f"Installed scripts directory for {capability_code}: {len(installed)} files"
+        )
 
     def install_api_endpoints(
         self, cap_dir: Path, capability_code: str, result: InstallResult

@@ -15,9 +15,9 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy import text
 
 from ..postgres_base import PostgresStoreBase
-from app.models.surface import Command, CommandStatus, SurfaceEvent
-from app.models.workspace import ConversationThread, PlaybookExecution, ThreadReference
-from app.models.lens_composition import LensComposition, LensReference
+from backend.app.models.surface import Command, CommandStatus, SurfaceEvent
+from backend.app.models.workspace import ConversationThread, PlaybookExecution, ThreadReference
+from backend.app.models.lens_composition import LensComposition, LensReference
 
 logger = logging.getLogger(__name__)
 

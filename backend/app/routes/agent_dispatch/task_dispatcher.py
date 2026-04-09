@@ -27,6 +27,113 @@ class TaskDispatchMixin:
     def _resolve_surface_type(message: Dict[str, Any]) -> Optional[str]:
         return message.get("agent_id") or message.get("surface_type")
 
+    def _normalize_completed_entry(
+        self,
+        execution_id: str,
+        raw_entry: Any,
+    ) -> Dict[str, Any]:
+        if isinstance(raw_entry, dict):
+            normalized = dict(raw_entry)
+        else:
+            normalized = {}
+            if isinstance(raw_entry, (int, float)):
+                normalized["completed_at_monotonic"] = float(raw_entry)
+        normalized.setdefault("execution_id", execution_id)
+        if "completed_at_monotonic" not in normalized:
+            normalized["completed_at_monotonic"] = time.monotonic()
+        if "completed_at" not in normalized:
+            normalized["completed_at"] = time.time()
+        return normalized
+
+    def _mark_completed_execution(
+        self,
+        execution_id: str,
+        *,
+        result: Optional[Dict[str, Any]] = None,
+        status: str = "completed",
+        landing_succeeded: Optional[bool] = None,
+        error: Optional[str] = None,
+        acceptance_state: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        entry = self._normalize_completed_entry(
+            execution_id,
+            self._completed.get(execution_id),
+        )
+        entry["completed_at_monotonic"] = time.monotonic()
+        entry["completed_at"] = time.time()
+        entry["status"] = status
+        if result is not None:
+            entry["result"] = result
+        if landing_succeeded is not None:
+            entry["landing_succeeded"] = landing_succeeded
+        if error is not None:
+            entry["error"] = error
+        if acceptance_state is not None:
+            entry["acceptance_state"] = acceptance_state
+        self._completed[execution_id] = entry
+        self._completed.move_to_end(execution_id)
+        while len(self._completed) > self.COMPLETED_MAX_SIZE:
+            self._completed.popitem(last=False)
+        return entry
+
+    def _build_resume_sync(
+        self,
+        *,
+        workspace_id: str,
+        recent_execution_ids: List[str],
+        pending_rest_execution_ids: List[str],
+        last_completed_at: Optional[float],
+    ) -> Dict[str, Any]:
+        client_known = {
+            str(execution_id).strip()
+            for execution_id in [*recent_execution_ids, *pending_rest_execution_ids]
+            if str(execution_id).strip()
+        }
+        replayed_completions: List[Dict[str, Any]] = []
+        duplicates_to_ignore: List[str] = []
+
+        for execution_id, raw_entry in self._completed.items():
+            entry = self._normalize_completed_entry(execution_id, raw_entry)
+            completed_at = entry.get("completed_at")
+            if (
+                isinstance(last_completed_at, (int, float))
+                and isinstance(completed_at, (int, float))
+                and completed_at <= float(last_completed_at)
+            ):
+                continue
+            if execution_id in client_known:
+                duplicates_to_ignore.append(execution_id)
+                continue
+            replayed_completions.append(
+                {
+                    "execution_id": execution_id,
+                    "completed_at": completed_at,
+                    "status": entry.get("status", "completed"),
+                    "landing_succeeded": entry.get("landing_succeeded"),
+                    "acceptance_state": entry.get("acceptance_state"),
+                }
+            )
+
+        tasks_to_requeue: List[Dict[str, Any]] = []
+        for execution_id, inflight in self._inflight.items():
+            if inflight.workspace_id != workspace_id or execution_id in self._completed:
+                continue
+            tasks_to_requeue.append(
+                {
+                    "execution_id": execution_id,
+                    "client_id": inflight.client_id,
+                    "acked": inflight.acked,
+                }
+            )
+
+        return {
+            "type": "resume_sync",
+            "workspace_id": workspace_id,
+            "replayed_completions": replayed_completions,
+            "tasks_to_requeue": tasks_to_requeue,
+            "duplicates_to_ignore": duplicates_to_ignore,
+        }
+
     async def dispatch_and_wait(
         self,
         workspace_id: str,

@@ -686,3 +686,117 @@ class TestCompileHappyPath:
             session_id="sess-hp-003",
             metadata={"handoff_id": "h_hp_001"},
         )
+
+    @pytest.mark.asyncio
+    async def test_compile_setup_failure_marks_job_failed_and_session_failed(self):
+        """Pre-engine setup failures should still terminalize job + session."""
+        import sys
+        import types
+
+        bundle = self._make_bundle()
+
+        fake_session = MagicMock()
+        fake_session.id = "sess-hp-004"
+        fake_session.workspace_id = "ws_001"
+        fake_session.metadata = {}
+        fake_session.ended_at = None
+        fake_session.end = MagicMock()
+
+        mock_session_store = MagicMock()
+        mock_session_store.get_active_session.return_value = None
+        mock_session_store.create.return_value = None
+
+        mock_ms_cls = MagicMock()
+        mock_ms_cls.new.return_value = fake_session
+
+        class _FakeMeetingStatus:
+            FAILED = "failed"
+
+        class _FakeMeetingExecutionContext:
+            @staticmethod
+            def assemble(**kwargs):
+                return MagicMock(executor_target_client_id=None)
+
+        mod_meeting = types.ModuleType("backend.app.services.orchestration.meeting")
+        mod_meeting.MeetingEngine = MagicMock()
+        mod_session_store = types.ModuleType(
+            "backend.app.services.stores.meeting_session_store"
+        )
+        mod_session_store.MeetingSessionStore = MagicMock(
+            return_value=mock_session_store
+        )
+        mod_meeting_session = types.ModuleType("backend.app.models.meeting_session")
+        mod_meeting_session.MeetingSession = mock_ms_cls
+        mod_meeting_session.MeetingStatus = _FakeMeetingStatus
+        mod_mindscape_store = types.ModuleType("backend.app.services.mindscape_store")
+        mod_mindscape_store.MindscapeStore = MagicMock(return_value=MagicMock())
+        mod_pipeline_meeting = types.ModuleType(
+            "backend.app.services.conversation.pipeline_meeting"
+        )
+        mod_pipeline_meeting.build_execution_launcher = MagicMock(
+            side_effect=RuntimeError("launcher exploded")
+        )
+        mod_meeting_execution_context = types.ModuleType(
+            "backend.app.models.meeting_execution_context"
+        )
+        mod_meeting_execution_context.MeetingExecutionContext = (
+            _FakeMeetingExecutionContext
+        )
+        mock_compile_job_store = MagicMock()
+
+        target_modules = {
+            "backend.app.services.orchestration.meeting": mod_meeting,
+            "backend.app.services.stores.meeting_session_store": mod_session_store,
+            "backend.app.models.meeting_session": mod_meeting_session,
+            "backend.app.services.mindscape_store": mod_mindscape_store,
+            "backend.app.services.conversation.pipeline_meeting": mod_pipeline_meeting,
+            "backend.app.models.meeting_execution_context": (
+                mod_meeting_execution_context
+            ),
+        }
+
+        saved = {k: sys.modules.get(k) for k in target_modules}
+        sys.modules.update(target_modules)
+        try:
+            svc = HandoffBundleService()
+            with pytest.raises(RuntimeError, match="launcher exploded"):
+                await svc.intake_and_compile(
+                    bundle=bundle,
+                    workspace=MagicMock(
+                        id="ws_001",
+                        executor_runtime="codex_cli",
+                        resolved_executor_runtime="codex_cli",
+                    ),
+                    runtime_profile=None,
+                    profile_id="test-user",
+                    thread_id="t1",
+                    project_id="p1",
+                    secret_key=SIGNING_KEY_FIXTURE,
+                    compile_job_id="cj_hp_004",
+                    compile_job_store=mock_compile_job_store,
+                )
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    sys.modules.pop(k, None)
+                else:
+                    sys.modules[k] = v
+
+        mock_compile_job_store.mark_running.assert_called_once_with(
+            "cj_hp_004",
+            session_id="sess-hp-004",
+            metadata={"active_session_reused": False, "route_kind": None},
+        )
+        mock_compile_job_store.mark_failed.assert_called_once_with(
+            "cj_hp_004",
+            "launcher exploded",
+            session_id="sess-hp-004",
+            metadata={"handoff_id": "h_hp_001"},
+        )
+        fake_session.end.assert_called_once_with()
+        assert fake_session.status == "failed"
+        assert fake_session.metadata["pipeline_failure"] == {
+            "stage": "compile_setup",
+            "error": "launcher exploded",
+        }
+        mock_session_store.update.assert_called_with(fake_session)

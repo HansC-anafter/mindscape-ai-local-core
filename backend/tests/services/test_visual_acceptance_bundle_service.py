@@ -23,7 +23,16 @@ from backend.app.services.artifact_review_decision import (
     build_review_checklist_template,
 )
 from backend.app.services import visual_acceptance_bundle
-from shared.schemas.storyboard import ObjectAssetRef, ObjectWorkloadSnapshot, Scene
+from shared.schemas.storyboard import (
+    ObjectAssetRef,
+    ObjectWorkloadSnapshot,
+    Scene,
+    SceneConsistencyContract,
+    SceneControlRef,
+    ScenePackageRef,
+    ScenePackageSelector,
+    SceneSpatialMetadata,
+)
 
 
 class _FakeArtifactsStore:
@@ -55,6 +64,53 @@ def test_publish_visual_acceptance_bundle_lands_manifest_and_artifact(monkeypatc
     scene = Scene(
         scene_id="A01",
         scene_manifest={"shot": "close_up"},
+        scene_package_selector=ScenePackageSelector(
+            artifact_id="scenepkg_artifact_001",
+            package_id="scenepkg_demo",
+            scene_scope="hero",
+            variant_id="golden_hour",
+            provider="world_labs",
+            status="generated",
+            generation_mode="generated_world",
+        ),
+        scene_package_ref=ScenePackageRef(
+            artifact_id="scenepkg_artifact_001",
+            package_id="scenepkg_demo",
+            provider="world_labs",
+            generation_mode="generated_world",
+            scene_scope="hero",
+            variant_id="golden_hour",
+            status="generated",
+            control_refs=[
+                SceneControlRef(
+                    control_kind="canonical_image",
+                    ref={"storage_key": "scene_controls/a01_canonical.png"},
+                    provider="world_labs",
+                ),
+                SceneControlRef(
+                    control_kind="depth_map",
+                    ref={"storage_key": "scene_controls/a01_depth.exr"},
+                    provider="world_labs",
+                ),
+            ],
+            spatial_metadata=SceneSpatialMetadata(
+                coordinate_system="rhs",
+                unit_scale=1.0,
+                up_axis="Y",
+                forward_axis="-Z",
+                grounding_mode="floor_locked",
+            ),
+            consistency_contract=SceneConsistencyContract(
+                must_hold=["layout", "key_props"],
+                allowed_variation=["background_extras"],
+                degradation_policy="reference_only",
+            ),
+        ),
+        scene_consistency_contract=SceneConsistencyContract(
+            must_hold=["layout", "key_props"],
+            allowed_variation=["background_extras"],
+            degradation_policy="reference_only",
+        ),
         object_assets=[
             ObjectAssetRef(
                 asset_ref={"storage_key": "exports/layers/held_prop.png"},
@@ -131,6 +187,45 @@ def test_publish_visual_acceptance_bundle_lands_manifest_and_artifact(monkeypatc
     assert {slot["slot"] for slot in payload["slots"]} == {"final_layer", "final_render"}
     assert payload["scene_context"]["scene_payload"]["scene_id"] == "A01"
     assert payload["scene_context"]["scene_payload"]["scene_manifest"] == {"shot": "close_up"}
+    assert payload["scene_context"]["scene_package_selector"] == {
+        "artifact_id": "scenepkg_artifact_001",
+        "package_id": "scenepkg_demo",
+        "scene_scope": "hero",
+        "variant_id": "golden_hour",
+        "provider": "world_labs",
+        "status": "generated",
+        "generation_mode": "generated_world",
+    }
+    assert payload["scene_context"]["scene_package_ref"]["artifact_id"] == "scenepkg_artifact_001"
+    assert payload["scene_context"]["scene_package_ref"]["control_refs"][0]["control_kind"] == (
+        "canonical_image"
+    )
+    assert payload["scene_context"]["scene_consistency_contract"] == {
+        "must_hold": ["layout", "key_props"],
+        "allowed_variation": ["background_extras"],
+        "degradation_policy": "reference_only",
+    }
+    assert payload["scene_context"]["scene_control_refs"] == [
+        {
+            "control_kind": "canonical_image",
+            "ref": {"storage_key": "scene_controls/a01_canonical.png"},
+            "provider": "world_labs",
+            "metadata": {},
+        },
+        {
+            "control_kind": "depth_map",
+            "ref": {"storage_key": "scene_controls/a01_depth.exr"},
+            "provider": "world_labs",
+            "metadata": {},
+        },
+    ]
+    assert payload["scene_context"]["scene_spatial_metadata"] == {
+        "coordinate_system": "rhs",
+        "unit_scale": 1.0,
+        "up_axis": "Y",
+        "forward_axis": "-Z",
+        "grounding_mode": "floor_locked",
+    }
     assert payload["scene_context"]["scene_payload"]["object_workload_snapshot"][
         "source_image_ref"
     ] == {"storage_key": "refs/source_a01.png"}

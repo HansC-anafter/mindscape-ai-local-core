@@ -13,12 +13,12 @@ from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
 
-from app.models.workspace_resource_binding import (
+from backend.app.models.workspace_resource_binding import (
     WorkspaceResourceBinding,
     ResourceType,
     AccessMode,
 )
-from app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 
 class WorkspaceResourceBindingStore(PostgresStoreBase):

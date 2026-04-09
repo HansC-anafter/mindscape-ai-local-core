@@ -124,6 +124,11 @@ class ContextBuilder:
                     "Injected governance packet with route=%s",
                     self.memory_packet_compiler.build_route_plan(governance_packet),
                 )
+            world_card_text = governance_packet.get("world_card_text")
+            if world_card_text:
+                context_parts.append("\n## World Card Projection:")
+                context_parts.append(world_card_text)
+                logger.info("Injected world card projection from installed capability")
 
         # Layered memory system fallback
         if not governance_packet:

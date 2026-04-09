@@ -56,6 +56,15 @@ def test_resolve_task_routing_target_infers_browser_resource_class_from_queue():
     assert target.resource_class == "browser"
 
 
+def test_resolve_task_routing_target_falls_back_to_pack_partition_when_queue_missing():
+    task = _build_task(queue_shard="", resource_class="browser")
+
+    target = resolve_task_routing_target(task)
+
+    assert target.queue_partition == "browser_local"
+    assert target.resource_class == "browser"
+
+
 def test_resolve_target_runner_profile_prefers_runner_profile_hint():
     task = _build_task(runner_profile_hint="gpu_training")
 

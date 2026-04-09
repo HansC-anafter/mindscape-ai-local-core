@@ -176,14 +176,10 @@ def test_restart_specific_runner_pool_offline_falls_back_to_manual(monkeypatch):
 
 def test_queue_metrics_includes_active_runner_heartbeats(monkeypatch):
     webhook = StubRestartWebhook(configured=True)
-    client, _system_control = _build_client(monkeypatch, webhook)
-
-    from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
-    from backend.app.services.stores.tasks_store import TasksStore
-
+    client, system_control = _build_client(monkeypatch, webhook)
     monkeypatch.setattr(
-        RedisRunnerQueueStore,
-        "get_all_queue_metrics",
+        system_control,
+        "_get_runner_queue_metrics_payload",
         AsyncMock(
             return_value={
                 "status": "active",
@@ -193,17 +189,24 @@ def test_queue_metrics_includes_active_runner_heartbeats(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        TasksStore,
-        "list_runner_heartbeats",
-        lambda self, **_kwargs: [
-            {
-                "runner_id": "runner-browser-1",
-                "profile_code": "browser_local",
-                "hostname": "host-a",
-                "inflight": 2,
-                "heartbeat_at": "2026-03-27T10:00:00+00:00",
-            }
-        ],
+        system_control,
+        "_get_runner_heartbeat_projection",
+        AsyncMock(
+            return_value=[
+                {
+                    "runner_id": "runner-browser-1",
+                    "profile_code": "browser_local",
+                    "hostname": "host-a",
+                    "inflight": 2,
+                    "heartbeat_at": "2026-03-27T10:00:00+00:00",
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        system_control,
+        "_get_scene_generation_dispatch_health",
+        AsyncMock(return_value={"enabled": False, "status": "disabled"}),
     )
 
     response = client.get("/api/v1/system-settings/health/queue/metrics")
@@ -220,4 +223,217 @@ def test_queue_metrics_includes_active_runner_heartbeats(monkeypatch):
             "inflight": 2,
             "heartbeat_at": "2026-03-27T10:00:00+00:00",
         }
+    ]
+    assert data["scene_generation_dispatch"]["enabled"] is False
+    assert data["scene_generation_dispatch"]["status"] == "disabled"
+
+
+def test_queue_metrics_includes_scene_generation_dispatch_summary(monkeypatch):
+    webhook = StubRestartWebhook(configured=True)
+    client, system_control = _build_client(monkeypatch, webhook)
+    monkeypatch.setattr(
+        system_control,
+        "_get_runner_queue_metrics_payload",
+        AsyncMock(
+            return_value={
+                "status": "active",
+                "global": {
+                    "pending": 0,
+                    "processing": 0,
+                    "delayed": 0,
+                    "deadletter": 0,
+                },
+                "packs": {},
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        system_control,
+        "_get_runner_heartbeat_projection",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        system_control,
+        "_get_scene_generation_dispatch_health",
+        AsyncMock(
+            return_value={
+                "enabled": True,
+                "status": "warning",
+                "running": True,
+                "provider_cooldowns_active": 1,
+                "pending_total": 5,
+                "ready_total": 3,
+                "runnable_total": 2,
+                "provider_cooldown_blocked_total": 1,
+                "deferred_total": 2,
+                "provider_cooldowns": [
+                    {
+                        "provider_code": "world_labs",
+                        "cooldown_until": "2026-03-30T12:00:00+00:00",
+                        "remaining_seconds": 45,
+                    }
+                ],
+                "runnable_samples": [{"job_id": "sgj_ready"}],
+                "provider_cooldown_blocked_samples": [{"job_id": "sgj_blocked"}],
+                "deferred_samples": [{"job_id": "sgj_deferred"}],
+                "attention_reasons": [
+                    {
+                        "code": "provider_cooldown_blocking_jobs",
+                        "severity": "warning",
+                        "message": "1 scene generation jobs are blocked by provider cooldown.",
+                    }
+                ],
+                "recommended_actions": [
+                    "Check scene generation provider credentials/configuration and clear cooldown after the provider is ready."
+                ],
+                "thresholds": {
+                    "runnable_warn_threshold": 5,
+                    "deferred_warn_threshold": 10,
+                    "cooldown_blocked_warn_threshold": 1,
+                },
+                "timestamp": "2026-03-30T11:59:15+00:00",
+            }
+        ),
+    )
+
+    response = client.get("/api/v1/system-settings/health/queue/metrics")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scene_generation_dispatch"] == {
+        "enabled": True,
+        "status": "warning",
+        "running": True,
+        "provider_cooldowns_active": 1,
+        "pending_total": 5,
+        "ready_total": 3,
+        "runnable_total": 2,
+        "provider_cooldown_blocked_total": 1,
+        "deferred_total": 2,
+        "provider_cooldowns": [
+            {
+                "provider_code": "world_labs",
+                "cooldown_until": "2026-03-30T12:00:00+00:00",
+                "remaining_seconds": 45,
+            }
+        ],
+        "runnable_samples": [{"job_id": "sgj_ready"}],
+        "provider_cooldown_blocked_samples": [{"job_id": "sgj_blocked"}],
+        "deferred_samples": [{"job_id": "sgj_deferred"}],
+        "attention_reasons": [
+            {
+                "code": "provider_cooldown_blocking_jobs",
+                "severity": "warning",
+                "message": "1 scene generation jobs are blocked by provider cooldown.",
+            }
+        ],
+        "recommended_actions": [
+            "Check scene generation provider credentials/configuration and clear cooldown after the provider is ready."
+        ],
+        "thresholds": {
+            "runnable_warn_threshold": 5,
+            "deferred_warn_threshold": 10,
+            "cooldown_blocked_warn_threshold": 1,
+        },
+        "timestamp": "2026-03-30T11:59:15+00:00",
+    }
+
+
+def test_scene_generation_dispatch_summary_marks_error_when_not_running_with_pending_jobs(
+    monkeypatch,
+):
+    webhook = StubRestartWebhook(configured=True)
+    _client, system_control = _build_client(monkeypatch, webhook)
+
+    summary = system_control._summarize_scene_generation_dispatch_status(
+        {
+            "running": False,
+            "provider_cooldowns_active": 0,
+            "pending_jobs": {
+                "total_pending": 3,
+                "samples": [],
+            },
+            "ready_pending": {
+                "total_pending": 2,
+                "samples": [],
+            },
+            "runnable_pending": {
+                "total_pending": 2,
+                "samples": [],
+            },
+            "provider_cooldown_blocked_pending": {
+                "total_pending": 0,
+                "samples": [],
+            },
+            "deferred_pending": {
+                "total_pending": 1,
+                "samples": [],
+            },
+            "provider_cooldowns": [],
+            "timestamp": "2026-03-30T12:00:00+00:00",
+        }
+    )
+
+    assert summary["status"] == "error"
+    assert summary["attention_reasons"] == [
+        {
+            "code": "dispatch_not_running_with_pending_jobs",
+            "severity": "error",
+            "message": "Scene generation dispatch is not running while pending jobs exist.",
+        }
+    ]
+    assert summary["recommended_actions"] == [
+        "Restart local-core backend or verify performance_direction background services started successfully."
+    ]
+
+
+def test_scene_generation_dispatch_summary_marks_warning_when_schema_missing(
+    monkeypatch,
+):
+    webhook = StubRestartWebhook(configured=True)
+    _client, system_control = _build_client(monkeypatch, webhook)
+
+    summary = system_control._summarize_scene_generation_dispatch_status(
+        {
+            "running": False,
+            "schema_ready": False,
+            "schema_status": "missing_table",
+            "schema_table_name": "scene_generation_jobs",
+            "provider_cooldowns_active": 0,
+            "pending_jobs": {
+                "total_pending": 0,
+                "samples": [],
+            },
+            "ready_pending": {
+                "total_pending": 0,
+                "samples": [],
+            },
+            "runnable_pending": {
+                "total_pending": 0,
+                "samples": [],
+            },
+            "provider_cooldown_blocked_pending": {
+                "total_pending": 0,
+                "samples": [],
+            },
+            "deferred_pending": {
+                "total_pending": 0,
+                "samples": [],
+            },
+            "provider_cooldowns": [],
+            "timestamp": "2026-03-30T12:00:00+00:00",
+        }
+    )
+
+    assert summary["status"] == "warning"
+    assert summary["schema_ready"] is False
+    assert summary["attention_reasons"] == [
+        {
+            "code": "dispatch_schema_missing",
+            "severity": "warning",
+            "message": "Scene generation dispatch schema is unavailable (scene_generation_jobs).",
+        }
+    ]
+    assert summary["recommended_actions"] == [
+        "Run performance_direction scene generation migrations or disable the pack until the schema is installed."
     ]

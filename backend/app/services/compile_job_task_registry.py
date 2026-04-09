@@ -31,6 +31,9 @@ class CompileJobTaskRegistry:
     def has(self, job_id: str) -> bool:
         return self.get(job_id) is not None
 
+    def snapshot(self) -> list[RegisteredCompileJobTask]:
+        return list(self._tasks.values())
+
     def cancel(self, job_id: str) -> bool:
         item = self.get(job_id)
         if not item:

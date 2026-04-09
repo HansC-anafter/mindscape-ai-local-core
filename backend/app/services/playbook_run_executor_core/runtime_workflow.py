@@ -8,8 +8,55 @@ from typing import Any, Callable, Dict, Optional
 from backend.app.core.domain_context import LocalDomainContext
 from backend.app.services.execution_core.clock import utc_now as _utc_now
 from backend.app.services.execution_core.errors import RecoverableStepError
+from backend.app.services.task_pause_contract import (
+    USER_PAUSE_RESERVED_BLOCKED_REASON,
+    USER_PAUSE_RESERVED_MODE,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _reconcile_ig_reference_terminal_state(
+    *,
+    playbook_code: str,
+    workspace_id: Optional[str],
+    normalized_inputs: Optional[Dict[str, Any]],
+    task_status: Any,
+    task_error: Optional[str],
+    workflow_result: Optional[Dict[str, Any]] = None,
+) -> None:
+    if playbook_code != "ig_analyze_pinned_reference" or not workspace_id:
+        return
+    if not isinstance(normalized_inputs, dict):
+        return
+    reference_id = str(normalized_inputs.get("reference_id") or "").strip()
+    if not reference_id:
+        return
+
+    try:
+        from capabilities.ig.services.reference_analysis_task_reconcile import (
+            reconcile_reference_analysis_task_state,
+        )
+
+        reconcile_reference_analysis_task_state(
+            workspace_id=workspace_id,
+            reference_id=reference_id,
+            task_status=task_status,
+            task_error=task_error,
+            workflow_result=workflow_result,
+        )
+    except Exception:
+        logger.warning(
+            "PlaybookRunExecutor: Failed to reconcile IG reference task state",
+            exc_info=True,
+        )
+
+
+def _is_user_reserved_pause_checkpoint(checkpoint: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(checkpoint, dict):
+        return False
+    pause_mode = checkpoint.get("pause_mode")
+    return isinstance(pause_mode, str) and pause_mode.strip().lower() == USER_PAUSE_RESERVED_MODE
 
 
 def _resolve_execution_id(normalized_inputs: Optional[Dict[str, Any]]) -> str:
@@ -98,6 +145,24 @@ def _extract_sandbox_id(runtime_result: Any) -> Optional[str]:
                     if isinstance(sandbox_id, str) and sandbox_id:
                         return sandbox_id
     return None
+
+
+def _resolve_persisted_task_error(
+    *,
+    task_status: Any,
+    workflow_failed: bool,
+    runtime_error: Optional[str],
+) -> Optional[str]:
+    """Persist task errors without poisoning successful runtime completions."""
+    from backend.app.models.workspace import TaskStatus
+
+    if workflow_failed:
+        return "Workflow completed with step errors"
+
+    if task_status == TaskStatus.FAILED:
+        return runtime_error or "Runtime execution returned None"
+
+    return runtime_error or None
 
 
 def _register_background_task(execution_id: str, task: "asyncio.Task[Any]") -> None:
@@ -252,18 +317,29 @@ def persist_runtime_result(
         checkpoint = getattr(runtime_result, "checkpoint", None)
         if isinstance(checkpoint, dict):
             execution_context["checkpoint"] = checkpoint
+        user_reserved_pause = _is_user_reserved_pause_checkpoint(checkpoint)
+        if user_reserved_pause:
+            execution_context["pause_mode"] = USER_PAUSE_RESERVED_MODE
 
         sandbox_id = _extract_sandbox_id(runtime_result)
         if sandbox_id:
             execution_context["sandbox_id"] = sandbox_id
 
         runtime_status = getattr(runtime_result, "status", None)
-        if runtime_status == "paused":
+        if runtime_status == "paused" and user_reserved_pause:
+            task_status = TaskStatus.PENDING
+            execution_context["status"] = "paused"
+        elif runtime_status == "paused":
             task_status = TaskStatus.RUNNING
         elif runtime_status == "completed" and not workflow_failed:
             task_status = TaskStatus.SUCCEEDED
         else:
             task_status = TaskStatus.FAILED
+        persisted_error = _resolve_persisted_task_error(
+            task_status=task_status,
+            workflow_failed=workflow_failed,
+            runtime_error=getattr(runtime_result, "error", None),
+        )
 
         existing_task = tasks_store.get_task_by_execution_id(execution_id)
         if existing_task:
@@ -273,21 +349,39 @@ def persist_runtime_result(
                 else {}
             )
             merged_context.update(execution_context)
-            tasks_store.update_task(
-                existing_task.id,
-                execution_context=merged_context,
-                status=task_status,
-                completed_at=(
+            update_kwargs = {
+                "execution_context": merged_context,
+                "status": task_status,
+                "completed_at": (
                     utc_now_fn()
                     if task_status in (TaskStatus.SUCCEEDED, TaskStatus.FAILED)
                     else None
                 ),
-                error=(
-                    "Workflow completed with step errors"
-                    if workflow_failed
-                    else getattr(runtime_result, "error", None)
-                    or "Runtime execution returned None"
-                ),
+                "error": persisted_error,
+            }
+            if user_reserved_pause:
+                update_kwargs.update(
+                    {
+                        "blocked_reason": USER_PAUSE_RESERVED_BLOCKED_REASON,
+                        "blocked_payload": {
+                            "pause_mode": USER_PAUSE_RESERVED_MODE,
+                            "execution_id": execution_id,
+                        },
+                        "frontier_state": "cold",
+                        "frontier_enqueued_at": None,
+                        "next_eligible_at": None,
+                        "completed_at": None,
+                        "error": None,
+                    }
+                )
+            tasks_store.update_task(existing_task.id, **update_kwargs)
+            _reconcile_ig_reference_terminal_state(
+                playbook_code=playbook_code,
+                workspace_id=workspace_id,
+                normalized_inputs=normalized_inputs,
+                task_status=task_status,
+                task_error=persisted_error,
+                workflow_result=canonical_workflow_result,
             )
     except Exception as exc:
         logger.warning(
@@ -323,6 +417,16 @@ def mark_pending_runtime_task(
                 execution_context=context,
                 status=TaskStatus.PENDING,
                 error=str(error),
+            )
+            _reconcile_ig_reference_terminal_state(
+                playbook_code=str(context.get("playbook_code") or ""),
+                workspace_id=(
+                    str(context.get("workspace_id") or "").strip() or None
+                ),
+                normalized_inputs=context.get("inputs") if isinstance(context.get("inputs"), dict) else {},
+                task_status=TaskStatus.PENDING,
+                task_error=str(error),
+                workflow_result=context.get("workflow_result") if isinstance(context.get("workflow_result"), dict) else None,
             )
     except Exception as exc:
         logger.error(
@@ -366,6 +470,14 @@ def mark_failed_runtime_task(
                 status=TaskStatus.FAILED,
                 completed_at=utc_now_fn(),
                 error=str(error),
+            )
+            _reconcile_ig_reference_terminal_state(
+                playbook_code=str(existing_task.pack_id or context.get("playbook_code") or ""),
+                workspace_id=workspace_id,
+                normalized_inputs=context.get("inputs") if isinstance(context.get("inputs"), dict) else normalized_inputs,
+                task_status=TaskStatus.FAILED,
+                task_error=str(error),
+                workflow_result=context.get("workflow_result") if isinstance(context.get("workflow_result"), dict) else None,
             )
     except Exception:
         pass

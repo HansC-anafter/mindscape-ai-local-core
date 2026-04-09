@@ -326,7 +326,7 @@ async def update_runtime_environment(
 
         # Update metadata (merge with existing)
         if request.metadata is not None:
-            existing_meta = runtime.extra_metadata or {}
+            existing_meta = dict(runtime.extra_metadata or {})
             existing_meta.update(request.metadata)
             runtime.extra_metadata = existing_meta
 
@@ -416,4 +416,3 @@ async def delete_runtime_environment(
         raise HTTPException(
             status_code=500, detail="Failed to delete runtime environment"
         )
-

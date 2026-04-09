@@ -5,6 +5,7 @@ Bridge between Workspace tasks and External Agent adapters.
 Handles context injection, governance checks, and execution tracing.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -72,6 +73,9 @@ class WorkspaceAgentExecutor:
     4. Record ExecutionTrace
     """
 
+    CORE_MEMORY_CONTEXT_TIMEOUT_S: float = 5.0
+    GOVERNANCE_PACKET_TIMEOUT_S: float = 5.0
+
     def __init__(self, workspace: Any):
         """
         Initialize executor for a specific workspace.
@@ -83,6 +87,15 @@ class WorkspaceAgentExecutor:
         self.registry = get_runtime_registry()
         self.preflight = PlaybookPreflight()
         self.trace_service = ExecutionTraceService()
+
+    @staticmethod
+    async def _run_isolated_async_helper(coro_factory, *, timeout: float) -> Any:
+        """Run a potentially blocking async helper off the main event loop."""
+
+        return await asyncio.wait_for(
+            asyncio.to_thread(lambda: asyncio.run(coro_factory())),
+            timeout=timeout,
+        )
 
     async def check_agent_available(self, agent_id: Optional[str] = None) -> bool:
         """
@@ -206,6 +219,10 @@ class WorkspaceAgentExecutor:
                 f"sandbox={sandbox_path}"
             )
 
+            agent_context = dict(context)
+            if "inputs" not in agent_context:
+                agent_context["inputs"] = dict(context)
+
             agent_request = RuntimeExecRequest(
                 task=task,
                 sandbox_path=sandbox_path,
@@ -218,7 +235,7 @@ class WorkspaceAgentExecutor:
                 source_workspace_id=context.get("source_workspace_id")
                 or context.get("origin_workspace_id")
                 or self.workspace.id,
-                agent_config=context,
+                agent_config=agent_context,
             )
 
             result = await adapter.execute(agent_request)
@@ -271,7 +288,10 @@ class WorkspaceAgentExecutor:
             from backend.app.services.mindscape_store import MindscapeStore
 
             memory_service = WorkspaceCoreMemoryService(store=MindscapeStore())
-            core_memory = await memory_service.get_core_memory(self.workspace.id)
+            core_memory = await self._run_isolated_async_helper(
+                lambda: memory_service.get_core_memory(self.workspace.id),
+                timeout=self.CORE_MEMORY_CONTEXT_TIMEOUT_S,
+            )
 
             if core_memory:
                 context["brand_identity"] = core_memory.brand_identity
@@ -279,6 +299,8 @@ class WorkspaceAgentExecutor:
                 context["style_constraints"] = core_memory.style_constraints
                 context["custom_instructions"] = core_memory.custom_instructions
 
+        except asyncio.TimeoutError:
+            logger.warning("Timed out loading core memory for workspace %s", self.workspace.id)
         except Exception as e:
             logger.warning(f"Failed to load core memory: {e}")
 
@@ -290,18 +312,38 @@ class WorkspaceAgentExecutor:
             from backend.app.services.mindscape_store import MindscapeStore
 
             read_model = GovernanceContextReadModel(store=MindscapeStore())
-            governance_packet = await read_model.build_for_workspace(self.workspace)
+            governance_packet = await self._run_isolated_async_helper(
+                lambda: read_model.build_for_workspace(self.workspace),
+                timeout=self.GOVERNANCE_PACKET_TIMEOUT_S,
+            )
             if governance_packet:
                 context["governance_context"] = governance_packet[
                     "governance_context"
                 ]
                 context["memory_packet"] = governance_packet["memory_packet"]
+                if governance_packet.get("world_memory_packet"):
+                    context["world_memory_packet"] = governance_packet[
+                        "world_memory_packet"
+                    ]
+                if governance_packet.get("world_card_projection"):
+                    context["world_card_projection"] = governance_packet[
+                        "world_card_projection"
+                    ]
+                if governance_packet.get("world_card_text"):
+                    context["world_card_text"] = governance_packet[
+                        "world_card_text"
+                    ]
 
                 memory_context_summary = read_model.format_memory_packet_for_context(
                     governance_packet
                 )
                 if memory_context_summary:
                     context["memory_context_summary"] = memory_context_summary
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Timed out building governance memory packet for workspace %s",
+                self.workspace.id,
+            )
         except Exception as e:
             logger.warning(f"Failed to build governance memory packet: {e}")
 

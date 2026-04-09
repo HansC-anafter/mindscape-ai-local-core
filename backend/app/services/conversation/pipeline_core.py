@@ -176,6 +176,7 @@ class PipelineCore:
                     user_message=message,
                     model_name=model_name,
                     executor_runtime=executor_runtime,
+                    workspace=self.workspace,
                 )
                 if session:
                     result.meeting_session_id = session.id

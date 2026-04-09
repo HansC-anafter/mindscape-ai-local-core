@@ -68,6 +68,7 @@ from backend.app.services.workflow.scheduling import (
 )
 from backend.app.services.workflow.step_lifecycle import (
     build_gate_pause_result as workflow_build_gate_pause_result,
+    build_step_pause_result as workflow_build_step_pause_result,
     maybe_invoke_step_hook as workflow_maybe_invoke_step_hook,
     resolve_gate_action as workflow_resolve_gate_action,
 )
@@ -170,6 +171,7 @@ class WorkflowOrchestrator:
         *,
         step: Any,
         resolved_inputs: Dict[str, Any],
+        resume_checkpoint: Optional[Dict[str, Any]],
         execution_id: Optional[str],
         workspace_id: Optional[str],
         profile_id: Optional[str],
@@ -182,6 +184,7 @@ class WorkflowOrchestrator:
                 step=step,
                 current_depth=previous_depth,
                 resolved_inputs=resolved_inputs,
+                resume_checkpoint=resume_checkpoint,
                 execution_id=execution_id,
                 workspace_id=workspace_id,
                 profile_id=profile_id,
@@ -371,6 +374,8 @@ class WorkflowOrchestrator:
             step_results = await asyncio.gather(*step_tasks, return_exceptions=True)
 
             for step, step_result in zip(ready_steps, step_results):
+                if isinstance(step_result, RecoverableStepError):
+                    raise step_result
                 step_result = workflow_normalize_parallel_step_result(
                     step_playbook_code=step.playbook_code,
                     step_result=step_result,
@@ -590,6 +595,11 @@ class WorkflowOrchestrator:
                         step_index=step_index,
                     )
                     step_outputs[step.id] = step_result
+                    step_status = (
+                        step_result.get("status")
+                        if isinstance(step_result, dict)
+                        else None
+                    ) or "completed"
                     step_result_keys = (
                         list(step_result.keys())
                         if isinstance(step_result, dict)
@@ -606,8 +616,58 @@ class WorkflowOrchestrator:
                                 step_result_preview[k] = (
                                     str(v)[:100] if len(str(v)) > 100 else str(v)
                                 )
+                    if step_status == "paused":
+                        logger.info(
+                            "Step %s paused. Output keys: %s, Preview: %s",
+                            step.id,
+                            step_result_keys,
+                            step_result_preview,
+                        )
+                        partial_outputs = self._collect_final_outputs(
+                            playbook_json.outputs, step_outputs
+                        )
+                        step_checkpoint = (
+                            step_result.get("checkpoint")
+                            if isinstance(step_result, dict)
+                            and isinstance(step_result.get("checkpoint"), dict)
+                            else None
+                        )
+                        return workflow_build_step_pause_result(
+                            step_id=step.id,
+                            execution_id=execution_id,
+                            playbook_code=getattr(
+                                playbook_json,
+                                "playbook_code",
+                                None,
+                            ),
+                            sandbox_id=(
+                                step_result.get("sandbox_id")
+                                if isinstance(step_result, dict)
+                                else None
+                            )
+                            or sandbox_id,
+                            completed_steps=completed_steps,
+                            step_outputs=step_outputs,
+                            partial_outputs=partial_outputs,
+                            created_at=_utc_now(),
+                            pause_reason=(
+                                step_result.get("pause_reason")
+                                if isinstance(step_result, dict)
+                                else None
+                            ),
+                            step_checkpoint=step_checkpoint,
+                            gate=(
+                                step_result.get("gate")
+                                if isinstance(step_result, dict)
+                                else None
+                            ),
+                        )
+
                     logger.info(
-                        f"Step {step.id} completed successfully. Output keys: {step_result_keys}, Preview: {step_result_preview}"
+                        "Step %s completed successfully. Output keys: %s, Preview: %s",
+                        step.id,
+                        step_result_keys,
+                        step_result_preview,
                     )
 
                     # P3-4c: post_step hook (non-fatal)
@@ -843,9 +903,22 @@ class WorkflowOrchestrator:
                     project_id=project_id,
                 )
             elif hasattr(step, "playbook_slot") and step.playbook_slot:
+                prior_step_result = (
+                    step_outputs.get(step.id)
+                    if isinstance(step_outputs.get(step.id), dict)
+                    else None
+                )
+                resume_checkpoint = (
+                    prior_step_result.get("checkpoint")
+                    if isinstance(prior_step_result, dict)
+                    and prior_step_result.get("status") == "paused"
+                    and isinstance(prior_step_result.get("checkpoint"), dict)
+                    else None
+                )
                 return await self._execute_playbook_slot(
                     step=step,
                     resolved_inputs=resolved_inputs,
+                    resume_checkpoint=resume_checkpoint,
                     execution_id=execution_id,
                     workspace_id=workspace_id,
                     profile_id=profile_id,
@@ -875,6 +948,11 @@ class WorkflowOrchestrator:
             )
 
             step_completed_at = _utc_now()
+            step_status = (
+                step_output.get("status")
+                if isinstance(step_output, dict)
+                else None
+            ) or "completed"
 
             if execution_id and workspace_id and self.store:
                 self._create_step_event(
@@ -884,7 +962,7 @@ class WorkflowOrchestrator:
                     step_id=step.id,
                     step_name=step.id,
                     step_index=step_index,
-                    status="completed",
+                    status=step_status,
                     started_at=step_started_at,
                     completed_at=step_completed_at,
                 )

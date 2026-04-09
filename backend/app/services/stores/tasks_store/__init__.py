@@ -10,7 +10,7 @@ Composed from focused mixins:
 from ._base import TasksStoreCrudMixin
 from ._queries import TasksStoreQueryMixin
 from ._runner import TasksStoreRunnerMixin
-from app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 
 class TasksStore(

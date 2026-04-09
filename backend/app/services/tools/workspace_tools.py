@@ -651,13 +651,9 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
         metadata = ToolMetadata(
             name="workspace_query_database",
             description=(
-                "Execute a read-only SQL SELECT query against the workspace database. "
-                "Use this tool to query and analyze data such as IG accounts, follow edges, "
-                "posts, and generated personas. "
-                f"Allowed tables: {table_list}. "
-                f"Results are limited to {self.MAX_ROWS} rows. "
-                "Only SELECT statements are permitted. "
-                "workspace_id is required to scope results to the current workspace."
+                "Execute a read-only SQL SELECT query against workspace-scoped tables. "
+                f"Results are limited to {self.MAX_ROWS} rows, only SELECT is permitted, "
+                "and workspace_id is required for data isolation."
             ),
             input_schema=ToolInputSchema(
                 type="object",

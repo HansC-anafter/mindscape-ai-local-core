@@ -31,6 +31,7 @@ async def _decompose_agenda(
     user_message: str,
     model_name: str | None = None,
     executor_runtime: str | None = None,
+    workspace: Any | None = None,
 ) -> list[str]:
     """Use LLM to decompose a user message into 2-5 agenda items.
 
@@ -58,12 +59,15 @@ async def _decompose_agenda(
         )
 
         if not model_name:
-            from backend.app.services.system_settings_store import SystemSettingsStore
+            from backend.app.services.conversation.chat_model_resolution import (
+                resolve_conversational_model_name,
+            )
 
             try:
-                setting = SystemSettingsStore().get_setting("chat_model")
-                if setting and setting.value:
-                    model_name = str(setting.value)
+                model_name = resolve_conversational_model_name(
+                    model_name,
+                    workspace=workspace,
+                )
             except Exception:
                 pass
         if not model_name:
@@ -208,6 +212,7 @@ async def ensure_meeting_session(
     user_message: Optional[str] = None,
     model_name: Optional[str] = None,
     executor_runtime: Optional[str] = None,
+    workspace: Optional[Any] = None,
 ) -> Optional[Any]:
     """Get or create the active MeetingSession for this workspace/thread.
 
@@ -245,6 +250,7 @@ async def ensure_meeting_session(
                     user_message,
                     model_name=model_name,
                     executor_runtime=executor_runtime,
+                    workspace=workspace,
                 )
                 current = list(session.agenda or [])
                 for item in decomposed:
@@ -295,6 +301,7 @@ async def ensure_meeting_session(
                 user_message,
                 model_name=model_name,
                 executor_runtime=executor_runtime,
+                workspace=workspace,
             )
         new_session = MeetingSession.new(
             workspace_id=workspace_id,

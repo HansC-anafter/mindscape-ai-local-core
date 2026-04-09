@@ -78,3 +78,32 @@ async def test_route_cloud_llm_openai_payload() -> None:
     assert content[1]["type"] == "image_url"
     assert "url" in content[1]["image_url"]
     assert b64_img in content[1]["image_url"]["url"]
+
+
+@pytest.mark.asyncio
+async def test_route_cloud_llm_passes_max_tokens_and_marks_capture_unsupported() -> None:
+    b64_img = base64.b64encode(b"dummy_image_data").decode()
+    images = [{"shortcode": "test_img_1", "base64_jpeg": b64_img}]
+
+    with patch("backend.app.shared.llm_utils.call_llm") as mock_call_llm, patch(
+        "backend.app.services.system_settings_store.SystemSettingsStore"
+    ), patch(
+        "backend.app.system_capabilities.core_llm.services.multimodal.os.getenv"
+    ):
+        mock_call_llm.return_value = {"text": "A description", "usage": {}}
+
+        result = await _route_cloud_llm(
+            images,
+            "Describe this image",
+            "gpt-4o",
+            "openai",
+            0.4,
+            "test_ws_123",
+            max_tokens=2048,
+            reasoning_trace_mode="capture",
+        )
+
+    assert result["status"] == "success"
+    assert result["_telemetry"]["reasoning_trace_mode"] == "capture_unsupported_provider"
+    call_kwargs = mock_call_llm.call_args[1]
+    assert call_kwargs["max_tokens"] == 2048

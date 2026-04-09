@@ -13,14 +13,14 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy import text
 
 from ..postgres_base import PostgresStoreBase
-from app.models.workspace import (
+from backend.app.models.workspace import (
     Workspace,
     LaunchStatus,
     WorkspaceType,
     ProjectAssignmentMode,
     WorkspaceVisibility,
 )
-from app.models.workspace_blueprint import WorkspaceBlueprint
+from backend.app.models.workspace_blueprint import WorkspaceBlueprint
 
 logger = logging.getLogger(__name__)
 

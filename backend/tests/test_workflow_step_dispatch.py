@@ -58,6 +58,7 @@ async def test_execute_playbook_slot_requires_runtime_flag(monkeypatch) -> None:
             step=step,
             current_depth=0,
             resolved_inputs={},
+            resume_checkpoint=None,
             execution_id="exec-1",
             workspace_id="ws-1",
             profile_id="user-1",
@@ -85,6 +86,7 @@ async def test_execute_playbook_slot_maps_sub_playbook_outputs(monkeypatch) -> N
         step=step,
         current_depth=0,
         resolved_inputs={"x": 1},
+        resume_checkpoint=None,
         execution_id="exec-1",
         workspace_id="ws-1",
         profile_id="user-1",
@@ -94,6 +96,55 @@ async def test_execute_playbook_slot_maps_sub_playbook_outputs(monkeypatch) -> N
     )
 
     assert result == {"summary": "ok", "grade": 42}
+    assert calls
+
+
+@pytest.mark.asyncio
+async def test_execute_playbook_slot_injects_resume_checkpoint_and_preserves_pause(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_PLAYBOOK_SLOT_RUNTIME", "true")
+    calls = []
+    step = SimpleNamespace(
+        id="dispatch_sub",
+        playbook_slot="sub_playbook",
+        outputs={"summary": "report"},
+    )
+    resume_checkpoint = {
+        "execution_id": "exec-1",
+        "playbook_code": "sub_playbook",
+        "pause_mode": "user_reserved",
+    }
+
+    async def execute_steps(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {
+            "status": "paused",
+            "pause_reason": "user_reserved",
+            "checkpoint": {"pause_mode": "user_reserved"},
+            "outputs": {"report": "partial"},
+        }
+
+    result = await execute_playbook_slot(
+        step=step,
+        current_depth=0,
+        resolved_inputs={"x": 1},
+        resume_checkpoint=resume_checkpoint,
+        execution_id="exec-1",
+        workspace_id="ws-1",
+        profile_id="user-1",
+        project_id="proj-1",
+        load_playbook_json_fn=lambda code: {"playbook_code": code},
+        execute_playbook_steps_fn=execute_steps,
+    )
+
+    assert result == {
+        "summary": "partial",
+        "status": "paused",
+        "pause_reason": "user_reserved",
+        "checkpoint": {"pause_mode": "user_reserved"},
+    }
+    assert calls[0][0][1]["_workflow_checkpoint"] == resume_checkpoint
     assert calls
 
 

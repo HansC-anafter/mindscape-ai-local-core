@@ -17,11 +17,11 @@ class PostgresArtifactRegistryStore(PostgresStoreBase):
         query = text(
             """
             INSERT INTO artifact_registry (
-                id, project_id, artifact_id, path, type,
-                created_by, dependencies, created_at, updated_at
+                id, project_id, artifact_id, status,
+                created_by, created_at, updated_at
             ) VALUES (
-                :id, :project_id, :artifact_id, :path, :type,
-                :created_by, :dependencies, :created_at, :updated_at
+                :id, :project_id, :artifact_id, :status,
+                :created_by, :created_at, :updated_at
             )
         """
         )
@@ -32,14 +32,8 @@ class PostgresArtifactRegistryStore(PostgresStoreBase):
                     "id": entry.id,
                     "project_id": entry.project_id,
                     "artifact_id": entry.artifact_id,
-                    "path": entry.path,
-                    "type": entry.type,
+                    "status": entry.status,
                     "created_by": entry.created_by,
-                    "dependencies": (
-                        self.serialize_json(entry.dependencies)
-                        if entry.dependencies
-                        else None
-                    ),
                     "created_at": entry.created_at,
                     "updated_at": entry.updated_at,
                 },
@@ -119,19 +113,19 @@ class PostgresArtifactRegistryStore(PostgresStoreBase):
 
     def _row_to_registry_entry(self, row) -> ArtifactRegistry:
         """Convert database row to ArtifactRegistry."""
-        deps = (
-            self.deserialize_json(row.dependencies, default=[])
-            if row.dependencies
-            else []
-        )
         return ArtifactRegistry(
             id=row.id,
             project_id=row.project_id,
             artifact_id=row.artifact_id,
-            path=row.path,
-            type=row.type,
+            status=getattr(row, "status", None),
+            path=getattr(row, "path", None),
+            type=getattr(row, "type", None),
             created_by=row.created_by,
-            dependencies=deps,
+            dependencies=(
+                self.deserialize_json(getattr(row, "dependencies"), default=[])
+                if getattr(row, "dependencies", None)
+                else []
+            ),
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

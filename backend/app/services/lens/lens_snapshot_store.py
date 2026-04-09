@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from app.services.stores.postgres_base import PostgresStoreBase
-from app.models.lens_snapshot import LensSnapshot
-from app.models.lens_kernel import LensNode
+from backend.app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.models.lens_snapshot import LensSnapshot
+from backend.app.models.lens_kernel import LensNode
 
 
 class LensSnapshotStore(PostgresStoreBase):

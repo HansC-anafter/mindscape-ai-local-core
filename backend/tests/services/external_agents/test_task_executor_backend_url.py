@@ -26,7 +26,15 @@ def test_codex_cli_command_uses_full_auto(monkeypatch):
     async def fake_fetch(runtime_name, ctx):
         return {"env": {}}
 
-    async def fake_run(ctx, cmd, cwd, runtime_name, last_message_path=None, extra_env=None):
+    async def fake_run(
+        ctx,
+        cmd,
+        cwd,
+        runtime_name,
+        last_message_path=None,
+        extra_env=None,
+        snapshot_root=None,
+    ):
         captured["cmd"] = cmd
         return ExecutionResult(status="completed", output="ok")
 
@@ -48,3 +56,65 @@ def test_codex_cli_command_uses_full_auto(monkeypatch):
 
     assert "--full-auto" in captured["cmd"]
     assert "--ask-for-approval" not in captured["cmd"]
+
+
+def test_codex_cli_command_forwards_model_hint(monkeypatch):
+    executor = HostBridgeTaskExecutor(workspace_root="/tmp", runtime_surface="codex_cli")
+    captured = {}
+
+    async def fake_fetch(runtime_name, ctx):
+        return {"env": {}}
+
+    async def fake_run(ctx, cmd, cwd, runtime_name, last_message_path=None, extra_env=None, snapshot_root=None):
+        captured["cmd"] = cmd
+        return ExecutionResult(status="completed", output="ok")
+
+    monkeypatch.setattr(executor, "_fetch_runtime_auth_env", fake_fetch)
+    monkeypatch.setattr(executor, "_run_cli_agent_subprocess", fake_run)
+    monkeypatch.setattr(executor, "_resolve_runtime_binary", lambda surface: "codex")
+
+    ctx = ExecutionContext(
+        execution_id="exec-1",
+        workspace_id="ws-1",
+        task="say hi",
+        allowed_tools=[],
+        max_duration=60,
+        model="qwen3:8b",
+    )
+
+    import asyncio
+
+    asyncio.run(executor._execute_via_codex_cli(ctx, timeout=5))
+
+    assert captured["cmd"][captured["cmd"].index("--model") + 1] == "qwen3:8b"
+
+
+def test_claude_code_cli_command_forwards_model_hint(monkeypatch):
+    executor = HostBridgeTaskExecutor(workspace_root="/tmp", runtime_surface="claude_code_cli")
+    captured = {}
+
+    async def fake_fetch(runtime_name, ctx):
+        return {"env": {}}
+
+    async def fake_run(ctx, cmd, cwd, runtime_name, last_message_path=None, extra_env=None, snapshot_root=None):
+        captured["cmd"] = cmd
+        return ExecutionResult(status="completed", output="ok")
+
+    monkeypatch.setattr(executor, "_fetch_runtime_auth_env", fake_fetch)
+    monkeypatch.setattr(executor, "_run_cli_agent_subprocess", fake_run)
+    monkeypatch.setattr(executor, "_resolve_runtime_binary", lambda surface: "claude")
+
+    ctx = ExecutionContext(
+        execution_id="exec-1",
+        workspace_id="ws-1",
+        task="say hi",
+        allowed_tools=[],
+        max_duration=60,
+        model="claude-sonnet-4.6",
+    )
+
+    import asyncio
+
+    asyncio.run(executor._execute_via_claude_code_cli(ctx, timeout=5))
+
+    assert captured["cmd"][captured["cmd"].index("--model") + 1] == "claude-sonnet-4.6"

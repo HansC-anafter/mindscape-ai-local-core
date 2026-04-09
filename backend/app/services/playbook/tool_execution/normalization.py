@@ -42,6 +42,14 @@ class ToolParameterNormalizer:
                 normalized_kwargs["schema_description"] = normalized_kwargs.pop("schema")
                 logger.debug(f"Normalized parameter 'schema' -> 'schema_description' for {tool_fqn}")
 
+        if tool_fqn.startswith("core_llm."):
+            if "llm_provider" not in normalized_kwargs and execution_context.get("llm_provider") is not None:
+                normalized_kwargs["llm_provider"] = execution_context["llm_provider"]
+                logger.debug(f"Auto-injected llm_provider for {tool_fqn}")
+            if "model_name" not in normalized_kwargs and execution_context.get("model_name"):
+                normalized_kwargs["model_name"] = execution_context["model_name"]
+                logger.debug(f"Auto-injected model_name for {tool_fqn}")
+
         if tool_fqn.startswith("sandbox."):
             execution_sandbox_id = execution_context.get("sandbox_id")
             execution_workspace_id = workspace_id or execution_context.get("workspace_id")

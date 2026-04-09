@@ -136,7 +136,7 @@ def _request_payload(
         ],
         "target_ref": dict(lane.get("target_ref") or {}),
         "dispatch_context": {
-            "scene_context": dict(bundle.get("scene_context") or {}),
+            "scene_context": _normalized_scene_context(bundle.get("scene_context")),
             "source_metadata": dict(bundle.get("source_metadata") or {}),
             "slots": [
                 dict(item)
@@ -146,6 +146,93 @@ def _request_payload(
         },
     }
     return payload
+
+
+def _normalized_scene_context(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    scene_context = dict(value or {})
+    scene_payload = (
+        dict(scene_context.get("scene_payload") or {})
+        if isinstance(scene_context.get("scene_payload"), dict)
+        else {}
+    )
+    scene_manifest = (
+        dict(scene_context.get("scene_manifest") or {})
+        if isinstance(scene_context.get("scene_manifest"), dict)
+        else {}
+    )
+    snapshot = (
+        dict(scene_context.get("object_workload_snapshot") or {})
+        if isinstance(scene_context.get("object_workload_snapshot"), dict)
+        else {}
+    )
+    selector = (
+        dict(scene_context.get("scene_package_selector") or {})
+        if isinstance(scene_context.get("scene_package_selector"), dict)
+        else {}
+    )
+    scene_package_ref = (
+        dict(scene_context.get("scene_package_ref") or {})
+        if isinstance(scene_context.get("scene_package_ref"), dict)
+        else {}
+    )
+    consistency_contract = (
+        dict(scene_context.get("scene_consistency_contract") or {})
+        if isinstance(scene_context.get("scene_consistency_contract"), dict)
+        else {}
+    )
+    control_refs = [
+        dict(item)
+        for item in (scene_context.get("scene_control_refs") or [])
+        if isinstance(item, dict)
+    ]
+    spatial_metadata = (
+        dict(scene_context.get("scene_spatial_metadata") or {})
+        if isinstance(scene_context.get("scene_spatial_metadata"), dict)
+        else {}
+    )
+
+    if not scene_manifest and isinstance(scene_payload.get("scene_manifest"), dict):
+        scene_manifest = dict(scene_payload.get("scene_manifest") or {})
+    if not snapshot and isinstance(scene_payload.get("object_workload_snapshot"), dict):
+        snapshot = dict(scene_payload.get("object_workload_snapshot") or {})
+    if not selector and isinstance(scene_payload.get("scene_package_selector"), dict):
+        selector = dict(scene_payload.get("scene_package_selector") or {})
+    if not scene_package_ref and isinstance(scene_payload.get("scene_package_ref"), dict):
+        scene_package_ref = dict(scene_payload.get("scene_package_ref") or {})
+    if (
+        not consistency_contract
+        and isinstance(scene_payload.get("scene_consistency_contract"), dict)
+    ):
+        consistency_contract = dict(scene_payload.get("scene_consistency_contract") or {})
+    if not control_refs and isinstance(scene_package_ref.get("control_refs"), list):
+        control_refs = [
+            dict(item)
+            for item in (scene_package_ref.get("control_refs") or [])
+            if isinstance(item, dict)
+        ]
+    if not spatial_metadata and isinstance(scene_package_ref.get("spatial_metadata"), dict):
+        spatial_metadata = dict(scene_package_ref.get("spatial_metadata") or {})
+
+    normalized: Dict[str, Any] = {}
+    if scene_payload:
+        normalized["scene_payload"] = scene_payload
+    if scene_manifest:
+        normalized["scene_manifest"] = scene_manifest
+    if snapshot:
+        normalized["object_workload_snapshot"] = snapshot
+    if selector:
+        normalized["scene_package_selector"] = selector
+    if scene_package_ref:
+        normalized["scene_package_ref"] = scene_package_ref
+    if consistency_contract:
+        normalized["scene_consistency_contract"] = consistency_contract
+    if control_refs:
+        normalized["scene_control_refs"] = control_refs
+    if spatial_metadata:
+        normalized["scene_spatial_metadata"] = spatial_metadata
+    return normalized
 
 
 def _request_metadata(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -358,11 +445,7 @@ def _scene_payload_from_request(request_content: Dict[str, Any]) -> Dict[str, An
         if isinstance(request_content.get("dispatch_context"), dict)
         else {}
     )
-    scene_context = (
-        dict(dispatch_context.get("scene_context") or {})
-        if isinstance(dispatch_context.get("scene_context"), dict)
-        else {}
-    )
+    scene_context = _normalized_scene_context(dispatch_context.get("scene_context"))
     scene_payload = (
         dict(scene_context.get("scene_payload") or {})
         if isinstance(scene_context.get("scene_payload"), dict)
@@ -377,6 +460,57 @@ def _scene_payload_from_request(request_content: Dict[str, Any]) -> Dict[str, An
                 scene_context.get("object_workload_snapshot") or {}
             ),
         }
+    if not scene_payload.get("scene_manifest") and isinstance(
+        scene_context.get("scene_manifest"), dict
+    ):
+        scene_payload["scene_manifest"] = dict(scene_context.get("scene_manifest") or {})
+    if not scene_payload.get("object_workload_snapshot") and isinstance(
+        scene_context.get("object_workload_snapshot"), dict
+    ):
+        scene_payload["object_workload_snapshot"] = dict(
+            scene_context.get("object_workload_snapshot") or {}
+        )
+    if not scene_payload.get("scene_package_selector") and isinstance(
+        scene_context.get("scene_package_selector"), dict
+    ):
+        scene_payload["scene_package_selector"] = dict(
+            scene_context.get("scene_package_selector") or {}
+        )
+    if not scene_payload.get("scene_consistency_contract") and isinstance(
+        scene_context.get("scene_consistency_contract"), dict
+    ):
+        scene_payload["scene_consistency_contract"] = dict(
+            scene_context.get("scene_consistency_contract") or {}
+        )
+    scene_package_ref = (
+        dict(scene_payload.get("scene_package_ref") or {})
+        if isinstance(scene_payload.get("scene_package_ref"), dict)
+        else {}
+    )
+    if not scene_package_ref and isinstance(scene_context.get("scene_package_ref"), dict):
+        scene_package_ref = dict(scene_context.get("scene_package_ref") or {})
+    if not scene_package_ref.get("control_refs") and isinstance(
+        scene_context.get("scene_control_refs"), list
+    ):
+        scene_package_ref["control_refs"] = [
+            dict(item)
+            for item in (scene_context.get("scene_control_refs") or [])
+            if isinstance(item, dict)
+        ]
+    if not scene_package_ref.get("spatial_metadata") and isinstance(
+        scene_context.get("scene_spatial_metadata"), dict
+    ):
+        scene_package_ref["spatial_metadata"] = dict(
+            scene_context.get("scene_spatial_metadata") or {}
+        )
+    if not scene_package_ref.get("consistency_contract") and isinstance(
+        scene_context.get("scene_consistency_contract"), dict
+    ):
+        scene_package_ref["consistency_contract"] = dict(
+            scene_context.get("scene_consistency_contract") or {}
+        )
+    if scene_package_ref:
+        scene_payload["scene_package_ref"] = scene_package_ref
     scene_payload["scene_id"] = str(scene_payload.get("scene_id") or scene_id).strip() or scene_id
     return scene_payload
 
@@ -514,11 +648,7 @@ def _build_local_scene_review_request(
     bundle_content: Dict[str, Any],
 ) -> Dict[str, Any]:
     dispatch_context = _dispatch_context_from_request(request_content)
-    scene_context = (
-        dict(dispatch_context.get("scene_context") or {})
-        if isinstance(dispatch_context.get("scene_context"), dict)
-        else {}
-    )
+    scene_context = _normalized_scene_context(dispatch_context.get("scene_context"))
     source_metadata = _source_metadata_from_request(request_content)
     scene_payload = _scene_payload_from_request(request_content)
     snapshot = (

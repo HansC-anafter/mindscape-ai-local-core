@@ -55,8 +55,19 @@ from backend.app.services.orchestration.meeting._session import MeetingSessionMi
 from backend.app.services.orchestration.meeting._tool_discovery import (
     MeetingToolDiscoveryMixin,
 )
+from backend.app.services.orchestration.meeting.round_router import (
+    build_routing_warning_payload,
+    build_executor_routing_graph,
+    build_round_routing_graph,
+    is_dynamic_sparse_routing_enabled,
+    is_round_router_trace_enabled,
+    ROUND_ROUTING_CONTEXT_COMPRESS_CHARS,
+)
 
 logger = logging.getLogger(__name__)
+
+COMPILE_CONTRACT_PLAYBOOK_DISCOVERY_TIMEOUT_S = 8.0
+COMPILE_CONTRACT_REQUEST_TIMEOUT_S = 20.0
 
 
 def _utc_now_iso() -> str:
@@ -150,6 +161,13 @@ class MeetingEngine(
         self._events: List[Any] = []
         self._turn_history: List[Dict[str, Any]] = []
         self._uploaded_files: List[Dict[str, Any]] = list(uploaded_files or [])
+        self._pending_program_spec = None
+        self._pending_program_spec_source = None
+        self._governance_packet: Optional[Dict[str, Any]] = None
+        self._memory_context_summary: str = ""
+        self._world_memory_packet: Optional[Dict[str, Any]] = None
+        self._world_card_projection: Optional[Dict[str, Any]] = None
+        self._world_card_text: str = ""
 
         # Resolve locale from workspace settings
         self._locale = self._resolve_locale(workspace)
@@ -488,6 +506,308 @@ class MeetingEngine(
                 status,
             )
 
+    def _persist_round_routing_graph(self, graph: Any) -> None:
+        """Persist the latest round routing graph for session-first polling."""
+        if self.session.metadata is None:
+            self.session.metadata = {}
+        graph_payload = graph.model_dump(mode="json")
+        self.session.metadata["last_round_routing_graph"] = graph_payload
+        history = self.session.metadata.setdefault("round_routing_graph_history", [])
+        history.append(graph_payload)
+        if len(history) > 10:
+            del history[:-10]
+        try:
+            self.session_store.update(self.session)
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist round routing graph: session=%s round=%s error=%s",
+                self.session.id,
+                graph_payload.get("round_number"),
+                exc,
+            )
+        else:
+            logger.info(
+                "Persisted round routing graph: session=%s round=%s edges=%s",
+                self.session.id,
+                graph_payload.get("round_number"),
+                len(graph_payload.get("edges", [])),
+            )
+
+    def _persist_round_routing_warning(
+        self,
+        warning_payload: Dict[str, Any],
+    ) -> None:
+        """Persist the latest routing warning for session-first polling."""
+        if self.session.metadata is None:
+            self.session.metadata = {}
+        payload = {
+            **warning_payload,
+            "meeting_session_id": self.session.id,
+            "detected_at": _utc_now_iso(),
+        }
+        self.session.metadata["last_round_routing_warning"] = payload
+        history = self.session.metadata.setdefault("round_routing_warning_history", [])
+        history.append(payload)
+        if len(history) > 10:
+            del history[:-10]
+        try:
+            self.session_store.update(self.session)
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist round routing warning: session=%s round=%s error=%s",
+                self.session.id,
+                payload.get("round_number"),
+                exc,
+            )
+        else:
+            logger.info(
+                "Persisted round routing warning: session=%s round=%s types=%s",
+                self.session.id,
+                payload.get("round_number"),
+                payload.get("warning_types"),
+            )
+
+    def _persist_round_routing_prompt_decision(self, graph: Any) -> None:
+        """Persist prompt-mode history so session polling can show routing behavior."""
+        metadata = getattr(graph, "metadata", None)
+        if not isinstance(metadata, dict):
+            return
+
+        prompt_mode = str(metadata.get("routing_prompt_mode") or "").strip()
+        prompt_role_id = str(metadata.get("routing_prompt_role_id") or "").strip()
+        if not prompt_mode or not prompt_role_id:
+            return
+
+        if self.session.metadata is None:
+            self.session.metadata = {}
+
+        role_packet_stats = metadata.get("role_packet_stats") or {}
+        role_stats = role_packet_stats.get(prompt_role_id) or {}
+        payload = {
+            "meeting_session_id": self.session.id,
+            "round_number": getattr(graph, "round_number", None),
+            "routing_stage": metadata.get("routing_stage"),
+            "role_id": prompt_role_id,
+            "prompt_mode": prompt_mode,
+            "reason": metadata.get("routing_prompt_reason"),
+            "estimated_context_chars": int(
+                role_stats.get("estimated_context_chars") or 0
+            ),
+            "visible_packet_count": int(role_stats.get("visible_packet_count") or 0),
+            "sparse_packet_count": int(role_stats.get("sparse_packet_count") or 0),
+            "compressed_packet_char_limit": metadata.get(
+                "compressed_packet_char_limit"
+            ),
+            "recorded_at": _utc_now_iso(),
+        }
+        self.session.metadata["last_round_routing_prompt_decision"] = payload
+        history = self.session.metadata.setdefault(
+            "round_routing_prompt_mode_history", []
+        )
+        history.append(payload)
+        if len(history) > 20:
+            del history[:-20]
+        counts = self.session.metadata.setdefault("round_routing_prompt_mode_counts", {})
+        counts[prompt_mode] = int(counts.get(prompt_mode) or 0) + 1
+        total_decisions = sum(int(value or 0) for value in counts.values())
+        sparse_count = int(counts.get("sparse") or 0)
+        compressed_count = int(counts.get("compressed_sparse") or 0)
+        fallback_count = int(counts.get("full_context_fallback") or 0)
+        adaptive_count = compressed_count + fallback_count
+        fallback_ratio = (
+            round(fallback_count / total_decisions, 3) if total_decisions else 0.0
+        )
+        compressed_ratio = (
+            round(compressed_count / total_decisions, 3) if total_decisions else 0.0
+        )
+        adaptive_ratio = (
+            round(adaptive_count / total_decisions, 3) if total_decisions else 0.0
+        )
+        sparse_ratio = round(sparse_count / total_decisions, 3) if total_decisions else 0.0
+        health_status = "healthy"
+        health_reason = "stable_sparse"
+        if fallback_count >= 2 or fallback_ratio >= 0.5:
+            health_status = "critical"
+            health_reason = "fallback_pressure"
+        elif fallback_count >= 1:
+            health_status = "warning"
+            health_reason = "fallback_present"
+        elif compressed_ratio >= 0.5 or adaptive_ratio >= 0.5:
+            health_status = "warning"
+            health_reason = "compression_pressure"
+        self.session.metadata["round_routing_prompt_mode_summary"] = {
+            "total_decisions": total_decisions,
+            "sparse_count": sparse_count,
+            "compressed_count": compressed_count,
+            "fallback_count": fallback_count,
+            "adaptive_count": adaptive_count,
+            "sparse_ratio": sparse_ratio,
+            "compressed_ratio": compressed_ratio,
+            "fallback_ratio": fallback_ratio,
+            "adaptive_ratio": adaptive_ratio,
+            "health_status": health_status,
+            "health_reason": health_reason,
+            "last_prompt_mode": payload["prompt_mode"],
+            "last_prompt_role_id": payload["role_id"],
+            "last_prompt_reason": payload["reason"],
+            "last_round_number": payload["round_number"],
+            "last_recorded_at": payload["recorded_at"],
+        }
+        try:
+            self.session_store.update(self.session)
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist round routing prompt decision: session=%s round=%s role=%s mode=%s error=%s",
+                self.session.id,
+                payload.get("round_number"),
+                prompt_role_id,
+                prompt_mode,
+                exc,
+            )
+        else:
+            logger.info(
+                "Persisted round routing prompt decision: session=%s round=%s role=%s mode=%s",
+                self.session.id,
+                payload.get("round_number"),
+                prompt_role_id,
+                prompt_mode,
+            )
+
+    def _handle_round_routing_warning(
+        self,
+        graph: Any,
+    ) -> Dict[str, Any] | None:
+        """Emit and persist routing warnings when diagnostics detect anomalies."""
+        warning_payload = build_routing_warning_payload(graph)
+        if not warning_payload:
+            return None
+        payload = {
+            "meeting_session_id": self.session.id,
+            **warning_payload,
+        }
+        self._emit_round_routing_warning(payload)
+        self._persist_round_routing_warning(payload)
+        return payload
+
+    def _mark_round_routing_fallback(
+        self,
+        graph: Any,
+        *,
+        next_role_id: str,
+    ) -> bool:
+        """Mark full-context fallback when sparse routing starves the next role."""
+        metadata = getattr(graph, "metadata", None)
+        if not isinstance(metadata, dict):
+            return False
+
+        starved_role_ids = set(metadata.get("starved_role_ids") or [])
+        role_packet_stats = metadata.get("role_packet_stats") or {}
+        next_role_stats = role_packet_stats.get(next_role_id) or {}
+        role_status = str(next_role_stats.get("status") or "").strip().lower()
+
+        if next_role_id in starved_role_ids or role_status == "starved":
+            metadata["fallback_to_full_context"] = True
+            metadata["fallback_role_id"] = next_role_id
+            metadata["fallback_reason"] = "starved_role"
+            return True
+
+        metadata["fallback_to_full_context"] = False
+        metadata.pop("fallback_role_id", None)
+        metadata.pop("fallback_reason", None)
+        return False
+
+    def _mark_round_routing_prompt_mode(
+        self,
+        graph: Any,
+        *,
+        next_role_id: str,
+    ) -> str:
+        """Select sparse/compressed/full-context mode for the next role turn."""
+        metadata = getattr(graph, "metadata", None)
+        if not isinstance(metadata, dict):
+            return "sparse"
+
+        fallback_applied = self._mark_round_routing_fallback(
+            graph,
+            next_role_id=next_role_id,
+        )
+        if fallback_applied:
+            metadata["routing_prompt_mode"] = "full_context_fallback"
+            metadata["routing_prompt_role_id"] = next_role_id
+            metadata["routing_prompt_reason"] = "starved_role"
+            metadata["routing_health_status"] = "critical"
+            metadata["routing_health_reason"] = "fallback_pressure"
+            metadata.pop("compressed_packet_char_limit", None)
+            return "full_context_fallback"
+
+        role_packet_stats = metadata.get("role_packet_stats") or {}
+        next_role_stats = role_packet_stats.get(next_role_id) or {}
+        estimated_context_chars = int(
+            next_role_stats.get("estimated_context_chars") or 0
+        )
+        if estimated_context_chars >= ROUND_ROUTING_CONTEXT_COMPRESS_CHARS:
+            metadata["routing_prompt_mode"] = "compressed_sparse"
+            metadata["routing_prompt_role_id"] = next_role_id
+            metadata["routing_prompt_reason"] = "context_pressure"
+            metadata["routing_health_status"] = "warning"
+            metadata["routing_health_reason"] = "compression_pressure"
+            metadata["compressed_packet_char_limit"] = 96
+            return "compressed_sparse"
+
+        metadata["routing_prompt_mode"] = "sparse"
+        metadata["routing_prompt_role_id"] = next_role_id
+        metadata["routing_prompt_reason"] = "normal"
+        metadata["routing_health_status"] = "healthy"
+        metadata["routing_health_reason"] = "stable_sparse"
+        metadata.pop("compressed_packet_char_limit", None)
+        return "sparse"
+
+    def _prepare_round_routing_graph(
+        self,
+        *,
+        round_number: int,
+        next_role_id: str,
+        facilitator_summary: str,
+        decision: Optional[str] = None,
+        planner_proposals: List[str],
+        critic_notes: List[str],
+    ) -> Any | None:
+        """Build routing graph for sparse routing and optionally emit trace."""
+        if not (
+            is_round_router_trace_enabled() or is_dynamic_sparse_routing_enabled()
+        ):
+            self._current_round_routing_graph = None
+            return
+
+        if next_role_id == "executor":
+            graph = build_executor_routing_graph(
+                session_id=self.session.id,
+                round_number=round_number,
+                agenda=getattr(self.session, "agenda", None) or [],
+                facilitator_summary=facilitator_summary,
+                decision=decision or facilitator_summary,
+                planner_proposals=planner_proposals,
+                critic_notes=critic_notes,
+            )
+        else:
+            graph = build_round_routing_graph(
+                session_id=self.session.id,
+                round_number=round_number,
+                agenda=getattr(self.session, "agenda", None) or [],
+                facilitator_summary=facilitator_summary,
+                planner_proposals=planner_proposals,
+                critic_notes=critic_notes,
+            )
+        graph.metadata["next_role_id"] = next_role_id
+        self._mark_round_routing_prompt_mode(graph, next_role_id=next_role_id)
+        self._current_round_routing_graph = graph
+        self._persist_round_routing_prompt_decision(graph)
+        self._handle_round_routing_warning(graph)
+        if is_round_router_trace_enabled():
+            self._emit_round_routing_graph(graph)
+            self._persist_round_routing_graph(graph)
+        return graph
+
     def _persist_pre_deliberation_failure_if_needed(
         self,
         stage: str,
@@ -547,8 +867,8 @@ class MeetingEngine(
                     )
                     return None
                 try:
-                    return await asyncio.wait_for(
-                        retrieve_relevant_tools(
+                    return await self._run_isolated_async_call(
+                        lambda: retrieve_relevant_tools(
                             query,
                             top_k=top_k,
                             workspace_id=ws_id,
@@ -619,7 +939,23 @@ class MeetingEngine(
 
     async def _stage_compile_contract(self, user_message: str) -> None:
         """S2: Preload playbooks + compile RequestContract."""
-        self._available_playbooks_cache = await self._async_load_installed_playbooks()
+        try:
+            self._available_playbooks_cache = await asyncio.wait_for(
+                self._async_load_installed_playbooks(),
+                timeout=COMPILE_CONTRACT_PLAYBOOK_DISCOVERY_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Installed playbook discovery timed out after %.1fs; continuing with fallback cache",
+                COMPILE_CONTRACT_PLAYBOOK_DISCOVERY_TIMEOUT_S,
+            )
+            self._available_playbooks_cache = "(playbook discovery timed out)"
+        except Exception as exc:
+            logger.warning(
+                "Installed playbook discovery failed before contract compile: %s",
+                exc,
+            )
+            self._available_playbooks_cache = "(playbook discovery unavailable)"
 
         await self._emit_meeting_stage("deliberation", "Starting multi-role deliberation...")
 
@@ -628,11 +964,14 @@ class MeetingEngine(
             from backend.app.models.request_contract import RequestContract
 
             agenda = getattr(self.session, "agenda", None) or []
-            self._request_contract = await RequestContract.compile_with_llm(
-                user_message=user_message,
-                agenda=agenda,
-                workspace_id=getattr(self.session, "workspace_id", ""),
-                model_name=self.model_name,
+            self._request_contract = await asyncio.wait_for(
+                RequestContract.compile_with_llm(
+                    user_message=user_message,
+                    agenda=agenda,
+                    workspace_id=getattr(self.session, "workspace_id", ""),
+                    model_name=self.model_name,
+                ),
+                timeout=COMPILE_CONTRACT_REQUEST_TIMEOUT_S,
             )
             if self.session.metadata is None:
                 self.session.metadata = {}
@@ -656,6 +995,7 @@ class MeetingEngine(
         Returns:
             (decision, planner_proposals, critic_notes, converged)
         """
+        await self._prefetch_governed_context_packet()
         self._start_session()
         base_max_rounds = max(1, int(getattr(self.session, "max_rounds", 1)))
 
@@ -704,6 +1044,15 @@ class MeetingEngine(
                     critic_notes=critic_notes,
                 )
                 self._emit_turn(facilitator_turn)
+                self._current_round_number = round_num
+                self._current_round_facilitator_summary = facilitator_turn.content
+                self._prepare_round_routing_graph(
+                    round_number=round_num,
+                    next_role_id="planner",
+                    facilitator_summary=facilitator_turn.content,
+                    planner_proposals=planner_proposals,
+                    critic_notes=critic_notes,
+                )
 
                 await self._emit_meeting_stage(
                     "deliberation",
@@ -725,6 +1074,13 @@ class MeetingEngine(
 
                 # Skip critic in SHALLOW depth to reduce latency
                 if depth != DeliberationDepth.SHALLOW:
+                    self._prepare_round_routing_graph(
+                        round_number=round_num,
+                        next_role_id="critic",
+                        facilitator_summary=facilitator_turn.content,
+                        planner_proposals=planner_proposals,
+                        critic_notes=critic_notes,
+                    )
                     await self._emit_meeting_stage(
                         "deliberation",
                         f"Round {round_num}/{max_rounds} - Critic review in progress...",
@@ -749,11 +1105,19 @@ class MeetingEngine(
                 self._emit_round_event(round_num, status="completed")
                 self._persist_round_progress(round_num, "completed")
         except Exception as exc:
-            run_error = exc
+            if await self._try_salvage_deliberation_runtime_failure(
+                error=exc,
+                planner_proposals=planner_proposals,
+                critic_notes=critic_notes,
+            ):
+                run_error = None
+            else:
+                run_error = exc
+        if run_error:
             logger.error(
                 "Meeting engine failed at round %s: %s",
                 self.session.round_count,
-                exc,
+                run_error,
             )
             self.session.status = MeetingStatus.FAILED
             self.session.end()
@@ -803,6 +1167,61 @@ class MeetingEngine(
         )
         return decision, planner_proposals, critic_notes, converged
 
+    async def _try_salvage_deliberation_runtime_failure(
+        self,
+        *,
+        error: Exception,
+        planner_proposals: List[str],
+        critic_notes: List[str],
+    ) -> bool:
+        """Convert late-round quota failures into a recoverable deliberation fallback.
+
+        If the runtime quota/rate limit is hit after we already have at least one
+        planner proposal, proceed with the latest planner proposal instead of
+        failing the whole meeting. This keeps the pipeline moving into action
+        extraction/dispatch when the only blocker is the next role turn budget.
+        """
+        if not self._is_runtime_quota_or_rate_limit_error(error):
+            return False
+        if not planner_proposals:
+            return False
+
+        fallback_round = max(int(getattr(self.session, "round_count", 0) or 0), len(planner_proposals))
+        if self.session.metadata is None:
+            self.session.metadata = {}
+
+        self.session.metadata["partial_rounds"] = max(
+            int(self.session.metadata.get("partial_rounds") or 0),
+            fallback_round,
+        )
+        self.session.metadata["last_round_status"] = "quota_fallback"
+        self.session.metadata["last_round_updated_at"] = _utc_now_iso()
+        self.session.metadata["deliberation_fallback"] = {
+            "reason": "runtime_quota_or_rate_limit",
+            "decision_source": "latest_planner_proposal",
+            "planner_proposal_count": len(planner_proposals),
+            "critic_note_count": len(critic_notes),
+            "error": str(error),
+            "round_count_at_fallback": int(getattr(self.session, "round_count", 0) or 0),
+            "fallback_round_number": fallback_round,
+        }
+
+        await self._emit_meeting_stage(
+            "deliberation",
+            "Runtime quota hit during deliberation; proceeding with the latest planner proposal.",
+        )
+        logger.warning(
+            "Deliberation quota fallback engaged for session %s after %d planner proposal(s): %s",
+            self.session.id,
+            len(planner_proposals),
+            error,
+        )
+        try:
+            self.session_store.update(self.session)
+        except Exception:
+            logger.warning("Failed to persist deliberation quota fallback state")
+        return True
+
     async def _stage_extract_actions(
         self,
         decision: str,
@@ -822,13 +1241,24 @@ class MeetingEngine(
             critic_notes=critic_notes,
             planner_proposals=planner_proposals,
         )
-        action_intents = await self._gap_refetch_for_null_actuators(
-            action_intents,
-            decision=decision,
-            user_message=user_message,
-            critic_notes=critic_notes,
-            planner_proposals=planner_proposals,
+        skip_null_actuator_retries = (
+            getattr(self, "_pending_program_spec_source", None)
+            == "request_contract_fallback"
         )
+        if skip_null_actuator_retries:
+            logger.info(
+                "Skipping null-actuator retries for session %s because "
+                "request-contract fallback ProgramSpec is already active.",
+                self.session.id,
+            )
+        else:
+            action_intents = await self._gap_refetch_for_null_actuators(
+                action_intents,
+                decision=decision,
+                user_message=user_message,
+                critic_notes=critic_notes,
+                planner_proposals=planner_proposals,
+            )
 
         # Pre-dispatch null-tool gate (fires only when ALL null)
         all_null = action_intents and not any(
@@ -837,7 +1267,7 @@ class MeetingEngine(
         has_tool_context = self._has_workspace_tool_bindings() or bool(
             getattr(self, "_rag_tool_cache", [])
         )
-        if all_null and has_tool_context:
+        if all_null and has_tool_context and not skip_null_actuator_retries:
             logger.info(
                 "Pre-dispatch null-tool gate triggered for session %s: "
                 "workspace has explicit TOOL bindings but all action_items "
@@ -878,6 +1308,17 @@ class MeetingEngine(
                     )
             except Exception as exc:
                 logger.warning("Null-tool gate retry failed (non-fatal): %s", exc)
+        elif all_null and has_tool_context and skip_null_actuator_retries:
+            logger.info(
+                "Pre-dispatch null-tool gate skipped for session %s because "
+                "request-contract fallback ProgramSpec will bind deliverables during dispatch.",
+                self.session.id,
+            )
+
+        self._persist_program_spec_from_final_intents(
+            action_intents,
+            decision=decision,
+        )
 
         # Bridge: convert ActionIntents to dicts for legacy consumers
         action_items = [i.to_action_item_dict() for i in action_intents]
@@ -886,11 +1327,19 @@ class MeetingEngine(
     def _stage_policy_gate_and_emit(self, action_items: List[Dict[str, Any]]) -> None:
         """S5: Policy gate validation + emit action items via SSE."""
         try:
+            from backend.app.services.orchestration.dispatch_orchestrator_core.planner import (
+                normalize_action_item_inputs,
+            )
             from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
                 check_dispatch_policy,
             )
             from backend.app.services.stores.workspace_resource_binding_store import (
                 WorkspaceResourceBindingStore,
+            )
+
+            normalize_action_item_inputs(
+                action_items=action_items,
+                session=self.session,
             )
 
             policy_gate_report = check_dispatch_policy(

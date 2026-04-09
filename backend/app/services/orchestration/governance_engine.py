@@ -151,7 +151,14 @@ class GovernanceEngine:
             task_id=task_id,
         )
 
-        if landing_result:
+        landing_success = bool(
+            landing_result and getattr(landing_result, "success", True)
+        )
+        landing_failure = (
+            getattr(landing_result, "failure", {}) if landing_result else {}
+        )
+
+        if landing_success:
             logger.info(
                 "GovernanceEngine: landing succeeded exec=%s artifact=%s",
                 execution_id,
@@ -159,8 +166,18 @@ class GovernanceEngine:
             )
         else:
             logger.warning(
-                "GovernanceEngine: landing returned None exec=%s",
+                "GovernanceEngine: landing failed exec=%s code=%s missing=%s",
                 execution_id,
+                (
+                    getattr(landing_result, "error_code", None)
+                    if landing_result
+                    else None
+                ),
+                (
+                    (landing_failure or {}).get("missing_deliverables")
+                    if isinstance(landing_failure, dict)
+                    else None
+                ),
             )
 
         # Build the post-landing provenance sidecar.
@@ -178,7 +195,11 @@ class GovernanceEngine:
                 )
 
         # Backfill provenance onto the landed artifact when available.
-        artifact_id = getattr(landing_result, "artifact_id", None) if landing_result else None
+        artifact_id = (
+            getattr(landing_result, "artifact_id", None)
+            if landing_success and landing_result
+            else None
+        )
         if parsed_output and artifact_id:
             self._backfill_provenance(
                 artifact_id=artifact_id,
@@ -264,7 +285,7 @@ class GovernanceEngine:
                 )
 
         return {
-            "success": landing_result is not None,
+            "success": landing_success,
             "execution_id": execution_id,
             "artifact_id": artifact_id,
             "artifact_registry_id": artifact_registry_id,
@@ -272,6 +293,7 @@ class GovernanceEngine:
             "eval_result": eval_result_dict,
             "correctness_signals": correctness_signals,
             "remediation": remediation_decision,
+            "landing_failure": landing_failure if isinstance(landing_failure, dict) else {},
         }
 
     def process_remote_terminal_event(

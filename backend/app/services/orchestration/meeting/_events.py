@@ -16,6 +16,34 @@ from backend.app.models.mindscape import EventActor, EventType, MindEvent
 class MeetingEventsMixin:
     """Mixin providing event emission methods for MeetingEngine."""
 
+    def _publish_workspace_activity(
+        self,
+        payload: Dict[str, Any],
+        *,
+        thread_id: str | None = None,
+    ) -> None:
+        """Best-effort workspace activity publish for live UI updates."""
+        try:
+            import asyncio
+
+            from backend.app.services.cache.async_redis import publish_meeting_chunk
+
+            ws_id = self.session.workspace_id
+            resolved_thread_id = (
+                thread_id
+                or getattr(self, "thread_id", None)
+                or getattr(self.session, "thread_id", None)
+                or self.session.id
+            )
+            coro = publish_meeting_chunk(ws_id, payload, resolved_thread_id)
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(coro)
+            except RuntimeError:
+                pass
+        except Exception:
+            pass
+
     def _emit_turn(self, turn: Any) -> None:
         """Emit an AGENT_TURN event enriched with governance trace metadata."""
         self._emit_event(
@@ -108,6 +136,64 @@ class MeetingEventsMixin:
             },
         )
 
+    def _emit_round_routing_graph(self, graph: Any) -> None:
+        """Emit a ROUND_ROUTING_GRAPH event for trace-only dynamic routing rollout."""
+        graph_payload = graph.model_dump(mode="json")
+        payload = {
+            "meeting_session_id": self.session.id,
+            "round_number": graph_payload.get("round_number"),
+            "goal": graph_payload.get("goal"),
+            "needs": graph_payload.get("needs", []),
+            "offers": graph_payload.get("offers", []),
+            "packets": graph_payload.get("packets", []),
+            "edges": graph_payload.get("edges", []),
+            "unmatched_need_ids": graph_payload.get("unmatched_need_ids", []),
+            "unmatched_packet_ids": graph_payload.get("unmatched_packet_ids", []),
+            "speaker_order": graph_payload.get("fixed_speaker_order", []),
+            "edge_count": len(graph_payload.get("edges", [])),
+            "packet_count": len(graph_payload.get("packets", [])),
+            "metadata": graph_payload.get("metadata", {}),
+        }
+        event = self._emit_event(
+            EventType.ROUND_ROUTING_GRAPH,
+            payload=payload,
+        )
+        self._publish_workspace_activity(
+            {
+                "id": event.id,
+                "timestamp": event.timestamp.isoformat(),
+                "actor": event.actor.value,
+                "type": EventType.ROUND_ROUTING_GRAPH.value,
+                "workspace_id": event.workspace_id,
+                "project_id": event.project_id,
+                "profile_id": event.profile_id,
+                "thread_id": event.thread_id,
+                "payload": payload,
+                "metadata": event.metadata,
+            }
+        )
+
+    def _emit_round_routing_warning(self, payload: Dict[str, Any]) -> None:
+        """Emit a ROUND_ROUTING_WARNING event when routing diagnostics detect risk."""
+        event = self._emit_event(
+            EventType.ROUND_ROUTING_WARNING,
+            payload=payload,
+        )
+        self._publish_workspace_activity(
+            {
+                "id": event.id,
+                "timestamp": event.timestamp.isoformat(),
+                "actor": event.actor.value,
+                "type": EventType.ROUND_ROUTING_WARNING.value,
+                "workspace_id": event.workspace_id,
+                "project_id": event.project_id,
+                "profile_id": event.profile_id,
+                "thread_id": event.thread_id,
+                "payload": payload,
+                "metadata": event.metadata,
+            }
+        )
+
     def _emit_minutes_message(self, minutes_md: str) -> None:
         """Emit a MESSAGE event containing the rendered meeting minutes."""
         self._emit_event(
@@ -129,7 +215,7 @@ class MeetingEventsMixin:
         channel: str = "meeting",
         entity_ids: List[str] | None = None,
         metadata: Dict[str, Any] | None = None,
-    ) -> None:
+    ) -> MindEvent:
         """Create and persist a MindEvent, appending to the session event list."""
         event = MindEvent(
             id=str(uuid.uuid4()),
@@ -152,31 +238,17 @@ class MeetingEventsMixin:
         self._events.append(event)
 
         # Fire-and-forget push to workspace activity stream
-        try:
-            import asyncio
-
-            from backend.app.services.cache.async_redis import publish_meeting_chunk
-
-            ws_id = self.session.workspace_id
-            thread_id = getattr(self, "thread_id", None) or getattr(self.session, "thread_id", None) or self.session.id
-            coro = publish_meeting_chunk(
-                ws_id,
-                {
-                    "type": "mind_event",
-                    "event_type": event_type.value,
-                    "event_id": event.id,
-                    "summary": self._summarize_payload(event_type, payload),
-                    "session_id": self.session.id,
-                },
-                thread_id,
-            )
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(coro)
-            except RuntimeError:
-                pass  # no event loop — skip
-        except Exception:
-            pass  # non-fatal
+        self._publish_workspace_activity(
+            {
+                "type": "mind_event",
+                "event_type": event_type.value,
+                "event_id": event.id,
+                "summary": self._summarize_payload(event_type, payload),
+                "session_id": self.session.id,
+            },
+            thread_id=event.thread_id,
+        )
+        return event
 
     @staticmethod
     def _summarize_payload(event_type: EventType, payload: Dict[str, Any]) -> str:
@@ -194,6 +266,12 @@ class MeetingEventsMixin:
             rd = payload.get("round_number", "?")
             status = payload.get("status", "")
             return f"Round {rd} {status}"
+        if event_type == EventType.ROUND_ROUTING_GRAPH:
+            rd = payload.get("round_number", "?")
+            edge_count = len(payload.get("edges", []))
+            return f"Round {rd} routing graph ({edge_count} edges)"
+        if event_type == EventType.ROUND_ROUTING_WARNING:
+            return str(payload.get("summary") or "Round routing warning")
         if event_type == EventType.MESSAGE:
             return "Meeting minutes"
         if event_type == EventType.MEMORY_WRITEBACK:

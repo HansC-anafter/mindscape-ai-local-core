@@ -337,13 +337,7 @@ class HandoffBundleService:
         Returns:
             Dict with task_ir_id, session_id, persisted status.
         """
-        from backend.app.models.meeting_execution_context import (
-            MeetingExecutionContext,
-        )
-        from backend.app.services.conversation.pipeline_meeting import (
-            build_execution_launcher,
-        )
-        from backend.app.services.orchestration.meeting import MeetingEngine
+        session = None
         if session_override is not None:
             session = session_override
             session_reused = bool(session_reused_override)
@@ -356,53 +350,6 @@ class HandoffBundleService:
                 project_id=project_id,
             )
 
-        if compile_job_store and compile_job_id:
-            running_metadata = {
-                "active_session_reused": session_reused,
-                "route_kind": getattr(route_decision, "route_kind", None),
-            }
-            if executor_target_client_id:
-                running_metadata["executor_target_client_id"] = (
-                    executor_target_client_id
-                )
-            compile_job_store.mark_running(
-                compile_job_id,
-                session_id=session.id,
-                metadata=running_metadata,
-            )
-
-        from backend.app.services.mindscape_store import MindscapeStore
-
-        store = MindscapeStore()
-        execution_launcher = build_execution_launcher(store)
-
-        executor_runtime = getattr(workspace, "resolved_executor_runtime", None) or (
-            getattr(workspace, "executor_runtime", None)
-        )
-        execution_context = MeetingExecutionContext.assemble(
-            workspace=workspace,
-            runtime_profile=runtime_profile,
-            route_decision=route_decision,
-        )
-        if executor_target_client_id:
-            execution_context.executor_target_client_id = executor_target_client_id
-            session.metadata["executor_target_client_id"] = executor_target_client_id
-
-        engine = MeetingEngine(
-            session=session,
-            store=store,
-            workspace=workspace,
-            runtime_profile=runtime_profile,
-            profile_id=profile_id,
-            thread_id=thread_id,
-            project_id=project_id,
-            execution_launcher=execution_launcher,
-            model_name=model_name,
-            executor_runtime=executor_runtime,
-            uploaded_files=None,  # Handoff bundles don't carry uploaded files
-            execution_context=execution_context,
-        )
-
         intake_message = (
             f"[Handoff Intake] {handoff_in.intent_summary}\n"
             f"Goals: {', '.join(handoff_in.goals)}\n"
@@ -410,6 +357,64 @@ class HandoffBundleService:
         )
 
         try:
+            if compile_job_store and compile_job_id:
+                running_metadata = {
+                    "active_session_reused": session_reused,
+                    "route_kind": getattr(route_decision, "route_kind", None),
+                }
+                if executor_target_client_id:
+                    running_metadata["executor_target_client_id"] = (
+                        executor_target_client_id
+                    )
+                compile_job_store.mark_running(
+                    compile_job_id,
+                    session_id=getattr(session, "id", None),
+                    metadata=running_metadata,
+                )
+
+            from backend.app.models.meeting_execution_context import (
+                MeetingExecutionContext,
+            )
+            from backend.app.services.conversation.pipeline_meeting import (
+                build_execution_launcher,
+            )
+            from backend.app.services.mindscape_store import MindscapeStore
+            from backend.app.services.orchestration.meeting import MeetingEngine
+
+            store = MindscapeStore()
+            execution_launcher = build_execution_launcher(store)
+
+            executor_runtime = getattr(
+                workspace,
+                "resolved_executor_runtime",
+                None,
+            ) or getattr(workspace, "executor_runtime", None)
+            execution_context = MeetingExecutionContext.assemble(
+                workspace=workspace,
+                runtime_profile=runtime_profile,
+                route_decision=route_decision,
+            )
+            if executor_target_client_id:
+                execution_context.executor_target_client_id = executor_target_client_id
+                session.metadata["executor_target_client_id"] = (
+                    executor_target_client_id
+                )
+
+            engine = MeetingEngine(
+                session=session,
+                store=store,
+                workspace=workspace,
+                runtime_profile=runtime_profile,
+                profile_id=profile_id,
+                thread_id=thread_id,
+                project_id=project_id,
+                execution_launcher=execution_launcher,
+                model_name=model_name,
+                executor_runtime=executor_runtime,
+                uploaded_files=None,  # Handoff bundles don't carry uploaded files
+                execution_context=execution_context,
+            )
+
             meeting_result = await engine.run(intake_message, handoff_in=handoff_in)
 
             result = {
@@ -465,6 +470,11 @@ class HandoffBundleService:
             )
             return result
         except Exception as exc:
+            HandoffBundleService._mark_compile_session_failed(
+                session=session,
+                error=exc,
+                stage="compile_setup",
+            )
             if compile_job_store and compile_job_id:
                 compile_job_store.mark_failed(
                     compile_job_id,
@@ -473,3 +483,39 @@ class HandoffBundleService:
                     metadata={"handoff_id": handoff_in.handoff_id},
                 )
             raise
+
+    @staticmethod
+    def _mark_compile_session_failed(
+        *,
+        session: Any,
+        error: Exception,
+        stage: str,
+    ) -> None:
+        """Best-effort session terminalization when compile fails outside engine.run()."""
+        if session is None:
+            return
+
+        try:
+            from backend.app.models.meeting_session import MeetingStatus
+            from backend.app.services.stores.meeting_session_store import (
+                MeetingSessionStore,
+            )
+
+            if getattr(session, "ended_at", None):
+                return
+            if getattr(session, "metadata", None) is None:
+                session.metadata = {}
+            session.metadata["pipeline_failure"] = {
+                "stage": stage,
+                "error": str(error),
+            }
+            session.status = MeetingStatus.FAILED
+            if not getattr(session, "ended_at", None) and hasattr(session, "end"):
+                session.end()
+            MeetingSessionStore().update(session)
+        except Exception as session_exc:
+            logger.warning(
+                "Failed to persist compile session failure for %s: %s",
+                getattr(session, "id", "unknown"),
+                session_exc,
+            )

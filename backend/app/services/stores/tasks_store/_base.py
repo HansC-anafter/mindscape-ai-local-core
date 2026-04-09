@@ -8,8 +8,8 @@ from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
 
-from app.services.stores.base import StoreNotFoundError
-from app.models.workspace import Task, TaskStatus
+from backend.app.services.stores.base import StoreNotFoundError
+from backend.app.models.workspace import Task, TaskStatus
 from backend.app.services.runner_topology import (
     DEFAULT_LOCAL_QUEUE_PARTITION,
     canonical_queue_partition_for_pack,
@@ -102,6 +102,20 @@ def _resolve_concurrency_key(
         return _resolve_lock_key(execution_context, pack_id)
     except Exception:
         return None
+
+
+def _canonical_task_params_payload(task: Task) -> Dict[str, Any]:
+    if isinstance(task.params, dict) and task.params:
+        return dict(task.params)
+
+    execution_context = (
+        task.execution_context if isinstance(task.execution_context, dict) else {}
+    )
+    nested_inputs = execution_context.get("inputs")
+    if isinstance(nested_inputs, dict) and nested_inputs:
+        return dict(nested_inputs)
+
+    return dict(task.params) if isinstance(task.params, dict) else {}
 
 
 def _derive_blocked_payload(
@@ -287,6 +301,8 @@ class TasksStoreCrudMixin:
         scheduler_fields = _derive_scheduler_fields(task)
         for key, value in scheduler_fields.items():
             setattr(task, key, value)
+
+        task.params = _canonical_task_params_payload(task)
 
         admission_decision = TASK_ADMISSION_SERVICE.evaluate_on_create(self, task)
         if not admission_decision.allow:

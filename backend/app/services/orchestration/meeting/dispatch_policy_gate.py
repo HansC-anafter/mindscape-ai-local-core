@@ -11,6 +11,9 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from backend.app.models.execution_metadata import GOVERNANCE_PAYLOAD_FIELDS
+from backend.app.services.playbook_run_executor_core.input_normalization import (
+    normalize_meeting_session_input_aliases,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -483,6 +486,7 @@ def _build_contract_payload(
         payload["meeting_session_id"] = meeting_session_id
     if project_id and "project_id" not in payload:
         payload["project_id"] = project_id
+    payload = normalize_meeting_session_input_aliases(payload)
 
     for gov_field in GOVERNANCE_PAYLOAD_FIELDS:
         if gov_field in item and item[gov_field] is not None and gov_field not in payload:

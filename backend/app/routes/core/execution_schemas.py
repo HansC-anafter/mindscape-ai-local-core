@@ -42,6 +42,12 @@ class CancelExecutionRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class PauseExecutionRequest(BaseModel):
+    """Request to cooperatively pause a playbook execution."""
+
+    reason: Optional[str] = None
+
+
 class RerunExecutionRequest(BaseModel):
     """Request to rerun playbook execution with original inputs"""
 

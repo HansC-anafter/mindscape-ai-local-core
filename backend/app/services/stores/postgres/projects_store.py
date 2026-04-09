@@ -11,7 +11,7 @@ from typing import List, Optional
 from sqlalchemy import text
 
 from ..postgres_base import PostgresStoreBase
-from app.models.project import Project
+from backend.app.models.project import Project
 
 logger = logging.getLogger(__name__)
 

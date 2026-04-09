@@ -23,6 +23,7 @@ from .execution_schemas import (
     ContinueExecutionRequest,
     StartExecutionRequest,
     CancelExecutionRequest,
+    PauseExecutionRequest,
     RerunExecutionRequest,
     ResumeExecutionRequest,
 )
@@ -85,8 +86,22 @@ from .execution_dispatch import (
     resolve_and_acquire_backend,
     release_backend,
 )
-from .execution_metadata import resolve_runner_metadata, should_route_through_runner
+from .execution_metadata import (
+    resolve_runner_metadata,
+    seed_playbook_workload_execution_intent,
+    should_route_through_runner,
+)
 from backend.app.services.runner_topology import DEFAULT_LOCAL_QUEUE_PARTITION
+from backend.app.services.runner_topology import normalize_queue_partition
+from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
+from backend.app.services.task_phase_projection import load_mlx_watchdog_state
+from backend.app.services.task_pause_contract import (
+    PAUSE_REQUESTED_TRANSITION,
+    USER_PAUSE_RESERVED_BLOCKED_REASON,
+    USER_PAUSE_RESERVED_MODE,
+    get_control_context,
+    is_user_pause_reserved_task,
+)
 
 
 @router.post("/execute/start")
@@ -292,6 +307,11 @@ async def start_playbook_execution(
                     normalized_inputs["project_id"] = final_project_id
                 if profile_id and "profile_id" not in normalized_inputs:
                     normalized_inputs["profile_id"] = profile_id
+                normalized_inputs = seed_playbook_workload_execution_intent(
+                    playbook_code=playbook_code,
+                    workspace_id=final_workspace_id,
+                    inputs=normalized_inputs,
+                )
 
                 from backend.app.services.stores.tasks_store import TasksStore
                 from backend.app.services.mindscape_store import MindscapeStore
@@ -625,6 +645,77 @@ async def get_playbook_status(execution_id: str):
         )
 
 
+@router.post("/execute/{execution_id}/pause")
+async def pause_playbook_execution(
+    execution_id: str,
+    request: Optional[PauseExecutionRequest] = Body(None),
+):
+    """Request a cooperative user-reserved pause for supported executions."""
+    try:
+        from backend.app.models.workspace import TaskStatus
+        from backend.app.services.stores.tasks_store import TasksStore
+
+        tasks_store = TasksStore()
+        task = await asyncio.to_thread(
+            tasks_store.get_task_by_execution_id, execution_id
+        )
+        if not task:
+            task = await asyncio.to_thread(tasks_store.get_task, execution_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Execution not found")
+
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        playbook_code = (ctx.get("playbook_code") or task.pack_id or "").strip()
+        if playbook_code != "ig_analyze_following":
+            raise HTTPException(
+                status_code=409,
+                detail="True pause is only enabled for ig_analyze_following in v1",
+            )
+
+        if is_user_pause_reserved_task(task):
+            return {"status": "paused", "execution_id": execution_id}
+
+        if task.status != TaskStatus.RUNNING:
+            raise HTTPException(
+                status_code=409,
+                detail="Execution must be running before it can be paused",
+            )
+
+        control = dict(get_control_context(ctx))
+        requested_at = _utc_now().isoformat()
+        control.update(
+            {
+                "requested_transition": PAUSE_REQUESTED_TRANSITION,
+                "requested_at": requested_at,
+                "pause_mode": USER_PAUSE_RESERVED_MODE,
+                "requested_by": "user",
+                "message": (
+                    request.reason
+                    if request and request.reason
+                    else "User requested cooperative pause"
+                ),
+            }
+        )
+        ctx2 = dict(ctx)
+        ctx2["control"] = control
+        ctx2["pause_mode"] = USER_PAUSE_RESERVED_MODE
+        ctx2["pause_requested_at"] = requested_at
+
+        await asyncio.to_thread(
+            tasks_store.update_task,
+            task.id,
+            execution_context=ctx2,
+            error=None,
+        )
+        return {"status": "pause_requested", "execution_id": execution_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to pause execution: {str(e)}"
+        )
+
+
 @router.post("/execute/{execution_id}/resume")
 async def resume_playbook_execution(
     execution_id: str,
@@ -636,14 +727,14 @@ async def resume_playbook_execution(
     """
     try:
         from backend.app.services.stores.tasks_store import TasksStore
-        from backend.app.services.mindscape_store import MindscapeStore
         from backend.app.models.workspace import TaskStatus
 
-        store = MindscapeStore()
         tasks_store = TasksStore()
         task = await asyncio.to_thread(
             tasks_store.get_task_by_execution_id, execution_id
         )
+        if not task:
+            task = await asyncio.to_thread(tasks_store.get_task, execution_id)
         if not task:
             raise HTTPException(status_code=404, detail="Execution not found")
 
@@ -654,6 +745,73 @@ async def resume_playbook_execution(
                 status_code=409,
                 detail="Execution has no checkpoint to resume (not paused?)",
             )
+
+        if is_user_pause_reserved_task(task) or (
+            isinstance(checkpoint, dict)
+            and (
+                checkpoint.get("pause_mode") or ""
+            ).strip().lower()
+            == USER_PAUSE_RESERVED_MODE
+        ):
+            if request.action != "approve":
+                raise HTTPException(
+                    status_code=409,
+                    detail="User-paused executions only support action=approve",
+                )
+
+            inputs = ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {}
+            inputs = dict(inputs)
+            inputs["execution_id"] = execution_id
+            inputs["_workflow_checkpoint"] = checkpoint
+
+            resumed_at = _utc_now().isoformat()
+            ctx2 = dict(ctx)
+            ctx2["status"] = "queued"
+            ctx2["error"] = None
+            ctx2["inputs"] = inputs
+            ctx2["checkpoint"] = checkpoint
+            ctx2["pause_mode"] = USER_PAUSE_RESERVED_MODE
+            ctx2["resumed_at"] = resumed_at
+            ctx2.pop("pause_requested_at", None)
+            control = dict(get_control_context(ctx2))
+            control["state"] = "resumed"
+            control["resumed_at"] = resumed_at
+            control.pop("requested_transition", None)
+            ctx2["control"] = control
+
+            await asyncio.to_thread(
+                tasks_store.update_task,
+                task.id,
+                execution_context=ctx2,
+                status=TaskStatus.PENDING,
+                error=None,
+                completed_at=None,
+                started_at=None,
+                blocked_reason=None,
+                blocked_payload=None,
+                frontier_state="ready",
+                frontier_enqueued_at=_utc_now(),
+                next_eligible_at=None,
+            )
+
+            queue_store = RedisRunnerQueueStore(
+                pack_id=normalize_queue_partition(
+                    getattr(task, "queue_shard", None),
+                    fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+                )
+            )
+            enqueued = await asyncio.to_thread(queue_store.enqueue_task_sync, task.id)
+            if not enqueued:
+                logger.warning(
+                    "Failed to enqueue resumed paused task %s; runner reaper will recover",
+                    task.id,
+                )
+
+            return {
+                "status": "queued",
+                "execution_id": execution_id,
+                "resumed_from": USER_PAUSE_RESERVED_BLOCKED_REASON,
+            }
 
         paused_step_id = checkpoint.get("paused_step_id")
         if not paused_step_id:
@@ -945,6 +1103,7 @@ async def get_global_executions(
         from backend.app.services.queue_position_cache import QUEUE_CACHE as _QUEUE_CACHE
 
         _QUEUE_CACHE.refresh_if_stale(tasks_store)
+        watchdog_state = load_mlx_watchdog_state()
 
         executions = []
         for row in rows:
@@ -955,6 +1114,7 @@ async def get_global_executions(
                     task,
                     row,
                     _QUEUE_CACHE,
+                    watchdog_state=watchdog_state,
                 )
             )
 

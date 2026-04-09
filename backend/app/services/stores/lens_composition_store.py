@@ -10,7 +10,7 @@ from typing import List, Optional
 
 from sqlalchemy import text
 
-from app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 from ...models.lens_composition import LensComposition, LensReference
 
 logger = logging.getLogger(__name__)

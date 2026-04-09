@@ -30,6 +30,14 @@ def test_resolve_task_runtime_affinity_normalizes_string_runtime_id():
     assert affinity == {"runtime_id": "runtime-gpu-1"}
 
 
+def test_resolve_task_runtime_affinity_normalizes_local_alias_to_local_dispatch():
+    task = _build_task(runtime_affinity=" local ")
+
+    affinity = resolve_task_runtime_affinity(task)
+
+    assert affinity == {"dispatch_mode": "docker_local"}
+
+
 def test_resolve_runtime_binding_prefers_task_runtime_affinity_over_profile_default():
     profile = RunnerProfile(
         profile_code="gpu_training",
@@ -94,6 +102,23 @@ def test_resolve_runtime_binding_keeps_local_profile_without_runtime():
     assert binding.via == "none"
 
 
+def test_resolve_runtime_binding_local_task_affinity_clears_profile_runtime_id():
+    profile = RunnerProfile(
+        profile_code="gpu_training",
+        display_name="GPU Training",
+        dispatch_mode="external_runtime",
+        accepted_resource_classes=("compute",),
+        accepted_queue_partitions=("default_local",),
+        runtime_id="runtime-gpu-default",
+    )
+
+    binding = resolve_runtime_binding(profile, _build_task(runtime_affinity="local"))
+
+    assert binding.runtime_id is None
+    assert binding.dispatch_mode == "docker_local"
+    assert binding.via == "task_runtime_affinity"
+
+
 def test_resolve_runtime_dispatch_target_infers_external_runtime_for_runtime_id():
     profile = RunnerProfile(
         profile_code="shared_local",
@@ -109,6 +134,23 @@ def test_resolve_runtime_dispatch_target_infers_external_runtime_for_runtime_id(
     assert binding.runtime_id == "runtime-gpu-b"
     assert binding.dispatch_mode == "external_runtime"
     assert binding.via == "task_runtime_affinity+runner_profile"
+
+
+def test_resolve_runtime_dispatch_target_keeps_local_alias_on_local_runner():
+    profile = RunnerProfile(
+        profile_code="shared_local",
+        display_name="Shared",
+        dispatch_mode="docker_local",
+        accepted_resource_classes=("compute",),
+        accepted_queue_partitions=("default_local",),
+    )
+    task = _build_task(runtime_affinity={"runtime_id": "local"})
+
+    binding = resolve_runtime_dispatch_target(profile, task)
+
+    assert binding.runtime_id is None
+    assert binding.dispatch_mode == "docker_local"
+    assert binding.via == "task_runtime_affinity"
 
 
 def test_resolve_runtime_dispatch_target_hydrates_runtime_environment_metadata():

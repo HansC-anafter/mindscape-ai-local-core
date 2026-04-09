@@ -181,9 +181,15 @@ class PubSubHandlersMixin:
         if inflight.result_future and not inflight.result_future.done():
             inflight.result_future.set_result(result)
 
-        self._completed[execution_id] = time.monotonic()
-        while len(self._completed) > self.COMPLETED_MAX_SIZE:
-            self._completed.popitem(last=False)
+        self._mark_completed_execution(
+            execution_id,
+            result=result if isinstance(result, dict) else None,
+            status=(
+                str(result.get("status") or "completed")
+                if isinstance(result, dict)
+                else "completed"
+            ),
+        )
 
     def _handle_pubsub_dispatch_failed(self, envelope: Dict[str, Any]) -> None:
         """Fallback from pub/sub relay to DB polling if the remote path breaks."""

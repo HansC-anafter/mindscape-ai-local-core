@@ -13,7 +13,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 import logging
 
-from app.services.restart_webhook import get_restart_webhook_service
+try:
+    from backend.app.services.restart_webhook import get_restart_webhook_service
+except ImportError:
+    from app.services.restart_webhook import get_restart_webhook_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -62,6 +65,262 @@ def _is_localhost(request: Request) -> bool:
     # Reverse proxy — check x-forwarded-for
     forwarded_for = request.headers.get("x-forwarded-for", "")
     return "127.0.0.1" in forwarded_for or "localhost" in forwarded_for
+
+
+def _int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _list_value(value: Any) -> list[Any]:
+    return list(value or [])
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(int(os.getenv(name, str(default)) or default), 0)
+    except (TypeError, ValueError):
+        return default
+
+
+def _build_scene_generation_attention_reason(
+    *,
+    code: str,
+    severity: str,
+    message: str,
+) -> Dict[str, str]:
+    return {
+        "code": code,
+        "severity": severity,
+        "message": message,
+    }
+
+
+def _assess_scene_generation_dispatch_health(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    if not summary.get("enabled"):
+        summary["status"] = "disabled"
+        summary["attention_reasons"] = []
+        summary["recommended_actions"] = []
+        return summary
+
+    runnable_warn_threshold = _env_int(
+        "SCENE_GENERATION_HEALTH_RUNNABLE_WARN_THRESHOLD",
+        5,
+    )
+    deferred_warn_threshold = _env_int(
+        "SCENE_GENERATION_HEALTH_DEFERRED_WARN_THRESHOLD",
+        10,
+    )
+    cooldown_blocked_warn_threshold = _env_int(
+        "SCENE_GENERATION_HEALTH_COOLDOWN_BLOCKED_WARN_THRESHOLD",
+        1,
+    )
+
+    reasons: list[Dict[str, str]] = []
+    actions: list[str] = []
+    running = bool(summary.get("running"))
+    pending_total = _int_value(summary.get("pending_total"))
+    runnable_total = _int_value(summary.get("runnable_total"))
+    deferred_total = _int_value(summary.get("deferred_total"))
+    cooldown_blocked_total = _int_value(
+        summary.get("provider_cooldown_blocked_total")
+    )
+    schema_ready = bool(summary.get("schema_ready", True))
+    schema_table_name = str(
+        summary.get("schema_table_name") or "scene_generation_jobs"
+    )
+
+    if not schema_ready:
+        reasons.append(
+            _build_scene_generation_attention_reason(
+                code="dispatch_schema_missing",
+                severity="warning",
+                message=(
+                    f"Scene generation dispatch schema is unavailable ({schema_table_name})."
+                ),
+            )
+        )
+        actions.append(
+            "Run performance_direction scene generation migrations or disable the pack until the schema is installed."
+        )
+
+    if not running and pending_total > 0:
+        reasons.append(
+            _build_scene_generation_attention_reason(
+                code="dispatch_not_running_with_pending_jobs",
+                severity="error",
+                message=(
+                    "Scene generation dispatch is not running while pending jobs exist."
+                ),
+            )
+        )
+        actions.append(
+            "Restart local-core backend or verify performance_direction background services started successfully."
+        )
+
+    if runnable_total >= max(runnable_warn_threshold, 1):
+        reasons.append(
+            _build_scene_generation_attention_reason(
+                code="runnable_backlog_high",
+                severity="warning" if running else "error",
+                message=(
+                    f"Runnable scene generation backlog reached {runnable_total} jobs."
+                ),
+            )
+        )
+        actions.append(
+            "Inspect provider latency and dispatcher throughput for scene generation jobs."
+        )
+
+    if cooldown_blocked_total >= max(cooldown_blocked_warn_threshold, 1):
+        reasons.append(
+            _build_scene_generation_attention_reason(
+                code="provider_cooldown_blocking_jobs",
+                severity="warning",
+                message=(
+                    f"{cooldown_blocked_total} scene generation jobs are blocked by provider cooldown."
+                ),
+            )
+        )
+        actions.append(
+            "Check scene generation provider credentials/configuration and clear cooldown after the provider is ready."
+        )
+
+    if deferred_total >= max(deferred_warn_threshold, 1):
+        reasons.append(
+            _build_scene_generation_attention_reason(
+                code="deferred_retry_backlog_high",
+                severity="warning",
+                message=(
+                    f"Deferred retry backlog reached {deferred_total} scene generation jobs."
+                ),
+            )
+        )
+        actions.append(
+            "Inspect retry schedule and last_error fields for deferred scene generation jobs."
+        )
+
+    status = "healthy"
+    if any(reason["severity"] == "error" for reason in reasons):
+        status = "error"
+    elif any(reason["severity"] == "warning" for reason in reasons):
+        status = "warning"
+
+    summary["status"] = status
+    summary["attention_reasons"] = reasons
+    summary["recommended_actions"] = list(dict.fromkeys(actions))
+    summary["thresholds"] = {
+        "runnable_warn_threshold": runnable_warn_threshold,
+        "deferred_warn_threshold": deferred_warn_threshold,
+        "cooldown_blocked_warn_threshold": cooldown_blocked_warn_threshold,
+    }
+    return summary
+
+
+def _summarize_scene_generation_dispatch_status(status: Dict[str, Any]) -> Dict[str, Any]:
+    pending = dict(status.get("pending_jobs") or {})
+    ready = dict(status.get("ready_pending") or {})
+    runnable = dict(status.get("runnable_pending") or {})
+    cooldown_blocked = dict(status.get("provider_cooldown_blocked_pending") or {})
+    deferred = dict(status.get("deferred_pending") or {})
+    summary = {
+        "enabled": True,
+        "running": bool(status.get("running")),
+        "provider_cooldowns_active": _int_value(
+            status.get("provider_cooldowns_active")
+        ),
+        "pending_total": _int_value(pending.get("total_pending")),
+        "ready_total": _int_value(ready.get("total_pending")),
+        "runnable_total": _int_value(runnable.get("total_pending")),
+        "provider_cooldown_blocked_total": _int_value(
+            cooldown_blocked.get("total_pending")
+        ),
+        "deferred_total": _int_value(deferred.get("total_pending")),
+        "provider_cooldowns": _list_value(status.get("provider_cooldowns")),
+        "runnable_samples": _list_value(runnable.get("samples")),
+        "provider_cooldown_blocked_samples": _list_value(
+            cooldown_blocked.get("samples")
+        ),
+        "deferred_samples": _list_value(deferred.get("samples")),
+        "timestamp": status.get("timestamp"),
+        "schema_ready": bool(status.get("schema_ready", True)),
+        "schema_status": status.get("schema_status"),
+        "schema_table_name": status.get("schema_table_name"),
+    }
+    return _assess_scene_generation_dispatch_health(summary)
+
+
+async def _get_scene_generation_dispatch_health() -> Dict[str, Any]:
+    try:
+        try:
+            from backend.app.services.stores.installed_packs_store import (
+                InstalledPacksStore,
+            )
+        except ImportError:
+            from app.services.stores.installed_packs_store import (
+                InstalledPacksStore,
+            )
+
+        enabled_pack_ids = set(InstalledPacksStore().list_enabled_pack_ids())
+        if "performance_direction" not in enabled_pack_ids:
+            return {
+                "enabled": False,
+                "status": "disabled",
+            }
+
+        try:
+            from backend.app.capabilities.performance_direction.services.scene_generation_dispatch_manager import (
+                get_scene_generation_dispatch_manager,
+            )
+        except ImportError:
+            from app.capabilities.performance_direction.services.scene_generation_dispatch_manager import (
+                get_scene_generation_dispatch_manager,
+            )
+
+        status = await get_scene_generation_dispatch_manager().get_status(
+            sample_limit=2
+        )
+        return _summarize_scene_generation_dispatch_status(status)
+    except Exception as e:
+        logger.warning(
+            "Failed to collect scene generation dispatch health: %s",
+            e,
+            exc_info=True,
+        )
+        return {
+            "enabled": True,
+            "status": "error",
+            "error": str(e),
+        }
+
+
+async def _get_runner_queue_metrics_payload() -> Dict[str, Any]:
+    try:
+        from backend.app.services.stores.redis.runner_queue_store import (
+            RedisRunnerQueueStore,
+        )
+    except ImportError:
+        from app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
+
+    return await RedisRunnerQueueStore.get_all_queue_metrics()
+
+
+async def _get_runner_heartbeat_projection() -> list[Dict[str, Any]]:
+    try:
+        from backend.app.services.stores.tasks_store import TasksStore
+    except ImportError:
+        from app.services.stores.tasks_store import TasksStore
+
+    tasks_store = TasksStore()
+    return await asyncio.to_thread(
+        tasks_store.list_runner_heartbeats,
+        max_age_seconds=300,
+        limit=20,
+    )
 
 
 @router.post("/restart", response_model=Dict[str, Any])
@@ -221,17 +480,12 @@ async def get_service_health():
 
 @router.get("/health/queue/metrics", response_model=Dict[str, Any])
 async def get_queue_metrics():
-    """Get queue metrics plus active runner heartbeat projection."""
+    """Get queue metrics plus active runner and scene dispatch health."""
     try:
-        from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
-        from backend.app.services.stores.tasks_store import TasksStore
-
-        metrics = await RedisRunnerQueueStore.get_all_queue_metrics()
-        tasks_store = TasksStore()
-        metrics["runners"] = await asyncio.to_thread(
-            tasks_store.list_runner_heartbeats,
-            max_age_seconds=300,
-            limit=20,
+        metrics = await _get_runner_queue_metrics_payload()
+        metrics["runners"] = await _get_runner_heartbeat_projection()
+        metrics["scene_generation_dispatch"] = (
+            await _get_scene_generation_dispatch_health()
         )
         return metrics
     except Exception as e:

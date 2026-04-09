@@ -365,6 +365,12 @@ class EventType(str, Enum):
     DECISION_FINAL = "decision_final"  # Finalized decision in meeting lifecycle
     ACTION_ITEM = "action_item"  # Executable follow-up task extracted from meeting
     MEETING_ROUND = "meeting_round"  # Round delimiter/status event for replay
+    ROUND_ROUTING_GRAPH = (
+        "round_routing_graph"  # Trace-only round routing graph for dynamic topology rollout
+    )
+    ROUND_ROUTING_WARNING = (
+        "round_routing_warning"  # Sparse routing diagnostics warning for starvation/context pressure
+    )
     # Governance events (intent governance paradigm)
     MEETING_START = "meeting_start"  # Governance meeting session started
     MEETING_END = "meeting_end"  # Governance meeting session ended

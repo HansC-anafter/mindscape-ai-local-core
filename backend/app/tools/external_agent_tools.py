@@ -116,8 +116,10 @@ async def execute_agent(
     # Get manifest for defaults
     manifest = registry.get_manifest(agent)
 
-    # Check availability
-    if not await adapter.is_available():
+    # Workspace-bound bridge runtimes must be probed against the current
+    # workspace; a global availability check can return a false negative even
+    # when the target workspace already has an attached client.
+    if not await adapter.is_available(workspace_id=workspace_id):
         return {
             "success": False,
             "output": "",
@@ -169,6 +171,10 @@ async def execute_agent(
             },
         }
 
+    agent_context = dict(ctx)
+    if "inputs" not in agent_context:
+        agent_context["inputs"] = dict(ctx)
+
     # Build request
     request = RuntimeExecRequest(
         task=task,
@@ -180,6 +186,9 @@ async def execute_agent(
         workspace_id=workspace_id,
         intent_id=ctx.get("intent_id"),
         lens_id=ctx.get("lens_id"),
+        auth_workspace_id=ctx.get("auth_workspace_id") or workspace_id,
+        source_workspace_id=ctx.get("source_workspace_id") or workspace_id,
+        agent_config=agent_context,
     )
 
     # Execute
@@ -192,6 +201,11 @@ async def execute_agent(
     await collector.save_trace(trace)
 
     # Return Playbook-compatible result
+    effective_sandbox_path = (
+        response.agent_metadata.get("effective_sandbox_path")
+        if isinstance(response.agent_metadata, dict)
+        else None
+    )
     return {
         "success": response.success,
         "output": response.output,
@@ -202,7 +216,7 @@ async def execute_agent(
             "tool_calls": [tc.get("tool", "unknown") for tc in response.tool_calls],
             "files_created": response.files_created,
             "files_modified": response.files_modified,
-            "sandbox_path": str(sandbox_path),
+            "sandbox_path": effective_sandbox_path or str(sandbox_path),
         },
         "error": response.error,
         "_provenance": {

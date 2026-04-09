@@ -8,9 +8,9 @@ Mind-Lens Chat Service
 """
 import logging
 from typing import Optional, List, Dict, Any
-from app.services.lens.effective_lens_resolver import EffectiveLensResolver
-from app.services.lens.session_override_store import SessionOverrideStore
-from app.models.lens_kernel import EffectiveLens
+from backend.app.services.lens.effective_lens_resolver import EffectiveLensResolver
+from backend.app.services.lens.session_override_store import SessionOverrideStore
+from backend.app.models.lens_kernel import EffectiveLens
 
 logger = logging.getLogger(__name__)
 

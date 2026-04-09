@@ -7,11 +7,11 @@ import logging
 from typing import Optional
 from datetime import datetime, timezone
 
-from app.models.lens_kernel import EffectiveLens, CompiledLensContext
-from app.services.lens.effective_lens_resolver import EffectiveLensResolver
-from app.services.lens.graph_to_composition_compiler import GraphToCompositionCompiler
-from app.services.stores.graph_store import GraphStore
-from app.services.lens.session_override_store import InMemorySessionStore
+from backend.app.models.lens_kernel import EffectiveLens, CompiledLensContext
+from backend.app.services.lens.effective_lens_resolver import EffectiveLensResolver
+from backend.app.services.lens.graph_to_composition_compiler import GraphToCompositionCompiler
+from backend.app.services.stores.graph_store import GraphStore
+from backend.app.services.lens.session_override_store import InMemorySessionStore
 import hashlib
 import json
 

@@ -5,7 +5,7 @@ Generates QA responses with context injection for workspace interactions.
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 
 
@@ -40,6 +40,44 @@ class QAResponseGenerator:
         self.store = store
         self.timeline_items_store = timeline_items_store
         self.default_locale = default_locale
+
+    async def _resolve_generation_runtime(
+        self,
+        workspace_id: str,
+        profile_id: str,
+        workspace: Optional[Any] = None,
+    ) -> Tuple[Any, str, Any]:
+        """Resolve workspace/model/provider for QA generation."""
+        from backend.app.services.conversation.chat_model_resolution import (
+            resolve_conversational_model_name,
+        )
+        from backend.features.workspace.chat.utils.llm_provider import (
+            get_llm_provider,
+            get_llm_provider_manager,
+        )
+
+        resolved_workspace = workspace or await self.store.get_workspace(workspace_id)
+        model_name = resolve_conversational_model_name(
+            workspace=resolved_workspace,
+            db_path=getattr(self.store, "db_path", None),
+        )
+        if not model_name or not model_name.strip():
+            raise ValueError(
+                "No conversational model configured. Set workspace preferred_chat_model "
+                "or system chat_model before generating QA responses."
+            )
+
+        provider_manager = get_llm_provider_manager(
+            profile_id=profile_id,
+            db_path=getattr(self.store, "db_path", None),
+        )
+        llm_provider, _ = get_llm_provider(
+            model_name=model_name,
+            llm_provider_manager=provider_manager,
+            profile_id=profile_id,
+            db_path=getattr(self.store, "db_path", None),
+        )
+        return resolved_workspace, model_name, llm_provider
 
     def _detect_collaboration_opportunity(self, message: str, context: Dict[str, Any]) -> Optional[str]:
         """
@@ -103,24 +141,15 @@ class QAResponseGenerator:
             from backend.app.services.conversation.context_builder import ContextBuilder
             from ...capabilities.core_llm.services.generate import run as generate_text
             from ...services.i18n_service import get_i18n_service
-            from ...services.system_settings_store import SystemSettingsStore
 
             i18n = get_i18n_service(default_locale=self.default_locale)
-
-            # Get model name from system settings - must be configured by user
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-
-            if not chat_setting or not chat_setting.value:
-                raise ValueError(
-                    "LLM model not configured. Please select a model in the system settings panel."
+            workspace, model_name, llm_provider = (
+                await self._resolve_generation_runtime(
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    workspace=workspace,
                 )
-
-            model_name = str(chat_setting.value)
-            if not model_name or model_name.strip() == "":
-                raise ValueError(
-                    "LLM model is empty. Please select a valid model in the system settings panel."
-                )
+            )
 
             logger.info(f"Using model '{model_name}' for context preset")
 
@@ -191,7 +220,9 @@ class QAResponseGenerator:
                 locale=self.default_locale,
                 workspace_id=workspace_id,
                 available_playbooks=available_playbooks,
-                max_tokens=8192  # Increase max_tokens for QA responses
+                max_tokens=8192,  # Increase max_tokens for QA responses
+                llm_provider=llm_provider,
+                model_name=model_name,
             )
             assistant_response = result.get(
                 'text',

@@ -287,6 +287,76 @@ def _collect_lineage(context_metadata: Optional[Dict[str, Any]]) -> Dict[str, An
     return lineage
 
 
+def _scene_control_refs_from_context(
+    *,
+    scene_manifest: Dict[str, Any],
+    scene_package_ref: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    control_refs: List[Dict[str, Any]] = []
+    seen_kinds: set[str] = set()
+
+    for raw_ref in list(scene_package_ref.get("control_refs") or []):
+        payload = _jsonable(raw_ref)
+        if not isinstance(payload, dict):
+            continue
+        control_kind = str(payload.get("control_kind") or "").strip()
+        if control_kind:
+            seen_kinds.add(control_kind)
+        control_refs.append(payload)
+
+    provider = str(scene_package_ref.get("provider") or "").strip()
+    for control_kind in ("canonical_image", "depth_map"):
+        manifest_ref = scene_manifest.get(control_kind)
+        if control_kind in seen_kinds or not isinstance(manifest_ref, dict):
+            continue
+        control_refs.append(
+            {
+                "control_kind": control_kind,
+                "ref": dict(manifest_ref),
+                "provider": provider,
+                "metadata": {},
+            }
+        )
+    return control_refs
+
+
+def _scene_context_payload(scene: Any) -> Dict[str, Any]:
+    scene_payload = _jsonable(scene)
+    scene_manifest = _jsonable(_field_value(scene, "scene_manifest", {}) or {})
+    snapshot = _field_value(scene, "object_workload_snapshot", None)
+    snapshot_payload = _jsonable(snapshot) if snapshot is not None else None
+
+    raw_scene_package_selector = _field_value(scene, "scene_package_selector", None)
+    raw_scene_package_ref = _field_value(scene, "scene_package_ref", None)
+    raw_scene_consistency_contract = _field_value(
+        scene, "scene_consistency_contract", None
+    )
+
+    scene_package_selector = _jsonable(raw_scene_package_selector)
+    scene_package_ref = _jsonable(raw_scene_package_ref)
+    scene_consistency_contract = _jsonable(raw_scene_consistency_contract)
+
+    scene_context: Dict[str, Any] = {
+        "scene_payload": scene_payload,
+        "scene_manifest": scene_manifest,
+        "object_workload_snapshot": snapshot_payload,
+    }
+    if isinstance(scene_package_selector, dict) and scene_package_selector:
+        scene_context["scene_package_selector"] = scene_package_selector
+    if isinstance(scene_package_ref, dict) and scene_package_ref:
+        scene_context["scene_package_ref"] = scene_package_ref
+        scene_context["scene_control_refs"] = _scene_control_refs_from_context(
+            scene_manifest=scene_manifest,
+            scene_package_ref=scene_package_ref,
+        )
+        spatial_metadata = _jsonable(scene_package_ref.get("spatial_metadata") or {})
+        if isinstance(spatial_metadata, dict):
+            scene_context["scene_spatial_metadata"] = spatial_metadata
+    if isinstance(scene_consistency_contract, dict) and scene_consistency_contract:
+        scene_context["scene_consistency_contract"] = scene_consistency_contract
+    return scene_context
+
+
 def build_visual_acceptance_bundle(
     *,
     tenant_id: str,
@@ -311,9 +381,6 @@ def build_visual_acceptance_bundle(
         ),
         "vrb_bundle",
     )
-    snapshot = _field_value(scene, "object_workload_snapshot", None)
-    snapshot_payload = _jsonable(snapshot) if snapshot is not None else None
-    scene_manifest = _jsonable(_field_value(scene, "scene_manifest", {}) or {})
     lineage = _collect_lineage(context_metadata)
     slots = _collect_object_asset_slots(scene, tenant_id=tenant_id)
     slots.extend(_collect_render_slots(list(clip_refs or []), tenant_id=tenant_id))
@@ -339,11 +406,7 @@ def build_visual_acceptance_bundle(
         "preset_id": lineage.get("preset_id"),
         "artifact_ids": list(lineage.get("artifact_ids") or []),
         "checklist_template": build_review_checklist_template(source_kind_value),
-        "scene_context": {
-            "scene_payload": _jsonable(scene),
-            "scene_manifest": scene_manifest,
-            "object_workload_snapshot": snapshot_payload,
-        },
+        "scene_context": _scene_context_payload(scene),
         "source_metadata": _jsonable(context_metadata or {}),
         "slots": slots,
         "created_at": _utc_now_iso(),

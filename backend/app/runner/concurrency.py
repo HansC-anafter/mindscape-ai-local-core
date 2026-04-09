@@ -1,9 +1,15 @@
 """Runner concurrency — lock key resolution and runner identity."""
 
+import logging
 import os
 import socket
 import uuid
 from typing import Any, Dict, Optional, List
+
+from backend.app.runner.utils import _env_int
+from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
+
+logger = logging.getLogger(__name__)
 
 
 _PLAYBOOK_INPUT_LOCK_PACKS = {
@@ -14,6 +20,10 @@ _PLAYBOOK_INPUT_LOCK_PACKS = {
 _LEGACY_PROFILE_ALIAS_PACKS = {
     "ig_analyze_following",
 }
+
+
+def _runner_lock_ttl_seconds() -> int:
+    return _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
 
 
 def _runner_id() -> str:
@@ -158,3 +168,89 @@ def _build_inputs(
     if "execution_id" not in inputs:
         inputs["execution_id"] = task_execution_id
     return inputs
+
+
+async def _release_lock_keys_safely(
+    redis_queue: Optional[RedisRunnerQueueStore],
+    lock_keys: List[str],
+    owner_id: str,
+    *,
+    release_context: str,
+) -> None:
+    if not redis_queue or not lock_keys:
+        return
+
+    for lock_key in lock_keys:
+        released = False
+        try:
+            released = await redis_queue.release_lock(lock_key=lock_key, owner_id=owner_id)
+        except Exception as exc:
+            logger.warning(
+                "[RunnerLock] release raised lock_key=%s owner_id=%s context=%s error=%s",
+                lock_key,
+                owner_id,
+                release_context,
+                exc,
+            )
+
+        if released:
+            continue
+
+        try:
+            current_owner = await redis_queue.get_lock_owner(lock_key)
+        except Exception as exc:
+            logger.warning(
+                "[RunnerLock] owner lookup failed lock_key=%s owner_id=%s context=%s error=%s",
+                lock_key,
+                owner_id,
+                release_context,
+                exc,
+            )
+            continue
+
+        if current_owner is None:
+            logger.warning(
+                "[RunnerLock] release miss but lock already absent lock_key=%s owner_id=%s context=%s",
+                lock_key,
+                owner_id,
+                release_context,
+            )
+            continue
+
+        if current_owner != owner_id:
+            logger.warning(
+                "[RunnerLock] release miss and lock belongs to another owner lock_key=%s owner_id=%s current_owner=%s context=%s",
+                lock_key,
+                owner_id,
+                current_owner,
+                release_context,
+            )
+            continue
+
+        forced = False
+        try:
+            forced = await redis_queue.force_release_lock(lock_key)
+        except Exception as exc:
+            logger.warning(
+                "[RunnerLock] force release raised lock_key=%s owner_id=%s context=%s error=%s",
+                lock_key,
+                owner_id,
+                release_context,
+                exc,
+            )
+            continue
+
+        if forced:
+            logger.warning(
+                "[RunnerLock] force-released stale lock after release miss lock_key=%s owner_id=%s context=%s",
+                lock_key,
+                owner_id,
+                release_context,
+            )
+        else:
+            logger.warning(
+                "[RunnerLock] force release failed lock_key=%s owner_id=%s context=%s",
+                lock_key,
+                owner_id,
+                release_context,
+            )

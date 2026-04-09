@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import time
 
 import pytest
 
@@ -174,3 +175,74 @@ async def test_build_context_injects_governance_packet(monkeypatch):
     assert context["governance_context"]["workspace_id"] == "ws-1"
     assert context["memory_packet"]["selection"]["memory_scope"] == "standard"
     assert "Guiding knowledge" in context["memory_context_summary"]
+
+
+@pytest.mark.asyncio
+async def test_build_context_times_out_blocking_core_memory_lookup(monkeypatch):
+    workspace = SimpleNamespace(
+        id="ws-1",
+        sandbox_config={},
+        runtime_profile=None,
+    )
+    executor = object.__new__(WorkspaceAgentExecutor)
+    executor.workspace = workspace
+    executor.CORE_MEMORY_CONTEXT_TIMEOUT_S = 0.05
+
+    class _BlockingMemoryService:
+        def __init__(self, store):
+            self.store = store
+
+        async def get_core_memory(self, workspace_id):
+            time.sleep(0.2)
+            return None
+
+    monkeypatch.setattr(
+        "backend.app.services.memory.workspace_core_memory.WorkspaceCoreMemoryService",
+        _BlockingMemoryService,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.mindscape_store.MindscapeStore",
+        lambda: "store-instance",
+    )
+
+    context = await executor._build_context()
+
+    assert "brand_identity" not in context
+    assert "voice_and_tone" not in context
+
+
+@pytest.mark.asyncio
+async def test_build_context_times_out_blocking_governance_packet(monkeypatch):
+    workspace = SimpleNamespace(
+        id="ws-1",
+        sandbox_config={},
+        runtime_profile=None,
+    )
+    executor = object.__new__(WorkspaceAgentExecutor)
+    executor.workspace = workspace
+    executor.GOVERNANCE_PACKET_TIMEOUT_S = 0.05
+
+    class _BlockingReadModel:
+        def __init__(self, store=None):
+            self.store = store
+
+        async def build_for_workspace(self, workspace):
+            time.sleep(0.2)
+            return None
+
+        def format_memory_packet_for_context(self, packet):
+            return ""
+
+    monkeypatch.setattr(
+        "backend.app.services.governance.governance_context_read_model.GovernanceContextReadModel",
+        _BlockingReadModel,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.mindscape_store.MindscapeStore",
+        lambda: "store-instance",
+    )
+
+    context = await executor._build_context()
+
+    assert "governance_context" not in context
+    assert "memory_packet" not in context

@@ -35,6 +35,7 @@ from ....services.task_execution_projection import (
     build_execution_group_summary,
     project_execution_for_api,
 )
+from ....services.task_phase_projection import load_mlx_watchdog_state
 from ..execution_dispatch import get_or_create_cloud_connector
 
 router = APIRouter()
@@ -231,10 +232,19 @@ async def _execution_stream_poller(
 
             # Refresh queue cache (shared, max once per 3s across all pollers)
             _QUEUE_CACHE.refresh_if_stale(tasks_store)
+            watchdog_state = load_mlx_watchdog_state()
+            phase_payload = project_execution_for_api(
+                task.model_dump(),
+                queue_position=_QUEUE_CACHE.get_position(tasks_store, task),
+                queue_total=_QUEUE_CACHE.get_total(task.queue_shard or "default"),
+                watchdog_state=watchdog_state,
+            )
 
             payload_obj = {
                 "type": "progress",
                 "status": task.status,
+                "status_phase": phase_payload.get("status_phase"),
+                "status_phase_group": phase_payload.get("status_phase_group"),
                 "progress": progress,
                 "queue_position": _QUEUE_CACHE.get_position(tasks_store, task),
                 "queue_total": _QUEUE_CACHE.get_total(task.queue_shard or "default"),
@@ -356,8 +366,18 @@ async def get_workspace_tasks(
             pending = await asyncio.to_thread(tasks_store.list_pending_tasks, workspace_id)
             running = await asyncio.to_thread(tasks_store.list_running_tasks, workspace_id)
             all_tasks = (pending + running)[:limit]
-
-        return {"tasks": [task.model_dump() for task in all_tasks]}
+        watchdog_state = load_mlx_watchdog_state()
+        return {
+            "tasks": [
+                project_execution_for_api(
+                    task.model_dump(),
+                    queue_position=_QUEUE_CACHE.get_position(tasks_store, task),
+                    queue_total=_QUEUE_CACHE.get_total(task.queue_shard or "default"),
+                    watchdog_state=watchdog_state,
+                )
+                for task in all_tasks
+            ]
+        }
     except Exception as e:
         logger.error(f"Failed to get workspace tasks: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -423,6 +443,13 @@ async def get_workspace_executions(
                 END AS execution_context,
                 storyline_tags,
                 created_at,
+                next_eligible_at,
+                blocked_reason,
+                blocked_payload,
+                queue_shard,
+                concurrency_key,
+                frontier_state,
+                frontier_enqueued_at,
                 started_at,
                 completed_at,
                 error
@@ -465,6 +492,7 @@ async def get_workspace_executions(
         _QUEUE_CACHE.refresh_if_stale(tasks_store)
 
         # Enrich with fields the UI expects (RunLogCard reads playbook_code, not pack_id)
+        watchdog_state = load_mlx_watchdog_state()
         executions = []
         for task in tasks:
             task_payload = task.model_dump()
@@ -475,6 +503,7 @@ async def get_workspace_executions(
                     queue_total=_QUEUE_CACHE.get_total(
                         task_payload.get("queue_shard") or "default"
                     ),
+                    watchdog_state=watchdog_state,
                 )
             )
 
@@ -597,11 +626,20 @@ async def get_execution_progress_snapshot(
 
         # Refresh queue cache for position data
         _QUEUE_CACHE.refresh_if_stale(tasks_store)
+        watchdog_state = load_mlx_watchdog_state()
+        phase_payload = project_execution_for_api(
+            task.model_dump(),
+            queue_position=_QUEUE_CACHE.get_position(tasks_store, task),
+            queue_total=_QUEUE_CACHE.get_total(task.queue_shard or "default"),
+            watchdog_state=watchdog_state,
+        )
 
         return {
             "workspace_id": workspace_id,
             "execution_id": execution_id,
             "task_status": task.status,
+            "status_phase": phase_payload.get("status_phase"),
+            "status_phase_group": phase_payload.get("status_phase_group"),
             "artifact_id": artifact_id,
             "artifact_updated_at": artifact_updated_at,
             "progress": progress if isinstance(progress, dict) else None,
@@ -628,6 +666,8 @@ async def get_execution_progress_snapshot(
                     else None
                 ),
                 "admission": ctx.get("admission") if isinstance(ctx.get("admission"), dict) else None,
+                "status_phase": phase_payload.get("status_phase"),
+                "status_phase_group": phase_payload.get("status_phase_group"),
             },
         }
     except HTTPException:

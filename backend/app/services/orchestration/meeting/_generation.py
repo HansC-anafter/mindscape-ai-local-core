@@ -435,18 +435,23 @@ class MeetingGenerationMixin:
         self.provider = provider
 
     def _resolve_model_name(self) -> str:
-        """Resolve the model name from system settings."""
+        """Resolve the model name from workspace preference or system settings."""
         try:
-            from backend.app.services.system_settings_store import SystemSettingsStore
+            from backend.app.services.conversation.chat_model_resolution import (
+                resolve_conversational_model_name,
+            )
 
-            setting = SystemSettingsStore().get_setting("chat_model")
-            if setting and setting.value:
-                return str(setting.value)
+            model_name = resolve_conversational_model_name(
+                workspace=getattr(self, "workspace", None),
+                db_path=getattr(getattr(self, "store", None), "db_path", None),
+            )
+            if model_name:
+                return model_name
         except Exception as exc:
             logger.warning("MeetingEngine failed to resolve chat_model: %s", exc)
         raise RuntimeError(
-            "Meeting mode requires model_name or system setting 'chat_model'; "
-            "no fallback model is allowed"
+            "Meeting mode requires model_name, workspace preferred_chat_model, "
+            "or system setting 'chat_model'; no fallback model is allowed"
         )
 
     def _retry_delay_seconds(self, attempt: int) -> float:

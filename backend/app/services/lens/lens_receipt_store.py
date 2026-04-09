@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from app.services.stores.postgres_base import PostgresStoreBase
-from app.models.lens_receipt import LensReceipt, TriggeredNode
+from backend.app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.models.lens_receipt import LensReceipt, TriggeredNode
 
 
 class LensReceiptStore(PostgresStoreBase):

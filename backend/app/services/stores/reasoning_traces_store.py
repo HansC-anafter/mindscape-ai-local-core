@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from app.services.stores.postgres_base import PostgresStoreBase
-from app.models.reasoning_trace import ReasoningTrace
+from backend.app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.models.reasoning_trace import ReasoningTrace
 
 logger = logging.getLogger(__name__)
 

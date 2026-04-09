@@ -30,6 +30,42 @@ def test_codex_surface_preflight_does_not_require_gemini_bridge(monkeypatch):
     client._preflight_check()
 
 
+def test_result_ack_timeout_can_be_overridden_via_env(monkeypatch):
+    monkeypatch.setenv("MINDSCAPE_RESULT_ACK_TIMEOUT", "42.5")
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+    )
+
+    assert client.RESULT_ACK_TIMEOUT == pytest.approx(42.5)
+
+
+def test_ws_open_timeout_can_be_overridden_via_env(monkeypatch):
+    monkeypatch.setenv("MINDSCAPE_WS_OPEN_TIMEOUT", "27.5")
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+    )
+
+    assert client.WS_OPEN_TIMEOUT == pytest.approx(27.5)
+
+
+def test_ws_pong_timeout_can_be_overridden_via_env(monkeypatch):
+    monkeypatch.setenv("MINDSCAPE_WS_PONG_TIMEOUT", "91")
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+    )
+
+    assert client.PONG_TIMEOUT == pytest.approx(91.0)
+
+
 class _FakeWSManager:
     def __init__(self, results):
         self._results = list(results)
@@ -67,6 +103,31 @@ def test_unavailable_availability_cache_expires_quickly_after_reconnect(monkeypa
         "reason": "ws_connected",
     }
     assert manager.calls == 2
+
+
+def test_recent_disconnect_grace_keeps_surface_available(monkeypatch):
+    timeline = iter([100.0, 101.0])
+    manager = _FakeWSManager([True, False])
+    adapter = HostBridgeRuntimeAdapter(strategy="ws", ws_manager=manager)
+    adapter.WS_AVAILABLE_CACHE_TTL = 0.0
+    monkeypatch.setattr(
+        "backend.app.services.external_agents.bridge.runtime_adapter.time.monotonic",
+        lambda: next(timeline),
+    )
+
+    first = adapter.get_availability_detail(workspace_id="ws-1")
+    second = adapter.get_availability_detail(workspace_id="ws-1")
+
+    assert first == {
+        "available": True,
+        "transport": "ws",
+        "reason": "ws_connected",
+    }
+    assert second == {
+        "available": True,
+        "transport": "ws",
+        "reason": "recent_reconnect_grace",
+    }
 
 
 @pytest.mark.asyncio
@@ -127,6 +188,34 @@ async def test_result_ack_wait_falls_back_after_timeout(monkeypatch):
     )
 
     assert fallback_calls == [result_message]
+
+
+@pytest.mark.asyncio
+async def test_stale_connection_recovers_pending_result_acks_via_rest(monkeypatch):
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+    )
+
+    loop = asyncio.get_running_loop()
+    waiter = loop.create_future()
+    client._result_ack_waiters["exec-1"] = waiter
+    client._remember_result("exec-1", {"execution_id": "exec-1", "status": "completed"})
+
+    fallback_calls = []
+
+    async def _fake_submit(result_message, *, queue_on_failure=True):
+        fallback_calls.append((result_message["execution_id"], queue_on_failure))
+        return True
+
+    monkeypatch.setattr(client, "_submit_result_via_rest", _fake_submit)
+
+    await client._recover_pending_result_acks_due_to_stale_connection()
+
+    assert waiter.done() is True
+    assert client._result_ack_waiters == {}
+    assert fallback_calls == [("exec-1", True)]
 
 
 @pytest.mark.asyncio

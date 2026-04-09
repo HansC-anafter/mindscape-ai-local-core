@@ -67,31 +67,36 @@ class IntentExtractor:
 
         self.intent_registry = intent_registry
         self.intent_tags_store = IntentTagsStore()
-
-        # Get model name from system settings - must be configured by user
-        from ...services.system_settings_store import SystemSettingsStore
-
-        settings_store = SystemSettingsStore()
-        chat_setting = settings_store.get_setting("chat_model")
-
-        if not chat_setting or not chat_setting.value:
-            raise ValueError(
-                "LLM model not configured. Please select a model in the system settings panel."
-            )
-
-        model_name = str(chat_setting.value)
-        if not model_name or model_name.strip() == "":
-            raise ValueError(
-                "LLM model is empty. Please select a valid model in the system settings panel."
-            )
-
-        self.context_builder = ContextBuilder(
-            store=store,
-            timeline_items_store=timeline_items_store,
-            model_name=model_name,
-        )
         self.pack_suggester = PackSuggester()
         self.pack_info_collector = PackInfoCollector(db_path=store.db_path)
+
+    async def _build_context_builder(
+        self, workspace_id: str
+    ) -> tuple[ContextBuilder, Optional[Any]]:
+        """Resolve workspace-scoped model selection for QA context building."""
+        from backend.app.services.conversation.chat_model_resolution import (
+            resolve_conversational_model_name,
+        )
+
+        workspace = await self.store.get_workspace(workspace_id)
+        model_name = resolve_conversational_model_name(
+            workspace=workspace,
+            db_path=getattr(self.store, "db_path", None),
+        )
+        if not model_name or not model_name.strip():
+            raise ValueError(
+                "No conversational model configured. Set workspace preferred_chat_model "
+                "or system chat_model before running intent extraction."
+            )
+
+        return (
+            ContextBuilder(
+                store=self.store,
+                timeline_items_store=self.timeline_items_store,
+                model_name=model_name,
+            ),
+            workspace,
+        )
 
     async def extract_and_create_timeline_item(
         self,
@@ -139,9 +144,16 @@ class IntentExtractor:
 
             # Build context from recent files and timeline items
             context_str = ""
+            workspace = None
             try:
-                context_str = await self.context_builder.build_qa_context(
-                    workspace_id=ctx.workspace_id, message=message, hours=24
+                context_builder, workspace = await self._build_context_builder(
+                    ctx.workspace_id
+                )
+                context_str = await context_builder.build_qa_context(
+                    workspace_id=ctx.workspace_id,
+                    message=message,
+                    workspace=workspace,
+                    hours=24,
                 )
                 logger.info(
                     f"Intent extractor: Built context ({len(context_str)} chars)"

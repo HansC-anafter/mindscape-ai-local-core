@@ -2,8 +2,11 @@
 Ollama LLM Provider (via OpenAI-compatible API)
 """
 
-from typing import Dict, List, Optional
+import json
 import logging
+from typing import Dict, List, Optional
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from .base import LLMProvider
 
@@ -21,6 +24,59 @@ class OllamaProvider(LLMProvider):
         # Ensure base_url ends with /v1 for OpenAI compatibility if not present
         if not self.base_url.endswith("/v1"):
             self.base_url = f"{self.base_url.rstrip('/')}/v1"
+
+    def _native_base_url(self) -> str:
+        if self.base_url.endswith("/v1"):
+            return self.base_url[: -len("/v1")]
+        return self.base_url.rstrip("/")
+
+    def is_model_available(self, model: str) -> tuple[bool, Optional[str]]:
+        normalized_model = (model or "").strip()
+        if not normalized_model:
+            return False, "Ollama model name is empty."
+
+        tags_url = f"{self._native_base_url()}/api/tags"
+        try:
+            request = urllib_request.Request(
+                tags_url,
+                headers={"Accept": "application/json"},
+            )
+            with urllib_request.urlopen(request, timeout=2.0) as response:
+                payload = json.load(response)
+        except urllib_error.URLError as exc:
+            logger.warning("Failed to query Ollama tags from %s: %s", tags_url, exc)
+            return (
+                False,
+                f"Ollama model availability check failed for '{normalized_model}': {exc}",
+            )
+        except Exception as exc:
+            logger.warning("Unexpected Ollama tags error from %s: %s", tags_url, exc)
+            return (
+                False,
+                f"Ollama model availability check failed for '{normalized_model}': {exc}",
+            )
+
+        models = payload.get("models") if isinstance(payload, dict) else []
+        installed_names: set[str] = set()
+        for item in models:
+            if not isinstance(item, dict):
+                continue
+            for key in ("name", "model"):
+                raw_value = item.get(key)
+                if isinstance(raw_value, str) and raw_value.strip():
+                    installed_names.add(raw_value.strip())
+
+        if normalized_model in installed_names:
+            return True, None
+        if ":" not in normalized_model and f"{normalized_model}:latest" in installed_names:
+            return True, None
+
+        installed_display = ", ".join(sorted(installed_names)) or "none"
+        return (
+            False,
+            f"Ollama model '{normalized_model}' is not installed locally. "
+            f"Installed models: {installed_display}",
+        )
 
     async def chat_completion(
         self,

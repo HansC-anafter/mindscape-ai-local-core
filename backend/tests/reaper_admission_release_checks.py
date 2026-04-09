@@ -48,6 +48,9 @@ class _FakeTasksStore:
     def list_due_admission_deferred_tasks(self, *, queue_shard=None, limit=200):
         return self._tasks[:limit]
 
+    def list_due_blocked_tasks(self, *, blocked_reason, queue_shard=None, limit=200):
+        return self._tasks[:limit]
+
     def update_task(self, task_id, **kwargs):
         self.updated.append((task_id, kwargs))
 
@@ -89,6 +92,28 @@ def _build_deferred_task() -> Task:
                 "producer_kind": "pin_reference",
                 "queue_shard": "ig_analysis",
             },
+        },
+    )
+
+
+def _build_dependency_hold_task() -> Task:
+    now = _utc_now()
+    return Task(
+        id="task-dep-1",
+        workspace_id="ws-1",
+        message_id="msg-1",
+        execution_id="exec-1",
+        pack_id="ig_analyze_pinned_reference",
+        task_type="playbook_execution",
+        status=TaskStatus.PENDING,
+        queue_shard="ig_analysis",
+        created_at=now,
+        next_eligible_at=now,
+        blocked_reason="dependency_hold",
+        frontier_state="cold",
+        execution_context={
+            "playbook_code": "ig_analyze_pinned_reference",
+            "dependency_hold": {"deps": ["mlx"], "checked_at": now.isoformat()},
         },
     )
 
@@ -155,3 +180,57 @@ async def test_reextends_deferred_task_when_capacity_still_exceeded(monkeypatch)
     assert store.updated[0][1]["blocked_reason"] == ADMISSION_DEFERRED_REASON
     assert store.updated[0][1]["frontier_state"] == "cold"
     assert store.updated[0][1]["next_eligible_at"] == next_eligible_at
+
+
+class _FakeDependencyChecker:
+    def __init__(self, unmet):
+        self.unmet = unmet
+
+    async def check_playbook_deps(self, _playbook_code, *, execution_context=None):
+        return list(self.unmet)
+
+
+@pytest.mark.asyncio
+async def test_releases_due_dependency_hold_task_when_deps_available(monkeypatch):
+    store = _FakeTasksStore([_build_dependency_hold_task()])
+    queue = _FakeRedisQueue("ig_analysis")
+    monkeypatch.setattr(
+        reaper,
+        "DependencyChecker",
+        lambda: _FakeDependencyChecker([]),
+    )
+
+    released = await reaper._release_dependency_hold_tasks(
+        store,
+        queue,
+        release_limit=1,
+    )
+
+    assert released == 1
+    assert queue._client.enqueued == ["task-dep-1"]
+    assert store.updated[0][1]["blocked_reason"] is None
+    assert store.updated[0][1]["frontier_state"] == "ready"
+    assert "dependency_hold" not in store.updated[0][1]["execution_context"]
+
+
+@pytest.mark.asyncio
+async def test_reextends_due_dependency_hold_task_when_deps_still_missing(monkeypatch):
+    store = _FakeTasksStore([_build_dependency_hold_task()])
+    queue = _FakeRedisQueue("ig_analysis")
+    monkeypatch.setattr(
+        reaper,
+        "DependencyChecker",
+        lambda: _FakeDependencyChecker(["mlx"]),
+    )
+
+    released = await reaper._release_dependency_hold_tasks(
+        store,
+        queue,
+        release_limit=1,
+    )
+
+    assert released == 0
+    assert queue._client.enqueued == []
+    assert store.updated[0][1]["blocked_reason"] == "dependency_hold"
+    assert store.updated[0][1]["frontier_state"] == "cold"
+    assert store.updated[0][1]["blocked_payload"]["dependency_hold"]["deps"] == ["mlx"]

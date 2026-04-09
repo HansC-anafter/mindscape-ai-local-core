@@ -10,22 +10,56 @@ from sqlalchemy import text
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
+from backend.app.services.runner_topology import (
+    DEFAULT_LOCAL_QUEUE_PARTITION,
+    normalize_queue_partition,
+)
 from backend.app.services.task_admission_service import (
     ADMISSION_DEFERRED_REASON,
     TASK_ADMISSION_SERVICE,
 )
 
 from backend.app.runner.concurrency import _resolve_lock_keys
+from backend.app.runner.dependency_check import DependencyChecker
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.utils import _env_int, _parse_utc_iso, _utc_now
 
 logger = logging.getLogger(__name__)
+
+DEPENDENCY_HOLD_REASON = "dependency_hold"
+CONCURRENCY_LOCKED_REASON = "concurrency_locked"
 
 
 def _normalize_task_id(raw_value: object) -> str:
     if isinstance(raw_value, bytes):
         return raw_value.decode()
     return str(raw_value)
+
+
+def _run_async_maintenance(coro, *, description: str) -> None:
+    """Run async maintenance now, even when called before asyncio.run()."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            asyncio.run(coro)
+        except Exception as e:
+            logger.warning("[Reaper] %s failed: %s", description, e)
+        return
+
+    if loop.is_closed():
+        logger.warning("[Reaper] Skipping %s because event loop is closed", description)
+        return
+
+    task = loop.create_task(coro)
+
+    def _consume_result(done_task: asyncio.Task) -> None:
+        try:
+            done_task.result()
+        except Exception as exc:
+            logger.warning("[Reaper] %s failed: %s", description, exc)
+
+    task.add_done_callback(_consume_result)
 
 
 async def _mark_frontier_ready(
@@ -73,12 +107,11 @@ def _force_release_lock(
     lock_keys = _resolve_lock_keys(task_ctx, pack_id)
     if not lock_keys:
         return
-    try:
-        loop = asyncio.get_event_loop()
-        for lock_key in lock_keys:
-            loop.create_task(_async_force_release(redis_queue, lock_key))
-    except Exception as e:
-        logger.warning(f"[Reaper] Failed to schedule lock release for {lock_keys}: {e}")
+    for lock_key in lock_keys:
+        _run_async_maintenance(
+            _async_force_release(redis_queue, lock_key),
+            description=f"force release lock {lock_key}",
+        )
 
 
 async def _async_force_release(
@@ -93,6 +126,154 @@ async def _async_force_release(
                 logger.info(f"[Reaper] Force-released lock {lock_key}")
     except Exception as e:
         logger.warning(f"[Reaper] Failed to force-release lock {lock_key}: {e}")
+
+
+def _resolve_transport_queue_store(
+    redis_queue: Optional[RedisRunnerQueueStore],
+    *,
+    queue_shard: Optional[str],
+) -> Optional[RedisRunnerQueueStore]:
+    resolved_shard = normalize_queue_partition(
+        queue_shard,
+        fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+    )
+    if redis_queue and normalize_queue_partition(
+        redis_queue.pack_id,
+        fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+    ) == resolved_shard:
+        return redis_queue
+    return RedisRunnerQueueStore(pack_id=resolved_shard)
+
+
+async def _async_reconcile_transport_membership(
+    redis_queue: Optional[RedisRunnerQueueStore],
+    *,
+    task_id: str,
+    queue_shard: Optional[str],
+    reenqueue_pending: bool,
+) -> None:
+    queue_store = _resolve_transport_queue_store(redis_queue, queue_shard=queue_shard)
+    if not queue_store:
+        return
+
+    client = await queue_store._get_client()
+    if not client:
+        return
+
+    pipe = client.pipeline()
+    pipe.lrem(queue_store.q_pending, 0, task_id)
+    pipe.zrem(queue_store.q_processing, task_id)
+    pipe.zrem(queue_store.q_delayed, task_id)
+    if reenqueue_pending:
+        pipe.lpush(queue_store.q_pending, task_id)
+    await pipe.execute()
+
+
+def _is_ready_frontier_task(
+    task_data,
+    *,
+    queue_shard: str,
+    now_dt,
+) -> bool:
+    """Return whether a pending task is still runnable on this shard.
+
+    Visibility recycling should only requeue tasks that remain in the DB-ready
+    frontier. Anything else is transport garbage and must be dropped from the
+    processing ZSET instead of being resurrected.
+    """
+    if getattr(task_data, "status", None) != TaskStatus.PENDING:
+        return False
+
+    frontier_state = str(getattr(task_data, "frontier_state", "") or "").strip().lower()
+    if frontier_state != "ready":
+        return False
+
+    blocked_reason = getattr(task_data, "blocked_reason", None)
+    if blocked_reason:
+        return False
+
+    next_eligible_at = getattr(task_data, "next_eligible_at", None)
+    if next_eligible_at and next_eligible_at > now_dt:
+        return False
+
+    task_queue_shard = normalize_queue_partition(
+        getattr(task_data, "queue_shard", None),
+        fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+    )
+    current_queue_shard = normalize_queue_partition(
+        queue_shard,
+        fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+    )
+    return task_queue_shard == current_queue_shard
+
+
+async def _recycle_visibility_timeout_item(
+    *,
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    client,
+    task_id: str,
+    now_dt,
+    stale_limit,
+) -> str:
+    """Recycle or drop a stale processing item using DB truth as authority."""
+    t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
+    if not t_data:
+        await redis_queue.ack_task(task_id)
+        return "acked_missing"
+
+    if t_data.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
+        await redis_queue.ack_task(task_id)
+        return "acked_terminal"
+
+    ctx = t_data.execution_context if isinstance(t_data.execution_context, dict) else {}
+    ctx_heartbeat = _parse_utc_iso(ctx.get("heartbeat_at"))
+
+    if t_data.status == TaskStatus.RUNNING and ctx_heartbeat and ctx_heartbeat > stale_limit:
+        await redis_queue.touch_visibility_timeout(task_id, 180)
+        return "touched_fresh"
+
+    if t_data.status == TaskStatus.PENDING and not _is_ready_frontier_task(
+        t_data,
+        queue_shard=redis_queue.pack_id,
+        now_dt=now_dt,
+    ):
+        logger.info(
+            "[Bridge] Dropping stale processing item %s without requeue "
+            "(status=%s frontier_state=%s blocked_reason=%s next_eligible_at=%s queue_shard=%s)",
+            task_id,
+            getattr(t_data.status, "value", t_data.status),
+            getattr(t_data, "frontier_state", None),
+            getattr(t_data, "blocked_reason", None),
+            getattr(t_data, "next_eligible_at", None),
+            getattr(t_data, "queue_shard", None),
+        )
+        await redis_queue.ack_task(task_id)
+        return "acked_non_runnable"
+
+    logger.warning(f"[Bridge] Task {task_id} visibility timeout expired. Reverting to queue.")
+    ctx2 = dict(ctx)
+    ctx2.pop("runner_id", None)
+    ctx2.pop("heartbeat_at", None)
+    ctx2["status"] = "queued"
+    await asyncio.to_thread(
+        tasks_store.update_task,
+        task_id,
+        execution_context=ctx2,
+        status=TaskStatus.PENDING,
+        started_at=None,
+        next_eligible_at=now_dt,
+        blocked_reason=None,
+        blocked_payload=None,
+        frontier_state="ready",
+        frontier_enqueued_at=now_dt,
+    )
+
+    pipe = client.pipeline()
+    pipe.lpush(redis_queue.q_pending, task_id)
+    pipe.zrem(redis_queue.q_processing, task_id)
+    await pipe.execute()
+    return "requeued"
 
 
 def _reap_stale_running_tasks(
@@ -167,6 +348,15 @@ def _reap_stale_running_tasks(
                         completed_at=_utc_now(),
                         error=ctx2["error"],
                     )
+                    _run_async_maintenance(
+                        _async_reconcile_transport_membership(
+                            redis_queue,
+                            task_id=t.id,
+                            queue_shard=getattr(t, "queue_shard", None),
+                            reenqueue_pending=False,
+                        ),
+                        description=f"drop transport membership for failed task {t.id}",
+                    )
                     logger.warning(
                         f"Failed task after {requeue_count} re-queues task_id={t.id} ({msg})"
                     )
@@ -182,6 +372,15 @@ def _reap_stale_running_tasks(
                         execution_context=ctx2,
                         status=TaskStatus.PENDING,
                         error=None,
+                    )
+                    _run_async_maintenance(
+                        _async_reconcile_transport_membership(
+                            redis_queue,
+                            task_id=t.id,
+                            queue_shard=getattr(t, "queue_shard", None),
+                            reenqueue_pending=True,
+                        ),
+                        description=f"requeue transport membership for stale queued task {t.id}",
                     )
                     _force_release_lock(ctx, t.pack_id, redis_queue)
                     logger.warning(
@@ -222,6 +421,15 @@ def _reap_stale_running_tasks(
                         status=TaskStatus.FAILED,
                         completed_at=_utc_now(),
                         error=msg,
+                    )
+                    _run_async_maintenance(
+                        _async_reconcile_transport_membership(
+                            redis_queue,
+                            task_id=t.id,
+                            queue_shard=getattr(t, "queue_shard", None),
+                            reenqueue_pending=False,
+                        ),
+                        description=f"drop transport membership for stale running task {t.id}",
                     )
                     logger.warning(f"Reaped stale running task task_id={t.id} ({msg})")
                     _force_release_lock(ctx, t.pack_id, redis_queue)
@@ -283,55 +491,37 @@ async def _reap_redis_queues(
         stale_items = await client.zrangebyscore(redis_queue.q_processing, "-inf", now_ts)
         for task_id in stale_items:
             try:
-                t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
-                if not t_data:
-                    await redis_queue.ack_task(task_id)
-                    continue
-                
-                # Check actual DB Truth
-                if t_data.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
-                    await redis_queue.ack_task(task_id)
-                    continue
-                
-                ctx = t_data.execution_context if isinstance(t_data.execution_context, dict) else {}
-                ctx_heartbeat = _parse_utc_iso(ctx.get('heartbeat_at'))
-                stale_limit = _utc_now() - timedelta(seconds=_env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180))
-                
-                if ctx_heartbeat and ctx_heartbeat > stale_limit:
-                    # DB heartbeat is fresh, touching visibility and skipping
-                    await redis_queue.touch_visibility_timeout(task_id, 180)
-                    continue
-                
-                # Genuinely abandoned
-                logger.warning(f"[Bridge] Task {task_id} visibility timeout expired. Reverting to queue.")
-                ctx2 = dict(ctx)
-                ctx2.pop('runner_id', None)
-                ctx2.pop('heartbeat_at', None)
-                ctx2["status"] = "queued"
-                await asyncio.to_thread(
-                    tasks_store.update_task, 
-                    task_id, 
-                    execution_context=ctx2, 
-                    status=TaskStatus.PENDING, 
-                    started_at=None,
-                    next_eligible_at=_utc_now(),
-                    blocked_reason=None,
-                    blocked_payload=None,
-                    frontier_state="ready",
-                    frontier_enqueued_at=_utc_now(),
+                stale_limit = _utc_now() - timedelta(
+                    seconds=_env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180)
                 )
-                
-                pipe = client.pipeline()
-                pipe.lpush(redis_queue.q_pending, task_id)
-                pipe.zrem(redis_queue.q_processing, task_id)
-                await pipe.execute()
-                
+                await _recycle_visibility_timeout_item(
+                    tasks_store=tasks_store,
+                    redis_queue=redis_queue,
+                    client=client,
+                    task_id=task_id,
+                    now_dt=_utc_now(),
+                    stale_limit=stale_limit,
+                )
             except Exception as e:
                 logger.error(f"Failed to recycle visibility task {task_id}: {e}")
 
         ready_depth = await client.llen(redis_queue.q_pending)
         release_limit = max(0, ready_target - ready_depth)
         released_count = await _release_admission_deferred_tasks(
+            tasks_store,
+            redis_queue,
+            release_limit=release_limit,
+        )
+        ready_depth += released_count
+        release_limit = max(0, ready_target - ready_depth)
+        released_count = await _release_dependency_hold_tasks(
+            tasks_store,
+            redis_queue,
+            release_limit=release_limit,
+        )
+        ready_depth += released_count
+        release_limit = max(0, ready_target - ready_depth)
+        released_count = await _release_concurrency_locked_tasks(
             tasks_store,
             redis_queue,
             release_limit=release_limit,
@@ -483,6 +673,239 @@ async def _release_admission_deferred_tasks(
     except Exception as exc:
         logger.warning(
             "[Admission] Failed to enqueue %d released task(s) for shard %s: %s",
+            len(released_task_ids),
+            redis_queue.pack_id,
+            exc,
+        )
+
+    return len(released_task_ids)
+
+
+async def _release_dependency_hold_tasks(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    release_limit: int,
+) -> int:
+    if release_limit <= 0:
+        return 0
+
+    due_tasks = await asyncio.to_thread(
+        tasks_store.list_due_blocked_tasks,
+        blocked_reason=DEPENDENCY_HOLD_REASON,
+        queue_shard=redis_queue.pack_id,
+        limit=max(release_limit * 4, release_limit),
+    )
+    if not due_tasks:
+        return 0
+
+    client = await redis_queue._get_client()
+    if not client:
+        return 0
+
+    dep_checker = DependencyChecker()
+    now = _utc_now()
+    released_task_ids: list[str] = []
+
+    for task in due_tasks:
+        if len(released_task_ids) >= release_limit:
+            break
+
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        playbook_code = ctx.get("playbook_code") or task.pack_id or ""
+
+        try:
+            unmet = await dep_checker.check_playbook_deps(
+                playbook_code,
+                execution_context=ctx,
+            )
+            if unmet:
+                ctx2 = dict(ctx)
+                ctx2["dependency_hold"] = {
+                    "deps": unmet,
+                    "checked_at": now.isoformat(),
+                }
+                await asyncio.to_thread(
+                    tasks_store.update_task,
+                    task.id,
+                    execution_context=ctx2,
+                    next_eligible_at=now + timedelta(seconds=30),
+                    blocked_reason=DEPENDENCY_HOLD_REASON,
+                    blocked_payload={"dependency_hold": ctx2["dependency_hold"]},
+                    queue_shard=getattr(task, "queue_shard", None) or redis_queue.pack_id,
+                    frontier_state="cold",
+                    frontier_enqueued_at=None,
+                )
+                continue
+
+            ctx2 = dict(ctx)
+            ctx2.pop("dependency_hold", None)
+            ctx2.pop("runner_skip_reason", None)
+            ctx2.pop("resume_after", None)
+            await asyncio.to_thread(
+                tasks_store.update_task,
+                task.id,
+                execution_context=ctx2,
+                next_eligible_at=now,
+                blocked_reason=None,
+                blocked_payload=None,
+                queue_shard=getattr(task, "queue_shard", None) or redis_queue.pack_id,
+                frontier_state="ready",
+                frontier_enqueued_at=now,
+            )
+            released_task_ids.append(task.id)
+        except Exception as exc:
+            logger.warning(
+                "[DependencyHold] Failed to evaluate task %s on shard %s: %s",
+                getattr(task, "id", None),
+                redis_queue.pack_id,
+                exc,
+            )
+
+    if not released_task_ids:
+        return 0
+
+    try:
+        pipe = client.pipeline()
+        for task_id in released_task_ids:
+            pipe.lpush(redis_queue.q_pending, task_id)
+        await pipe.execute()
+    except Exception as exc:
+        logger.warning(
+            "[DependencyHold] Failed to enqueue %d released task(s) for shard %s: %s",
+            len(released_task_ids),
+            redis_queue.pack_id,
+            exc,
+        )
+
+    return len(released_task_ids)
+
+
+async def _release_concurrency_locked_tasks(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    release_limit: int,
+) -> int:
+    if release_limit <= 0:
+        return 0
+
+    due_tasks = await asyncio.to_thread(
+        tasks_store.list_due_blocked_tasks,
+        blocked_reason=CONCURRENCY_LOCKED_REASON,
+        queue_shard=redis_queue.pack_id,
+        limit=max(release_limit * 4, release_limit),
+    )
+    if not due_tasks:
+        return 0
+
+    client = await redis_queue._get_client()
+    if not client:
+        return 0
+
+    running_tasks = await asyncio.to_thread(
+        tasks_store.list_running_playbook_execution_tasks,
+        None,
+        500,
+    )
+    active_lock_owners: dict[str, str] = {}
+    for running_task in running_tasks:
+        ctx = (
+            running_task.execution_context
+            if isinstance(running_task.execution_context, dict)
+            else {}
+        )
+        owner_id = (ctx.get("runner_id") or "").strip()
+        if not owner_id:
+            continue
+        for lock_key in _resolve_lock_keys(ctx, running_task.pack_id):
+            active_lock_owners[lock_key] = owner_id
+
+    now = _utc_now()
+    released_task_ids: list[str] = []
+
+    for task in due_tasks:
+        if len(released_task_ids) >= release_limit:
+            break
+
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        ctx2 = dict(ctx)
+        conflict_lock_key = (
+            ctx2.get("runner_skip_conflict_lock_key")
+            or ctx2.get("runner_skip_lock_key")
+            or next(iter(_resolve_lock_keys(ctx2, task.pack_id)), None)
+        )
+        next_eligible_at = now + timedelta(seconds=30)
+        queue_shard = getattr(task, "queue_shard", None) or redis_queue.pack_id
+
+        if conflict_lock_key:
+            live_owner = active_lock_owners.get(conflict_lock_key)
+            if live_owner:
+                ctx2["runner_skip_reason"] = CONCURRENCY_LOCKED_REASON
+                ctx2["runner_skip_owner"] = live_owner
+                ctx2["runner_skip_lock_key"] = conflict_lock_key
+                ctx2["runner_skip_conflict_lock_key"] = conflict_lock_key
+                ctx2["resume_after"] = next_eligible_at.isoformat()
+                await asyncio.to_thread(
+                    tasks_store.update_task,
+                    task.id,
+                    execution_context=ctx2,
+                    next_eligible_at=next_eligible_at,
+                    blocked_reason=CONCURRENCY_LOCKED_REASON,
+                    blocked_payload={"conflicting_lock_key": conflict_lock_key},
+                    queue_shard=queue_shard,
+                    frontier_state="cold",
+                    frontier_enqueued_at=None,
+                )
+                continue
+
+            redis_owner = await redis_queue.get_lock_owner(conflict_lock_key)
+            if redis_owner:
+                forced = await redis_queue.force_release_lock(conflict_lock_key)
+                if not forced and await redis_queue.get_lock_owner(conflict_lock_key):
+                    logger.warning(
+                        "[ConcurrencyLock] Failed to clear stale lock for due task %s lock_key=%s owner=%s",
+                        task.id,
+                        conflict_lock_key,
+                        redis_owner,
+                    )
+                    continue
+                logger.warning(
+                    "[ConcurrencyLock] Cleared stale terminal lock for due task %s lock_key=%s stale_owner=%s",
+                    task.id,
+                    conflict_lock_key,
+                    redis_owner,
+                )
+
+        ctx2.pop("runner_skip_reason", None)
+        ctx2.pop("runner_skip_owner", None)
+        ctx2.pop("runner_skip_lock_key", None)
+        ctx2.pop("runner_skip_conflict_lock_key", None)
+        ctx2.pop("resume_after", None)
+        await asyncio.to_thread(
+            tasks_store.update_task,
+            task.id,
+            execution_context=ctx2,
+            next_eligible_at=now,
+            blocked_reason=None,
+            blocked_payload=None,
+            queue_shard=queue_shard,
+            frontier_state="ready",
+            frontier_enqueued_at=now,
+        )
+        released_task_ids.append(task.id)
+
+    if not released_task_ids:
+        return 0
+
+    try:
+        pipe = client.pipeline()
+        for task_id in released_task_ids:
+            pipe.lpush(redis_queue.q_pending, task_id)
+        await pipe.execute()
+    except Exception as exc:
+        logger.warning(
+            "[ConcurrencyLock] Failed to enqueue %d released task(s) for shard %s: %s",
             len(released_task_ids),
             redis_queue.pack_id,
             exc,

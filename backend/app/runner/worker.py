@@ -43,6 +43,8 @@ from backend.app.runner.concurrency import (
     _resolve_lock_keys,
     _build_inputs,
     _is_ig_playbook,
+    _release_lock_keys_safely,
+    _runner_lock_ttl_seconds,
 )
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.reaper import (
@@ -132,6 +134,7 @@ async def _reset_orphaned_running_tasks(
                     f"[Startup] Reset orphaned running task {t.id} "
                     f"(old_runner={old_runner})"
                 )
+
         if reset_count:
             logger.info(f"[Startup] Reset {reset_count} orphaned running task(s)")
     except Exception as e:
@@ -624,7 +627,10 @@ async def run_forever() -> None:
                 else {}
             )
             playbook_code = lock_ctx.get("playbook_code") or t_data.pack_id or ""
-            unmet = await dep_checker.check_playbook_deps(playbook_code)
+            unmet = await dep_checker.check_playbook_deps(
+                playbook_code,
+                execution_context=lock_ctx,
+            )
 
             if unmet:
                 now_dt = datetime.now(timezone.utc)
@@ -658,7 +664,9 @@ async def run_forever() -> None:
                 conflicting_key: Optional[str] = None
                 for candidate_key in lock_keys:
                     acquired = await redis_queue.acquire_lock(
-                        candidate_key, runner_id, ttl_seconds=120
+                        candidate_key,
+                        runner_id,
+                        ttl_seconds=_runner_lock_ttl_seconds(),
                     )
                     if not acquired:
                         conflicting_key = candidate_key
@@ -666,11 +674,12 @@ async def run_forever() -> None:
                     acquired_keys.append(candidate_key)
 
                 if conflicting_key:
-                    for acquired_key in reversed(acquired_keys):
-                        try:
-                            await redis_queue.release_lock(acquired_key, runner_id)
-                        except Exception:
-                            pass
+                    await _release_lock_keys_safely(
+                        redis_queue,
+                        list(reversed(acquired_keys)),
+                        runner_id,
+                        release_context=f"worker_conflict_cleanup:{t_data.id}",
+                    )
                     parked_update = _build_parked_task_update(
                         lock_ctx,
                         reason="concurrency_locked",
@@ -699,11 +708,12 @@ async def run_forever() -> None:
                 logger.warning(
                     f"[Worker] DB claim failed for Task {task_id}. Ghost pop or duplicated. Acking."
                 )
-                for held_key in lock_keys:
-                    try:
-                        await redis_queue.release_lock(held_key, runner_id)
-                    except Exception:
-                        pass
+                await _release_lock_keys_safely(
+                    redis_queue,
+                    lock_keys,
+                    runner_id,
+                    release_context=f"worker_claim_cleanup:{task_id}",
+                )
                 await task_queue.ack_task(task_id)
                 continue
 

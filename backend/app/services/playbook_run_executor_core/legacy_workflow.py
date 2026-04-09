@@ -11,6 +11,9 @@ from backend.app.models.execution_metadata import (
 )
 from backend.app.models.workspace import PlaybookExecution
 from backend.app.services.execution_core.clock import utc_now as _utc_now
+from backend.app.services.playbook_run_executor_core.input_normalization import (
+    normalize_meeting_session_input_aliases,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +40,7 @@ def _normalize_legacy_inputs(
     project_id: Optional[str],
     profile_id: str,
 ) -> Dict[str, Any]:
-    normalized_inputs = dict(inputs or {})
+    normalized_inputs = normalize_meeting_session_input_aliases(inputs)
     if workspace_id and "workspace_id" not in normalized_inputs:
         normalized_inputs["workspace_id"] = workspace_id
     if project_id and "project_id" not in normalized_inputs:
@@ -223,6 +226,41 @@ async def _land_governed_result(
         )
 
 
+def _reconcile_ig_reference_terminal_state(
+    *,
+    playbook_code: str,
+    workspace_id: Optional[str],
+    inputs: Optional[Dict[str, Any]],
+    task_status: str,
+    task_error: Optional[str],
+    workflow_result: Optional[Dict[str, Any]] = None,
+) -> None:
+    if playbook_code != "ig_analyze_pinned_reference" or not workspace_id:
+        return
+    if not isinstance(inputs, dict):
+        return
+    reference_id = str(inputs.get("reference_id") or "").strip()
+    if not reference_id:
+        return
+    try:
+        from capabilities.ig.services.reference_analysis_task_reconcile import (
+            reconcile_reference_analysis_task_state,
+        )
+
+        reconcile_reference_analysis_task_state(
+            workspace_id=workspace_id,
+            reference_id=reference_id,
+            task_status=task_status,
+            task_error=task_error,
+            workflow_result=workflow_result,
+        )
+    except Exception:
+        logger.warning(
+            "PlaybookRunExecutor: Failed to reconcile IG reference task state",
+            exc_info=True,
+        )
+
+
 async def execute_legacy_workflow(
     *,
     executor: Any,
@@ -358,6 +396,14 @@ async def execute_legacy_workflow(
                 completed_at=_utc_now(),
                 error="Workflow completed with step errors" if workflow_failed else None,
             )
+            _reconcile_ig_reference_terminal_state(
+                playbook_code=playbook_code,
+                workspace_id=workspace_id,
+                inputs=normalized_inputs,
+                task_status="FAILED" if workflow_failed else "SUCCEEDED",
+                task_error="Workflow completed with step errors" if workflow_failed else None,
+                workflow_result=result if isinstance(result, dict) else None,
+            )
             await _land_governed_result(
                 execution_id=execution_id,
                 workspace_id=workspace_id,
@@ -385,6 +431,16 @@ async def execute_legacy_workflow(
                 status=TaskStatus.FAILED,
                 completed_at=_utc_now(),
                 error=error_info.user_message,
+            )
+            _reconcile_ig_reference_terminal_state(
+                playbook_code=playbook_code,
+                workspace_id=workspace_id,
+                inputs=normalized_inputs,
+                task_status="FAILED",
+                task_error=error_info.user_message,
+                workflow_result=merged_context.get("workflow_result")
+                if isinstance(merged_context.get("workflow_result"), dict)
+                else None,
             )
             logger.error(
                 "PlaybookRunExecutor: Execution %s failed: %s",

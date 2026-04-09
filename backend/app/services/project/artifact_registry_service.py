@@ -37,22 +37,16 @@ class ArtifactRegistryStore(StoreBase):
             cursor.execute(
                 """
                 INSERT INTO artifact_registry (
-                    id, project_id, artifact_id, path, type,
-                    created_by, dependencies, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, project_id, artifact_id, status,
+                    created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     entry.id,
                     entry.project_id,
                     entry.artifact_id,
-                    entry.path,
-                    entry.type,
+                    entry.status,
                     entry.created_by,
-                    (
-                        self.serialize_json(entry.dependencies)
-                        if entry.dependencies
-                        else None
-                    ),
                     self.to_isoformat(entry.created_at),
                     self.to_isoformat(entry.updated_at),
                 ),
@@ -113,23 +107,15 @@ class ArtifactRegistryStore(StoreBase):
 
     def _row_to_registry_entry(self, row) -> ArtifactRegistry:
         """Convert database row to ArtifactRegistry"""
-        try:
-            dependencies = (
-                self.deserialize_json(row["dependencies"], [])
-                if row["dependencies"]
-                else []
-            )
-        except (KeyError, IndexError):
-            dependencies = []
-
         return ArtifactRegistry(
             id=row["id"],
             project_id=row["project_id"],
             artifact_id=row["artifact_id"],
-            path=row["path"],
-            type=row["type"],
+            status=row.get("status") if hasattr(row, "get") else row["status"],
+            path=(row.get("path") if hasattr(row, "get") else None),
+            type=(row.get("type") if hasattr(row, "get") else None),
             created_by=row["created_by"],
-            dependencies=dependencies,
+            dependencies=[],
             created_at=self.from_isoformat(row["created_at"]),
             updated_at=self.from_isoformat(row["updated_at"]),
         )
@@ -182,6 +168,7 @@ class ArtifactRegistryService:
             id=entry_id,
             project_id=project_id,
             artifact_id=artifact_id,
+            status="landed",
             path=path,
             type=artifact_type,
             created_by=created_by,
