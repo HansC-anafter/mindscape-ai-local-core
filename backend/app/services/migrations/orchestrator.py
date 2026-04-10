@@ -268,6 +268,16 @@ class MigrationOrchestrator:
         backend_dir = alembic_config.parent
         backend_path = str(backend_dir)
         config_path = alembic_config.as_posix()
+        resolved_config_path = alembic_config.resolve().as_posix()
+        capabilities_root = (backend_dir / "app" / "capabilities").resolve().as_posix()
+        db_type = next(
+            (
+                candidate_db_type
+                for candidate_db_type, candidate_config in self.alembic_configs.items()
+                if candidate_config.resolve() == alembic_config.resolve()
+            ),
+            None,
+        )
 
         # Use subprocess with explicit Python path manipulation via environment
         # This avoids the module import conflict with /app/backend/alembic directory
@@ -307,8 +317,22 @@ os.chdir(backend_path)
 # Now import and execute
 from alembic.config import Config
 from alembic import command
+from app.services.migrations.runtime_version_locations import configure_runtime_version_locations
 
-config = Config('{config_path}')
+config = Config('{resolved_config_path}')
+script_location = config.get_main_option("script_location")
+if script_location and not Path(script_location).is_absolute():
+    config.set_main_option(
+        "script_location",
+        (Path('{resolved_config_path}').resolve().parent / script_location).resolve().as_posix(),
+    )
+if {repr(db_type)}:
+    configure_runtime_version_locations(
+        config=config,
+        backend_dir=Path('{backend_path}'),
+        capabilities_root=Path('{capabilities_root}'),
+        db_type={repr(db_type)},
+    )
 command.upgrade(config, '{revision}')
 """
 
