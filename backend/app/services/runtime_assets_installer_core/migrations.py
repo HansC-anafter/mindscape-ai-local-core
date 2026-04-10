@@ -475,18 +475,18 @@ def execute_migrations(
             if upgrade_result:
                 logger.info(f"Branch-scoped migration completed for {capability_code}")
             elif revisions:
-                logger.info(f"Falling back to per-revision for {capability_code}")
-                for revision in revisions:
-                    logger.info(
-                        f"Executing migration {revision} for {capability_code}..."
-                    )
-                    revision_result = orchestrator._run_alembic_upgrade(
-                        alembic_config, revision
-                    )
-                    if revision_result:
-                        continue
+                target_revision = str(revisions[-1]).strip()
+                logger.info(
+                    "Falling back to latest declared revision %s for %s",
+                    target_revision,
+                    capability_code,
+                )
+                revision_result = orchestrator._run_alembic_upgrade(
+                    alembic_config, target_revision
+                )
+                if not revision_result:
                     error_message = (
-                        f"Migration {revision} failed for {capability_code}"
+                        f"Migration {target_revision} failed for {capability_code}"
                     )
                     logger.error(error_message)
                     result.add_warning(error_message)
