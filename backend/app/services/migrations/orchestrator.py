@@ -13,6 +13,7 @@ from alembic.script import ScriptDirectory
 
 from .scanner import MigrationScanner, MigrationMetadata
 from .dependency_resolver import DependencyResolver
+from .runtime_version_locations import configure_runtime_version_locations
 from .validator import MigrationValidator
 
 logger = logging.getLogger(__name__)
@@ -250,21 +251,12 @@ class MigrationOrchestrator:
                     (alembic_config.parent / script_location).resolve().as_posix(),
                 )
 
-            version_locations = config.get_main_option("version_locations")
-            if version_locations:
-                resolved_locations = []
-                for location in version_locations.split(os.pathsep):
-                    location = location.strip()
-                    if not location:
-                        continue
-                    if Path(location).is_absolute():
-                        resolved_locations.append(location)
-                    else:
-                        resolved_locations.append(
-                            (alembic_config.parent / location).resolve().as_posix()
-                        )
-                if resolved_locations:
-                    config.set_main_option("version_locations", os.pathsep.join(resolved_locations))
+            configure_runtime_version_locations(
+                config=config,
+                backend_dir=alembic_config.parent,
+                capabilities_root=self.capabilities_root,
+                db_type=db_type,
+            )
 
             return ScriptDirectory.from_config(config)
         except Exception as e:

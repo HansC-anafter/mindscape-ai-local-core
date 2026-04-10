@@ -104,6 +104,9 @@ target_metadata = Base.metadata
 
 # ===== Use PostgreSQL URL =====
 from app.database.config import get_postgres_url
+from app.services.migrations.runtime_version_locations import (
+    configure_runtime_version_locations,
+)
 
 try:
     postgres_url = get_postgres_url()
@@ -112,18 +115,12 @@ try:
         f"Alembic using PostgreSQL: {postgres_url.split('@')[-1] if '@' in postgres_url else postgres_url}"
     )
 
-    # Dynamically set version_locations to include postgres/versions
-    # We need both the common versions and postgres versions
-    common_versions = os.path.join(backend_dir, "alembic_migrations", "versions")
-    postgres_versions = os.path.join(
-        backend_dir, "alembic_migrations", "postgres", "versions"
-    )
-
-    locations = [common_versions, postgres_versions]
-
-    # Use os.pathsep to combine (alembic.ini sets version_path_separator = os)
-    config.set_main_option(
-        "version_locations", os.pathsep.join(locations)
+    capabilities_root = backend_dir / "app" / "capabilities"
+    locations = configure_runtime_version_locations(
+        config=config,
+        backend_dir=backend_dir,
+        capabilities_root=capabilities_root,
+        db_type="postgres",
     )
     print(f"Version locations established for {len(locations)} paths.")
 
