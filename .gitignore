@@ -63,6 +63,7 @@ logs/
 *.tmp
 temp/
 tmp/
+backend/.runtime_capability_migrations/
 
 # Capability pack files (build artifacts)
 *.mindpack
