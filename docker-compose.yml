@@ -27,6 +27,7 @@ x-runner-environment: &runner-environment
   PYTHONPATH: /app:/app/backend:/app/backend/app
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
   OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+  IG_REFERENCE_CATALOG_MODE: ${IG_REFERENCE_CATALOG_MODE:-dual}
   LOCAL_STORAGE_PATH: /root/.mindscape/storage/layer_asset_forge
   TZ: ${TZ:-UTC}
   LOCAL_CORE_RUNNER_PROCESS: "1"
@@ -132,6 +133,7 @@ services:
       # Ollama (Host) - Use host.docker.internal to access Ollama running on Mac/Windows host
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - IG_REFERENCE_CATALOG_MODE=${IG_REFERENCE_CATALOG_MODE:-dual}
       # LLM Intent Extractor
       - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-true}
       # D2: Legacy Cleanup - Disable legacy fallback
