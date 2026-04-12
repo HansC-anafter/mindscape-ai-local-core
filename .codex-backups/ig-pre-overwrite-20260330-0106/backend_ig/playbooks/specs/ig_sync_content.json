@@ -1,0 +1,201 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_sync_content",
+  "kind": "user_workflow",
+  "display_name": {
+    "zh-TW": "IG 內容同步",
+    "en": "IG Content Sync"
+  },
+  "description": "從 Instagram 拉取 posts/reels/stories 內容到本地 workspace。\n\n⚠️ **前置要求**：\n- 必須先在 site-hub 完成 Instagram OAuth 授權和 Channel 綁定\n- 需要有效的 channel_config_id（由 site-hub 管理）\n- Token 和授權由 site-hub 統一管理，本 playbook 只負責拉取數據\n\n**功能**：\n- 支持拉取 posts、reels、stories\n- 自動下載媒體文件到 workspace storage\n- 生成 metadata 並保存\n- 可選：觸發 openseo pipeline 處理內容",
+  "required_capabilities": [
+    "ig"
+  ],
+  "data_locality": {
+    "local_only": [
+      "user_personal_data",
+      "workspace_storage"
+    ],
+    "cloud_allowed": [
+      "media_files",
+      "content_metadata",
+      "engagement_metrics"
+    ]
+  },
+  "execution_profile": {
+    "execution_mode": "conversational",
+    "supports_resume": false,
+    "requires_human_approval": false,
+    "side_effect_level": "low",
+    "runtime_affinity": "local"
+  },
+  "inputs": {
+    "channel_config_id": {
+      "type": "integer",
+      "required": true,
+      "description": "Channel Config ID（由 site-hub 管理，必須先在 site-hub 完成 IG OAuth 授權）"
+    },
+    "workspace_id": {
+      "type": "string",
+      "required": true,
+      "description": "Mindscape workspace ID（用於存儲拉取的內容）"
+    },
+    "content_type": {
+      "type": "string",
+      "enum": ["posts", "reels", "stories", "all"],
+      "default": "all",
+      "description": "要拉取的內容類型"
+    },
+    "media_type": {
+      "type": "string",
+      "enum": ["IMAGE", "VIDEO", "CAROUSEL_ALBUM"],
+      "required": false,
+      "description": "媒體類型過濾（僅用於 posts，可選）"
+    },
+    "limit": {
+      "type": "integer",
+      "default": 25,
+      "description": "每次拉取的數量限制"
+    },
+    "since": {
+      "type": "string",
+      "required": false,
+      "description": "開始時間（ISO 8601 格式，例如：2024-01-01T00:00:00Z）"
+    },
+    "until": {
+      "type": "string",
+      "required": false,
+      "description": "結束時間（ISO 8601 格式，例如：2024-12-31T23:59:59Z）"
+    },
+    "trigger_openseo": {
+      "type": "boolean",
+      "default": false,
+      "description": "是否觸發 openseo pipeline 處理拉取的內容"
+    }
+  },
+  "steps": [
+    {
+      "id": "fetch_posts",
+      "tool_slot": "ig.ig_fetch_posts",
+      "description": "從 Instagram 拉取 posts",
+      "inputs": {
+        "channel_config_id": "{{input.channel_config_id}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "media_type": "{{input.media_type}}",
+        "limit": "{{input.limit}}",
+        "since": "{{input.since}}",
+        "until": "{{input.until}}"
+      },
+      "outputs": {
+        "posts": "posts",
+        "media_files": "media_files",
+        "metadata": "metadata"
+      },
+      "condition": "{{input.content_type == 'posts' or input.content_type == 'all'}}"
+    },
+    {
+      "id": "fetch_reels",
+      "tool_slot": "ig.ig_fetch_reels",
+      "description": "從 Instagram 拉取 reels",
+      "inputs": {
+        "channel_config_id": "{{input.channel_config_id}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "limit": "{{input.limit}}"
+      },
+      "outputs": {
+        "reels": "reels",
+        "media_files": "media_files",
+        "metadata": "metadata"
+      },
+      "condition": "{{input.content_type == 'reels' or input.content_type == 'all'}}"
+    },
+    {
+      "id": "fetch_stories",
+      "tool_slot": "ig.ig_fetch_stories",
+      "description": "從 Instagram 拉取 stories（24小時內）",
+      "inputs": {
+        "channel_config_id": "{{input.channel_config_id}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "limit": "{{input.limit}}"
+      },
+      "outputs": {
+        "stories": "stories",
+        "media_files": "media_files",
+        "metadata": "metadata"
+      },
+      "condition": "{{input.content_type == 'stories' or input.content_type == 'all'}}"
+    },
+    {
+      "id": "trigger_openseo",
+      "tool_slot": "openseo.ai_seo_pipeline",
+      "description": "觸發 openseo pipeline 處理拉取的內容",
+      "inputs": {
+        "content_source": "{{step.fetch_posts.posts or step.fetch_reels.reels or step.fetch_stories.stories}}",
+        "content_type": "article",
+        "workspace_id": "{{input.workspace_id}}"
+      },
+      "outputs": {
+        "seo_results": "results"
+      },
+      "condition": "{{input.trigger_openseo and (step.fetch_posts.posts or step.fetch_reels.reels or step.fetch_stories.stories)}}",
+      "depends_on": [
+        "fetch_posts",
+        "fetch_reels",
+        "fetch_stories"
+      ]
+    }
+  ],
+  "outputs": {
+    "posts": {
+      "type": "list[object]",
+      "description": "拉取的 posts 列表",
+      "source": "step.fetch_posts.posts"
+    },
+    "reels": {
+      "type": "list[object]",
+      "description": "拉取的 reels 列表",
+      "source": "step.fetch_reels.reels"
+    },
+    "stories": {
+      "type": "list[object]",
+      "description": "拉取的 stories 列表",
+      "source": "step.fetch_stories.stories"
+    },
+    "media_files": {
+      "type": "list[string]",
+      "description": "下載的媒體文件路徑列表",
+      "source": "step.fetch_posts.media_files or step.fetch_reels.media_files or step.fetch_stories.media_files"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "內容 metadata",
+      "source": "step.fetch_posts.metadata or step.fetch_reels.metadata or step.fetch_stories.metadata"
+    },
+    "seo_results": {
+      "type": "object",
+      "description": "SEO 處理結果（如果啟用 trigger_openseo）",
+      "source": "step.trigger_openseo.seo_results"
+    }
+  },
+  "output_artifacts": [
+    {
+      "id": "synced_content",
+      "artifact_type": "content",
+      "primary_action_type": "view",
+      "title_template": "IG 內容同步結果 - {{input.content_type}}",
+      "summary_template": "從 Instagram 拉取了 {{input.content_type}} 內容（channel_config_id: {{input.channel_config_id}}）",
+      "source": "step.fetch_posts.posts or step.fetch_reels.reels or step.fetch_stories.stories",
+      "file_write": {
+        "enabled": true,
+        "file_name_template": "ig_synced_content_{{input.content_type}}_{{timestamp}}.json",
+        "encoding": "utf-8"
+      },
+      "metadata": {
+        "channel_config_id": "{{input.channel_config_id}}",
+        "content_type": "{{input.content_type}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "media_files": "{{outputs.media_files}}"
+      }
+    }
+  ]
+}
+

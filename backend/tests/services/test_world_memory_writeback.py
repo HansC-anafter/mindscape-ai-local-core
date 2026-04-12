@@ -94,7 +94,11 @@ def test_world_memory_writeback_persists_motion_fields():
                     "retarget_profile": "ue5_mannequin",
                     "timing_policy": {"fps": 30},
                 },
-                "metadata": {"workspace_mode": "director"},
+                "metadata": {
+                    "workspace_mode": "director",
+                    "motion_freshness": "missing_provenance",
+                    "motion_source_run_id": "run-motion-demo",
+                },
             },
             "world_card_projection": {
                 "title": "World Card",
@@ -119,3 +123,62 @@ def test_world_memory_writeback_persists_motion_fields():
     assert snapshot["active_motion"]["motion_id"] == "motion-demo"
     assert snapshot["motion_artifact_refs"][0]["artifact_kind"] == "motion_fbx"
     assert snapshot["motion_constraints"]["retarget_profile"] == "ue5_mannequin"
+    assert snapshot["metadata"]["motion_freshness"] == "missing_provenance"
+    assert snapshot["metadata"]["motion_source_run_id"] == "run-motion-demo"
+
+
+def test_world_memory_writeback_persists_performance_state():
+    store = _FakeStore()
+    orchestrator = WorldMemoryWritebackOrchestrator(store=store)
+    workspace = SimpleNamespace(id="ws-performance", metadata={})
+    session = SimpleNamespace(
+        id="session-performance",
+        project_id="proj-performance",
+        metadata={
+            "world_memory_packet": {
+                "snapshot_id": "snap-performance",
+                "source": "meeting_governed",
+                "scene_id": "scene.performance",
+                "current_zone": "preview_stage",
+                "performance_state": {
+                    "performance_mode": "audio_driven_talking_head",
+                    "execution_bridge": "mms_storyboard_preview",
+                    "preview_ready_state": "ready",
+                    "face_lane_active": True,
+                    "face_source_type": "speaker_audio",
+                    "body_lane_active": True,
+                    "body_source_type": "motion_context",
+                    "retarget_ready_state": "ready",
+                },
+                "metadata": {
+                    "performance_freshness": "fresh",
+                    "performance_source_run_id": "perf-run-demo",
+                    "performance_execution_bridge": "mms_storyboard_preview",
+                },
+            },
+            "world_card_projection": {
+                "title": "World Card",
+                "summary_lines": [
+                    "Scene: scene.performance",
+                    "Performance mode: audio_driven_talking_head",
+                ],
+            },
+            "world_card_text": "World Card\n- Scene: scene.performance\n- Performance mode: audio_driven_talking_head",
+        },
+    )
+
+    result = orchestrator.run_for_closed_session(
+        session=session,
+        workspace=workspace,
+        profile_id="profile-performance",
+    )
+
+    snapshot = workspace.metadata["world_memory_core"]["current_root"]["current_snapshot"]
+
+    assert result["updated"] is True
+    assert snapshot["performance_state"]["performance_mode"] == (
+        "audio_driven_talking_head"
+    )
+    assert snapshot["performance_state"]["face_source_type"] == "speaker_audio"
+    assert snapshot["metadata"]["performance_freshness"] == "fresh"
+    assert snapshot["metadata"]["performance_source_run_id"] == "perf-run-demo"

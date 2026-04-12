@@ -150,6 +150,7 @@ class WorldMemoryWritebackOrchestrator:
                 if isinstance(item, dict)
             ],
             motion_constraints=dict(packet.get("motion_constraints") or {}),
+            performance_state=dict(packet.get("performance_state") or {}),
             geo_anchor=packet.get("geo_anchor"),
             venue_context=packet.get("venue_context"),
             route_context=packet.get("route_context"),

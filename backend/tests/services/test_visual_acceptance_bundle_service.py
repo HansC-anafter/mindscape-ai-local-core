@@ -32,6 +32,7 @@ from shared.schemas.storyboard import (
     ScenePackageRef,
     ScenePackageSelector,
     SceneSpatialMetadata,
+    WorldInterchangeRef,
 )
 
 
@@ -106,6 +107,30 @@ def test_publish_visual_acceptance_bundle_lands_manifest_and_artifact(monkeypatc
                 degradation_policy="reference_only",
             ),
         ),
+        world_interchange_refs=[
+            WorldInterchangeRef(
+                kind="openusd",
+                stage_ref={
+                    "identifier": "usdstage_demo/root.usda",
+                    "stage_id": "usdstage_demo",
+                    "format": "usd",
+                },
+                entry_layer_ref={
+                    "identifier": "usdstage_demo/root.usda",
+                    "layer_family": "root_stage",
+                    "format": "usd",
+                },
+                layer_refs=[
+                    {
+                        "layer_family": "base_scene_geometry",
+                        "identifier": "usdstage_demo/base_scene_geometry.usd",
+                        "format": "usd",
+                    }
+                ],
+                variant_selections={"scene_scope": "hero"},
+                composition_metadata={"package_id": "scenepkg_demo"},
+            )
+        ],
         scene_consistency_contract=SceneConsistencyContract(
             must_hold=["layout", "key_props"],
             allowed_variation=["background_extras"],
@@ -200,6 +225,11 @@ def test_publish_visual_acceptance_bundle_lands_manifest_and_artifact(monkeypatc
     assert payload["scene_context"]["scene_package_ref"]["control_refs"][0]["control_kind"] == (
         "canonical_image"
     )
+    assert payload["scene_context"]["world_interchange_refs"][0]["stage_ref"] == {
+        "identifier": "usdstage_demo/root.usda",
+        "stage_id": "usdstage_demo",
+        "format": "usd",
+    }
     assert payload["scene_context"]["scene_consistency_contract"] == {
         "must_hold": ["layout", "key_props"],
         "allowed_variation": ["background_extras"],

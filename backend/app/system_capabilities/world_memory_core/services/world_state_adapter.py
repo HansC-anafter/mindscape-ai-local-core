@@ -7,6 +7,7 @@ from ..schema.world_memory_delta import WorldMemoryDelta
 from ..schema.world_memory_packet import WorldMemoryPacket
 from ..schema.world_memory_root import WorldMemoryRoot
 from ..schema.world_state_snapshot import WorldStateSnapshot
+from .sidecar_context_guard import guard_motion_context, guard_performance_context
 from .spatial_query_service import SpatialQueryService
 
 
@@ -18,58 +19,6 @@ def _normalize_list(value: Any) -> List[str]:
     if value in (None, ""):
         return []
     return [str(value)]
-
-
-def _normalize_motion_artifact_refs(value: Any) -> List[Dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-
-    normalized: List[Dict[str, Any]] = []
-    for item in value:
-        if hasattr(item, "model_dump"):
-            item = item.model_dump(mode="json")
-        if isinstance(item, dict) and item:
-            normalized.append(dict(item))
-    return normalized
-
-
-def _derive_active_motion(motion_context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    active_motion = motion_context.get("active_motion")
-    if isinstance(active_motion, dict) and active_motion:
-        return dict(active_motion)
-
-    fallback = {
-        key: motion_context.get(key)
-        for key in (
-            "motion_id",
-            "provider",
-            "source_family",
-            "status",
-            "duration_sec",
-            "fps",
-            "skeleton_family",
-            "skeleton_version",
-            "coordinate_space",
-            "retarget_profile",
-        )
-        if motion_context.get(key) is not None
-    }
-    return fallback or None
-
-
-def _derive_motion_constraints(motion_context: Dict[str, Any]) -> Dict[str, Any]:
-    explicit = motion_context.get("motion_constraints")
-    if isinstance(explicit, dict) and explicit:
-        return dict(explicit)
-
-    constraints: Dict[str, Any] = {}
-    timing_policy = motion_context.get("timing_policy")
-    if isinstance(timing_policy, dict) and timing_policy:
-        constraints["timing_policy"] = dict(timing_policy)
-    retarget_profile = motion_context.get("retarget_profile")
-    if retarget_profile:
-        constraints["retarget_profile"] = retarget_profile
-    return constraints
 
 
 class WorldStateAdapter:
@@ -88,11 +37,15 @@ class WorldStateAdapter:
         receipt: Optional[Dict[str, Any]] = None,
         geo_context: Optional[Dict[str, Any]] = None,
         motion_context: Optional[Dict[str, Any]] = None,
+        performance_context: Optional[Dict[str, Any]] = None,
     ) -> WorldStateSnapshot:
         source_receipt = dict(receipt or {})
         geo_context = dict(geo_context or {})
         motion_context = dict(motion_context or {})
+        performance_context = dict(performance_context or {})
         governance_context = dict(governance_context or {})
+        guarded_motion = guard_motion_context(motion_context)
+        guarded_performance = guard_performance_context(performance_context)
         lens_context = dict(governance_context.get("lens") or {})
         mode = governance_context.get("mode")
         execution_mode = governance_context.get("execution_mode")
@@ -128,11 +81,10 @@ class WorldStateAdapter:
             resource_constraints=resource_constraints,
             environment_state=environment_state,
             performer_state=performer_state,
-            active_motion=_derive_active_motion(motion_context),
-            motion_artifact_refs=_normalize_motion_artifact_refs(
-                motion_context.get("artifact_refs")
-            ),
-            motion_constraints=_derive_motion_constraints(motion_context),
+            active_motion=guarded_motion["active_motion"],
+            motion_artifact_refs=guarded_motion["motion_artifact_refs"],
+            motion_constraints=guarded_motion["motion_constraints"],
+            performance_state=guarded_performance["performance_state"],
             geo_anchor=source_receipt.get("geo_anchor") or geo_context.get("geo_anchor"),
             venue_context=source_receipt.get("venue_context") or geo_context.get("venue_context"),
             route_context=source_receipt.get("route_context") or geo_context.get("route_context"),
@@ -140,7 +92,8 @@ class WorldStateAdapter:
             metadata={
                 **dict(source_receipt.get("metadata") or {}),
                 "geo_provider": geo_context.get("provider"),
-                "motion_provider": motion_context.get("provider"),
+                **guarded_motion["metadata"],
+                **guarded_performance["metadata"],
             },
         )
 
@@ -182,6 +135,7 @@ class WorldStateAdapter:
             active_motion=dict(snapshot.active_motion) if snapshot.active_motion else None,
             motion_artifact_refs=[dict(item) for item in snapshot.motion_artifact_refs],
             motion_constraints=dict(snapshot.motion_constraints),
+            performance_state=dict(snapshot.performance_state),
             geo_anchor=snapshot.geo_anchor,
             venue_context=snapshot.venue_context,
             route_context=snapshot.route_context,

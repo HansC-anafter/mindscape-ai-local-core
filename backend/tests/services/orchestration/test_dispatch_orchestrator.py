@@ -171,6 +171,50 @@ class TestDependencyGate:
         # A is pre-blocked (skipped=1), but B should still dispatch
         assert result["succeeded"] >= 1  # B dispatched despite A's failure
 
+    @pytest.mark.asyncio
+    async def test_failed_upstream_cascades_skip_to_grandchildren(self):
+        """A failed root should skip direct dependents and their downstream review phase."""
+        orch = DispatchOrchestrator(session=FakeSession(), profile_id="user-1")
+        phases = [
+            FakePhaseIR(id="ws1", source_intent_id="WS1", name="WS1"),
+            FakePhaseIR(
+                id="ws2",
+                source_intent_id="WS2",
+                name="WS2",
+                depends_on=["ws1"],
+            ),
+            FakePhaseIR(
+                id="ws3",
+                source_intent_id="WS3",
+                name="WS3",
+                depends_on=["ws1"],
+            ),
+            FakePhaseIR(
+                id="ws4",
+                source_intent_id="WS4",
+                name="WS4",
+                depends_on=["ws2", "ws3"],
+            ),
+        ]
+        items = [
+            {"title": "WS1", "intent_id": "WS1", "landing_status": "policy_blocked"},
+            {"title": "WS2", "intent_id": "WS2", "description": ""},
+            {"title": "WS3", "intent_id": "WS3", "description": ""},
+            {"title": "WS4", "intent_id": "WS4", "description": ""},
+        ]
+
+        result = await orch.execute(
+            task_ir=FakeTaskIR(phases=phases),
+            action_items=items,
+        )
+
+        assert result["succeeded"] == 0
+        assert result["skipped"] == 4
+        assert items[1]["landing_status"] == "dependency_blocked"
+        assert items[2]["landing_status"] == "dependency_blocked"
+        assert items[3]["landing_status"] == "dependency_blocked"
+        assert items[3]["skip_reason"] == "upstream_dependency_failed"
+
 
 class TestPhaseInputNormalization:
     """Deterministic hydration for weakly-specified meeting phases."""

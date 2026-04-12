@@ -19,6 +19,7 @@ class WorldMemoryPacket(BaseModel):
     active_motion: Optional[Dict[str, Any]] = Field(None)
     motion_artifact_refs: List[Dict[str, Any]] = Field(default_factory=list)
     motion_constraints: Dict[str, Any] = Field(default_factory=dict)
+    performance_state: Dict[str, Any] = Field(default_factory=dict)
     geo_anchor: Optional[Dict[str, Any]] = Field(None)
     venue_context: Optional[Dict[str, Any]] = Field(None)
     route_context: Optional[Dict[str, Any]] = Field(None)

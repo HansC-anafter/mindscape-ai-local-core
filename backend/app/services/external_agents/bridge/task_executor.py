@@ -109,6 +109,7 @@ class ExecutionResult:
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     files_modified: List[str] = field(default_factory=list)
     files_created: List[str] = field(default_factory=list)
+    attachments: List[Dict[str, Any]] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -120,6 +121,8 @@ class ExecutionResult:
             "files_modified": self.files_modified,
             "files_created": self.files_created,
         }
+        if self.attachments:
+            payload["attachments"] = self.attachments
         if self.metadata:
             payload["metadata"] = self.metadata
         return payload
@@ -831,6 +834,14 @@ class HostBridgeTaskExecutor:
             else {}
         )
         files_created, files_modified = self._diff_file_snapshots(before_files, after_files)
+        attachments = (
+            self._build_snapshot_attachments(
+                resolved_snapshot_root,
+                only_paths=snapshot_paths,
+            )
+            if resolved_snapshot_root and snapshot_paths
+            else []
+        )
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
         stderr = stderr_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
@@ -867,6 +878,7 @@ class HostBridgeTaskExecutor:
                 output=output or "(no response from agent)",
                 files_modified=files_modified,
                 files_created=files_created,
+                attachments=attachments,
                 metadata={"effective_sandbox_path": resolved_snapshot_root or cwd},
             )
         if synthesized_error:
@@ -884,6 +896,7 @@ class HostBridgeTaskExecutor:
                 error=synthesized_error,
                 files_modified=files_modified,
                 files_created=files_created,
+                attachments=attachments,
                 metadata={"effective_sandbox_path": resolved_snapshot_root or cwd},
             )
         logger.warning(
@@ -899,6 +912,7 @@ class HostBridgeTaskExecutor:
             error=f"Exit code {proc.returncode}: {stderr[:500] or stdout[:500]}",
             files_modified=files_modified,
             files_created=files_created,
+            attachments=attachments,
             metadata={"effective_sandbox_path": resolved_snapshot_root or cwd},
         )
 
@@ -1002,6 +1016,41 @@ class HostBridgeTaskExecutor:
             if path in before and before[path] != after_meta
         )
         return created, modified
+
+    @staticmethod
+    def _build_snapshot_attachments(
+        root: str,
+        *,
+        only_paths: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        if not root or not os.path.isdir(root):
+            return []
+        attachments: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for rel_path in only_paths or []:
+            if not isinstance(rel_path, str):
+                continue
+            normalized = rel_path.replace("\\", "/").lstrip("./")
+            if not normalized:
+                continue
+            filename = os.path.basename(normalized)
+            if not filename or filename in seen:
+                continue
+            full_path = os.path.join(root, normalized)
+            if not os.path.isfile(full_path):
+                continue
+            try:
+                content = Path(full_path).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            attachments.append(
+                {
+                    "filename": filename,
+                    "content": content,
+                }
+            )
+            seen.add(filename)
+        return attachments
 
     async def _run_subprocess(
         self,

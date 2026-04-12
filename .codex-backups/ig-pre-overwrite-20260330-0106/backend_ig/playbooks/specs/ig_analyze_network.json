@@ -1,0 +1,123 @@
+{
+    "version": "1.0.0",
+    "playbook_code": "ig_analyze_network",
+    "kind": "user_workflow",
+    "display_name": {
+        "zh-TW": "關係網絡分析",
+        "en": "Network Analysis"
+    },
+    "description": {
+        "zh-TW": "跨種子帳號分析追蹤關係，找出共同追蹤與社群聚類",
+        "en": "Analyze follow relationships across seeds to find common patterns and communities"
+    },
+    "execution_profile": {
+        "execution_mode": "workflow",
+        "runtime_affinity": "local"
+    },
+    "required_capabilities": [
+        "ig.ig_network_analyzer"
+    ],
+    "data_locality": {
+        "local_only": [],
+        "cloud_allowed": [
+            "ig_follow_edges"
+        ]
+    },
+    "inputs": {
+        "workspace_id": {
+            "type": "string",
+            "required": true,
+            "description": {
+                "zh-TW": "工作區 ID",
+                "en": "Workspace ID"
+            }
+        },
+        "seeds": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "required": true,
+            "description": {
+                "zh-TW": "種子帳號列表（至少 2 個）",
+                "en": "Seed accounts (minimum 2)"
+            }
+        },
+        "analysis_type": {
+            "type": "string",
+            "enum": [
+                "common_following",
+                "community"
+            ],
+            "default": "common_following",
+            "description": {
+                "zh-TW": "分析類型",
+                "en": "Analysis type"
+            }
+        },
+        "min_overlap": {
+            "type": "integer",
+            "default": 2,
+            "description": {
+                "zh-TW": "最小重疊數（common_following 用）",
+                "en": "Minimum overlap (for common_following)"
+            }
+        },
+        "resolution": {
+            "type": "number",
+            "default": 1.0,
+            "description": {
+                "zh-TW": "Louvain resolution（community 用）",
+                "en": "Louvain resolution (for community)"
+            }
+        }
+    },
+    "steps": [
+        {
+            "id": "analyze_network",
+            "tool_slot": "ig.ig_network_analyzer",
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "seeds": "{{input.seeds}}",
+                "analysis_type": "{{input.analysis_type}}",
+                "min_overlap": "{{input.min_overlap}}",
+                "resolution": "{{input.resolution}}"
+            },
+            "outputs": {
+                "common_following": "common_following",
+                "communities": "communities",
+                "total_edges": "total_edges"
+            }
+        }
+    ],
+    "outputs": {
+        "common_following": {
+            "type": "array",
+            "source": "step.analyze_network.common_following"
+        },
+        "communities": {
+            "type": "object",
+            "source": "step.analyze_network.communities"
+        }
+    },
+    "output_artifacts": [
+        {
+            "id": "network_analysis",
+            "artifact_type": "data",
+            "primary_action_type": "preview",
+            "title_template": "Network Analysis - {{input.analysis_type}}",
+            "summary_template": "Analyzed {{step.analyze_network.total_edges}} edges across {{input.seeds.length}} seeds",
+            "source": "step.analyze_network",
+            "file_write": {
+                "enabled": true,
+                "file_name_template": "ig_network_{{input.analysis_type}}_{{execution_id}}.json",
+                "encoding": "utf-8"
+            },
+            "metadata": {
+                "platform": "instagram",
+                "source": "ig_analyze_network",
+                "schema_version": "ig.network.v1"
+            }
+        }
+    ]
+}

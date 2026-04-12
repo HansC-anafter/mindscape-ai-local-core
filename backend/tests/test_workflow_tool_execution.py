@@ -40,9 +40,23 @@ def test_check_tool_policy_translates_policy_violation(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_tool_step_adds_profile_id_and_model_override_for_local_llm_tools() -> None:
+async def test_execute_tool_step_adds_explicit_llm_contract_for_local_llm_tools(
+    monkeypatch,
+) -> None:
     step = SimpleNamespace(id="step-1", tool_policy=None)
     execute_calls = []
+    provider = object()
+
+    monkeypatch.setattr(
+        "backend.app.services.workflow.tool_execution._build_managed_llm_provider",
+        lambda **kwargs: (
+            provider,
+            SimpleNamespace(
+                model_name=kwargs.get("model_name") or "resolved-model",
+                provider_name="ollama",
+            ),
+        ),
+    )
 
     async def execute_tool(tool_id, **kwargs):
         execute_calls.append((tool_id, kwargs))
@@ -73,7 +87,78 @@ async def test_execute_tool_step_adds_profile_id_and_model_override_for_local_ll
             {
                 "prompt": "analyze",
                 "profile_id": "profile-1",
-                "_model_override": "mlx-community/model",
+                "model_name": "mlx-community/model",
+                "llm_provider": provider,
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_step_falls_back_to_enabled_local_model_when_primary_selection_unavailable(
+    monkeypatch,
+) -> None:
+    step = SimpleNamespace(id="step-fallback", tool_policy=None)
+    execute_calls = []
+    provider = object()
+    calls = []
+
+    def _build_managed_llm_provider(**kwargs):
+        calls.append(kwargs)
+        if kwargs.get("provider_name") == "ollama":
+            return (
+                provider,
+                SimpleNamespace(
+                    model_name=kwargs["model_name"],
+                    provider_name="ollama",
+                ),
+            )
+        raise ValueError("Selected provider 'openai' is not available")
+
+    monkeypatch.setattr(
+        "backend.app.services.workflow.tool_execution._build_managed_llm_provider",
+        _build_managed_llm_provider,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.workflow.tool_execution._resolve_enabled_local_chat_model",
+        lambda: "qwen3:8b",
+    )
+
+    async def execute_tool(tool_id, **kwargs):
+        execute_calls.append((tool_id, kwargs))
+        return {"status": "completed", "result": "ok"}
+
+    async def maybe_execute_remote(**kwargs):
+        return False, None
+
+    result = await execute_tool_step(
+        step=step,
+        tool_id="core_llm.structured_extract",
+        resolved_inputs={"text": "brand brief", "schema_description": "{}"},
+        playbook_inputs={"playbook_code": "demo"},
+        execution_profile={"reasoning": "standard"},
+        execution_id="exec-fallback",
+        workspace_id="ws-1",
+        profile_id="profile-1",
+        resolve_remote_tool_route_fn=lambda playbook_inputs, *, step_id, tool_id: None,
+        resolve_tool_model_override_fn=lambda **kwargs: None,
+        maybe_execute_tool_via_remote_route_fn=maybe_execute_remote,
+        execute_tool_fn=execute_tool,
+    )
+
+    assert result == {"status": "completed", "result": "ok"}
+    assert len(calls) == 2
+    assert calls[1]["provider_name"] == "ollama"
+    assert calls[1]["model_name"] == "qwen3:8b"
+    assert execute_calls == [
+        (
+            "core_llm.structured_extract",
+            {
+                "text": "brand brief",
+                "schema_description": "{}",
+                "profile_id": "profile-1",
+                "model_name": "qwen3:8b",
+                "llm_provider": provider,
             },
         )
     ]

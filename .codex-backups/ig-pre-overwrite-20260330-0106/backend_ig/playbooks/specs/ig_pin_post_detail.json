@@ -1,0 +1,99 @@
+{
+    "version": "1.0.0",
+    "playbook_code": "ig_pin_post_detail",
+    "kind": "user_workflow",
+    "display_name": {
+        "zh-TW": "釘選貼文詳情",
+        "en": "Pin Post Detail"
+    },
+    "description": "Navigate to IG posts and pin all images (including carousel) with full metadata",
+    "execution_profile": {
+        "execution_mode": "workflow",
+        "runtime_affinity": "local",
+        "resource_class": "browser",
+        "queue_shard": "ig_browser"
+    },
+    "concurrency": {
+        "lock_key_input": "user_data_dir",
+        "max_parallel": 1,
+        "lock_scope": "playbook_input"
+    },
+    "required_capabilities": [
+        "ig.ig_fetch_post_detail",
+        "ig.ig_pin_post_detail"
+    ],
+    "data_locality": {
+        "local_only": [],
+        "cloud_allowed": [
+            "ig_posts"
+        ]
+    },
+    "inputs": {
+        "workspace_id": {
+            "type": "string",
+            "required": true,
+            "description": "Workspace ID"
+        },
+        "user_data_dir": {
+            "type": "string",
+            "required": false,
+            "default": "/app/data/ig-browser-profiles/default",
+            "description": "Persistent browser profile directory for Playwright"
+        },
+        "shortcode": {
+            "type": "string",
+            "description": "Single IG post shortcode (e.g. CxyzABC123)"
+        },
+        "shortcodes": {
+            "type": "array",
+            "description": "Multiple shortcodes for batch processing"
+        },
+        "source_handle": {
+            "type": "string",
+            "description": "Optional source handle hint (e.g. @username)"
+        },
+        "tags": {
+            "type": "array",
+            "description": "Tags to apply to all pinned references"
+        }
+    },
+    "steps": [
+        {
+            "id": "pin_post_detail",
+            "tool_slot": "ig.ig_pin_post_detail",
+            "description": "Fetch post detail via browser, pin extracted images, and enqueue analysis",
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "browser_profile": "{{input.user_data_dir}}",
+                "shortcode": "{{input.shortcode}}",
+                "shortcodes": "{{input.shortcodes}}",
+                "source_handle": "{{input.source_handle}}",
+                "tags": "{{input.tags}}"
+            },
+            "outputs": {
+                "posts_processed": "posts_processed",
+                "posts_succeeded": "posts_succeeded",
+                "total_images": "total_images",
+                "total_new_pinned": "total_new_pinned",
+                "total_duplicates": "total_duplicates",
+                "results": "results"
+            }
+        }
+    ],
+    "outputs": {
+        "posts_processed": {
+            "type": "integer",
+            "source": "step.pin_post_detail.posts_processed"
+        },
+        "total_images": {
+            "type": "integer",
+            "source": "step.pin_post_detail.total_images"
+        },
+        "total_new_pinned": {
+            "type": "integer",
+            "source": "step.pin_post_detail.total_new_pinned"
+        }
+    },
+    "estimated_duration_seconds": 30,
+    "requires_browser": true
+}

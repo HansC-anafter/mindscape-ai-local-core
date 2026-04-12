@@ -120,7 +120,7 @@ def parse_program_spec_from_output(
                 )
             )
 
-    return ProgramSpec(
+    program_spec = ProgramSpec(
         workstreams=workstreams,
         milestones=milestones,
         dependency_graph=dependency_graph,
@@ -132,6 +132,7 @@ def parse_program_spec_from_output(
             else coverage_snapshot
         ),
     )
+    return _sanitize_program_spec_bindings(program_spec)
 
 
 def bootstrap_program_spec_from_intents(
@@ -236,13 +237,14 @@ def merge_program_spec_with_intents(
         if intent.title not in merged_target_outputs:
             merged_target_outputs.append(intent.title)
 
-    return program_spec.model_copy(
+    merged_program_spec = program_spec.model_copy(
         update={
             "workstreams": merged_workstreams,
             "dependency_graph": merged_dependency_graph,
             "target_outputs": merged_target_outputs,
         }
     )
+    return _sanitize_program_spec_bindings(merged_program_spec)
 
 
 def action_intents_from_program_spec(
@@ -310,6 +312,34 @@ def phases_from_program_spec(
     return phases
 
 
+def _sanitize_program_spec_bindings(program_spec: ProgramSpec) -> ProgramSpec:
+    """Correct recurrent engine misbindings before dispatch/runtime persists them.
+
+    The executor can occasionally bind the longtask evidence-gate workstream to
+    ``pd_session_intake`` because both mention upfront brand context. That
+    playbook requires ``intent`` and ``reference_id`` and hard-blocks the
+    meeting dispatch path. The evidence-gate workstream is a synthesis pass and
+    should land on ``cis_behavior_identity`` instead.
+    """
+
+    sanitized_workstreams: List[Workstream] = []
+    changed = False
+    for workstream in program_spec.workstreams:
+        sanitized_engines = _sanitize_workstream_engines(workstream)
+        if sanitized_engines != list(workstream.eligible_engines or []):
+            changed = True
+            sanitized_workstreams.append(
+                workstream.model_copy(update={"eligible_engines": sanitized_engines})
+            )
+        else:
+            sanitized_workstreams.append(workstream)
+
+    if not changed:
+        return program_spec
+
+    return program_spec.model_copy(update={"workstreams": sanitized_workstreams})
+
+
 def _build_workstream_deliverable_inputs(
     *,
     workstream: Workstream,
@@ -361,6 +391,54 @@ def _build_workstream_deliverable_inputs(
             else {}
         ),
     }
+
+
+def _sanitize_workstream_engines(workstream: Workstream) -> List[str]:
+    engines = _normalize_string_list(workstream.eligible_engines)
+    if not _looks_like_evidence_gate_workstream(workstream):
+        return engines
+
+    normalized = {engine.lower(): engine for engine in engines}
+    if (
+        "playbook:pd_session_intake" not in normalized
+        and "tool:pd_session_intake" not in normalized
+        and engines
+    ):
+        return engines
+
+    sanitized = ["playbook:cis_behavior_identity"]
+    for engine in engines:
+        key = engine.lower()
+        if key in {
+            "playbook:pd_session_intake",
+            "tool:pd_session_intake",
+            "playbook:cis_behavior_identity",
+            "tool:cis_behavior_identity",
+        }:
+            continue
+        sanitized.append(engine)
+    return _normalize_string_list(sanitized)
+
+
+def _looks_like_evidence_gate_workstream(workstream: Workstream) -> bool:
+    text = " ".join(
+        part.strip()
+        for part in (workstream.name or "", workstream.description or "")
+        if part and part.strip()
+    )
+    if not text:
+        return False
+
+    signals = (
+        "前提與證據分級",
+        "證據分級",
+        "品牌類別",
+        "核心服務",
+        "商業目標",
+        "主要轉換事件",
+        "是否可下游使用",
+    )
+    return any(signal in text for signal in signals)
 
 
 def _deliverable_ids_from_coverage_snapshot(

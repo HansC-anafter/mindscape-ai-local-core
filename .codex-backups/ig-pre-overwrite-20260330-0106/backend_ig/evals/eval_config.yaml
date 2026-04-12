@@ -1,0 +1,171 @@
+# IG Capability Eval Config
+# Pilot evaluation suite for the ig capability pack.
+# Validates tool trigger accuracy, output structure, and playbook flow.
+
+version: "1.0.0"
+capability_code: ig
+description: |
+  IG capability evaluation suite covering:
+  - Tool trigger accuracy (does LLM pick the right tool?)
+  - Tool output validation (correct structure and fields)
+  - Playbook flow verification (expected step sequence)
+
+defaults:
+  timeout_sec: 30
+  locale: zh-TW
+  retry_count: 0
+
+scenarios:
+  # ====================================================================
+  # Tool Trigger Tests — LLM should select the correct tool
+  # ====================================================================
+
+  - name: trigger_fetch_posts
+    type: tool_trigger
+    description: "Verify LLM selects ig_fetch_posts for post fetching prompts"
+    target_tool: ig_fetch_posts
+    trigger:
+      prompts:
+        - input: "幫我抓取 @techcrunch 最近的 IG 貼文"
+          expected_tool: ig_fetch_posts
+          expected_not_tools: [ig_fetch_reels, ig_fetch_stories]
+        - input: "下載這個帳號的 Instagram posts"
+          expected_tool: ig_fetch_posts
+        - input: "Fetch the latest 10 posts from this Instagram account"
+          expected_tool: ig_fetch_posts
+          locale: en
+    tags: [smoke, trigger]
+
+  - name: trigger_analyze_following
+    type: tool_trigger
+    description: "Verify LLM selects ig_analyze_following for following analysis"
+    target_tool: ig_analyze_following
+    trigger:
+      prompts:
+        - input: "分析這個帳號的追蹤列表，看有哪些同類型帳號"
+          expected_tool: ig_analyze_following
+          expected_not_tools: [ig_network_analyzer, ig_content_analyzer]
+        - input: "這個 IG 帳號追蹤了誰？分析一下"
+          expected_tool: ig_analyze_following
+    tags: [smoke, trigger]
+
+  - name: trigger_publish_post
+    type: tool_trigger
+    description: "Verify LLM selects ig_publish_post for publishing"
+    target_tool: ig_publish_post
+    trigger:
+      prompts:
+        - input: "把這篇貼文發布到 IG 上"
+          expected_tool: ig_publish_post
+          expected_not_tools:
+            [ig_content_checker_tool, ig_export_pack_generator_tool]
+        - input: "Publish this carousel to Instagram"
+          expected_tool: ig_publish_post
+          locale: en
+    tags: [smoke, trigger]
+
+  - name: trigger_content_checker
+    type: tool_trigger
+    description: "Verify LLM selects ig_content_checker_tool for compliance"
+    target_tool: ig_content_checker_tool
+    trigger:
+      prompts:
+        - input: "檢查這篇 IG 貼文有沒有違規的醫療用語"
+          expected_tool: ig_content_checker_tool
+          expected_not_tools: [ig_frontmatter_validator_tool]
+        - input: "幫我審核這篇文有沒有違反 IG 的社群規範"
+          expected_tool: ig_content_checker_tool
+    tags: [smoke, trigger]
+
+  - name: trigger_persona_generator
+    type: tool_trigger
+    description: "Verify LLM selects ig_persona_generator for persona creation"
+    target_tool: ig_persona_generator
+    trigger:
+      prompts:
+        - input: "分析這些 IG 帳號資料，幫我生成一個 AI 人格畫像"
+          expected_tool: ig_persona_generator
+          expected_not_tools: [ig_profile_tagger, ig_content_analyzer]
+    tags: [trigger]
+
+  # ====================================================================
+  # Tool Output Tests — validate output structure
+  # ====================================================================
+
+  - name: output_validate_media_image
+    type: tool_output
+    description: "ig_validate_media should validate image format and size"
+    target_tool: ig_validate_media
+    output:
+      cases:
+        - input:
+            file_path: "test_fixtures/sample_post.jpg"
+            media_type: "image"
+          expected_status: success
+          expected_fields: [valid, errors, warnings, file_size, dimensions]
+        - input:
+            file_path: "test_fixtures/oversized_image.png"
+            media_type: "image"
+          expected_status: success
+          assertions:
+            - field: "$.valid"
+              operator: eq
+              value: false
+            - field: "$.errors"
+              operator: type_is
+              value: "array"
+    tags: [output, smoke]
+
+  - name: output_profile_tagger
+    type: tool_output
+    description: "ig_profile_tagger should return structured tags"
+    target_tool: ig_profile_tagger
+    output:
+      cases:
+        - input:
+            account_handle: "test_account"
+            workspace_id: "test_ws"
+          expected_status: success
+          expected_fields: [account_type, influence_tier, bio_keywords]
+          assertions:
+            - field: "$.account_type"
+              operator: type_is
+              value: "string"
+            - field: "$.influence_tier"
+              operator: type_is
+              value: "string"
+    tags: [output]
+
+  - name: output_hashtag_manager
+    type: tool_output
+    description: "ig_hashtag_manager_tool should manage hashtag groups"
+    target_tool: ig_hashtag_manager_tool
+    output:
+      cases:
+        - input:
+            action: "list_groups"
+            workspace_id: "test_ws"
+          expected_status: success
+          expected_fields: [groups]
+    tags: [output]
+
+  # ====================================================================
+  # Playbook Flow Tests — validate step sequence
+  # ====================================================================
+
+  - name: flow_ig_account_analysis
+    type: playbook_flow
+    description: "IG account analysis playbook should follow expected step order"
+    target_playbook: ig_account_analysis
+    flow:
+      expected_steps:
+        - ig_capture_account_snapshot
+        - ig_analyze_following
+        - ig_profile_tagger
+        - ig_persona_generator
+      max_steps: 10
+      expected_output_fields: [persona, profile_tags, following_analysis]
+    tags: [flow, regression]
+    timeout_sec: 120
+    skip: true
+    skip_reason: "Requires live IG API access. Run manually with --include-skipped."

@@ -310,6 +310,7 @@ class MessageHandlersMixin:
             "output": data.get("output", ""),
             "duration_seconds": data.get("duration_seconds", 0),
             "tool_calls": data.get("tool_calls", []),
+            "attachments": data.get("attachments", []),
             "files_modified": data.get("files_modified", []),
             "files_created": data.get("files_created", []),
             "error": data.get("error"),

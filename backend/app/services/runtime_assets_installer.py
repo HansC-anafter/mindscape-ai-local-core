@@ -6,6 +6,7 @@ Install runtime assets and execute capability-specific migrations.
 
 import logging
 import os
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -183,6 +184,13 @@ class RuntimeAssetsInstaller:
 
             target_service = target_services_dir / service_file.name
             shutil.copy2(service_file, target_service)
+            if self._file_sha256(service_file) != self._file_sha256(target_service):
+                message = (
+                    f"Installed service hash mismatch for {capability_code}/{service_file.name}"
+                )
+                logger.error(message)
+                result.add_error(message)
+                continue
             service_name = service_file.stem
             if service_name != "__init__":
                 result.add_installed("services", service_name)
@@ -200,6 +208,14 @@ class RuntimeAssetsInstaller:
             shutil.copytree(item, target_subdir)
             logger.debug(f"Installed services subdirectory: {item.name}")
             result.add_installed("service_dirs", item.name)
+
+    @staticmethod
+    def _file_sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def install_jobs(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install capability jobs directory"""

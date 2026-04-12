@@ -226,6 +226,7 @@ def test_reconcile_startup_orphans_marks_closed_session_job_succeeded():
                 "session_status": "closed",
                 "session_task_total": 1,
                 "session_incomplete_tasks": 0,
+                "session_failed_tasks": 0,
                 "session_task_statuses": {"succeeded": 1},
             },
         }
@@ -292,6 +293,7 @@ def test_reconcile_startup_orphans_marks_active_session_and_job_failed(monkeypat
                 "session_status": "active",
                 "session_task_total": 0,
                 "session_incomplete_tasks": 0,
+                "session_failed_tasks": 0,
                 "session_task_statuses": {},
             },
         }
@@ -341,6 +343,7 @@ def test_reconcile_startup_orphans_marks_missing_session_job_failed(monkeypatch)
                 "session_status": None,
                 "session_task_total": 0,
                 "session_incomplete_tasks": 0,
+                "session_failed_tasks": 0,
                 "session_task_statuses": {},
             },
         }
@@ -386,7 +389,50 @@ def test_reconcile_startup_orphans_does_not_mark_success_when_session_tasks_runn
                 "session_status": "closed",
                 "session_task_total": 2,
                 "session_incomplete_tasks": 1,
+                "session_failed_tasks": 0,
                 "session_task_statuses": {"succeeded": 1, "running": 1},
+            },
+        }
+    ]
+
+
+def test_reconcile_terminal_running_jobs_marks_closed_session_with_failed_tasks_failed():
+    session = _make_active_session()
+    session.action_items = [{"description": "ship"}]
+    session.close()
+    job = _make_running_job(session.id)
+    compile_job_store = FakeCompileJobStore([job])
+    meeting_session_store = FakeMeetingSessionStore({session.id: session})
+    tasks_store = FakeTasksStore([FakeTask(session.id, TaskStatus.FAILED)])
+
+    reconciler = CompileJobReconciler(
+        compile_job_store=compile_job_store,
+        meeting_session_store=meeting_session_store,
+        tasks_store=tasks_store,
+    )
+    summary = reconciler.reconcile_terminal_running_jobs()
+
+    assert summary == {
+        "inspected": 1,
+        "resumed": 0,
+        "succeeded": 0,
+        "failed": 1,
+        "session_failed": 0,
+        "skipped": 0,
+    }
+    assert compile_job_store.mark_succeeded_calls == []
+    assert compile_job_store.mark_failed_calls == [
+        {
+            "job_id": job.id,
+            "error": "meeting_session_closed_with_failed_tasks",
+            "session_id": session.id,
+            "metadata": {
+                "recovery_reason": "runtime_terminal_reconcile",
+                "session_status": "closed",
+                "session_task_total": 1,
+                "session_incomplete_tasks": 0,
+                "session_failed_tasks": 1,
+                "session_task_statuses": {"failed": 1},
             },
         }
     ]
@@ -653,6 +699,16 @@ def test_compile_job_dispatch_manager_notify_wakes_consumer():
             self.calls = 0
             self.initial_poll_done = asyncio.Event()
             self.notified_poll_done = asyncio.Event()
+
+        def reconcile_terminal_running_jobs(self, *, limit):
+            return {
+                "inspected": 0,
+                "resumed": 0,
+                "succeeded": 0,
+                "failed": 0,
+                "session_failed": 0,
+                "skipped": 0,
+            }
 
         async def dispatch_pending_accepted_jobs(self, *, limit):
             self.calls += 1

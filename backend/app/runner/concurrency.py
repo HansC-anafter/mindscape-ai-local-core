@@ -21,6 +21,12 @@ _LEGACY_PROFILE_ALIAS_PACKS = {
     "ig_analyze_following",
 }
 
+_DEFAULT_LOCK_INPUT_VALUES = {
+    ("ig_analyze_following", "user_data_dir"): "/app/data/ig-browser-profiles/default",
+    ("ig_batch_pin_references", "user_data_dir"): "/app/data/ig-browser-profiles/default",
+    ("ig_pin_post_detail", "user_data_dir"): "/app/data/ig-browser-profiles/default",
+}
+
 
 def _runner_lock_ttl_seconds() -> int:
     return _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
@@ -89,13 +95,11 @@ def _resolve_lock_key(
             lock_key_input,
         )
         if lock_key_input and lock_scope in ("input", "playbook_input"):
-            val = inputs.get(lock_key_input)
-            if isinstance(val, str) and val.strip():
+            val = _resolve_lock_input_value(pack_id, lock_key_input, inputs)
+            if val:
                 if lock_scope == "playbook_input":
-                    return (
-                        f"concurrency:playbook_input:{pack_id}:{val.strip()}"
-                    )
-                return f"concurrency:{lock_key_input}:{val.strip()}"
+                    return f"concurrency:playbook_input:{pack_id}:{val}"
+                return f"concurrency:{lock_key_input}:{val}"
         elif lock_scope == "playbook":
             return f"concurrency:playbook:{pack_id}"
         elif lock_scope == "workspace":
@@ -104,15 +108,39 @@ def _resolve_lock_key(
 
     # --- Legacy fallback: IG playbooks lock by user_data_dir or playbook_code ---
     if _is_ig_playbook(pack_id):
-        val = inputs.get("user_data_dir")
-        if isinstance(val, str) and val.strip():
-            return f"ig_profile:{val.strip()}"
+        val = _resolve_lock_input_value(pack_id, "user_data_dir", inputs)
+        if val:
+            return f"ig_profile:{val}"
         # Lock by playbook_code (e.g. ig_analyze_following, ig_analyze_reference)
         # so different task types can run concurrently.  Only same-playbook
         # tasks are serialized to prevent resource conflicts (e.g. multiple
         # Chromium instances or multiple MLX inferences).
         playbook_code = task_ctx.get("playbook_code") or pack_id
         return f"concurrency:playbook:{playbook_code}"
+
+    return None
+
+
+def _resolve_lock_input_value(
+    pack_id: str,
+    lock_key_input: str,
+    inputs: Dict[str, Any],
+) -> Optional[str]:
+    raw_value = inputs.get(lock_key_input)
+    if isinstance(raw_value, str):
+        text = raw_value.strip()
+        if text:
+            return text
+    elif raw_value is not None:
+        text = str(raw_value).strip()
+        if text:
+            return text
+
+    default_value = _DEFAULT_LOCK_INPUT_VALUES.get((pack_id, lock_key_input))
+    if isinstance(default_value, str):
+        text = default_value.strip()
+        if text:
+            return text
 
     return None
 

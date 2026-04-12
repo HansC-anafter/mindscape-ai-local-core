@@ -60,10 +60,15 @@ class CompileJobDispatchManager:
         logger.info("Starting compile job dispatch consumer loop")
         while True:
             try:
+                terminal_summary = (
+                    self._reconciler_instance.reconcile_terminal_running_jobs(
+                        limit=self._batch_limit,
+                    )
+                )
                 summary = await self._reconciler_instance.dispatch_pending_accepted_jobs(
                     limit=self._batch_limit,
                 )
-                if self._should_continue_draining(summary):
+                if self._should_continue_draining(terminal_summary) or self._should_continue_draining(summary):
                     await asyncio.sleep(0)
                     continue
                 await self._wait_for_work()

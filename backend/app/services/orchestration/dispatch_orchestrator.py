@@ -21,7 +21,7 @@ import json
 import logging
 import re
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
@@ -153,6 +153,42 @@ class DispatchOrchestrator:
             action_items
         )
 
+        def _mark_phase_skipped_due_to_dependency(phase_id: str) -> None:
+            if phase_id in skipped_phases:
+                return
+            skipped_phases.add(phase_id)
+            phase_map[phase_id].status = PhaseStatus.SKIPPED
+            attempt = self._create_attempt(phase_map[phase_id], task_ir.task_id)
+            attempt.mark_skipped("upstream_dependency_failed")
+            skipped_item = self._resolve_action_item_for_phase(
+                phase=phase_map[phase_id],
+                action_items=action_items,
+                items_by_intent_id=items_by_intent_id,
+                items_by_title=items_by_title,
+            )
+            self._append_action_item_lineage(
+                action_item=skipped_item,
+                phase=phase_map[phase_id],
+            )
+            self._mark_action_item_skipped(
+                action_item=skipped_item,
+                reason="upstream_dependency_failed",
+            )
+
+        def _cascade_dependency_skip(phase_id: str, next_ready: List[str]) -> None:
+            queue: deque[str] = deque([phase_id])
+            while queue:
+                current_phase_id = queue.popleft()
+                for downstream_phase_id in dependents.get(current_phase_id, []):
+                    in_degree[downstream_phase_id] -= 1
+                    if in_degree[downstream_phase_id] != 0:
+                        continue
+                    if self._should_skip(downstream_phase_id, phase_map):
+                        _mark_phase_skipped_due_to_dependency(downstream_phase_id)
+                        queue.append(downstream_phase_id)
+                    else:
+                        next_ready.append(downstream_phase_id)
+
         # Wave-based DAG walk
         while ready:
             # Dispatch all ready phases concurrently
@@ -213,31 +249,8 @@ class DispatchOrchestrator:
                     if in_degree[dep_pid] == 0:
                         # Check dependency gate
                         if self._should_skip(dep_pid, phase_map):
-                            skipped_phases.add(dep_pid)
-                            phase_map[dep_pid].status = PhaseStatus.SKIPPED
-                            attempt = self._create_attempt(
-                                phase_map[dep_pid], task_ir.task_id
-                            )
-                            attempt.mark_skipped("upstream_dependency_failed")
-                            skipped_item = self._resolve_action_item_for_phase(
-                                phase=phase_map[dep_pid],
-                                action_items=action_items,
-                                items_by_intent_id=items_by_intent_id,
-                                items_by_title=items_by_title,
-                            )
-                            self._append_action_item_lineage(
-                                action_item=skipped_item,
-                                phase=phase_map[dep_pid],
-                            )
-                            self._mark_action_item_skipped(
-                                action_item=skipped_item,
-                                reason="upstream_dependency_failed",
-                            )
-                            # Continue unlocking downstream of skipped
-                            for sub_dep in dependents.get(dep_pid, []):
-                                in_degree[sub_dep] -= 1
-                                if in_degree[sub_dep] == 0:
-                                    next_ready.append(sub_dep)
+                            _mark_phase_skipped_due_to_dependency(dep_pid)
+                            _cascade_dependency_skip(dep_pid, next_ready)
                         else:
                             next_ready.append(dep_pid)
 

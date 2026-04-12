@@ -28,6 +28,7 @@ from .execution_hooks import (
     resolve_inputs_map,
 )
 from .execution_metadata import (
+    materialize_playbook_input_defaults,
     resolve_runner_metadata,
     seed_playbook_workload_execution_intent,
     should_route_through_runner,
@@ -276,6 +277,10 @@ async def rerun_playbook_execution(
             locale="zh-TW",
             workspace_id=workspace_id,
         )
+        merged_inputs = materialize_playbook_input_defaults(
+            playbook_run=playbook_run,
+            inputs=merged_inputs,
+        )
         merged_inputs = await _resolve_rerun_inputs(
             playbook_run=playbook_run,
             playbook_code=playbook_code,
@@ -285,6 +290,10 @@ async def rerun_playbook_execution(
             project_id=project_id,
             profile_id=profile_id,
             merged_inputs=merged_inputs,
+        )
+        merged_inputs = materialize_playbook_input_defaults(
+            playbook_run=playbook_run,
+            inputs=merged_inputs,
         )
 
         # Remote backend: dispatch rerun to cloud

@@ -516,6 +516,111 @@ async def test_governance_context_read_model_forwards_provider_neutral_motion_co
 
 
 @pytest.mark.asyncio
+async def test_governance_context_read_model_forwards_provider_neutral_performance_context(
+    monkeypatch,
+):
+    workspace = SimpleNamespace(
+        id="ws-1",
+        owner_user_id="profile-1",
+        primary_project_id="proj-1",
+        mode="research",
+        execution_mode="hybrid",
+        runtime_profile=SimpleNamespace(metadata={"memory_scope": "extended"}),
+        sandbox_config={"tool_policies": {"network": "restricted"}},
+        metadata={
+            "mind_lens": {"label": "Research editor"},
+            "performance_context": {
+                "context_version": "performance_context.v1",
+                "performance_mode": "audio_driven_talking_head",
+                "execution_bridge": "mms_storyboard_preview",
+                "preview_ready_state": "ready",
+                "face_lane_active": True,
+                "face_source_type": "speaker_audio",
+                "body_lane_active": True,
+                "body_source_type": "motion_context",
+                "retarget_ready_state": "ready",
+                "updated_at": "2026-04-10T01:30:00Z",
+                "expires_at": "2099-01-01T00:00:00Z",
+                "source_run_id": "perf-run-demo",
+            },
+        },
+    )
+
+    def _fake_export_context(self, **kwargs):
+        assert kwargs["performance_context"]["performance_mode"] == (
+            "audio_driven_talking_head"
+        )
+        assert kwargs["performance_context"]["execution_bridge"] == (
+            "mms_storyboard_preview"
+        )
+        return {
+            "world_memory_packet": {
+                "workspace_id": "ws-1",
+                "snapshot_id": "snap-performance",
+                "source": "synthetic",
+                "scene_id": "scene.demo",
+                "current_zone": "main_floor",
+                "performance_state": {
+                    "performance_mode": kwargs["performance_context"][
+                        "performance_mode"
+                    ],
+                    "face_source_type": kwargs["performance_context"][
+                        "face_source_type"
+                    ],
+                    "preview_ready_state": kwargs["performance_context"][
+                        "preview_ready_state"
+                    ],
+                },
+                "metadata": {
+                    "performance_execution_bridge": kwargs["performance_context"][
+                        "execution_bridge"
+                    ],
+                },
+            },
+            "world_card_projection": {
+                "title": "World Card",
+                "summary_lines": [
+                    "Scene: scene.demo",
+                    "Performance mode: audio_driven_talking_head",
+                ],
+                "constraints": [
+                    "performance_execution_bridge=mms_storyboard_preview"
+                ],
+                "suggested_focus": [],
+                "metadata": {"source": "synthetic"},
+            },
+            "world_card_text": "World Card\n- Performance mode: audio_driven_talking_head",
+        }
+
+    monkeypatch.setattr(
+        "backend.app.system_capabilities.world_memory_core.services.context_export_facade.ContextExportFacade.export_context",
+        _fake_export_context,
+    )
+
+    read_model = GovernanceContextReadModel(
+        store=SimpleNamespace(),
+        workspace_core_memory_service=_FakeWorkspaceCoreMemoryService(),
+        project_memory_service=_FakeProjectMemoryService(),
+        member_profile_memory_service=_FakeMemberProfileMemoryService(),
+        personal_knowledge_store=_FakePersonalKnowledgeStore(),
+        goal_ledger_store=_FakeGoalLedgerStore(),
+        memory_item_store=_FakeMemoryItemStore(),
+    )
+
+    packet = await read_model.build_for_workspace(workspace)
+
+    assert (
+        packet["world_memory_packet"]["performance_state"]["performance_mode"]
+        == "audio_driven_talking_head"
+    )
+    assert (
+        packet["world_memory_packet"]["metadata"]["performance_execution_bridge"]
+        == "mms_storyboard_preview"
+    )
+    assert "Performance mode: audio_driven_talking_head" in packet["world_card_text"]
+
+
+@pytest.mark.asyncio
 async def test_governance_context_read_model_degrades_when_world_memory_export_raises(
     monkeypatch,
 ):

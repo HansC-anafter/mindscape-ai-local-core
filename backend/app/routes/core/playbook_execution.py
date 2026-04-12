@@ -87,6 +87,7 @@ from .execution_dispatch import (
     release_backend,
 )
 from .execution_metadata import (
+    materialize_playbook_input_defaults,
     resolve_runner_metadata,
     seed_playbook_workload_execution_intent,
     should_route_through_runner,
@@ -276,6 +277,10 @@ async def start_playbook_execution(
             playbook_code=playbook_code,
             locale="zh-TW",
             workspace_id=final_workspace_id,
+        )
+        inputs = materialize_playbook_input_defaults(
+            playbook_run=playbook_run,
+            inputs=inputs,
         )
         runner_metadata = resolve_runner_metadata(playbook_run)
         exec_mode = get_execution_mode()

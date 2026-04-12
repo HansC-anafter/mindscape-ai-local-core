@@ -1,0 +1,101 @@
+{
+    "version": "1.0.0",
+    "playbook_code": "ig_batch_pin_references",
+    "kind": "user_workflow",
+    "display_name": {
+        "zh-TW": "自動向下捲動批量收藏貼文",
+        "en": "Auto-scroll and batch pin references"
+    },
+    "description": "Scroll down a target Instagram account to securely fetch grid posts and batch save them into References module.",
+    "execution_profile": {
+        "execution_mode": "workflow",
+        "runtime_affinity": "local",
+        "resource_class": "browser",
+        "queue_shard": "ig_browser"
+    },
+    "concurrency": {
+        "lock_key_input": "user_data_dir",
+        "max_parallel": 1,
+        "lock_scope": "playbook_input"
+    },
+    "required_capabilities": [
+        "ig.ig_batch_pin_tool"
+    ],
+    "data_locality": {
+        "local_only": [],
+        "cloud_allowed": [
+            "ig_posts"
+        ]
+    },
+    "inputs": {
+        "workspace_id": {
+            "type": "string",
+            "required": true,
+            "description": "Workspace ID"
+        },
+        "target_handle": {
+            "type": "string",
+            "required": true,
+            "description": "The target Instagram account handle"
+        },
+        "target_count": {
+            "type": "integer",
+            "default": 100,
+            "description": "Number of items to fetch and pin"
+        },
+        "source_mode": {
+            "type": "string",
+            "default": "browser",
+            "description": "Data source: 'browser' for live scrolling, 'captured_posts' for already persisted ig_posts/grid data"
+        },
+        "user_data_dir": {
+            "type": "string",
+            "default": "/app/data/ig-browser-profiles/default",
+            "description": "Persistent browser profile directory for Playwright"
+        }
+    },
+    "steps": [
+        {
+            "id": "batch_pin",
+            "tool_slot": "ig.ig_batch_pin_tool",
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "target_handle": "{{input.target_handle}}",
+                "target_count": "{{input.target_count}}",
+                "source_mode": "{{input.source_mode}}",
+                "user_data_dir": "{{input.user_data_dir}}",
+                "parent_execution_id": "{{context.execution_id}}"
+            },
+            "outputs": {
+                "collected_count": "collected_count",
+                "pinned_count": "pinned_count",
+                "duplicate_count": "duplicate_count",
+                "failed_count": "failed_count"
+            }
+        }
+    ],
+    "outputs": {
+        "collected_count": {
+            "type": "integer",
+            "source": "step.batch_pin.collected_count"
+        },
+        "pinned_count": {
+            "type": "integer",
+            "source": "step.batch_pin.pinned_count"
+        }
+    },
+    "output_artifacts": [
+        {
+            "id": "batch_pin_report",
+            "artifact_type": "data",
+            "primary_action_type": "preview",
+            "title_template": "Batch Pin Report - {{input.target_handle}}",
+            "summary_template": "Collected {{step.batch_pin.collected_count}} posts, {{step.batch_pin.pinned_count}} new pinned.",
+            "source": "step.batch_pin",
+            "metadata": {
+                "source_profile_ref": "{{input.user_data_dir}}",
+                "source_mode": "{{input.source_mode}}"
+            }
+        }
+    ]
+}

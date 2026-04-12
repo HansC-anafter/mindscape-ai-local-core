@@ -33,6 +33,8 @@ def summarize_meeting_session_tasks(
             "total": 0,
             "terminal": True,
             "incomplete": 0,
+            "failed": 0,
+            "has_failures": False,
             "statuses": {},
         }
 
@@ -40,6 +42,12 @@ def summarize_meeting_session_tasks(
     tasks = store.list_tasks_by_meeting_session(session_id)
     statuses: Dict[str, int] = {}
     incomplete = 0
+    failed = 0
+    failure_statuses = {
+        TaskStatus.FAILED.value,
+        TaskStatus.CANCELLED_BY_USER.value,
+        TaskStatus.EXPIRED.value,
+    }
 
     for task in tasks:
         raw_status = getattr(task, "status", None)
@@ -47,11 +55,15 @@ def summarize_meeting_session_tasks(
         statuses[status] = statuses.get(status, 0) + 1
         if status in {TaskStatus.PENDING.value, TaskStatus.RUNNING.value}:
             incomplete += 1
+        if status in failure_statuses:
+            failed += 1
 
     return {
         "total": len(tasks),
         "terminal": incomplete == 0,
         "incomplete": incomplete,
+        "failed": failed,
+        "has_failures": failed > 0,
         "statuses": statuses,
     }
 
@@ -144,6 +156,60 @@ class CompileJobReconciler:
                 "Compile job dispatch inspected=%d resumed=%d succeeded=%d failed=%d session_failed=%d skipped=%d",
                 summary["inspected"],
                 summary["resumed"],
+                summary["succeeded"],
+                summary["failed"],
+                summary["session_failed"],
+                summary["skipped"],
+            )
+
+        return summary
+
+    def reconcile_terminal_running_jobs(self, *, limit: int = 200) -> Dict[str, int]:
+        jobs = self._compile_job_store.list_incomplete(limit=limit)
+        summary = {
+            "inspected": len(jobs),
+            "resumed": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "session_failed": 0,
+            "skipped": 0,
+        }
+
+        for job in jobs:
+            if self._job_status_value(job) != "running":
+                summary["skipped"] += 1
+                continue
+
+            session = (
+                self._meeting_session_store.get_by_id(job.session_id)
+                if getattr(job, "session_id", None)
+                else None
+            )
+            if not (
+                self._session_closed_successfully(session)
+                or self._session_terminal_failed(session)
+                or session is None
+            ):
+                summary["skipped"] += 1
+                continue
+
+            outcome = self._reconcile_job(job, reason="runtime_terminal_reconcile")
+            if outcome == "succeeded":
+                summary["succeeded"] += 1
+            elif outcome == "failed":
+                summary["failed"] += 1
+            elif outcome == "failed_with_session_terminalized":
+                summary["failed"] += 1
+                summary["session_failed"] += 1
+            else:
+                summary["skipped"] += 1
+
+        if summary["inspected"] > 0 and any(
+            summary[key] > 0 for key in ("succeeded", "failed", "session_failed")
+        ):
+            logger.info(
+                "Compile job terminal running reconcile inspected=%d succeeded=%d failed=%d session_failed=%d skipped=%d",
+                summary["inspected"],
                 summary["succeeded"],
                 summary["failed"],
                 summary["session_failed"],
@@ -446,9 +512,14 @@ class CompileJobReconciler:
         )
         metadata["session_task_total"] = task_summary["total"]
         metadata["session_incomplete_tasks"] = task_summary["incomplete"]
+        metadata["session_failed_tasks"] = task_summary["failed"]
         metadata["session_task_statuses"] = task_summary["statuses"]
 
-        if self._session_closed_successfully(session) and task_summary["terminal"]:
+        if (
+            self._session_closed_successfully(session)
+            and task_summary["terminal"]
+            and not task_summary["has_failures"]
+        ):
             self._compile_job_store.mark_succeeded(
                 job.id,
                 session_id=getattr(session, "id", None),
@@ -463,6 +534,14 @@ class CompileJobReconciler:
                 metadata=metadata,
             )
             return "succeeded"
+        if self._session_closed_successfully(session) and task_summary["has_failures"]:
+            self._compile_job_store.mark_failed(
+                job.id,
+                "meeting_session_closed_with_failed_tasks",
+                session_id=getattr(session, "id", None),
+                metadata=metadata,
+            )
+            return "failed"
         if self._session_closed_successfully(session) and not task_summary["terminal"]:
             self._compile_job_store.mark_failed(
                 job.id,

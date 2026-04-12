@@ -31,6 +31,7 @@ class ContextExportFacade:
         receipt: Optional[Dict[str, Any]] = None,
         geo_context: Optional[Dict[str, Any]] = None,
         motion_context: Optional[Dict[str, Any]] = None,
+        performance_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         snapshot = self.adapter.normalize_receipt(
             workspace_id=workspace_id,
@@ -40,6 +41,7 @@ class ContextExportFacade:
             receipt=receipt,
             geo_context=geo_context,
             motion_context=motion_context,
+            performance_context=performance_context,
         )
         root = self.adapter.build_root(snapshot)
         delta = self.adapter.build_delta(
@@ -61,4 +63,5 @@ class ContextExportFacade:
             "memory_packet_source": memory_packet or {},
             "geo_context": geo_context or {},
             "motion_context": motion_context or {},
+            "performance_context": performance_context or {},
         }

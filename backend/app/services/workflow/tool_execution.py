@@ -17,6 +17,95 @@ def is_llm_tool(tool_id: str) -> bool:
     return tool_id.startswith("core_llm.") or "llm" in tool_id.lower()
 
 
+def _resolve_enabled_local_chat_model() -> Optional[str]:
+    """Pick a supported enabled local chat model for workflow fallback."""
+    try:
+        from backend.app.models.model_provider import ModelType
+        from backend.app.services.conversation.capability_profile import (
+            CapabilityProfileRegistry,
+        )
+        from backend.app.services.model_config_store import ModelConfigStore
+        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+
+        manager = create_llm_provider_manager(provider_name="ollama")
+        provider = manager.get_provider("ollama")
+        if provider is None:
+            return None
+
+        registry = CapabilityProfileRegistry()
+        model_store = ModelConfigStore()
+        candidates = model_store.get_all_models(
+            model_type=ModelType.CHAT,
+            enabled=True,
+            provider="ollama",
+        )
+        candidates = sorted(
+            candidates,
+            key=lambda model: (
+                not bool(getattr(model, "is_recommended", False)),
+                not bool(getattr(model, "is_latest", False)),
+                str(getattr(model, "model_name", "")),
+            ),
+        )
+        for candidate in candidates:
+            if registry._is_model_supported(provider, candidate.model_name):
+                return candidate.model_name
+        return candidates[0].model_name if candidates else None
+    except Exception:
+        logger.warning(
+            "Failed to resolve enabled local chat model for workflow fallback",
+            exc_info=True,
+        )
+        return None
+
+
+def _build_managed_llm_provider(**kwargs):
+    from backend.app.shared.llm_provider_helper import build_managed_llm_provider
+
+    return build_managed_llm_provider(**kwargs)
+
+
+def _inject_explicit_llm_contract(
+    *,
+    tool_id: str,
+    tool_inputs: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Ensure workflow-local LLM tools receive explicit provider/model inputs."""
+    normalized_inputs = dict(tool_inputs)
+    explicit_model_name = str(normalized_inputs.get("model_name") or "").strip() or None
+    if normalized_inputs.get("llm_provider") is not None and explicit_model_name:
+        return normalized_inputs
+
+    purpose = f"workflow_tool:{tool_id}"
+    try:
+        provider, selection = _build_managed_llm_provider(
+            model_name=explicit_model_name,
+            allow_with_executor_runtime=True,
+            purpose=purpose,
+        )
+    except Exception as exc:
+        fallback_model = _resolve_enabled_local_chat_model()
+        if not fallback_model or fallback_model == explicit_model_name:
+            raise
+        logger.warning(
+            "Workflow tool %s falling back to enabled local model %s after managed LLM selection failed: %s",
+            tool_id,
+            fallback_model,
+            exc,
+        )
+        provider, selection = _build_managed_llm_provider(
+            model_name=fallback_model,
+            provider_name="ollama",
+            allow_model_inference=False,
+            allow_with_executor_runtime=True,
+            purpose=purpose,
+        )
+
+    normalized_inputs["llm_provider"] = provider
+    normalized_inputs["model_name"] = selection.model_name
+    return normalized_inputs
+
+
 def check_tool_policy(
     *,
     step: Any,
@@ -53,7 +142,10 @@ def build_tool_inputs(
         tool_inputs["profile_id"] = profile_id
 
     if model_override:
-        tool_inputs["_model_override"] = model_override
+        if is_llm_tool(tool_id):
+            tool_inputs["model_name"] = model_override
+        else:
+            tool_inputs["_model_override"] = model_override
 
     return tool_inputs
 
@@ -133,6 +225,12 @@ async def execute_tool_step(
         return normalize_tool_result(
             step_id=step.id,
             tool_result=remote_tool_result,
+        )
+
+    if is_llm_tool(tool_id):
+        tool_inputs = _inject_explicit_llm_contract(
+            tool_id=tool_id,
+            tool_inputs=tool_inputs,
         )
 
     tool_result = await execute_tool_fn(tool_id, **tool_inputs)

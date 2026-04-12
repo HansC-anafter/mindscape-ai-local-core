@@ -1,0 +1,94 @@
+{
+    "version": "1.0.0",
+    "playbook_code": "ig_tag_profiles",
+    "kind": "user_workflow",
+    "display_name": {
+        "zh-TW": "帳號標籤化",
+        "en": "Profile Tagging"
+    },
+    "description": "Compute classification tags for captured IG accounts (account type, influence tier, bio keywords)",
+    "execution_profile": {
+        "execution_mode": "workflow",
+        "runtime_affinity": "local"
+    },
+    "required_capabilities": [
+        "ig.ig_profile_tagger"
+    ],
+    "data_locality": {
+        "local_only": [],
+        "cloud_allowed": [
+            "ig_account_profiles",
+            "ig_follow_edges"
+        ]
+    },
+    "inputs": {
+        "workspace_id": {
+            "type": "string",
+            "required": true,
+            "description": "Workspace ID"
+        },
+        "seed": {
+            "type": "string",
+            "required": true,
+            "description": "Target seed account (the account that was analyzed)"
+        },
+        "force_recompute": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force recompute existing tags"
+        }
+    },
+    "steps": [
+        {
+            "id": "tag_profiles",
+            "tool_slot": "ig.ig_profile_tagger",
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "seed": "{{input.seed}}",
+                "force_recompute": "{{input.force_recompute}}"
+            },
+            "outputs": {
+                "processed": "processed",
+                "created": "created",
+                "updated": "updated",
+                "skipped": "skipped"
+            }
+        }
+    ],
+    "outputs": {
+        "processed": {
+            "type": "integer",
+            "source": "step.tag_profiles.processed"
+        },
+        "created": {
+            "type": "integer",
+            "source": "step.tag_profiles.created"
+        },
+        "updated": {
+            "type": "integer",
+            "source": "step.tag_profiles.updated"
+        }
+    },
+    "output_artifacts": [
+        {
+            "id": "tagged_profiles",
+            "artifact_type": "data",
+            "primary_action_type": "preview",
+            "title_template": "Profile Tags - {{input.seed}}",
+            "summary_template": "Tagged {{step.tag_profiles.processed}} profiles ({{step.tag_profiles.created}} new, {{step.tag_profiles.updated}} updated)",
+            "source": "step.tag_profiles",
+            "file_write": {
+                "enabled": true,
+                "file_name_template": "ig_profile_tags_{{input.seed}}_{{execution_id}}.json",
+                "encoding": "utf-8"
+            },
+            "metadata": {
+                "platform": "instagram",
+                "source": "ig_tag_profiles",
+                "schema_version": "ig.profile.v1",
+                "workspace_id": "{{input.workspace_id}}",
+                "seed": "{{input.seed}}"
+            }
+        }
+    ]
+}

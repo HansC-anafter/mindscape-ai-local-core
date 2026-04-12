@@ -1,0 +1,1552 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Activity,
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  CheckSquare,
+  Download,
+  History,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+  Upload,
+  X,
+} from 'lucide-react';
+
+import ReadyScore from '../../ReadyScore';
+import type { IGPost } from '../../types';
+import { useExecutionPolling } from '@/hooks/useExecutionPolling';
+
+function parseTimestamp(value?: string | null): Date | null {
+  if (!value) return null;
+  const s = value.trim();
+  if (!s) return null;
+  const hasTimezone = /[zZ]$|[+-]\d{2}:\d{2}$/.test(s);
+  // Bare timestamps from our DB are already in local time (server CST/UTC+8).
+  // Do NOT append 'Z' — let the browser Date constructor parse as local.
+  const d = new Date(hasTimezone ? s : s.replace(' ', 'T'));
+  if (!Number.isFinite(d.getTime())) return null;
+  return d;
+}
+
+function formatLocalDateTime(value?: string | null): string {
+  const d = parseTimestamp(value);
+  if (!d) return '—';
+  return d.toLocaleString();
+}
+
+function formatLocalTime(value?: string | null): string {
+  const d = parseTimestamp(value);
+  if (!d) return '—';
+  return d.toLocaleTimeString();
+}
+
+function minutesAgo(value?: string | null): number | null {
+  const t = parseTimestamp(value)?.getTime();
+  if (!Number.isFinite(t)) return null;
+  const diffMs = Date.now() - (t as number);
+  if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+  return Math.floor(diffMs / 60000);
+}
+
+function shortId(id: string): string {
+  const s = (id || '').toString();
+  if (!s) return '';
+  return s.length > 8 ? `${s.slice(0, 8)}…` : s;
+}
+
+export function WorkbenchExecutionPanel(props: {
+  workspaceId: string;
+  apiUrl: string;
+  selectedPostId: string | null;
+  getSelectedPost: () => IGPost | null;
+  posts: IGPost[];
+  statusFilter: 'draft' | 'review' | 'ready' | 'scheduled' | 'published' | 'measured' | 'all';
+
+  recentRuns: any[];
+  isRunning: boolean;
+  error: string | null;
+  onDismissError: () => void;
+  onRunPlaybook: (playbookCode: string, additionalInputs?: any) => Promise<{ success: boolean; execution_id?: string; error?: string }>;
+  onRefreshRuns?: () => void;
+}) {
+  const {
+    workspaceId,
+    apiUrl,
+    selectedPostId,
+    getSelectedPost,
+    posts,
+    statusFilter,
+    recentRuns,
+    isRunning,
+    error,
+    onDismissError,
+    onRunPlaybook,
+    onRefreshRuns,
+  } = props;
+
+  const [activeTab, setActiveTab] = useState<'logs' | 'actions' | 'ready'>('logs');
+  const [rerunBusyId, setRerunBusyId] = useState<string | null>(null);
+  const [rerunNotice, setRerunNotice] = useState<string | null>(null);
+  const [rerunNeedsTarget, setRerunNeedsTarget] = useState<{ executionId: string } | null>(null);
+  const [rerunTargetInput, setRerunTargetInput] = useState<string>('');
+  const [cancelBusyId, setCancelBusyId] = useState<string | null>(null);
+  const [cancelNotice, setCancelNotice] = useState<string | null>(null);
+
+  const [batchAction, setBatchAction] = useState<'batch_validate' | 'batch_generate_export_packs' | 'batch_update_status' | 'batch_process'>('batch_validate');
+  const [batchScope, setBatchScope] = useState<'selected' | 'filtered' | 'manual'>('filtered');
+  const [batchManualPostPaths, setBatchManualPostPaths] = useState('');
+  const [batchStrictMode, setBatchStrictMode] = useState(false);
+  const [igRerunAllowPartial, setIgRerunAllowPartial] = useState(false);
+  const [batchOutputFolder, setBatchOutputFolder] = useState('export_packs');
+  const [batchNewStatus, setBatchNewStatus] = useState<'draft' | 'review' | 'ready' | 'scheduled' | 'published' | 'measured' | 'archived'>('review');
+  const [batchOperationsText, setBatchOperationsText] = useState('validate\nexport_pack');
+  const [batchOperationConfigText, setBatchOperationConfigText] = useState('{}');
+  const [batchNotice, setBatchNotice] = useState<string | null>(null);
+
+  const [workflowPreset, setWorkflowPreset] = useState<'create_post_workflow' | 'review_workflow' | 'execute_workflow'>('create_post_workflow');
+  const [workflowTargetFolder, setWorkflowTargetFolder] = useState('posts');
+  const [workflowPostContent, setWorkflowPostContent] = useState('');
+  const [workflowPostMetadataText, setWorkflowPostMetadataText] = useState('{}');
+  const [workflowStepsText, setWorkflowStepsText] = useState('[]');
+  const [workflowInitialContextText, setWorkflowInitialContextText] = useState('{}');
+  const [workflowReviewNotesText, setWorkflowReviewNotesText] = useState('[]');
+  const [workflowNotice, setWorkflowNotice] = useState<string | null>(null);
+
+  const [igDebugLoading, setIgDebugLoading] = useState(false);
+  const [igDebugError, setIgDebugError] = useState<string | null>(null);
+  const [igDebugExpanded, setIgDebugExpanded] = useState(false);
+  const [forcedExecution, setForcedExecution] = useState<null | {
+    executionId: string;
+    playbookCode: string;
+    startedAt: string | null;
+  }>(null);
+  const backendHintCacheRef = useRef<Record<string, string | null | undefined>>({});
+  const igDebugInFlightRef = useRef(false);
+  const [igDebug, setIgDebug] = useState<null | {
+    executionId: string;
+    updatedAt: string | null;
+    stage: string | null;
+    iter: number | null;
+    targets: number | null;
+    expectedFollowing: number | null;
+    stopReason: string | null;
+    listCaptureStatus: string | null;
+    executionBackendHint: string | null;
+    visitAccountPages: boolean | null;
+    savedDedupTargets: number | null;
+    pageIndex: number | null;
+    pageTotal: number | null;
+    currentAccount: string | null;
+    noChangeCount: number | null;
+    noNewAccountsStreak: number | null;
+    reachedBottom: boolean | null;
+    errorType: string | null;
+    errorMessage: string | null;
+    scrollMode: string | null;
+    runMode: string | null;
+    allowPartialResume: boolean | null;
+    screenshots: string[];
+  }>(null);
+
+  const latestIGRun = useMemo(() => {
+    const runs = Array.isArray(recentRuns) ? recentRuns : [];
+    const igRuns = runs.filter(
+      (r) => (r?.playbook_code || '').toString() === 'ig_analyze_following' && (r?.execution_id || r?.id)
+    );
+    const toTs = (r: any) => {
+      const v =
+        r?.created_at ||
+        r?.started_at ||
+        r?.task?.created_at ||
+        r?.task?.started_at ||
+        null;
+      const d = parseTimestamp(v);
+      return d ? d.getTime() : 0;
+    };
+    const getPriority = (r: any) => {
+      const s = (r?.status || '').toString().toLowerCase();
+      if (s === 'running') return 2;
+      if (['pending', 'queued', 'paused'].includes(s)) return 1;
+      return 0;
+    };
+    igRuns.sort((a, b) => {
+      const pa = getPriority(a);
+      const pb = getPriority(b);
+      if (pa !== pb) return pb - pa;
+      return toTs(b) - toTs(a);
+    });
+    return igRuns[0] || null;
+
+  }, [recentRuns]);
+
+  const igExecutionId = useMemo(() => {
+    const runs = Array.isArray(recentRuns) ? recentRuns : [];
+    // Priority 1: Currently running IG task
+    const runningIG = runs.find((r) =>
+      (r?.playbook_code || '').toString() === 'ig_analyze_following' &&
+      (r?.status || '').toString().toLowerCase() === 'running'
+    );
+    if (runningIG) {
+      return (runningIG.execution_id || runningIG.id || '').toString();
+    }
+    // Priority 2: Forced execution (from rerun click)
+    const forced = (forcedExecution?.executionId || '').toString().trim();
+    if (forced) return forced;
+    // Priority 3: Latest IG run
+    return (latestIGRun?.execution_id || latestIGRun?.id || '').toString() || null;
+  }, [recentRuns, forcedExecution?.executionId, latestIGRun?.execution_id, latestIGRun?.id]);
+
+  const igPinnedRun = useMemo(() => {
+    const runs = Array.isArray(recentRuns) ? recentRuns : [];
+    const execId = (igExecutionId || '').toString();
+    if (!execId) return null;
+    const found = runs.find((r) => (r?.execution_id || r?.id || '').toString() === execId);
+    if (found) return found;
+    // If forcedExecution exists but not yet in recentRuns, create a temporary pending run object
+    if (forcedExecution?.executionId === execId) {
+      return {
+        execution_id: execId,
+        id: execId,
+        status: 'pending',
+        playbook_code: forcedExecution.playbookCode || 'ig_analyze_following',
+        started_at: forcedExecution.startedAt || new Date().toISOString(),
+      };
+    }
+    return null;
+  }, [recentRuns, igExecutionId, forcedExecution]);
+
+  const canRerunStatus = useCallback((status: any) => {
+    const s = (status || '').toString();
+    // Allow rerun for terminal runs, including succeeded/completed,
+    // because "completed_partial" is represented as task_status=succeeded.
+    return ['failed', 'cancelled_by_user', 'cancelled', 'succeeded', 'completed'].includes(s);
+  }, []);
+
+  useEffect(() => {
+
+    const forcedId = (forcedExecution?.executionId || '').toString().trim();
+    if (!forcedId) return;
+
+    const pinnedStatus = (igPinnedRun?.status || '').toString();
+    const isTerminal = ['completed', 'failed', 'cancelled_by_user', 'cancelled'].includes(pinnedStatus);
+    if (!isTerminal) return;
+
+    const latestId = (latestIGRun?.execution_id || latestIGRun?.id || '').toString();
+    if (!latestId || latestId === forcedId) return;
+
+    setForcedExecution(null);
+  }, [forcedExecution?.executionId, igPinnedRun?.status, latestIGRun?.execution_id, latestIGRun?.id]);
+
+  useEffect(() => {
+
+    const handler = (evt: Event) => {
+      const e = evt as CustomEvent<any>;
+      const d = e?.detail || {};
+      const wid = (d.workspaceId || '').toString();
+      const execId = (d.executionId || '').toString();
+      const code = (d.playbookCode || '').toString();
+      if (!wid || !execId) return;
+      if (wid !== workspaceId) return;
+
+      // Bring the user to Run Logs so the "status card" is visible immediately.
+      setActiveTab('logs');
+      onRefreshRuns?.();
+
+      // Pin IG Following Analyzer debug card (works even before runs list updates).
+      if (code === 'ig_analyze_following') {
+        setForcedExecution({
+          executionId: execId,
+          playbookCode: code,
+          startedAt: (d.startedAt || null) as string | null,
+        });
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('mindscape:execution_started', handler as any);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('mindscape:execution_started', handler as any);
+      }
+    };
+  }, [workspaceId, onRefreshRuns]);
+
+  const fetchExecutionBackendHint = useCallback(
+    async (executionId: string): Promise<string | null> => {
+      const key = (executionId || '').toString();
+      if (!key) return null;
+      const cached = backendHintCacheRef.current[key];
+      if (typeof cached !== 'undefined') return cached || null;
+      try {
+        const resp = await fetch(`${apiUrl}/api/v1/playbooks/execute/${key}/status`, {
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!resp.ok) {
+          backendHintCacheRef.current[key] = null;
+          return null;
+        }
+        const data = await resp.json().catch(() => ({}));
+        const ctx = data?.execution_context || {};
+        const hint = (ctx?.execution_backend_hint || ctx?.inputs?.execution_backend || '').toString().trim();
+        backendHintCacheRef.current[key] = hint || null;
+        return hint || null;
+      } catch {
+        backendHintCacheRef.current[key] = null;
+        return null;
+      }
+    },
+    [apiUrl]
+  );
+
+  const fetchLatestIGDebug = useCallback(async (showLoading = false) => {
+    const executionId = igExecutionId;
+    if (!executionId) return;
+    if (igDebugInFlightRef.current) return;
+    igDebugInFlightRef.current = true;
+
+    // Only show loading indicator for manual refresh, not auto-polling
+    if (showLoading) setIgDebugLoading(true);
+    setIgDebugError(null);
+    try {
+      const artifactsPageLimit = 200;
+      const maxPages = 5;
+      let artifacts: any[] = [];
+      let match: any = null;
+
+      for (let page = 0; page < maxPages; page += 1) {
+        const offset = page * artifactsPageLimit;
+        const resp = await fetch(
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?playbook_code=ig_analyze_following&platform=instagram&limit=${artifactsPageLimit}&offset=${offset}&include_content=false&include_preview=false`,
+        );
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error((data.detail || resp.statusText || 'Failed to fetch artifacts').toString());
+        }
+        const data = await resp.json().catch(() => ({}));
+        const pageArtifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+        artifacts = artifacts.concat(pageArtifacts);
+
+        const matches = pageArtifacts.filter((a: any) => {
+          const m = a?.metadata || {};
+          if ((m?.source || '').toString() !== 'ig_analyze_following_progress') return false;
+          const mid = (m?.execution_id || m?.trace_id || a?.execution_id || '').toString();
+          return mid === executionId;
+        });
+        if (matches.length > 0) {
+          match = matches.sort((a: any, b: any) => {
+            const ta = parseTimestamp(a?.updated_at || a?.created_at)?.getTime() || 0;
+            const tb = parseTimestamp(b?.updated_at || b?.created_at)?.getTime() || 0;
+            return tb - ta;
+          })[0];
+          break;
+        }
+
+        if (pageArtifacts.length < artifactsPageLimit) {
+          break;
+        }
+      }
+
+      if (!match) {
+        setIgDebug(null);
+        return;
+      }
+
+      const matchId = (match?.id || match?.artifact_id || '').toString();
+      if (!matchId) {
+        setIgDebug(null);
+        return;
+      }
+
+      const detailResp = await fetch(
+        `${apiUrl}/api/v1/artifacts/${matchId}?include_content=true&include_preview=false`,
+      );
+      if (!detailResp.ok) {
+        const data = await detailResp.json().catch(() => ({}));
+        throw new Error((data.detail || detailResp.statusText || 'Failed to fetch artifact detail').toString());
+      }
+      const detail = await detailResp.json().catch(() => ({}));
+      const detailMeta = detail?.metadata || match?.metadata || {};
+      const content = detail?.content || {};
+      const progress = content?.progress || {};
+      const meta = (content?.metadata && typeof content?.metadata === 'object') ? content.metadata : detailMeta;
+      const screenshotsRaw = meta?.scroll_debug_screenshots || [];
+      const screenshots = Array.isArray(screenshotsRaw) ? screenshotsRaw.filter(Boolean).map((x) => x.toString()) : [];
+
+      const toIntOrNull = (v: any) => {
+        const n = typeof v === 'number' ? v : parseInt((v ?? '').toString(), 10);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      // Fetch persisted targets count from database via /seed-status API
+      const seed = (meta?.target_username || '').toString().trim();
+      let savedDedupTargets: number | null = null;
+      try {
+        if (seed && workspaceId) {
+          const statusResp = await fetch(
+            `${apiUrl}/api/v1/ig/insights/seed-status?workspace_id=${encodeURIComponent(workspaceId)}&seed=${encodeURIComponent(seed)}`
+          );
+          if (statusResp.ok) {
+            const statusData = await statusResp.json().catch(() => ({}));
+            savedDedupTargets = typeof statusData.target_count === 'number' ? statusData.target_count : null;
+          }
+        }
+      } catch {
+        savedDedupTargets = null;
+      }
+
+      const backendHint = await fetchExecutionBackendHint(executionId);
+
+      setIgDebug({
+        executionId,
+        updatedAt: ((detail?.updated_at || match?.updated_at || null)) as string | null,
+        stage: (progress?.stage || meta?.stage || null) as string | null,
+        iter: toIntOrNull(progress?.iteration),
+        targets: toIntOrNull(progress?.total_accounts ?? meta?.total_accounts),
+        expectedFollowing: toIntOrNull(meta?.expected_following_count),
+        stopReason: (meta?.scroll_stop_reason || progress?.scroll_stop_reason || null) as string | null,
+        listCaptureStatus: (meta?.list_capture_status || null) as string | null,
+        executionBackendHint: backendHint,
+        visitAccountPages: typeof meta?.visit_account_pages === 'boolean' ? meta.visit_account_pages : null,
+        savedDedupTargets,
+        pageIndex: toIntOrNull(progress?.page_index),
+        pageTotal: toIntOrNull(progress?.page_total),
+        currentAccount: (progress?.current_account || null) as string | null,
+        noChangeCount: toIntOrNull(progress?.no_change_count),
+        noNewAccountsStreak: toIntOrNull(progress?.no_new_accounts_streak),
+        reachedBottom: typeof progress?.reached_bottom === 'boolean' ? progress.reached_bottom : null,
+        errorType: (progress?.error_type || null) as string | null,
+        errorMessage: (progress?.error_message || null) as string | null,
+        scrollMode: (progress?.scroll_mode || null) as string | null,
+        runMode: (progress?.run_mode || meta?.run_mode || null) as string | null,
+        allowPartialResume: typeof progress?.allow_partial_resume === 'boolean' ? progress.allow_partial_resume : (typeof meta?.allow_partial_resume === 'boolean' ? meta.allow_partial_resume : null),
+        screenshots,
+      });
+    } catch (e) {
+      setIgDebugError(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setIgDebugLoading(false);
+      igDebugInFlightRef.current = false;
+    }
+  }, [apiUrl, workspaceId, igExecutionId, fetchExecutionBackendHint]);
+
+  const copyExecutionId = useCallback(async () => {
+    const id = (igExecutionId || '').toString();
+    if (!id) return;
+    try {
+      await navigator.clipboard.writeText(id);
+    } catch {
+      // ignore
+    }
+  }, [igExecutionId]);
+
+  useEffect(() => {
+    if (activeTab !== 'logs') return;
+    if (!igExecutionId) return;
+    void fetchLatestIGDebug();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, igExecutionId]);
+
+  // Unified SSE + polling fallback via useExecutionPolling
+  const pollFn = useCallback(async () => {
+    void fetchLatestIGDebug();
+    onRefreshRuns?.();
+  }, [fetchLatestIGDebug, onRefreshRuns]);
+
+  const status = (igPinnedRun?.status || '').toString();
+  const isActive = !status || ['running', 'queued', 'pending', 'paused'].includes(status);
+  const shouldPoll = activeTab === 'logs' && !!igExecutionId && isActive;
+
+  useExecutionPolling({
+    executionId: shouldPoll ? igExecutionId : null,
+    workspaceId,
+    apiUrl,
+    onUpdate: () => { /* SSE events trigger debounced pollFn */ },
+    pollIntervalMs: 10_000,
+    enableSSE: true,
+    sseDebounceMs: 1_200,
+    pollFn,
+  });
+
+  const screenshotUrl = (executionId: string, fullPath: string) => {
+    const basename = fullPath.split('/').pop() || fullPath;
+    return `${apiUrl}/api/v1/playbooks/execute/${executionId}/debug/screenshot?file=${encodeURIComponent(basename)}`;
+  };
+
+  const cancelExecution = async (executionId: string) => {
+    setCancelNotice(null);
+    setCancelBusyId(executionId);
+    try {
+      const resp = await fetch(`${apiUrl}/api/v1/playbooks/execute/${executionId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'user_cancelled_from_execution_debug' }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        const detail = (data.detail || resp.statusText || '').toString();
+        setCancelNotice(`Cancel failed: ${detail}`);
+        return;
+      }
+      setCancelNotice('Cancelled');
+      onRefreshRuns?.();
+      void fetchLatestIGDebug();
+    } catch (e) {
+      setCancelNotice(`Cancel failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    } finally {
+      setCancelBusyId(null);
+    }
+  };
+
+  const rerunExecution = async (executionId: string, overrideInputs?: Record<string, any>) => {
+    setRerunNotice(null);
+    setRerunBusyId(executionId);
+    try {
+      const resp = await fetch(`${apiUrl}/api/v1/playbooks/execute/${executionId}/rerun`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(overrideInputs ? { override_inputs: overrideInputs } : {}),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        const detail = (data.detail || resp.statusText || '').toString();
+        if (resp.status === 409 && detail.toLowerCase().includes('missing target_username')) {
+          setRerunNeedsTarget({ executionId });
+          setRerunNotice('Rerun needs target username.');
+        } else {
+          setRerunNotice(`Rerun failed: ${detail}`);
+        }
+        return;
+      }
+      const data = await resp.json().catch(() => ({}));
+      const newId = data.execution_id || data.result?.execution_id;
+      if (newId) {
+        setRerunNotice(`Rerun started: ${newId}`);
+        // Immediately pin the sidebar debug card to the NEW execution id,
+        // so SSE connects to the right stream (restores prior header-like behavior).
+        try {
+          const execId = newId.toString();
+          setActiveTab('logs');
+          setForcedExecution({
+            executionId: execId,
+            playbookCode: 'ig_analyze_following',
+            startedAt: new Date().toISOString(),
+          });
+          // Also emit the shared event so other listeners stay consistent.
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('mindscape:execution_started', {
+                detail: {
+                  workspaceId,
+                  executionId: execId,
+                  playbookCode: 'ig_analyze_following',
+                  startedAt: new Date().toISOString(),
+                },
+              })
+            );
+          }
+        } catch {
+          // ignore
+        }
+      } else {
+        setRerunNotice('Rerun started');
+      }
+      setRerunNeedsTarget(null);
+      setRerunTargetInput('');
+      onRefreshRuns?.();
+    } catch (e) {
+      setRerunNotice(`Rerun failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    } finally {
+      setRerunBusyId(null);
+    }
+  };
+
+  const filteredPostPaths = useMemo(() => {
+    const list = statusFilter === 'all' ? posts : posts.filter((p) => p.status === statusFilter);
+    return list
+      .map((p) => (p.post_path || '').toString().trim())
+      .filter((p) => p.length > 0);
+  }, [posts, statusFilter]);
+
+  const selectedPostPath = useMemo(() => {
+    const p = getSelectedPost();
+    return (p?.post_path || '').toString().trim() || null;
+  }, [getSelectedPost, selectedPostId]);
+
+  const resolveBatchPostPaths = (): string[] => {
+    if (batchScope === 'selected') {
+      return selectedPostPath ? [selectedPostPath] : [];
+    }
+    if (batchScope === 'filtered') {
+      return filteredPostPaths;
+    }
+    return batchManualPostPaths
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  };
+
+  const runBatchProcessor = async () => {
+    const postPaths = resolveBatchPostPaths();
+    if (postPaths.length === 0) {
+      alert('No post_paths resolved. Please select scope + provide paths.');
+      return;
+    }
+
+    const additionalInputs: any = {
+      action: batchAction,
+      post_paths: postPaths,
+      strict_mode: batchStrictMode,
+    };
+
+    if (batchAction === 'batch_generate_export_packs') {
+      additionalInputs.output_folder = (batchOutputFolder || '').trim() || undefined;
+    }
+    if (batchAction === 'batch_update_status') {
+      additionalInputs.new_status = batchNewStatus;
+    }
+    if (batchAction === 'batch_process') {
+      const ops = batchOperationsText
+        .split('\n')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      additionalInputs.operations = ops.length > 0 ? ops : undefined;
+      try {
+        additionalInputs.operation_config = JSON.parse(batchOperationConfigText || '{}');
+      } catch {
+        additionalInputs.operation_config = undefined;
+      }
+    }
+
+    const res = await onRunPlaybook('ig_batch_processor', additionalInputs);
+    if (res.success) {
+      setBatchNotice(`Started: ${res.execution_id || 'unknown'}`);
+      setTimeout(() => setBatchNotice(null), 4000);
+    }
+  };
+
+  const runCompleteWorkflow = async () => {
+    const additionalInputs: any = { action: workflowPreset };
+
+    if (workflowPreset === 'create_post_workflow') {
+      const content = (workflowPostContent || '').trim();
+      if (!content) {
+        alert('Please input post_content');
+        return;
+      }
+      additionalInputs.post_content = content;
+      additionalInputs.target_folder = (workflowTargetFolder || '').trim() || undefined;
+      try {
+        additionalInputs.post_metadata = JSON.parse(workflowPostMetadataText || '{}');
+      } catch {
+        additionalInputs.post_metadata = {};
+      }
+    }
+
+    if (workflowPreset === 'review_workflow') {
+      if (!selectedPostPath) {
+        alert('Please select a post with post_path');
+        return;
+      }
+      additionalInputs.post_path = selectedPostPath;
+      try {
+        additionalInputs.review_notes = JSON.parse(workflowReviewNotesText || '[]');
+      } catch {
+        additionalInputs.review_notes = [];
+      }
+    }
+
+    if (workflowPreset === 'execute_workflow') {
+      try {
+        additionalInputs.workflow_steps = JSON.parse(workflowStepsText || '[]');
+      } catch {
+        additionalInputs.workflow_steps = [];
+      }
+      try {
+        additionalInputs.initial_context = JSON.parse(workflowInitialContextText || '{}');
+      } catch {
+        additionalInputs.initial_context = {};
+      }
+      additionalInputs.workflow_name = 'custom';
+    }
+
+    const res = await onRunPlaybook('ig_complete_workflow', additionalInputs);
+    if (res.success) {
+      setWorkflowNotice(`Started: ${res.execution_id || 'unknown'}`);
+      setTimeout(() => setWorkflowNotice(null), 4000);
+    }
+  };
+
+  return (
+    <div className="w-80 border-l dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col">
+      <div className="p-4 border-b dark:border-gray-700">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
+          Execution Control
+        </h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Execution Control
+        </p>
+      </div>
+
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="px-3 pt-3">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('logs')}
+              className={`h-8 px-2 rounded-md border text-xs flex items-center gap-2 ${activeTab === 'logs'
+                ? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-gray-100'
+                : 'bg-transparent border-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                }`}
+              aria-label="Run Logs"
+              title="Run Logs"
+            >
+              <History className="w-3.5 h-3.5" />
+              {activeTab === 'logs' && <span className="text-[11px] font-semibold uppercase tracking-wide">Run Logs</span>}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('actions')}
+              className={`h-8 px-2 rounded-md border text-xs flex items-center gap-2 ${activeTab === 'actions'
+                ? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-gray-100'
+                : 'bg-transparent border-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                }`}
+              aria-label="Quick Actions"
+              title="Quick Actions"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              {activeTab === 'actions' && <span className="text-[11px] font-semibold uppercase tracking-wide">Actions</span>}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('ready')}
+              className={`h-8 px-2 rounded-md border text-xs flex items-center gap-2 ${activeTab === 'ready'
+                ? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-gray-100'
+                : 'bg-transparent border-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                }`}
+              aria-label="Ready Score"
+              title="Ready Score"
+            >
+              <Activity className="w-3.5 h-3.5" />
+              {activeTab === 'ready' && <span className="text-[11px] font-semibold uppercase tracking-wide">Ready</span>}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-red-900 dark:text-red-100 mb-1">
+                    Execution Error
+                  </p>
+                  <p className="text-xs text-red-700 dark:text-red-300 break-words">
+                    {error}
+                  </p>
+                </div>
+                <button
+                  onClick={onDismissError}
+                  className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200"
+                  title="Close"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'logs' && (
+            <div>
+              {/* Pinned debug card for IG Following Analyzer */}
+              {(igExecutionId || latestIGRun) && ((latestIGRun?.playbook_code || '') === 'ig_analyze_following' || forcedExecution?.playbookCode === 'ig_analyze_following') && (
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">Execution Debug</div>
+                    <button
+                      type="button"
+                      onClick={() => void fetchLatestIGDebug(true)}
+                      disabled={igDebugLoading}
+                      className="px-2 py-1 text-[10px] rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Refresh"
+                    >
+                      {igDebugLoading ? 'Refreshing…' : 'Refresh'}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 text-[10px] min-w-0">
+                      {igPinnedRun?.status && (
+                        <span className="text-gray-500 dark:text-gray-400">status <span className="font-medium">{igPinnedRun.status}</span></span>
+                      )}
+                      {(() => {
+                        const seed = igPinnedRun?.execution_context?.inputs?.target_username || igPinnedRun?.execution_context?.target_username;
+                        return seed ? <span className="text-blue-600 dark:text-blue-400 font-medium truncate max-w-[120px]">@{seed}</span> : null;
+                      })()}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => igExecutionId && cancelExecution(igExecutionId)}
+                      disabled={
+                        !igExecutionId ||
+                        cancelBusyId === igExecutionId ||
+                        (igPinnedRun?.status
+                          ? !(['running', 'queued', 'pending', 'paused'].includes((igPinnedRun?.status || '').toString()))
+                          : false)
+                      }
+                      className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Cancel this execution"
+                    >
+                      <X className="w-3 h-3" />
+                      {cancelBusyId === igExecutionId ? 'Cancelling…' : 'Cancel'}
+                    </button>
+                  </div>
+                  {igExecutionId && igPinnedRun?.status && canRerunStatus(igPinnedRun.status) && (
+                    <div className="flex items-center gap-2 mb-2">
+                      <button
+                        type="button"
+                        onClick={() => rerunExecution(igExecutionId, { run_mode: 'full', visit_account_pages: true })}
+                        disabled={rerunBusyId === igExecutionId}
+                        className="px-2 py-1 text-[10px] rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Start full analysis (scroll + visit)"
+                      >
+                        {rerunBusyId === igExecutionId ? 'Rerunning…' : 'Full'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => rerunExecution(igExecutionId, { run_mode: 'list', visit_account_pages: false })}
+                        disabled={rerunBusyId === igExecutionId}
+                        className="px-2 py-1 text-[10px] rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Only extract the following list (scroll only)"
+                      >
+                        {rerunBusyId === igExecutionId ? 'Rerunning…' : 'List Only'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => rerunExecution(igExecutionId, { run_mode: 'visit', visit_account_pages: true, allow_partial_resume: igRerunAllowPartial })}
+                        disabled={rerunBusyId === igExecutionId}
+                        className="px-2 py-1 text-[10px] rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Only visit pages using existing list (skip scrolling)"
+                      >
+                        {rerunBusyId === igExecutionId ? 'Rerunning…' : 'Visit Pages'}
+                      </button>
+                      <label className="flex items-center gap-1.5 ml-1 select-none cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={igRerunAllowPartial}
+                          onChange={(e) => setIgRerunAllowPartial(e.target.checked)}
+                          className="w-3 h-3 rounded border-gray-300 dark:border-gray-600"
+                        />
+                        <span className="text-[10px] text-gray-500 dark:text-gray-400">partial ok</span>
+                      </label>
+                    </div>
+                  )}
+
+                  {igDebugError && (
+                    <div className="text-[10px] text-red-700 dark:text-red-300 break-words mb-2">
+                      {igDebugError}
+                    </div>
+                  )}
+
+                  {igDebug ? (
+                    <div className="space-y-1 text-[11px] text-gray-700 dark:text-gray-200">
+                      <div className="flex items-start justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIgDebugExpanded((v) => !v)}
+                          className="min-w-0 flex items-center gap-2 text-left"
+                          title="Expand details"
+                        >
+                          {((igPinnedRun?.status || '').toString().toLowerCase() === 'running' ||
+                            (igPinnedRun?.status || '').toString().toLowerCase() === 'queued' ||
+                            (igPinnedRun?.status || '').toString().toLowerCase() === 'paused') ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600 dark:text-blue-400 shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-[11px] text-gray-900 dark:text-gray-100 truncate">
+                              ig_analyze_following
+                              {igDebug.executionBackendHint ? ` · backend=${igDebug.executionBackendHint}` : ''}
+                              {igDebug.stage ? ` · ${igDebug.stage}` : ''}
+                              {typeof igDebug.targets === 'number' ? ` · ${igDebug.targets} targets` : ''}
+                              {typeof igDebug.expectedFollowing === 'number' ? ` · expected ${igDebug.expectedFollowing}` : ''}
+                              {(() => {
+                                const m = minutesAgo(igDebug.updatedAt);
+                                const st = (igPinnedRun?.status || '').toString().toLowerCase();
+                                const isRunning = st === 'running' || st === 'queued' || st === 'paused';
+                                const stale = isRunning && (m === null || m >= 5);
+                                if (!stale) return '';
+                                return m === null ? ' · stale' : ` · stale ${m}m`;
+                              })()}
+                            </div>
+                            <div className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
+                              exec {shortId(igDebug.executionId)}
+                              {igDebug.updatedAt ? ` · last update ${formatLocalTime(igDebug.updatedAt)}` : ' · no progress timestamp'}
+                            </div>
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => void copyExecutionId()}
+                            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                            title="Copy execution id"
+                          >
+                            <Copy className="w-3.5 h-3.5 text-gray-600 dark:text-gray-300" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIgDebugExpanded((v) => !v)}
+                            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                            title={igDebugExpanded ? 'Collapse' : 'Expand'}
+                          >
+                            {igDebugExpanded ? (
+                              <ChevronUp className="w-3.5 h-3.5 text-gray-600 dark:text-gray-300" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5 text-gray-600 dark:text-gray-300" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="break-all">
+                        <span className="text-gray-500 dark:text-gray-400">exec</span> {igDebug.executionId}
+                      </div>
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">stage</span> {igDebug.stage || '—'}
+                        {typeof igDebug.iter === 'number' && <span> · <span className="text-gray-500 dark:text-gray-400">iter</span> {igDebug.iter}</span>}
+                      </div>
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">targets</span> {igDebug.targets ?? '—'}
+                        {typeof igDebug.expectedFollowing === 'number' && (
+                          <span> · <span className="text-gray-500 dark:text-gray-400">expected</span> {igDebug.expectedFollowing}</span>
+                        )}
+                        {typeof igDebug.savedDedupTargets === 'number' && (
+                          <span> · <span className="text-gray-500 dark:text-gray-400">saved</span> {igDebug.savedDedupTargets}</span>
+                        )}
+                      </div>
+                      {/* Completion summary */}
+                      {typeof igDebug.savedDedupTargets === 'number' && typeof igDebug.expectedFollowing === 'number' && igDebug.expectedFollowing > 0 && (
+                        <div className="mt-1">
+                          <div className="flex items-center gap-2 text-[10px]">
+                            <span className={igDebug.savedDedupTargets >= igDebug.expectedFollowing ? 'text-green-600 dark:text-green-400 font-semibold' : 'text-blue-600 dark:text-blue-400'}>
+                              {igDebug.savedDedupTargets >= igDebug.expectedFollowing ? '✓ ' : ''}{Math.round((igDebug.savedDedupTargets / igDebug.expectedFollowing) * 100)}% complete
+                            </span>
+                            <span className="text-gray-400">({igDebug.savedDedupTargets}/{igDebug.expectedFollowing})</span>
+                          </div>
+                          <div className="mt-0.5 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${igDebug.savedDedupTargets >= igDebug.expectedFollowing ? 'bg-green-500' : 'bg-blue-500'}`}
+                              style={{ width: `${Math.min(100, Math.round((igDebug.savedDedupTargets / igDebug.expectedFollowing) * 100))}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {(typeof igDebug.pageTotal === 'number' || typeof igDebug.pageIndex === 'number') && (
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">pages</span> {igDebug.pageIndex ?? '—'}/{igDebug.pageTotal ?? '—'}
+                          {igDebug.currentAccount ? <span> · <span className="text-gray-500 dark:text-gray-400">current</span> {igDebug.currentAccount}</span> : null}
+                        </div>
+                      )}
+                      {igDebug.stopReason ? (
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">stop</span> {igDebug.stopReason}
+                        </div>
+                      ) : null}
+                      {igDebug.listCaptureStatus ? (
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400">list</span> {igDebug.listCaptureStatus}
+                        </div>
+                      ) : null}
+                      {igDebug.updatedAt ? (
+                        <div className="text-gray-500 dark:text-gray-400">
+                          last update {formatLocalDateTime(igDebug.updatedAt)}
+                          {(() => {
+                            const mins = minutesAgo(igDebug.updatedAt);
+                            if (mins !== null && mins > 30) {
+                              return <span className="ml-1 text-amber-600 dark:text-amber-400 font-medium">· stale</span>;
+                            }
+                            return null;
+                          })()}
+                        </div>
+                      ) : null}
+
+                      {igDebugExpanded && (
+                        <div className="pt-2 text-[11px] text-gray-700 dark:text-gray-200">
+                          <div className="flex flex-wrap gap-x-3 gap-y-1">
+                            {igDebug.executionBackendHint ? (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">backend</span> {igDebug.executionBackendHint}
+                              </div>
+                            ) : null}
+                            {igDebug.visitAccountPages !== null ? (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">visit_pages</span> {igDebug.visitAccountPages ? 'yes' : 'no'}
+                              </div>
+                            ) : null}
+                            {typeof igDebug.noNewAccountsStreak === 'number' ? (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">no_new_streak</span> {igDebug.noNewAccountsStreak}
+                              </div>
+                            ) : null}
+                            {typeof igDebug.noChangeCount === 'number' ? (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">no_change</span> {igDebug.noChangeCount}
+                              </div>
+                            ) : null}
+                            {typeof igDebug.reachedBottom === 'boolean' ? (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">bottom</span> {igDebug.reachedBottom ? 'yes' : 'no'}
+                              </div>
+                            ) : null}
+                            {igDebug.scrollMode ? (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">scroll_mode</span> {igDebug.scrollMode}
+                              </div>
+                            ) : null}
+                            {igDebug.runMode ? (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">run_mode</span> {igDebug.runMode}
+                              </div>
+                            ) : null}
+                            {igDebug.allowPartialResume !== null ? (
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">partial_ok</span> {igDebug.allowPartialResume ? 'yes' : 'no'}
+                              </div>
+                            ) : null}
+                            {igDebug.errorType ? (
+                              <div className="truncate max-w-[260px]">
+                                <span className="text-gray-500 dark:text-gray-400">error</span> {igDebug.errorType}
+                              </div>
+                            ) : null}
+                          </div>
+                          {igDebug.errorMessage ? (
+                            <div className="mt-1 text-amber-700 dark:text-amber-300 break-words">
+                              {igDebug.errorMessage}
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+
+                      {igDebug.screenshots.length > 0 && (
+                        <div className="pt-2">
+                          <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-1">Screenshots</div>
+                          <div className="flex flex-col gap-1">
+                            {igDebug.screenshots.slice(-5).map((p) => {
+                              const basename = p.split('/').pop() || p;
+                              return (
+                                <a
+                                  key={p}
+                                  href={screenshotUrl(igDebug.executionId, p)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center justify-between gap-2 px-2 py-1 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-[10px]"
+                                  title={basename}
+                                >
+                                  <span className="truncate">{basename}</span>
+                                  <span className="text-gray-500 dark:text-gray-400">Open</span>
+                                </a>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {igDebug.screenshots.length === 0 && (igDebug.stage === 'error' || !!igDebug.errorMessage) && (
+                        <div className="pt-2">
+                          <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-1">Screenshots</div>
+                          <div className="flex flex-col gap-1">
+                            <a
+                              href={screenshotUrl(igDebug.executionId, 'ig_debug_profile.png')}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center justify-between gap-2 px-2 py-1 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-[10px]"
+                              title="ig_debug_profile.png"
+                            >
+                              <span className="truncate">ig_debug_profile.png (latest)</span>
+                              <span className="text-gray-500 dark:text-gray-400">Open</span>
+                            </a>
+                            <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                              Note: this is a legacy shared filename and may be overwritten by reruns.
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 space-y-1">
+                      <div className="break-all">
+                        <span className="text-gray-500 dark:text-gray-400">exec</span> {igExecutionId || '—'}
+                      </div>
+                      <div>Waiting for progress artifact…</div>
+                      {forcedExecution?.startedAt ? (
+                        <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                          started {formatLocalDateTime(forcedExecution.startedAt)}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {rerunNotice && (
+                <div className="text-[11px] rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-gray-700 dark:text-gray-200">
+                  {rerunNotice}
+                </div>
+              )}
+              {cancelNotice && (
+                <div className="text-[11px] rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-gray-700 dark:text-gray-200">
+                  {cancelNotice}
+                </div>
+              )}
+              {rerunNeedsTarget && (
+                <div className="text-[11px] rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-2 text-gray-700 dark:text-gray-200">
+                  <div className="mb-2">Target username is required for rerun.</div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={rerunTargetInput}
+                      onChange={(e) => setRerunTargetInput(e.target.value)}
+                      placeholder="e.g. hannah.beezy"
+                      className="flex-1 px-2 py-1 text-xs border rounded dark:bg-gray-800 dark:border-gray-700"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => rerunExecution(rerunNeedsTarget.executionId, { target_username: rerunTargetInput.trim() })}
+                      disabled={!rerunTargetInput.trim() || rerunBusyId === rerunNeedsTarget.executionId}
+                      className="px-2 py-1 text-[10px] rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Confirm rerun
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="space-y-2">
+                {recentRuns.length === 0 ? (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-4">
+                    No recent runs
+                  </p>
+                ) : (
+                  [...recentRuns]
+                    .sort((a, b) => {
+                      // Priority: running > pending/queued > other
+                      const getPrio = (r: any) => {
+                        const s = (r?.status || '').toString().toLowerCase();
+                        if (s === 'running') return 3;
+                        if (['pending', 'queued', 'paused'].includes(s)) return 2;
+                        if (s === 'failed') return 1;
+                        return 0;
+                      };
+                      const pa = getPrio(a);
+                      const pb = getPrio(b);
+                      if (pa !== pb) return pb - pa;
+                      // Same priority: sort by time descending
+                      const getTs = (r: any) => {
+                        const v = r?.created_at || r?.started_at || null;
+                        const d = parseTimestamp(v);
+                        return d ? d.getTime() : 0;
+                      };
+                      return getTs(b) - getTs(a);
+                    })
+                    .map((run, index) => (
+                      <div
+                        key={run.id || `run-${index}`}
+                        className="bg-gray-50 dark:bg-gray-700 rounded p-2 text-xs overflow-hidden"
+                      >
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+                          <span className="font-medium text-gray-900 dark:text-gray-100 shrink-0">
+                            {run.playbook_code || 'N/A'}
+                          </span>
+                          {(run.execution_context?.inputs?.target_username || run.execution_context?.target_username) && (
+                            <span className="text-gray-500 dark:text-gray-400 truncate max-w-[100px]">@{run.execution_context?.inputs?.target_username || run.execution_context?.target_username}</span>
+                          )}
+                          <span
+                            className={`ml-auto shrink-0 px-1.5 py-0.5 rounded text-xs ${run.status === 'completed'
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                              : run.status === 'failed'
+                                ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                                : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+                              }`}
+                          >
+                            {run.status || 'unknown'}
+                          </span>
+                        </div>
+                        {canRerunStatus(run.status) && run.execution_id && (
+                          <div className="mt-1 flex items-center gap-2">
+                            {run.playbook_code !== 'ig_analyze_following' && (
+                              <button
+                                type="button"
+                                onClick={() => rerunExecution(run.execution_id)}
+                                disabled={rerunBusyId === run.execution_id}
+                                className="px-2 py-1 text-[10px] rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Rerun with original inputs"
+                              >
+                                {rerunBusyId === run.execution_id ? 'Rerunning…' : 'Rerun'}
+                              </button>
+                            )}
+                            {run.playbook_code === 'ig_analyze_following' && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => rerunExecution(run.execution_id, { run_mode: 'full', visit_account_pages: true })}
+                                  disabled={rerunBusyId === run.execution_id}
+                                  className="px-2 py-1 text-[10px] rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Start full analysis (scroll + visit)"
+                                >
+                                  {rerunBusyId === run.execution_id ? 'Rerunning…' : 'Full'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => rerunExecution(run.execution_id, { run_mode: 'list', visit_account_pages: false })}
+                                  disabled={rerunBusyId === run.execution_id}
+                                  className="px-2 py-1 text-[10px] rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Only extract the following list (scroll only)"
+                                >
+                                  {rerunBusyId === run.execution_id ? 'Rerunning…' : 'List Only'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => rerunExecution(run.execution_id, { run_mode: 'visit', visit_account_pages: true, allow_partial_resume: igRerunAllowPartial })}
+                                  disabled={rerunBusyId === run.execution_id}
+                                  className="px-2 py-1 text-[10px] rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Only visit pages using existing list (skip scrolling)"
+                                >
+                                  {rerunBusyId === run.execution_id ? 'Rerunning…' : 'Visit Pages'}
+                                </button>
+                              </>
+                            )}
+                            <span className="text-[10px] text-gray-500 dark:text-gray-400 break-all">
+                              {run.execution_id}
+                            </span>
+                          </div>
+                        )}
+                        {run.created_at && (
+                          <div className="text-gray-500 dark:text-gray-400 text-[10px]">
+                            {formatLocalDateTime(run.created_at)}
+                          </div>
+                        )}
+                        {run.status === 'failed' && (run.task?.error || run.failure_reason) && (
+                          <div className="mt-1 text-[10px] text-red-700 dark:text-red-300 leading-snug break-words">
+                            {(run.task?.error || run.failure_reason || '').toString()}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'actions' && (
+            <div className="space-y-2">
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                <h5 className="text-xs font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                  Generate Content
+                </h5>
+                <div className="space-y-1.5">
+                  <button
+                    onClick={() => onRunPlaybook('ig_post_generation')}
+                    disabled={isRunning}
+                    className="w-full px-3 py-2 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Generate Post
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                <h5 className="text-xs font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                  Batch Processor
+                </h5>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">action</div>
+                      <select
+                        value={batchAction}
+                        onChange={(e) => setBatchAction(e.target.value as any)}
+                        className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800"
+                      >
+                        <option value="batch_validate">batch_validate</option>
+                        <option value="batch_generate_export_packs">batch_generate_export_packs</option>
+                        <option value="batch_update_status">batch_update_status</option>
+                        <option value="batch_process">batch_process</option>
+                      </select>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">scope</div>
+                      <select
+                        value={batchScope}
+                        onChange={(e) => setBatchScope(e.target.value as any)}
+                        className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800"
+                      >
+                        <option value="filtered">filtered ({filteredPostPaths.length})</option>
+                        <option value="selected" disabled={!selectedPostId}>selected</option>
+                        <option value="manual">manual</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {batchScope === 'manual' && (
+                    <textarea
+                      value={batchManualPostPaths}
+                      onChange={(e) => setBatchManualPostPaths(e.target.value)}
+                      rows={4}
+                      className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800"
+                      placeholder="post_paths (one per line)"
+                    />
+                  )}
+
+                  <label className="flex items-center gap-2 text-xs text-blue-900 dark:text-blue-100">
+                    <input
+                      type="checkbox"
+                      checked={batchStrictMode}
+                      onChange={(e) => setBatchStrictMode(e.target.checked)}
+                      className="rounded"
+                    />
+                    strict_mode
+                  </label>
+
+                  {batchAction === 'batch_generate_export_packs' && (
+                    <div>
+                      <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">output_folder</div>
+                      <input
+                        value={batchOutputFolder}
+                        onChange={(e) => setBatchOutputFolder(e.target.value)}
+                        className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800"
+                      />
+                    </div>
+                  )}
+
+                  {batchAction === 'batch_update_status' && (
+                    <div>
+                      <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">new_status</div>
+                      <select
+                        value={batchNewStatus}
+                        onChange={(e) => setBatchNewStatus(e.target.value as any)}
+                        className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800"
+                      >
+                        <option value="draft">draft</option>
+                        <option value="review">review</option>
+                        <option value="ready">ready</option>
+                        <option value="scheduled">scheduled</option>
+                        <option value="published">published</option>
+                        <option value="measured">measured</option>
+                        <option value="archived">archived</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {batchAction === 'batch_process' && (
+                    <>
+                      <div>
+                        <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">operations (one per line)</div>
+                        <textarea
+                          value={batchOperationsText}
+                          onChange={(e) => setBatchOperationsText(e.target.value)}
+                          rows={3}
+                          className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800"
+                        />
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">operation_config (JSON)</div>
+                        <textarea
+                          value={batchOperationConfigText}
+                          onChange={(e) => setBatchOperationConfigText(e.target.value)}
+                          rows={3}
+                          className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800 font-mono"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <button
+                    onClick={() => void runBatchProcessor()}
+                    disabled={isRunning}
+                    className="w-full px-3 py-2 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Run Batch
+                  </button>
+                  {batchNotice && <div className="text-[10px] text-blue-900 dark:text-blue-100">{batchNotice}</div>}
+                </div>
+              </div>
+
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                <h5 className="text-xs font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                  Complete Workflow
+                </h5>
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">preset</div>
+                    <select
+                      value={workflowPreset}
+                      onChange={(e) => setWorkflowPreset(e.target.value as any)}
+                      className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800"
+                    >
+                      <option value="create_post_workflow">create_post_workflow</option>
+                      <option value="review_workflow">review_workflow</option>
+                      <option value="execute_workflow">execute_workflow</option>
+                    </select>
+                  </div>
+
+                  {workflowPreset === 'create_post_workflow' && (
+                    <>
+                      <textarea
+                        value={workflowPostContent}
+                        onChange={(e) => setWorkflowPostContent(e.target.value)}
+                        rows={4}
+                        className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800"
+                        placeholder="post_content"
+                      />
+                      <div>
+                        <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">target_folder</div>
+                        <input
+                          value={workflowTargetFolder}
+                          onChange={(e) => setWorkflowTargetFolder(e.target.value)}
+                          className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800"
+                        />
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">post_metadata (JSON)</div>
+                        <textarea
+                          value={workflowPostMetadataText}
+                          onChange={(e) => setWorkflowPostMetadataText(e.target.value)}
+                          rows={3}
+                          className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800 font-mono"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {workflowPreset === 'review_workflow' && (
+                    <div>
+                      <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">review_notes (JSON)</div>
+                      <textarea
+                        value={workflowReviewNotesText}
+                        onChange={(e) => setWorkflowReviewNotesText(e.target.value)}
+                        rows={3}
+                        className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800 font-mono"
+                      />
+                      <div className="text-[10px] text-blue-900 dark:text-blue-100 mt-1">
+                        Uses selected post_path: {selectedPostPath || '—'}
+                      </div>
+                    </div>
+                  )}
+
+                  {workflowPreset === 'execute_workflow' && (
+                    <>
+                      <div>
+                        <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">workflow_steps (JSON)</div>
+                        <textarea
+                          value={workflowStepsText}
+                          onChange={(e) => setWorkflowStepsText(e.target.value)}
+                          rows={4}
+                          className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-blue-900 dark:text-blue-100 mb-1">initial_context (JSON)</div>
+                        <textarea
+                          value={workflowInitialContextText}
+                          onChange={(e) => setWorkflowInitialContextText(e.target.value)}
+                          rows={3}
+                          className="w-full px-2 py-1 text-xs rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800 font-mono"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <button
+                    onClick={() => void runCompleteWorkflow()}
+                    disabled={isRunning}
+                    className="w-full px-3 py-2 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Run Workflow
+                  </button>
+                  {workflowNotice && <div className="text-[10px] text-blue-900 dark:text-blue-100">{workflowNotice}</div>}
+                </div>
+              </div>
+
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3">
+                <h5 className="text-xs font-semibold text-yellow-900 dark:text-yellow-100 mb-2">
+                  Content Validation
+                </h5>
+                <div className="space-y-1.5">
+                  <button
+                    onClick={async () => {
+                      const result = await onRunPlaybook('ig_content_checker');
+                      if (!result.success) {
+                        // Errors are handled by parent state
+                      }
+                    }}
+                    disabled={isRunning}
+                    className="w-full px-3 py-2 text-xs bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                    title={!selectedPostId ? 'Please select a post first' : 'Check content compliance of selected post'}
+                  >
+                    <CheckSquare className="w-3.5 h-3.5" />
+                    Content Check
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const result = await onRunPlaybook('ig_frontmatter_validator');
+                      if (!result.success) {
+                        // Errors are handled by parent state
+                      }
+                    }}
+                    disabled={isRunning}
+                    className="w-full px-3 py-2 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                    title={!selectedPostId ? 'Please select a post first' : 'Validate frontmatter and calculate readiness score'}
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                    Ready Score
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
+                <h5 className="text-xs font-semibold text-green-900 dark:text-green-100 mb-2">
+                  Export Package
+                </h5>
+                <button
+                  onClick={() => onRunPlaybook('ig_export_pack_generator')}
+                  disabled={isRunning}
+                  className="w-full px-3 py-2 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  title={!selectedPostId ? 'Please select a post first' : 'Generate export pack for selected post'}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export Pack
+                </button>
+              </div>
+
+              <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
+                <h5 className="text-xs font-semibold text-red-900 dark:text-red-100 mb-2">
+                  Publish / Schedule
+                </h5>
+                <button
+                  onClick={() => onRunPlaybook('ig_publish_content')}
+                  disabled={isRunning}
+                  className="w-full px-3 py-2 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  title={!selectedPostId ? 'Please select a post first' : 'Publish selected post to Instagram (account configuration required)'}
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Publish
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'ready' && (
+            <div>
+              <ReadyScore post={getSelectedPost()} apiUrl={apiUrl} workspaceId={workspaceId} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div >
+  );
+}

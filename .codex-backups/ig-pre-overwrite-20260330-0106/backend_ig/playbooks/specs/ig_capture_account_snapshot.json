@@ -1,0 +1,102 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_capture_account_snapshot",
+  "kind": "user_workflow",
+  "display_name": {
+    "zh-TW": "IG 帳號主頁快照",
+    "en": "IG Account Profile Snapshot"
+  },
+  "description": "Capture a single Instagram account profile snapshot (bio, followers, following, posts, avatar) using browser automation.",
+  "required_capabilities": [
+    "ig"
+  ],
+  "data_locality": {
+    "local_only": [
+      "user_personal_data",
+      "workspace_storage"
+    ],
+    "cloud_allowed": [
+      "account_metadata",
+      "statistics"
+    ]
+  },
+  "execution_profile": {
+    "execution_mode": "workflow",
+    "supports_resume": false,
+    "requires_human_approval": false,
+    "side_effect_level": "low",
+    "runtime_affinity": "local"
+  },
+  "inputs": {
+    "target_account_handle": {
+      "type": "string",
+      "required": true,
+      "description": "Target Instagram handle to snapshot"
+    },
+    "workspace_id": {
+      "type": "string",
+      "required": true,
+      "description": "Mindscape workspace ID"
+    },
+    "user_data_dir": {
+      "type": "string",
+      "required": false,
+      "description": "Persistent browser profile directory for Playwright"
+    }
+  },
+  "steps": [
+    {
+      "id": "capture_snapshot",
+      "tool_slot": "ig.ig_capture_account_snapshot",
+      "description": "Capture a profile snapshot for a single account",
+      "inputs": {
+        "target_account_handle": "{{input.target_account_handle}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "user_data_dir": "{{input.user_data_dir}}"
+      },
+      "outputs": {
+        "target": "target",
+        "profile": "profile",
+        "metadata": "metadata",
+        "raw": "raw"
+      }
+    }
+  ],
+  "outputs": {
+    "target": {
+      "type": "object",
+      "description": "Target account identifiers",
+      "source": "step.capture_snapshot.target"
+    },
+    "profile": {
+      "type": "object",
+      "description": "Profile snapshot",
+      "source": "step.capture_snapshot.profile"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Snapshot metadata",
+      "source": "step.capture_snapshot.metadata"
+    }
+  },
+  "output_artifacts": [
+    {
+      "id": "account_snapshot",
+      "artifact_type": "data",
+      "primary_action_type": "preview",
+      "title_template": "IG Account Snapshot - {{input.target_account_handle}}",
+      "summary_template": "Snapshot captured for {{input.target_account_handle}}",
+      "source": "step.capture_snapshot",
+      "metadata": {
+        "platform": "instagram",
+        "source": "ig_account_snapshot",
+        "workspace_id": "{{input.workspace_id}}",
+        "source_profile_ref": "{{input.user_data_dir}}",
+        "source_account_handle": "{{step.capture_snapshot.metadata.source_account_handle}}",
+        "target_account_handle": "{{input.target_account_handle}}",
+        "captured_at": "{{step.capture_snapshot.metadata.captured_at}}"
+      }
+    }
+  ]
+}
+

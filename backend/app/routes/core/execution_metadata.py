@@ -7,6 +7,7 @@ playbook_rerun.py to ensure consistent task context creation.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import logging
 import os
 from typing import Any, Dict, Optional
@@ -32,6 +33,55 @@ VALID_RESOURCE_CLASSES = {
 # Conservative default — unknown playbooks should NOT flood the api pool.
 DEFAULT_RESOURCE_CLASS = RESOURCE_CLASS_COMPUTE
 LOCAL_RUNTIME_AFFINITY_ALIASES = {"local", "local-core", "docker_local"}
+
+
+def materialize_playbook_input_defaults(
+    *,
+    playbook_run,
+    inputs: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Apply playbook input defaults to queued inputs before runner lock resolution.
+
+    Runner concurrency happens before individual tools normalize their own inputs.
+    For browser playbooks that default ``user_data_dir`` internally, queued tasks
+    must carry the same effective value or the lock key can split into multiple
+    mutex domains for the same physical browser profile.
+    """
+    normalized_inputs = dict(inputs) if isinstance(inputs, dict) else {}
+    pj = getattr(playbook_run, "playbook_json", None)
+    input_defs = getattr(pj, "inputs", None)
+    if not isinstance(input_defs, dict):
+        return normalized_inputs
+
+    for input_name, input_def in input_defs.items():
+        if not isinstance(input_name, str) or not input_name.strip():
+            continue
+        if _has_explicit_input_value(normalized_inputs.get(input_name)):
+            continue
+
+        has_default = False
+        default_value: Any = None
+        if isinstance(input_def, dict):
+            has_default = "default" in input_def
+            default_value = input_def.get("default")
+        else:
+            has_default = hasattr(input_def, "default")
+            default_value = getattr(input_def, "default", None)
+
+        if not has_default or default_value is None:
+            continue
+
+        normalized_inputs[input_name] = deepcopy(default_value)
+
+    return normalized_inputs
+
+
+def _has_explicit_input_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
 
 
 def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:

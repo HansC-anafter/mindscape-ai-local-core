@@ -1,0 +1,93 @@
+---
+playbook_code: ig_series_manager
+version: 1.0.0
+capability_code: instagram
+name: IG 系列管理
+description: 管理 IG 貼文系列，包括創建、更新、查詢和交叉引用
+tags:
+  - instagram
+  - series
+  - organization
+  - content-planning
+
+kind: user_workflow
+interaction_mode:
+  - conversational
+visible_in:
+  - workspace_tools_panel
+  - workspace_playbook_menu
+
+required_tools:
+  - ig_series_manager_tool
+
+language_strategy: model_native
+locale: zh-TW
+supported_locales:
+  - zh-TW
+  - en
+default_locale: zh-TW
+auto_localize: true
+
+entry_agent_type: writer
+icon: 📚
+---
+
+# IG 系列管理
+
+## 目標
+
+管理 IG 貼文系列，包括創建、新增貼文、查詢和系列中貼文之間的交叉引用。
+
+## 功能說明
+
+這個 Playbook 會：
+
+1. **創建系列**：創建新貼文系列
+2. **新增貼文**：將貼文新增到系列
+3. **取得系列**：取得系列資訊
+4. **列出系列**：列出所有系列
+5. **取得貼文**：取得系列中的所有貼文
+6. **取得上一個/下一個**：取得系列中的上一個和下一個貼文
+7. **更新進度**：更新系列進度
+
+## 使用情境
+
+- 將貼文組織成系列
+- 追蹤系列進度
+- 在系列貼文之間導航
+- 管理多部分內容
+
+## 輸入
+
+- `action`: 要執行的動作 - "create"、"add_post"、"get"、"list"、"get_posts"、"get_previous_next" 或 "update_progress"（必填）
+- `vault_path`: Obsidian Vault 路徑（必填）
+- `series_code`: 系列代碼（大多數動作需要）
+- `series_name`: 系列名稱（create 動作需要）
+- `description`: 系列描述（選填）
+- `total_posts`: 計劃的貼文總數（選填）
+- `post_path`: 貼文檔案路徑（add_post 動作需要）
+- `post_slug`: 貼文 slug（add_post 動作需要）
+- `post_number`: 系列中的貼文編號（選填，如果未提供則自動遞增）
+- `current_post_number`: 當前貼文編號（get_previous_next 動作需要）
+
+## 輸出
+
+- `series`: 系列資訊
+- `series_list`: 所有系列清單
+- `posts`: 系列中的貼文清單
+- `previous`: 系列中的上一個貼文
+- `next`: 系列中的下一個貼文
+
+## 步驟（概念性）
+
+1. 創建系列或將貼文新增到現有系列
+2. 查詢系列資訊或列出所有系列
+3. 取得上一個/下一個貼文以進行導航
+4. 更新系列進度
+
+## 備註
+
+- 支援自動遞增貼文編號
+- 啟用系列貼文之間的交叉引用
+- 自動追蹤系列進度
+

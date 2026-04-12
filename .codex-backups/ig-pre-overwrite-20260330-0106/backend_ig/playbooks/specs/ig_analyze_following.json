@@ -1,0 +1,183 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_analyze_following",
+  "kind": "user_workflow",
+  "display_name": {
+    "zh-TW": "IG 追蹤帳號分析",
+    "en": "IG Following Account Analysis"
+  },
+  "description": "Extract Instagram following list and analyze account pages with browser automation. Uses Playwright to navigate Instagram, extract following list, and visit account pages for statistics.\n\n⚠️ **Requirements**:\n- Requires browser automation (Playwright)\n- Must be logged into Instagram account\n- May require manual intervention for authentication",
+  "required_capabilities": [
+    "ig"
+  ],
+  "data_locality": {
+    "local_only": [
+      "user_personal_data",
+      "workspace_storage"
+    ],
+    "cloud_allowed": [
+      "account_metadata",
+      "statistics"
+    ]
+  },
+  "execution_profile": {
+    "execution_mode": "workflow",
+    "supports_resume": false,
+    "requires_human_approval": false,
+    "side_effect_level": "low",
+    "runtime_affinity": "local",
+    "resource_class": "browser",
+    "queue_shard": "ig_browser",
+    "runner_timeout_seconds": 43200
+  },
+  "concurrency": {
+    "lock_key_input": "user_data_dir",
+    "max_parallel": 1,
+    "lock_scope": "playbook_input"
+  },
+  "lifecycle_hooks": {
+    "on_queue": {
+      "tool_slot": "ig.register_seed_immediately",
+      "inputs_map": {
+        "workspace_id": "{{input.workspace_id}}",
+        "seed": "{{input.target_username}}",
+        "execution_id": "{{context.execution_id}}"
+      }
+    },
+    "on_fail": {
+      "tool_slot": "ig.ig_auto_resume_handler",
+      "inputs_map": {
+        "task_id": "{{context.task_id}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "failure_reason": "{{context.error}}"
+      }
+    }
+  },
+  "rerun": {
+    "required_inputs": [
+      "target_username"
+    ],
+    "input_resolver": {
+      "tool_slot": "ig.resolve_following_rerun_inputs",
+      "inputs_map": {
+        "workspace_id": "{{context.workspace_id}}",
+        "execution_id": "{{context.original_execution_id}}",
+        "original_inputs": "{{context.inputs}}"
+      }
+    }
+  },
+  "inputs": {
+    "target_username": {
+      "type": "string",
+      "required": true,
+      "description": "Target Instagram username to extract following list from"
+    },
+    "workspace_id": {
+      "type": "string",
+      "required": true,
+      "description": "Mindscape workspace ID"
+    },
+    "max_accounts": {
+      "type": "integer",
+      "required": false,
+      "description": "Maximum number of accounts to process (None = all)"
+    },
+    "visit_account_pages": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether to visit each account page for statistics and data extraction"
+    },
+    "user_data_dir": {
+      "type": "string",
+      "required": false,
+      "default": "/app/data/ig-browser-profiles/default",
+      "description": "Optional persistent browser profile directory for Playwright"
+    },
+    "run_mode": {
+      "type": "string",
+      "required": false,
+      "default": "full",
+      "description": "Execution mode: 'full' (default), 'list' (scroll only), 'visit' (visit pages using existing list)"
+    },
+    "allow_partial_resume": {
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "description": "Allow resuming with an incomplete list when run_mode='visit'"
+    },
+    "seed_posts_count": {
+      "type": "integer",
+      "required": false,
+      "default": 30,
+      "description": "Number of seed account posts to extract before scrolling (0 to skip)"
+    }
+  },
+  "steps": [
+    {
+      "id": "analyze_following",
+      "tool_slot": "ig.ig_analyze_following",
+      "description": "Extract following list and analyze account pages",
+      "inputs": {
+        "target_username": "{{input.target_username}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "max_accounts": "{{input.max_accounts}}",
+        "visit_account_pages": "{{input.visit_account_pages}}",
+        "user_data_dir": "{{input.user_data_dir}}",
+        "run_mode": "{{input.run_mode}}",
+        "allow_partial_resume": "{{input.allow_partial_resume}}",
+        "seed_posts_count": "{{input.seed_posts_count}}",
+        "trace_id": "{{context.execution_id}}"
+      },
+      "outputs": {
+        "summary": "summary",
+        "accounts": "accounts",
+        "metadata": "metadata"
+      }
+    }
+  ],
+  "outputs": {
+    "summary": {
+      "type": "object",
+      "description": "Analysis summary statistics",
+      "source": "step.analyze_following.summary"
+    },
+    "accounts": {
+      "type": "list[object]",
+      "description": "List of account data with page statistics",
+      "source": "step.analyze_following.accounts"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Analysis metadata",
+      "source": "step.analyze_following.metadata"
+    }
+  },
+  "output_artifacts": [
+    {
+      "id": "following_analysis",
+      "artifact_type": "data",
+      "primary_action_type": "preview",
+      "title_template": "IG Following Analysis - {{input.target_username}}",
+      "summary_template": "Analyzed {{step.analyze_following.summary.total_accounts}} following accounts from {{input.target_username}}",
+      "source": "step.analyze_following",
+      "file_write": {
+        "enabled": true,
+        "file_name_template": "ig_following_analysis_{{input.target_username}}_{{execution_id}}.json",
+        "encoding": "utf-8"
+      },
+      "metadata": {
+        "platform": "instagram",
+        "source": "ig_analyze_following",
+        "schema_version": "ig.following_list.v1",
+        "seed_version": "{{context.execution_id}}",
+        "target_username": "{{input.target_username}}",
+        "target_seed": "{{input.target_username}}",
+        "capture_method": "following_list",
+        "source_profile_ref": "{{input.user_data_dir}}",
+        "source_account_handle": "{{step.analyze_following.metadata.source_account_handle}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "total_accounts": "{{step.analyze_following.summary.total_accounts}}"
+      }
+    }
+  ]
+}

@@ -177,6 +177,35 @@ def test_parse_program_spec_from_output_accepts_structured_workstreams():
     assert program_spec.workstreams[1].eligible_engines == ["tool:storyboard.generate"]
 
 
+def test_parse_program_spec_from_output_sanitizes_evidence_gate_pd_session_intake():
+    executor_output = json.dumps(
+        {
+            "workstreams": [
+                {
+                    "id": "WS1",
+                    "name": "核心前提與證據分級",
+                    "description": (
+                        "建立品牌類別、核心服務、商業目標、主要轉換事件、受眾與"
+                        "風險邊界的前提清單，逐項標示已確認、工作假設、待驗證、"
+                        "來源等級、缺口與是否可下游使用。"
+                    ),
+                    "estimated_units": 5,
+                    "eligible_engines": ["playbook:pd_session_intake"],
+                }
+            ],
+            "dependency_graph": {"WS1": []},
+            "target_outputs": ["persona_operating_system.md"],
+        }
+    )
+
+    program_spec = parse_program_spec_from_output(executor_output)
+
+    assert program_spec is not None
+    assert program_spec.workstreams[0].eligible_engines == [
+        "playbook:cis_behavior_identity"
+    ]
+
+
 @pytest.mark.asyncio
 async def test_stage_extract_actions_persists_executor_structured_program_spec():
     session = MeetingSession.new(
@@ -228,6 +257,49 @@ async def test_stage_extract_actions_persists_executor_structured_program_spec()
     }
     assert session.metadata["last_program_spec"]["dependency_graph"]["WS2"] == ["WS1"]
     assert engine.session_store.updated_sessions[-1] is session
+
+
+@pytest.mark.asyncio
+async def test_stage_extract_actions_persists_sanitized_evidence_gate_program_spec():
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        agenda=["Sanitize evidence gate workstream engine"],
+    )
+    executor_output = json.dumps(
+        {
+            "workstreams": [
+                {
+                    "id": "WS1",
+                    "name": "核心前提與證據分級",
+                    "description": (
+                        "建立品牌類別、核心服務、商業目標、主要轉換事件、受眾與"
+                        "風險邊界的前提清單，逐項標示已確認、工作假設、待驗證、"
+                        "來源等級、缺口與是否可下游使用。"
+                    ),
+                    "estimated_units": 5,
+                    "eligible_engines": ["playbook:pd_session_intake"],
+                }
+            ],
+            "dependency_graph": {"WS1": []},
+            "target_outputs": ["persona_operating_system.md"],
+        }
+    )
+    engine = _ActionStageHarness(session=session, executor_output=executor_output)
+
+    action_intents, _action_items = await engine._stage_extract_actions(
+        decision="Create a publishable brand operating system package.",
+        user_message="Build the longtask package.",
+        critic_notes=[],
+        planner_proposals=[],
+    )
+
+    assert len(action_intents) == 1
+    assert action_intents[0].playbook_code == "cis_behavior_identity"
+    assert session.metadata["last_program_spec"]["workstreams"][0][
+        "eligible_engines"
+    ] == ["playbook:cis_behavior_identity"]
 
 
 @pytest.mark.asyncio

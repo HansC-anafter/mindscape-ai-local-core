@@ -182,6 +182,11 @@ def _normalized_scene_context(value: Any) -> Dict[str, Any]:
         if isinstance(scene_context.get("scene_consistency_contract"), dict)
         else {}
     )
+    world_interchange_refs = [
+        dict(item)
+        for item in (scene_context.get("world_interchange_refs") or [])
+        if isinstance(item, dict)
+    ]
     control_refs = [
         dict(item)
         for item in (scene_context.get("scene_control_refs") or [])
@@ -206,6 +211,14 @@ def _normalized_scene_context(value: Any) -> Dict[str, Any]:
         and isinstance(scene_payload.get("scene_consistency_contract"), dict)
     ):
         consistency_contract = dict(scene_payload.get("scene_consistency_contract") or {})
+    if not world_interchange_refs and isinstance(
+        scene_payload.get("world_interchange_refs"), list
+    ):
+        world_interchange_refs = [
+            dict(item)
+            for item in (scene_payload.get("world_interchange_refs") or [])
+            if isinstance(item, dict)
+        ]
     if not control_refs and isinstance(scene_package_ref.get("control_refs"), list):
         control_refs = [
             dict(item)
@@ -228,6 +241,8 @@ def _normalized_scene_context(value: Any) -> Dict[str, Any]:
         normalized["scene_package_ref"] = scene_package_ref
     if consistency_contract:
         normalized["scene_consistency_contract"] = consistency_contract
+    if world_interchange_refs:
+        normalized["world_interchange_refs"] = world_interchange_refs
     if control_refs:
         normalized["scene_control_refs"] = control_refs
     if spatial_metadata:
@@ -482,6 +497,14 @@ def _scene_payload_from_request(request_content: Dict[str, Any]) -> Dict[str, An
         scene_payload["scene_consistency_contract"] = dict(
             scene_context.get("scene_consistency_contract") or {}
         )
+    if not scene_payload.get("world_interchange_refs") and isinstance(
+        scene_context.get("world_interchange_refs"), list
+    ):
+        scene_payload["world_interchange_refs"] = [
+            dict(item)
+            for item in (scene_context.get("world_interchange_refs") or [])
+            if isinstance(item, dict)
+        ]
     scene_package_ref = (
         dict(scene_payload.get("scene_package_ref") or {})
         if isinstance(scene_payload.get("scene_package_ref"), dict)

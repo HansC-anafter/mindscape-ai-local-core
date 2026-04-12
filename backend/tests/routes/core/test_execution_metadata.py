@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from backend.app.routes.core.execution_metadata import (
+    materialize_playbook_input_defaults,
     resolve_runner_metadata,
     seed_playbook_workload_execution_intent,
     should_route_through_runner,
@@ -128,3 +129,50 @@ def test_seed_playbook_workload_execution_intent_preserves_existing_payload():
     )
 
     assert seeded["workload_execution_intent"]["workspace_id"] == "ws-explicit"
+
+
+def test_materialize_playbook_input_defaults_applies_missing_and_blank_values():
+    playbook_run = SimpleNamespace(
+        playbook=None,
+        playbook_json=SimpleNamespace(
+            inputs={
+                "user_data_dir": SimpleNamespace(
+                    default="/app/data/ig-browser-profiles/default"
+                ),
+                "visit_account_pages": SimpleNamespace(default=True),
+            }
+        ),
+    )
+
+    seeded = materialize_playbook_input_defaults(
+        playbook_run=playbook_run,
+        inputs={"user_data_dir": "   "},
+    )
+
+    assert seeded["user_data_dir"] == "/app/data/ig-browser-profiles/default"
+    assert seeded["visit_account_pages"] is True
+
+
+def test_materialize_playbook_input_defaults_preserves_explicit_values():
+    playbook_run = SimpleNamespace(
+        playbook=None,
+        playbook_json=SimpleNamespace(
+            inputs={
+                "user_data_dir": SimpleNamespace(
+                    default="/app/data/ig-browser-profiles/default"
+                ),
+                "visit_account_pages": SimpleNamespace(default=True),
+            }
+        ),
+    )
+
+    seeded = materialize_playbook_input_defaults(
+        playbook_run=playbook_run,
+        inputs={
+            "user_data_dir": "/app/data/ig-browser-profiles/custom",
+            "visit_account_pages": False,
+        },
+    )
+
+    assert seeded["user_data_dir"] == "/app/data/ig-browser-profiles/custom"
+    assert seeded["visit_account_pages"] is False

@@ -1,0 +1,172 @@
+{
+    "version": "1.0.0",
+    "playbook_code": "ig_generate_personas",
+    "kind": "user_workflow",
+    "display_name": {
+        "zh-TW": "AI 畫像生成",
+        "en": "AI Persona Generation"
+    },
+    "description": {
+        "zh-TW": "整合帳號、內容、網絡資料，用 LLM 生成用戶畫像",
+        "en": "Synthesize account, content, and network data to generate AI-driven personas"
+    },
+    "execution_profile": {
+        "execution_mode": "workflow",
+        "runtime_affinity": "local"
+    },
+    "required_capabilities": [
+        "ig.ig_persona_generator",
+        "core_llm.structured_extract_batch"
+    ],
+    "data_locality": {
+        "local_only": [],
+        "cloud_allowed": [
+            "ig_generated_personas",
+            "ig_account_profiles",
+            "ig_posts"
+        ]
+    },
+    "inputs": {
+        "workspace_id": {
+            "type": "string",
+            "required": true,
+            "description": {
+                "zh-TW": "工作區 ID",
+                "en": "Workspace ID"
+            }
+        },
+        "target_handles": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "required": true,
+            "description": {
+                "zh-TW": "目標帳號列表",
+                "en": "Target accounts"
+            }
+        },
+        "model": {
+            "type": "string",
+            "default": "gpt-4o-mini",
+            "description": {
+                "zh-TW": "LLM 模型",
+                "en": "LLM model"
+            }
+        },
+        "batch_size": {
+            "type": "integer",
+            "default": 10,
+            "description": {
+                "zh-TW": "批次大小",
+                "en": "Batch size"
+            }
+        }
+    },
+    "steps": [
+        {
+            "id": "collect_data",
+            "tool_slot": "ig.ig_persona_generator",
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "target_handles": "{{input.target_handles}}",
+                "mode": "collect",
+                "batch_size": "{{input.batch_size}}"
+            },
+            "outputs": {
+                "account_data": "account_data",
+                "prompts": "prompts"
+            }
+        },
+        {
+            "id": "generate_personas",
+            "tool_slot": "core_llm.structured_extract_batch",
+            "inputs": {
+                "prompts": "{{step.collect_data.prompts}}",
+                "handles": "{{input.target_handles}}",
+                "schema": {
+                    "persona_summary": {
+                        "type": "string"
+                    },
+                    "key_traits": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "content_themes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "demographics": {
+                        "type": "object",
+                        "properties": {
+                            "age_range": {
+                                "type": "string"
+                            },
+                            "gender": {
+                                "type": "string"
+                            },
+                            "location_type": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "collaboration_potential": {
+                        "type": "number"
+                    },
+                    "recommended_approach": {
+                        "type": "string"
+                    }
+                },
+                "model": "{{input.model}}",
+                "cache_key": "ig_personas_{{input.workspace_id}}_{{context.execution_id}}"
+            },
+            "outputs": {
+                "personas": "results"
+            }
+        },
+        {
+            "id": "persist_personas",
+            "tool_slot": "ig.ig_persona_generator",
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "target_handles": "{{input.target_handles}}",
+                "mode": "persist",
+                "personas_from_llm": "{{step.generate_personas.personas}}",
+                "model": "{{input.model}}"
+            },
+            "outputs": {
+                "persisted_count": "persisted_count"
+            }
+        }
+    ],
+    "outputs": {
+        "personas_generated": {
+            "type": "integer",
+            "source": "step.persist_personas.persisted_count"
+        }
+    },
+    "output_artifacts": [
+        {
+            "id": "personas",
+            "artifact_type": "data",
+            "primary_action_type": "preview",
+            "title_template": "AI Personas - {{input.target_handles.length}} accounts",
+            "summary_template": "Generated {{step.persist_personas.persisted_count}} personas",
+            "source": "step.generate_personas",
+            "file_write": {
+                "enabled": true,
+                "file_name_template": "ig_personas_{{execution_id}}.json",
+                "encoding": "utf-8"
+            },
+            "metadata": {
+                "platform": "instagram",
+                "source": "ig_generate_personas",
+                "schema_version": "ig.persona.v1"
+            }
+        }
+    ]
+}

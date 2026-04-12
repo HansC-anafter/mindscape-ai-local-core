@@ -37,6 +37,61 @@ class WorldCardProjectionCompiler:
             if fps is not None:
                 line += f" @ {fps}fps"
             summary_lines.append(line)
+        motion_freshness = str(packet.metadata.get("motion_freshness") or "").strip()
+        if motion_freshness:
+            summary_lines.append(f"Motion context freshness: {motion_freshness}")
+        motion_source_run_id = str(packet.metadata.get("motion_source_run_id") or "").strip()
+        if motion_source_run_id:
+            suggested_focus.append(f"Motion run: {motion_source_run_id}")
+        if packet.performance_state:
+            performance_mode = str(
+                packet.performance_state.get("performance_mode") or ""
+            ).strip()
+            if performance_mode:
+                summary_lines.append(f"Performance mode: {performance_mode}")
+            preview_ready_state = str(
+                packet.performance_state.get("preview_ready_state") or ""
+            ).strip()
+            if preview_ready_state:
+                summary_lines.append(
+                    f"Performance preview state: {preview_ready_state}"
+                )
+            face_source_type = str(
+                packet.performance_state.get("face_source_type") or ""
+            ).strip()
+            if face_source_type and face_source_type != "none":
+                face_lane_state = (
+                    "active"
+                    if bool(packet.performance_state.get("face_lane_active"))
+                    else "inactive"
+                )
+                summary_lines.append(
+                    f"Face lane: {face_lane_state} ({face_source_type})"
+                )
+            body_source_type = str(
+                packet.performance_state.get("body_source_type") or ""
+            ).strip()
+            if body_source_type and body_source_type != "none":
+                body_lane_state = (
+                    "active"
+                    if bool(packet.performance_state.get("body_lane_active"))
+                    else "inactive"
+                )
+                summary_lines.append(
+                    f"Body lane: {body_lane_state} ({body_source_type})"
+                )
+        performance_freshness = str(
+            packet.metadata.get("performance_freshness") or ""
+        ).strip()
+        if performance_freshness:
+            summary_lines.append(
+                f"Performance context freshness: {performance_freshness}"
+            )
+        performance_source_run_id = str(
+            packet.metadata.get("performance_source_run_id") or ""
+        ).strip()
+        if performance_source_run_id:
+            suggested_focus.append(f"Performance run: {performance_source_run_id}")
         if packet.geo_anchor:
             lat = packet.geo_anchor.get("lat")
             lng = packet.geo_anchor.get("lng")
@@ -69,14 +124,42 @@ class WorldCardProjectionCompiler:
                 if kind:
                     artifact_kinds.append(kind)
             if artifact_kinds:
-                suggested_focus.append(
-                    "Motion artifacts: " + ", ".join(artifact_kinds)
+                summary_lines.append(
+                    "Motion artifacts ready: " + ", ".join(artifact_kinds)
                 )
 
         for key, value in packet.resource_constraints.items():
             constraints.append(f"{key}={value}")
         for key, value in packet.motion_constraints.items():
             constraints.append(f"motion_{key}={value}")
+        motion_stale_reason = str(packet.metadata.get("motion_stale_reason") or "").strip()
+        if motion_freshness:
+            constraints.append(f"motion_freshness={motion_freshness}")
+        if motion_stale_reason:
+            constraints.append(f"motion_stale_reason={motion_stale_reason}")
+        performance_execution_bridge = str(
+            packet.metadata.get("performance_execution_bridge") or ""
+        ).strip()
+        performance_stale_reason = str(
+            packet.metadata.get("performance_stale_reason") or ""
+        ).strip()
+        performance_retarget_ready_state = str(
+            packet.performance_state.get("retarget_ready_state") or ""
+        ).strip()
+        if performance_freshness:
+            constraints.append(f"performance_freshness={performance_freshness}")
+        if performance_stale_reason:
+            constraints.append(
+                f"performance_stale_reason={performance_stale_reason}"
+            )
+        if performance_execution_bridge:
+            constraints.append(
+                f"performance_execution_bridge={performance_execution_bridge}"
+            )
+        if performance_retarget_ready_state:
+            constraints.append(
+                f"performance_retarget_ready_state={performance_retarget_ready_state}"
+            )
 
         if not summary_lines:
             summary_lines.append("No explicit world scene is active yet.")

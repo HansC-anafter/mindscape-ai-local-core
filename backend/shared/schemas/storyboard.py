@@ -24,6 +24,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from .motion_generation_receipt import MotionGenerationReceipt
+
 
 class NarrativeRole(str, Enum):
     ESTABLISH_STATE = "establish_state"
@@ -81,6 +83,10 @@ class QualityGateState(str, Enum):
     AUTO_APPROVED = "auto_approved"
     MANUAL_REQUIRED = "manual_required"
     ESCALATE_LOCAL_SCENE = "escalate_local_scene"
+
+
+class WorldInterchangeKind(str, Enum):
+    OPENUSD = "openusd"
 
 
 OBJECT_REUSE_SCHEMA_VERSION = "object_reuse.v1"
@@ -580,6 +586,37 @@ class ScenePackageRef(BaseModel):
         return self
 
 
+class WorldInterchangeRef(BaseModel):
+    kind: WorldInterchangeKind = WorldInterchangeKind.OPENUSD
+    stage_ref: dict[str, Any] = Field(default_factory=dict)
+    entry_layer_ref: dict[str, Any] = Field(default_factory=dict)
+    layer_refs: list[dict[str, Any]] = Field(default_factory=list)
+    variant_selections: dict[str, str] = Field(default_factory=dict)
+    composition_metadata: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "WorldInterchangeRef":
+        if not isinstance(self.stage_ref, dict):
+            self.stage_ref = {}
+        if not isinstance(self.entry_layer_ref, dict):
+            self.entry_layer_ref = {}
+        self.layer_refs = _normalize_structured_dict_list(self.layer_refs)
+        normalized_variants: dict[str, str] = {}
+        if isinstance(self.variant_selections, dict):
+            for raw_key, raw_value in self.variant_selections.items():
+                key = str(raw_key or "").strip()
+                value = str(raw_value or "").strip()
+                if key and value:
+                    normalized_variants[key] = value
+        self.variant_selections = normalized_variants
+        if not isinstance(self.composition_metadata, dict):
+            self.composition_metadata = {}
+        if not isinstance(self.provenance, dict):
+            self.provenance = {}
+        return self
+
+
 class DirectionIR(BaseModel):
     ir_id: str = Field(default_factory=lambda: f"ir_{uuid.uuid4().hex[:12]}")
     intent: SceneIntent = Field(default_factory=SceneIntent)
@@ -682,6 +719,8 @@ class Scene(BaseModel):
     direction_ir: Optional[DirectionIR] = None
     scene_package_selector: Optional[ScenePackageSelector] = None
     scene_package_ref: Optional[ScenePackageRef] = None
+    world_interchange_refs: list[WorldInterchangeRef] = Field(default_factory=list)
+    motion_receipt: Optional[MotionGenerationReceipt] = None
     scene_consistency_contract: SceneConsistencyContract = Field(
         default_factory=SceneConsistencyContract
     )

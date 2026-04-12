@@ -1,0 +1,234 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_publish_content",
+  "kind": "user_workflow",
+  "display_name": {
+    "zh-TW": "IG 內容發布",
+    "en": "IG Content Publish"
+  },
+  "description": "發布內容到 Instagram（支持 photo、reel、carousel）。\n\n⚠️ **前置要求**：\n- 必須先在 site-hub 完成 Instagram OAuth 授權和 Channel 綁定\n- 需要有效的 channel_config_id（由 site-hub 管理）\n- Token 和授權由 site-hub 統一管理，本 playbook 只負責發布內容\n\n**功能**：\n- 支持發布 photo（支持延遲發布，最多 6 個月後）\n- 支持發布 reel（不支持延遲發布，必須立即發布）\n- 支持發布 carousel（多張圖片）\n- ⚠️ **不支持發布 Stories**（Graph API 限制，只能拉取）\n\n**媒體限制**：\n- Photo: JPEG/PNG, 最大 30MB, 支持延遲發布\n- Reel: MP4/MOV, 3-90 秒, 最大 100MB, 不支持延遲發布\n- Carousel: 支持多張圖片，每張限制同 Photo",
+  "required_capabilities": [
+    "ig"
+  ],
+  "data_locality": {
+    "local_only": [
+      "user_personal_data",
+      "workspace_storage",
+      "media_files"
+    ],
+    "cloud_allowed": [
+      "published_content_metadata",
+      "engagement_metrics"
+    ]
+  },
+  "execution_profile": {
+    "execution_mode": "conversational",
+    "supports_resume": false,
+    "requires_human_approval": true,
+    "side_effect_level": "high",
+    "runtime_affinity": "local"
+  },
+  "inputs": {
+    "channel_config_id": {
+      "type": "integer",
+      "required": true,
+      "description": "Channel Config ID（由 site-hub 管理，必須先在 site-hub 完成 IG OAuth 授權）"
+    },
+    "workspace_id": {
+      "type": "string",
+      "required": true,
+      "description": "Mindscape workspace ID（用於讀取媒體文件）"
+    },
+    "media_type": {
+      "type": "string",
+      "enum": ["photo", "reel", "carousel"],
+      "required": true,
+      "description": "媒體類型（⚠️ 不支持 story，Graph API 限制）"
+    },
+    "media_path": {
+      "type": "string",
+      "required": true,
+      "description": "媒體文件路徑（workspace 內的相對路徑或絕對路徑）"
+    },
+    "caption": {
+      "type": "string",
+      "required": true,
+      "description": "貼文標題/描述"
+    },
+    "hashtags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "required": false,
+      "description": "Hashtags 列表（可選，會自動添加到 caption）"
+    },
+    "scheduled_publish_time": {
+      "type": "string",
+      "required": false,
+      "description": "延遲發布時間（ISO 8601 格式，僅支持 photo，最多 6 個月後）"
+    },
+    "location_id": {
+      "type": "string",
+      "required": false,
+      "description": "位置 ID（可選）"
+    },
+    "user_tags": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "required": false,
+      "description": "用戶標籤列表（可選）"
+    },
+    "post_id": {
+      "type": "string",
+      "required": false,
+      "description": "Post ID（可選，用於追蹤發布的貼文，若不提供則使用 'auto'）"
+    }
+  },
+  "steps": [
+    {
+      "id": "validate_media",
+      "tool_slot": "ig.ig_validate_media",
+      "description": "驗證媒體文件格式和大小限制",
+      "inputs": {
+        "media_path": "{{input.media_path}}",
+        "media_type": "{{input.media_type}}",
+        "workspace_id": "{{input.workspace_id}}"
+      },
+      "outputs": {
+        "validation_result": "validation_result",
+        "media_info": "media_info"
+      }
+    },
+    {
+      "id": "publish_photo",
+      "tool_slot": "ig.ig_publish_post",
+      "description": "發布 photo 到 Instagram",
+      "inputs": {
+        "channel_config_id": "{{input.channel_config_id}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "post_id": "{{input.post_id or 'auto'}}",
+        "media_type": "photo",
+        "media_path": "{{input.media_path}}",
+        "caption": "{{input.caption}}{% if input.hashtags %} {% for tag in input.hashtags %}#{{tag}} {% endfor %}{% endif %}",
+        "scheduled_publish_time": "{{input.scheduled_publish_time}}",
+        "location_id": "{{input.location_id}}",
+        "user_tags": "{{input.user_tags}}"
+      },
+      "outputs": {
+        "published_post": "published_post",
+        "media_id": "media_id",
+        "permalink": "permalink"
+      },
+      "condition": "{{input.media_type == 'photo' and step.validate_media.validation_result.valid}}",
+      "depends_on": [
+        "validate_media"
+      ]
+    },
+    {
+      "id": "publish_reel",
+      "tool_slot": "ig.ig_publish_post",
+      "description": "發布 reel 到 Instagram",
+      "inputs": {
+        "channel_config_id": "{{input.channel_config_id}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "post_id": "{{input.post_id or 'auto'}}",
+        "media_type": "reel",
+        "media_path": "{{input.media_path}}",
+        "caption": "{{input.caption}}{% if input.hashtags %} {% for tag in input.hashtags %}#{{tag}} {% endfor %}{% endif %}",
+        "cover_url": "{{input.cover_url}}",
+        "share_to_feed": "{{input.share_to_feed or true}}"
+      },
+      "outputs": {
+        "published_reel": "published_reel",
+        "media_id": "media_id",
+        "permalink": "permalink"
+      },
+      "condition": "{{input.media_type == 'reel' and step.validate_media.validation_result.valid}}",
+      "depends_on": [
+        "validate_media"
+      ]
+    },
+    {
+      "id": "publish_carousel",
+      "tool_slot": "ig.ig_publish_post",
+      "description": "發布 carousel 到 Instagram",
+      "inputs": {
+        "channel_config_id": "{{input.channel_config_id}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "post_id": "{{input.post_id or 'auto'}}",
+        "media_type": "carousel",
+        "media_path": "{{input.media_path}}",
+        "caption": "{{input.caption}}{% if input.hashtags %} {% for tag in input.hashtags %}#{{tag}} {% endfor %}{% endif %}",
+        "scheduled_publish_time": "{{input.scheduled_publish_time}}",
+        "location_id": "{{input.location_id}}"
+      },
+      "outputs": {
+        "published_carousel": "published_carousel",
+        "media_id": "media_id",
+        "permalink": "permalink"
+      },
+      "condition": "{{input.media_type == 'carousel' and step.validate_media.validation_result.valid}}",
+      "depends_on": [
+        "validate_media"
+      ]
+    }
+  ],
+  "outputs": {
+    "published_post": {
+      "type": "object",
+      "description": "發布的 post 信息（photo）",
+      "source": "step.publish_photo.published_post"
+    },
+    "published_reel": {
+      "type": "object",
+      "description": "發布的 reel 信息",
+      "source": "step.publish_reel.published_reel"
+    },
+    "published_carousel": {
+      "type": "object",
+      "description": "發布的 carousel 信息",
+      "source": "step.publish_carousel.published_carousel"
+    },
+    "media_id": {
+      "type": "string",
+      "description": "發布的媒體 ID",
+      "source": "step.publish_photo.media_id or step.publish_reel.media_id or step.publish_carousel.media_id"
+    },
+    "permalink": {
+      "type": "string",
+      "description": "發布內容的永久連結",
+      "source": "step.publish_photo.permalink or step.publish_reel.permalink or step.publish_carousel.permalink"
+    },
+    "validation_result": {
+      "type": "object",
+      "description": "媒體驗證結果",
+      "source": "step.validate_media.validation_result"
+    }
+  },
+  "output_artifacts": [
+    {
+      "id": "published_content",
+      "artifact_type": "post",
+      "primary_action_type": "open_url",
+      "title_template": "IG 內容發布成功 - {{input.media_type}}",
+      "summary_template": "已發布 {{input.media_type}} 到 Instagram（channel_config_id: {{input.channel_config_id}}）",
+      "source": "step.publish_photo.published_post or step.publish_reel.published_reel or step.publish_carousel.published_carousel",
+      "file_write": {
+        "enabled": true,
+        "file_name_template": "ig_published_{{input.media_type}}_{{timestamp}}.json",
+        "encoding": "utf-8"
+      },
+      "metadata": {
+        "channel_config_id": "{{input.channel_config_id}}",
+        "media_type": "{{input.media_type}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "media_id": "{{outputs.media_id}}",
+        "permalink": "{{outputs.permalink}}"
+      }
+    }
+  ]
+}
+

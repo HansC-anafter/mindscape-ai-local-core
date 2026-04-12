@@ -1,0 +1,80 @@
+{
+    "version": "1.0.0",
+    "playbook_code": "ig_analyze_after_visit",
+    "kind": "user_workflow",
+    "display_name": {
+        "en": "Analyze Visited Account",
+        "zh-TW": "分析已造訪帳號"
+    },
+    "description": "Tag a visited IG account and route already captured posts into the standard reference pin + analysis queue without reopening the browser.",
+    "execution_profile": {
+        "execution_mode": "workflow",
+        "runtime_affinity": "local",
+        "reasoning": "standard",
+        "modalities": ["text", "vision"],
+        "output_mode": "freeform",
+        "context_need": "medium",
+        "locality": "either"
+    },
+    "required_capabilities": [
+        "ig.ig_profile_tagger",
+        "ig.ig_batch_pin_tool"
+    ],
+    "data_locality": {
+        "local_only": [],
+        "cloud_allowed": [
+            "ig_posts",
+            "ig_account_profiles",
+            "ig_accounts_flat"
+        ]
+    },
+    "inputs": {
+        "workspace_id": {
+            "type": "string",
+            "required": true,
+            "description": "Workspace ID"
+        },
+        "target_username": {
+            "type": "string",
+            "required": true,
+            "description": "The exact IG handle of the target account"
+        },
+        "target_count": {
+            "type": "integer",
+            "required": false,
+            "default": 9,
+            "description": "How many already captured posts to route into the standard reference pipeline"
+        }
+    },
+    "steps": [
+        {
+            "id": "tagging",
+            "tool_slot": "ig.ig_profile_tagger",
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "seed": "{{input.target_username}}",
+                "handle": "{{input.target_username}}"
+            },
+            "outputs": {
+                "result": "result"
+            }
+        },
+        {
+            "id": "pin_captured_posts",
+            "tool_slot": "ig.ig_batch_pin_tool",
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "target_handle": "{{input.target_username}}",
+                "target_count": "{{input.target_count}}",
+                "source_mode": "captured_posts"
+            },
+            "outputs": {
+                "result": "result"
+            }
+        }
+    ],
+    "outputs": {
+        "tagging_result": "{{step.tagging.result}}",
+        "batch_pin_result": "{{step.pin_captured_posts.result}}"
+    }
+}

@@ -328,12 +328,14 @@ def _scene_context_payload(scene: Any) -> Dict[str, Any]:
 
     raw_scene_package_selector = _field_value(scene, "scene_package_selector", None)
     raw_scene_package_ref = _field_value(scene, "scene_package_ref", None)
+    raw_world_interchange_refs = _field_value(scene, "world_interchange_refs", None)
     raw_scene_consistency_contract = _field_value(
         scene, "scene_consistency_contract", None
     )
 
     scene_package_selector = _jsonable(raw_scene_package_selector)
     scene_package_ref = _jsonable(raw_scene_package_ref)
+    world_interchange_refs = _jsonable(raw_world_interchange_refs)
     scene_consistency_contract = _jsonable(raw_scene_consistency_contract)
 
     scene_context: Dict[str, Any] = {
@@ -352,6 +354,10 @@ def _scene_context_payload(scene: Any) -> Dict[str, Any]:
         spatial_metadata = _jsonable(scene_package_ref.get("spatial_metadata") or {})
         if isinstance(spatial_metadata, dict):
             scene_context["scene_spatial_metadata"] = spatial_metadata
+    if isinstance(world_interchange_refs, list) and world_interchange_refs:
+        scene_context["world_interchange_refs"] = [
+            dict(item) for item in world_interchange_refs if isinstance(item, dict)
+        ]
     if isinstance(scene_consistency_contract, dict) and scene_consistency_contract:
         scene_context["scene_consistency_contract"] = scene_consistency_contract
     return scene_context

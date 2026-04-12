@@ -1,0 +1,115 @@
+{
+    "version": "1.0.0",
+    "playbook_code": "ig_analyze_pinned_reference",
+    "kind": "user_workflow",
+    "display_name": {
+        "en": "Analyze Pinned Reference",
+        "zh-TW": "分析釘選參考素材"
+    },
+    "description": "Analyze a pinned reference image using 3-tier structured vision analysis (Scene/Object/Style). Preprocesses the image, runs multimodal vision LLM, validates output, and backfills metadata with auto-tags.",
+    "execution_profile": {
+        "execution_mode": "workflow",
+        "runtime_affinity": "local",
+        "resource_class": "compute",
+        "queue_shard": "ig_analysis",
+        "reasoning": "standard",
+        "modalities": ["vision"],
+        "output_mode": "freeform",
+        "context_need": "low",
+        "locality": "either"
+    },
+    "required_capabilities": [
+        "ig.ig_analyze_reference",
+        "core_llm.multimodal_analyze"
+    ],
+    "data_locality": {
+        "local_only": [],
+        "cloud_allowed": [
+            "ig_accounts_flat"
+        ]
+    },
+    "inputs": {
+        "workspace_id": {
+            "type": "string",
+            "required": true,
+            "description": "Workspace ID"
+        },
+        "reference_id": {
+            "type": "string",
+            "required": true,
+            "description": "Reference ID to analyze"
+        },
+        "analysis_profile": {
+            "type": "string",
+            "required": false,
+            "default": "visual_anatomy",
+            "description": "Vision analysis profile: aesthetic_core (v1.0 compat), portrait_deep, cinematic, product_material, visual_anatomy (all tiers)"
+        }
+    },
+    "steps": [
+        {
+            "id": "preprocess",
+            "tool_slot": "ig.ig_analyze_reference",
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "reference_id": "{{input.reference_id}}",
+                "mode": "preprocess",
+                "analysis_profile": "{{input.analysis_profile}}"
+            },
+            "outputs": {
+                "status": "status",
+                "images": "images",
+                "prompt": "prompt"
+            },
+            "description": "Read pinned reference image and prepare for vision analysis"
+        },
+        {
+            "id": "vision_analyze",
+            "tool_slot": "core_llm.multimodal_analyze",
+            "depends_on": ["preprocess"],
+            "inputs": {
+                "images": "{{step.preprocess.images}}",
+                "prompt": "{{step.preprocess.prompt}}"
+            },
+            "outputs": {
+                "status": "status",
+                "results": "results"
+            },
+            "description": "Run multimodal vision analysis on the preprocessed image",
+            "skip_if": "{{step.preprocess.status}} != 'ready'"
+        },
+        {
+            "id": "backfill",
+            "tool_slot": "ig.ig_analyze_reference",
+            "depends_on": ["vision_analyze"],
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "reference_id": "{{input.reference_id}}",
+                "mode": "backfill",
+                "vision_result": "{{step.vision_analyze}}",
+                "analysis_profile": "{{input.analysis_profile}}"
+            },
+            "outputs": {
+                "status": "status",
+                "auto_tags": "auto_tags",
+                "scene_summary": "scene_summary"
+            },
+            "description": "Validate vision output and backfill reference metadata with auto-tags",
+            "skip_if": "{{step.preprocess.status}} != 'ready'"
+        }
+    ],
+    "outputs": {
+        "analysis_status": {
+            "type": "string",
+            "source": "step.backfill.status"
+        },
+        "auto_tags": {
+            "type": "array",
+            "source": "step.backfill.auto_tags"
+        },
+        "scene_summary": {
+            "type": "string",
+            "source": "step.backfill.scene_summary"
+        }
+    }
+}

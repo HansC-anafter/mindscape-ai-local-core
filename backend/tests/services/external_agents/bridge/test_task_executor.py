@@ -209,6 +209,12 @@ async def test_run_cli_agent_subprocess_reports_effective_sandbox_path_for_targe
 
     assert result.status == "completed"
     assert result.files_created == ["persona_operating_system.md"]
+    assert result.attachments == [
+        {
+            "filename": "persona_operating_system.md",
+            "content": "# Title\n",
+        }
+    ]
     assert result.metadata["effective_sandbox_path"] == str(tmp_path)
 
 

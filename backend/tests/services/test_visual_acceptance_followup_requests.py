@@ -162,6 +162,30 @@ def test_materialize_followup_request_artifacts_creates_and_supersedes_requests(
         "binding_mode": "hybrid",
         "scene_context": {
             "scene_manifest": {"scene_id": "A01", "shot_type": "medium"},
+            "world_interchange_refs": [
+                {
+                    "kind": "openusd",
+                    "stage_ref": {
+                        "identifier": "usdstage_demo/root.usda",
+                        "stage_id": "usdstage_demo",
+                        "format": "usd",
+                    },
+                    "entry_layer_ref": {
+                        "identifier": "usdstage_demo/root.usda",
+                        "layer_family": "root_stage",
+                        "format": "usd",
+                    },
+                    "layer_refs": [
+                        {
+                            "layer_family": "base_scene_geometry",
+                            "identifier": "usdstage_demo/base_scene_geometry.usd",
+                            "format": "usd",
+                        }
+                    ],
+                    "variant_selections": {"scene_scope": "hero"},
+                    "composition_metadata": {"package_id": "scenepkg_demo"},
+                }
+            ],
             "scene_package_selector": {
                 "artifact_id": "scenepkg_artifact_001",
                 "package_id": "scenepkg_demo",
@@ -304,6 +328,30 @@ def test_materialize_followup_request_artifacts_creates_and_supersedes_requests(
     assert rerender_artifact is not None
     assert rerender_artifact.content["dispatch_context"]["scene_context"] == {
         "scene_manifest": {"scene_id": "A01", "shot_type": "medium"},
+        "world_interchange_refs": [
+            {
+                "kind": "openusd",
+                "stage_ref": {
+                    "identifier": "usdstage_demo/root.usda",
+                    "stage_id": "usdstage_demo",
+                    "format": "usd",
+                },
+                "entry_layer_ref": {
+                    "identifier": "usdstage_demo/root.usda",
+                    "layer_family": "root_stage",
+                    "format": "usd",
+                },
+                "layer_refs": [
+                    {
+                        "layer_family": "base_scene_geometry",
+                        "identifier": "usdstage_demo/base_scene_geometry.usd",
+                        "format": "usd",
+                    }
+                ],
+                "variant_selections": {"scene_scope": "hero"},
+                "composition_metadata": {"package_id": "scenepkg_demo"},
+            }
+        ],
         "scene_package_selector": {
             "artifact_id": "scenepkg_artifact_001",
             "package_id": "scenepkg_demo",
@@ -662,6 +710,30 @@ async def test_dispatch_followup_request_executes_rerender_and_completes_request
                         "scene_payload": {
                             "scene_id": "A01",
                             "scene_manifest": {"shot": "close_up"},
+                            "world_interchange_refs": [
+                                {
+                                    "kind": "openusd",
+                                    "stage_ref": {
+                                        "identifier": "usdstage_demo/root.usda",
+                                        "stage_id": "usdstage_demo",
+                                        "format": "usd",
+                                    },
+                                    "entry_layer_ref": {
+                                        "identifier": "usdstage_demo/root.usda",
+                                        "layer_family": "root_stage",
+                                        "format": "usd",
+                                    },
+                                    "layer_refs": [
+                                        {
+                                            "layer_family": "base_scene_geometry",
+                                            "identifier": "usdstage_demo/base_scene_geometry.usd",
+                                            "format": "usd",
+                                        }
+                                    ],
+                                    "variant_selections": {"scene_scope": "hero"},
+                                    "composition_metadata": {"package_id": "scenepkg_demo"},
+                                }
+                            ],
                             "scene_package_selector": {
                                 "artifact_id": "scenepkg_artifact_001",
                                 "package_id": "scenepkg_demo",
@@ -722,6 +794,30 @@ async def test_dispatch_followup_request_executes_rerender_and_completes_request
                             },
                         },
                         "scene_manifest": {"shot": "close_up"},
+                        "world_interchange_refs": [
+                            {
+                                "kind": "openusd",
+                                "stage_ref": {
+                                    "identifier": "usdstage_demo/root.usda",
+                                    "stage_id": "usdstage_demo",
+                                    "format": "usd",
+                                },
+                                "entry_layer_ref": {
+                                    "identifier": "usdstage_demo/root.usda",
+                                    "layer_family": "root_stage",
+                                    "format": "usd",
+                                },
+                                "layer_refs": [
+                                    {
+                                        "layer_family": "base_scene_geometry",
+                                        "identifier": "usdstage_demo/base_scene_geometry.usd",
+                                        "format": "usd",
+                                    }
+                                ],
+                                "variant_selections": {"scene_scope": "hero"},
+                                "composition_metadata": {"package_id": "scenepkg_demo"},
+                            }
+                        ],
                         "scene_package_selector": {
                             "artifact_id": "scenepkg_artifact_001",
                             "package_id": "scenepkg_demo",
@@ -913,6 +1009,30 @@ async def test_dispatch_followup_request_executes_rerender_and_completes_request
             "degradation_policy": "reference_only",
         },
     }
+    assert dispatch_artifact.content["storyboard"]["scenes"][0]["world_interchange_refs"] == [
+        {
+            "kind": "openusd",
+            "stage_ref": {
+                "identifier": "usdstage_demo/root.usda",
+                "stage_id": "usdstage_demo",
+                "format": "usd",
+            },
+            "entry_layer_ref": {
+                "identifier": "usdstage_demo/root.usda",
+                "layer_family": "root_stage",
+                "format": "usd",
+            },
+            "layer_refs": [
+                {
+                    "layer_family": "base_scene_geometry",
+                    "identifier": "usdstage_demo/base_scene_geometry.usd",
+                    "format": "usd",
+                }
+            ],
+            "variant_selections": {"scene_scope": "hero"},
+            "composition_metadata": {"package_id": "scenepkg_demo"},
+        }
+    ]
     assert dispatch_artifact.content["storyboard"]["scenes"][0]["scene_consistency_contract"] == {
         "must_hold": ["layout", "key_props"],
         "allowed_variation": ["background_extras"],

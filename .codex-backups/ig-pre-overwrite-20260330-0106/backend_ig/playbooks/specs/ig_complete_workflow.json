@@ -1,0 +1,132 @@
+{
+  "version": "1.0.0",
+  "playbook_code": "ig_complete_workflow",
+  "kind": "user_workflow",
+  "display_name": "IG Complete Workflow",
+  "description": "Orchestrate multiple playbooks in sequence to execute end-to-end workflows",
+  "required_capabilities": [
+    "ig"
+  ],
+  "data_locality": {
+    "local_only": [
+      "user_personal_data",
+      "content_briefs",
+      "persona_profile"
+    ],
+    "cloud_allowed": [
+      "workflow_runs",
+      "generated_posts",
+      "export_packs"
+    ]
+  },
+  "steps": [
+    {
+      "id": "run",
+      "inputs": {
+        "action": "{{input.action}}",
+        "workspace_id": "{{input.workspace_id}}",
+        "workspace_path": "{{input.workspace_path}}",
+        "workflow_name": "{{input.workflow_name}}",
+        "workflow_steps": "{{input.workflow_steps}}",
+        "initial_context": "{{input.initial_context}}",
+        "brief_artifact_ref": "{{input.brief_artifact_ref}}",
+        "brief": "{{input.brief}}",
+        "post_content": "{{input.post_content}}",
+        "post_metadata": "{{input.post_metadata}}",
+        "target_folder": "{{input.target_folder}}",
+        "post_path": "{{input.post_path}}",
+        "review_notes": "{{input.review_notes}}"
+      },
+      "outputs": {
+        "result": "result"
+      },
+      "tool_slot": "ig.ig_complete_workflow_tool"
+    }
+  ],
+  "inputs": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "execute_workflow",
+        "execute_brief",
+        "create_post_workflow",
+        "review_workflow"
+      ],
+      "required": true,
+      "description": "Action to perform"
+    },
+    "workspace_id": {
+      "type": "string",
+      "required": false,
+      "description": "Workspace identifier"
+    },
+    "workspace_path": {
+      "type": "string",
+      "required": false,
+      "description": "Custom workspace path (for backward compatibility/migration, not allowed in enterprise mode)"
+    },
+    "workflow_name": {
+      "type": "string",
+      "required": false,
+      "description": "Name of the workflow (required for execute_workflow action)"
+    },
+    "workflow_steps": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "required": false,
+      "description": "List of workflow steps (required for execute_workflow action)"
+    },
+    "initial_context": {
+      "type": "object",
+      "required": false,
+      "description": "Initial context variables"
+    },
+    "brief_artifact_ref": {
+      "type": "string",
+      "required": false,
+      "description": "Brief artifact reference (artifact_ref). If provided, the tool will load and execute the brief."
+    },
+    "brief": {
+      "type": "object",
+      "required": false,
+      "description": "Inline brief object (alternative to brief_artifact_ref)."
+    },
+    "post_content": {
+      "type": "string",
+      "required": false,
+      "description": "Post content (required for create_post_workflow action)"
+    },
+    "post_metadata": {
+      "type": "object",
+      "required": false,
+      "description": "Post metadata/frontmatter (required for create_post_workflow action)"
+    },
+    "target_folder": {
+      "type": "string",
+      "required": false,
+      "description": "Target folder for post"
+    },
+    "post_path": {
+      "type": "string",
+      "required": false,
+      "description": "Path to post file (required for review_workflow action)"
+    },
+    "review_notes": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "required": false,
+      "description": "List of review notes"
+    }
+  },
+  "outputs": {
+    "result": {
+      "type": "object",
+      "description": "Workflow execution result with step results and final context",
+      "source": "step.run.result"
+    }
+  }
+}

@@ -1,0 +1,768 @@
+code: ig
+display_name: "Instagram"
+version: "1.0.3"
+portability:
+  min_local_core_version: "0.9.0"
+  environments:
+    - local-core
+    - cloud
+  degradation_strategy: graceful
+type: feature
+description: "Instagram post generation, management, and workflow capabilities"
+
+queryable_tables:
+  - name: ig_accounts_flat
+    workspace_scoped: true
+  - name: ig_account_profiles
+    workspace_scoped: true
+  - name: ig_follow_edges
+    workspace_scoped: true
+  - name: ig_posts
+    workspace_scoped: true
+  - name: ig_generated_personas
+    workspace_scoped: true
+
+storage:
+  default_backend: "local"
+  backends:
+    local:
+      root_path: "${WORKSPACE_STORAGE_ROOT:-${HOME}/.mindscape/workspaces}"
+      structure:
+        posts: "posts"
+        series: "series"
+        templates: "templates"
+        config: "config"
+        references: "references"
+    obsidian:
+      enabled: true
+      vault_path_template: "${OBSIDIAN_VAULT_PATH}/IG"
+
+playbooks:
+  - code: ig_analyze_pinned_reference
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_analyze_pinned_reference.md
+    spec_path: playbooks/specs/ig_analyze_pinned_reference.json
+    tool_dependencies:
+      - ig.ig_analyze_reference
+      - core_llm.multimodal_analyze
+    service_dependencies: []
+    description: "Analyze a pinned reference image using 3-tier structured vision analysis (Scene/Object/Style) and auto-tag."
+
+  - code: ig_analyze_after_visit
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_analyze_after_visit.md
+    spec_path: playbooks/specs/ig_analyze_after_visit.json
+    tool_dependencies:
+      - ig.ig_profile_tagger
+      - ig.ig_batch_pin_tool
+    service_dependencies: []
+    description: "Tag a visited account and feed already captured posts into the standard reference pin queue."
+
+  - code: ig_batch_pin_references
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_batch_pin_references.md
+    spec_path: playbooks/specs/ig_batch_pin_references.json
+    tool_dependencies:
+      - ig.ig_batch_pin_tool
+    service_dependencies: []
+    description: "Auto-scroll and batch pin references"
+
+  - code: ig_pin_post_detail
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_pin_post_detail.md
+    spec_path: playbooks/specs/ig_pin_post_detail.json
+    tool_dependencies:
+      - ig.ig_fetch_post_detail
+      - ig.ig_pin_post_detail
+    service_dependencies: []
+    description: "Navigate to IG posts and pin all images (including carousel) with full metadata (caption, stats, timestamp)"
+
+  - code: ig_post_generation
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_post_generation.md
+    spec_path: playbooks/specs/ig_post_generation.json
+    tool_dependencies:
+      - core_llm.structured_extract
+      - ig.ig_post_style_analyzer
+      - unsplash.unsplash_search_photos
+    service_dependencies: []
+    produces:
+      - type: ig_post_draft
+        label: "IG 貼文草稿（含文案、hashtag、圖片設計建議）"
+        storage: file
+
+  - code: ig_hashtag_manager
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_hashtag_manager.md
+    spec_path: playbooks/specs/ig_hashtag_manager.json
+    tool_dependencies:
+      - ig.ig_hashtag_manager_tool
+    service_dependencies: []
+
+  - code: ig_template_engine
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_template_engine.md
+    spec_path: playbooks/specs/ig_template_engine.json
+    tool_dependencies:
+      - ig.ig_template_engine_tool
+    service_dependencies: []
+
+  - code: ig_asset_manager
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_asset_manager.md
+    spec_path: playbooks/specs/ig_asset_manager.json
+    tool_dependencies:
+      - ig.ig_asset_manager_tool
+    service_dependencies: []
+
+  - code: ig_series_manager
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_series_manager.md
+    spec_path: playbooks/specs/ig_series_manager.json
+    tool_dependencies:
+      - ig.ig_series_manager_tool
+    service_dependencies: []
+
+  - code: ig_review_system
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_review_system.md
+    spec_path: playbooks/specs/ig_review_system.json
+    tool_dependencies:
+      - ig.ig_review_system_tool
+    service_dependencies: []
+
+  - code: ig_interaction_templates
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_interaction_templates.md
+    spec_path: playbooks/specs/ig_interaction_templates.json
+    tool_dependencies:
+      - ig.ig_interaction_templates_tool
+    service_dependencies: []
+
+  - code: ig_metrics_backfill
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_metrics_backfill.md
+    spec_path: playbooks/specs/ig_metrics_backfill.json
+    tool_dependencies:
+      - ig.ig_metrics_backfill_tool
+    service_dependencies: []
+
+  - code: ig_content_reuse
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_content_reuse.md
+    spec_path: playbooks/specs/ig_content_reuse.json
+    tool_dependencies:
+      - ig.ig_content_reuse_tool
+    service_dependencies: []
+
+  - code: ig_vault_structure_manager
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_vault_structure_manager.md
+    spec_path: playbooks/specs/ig_vault_structure_manager.json
+    tool_dependencies:
+      - ig.ig_vault_structure_tool
+    service_dependencies: []
+
+  - code: ig_batch_processor
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_batch_processor.md
+    spec_path: playbooks/specs/ig_batch_processor.json
+    tool_dependencies:
+      - ig.ig_batch_processor_tool
+    service_dependencies: []
+
+  - code: ig_complete_workflow
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_complete_workflow.md
+    spec_path: playbooks/specs/ig_complete_workflow.json
+    tool_dependencies:
+      - ig.ig_complete_workflow_tool
+    service_dependencies: []
+
+  - code: ig_content_checker
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_content_checker.md
+    spec_path: playbooks/specs/ig_content_checker.json
+    tool_dependencies:
+      - ig.ig_content_checker_tool
+    service_dependencies: []
+
+  - code: ig_export_pack_generator
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_export_pack_generator.md
+    spec_path: playbooks/specs/ig_export_pack_generator.json
+    tool_dependencies:
+      - ig.ig_export_pack_generator_tool
+    service_dependencies: []
+
+  - code: ig_frontmatter_validator
+    locales:
+      - zh-TW
+      - en
+      - ja
+    path: playbooks/{locale}/ig_frontmatter_validator.md
+    spec_path: playbooks/specs/ig_frontmatter_validator.json
+    tool_dependencies:
+      - ig.ig_frontmatter_validator_tool
+    service_dependencies: []
+
+  - code: ig_sync_content
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_sync_content.md
+    spec_path: playbooks/specs/ig_sync_content.json
+    tool_dependencies:
+      - ig.ig_fetch_posts
+      - ig.ig_fetch_reels
+      - ig.ig_fetch_stories
+    service_dependencies: []
+    description: "輕量對接型 playbook：從 Instagram 拉取內容到本地 workspace。需先在 site-hub 完成 OAuth 授權。"
+
+  - code: ig_publish_content
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_publish_content.md
+    spec_path: playbooks/specs/ig_publish_content.json
+    tool_dependencies:
+      - ig.ig_validate_media
+      - ig.ig_publish_post
+    service_dependencies: []
+    description: "輕量對接型 playbook：發布內容到 Instagram。需先在 site-hub 完成 OAuth 授權。"
+
+  - code: ig_analyze_following
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_analyze_following.md
+    spec_path: playbooks/specs/ig_analyze_following.json
+    tool_dependencies:
+      - ig.ig_analyze_following
+    service_dependencies: []
+    description: "使用瀏覽器自動化提取 Instagram 追蹤列表並分析帳號頁面。需要 Playwright 瀏覽器自動化支持。"
+    produces:
+      - type: ig_following_profiles
+        label: "IG Following 帳號基本資料（bio、粉絲數、追蹤數）"
+        storage: db
+
+  - code: ig_capture_account_snapshot
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_capture_account_snapshot.md
+    spec_path: playbooks/specs/ig_capture_account_snapshot.json
+    tool_dependencies:
+      - ig.ig_capture_account_snapshot
+    service_dependencies: []
+    description: "Capture a single Instagram account profile snapshot (bio, counts, avatar) using browser automation."
+    produces:
+      - type: ig_account_snapshot
+        label: "IG 帳號快照（bio、粉絲數、頭像）"
+        storage: db
+
+  - code: ig_tag_profiles
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_tag_profiles.md
+    spec_path: playbooks/specs/ig_tag_profiles.json
+    tool_dependencies:
+      - ig.ig_profile_tagger
+    service_dependencies: []
+    description: "對已擷取的 IG 帳號計算分類標籤（帳號類型、影響力層級、Bio 關鍵字）"
+    consumes:
+      - type: ig_following_profiles
+    produces:
+      - type: ig_tagged_profiles
+        label: "已標籤的 KOL 分類資料（帳號類型、影響力層級）"
+        storage: db
+
+  - code: ig_analyze_content
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_analyze_content.md
+    spec_path: playbooks/specs/ig_analyze_content.json
+    tool_dependencies:
+      - ig.ig_content_analyzer
+      - core_llm.structured_extract
+    service_dependencies: []
+    description: "擷取並分析 IG 帳號的貼文內容，透過 LLM 分類主題標籤"
+    consumes:
+      - type: ig_following_profiles
+    produces:
+      - type: ig_content_topics
+        label: "IG 貼文內容主題分類"
+        storage: db
+
+  - code: ig_analyze_network
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_analyze_network.md
+    spec_path: playbooks/specs/ig_analyze_network.json
+    tool_dependencies:
+      - ig.ig_network_analyzer
+    service_dependencies: []
+    description: "跨種子帳號分析追蹤關係，找出共同追蹤與社群聚類"
+    consumes:
+      - type: ig_following_profiles
+    produces:
+      - type: ig_network_graph
+        label: "IG 追蹤關係網絡圖（共同追蹤、社群聚類）"
+        storage: db
+
+  - code: ig_generate_personas
+    locales:
+      - zh-TW
+      - en
+    path: playbooks/{locale}/ig_generate_personas.md
+    spec_path: playbooks/specs/ig_generate_personas.json
+    tool_dependencies:
+      - ig.ig_persona_generator
+      - core_llm.structured_extract_batch
+    service_dependencies: []
+    description: "整合帳號、內容、網絡資料，用 LLM 生成用戶畫像"
+    consumes:
+      - type: ig_tagged_profiles
+      - type: ig_content_topics
+      - type: ig_network_graph
+    produces:
+      - type: ig_personas
+        label: "AI 生成用戶畫像（整合帳號＋內容＋網絡資料）"
+        storage: db
+
+dependencies:
+  required: []
+  optional:
+    - project_sandbox_manager
+    - unsplash
+    - mindscape_cloud_integration # IG OAuth / channel binding prerequisite (setup + binding)
+    - sitehub_connector # local-core ↔ site-hub handoff/writeback channel (if used)
+    # Note: `ig_post_generation` no longer depends on `content_vault.*` or `vector_search.*`.
+  external_services: []
+
+# APIs
+apis:
+  - name: avatar_proxy
+    path: api/avatar_proxy.py
+    prefix: /api/v1/ig
+    description: "Proxy Instagram profile pictures with caching to avoid CDN expiration issues"
+
+  - name: insights_api
+    path: api/insights_api.py
+    prefix: /api/v1/ig/insights
+    description: "Query endpoints for profile tags, posts, network analysis, personas, and seed management"
+
+  - name: post_proxy
+    path: api/post_proxy.py
+    prefix: /api/v1/ig
+    description: "Proxy Instagram post thumbnails with caching and fallback extraction mechanisms"
+
+  - name: browser_profiles
+    path: api/browser_profiles.py
+    prefix: /api/v1/ig
+    description: "List browser profiles with login status and resolved IG username"
+
+  - name: workbench_api
+    path: api/workbench_api.py
+    prefix: /api/v1/ig/workbench
+    description: "Phase-A lightweight sidebar summary for running debug cards and reference backlog counts"
+
+  - name: references_api
+    path: api/references_api.py
+    prefix: /api/v1/ig/references
+    description: "Pin, list, query, link, and soft-delete reference assets for inspiration and style guidance"
+
+  - name: channel_api
+    path: api/channel_api.py
+    prefix: /api/v1/ig
+    description: "List connected IG channels with 4-state OAuth status (connected/expired/revoked/page_unlinked)"
+
+tools:
+  - code: ig_post_style_analyzer
+    name: ig_post_style_analyzer
+    path: tools/ig_post_style_analyzer.py
+    backend: "capabilities.ig.tools.ig_post_style_analyzer:ig_post_style_analyzer"
+    description: "Analyze Instagram post style from reference image and generate design recommendations. Input: reference_image_path (optional), reference_image_url (optional), include_mood (boolean)."
+    used_by_playbooks:
+      - ig_post_generation
+
+  - code: ig_hashtag_manager_tool
+    name: ig_hashtag_manager_tool
+    path: tools/ig_hashtag_manager_tool.py
+    backend: "capabilities.ig.tools.ig_hashtag_manager_tool:ig_hashtag_manager_tool"
+    description: "Manage hashtag groups and combine hashtags for IG posts. Supports brand fixed groups, theme groups, campaign groups, and blocked hashtag checking."
+    used_by_playbooks:
+      - ig_hashtag_manager
+
+  - code: ig_template_engine_tool
+    name: ig_template_engine_tool
+    path: tools/ig_template_engine_tool.py
+    backend: "capabilities.ig.tools.ig_template_engine_tool:ig_template_engine_tool"
+    description: "Apply templates to generate IG posts with multiple variants. Supports carousel, reel, and story templates with different style tones and purposes."
+    used_by_playbooks:
+      - ig_template_engine
+
+  - code: ig_asset_manager_tool
+    name: ig_asset_manager_tool
+    path: tools/ig_asset_manager_tool.py
+    backend: "capabilities.ig.tools.ig_asset_manager_tool:ig_asset_manager_tool"
+    description: "Manage IG Post assets with naming validation, size checking, and format validation. Supports post, carousel, reel, and story asset types."
+    used_by_playbooks:
+      - ig_asset_manager
+
+  - code: ig_series_manager_tool
+    name: ig_series_manager_tool
+    path: tools/ig_series_manager_tool.py
+    backend: "capabilities.ig.tools.ig_series_manager_tool:ig_series_manager_tool"
+    description: "Manage IG Post series including creation, updates, querying, and cross-referencing. Supports series progress tracking and post navigation."
+    used_by_playbooks:
+      - ig_series_manager
+
+  - code: ig_review_system_tool
+    name: ig_review_system_tool
+    path: tools/ig_review_system_tool.py
+    backend: "capabilities.ig.tools.ig_review_system_tool:ig_review_system_tool"
+    description: "Manage review workflow including changelog tracking, review notes, and decision logs for content revision cycles."
+    used_by_playbooks:
+      - ig_review_system
+
+  - code: ig_interaction_templates_tool
+    name: ig_interaction_templates_tool
+    path: tools/ig_interaction_templates_tool.py
+    backend: "capabilities.ig.tools.ig_interaction_templates_tool:ig_interaction_templates_tool"
+    description: "Manage interaction templates including common comment replies, DM scripts, tone switching, and template categorization for customer engagement."
+    used_by_playbooks:
+      - ig_interaction_templates
+
+  - code: ig_metrics_backfill_tool
+    name: ig_metrics_backfill_tool
+    path: tools/ig_metrics_backfill_tool.py
+    backend: "capabilities.ig.tools.ig_metrics_backfill_tool:ig_metrics_backfill_tool"
+    description: "Manage post-publication metrics including manual backfill, data analysis, performance element tracking, and series aggregation."
+    used_by_playbooks:
+      - ig_metrics_backfill
+
+  - code: ig_content_reuse_tool
+    name: ig_content_reuse_tool
+    path: tools/ig_content_reuse_tool.py
+    backend: "capabilities.ig.tools.ig_content_reuse_tool:ig_content_reuse_tool"
+    description: "Manage content transformation and reuse across different IG formats: long article to carousel, carousel to reel, reel to stories."
+    used_by_playbooks:
+      - ig_content_reuse
+
+  - code: ig_vault_structure_tool
+    name: ig_vault_structure_tool
+    path: tools/ig_vault_structure_tool.py
+    backend: "capabilities.ig.tools.ig_vault_structure_tool:ig_vault_structure_tool"
+    description: "Manage workspace structure for IG Post workflow. Supports initialization, validation, and content scanning."
+    used_by_playbooks:
+      - ig_vault_structure_manager
+
+  - code: ig_batch_processor_tool
+    name: ig_batch_processor_tool
+    path: tools/ig_batch_processor_tool.py
+    backend: "capabilities.ig.tools.ig_batch_processor_tool:ig_batch_processor_tool"
+    description: "Manage batch processing of multiple posts including validation, generation, and export operations."
+    used_by_playbooks:
+      - ig_batch_processor
+
+  - code: ig_complete_workflow_tool
+    name: ig_complete_workflow_tool
+    path: tools/ig_complete_workflow_tool.py
+    backend: "capabilities.ig.tools.ig_complete_workflow_tool:ig_complete_workflow_tool"
+    description: "Orchestrate multiple playbooks in sequence to execute end-to-end workflows for IG post creation and management."
+    used_by_playbooks:
+      - ig_complete_workflow
+
+  - code: ig_content_checker_tool
+    name: ig_content_checker_tool
+    path: tools/ig_content_checker_tool.py
+    backend: "capabilities.ig.tools.ig_content_checker_tool:ig_content_checker_tool"
+    description: "Check IG Post content for compliance issues including medical/investment claims, copyright, personal data, and brand tone."
+    used_by_playbooks:
+      - ig_content_checker
+
+  - code: ig_export_pack_generator_tool
+    name: ig_export_pack_generator_tool
+    path: tools/ig_export_pack_generator_tool.py
+    backend: "capabilities.ig.tools.ig_export_pack_generator_tool:ig_export_pack_generator_tool"
+    description: "Generate complete export pack for IG Post including post.md, hashtags.txt, CTA variants, and checklist."
+    used_by_playbooks:
+      - ig_export_pack_generator
+
+  - code: ig_frontmatter_validator_tool
+    name: ig_frontmatter_validator_tool
+    path: tools/ig_frontmatter_validator_tool.py
+    backend: "capabilities.ig.tools.ig_frontmatter_validator_tool:ig_frontmatter_validator_tool"
+    description: "Validate frontmatter against Unified Frontmatter Schema v2.0.0 and calculate Readiness Score."
+    used_by_playbooks:
+      - ig_frontmatter_validator
+
+  - code: ig_fetch_posts
+    name: ig_fetch_posts
+    path: tools/ig_data_fetcher.py
+    backend: "capabilities.ig.tools.ig_data_fetcher:ig_fetch_posts"
+    description: "Fetch posts from Instagram to local workspace. Requires channel_config_id from site-hub OAuth."
+    used_by_playbooks:
+      - ig_sync_content
+
+  - code: ig_fetch_reels
+    name: ig_fetch_reels
+    path: tools/ig_data_fetcher.py
+    backend: "capabilities.ig.tools.ig_data_fetcher:ig_fetch_reels"
+    description: "Fetch reels from Instagram to local workspace. Requires channel_config_id from site-hub OAuth."
+    used_by_playbooks:
+      - ig_sync_content
+
+  - code: ig_fetch_stories
+    name: ig_fetch_stories
+    path: tools/ig_data_fetcher.py
+    backend: "capabilities.ig.tools.ig_data_fetcher:ig_fetch_stories"
+    description: "Fetch stories from Instagram to local workspace (24 hours only). Requires channel_config_id from site-hub OAuth."
+    used_by_playbooks:
+      - ig_sync_content
+
+  - code: ig_validate_media
+    name: ig_validate_media
+    path: tools/ig_publisher.py
+    backend: "capabilities.ig.tools.ig_publisher:ig_validate_media"
+    description: "Validate media file format and size limits for Instagram publishing (photo/reel/carousel)."
+    used_by_playbooks:
+      - ig_publish_content
+
+  - code: ig_publish_post
+    name: ig_publish_post
+    path: tools/ig_publisher.py
+    backend: "capabilities.ig.tools.ig_publisher:ig_publish_post"
+    description: "Publish content to Instagram (photo/reel/carousel). Requires channel_config_id from site-hub OAuth. Stories not supported."
+    used_by_playbooks:
+      - ig_publish_content
+
+  - code: ig_analyze_following
+    name: ig_analyze_following
+    path: tools/ig_following_analyzer.py
+    backend: "capabilities.ig.tools.ig_following_analyzer:ig_analyze_following_tool"
+    description: "Extract Instagram following list and analyze account pages with browser automation. Uses Playwright to navigate Instagram, extract following list, and visit account pages for statistics."
+    used_by_playbooks:
+      - ig_analyze_following
+
+  - code: ig_capture_account_snapshot
+    name: ig_capture_account_snapshot
+    path: tools/ig_account_snapshot.py
+    backend: "capabilities.ig.tools.ig_account_snapshot:ig_capture_account_snapshot_tool"
+    description: "Capture a single Instagram account profile snapshot (bio, followers, following, posts, avatar) using browser automation."
+    used_by_playbooks:
+      - ig_capture_account_snapshot
+
+  - name: ig_profile_tagger
+    code: ig_profile_tagger
+    path: tools/ig_profile_tagger.py
+    backend: "capabilities.ig.tools.ig_profile_tagger:ig_profile_tagger"
+    description: "Compute profile tags (account type, influence tier, bio keywords) from ig_accounts_flat and persist to ig_account_profiles."
+    used_by_playbooks:
+      - ig_tag_profiles
+
+  - name: ig_content_analyzer
+    code: ig_content_analyzer
+    path: tools/ig_content_analyzer.py
+    backend: "capabilities.ig.tools.ig_content_analyzer:ig_content_analyzer"
+    description: "Extract posts from IG accounts and persist with topic classification. Supports extract_only, persist, and full modes for LLM integration."
+    used_by_playbooks:
+      - ig_analyze_content
+
+  - name: ig_network_analyzer
+    code: ig_network_analyzer
+    path: tools/ig_network_analyzer.py
+    backend: "capabilities.ig.tools.ig_network_analyzer:ig_network_analyzer"
+    description: "Analyze follow relationships across seeds for common following patterns and community detection."
+    used_by_playbooks:
+      - ig_analyze_network
+
+  - name: ig_persona_generator
+    code: ig_persona_generator
+    path: tools/ig_persona_generator.py
+    backend: "capabilities.ig.tools.ig_persona_generator:ig_persona_generator"
+    description: "Generate AI-driven personas by synthesizing account, content, and network data with LLM."
+    used_by_playbooks:
+      - ig_generate_personas
+
+  - name: register_seed_immediately
+    code: register_seed_immediately
+    path: tools/following_analyzer/persistence.py
+    backend: "capabilities.ig.tools.following_analyzer.persistence:register_seed_immediately"
+    description: "Register a seed in ig_accounts_flat immediately. Used as on_queue lifecycle hook to make seeds visible in dropdown before execution starts."
+    used_by_playbooks:
+      - ig_analyze_following
+
+  - name: resolve_following_rerun_inputs
+    code: resolve_following_rerun_inputs
+    path: tools/following_analyzer/rerun_resolver.py
+    backend: "capabilities.ig.tools.following_analyzer.rerun_resolver:resolve_following_rerun_inputs"
+    description: "Resolve missing rerun inputs for ig_analyze_following from original task context or artifacts."
+    used_by_playbooks:
+      - ig_analyze_following
+
+  - name: ig_auto_resume_handler
+    code: ig_auto_resume_handler
+    path: tools/ig_auto_resume_handler.py
+    backend: "capabilities.ig.tools.ig_auto_resume_handler:ig_auto_resume_handler"
+    description: "Handle IG task failure with auto-resume logic. Checks risk signals, retry counts, and creates follow-up visit-only tasks. Invoked via on_fail lifecycle hook."
+    used_by_playbooks:
+      - ig_analyze_following
+
+  - name: ig_vision_analyzer
+    code: ig_vision_analyzer
+    path: tools/ig_vision_analyzer.py
+    backend: "capabilities.ig.tools.ig_vision_analyzer:ig_vision_analyzer"
+    description: "Analyze the visual content of the target account's grid posts using multimodal LLM."
+    used_by_playbooks:
+      - ig_analyze_after_visit
+
+  - name: ig_pin_reference
+    code: ig_pin_reference
+    path: tools/ig_pin_reference.py
+    backend: "capabilities.ig.tools.ig_pin_reference:ig_pin_reference"
+    description: "Download, deduplicate, and save a reference image with governance metadata. Creates PENDING analysis job."
+    used_by_playbooks: []
+
+  - name: ig_batch_pin_tool
+    code: ig_batch_pin_tool
+    path: tools/ig_batch_pin_tool.py
+    backend: "capabilities.ig.tools.ig_batch_pin_tool:ig_batch_pin_tool"
+    description: "DOM based scrolling utility to fetch grid posts and metadata safely, avoiding login walls."
+    used_by_playbooks:
+      - ig_batch_pin_references
+
+  - name: ig_list_references
+    code: ig_list_references
+    path: tools/ig_list_references.py
+    backend: "capabilities.ig.tools.ig_list_references:ig_list_references"
+    description: "Query pinned references with tag, collection, and source handle filters."
+    used_by_playbooks: []
+
+  - name: ig_analyze_reference
+    code: ig_analyze_reference
+    path: tools/ig_analyze_reference.py
+    backend: "capabilities.ig.tools.ig_analyze_reference:ig_analyze_reference"
+    description: "Preprocess reference image for vision analysis or backfill validated results with auto-tags."
+    used_by_playbooks:
+      - ig_analyze_pinned_reference
+
+  - name: ig_create_project
+    code: ig_create_project
+    path: tools/ig_create_project.py
+    backend: "capabilities.ig.tools.ig_create_project:run"
+    description: "Create an IG campaign project in the workspace. Wraps ProjectManager with ig_campaign defaults and optionally attaches reference IDs."
+    used_by_playbooks: []
+
+  - name: ig_fetch_post_detail
+    code: ig_fetch_post_detail
+    path: tools/ig_fetch_post_detail.py
+    backend: "capabilities.ig.tools.ig_fetch_post_detail:ig_fetch_post_detail"
+    description: "Browser-based extraction of single IG post detail: caption, stats, all carousel images."
+    used_by_playbooks:
+      - ig_pin_post_detail
+
+  - name: ig_pin_post_detail
+    code: ig_pin_post_detail
+    path: tools/ig_pin_post_detail.py
+    backend: "capabilities.ig.tools.ig_pin_post_detail:ig_pin_post_detail"
+    description: "Orchestrate post detail fetch → pin all carousel images → enqueue analysis. Supports batch mode."
+    used_by_playbooks:
+      - ig_pin_post_detail
+
+ui_components:
+  - code: IGWorkbenchPage
+    name: Instagram Workbench
+    path: ui/IGWorkbench.tsx
+    export: default
+    description: "Unified control panel for IG content pipeline - three-panel layout: Production Modules / Content View / Execution Control"
+    playbook_codes:
+      - ig_post_generation
+      - ig_template_engine
+      - ig_batch_processor
+      - ig_content_checker
+      - ig_frontmatter_validator
+      - ig_export_pack_generator
+      - ig_publish_content
+      - ig_hashtag_manager
+      - ig_asset_manager
+      - ig_series_manager
+      - ig_review_system
+      - ig_metrics_backfill
+      - ig_content_reuse
+      - ig_vault_structure_manager
+      - ig_complete_workflow
+      - ig_interaction_templates
+      - ig_sync_content
+      - ig_analyze_following
+      - ig_capture_account_snapshot
+  - code: ig_posts_grid_view
+    path: ui/IGGridViewModal.tsx
+    description: "IG Posts Grid View and Timeline View"
+    export: default
+    route: "/workspaces/{workspace_id}/ig-posts"
+    artifact_types:
+      - ig_posts
+    playbook_codes:
+      - ig_post_generation
+
+  - code: ig_following_analyzer
+    path: ui/IGFollowingAnalyzer.tsx
+    description: "IG Following List Analyzer with real-time progress and background execution"
+    export: default
+    route: "/workspaces/{workspace_id}/ig-following-analyzer"
+    playbook_codes:
+      - ig_analyze_following

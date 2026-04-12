@@ -1,0 +1,94 @@
+---
+playbook_code: ig_series_manager
+version: 1.0.0
+capability_code: instagram
+name: IG シリーズ管理
+description: 作成、更新、クエリ、相互参照を含む IG 投稿シリーズを管理
+tags:
+  - instagram
+  - series
+  - organization
+  - content-planning
+
+kind: user_workflow
+interaction_mode:
+  - conversational
+visible_in:
+  - workspace_tools_panel
+  - workspace_playbook_menu
+
+required_tools:
+  - ig_series_manager_tool
+
+language_strategy: model_native
+locale: ja
+supported_locales:
+  - zh-TW
+  - en
+  - ja
+default_locale: ja
+auto_localize: true
+
+entry_agent_type: writer
+icon: 📚
+---
+
+# IG シリーズ管理
+
+## 目標
+
+作成、投稿追加、クエリ、シリーズ内の投稿間の相互参照を含む IG 投稿シリーズを管理。
+
+## 機能
+
+この Playbook は以下を実行します：
+
+1. **シリーズ作成**: 新しい投稿シリーズを作成
+2. **投稿追加**: シリーズに投稿を追加
+3. **シリーズ取得**: シリーズ情報を取得
+4. **シリーズリスト**: すべてのシリーズをリスト
+5. **投稿取得**: シリーズ内のすべての投稿を取得
+6. **前/次取得**: シリーズ内の前の投稿と次の投稿を取得
+7. **進捗更新**: シリーズ進捗を更新
+
+## 使用例
+
+- 投稿をシリーズに組織化
+- シリーズ進捗を追跡
+- シリーズ投稿間をナビゲート
+- マルチパートコンテンツを管理
+
+## 入力
+
+- `action`: 実行するアクション - "create"、"add_post"、"get"、"list"、"get_posts"、"get_previous_next" または "update_progress"（必須）
+- `vault_path`: Obsidian Vault パス（必須）
+- `series_code`: シリーズコード（ほとんどのアクションに必要）
+- `series_name`: シリーズ名（create アクションに必要）
+- `description`: シリーズ説明（オプション）
+- `total_posts`: 計画された投稿総数（オプション）
+- `post_path`: 投稿ファイルパス（add_post アクションに必要）
+- `post_slug`: 投稿 slug（add_post アクションに必要）
+- `post_number`: シリーズ内の投稿番号（オプション、提供されていない場合は自動インクリメント）
+- `current_post_number`: 現在の投稿番号（get_previous_next アクションに必要）
+
+## 出力
+
+- `series`: シリーズ情報
+- `series_list`: すべてのシリーズリスト
+- `posts`: シリーズ内の投稿リスト
+- `previous`: シリーズ内の前の投稿
+- `next`: シリーズ内の次の投稿
+
+## ステップ（概念的）
+
+1. シリーズを作成するか、既存のシリーズに投稿を追加
+2. シリーズ情報をクエリするか、すべてのシリーズをリスト
+3. ナビゲーションのために前/次の投稿を取得
+4. シリーズ進捗を更新
+
+## 備考
+
+- 自動インクリメント投稿番号をサポート
+- シリーズ投稿間の相互参照を有効化
+- シリーズ進捗を自動的に追跡
+

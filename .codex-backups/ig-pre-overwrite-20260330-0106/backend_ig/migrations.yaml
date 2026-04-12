@@ -1,0 +1,23 @@
+# IG Capability Migration Metadata
+# Database migrations for IG analytics tables
+
+db: postgres
+
+depends_on: []
+
+revisions:
+  - "20260124170000" # create_ig_accounts_flat_table
+  - "20260210000000" # ig_account_profiles + ig_follow_edges
+  - "20260210000001" # ig_posts
+  - "20260210000002" # ig_generated_personas
+  - "20260210025800" # add_is_private_to_ig_accounts_flat
+  - "20260216000000" # add_contact_fields_to_ig_accounts_flat
+  - "20260311000000" # add_grid_posts_and_vision
+  - "20260322000000" # add_task_indexes_for_reference_status_reconciliation
+  - "20260322010000" # add_insights_seed_indexes
+  - "20260322020000" # add_insights_target_indexes
+  - "20260323010000" # create_ig_pin_failed_attempts
+  - "20260328003000" # add_confirmed_target_totals_and_seed_task_index
+
+migration_paths:
+  - "migrations/versions/"

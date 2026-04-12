@@ -1,0 +1,147 @@
+{
+    "version": "1.0.0",
+    "playbook_code": "ig_analyze_content",
+    "kind": "user_workflow",
+    "display_name": {
+        "zh-TW": "內容分析",
+        "en": "Content Analysis"
+    },
+    "description": "Extract and analyze IG account posts, classify topics via LLM",
+    "execution_profile": {
+        "execution_mode": "workflow",
+        "runtime_affinity": "local"
+    },
+    "required_capabilities": [
+        "ig.ig_content_analyzer",
+        "core_llm.structured_extract"
+    ],
+    "data_locality": {
+        "local_only": [],
+        "cloud_allowed": [
+            "ig_posts"
+        ]
+    },
+    "inputs": {
+        "workspace_id": {
+            "type": "string",
+            "required": true,
+            "description": "Workspace ID"
+        },
+        "seed": {
+            "type": "string",
+            "required": true,
+            "description": "Seed account"
+        },
+        "target_handles": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "Target handles (empty = auto from ig_accounts_flat)"
+        },
+        "posts_per_account": {
+            "type": "integer",
+            "default": 9,
+            "description": "Posts to fetch per account"
+        },
+        "user_data_dir": {
+            "type": "string",
+            "default": "/app/data/ig-browser-profiles/default",
+            "description": "Browser profile path"
+        }
+    },
+    "steps": [
+        {
+            "id": "extract_posts",
+            "tool_slot": "ig.ig_content_analyzer",
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "seed": "{{input.seed}}",
+                "mode": "extract_only",
+                "target_handles": "{{input.target_handles}}",
+                "posts_per_account": "{{input.posts_per_account}}",
+                "user_data_dir": "{{input.user_data_dir}}",
+                "trace_id": "{{context.execution_id}}"
+            },
+            "outputs": {
+                "captions": "captions",
+                "posts_meta": "posts_meta"
+            }
+        },
+        {
+            "id": "classify_topics",
+            "tool_slot": "core_llm.structured_extract",
+            "inputs": {
+                "content": "{{step.extract_posts.captions}}",
+                "schema": {
+                    "topics": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "shortcode": {
+                                    "type": "string"
+                                },
+                                "topic": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "prompt": "Classify each Instagram post caption into a topic category. Return an array of objects with shortcode and topic. Topics: lifestyle, fashion, beauty, food, travel, fitness, tech, business, education, entertainment, other.",
+                "cache_key": "ig_topics_{{input.seed}}_{{context.execution_id}}"
+            },
+            "outputs": {
+                "topics": "result.topics"
+            }
+        },
+        {
+            "id": "persist_with_topics",
+            "tool_slot": "ig.ig_content_analyzer",
+            "inputs": {
+                "workspace_id": "{{input.workspace_id}}",
+                "seed": "{{input.seed}}",
+                "mode": "persist",
+                "topics_from_llm": "{{step.classify_topics.topics}}",
+                "posts_meta": "{{step.extract_posts.posts_meta}}",
+                "trace_id": "{{context.execution_id}}"
+            },
+            "outputs": {
+                "persisted_count": "persisted_count"
+            }
+        }
+    ],
+    "outputs": {
+        "posts_analyzed": {
+            "type": "integer",
+            "source": "step.persist_with_topics.persisted_count"
+        },
+        "captions": {
+            "type": "array",
+            "source": "step.extract_posts.captions"
+        }
+    },
+    "output_artifacts": [
+        {
+            "id": "content_analysis",
+            "artifact_type": "data",
+            "primary_action_type": "preview",
+            "title_template": "Content Analysis - {{input.seed}}",
+            "summary_template": "Analyzed {{step.persist_with_topics.persisted_count}} posts from {{input.seed}}",
+            "source": "step.persist_with_topics",
+            "file_write": {
+                "enabled": true,
+                "file_name_template": "ig_content_analysis_{{input.seed}}_{{execution_id}}.json",
+                "encoding": "utf-8"
+            },
+            "metadata": {
+                "platform": "instagram",
+                "source": "ig_analyze_content",
+                "schema_version": "ig.content.v1",
+                "workspace_id": "{{input.workspace_id}}",
+                "seed": "{{input.seed}}"
+            }
+        }
+    ]
+}
