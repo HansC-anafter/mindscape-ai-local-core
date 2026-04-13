@@ -165,6 +165,37 @@ def _resolve_persisted_task_error(
     return runtime_error or None
 
 
+def _build_ready_requeue_update(
+    *,
+    execution_context: Optional[Dict[str, Any]],
+    error: RecoverableStepError,
+    now: Any,
+) -> Dict[str, Any]:
+    from backend.app.models.workspace import TaskStatus
+
+    context = dict(execution_context) if isinstance(execution_context, dict) else {}
+    context["pending_reason"] = getattr(error, "error_type", "recoverable_error")
+    context["pending_detail"] = str(error)
+    context["pending_since"] = now.isoformat()
+    context["status"] = "queued"
+    context.pop("runner_id", None)
+    context.pop("heartbeat_at", None)
+    context.pop("resume_after", None)
+
+    return {
+        "execution_context": context,
+        "status": TaskStatus.PENDING,
+        "started_at": None,
+        "completed_at": None,
+        "next_eligible_at": now,
+        "blocked_reason": None,
+        "blocked_payload": None,
+        "frontier_state": "ready",
+        "frontier_enqueued_at": now,
+        "error": str(error),
+    }
+
+
 def _register_background_task(execution_id: str, task: "asyncio.Task[Any]") -> None:
     from backend.app.services.execution_task_registry import execution_task_registry
 
@@ -398,26 +429,26 @@ def mark_pending_runtime_task(
     utc_now_fn: Callable[[], Any] = _utc_now,
 ) -> None:
     try:
-        from backend.app.models.workspace import TaskStatus
         from backend.app.services.stores.tasks_store import TasksStore
 
         tasks_store = TasksStore()
         existing_task = tasks_store.get_task_by_execution_id(execution_id)
         if existing_task:
-            context = (
-                dict(existing_task.execution_context)
-                if isinstance(existing_task.execution_context, dict)
-                else {}
+            now = utc_now_fn()
+            update_kwargs = _build_ready_requeue_update(
+                execution_context=(
+                    existing_task.execution_context
+                    if isinstance(existing_task.execution_context, dict)
+                    else {}
+                ),
+                error=error,
+                now=now,
             )
-            context["pending_reason"] = getattr(error, "error_type", "recoverable_error")
-            context["pending_detail"] = str(error)
-            context["pending_since"] = utc_now_fn().isoformat()
             tasks_store.update_task(
                 existing_task.id,
-                execution_context=context,
-                status=TaskStatus.PENDING,
-                error=str(error),
+                **update_kwargs,
             )
+            context = update_kwargs["execution_context"]
             _reconcile_ig_reference_terminal_state(
                 playbook_code=str(context.get("playbook_code") or ""),
                 workspace_id=(
