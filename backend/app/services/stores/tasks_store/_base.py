@@ -19,9 +19,6 @@ from backend.app.services.task_admission_service import (
     ADMISSION_DEFERRED_REASON,
     TASK_ADMISSION_SERVICE,
 )
-from backend.app.services.task_pause_contract import (
-    USER_PAUSE_RESERVED_BLOCKED_REASON,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -119,40 +116,6 @@ def _canonical_task_params_payload(task: Task) -> Dict[str, Any]:
         return dict(nested_inputs)
 
     return dict(task.params) if isinstance(task.params, dict) else {}
-
-
-def _project_playbook_execution_state(
-    status: Any,
-    execution_context: Optional[Dict[str, Any]] = None,
-    *,
-    blocked_reason: Optional[str] = None,
-) -> tuple[Optional[str], Optional[str]]:
-    ctx = execution_context if isinstance(execution_context, dict) else {}
-    if ctx.get("auto_resumed"):
-        return None, None
-
-    status_raw = _coerce_task_status(status).strip().lower()
-    ctx_status = str(ctx.get("status") or "").strip().lower()
-    blocked_reason_text = str(blocked_reason or "").strip().lower()
-
-    if status_raw == TaskStatus.RUNNING.value:
-        return "running", "execution"
-    if status_raw == TaskStatus.PENDING.value:
-        if (
-            blocked_reason_text == USER_PAUSE_RESERVED_BLOCKED_REASON
-            or ctx_status == "paused"
-        ):
-            return "paused", "queue"
-        return "running", "queue"
-    if status_raw in (
-        TaskStatus.FAILED.value,
-        TaskStatus.CANCELLED_BY_USER.value,
-        TaskStatus.EXPIRED.value,
-    ):
-        return "failed", "execution"
-    if status_raw == TaskStatus.SUCCEEDED.value:
-        return "done", "execution"
-    return None, None
 
 
 def _derive_blocked_payload(
@@ -291,36 +254,28 @@ class TasksStoreCrudMixin:
         execution_id: Optional[str],
         status: TaskStatus,
         execution_context: Optional[Dict[str, Any]] = None,
-        *,
-        blocked_reason: Optional[str] = None,
-        touch_only: bool = False,
     ) -> None:
         if not execution_id:
             return
-        target_status, target_phase = _project_playbook_execution_state(
-            status,
-            execution_context,
-            blocked_reason=blocked_reason,
-        )
-        if target_status is None and target_phase is None and not touch_only:
+        # Skip sync for auto-resume placeholder failures to avoid clobbering running retries.
+        if execution_context and execution_context.get("auto_resumed"):
+            return
+        if status in (
+            TaskStatus.FAILED,
+            TaskStatus.CANCELLED_BY_USER,
+            TaskStatus.EXPIRED,
+        ):
+            target_status = "failed"
+        elif status == TaskStatus.SUCCEEDED:
+            target_status = "done"
+        else:
             return
         try:
-            update_fields = ["updated_at = :updated_at"]
-            params: Dict[str, Any] = {
-                "updated_at": _utc_now(),
-                "id": execution_id,
-            }
-            if target_status is not None:
-                update_fields.append("status = :status")
-                params["status"] = target_status
-            if target_phase is not None:
-                update_fields.append("phase = :phase")
-                params["phase"] = target_phase
             conn.execute(
                 text(
-                    f"UPDATE playbook_executions SET {', '.join(update_fields)} WHERE id = :id"
+                    "UPDATE playbook_executions SET status = :status, updated_at = :updated_at WHERE id = :id"
                 ),
-                params,
+                {"status": target_status, "updated_at": _utc_now(), "id": execution_id},
             )
         except Exception as e:
             logger.warning(
@@ -574,7 +529,7 @@ class TasksStoreCrudMixin:
             try:
                 row = conn.execute(
                     text(
-                        "SELECT execution_id, execution_context, blocked_reason FROM tasks WHERE id = :task_id"
+                        "SELECT execution_id, execution_context FROM tasks WHERE id = :task_id"
                     ),
                     {"task_id": task_id},
                 ).fetchone()
@@ -589,17 +544,8 @@ class TasksStoreCrudMixin:
                         if hasattr(row, "_mapping")
                         else row[1]
                     )
-                    blocked_reason = (
-                        row._mapping["blocked_reason"]
-                        if hasattr(row, "_mapping")
-                        else row[2]
-                    )
                     self._sync_playbook_execution_status(
-                        conn,
-                        execution_id,
-                        status,
-                        execution_context,
-                        blocked_reason=blocked_reason,
+                        conn, execution_id, status, execution_context
                     )
             except Exception:
                 pass
@@ -687,36 +633,18 @@ class TasksStoreCrudMixin:
                         else TaskStatus(status_val)
                     )
                     row = conn.execute(
-                        text(
-                            "SELECT execution_id, execution_context, blocked_reason FROM tasks WHERE id = :task_id"
-                        ),
+                        text("SELECT execution_id FROM tasks WHERE id = :task_id"),
                         {"task_id": task_id},
                     ).fetchone()
                     execution_id = None
-                    persisted_execution_context = execution_context
-                    blocked_reason = None
                     if row:
                         execution_id = (
                             row._mapping["execution_id"]
                             if hasattr(row, "_mapping")
                             else row[0]
                         )
-                        persisted_execution_context = self.deserialize_json(
-                            row._mapping["execution_context"]
-                            if hasattr(row, "_mapping")
-                            else row[1]
-                        )
-                        blocked_reason = (
-                            row._mapping["blocked_reason"]
-                            if hasattr(row, "_mapping")
-                            else row[2]
-                        )
                     self._sync_playbook_execution_status(
-                        conn,
-                        execution_id,
-                        status_obj,
-                        persisted_execution_context,
-                        blocked_reason=blocked_reason,
+                        conn, execution_id, status_obj, execution_context
                     )
             except Exception:
                 pass

@@ -12,14 +12,13 @@ from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueu
 logger = logging.getLogger(__name__)
 
 
-_SHARED_PROFILE_LOCK_PACKS = {
+_PLAYBOOK_INPUT_LOCK_PACKS = {
     "ig_analyze_following",
     "ig_batch_pin_references",
 }
 
 _LEGACY_PROFILE_ALIAS_PACKS = {
     "ig_analyze_following",
-    "ig_batch_pin_references",
 }
 
 
@@ -49,8 +48,14 @@ def _normalize_lock_scope(
     lock_scope: Optional[str],
     lock_key_input: Optional[str],
 ) -> str:
-    """Normalize declared concurrency scope without overriding pack metadata."""
+    """Normalize concurrency scope for packs migrating to playbook-scoped profile locks."""
     normalized_scope = (lock_scope or "input").strip().lower()
+    if (
+        normalized_scope == "input"
+        and lock_key_input == "user_data_dir"
+        and pack_id in _PLAYBOOK_INPUT_LOCK_PACKS
+    ):
+        return "playbook_input"
     return normalized_scope
 
 
@@ -143,11 +148,6 @@ def _resolve_lock_keys(
     if profile_ref and pack_id in _LEGACY_PROFILE_ALIAS_PACKS:
         keys.append(f"concurrency:user_data_dir:{profile_ref}")
         keys.append(f"ig_profile:{profile_ref}")
-    if profile_ref and pack_id in _SHARED_PROFILE_LOCK_PACKS:
-        for shared_pack_id in sorted(_SHARED_PROFILE_LOCK_PACKS):
-            keys.append(
-                f"concurrency:playbook_input:{shared_pack_id}:{profile_ref}"
-            )
 
     deduped: list[str] = []
     seen = set()
