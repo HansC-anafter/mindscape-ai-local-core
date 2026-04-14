@@ -110,7 +110,7 @@ class TasksStoreRunnerMixin:
             row = conn.execute(
                 text(
                     """
-                    SELECT status, execution_context, pack_id, concurrency_key
+                    SELECT status, execution_id, execution_context, pack_id, concurrency_key
                     FROM tasks
                     WHERE id = :task_id
                 """
@@ -172,6 +172,14 @@ class TasksStoreRunnerMixin:
                     "task_id": task_id,
                 },
             )
+            if result.rowcount == 1:
+                execution_id = getattr(row, "execution_id", None) or task_id
+                self._sync_playbook_execution_status(
+                    conn,
+                    execution_id,
+                    TaskStatus.RUNNING,
+                    ctx,
+                )
             return result.rowcount == 1
 
     def update_task_heartbeat(
@@ -239,6 +247,23 @@ class TasksStoreRunnerMixin:
             )
         else:
             self.update_task(task_id, execution_context=ctx)
+        try:
+            execution_id = getattr(task, "execution_id", None) or task_id
+            with self.transaction() as conn:
+                self._sync_playbook_execution_status(
+                    conn,
+                    execution_id,
+                    TaskStatus.RUNNING,
+                    ctx,
+                    blocked_reason=getattr(task, "blocked_reason", None),
+                    touch_only=True,
+                )
+        except Exception:
+            logger.debug(
+                "Failed to touch playbook_executions heartbeat state for task %s",
+                task_id,
+                exc_info=True,
+            )
         logger.debug("Updated heartbeat for task %s (runner=%s)", task_id, runner_id)
 
         if should_revive:
