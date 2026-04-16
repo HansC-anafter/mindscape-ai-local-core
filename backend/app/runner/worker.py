@@ -57,7 +57,9 @@ from backend.app.runner.task_executor import (
     _run_single_task,
 )
 from backend.app.runner.restart import (
+    _check_drain_sentinel,
     _check_restart_sentinel,
+    _DRAIN_SENTINEL_PATH,
     _RESTART_SENTINEL_PATH,
     _RESTART_DRAIN_TIMEOUT_SECONDS,
 )
@@ -513,6 +515,7 @@ async def run_forever() -> None:
     logger.info(
         "Runner maintenance loop started (interval=%ss)", reap_interval_seconds
     )
+    active_drain_request_id: Optional[str] = None
 
     while True:
         # Runner liveness heartbeat via shared PostgreSQL.
@@ -569,6 +572,29 @@ async def run_forever() -> None:
                     pass
         except Exception:
             pass
+
+        drain_sentinel = _check_drain_sentinel()
+        if drain_sentinel:
+            drain_request_id = str(drain_sentinel.get("request_id") or "unknown")
+            if drain_request_id != active_drain_request_id:
+                logger.info(
+                    "Drain sentinel active (request_id=%s path=%s ttl=%ss inflight=%d); "
+                    "runner will not dequeue new tasks until cleared.",
+                    drain_request_id,
+                    _DRAIN_SENTINEL_PATH,
+                    drain_sentinel.get("ttl_seconds"),
+                    len(inflight),
+                )
+                active_drain_request_id = drain_request_id
+            await asyncio.sleep(min(poll_interval_ms / 1000, 1.0))
+            continue
+
+        if active_drain_request_id is not None:
+            logger.info(
+                "Drain sentinel cleared (previous_request_id=%s); runner will resume dequeue.",
+                active_drain_request_id,
+            )
+            active_drain_request_id = None
 
         capacity = resolve_runner_capacity_snapshot(
             runner_profile,

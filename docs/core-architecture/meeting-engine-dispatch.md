@@ -20,7 +20,9 @@ graph TD
     L2O --> PG["Policy Gate"]
     PG --> L3O["L3 Online<br/>DispatchGate<br/>dispatch_now / clarify / defer"]
     L3O --> TIR["TaskIR Compile<br/>(pre-dispatch contract)"]
+    L3O --> SSIR["SpatialSchedulingIR Emit<br/>(planning artifact when requested)"]
     TIR --> DO["DispatchOrchestrator<br/>DAG walker + PhaseAttempt"]
+    SSIR -.-> DO
     DO --> L4["L4 Transport<br/>HandoffHandler (adapter)<br/>agent_dispatch / cross_worker"]
     L5["L5 RuntimeSupervisor<br/>Observe · Gate · Recover"] -.->|"signals"| L3O
     L5 -.->|"retry / cancel / reroute"| DO
@@ -35,6 +37,7 @@ graph TD
 | Plane | State | Writer | Reader |
 |-------|-------|--------|--------|
 | **Control** | TaskIR, PhaseAttempt, DispatchEvent | DispatchOrchestrator | L5 RuntimeSupervisor |
+| **Planning** | SpatialSchedulingIR, bounded consumer hints | Meeting compiler / artifact emitter | runtime consumers, writeback layer |
 | **Projection** | tasks, playbook_executions | Projection writer (from Control) | API consumers, UI |
 | **Transport** | pending_dispatch, ws_connections | L4 adapters | agent_dispatch, cross_worker |
 
@@ -140,6 +143,13 @@ The self-evolving convergence engine treats the meeting as a constrained dynamic
 ## TaskIR — Pre-Dispatch Contract
 
 TaskIR is compiled **before** dispatch, not post-hoc.
+
+For spatial/world-oriented workflows, TaskIR may be accompanied by a separate `SpatialSchedulingIR` artifact.
+The rule is:
+
+- `TaskIR` remains the bounded control artifact
+- `SpatialSchedulingIR` carries bounded planning semantics when the workflow needs scene/subject/object/camera-aware structure
+- provider-native runtime payloads still belong downstream, not inside either artifact
 
 ### Compile Invariants
 
@@ -320,4 +330,3 @@ Meeting asset maps dynamically query workspaces with `visibility=discoverable` a
 | Supervisor | 10+ | Pass |
 | Other orchestration | 16 | Pass |
 | **Total** | **174+** | |
-

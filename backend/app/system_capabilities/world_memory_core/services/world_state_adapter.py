@@ -72,6 +72,82 @@ def _derive_motion_constraints(motion_context: Dict[str, Any]) -> Dict[str, Any]
     return constraints
 
 
+def _normalize_schedule_artifact_refs(value: Any) -> List[Dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+
+    normalized: List[Dict[str, Any]] = []
+    for item in value:
+        if hasattr(item, "model_dump"):
+            item = item.model_dump(mode="json")
+        if isinstance(item, dict) and item:
+            normalized.append(dict(item))
+    return normalized
+
+
+def _derive_active_schedule(
+    spatial_schedule_context: Dict[str, Any],
+    source_receipt: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    explicit = spatial_schedule_context.get("active_schedule")
+    if isinstance(explicit, dict) and explicit:
+        return dict(explicit)
+
+    fallback = {
+        key: spatial_schedule_context.get(key)
+        for key in (
+            "schedule_id",
+            "status",
+            "title",
+            "entity_kinds",
+            "active_segment_ids",
+            "segment_count",
+            "time_window",
+            "consumer_refs",
+            "source_task_id",
+            "source_session_id",
+            "source_artifact_id",
+            "updated_at",
+        )
+        if spatial_schedule_context.get(key) not in (None, "", [], {})
+    }
+    if fallback:
+        return fallback
+
+    packet_schedule = source_receipt.get("active_schedule")
+    if isinstance(packet_schedule, dict) and packet_schedule:
+        return dict(packet_schedule)
+    return None
+
+
+def _derive_schedule_constraints(
+    spatial_schedule_context: Dict[str, Any],
+    source_receipt: Dict[str, Any],
+) -> Dict[str, Any]:
+    explicit = spatial_schedule_context.get("schedule_constraints")
+    if isinstance(explicit, dict) and explicit:
+        return dict(explicit)
+
+    summary = spatial_schedule_context.get("constraint_summary")
+    if isinstance(summary, dict) and summary:
+        return dict(summary)
+
+    packet_constraints = source_receipt.get("schedule_constraints")
+    if isinstance(packet_constraints, dict) and packet_constraints:
+        return dict(packet_constraints)
+    return {}
+
+
+def _derive_schedule_artifact_refs(
+    spatial_schedule_context: Dict[str, Any],
+    source_receipt: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    refs = _normalize_schedule_artifact_refs(spatial_schedule_context.get("artifact_refs"))
+    if refs:
+        return refs
+    return _normalize_schedule_artifact_refs(source_receipt.get("schedule_artifact_refs"))
+
+
 class WorldStateAdapter:
     """Normalize coarse receipts into governed world-state models."""
 
@@ -88,10 +164,12 @@ class WorldStateAdapter:
         receipt: Optional[Dict[str, Any]] = None,
         geo_context: Optional[Dict[str, Any]] = None,
         motion_context: Optional[Dict[str, Any]] = None,
+        spatial_schedule_context: Optional[Dict[str, Any]] = None,
     ) -> WorldStateSnapshot:
         source_receipt = dict(receipt or {})
         geo_context = dict(geo_context or {})
         motion_context = dict(motion_context or {})
+        spatial_schedule_context = dict(spatial_schedule_context or {})
         governance_context = dict(governance_context or {})
         lens_context = dict(governance_context.get("lens") or {})
         mode = governance_context.get("mode")
@@ -133,6 +211,18 @@ class WorldStateAdapter:
                 motion_context.get("artifact_refs")
             ),
             motion_constraints=_derive_motion_constraints(motion_context),
+            active_schedule=_derive_active_schedule(
+                spatial_schedule_context,
+                source_receipt,
+            ),
+            schedule_artifact_refs=_derive_schedule_artifact_refs(
+                spatial_schedule_context,
+                source_receipt,
+            ),
+            schedule_constraints=_derive_schedule_constraints(
+                spatial_schedule_context,
+                source_receipt,
+            ),
             geo_anchor=source_receipt.get("geo_anchor") or geo_context.get("geo_anchor"),
             venue_context=source_receipt.get("venue_context") or geo_context.get("venue_context"),
             route_context=source_receipt.get("route_context") or geo_context.get("route_context"),
@@ -141,6 +231,7 @@ class WorldStateAdapter:
                 **dict(source_receipt.get("metadata") or {}),
                 "geo_provider": geo_context.get("provider"),
                 "motion_provider": motion_context.get("provider"),
+                "has_spatial_schedule": bool(spatial_schedule_context),
             },
         )
 
@@ -182,6 +273,9 @@ class WorldStateAdapter:
             active_motion=dict(snapshot.active_motion) if snapshot.active_motion else None,
             motion_artifact_refs=[dict(item) for item in snapshot.motion_artifact_refs],
             motion_constraints=dict(snapshot.motion_constraints),
+            active_schedule=dict(snapshot.active_schedule) if snapshot.active_schedule else None,
+            schedule_artifact_refs=[dict(item) for item in snapshot.schedule_artifact_refs],
+            schedule_constraints=dict(snapshot.schedule_constraints),
             geo_anchor=snapshot.geo_anchor,
             venue_context=snapshot.venue_context,
             route_context=snapshot.route_context,

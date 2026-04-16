@@ -55,7 +55,7 @@ def _workflow_result_has_errors(result: Dict[str, Any]) -> bool:
     if not isinstance(result, dict):
         return False
 
-    if result.get("status") == "error":
+    if str(result.get("status") or "").strip().lower() in {"error", "failed"}:
         return True
 
     steps = result.get("steps")
@@ -63,7 +63,11 @@ def _workflow_result_has_errors(result: Dict[str, Any]) -> bool:
         return False
 
     for step_result in steps.values():
-        if isinstance(step_result, dict) and step_result.get("status") == "error":
+        if (
+            isinstance(step_result, dict)
+            and str(step_result.get("status") or "").strip().lower()
+            in {"error", "failed"}
+        ):
             return True
     return False
 
@@ -100,7 +104,11 @@ def _runtime_result_has_errors(runtime_result: Any, raw_result: Optional[Dict[st
     steps = metadata.get("steps")
     if isinstance(steps, dict):
         for step_result in steps.values():
-            if isinstance(step_result, dict) and step_result.get("status") == "error":
+            if (
+                isinstance(step_result, dict)
+                and str(step_result.get("status") or "").strip().lower()
+                in {"error", "failed"}
+            ):
                 return True
 
     workflow_result = metadata.get("workflow_result")

@@ -8,13 +8,14 @@ Before overwriting, compares current file state against the recorded
 hashes to detect local modifications.
 """
 
+import difflib
 import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,9 @@ MANIFEST_FILENAME = ".install_manifest.json"
 
 # Directories/files to skip when hashing
 _SKIP_PATTERNS = {"__pycache__", ".pyc", ".pyo", ".DS_Store"}
+_DIFF_REVIEW_MAX_ITEMS = 12
+_DIFF_PREVIEW_CONTEXT_LINES = 3
+_DIFF_PREVIEW_MAX_LINES = 80
 
 
 @dataclass
@@ -66,6 +70,176 @@ def _hash_file(file_path: Path) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return f"sha256:{h.hexdigest()}"
+
+
+def _safe_hash_file(file_path: Path) -> Optional[str]:
+    try:
+        if not file_path.is_file():
+            return None
+        return _hash_file(file_path)
+    except OSError as exc:
+        logger.warning("Failed to hash %s for diff review: %s", file_path, exc)
+        return None
+
+
+def _read_text_lines_for_diff(file_path: Path) -> tuple[Optional[List[str]], Optional[str]]:
+    try:
+        raw = file_path.read_bytes()
+    except OSError as exc:
+        return None, f"Unable to read file: {exc}"
+
+    if b"\x00" in raw:
+        return None, "Binary file; diff preview omitted."
+
+    return raw.decode("utf-8", errors="replace").splitlines(keepends=True), None
+
+
+def _build_unified_diff_preview(
+    *,
+    local_path: Path,
+    incoming_path: Path,
+    relative_path: str,
+) -> tuple[Optional[str], bool, Optional[str]]:
+    local_lines, local_note = _read_text_lines_for_diff(local_path)
+    incoming_lines, incoming_note = _read_text_lines_for_diff(incoming_path)
+
+    note_parts = [note for note in (local_note, incoming_note) if note]
+    if local_lines is None or incoming_lines is None:
+        note = "; ".join(note_parts) if note_parts else None
+        return None, False, note
+
+    diff_lines = list(
+        difflib.unified_diff(
+            local_lines,
+            incoming_lines,
+            fromfile=f"local-core/{relative_path}",
+            tofile=f"incoming-pack/{relative_path}",
+            n=_DIFF_PREVIEW_CONTEXT_LINES,
+        )
+    )
+    if not diff_lines:
+        return None, False, None
+
+    truncated = len(diff_lines) > _DIFF_PREVIEW_MAX_LINES
+    preview = "".join(diff_lines[:_DIFF_PREVIEW_MAX_LINES])
+    if truncated:
+        preview += (
+            f"\n... ({len(diff_lines) - _DIFF_PREVIEW_MAX_LINES} more diff lines omitted)\n"
+        )
+    return preview, truncated, None
+
+
+def _build_review_item(
+    *,
+    change_type: str,
+    relative_path: str,
+    existing_cap_dir: Path,
+    incoming_cap_dir: Path,
+) -> Dict[str, Any]:
+    local_path = existing_cap_dir / relative_path
+    incoming_path = incoming_cap_dir / relative_path
+    local_exists = local_path.is_file()
+    incoming_exists = incoming_path.is_file()
+    local_hash = _safe_hash_file(local_path)
+    incoming_hash = _safe_hash_file(incoming_path)
+    incoming_matches_local = (
+        bool(local_hash)
+        and bool(incoming_hash)
+        and str(local_hash) == str(incoming_hash)
+    )
+
+    preview = None
+    preview_truncated = False
+    note: Optional[str] = None
+
+    if local_exists and incoming_exists and not incoming_matches_local:
+        preview, preview_truncated, note = _build_unified_diff_preview(
+            local_path=local_path,
+            incoming_path=incoming_path,
+            relative_path=relative_path,
+        )
+        comparison_state = "differs_from_incoming"
+        if note is None:
+            note = (
+                "Incoming pack differs from the current local-core file. "
+                "Review whether local fixes are already upstreamed before overwrite."
+            )
+    elif incoming_matches_local:
+        comparison_state = "matches_incoming"
+        note = "Incoming pack already matches the current local-core file."
+    elif local_exists and not incoming_exists:
+        comparison_state = "local_only"
+        note = (
+            "Path exists only in local-core. Incoming pack does not contain it. "
+            "Review whether this local change is missing from cloud source."
+        )
+    elif not local_exists and incoming_exists:
+        comparison_state = "incoming_only"
+        note = (
+            "Path is currently missing in local-core. Incoming pack contains it "
+            "and will restore it if overwrite proceeds."
+        )
+    else:
+        comparison_state = "absent_both"
+        note = (
+            "Path is absent in both local-core and incoming pack. "
+            "Review manifest drift before overwrite."
+        )
+
+    return {
+        "path": relative_path,
+        "change_type": change_type,
+        "comparison_state": comparison_state,
+        "incoming_matches_local": incoming_matches_local if (local_exists and incoming_exists) else None,
+        "local_exists": local_exists,
+        "incoming_exists": incoming_exists,
+        "local_hash": local_hash,
+        "incoming_hash": incoming_hash,
+        "preview": preview,
+        "preview_truncated": preview_truncated,
+        "note": note,
+    }
+
+
+def build_dirty_review_payload(
+    existing_cap_dir: Path,
+    incoming_cap_dir: Path,
+    dirty: "DirtyCheckResult",
+) -> Dict[str, Any]:
+    """
+    Build per-file review guidance for dirty-state overwrite conflicts.
+
+    Compares the current local-core capability files against the incoming pack
+    so installers can inspect whether local modifications are already present in
+    cloud source before forcing an overwrite.
+    """
+    ordered_paths = (
+        [("modified", path) for path in dirty.modified]
+        + [("added", path) for path in dirty.added]
+        + [("deleted", path) for path in dirty.deleted]
+    )
+    previewed = ordered_paths[:_DIFF_REVIEW_MAX_ITEMS]
+    items = [
+        _build_review_item(
+            change_type=change_type,
+            relative_path=relative_path,
+            existing_cap_dir=existing_cap_dir,
+            incoming_cap_dir=incoming_cap_dir,
+        )
+        for change_type, relative_path in previewed
+    ]
+    return {
+        "items": items,
+        "total_items": len(ordered_paths),
+        "previewed_items": len(items),
+        "truncated_items": max(0, len(ordered_paths) - len(items)),
+        "matching_items": sum(
+            1 for item in items if item.get("comparison_state") == "matches_incoming"
+        ),
+        "conflicting_items": sum(
+            1 for item in items if item.get("comparison_state") != "matches_incoming"
+        ),
+    }
 
 
 def compute_dir_hashes(dir_path: Path) -> Dict[str, str]:

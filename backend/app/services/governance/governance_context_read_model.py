@@ -148,6 +148,9 @@ class GovernanceContextReadModel:
             memory_packet=memory_packet,
             geo_context=await self._safe_build_geo_context(workspace_ref),
             motion_context=await self._safe_build_motion_context(workspace_ref),
+            spatial_schedule_context=await self._safe_build_spatial_schedule_context(
+                workspace_ref
+            ),
         )
 
         response = {
@@ -174,6 +177,7 @@ class GovernanceContextReadModel:
         memory_packet: Dict[str, Any],
         geo_context: Optional[Dict[str, Any]] = None,
         motion_context: Optional[Dict[str, Any]] = None,
+        spatial_schedule_context: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         try:
             from backend.app.system_capabilities.world_memory_core.services.context_export_facade import (
@@ -189,6 +193,7 @@ class GovernanceContextReadModel:
                 memory_packet=memory_packet,
                 geo_context=geo_context,
                 motion_context=motion_context,
+                spatial_schedule_context=spatial_schedule_context,
             )
             return result if isinstance(result, dict) else None
         except (ImportError, ModuleNotFoundError):
@@ -259,6 +264,20 @@ class GovernanceContextReadModel:
         motion_context = metadata.get("motion_context")
         if isinstance(motion_context, dict) and motion_context:
             return motion_context
+
+        return None
+
+    async def _safe_build_spatial_schedule_context(
+        self,
+        workspace_ref: Any,
+    ) -> Optional[Dict[str, Any]]:
+        metadata = getattr(workspace_ref, "metadata", None) or {}
+        if not isinstance(metadata, dict):
+            return None
+
+        spatial_schedule_context = metadata.get("spatial_schedule_context")
+        if isinstance(spatial_schedule_context, dict) and spatial_schedule_context:
+            return spatial_schedule_context
 
         return None
 

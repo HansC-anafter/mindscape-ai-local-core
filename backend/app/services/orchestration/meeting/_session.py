@@ -93,6 +93,18 @@ class MeetingSessionMixin:
                 self.session.metadata["world_card_text"] = governance_packet.get(
                     "world_card_text"
                 )
+            if governance_packet.get("geo_context"):
+                self.session.metadata["geo_context"] = governance_packet.get(
+                    "geo_context"
+                )
+            if governance_packet.get("motion_context"):
+                self.session.metadata["motion_context"] = governance_packet.get(
+                    "motion_context"
+                )
+            if governance_packet.get("spatial_schedule_context"):
+                self.session.metadata["spatial_schedule_context"] = governance_packet.get(
+                    "spatial_schedule_context"
+                )
 
         memory_context_summary = getattr(self, "_memory_context_summary", "")
         if memory_context_summary:

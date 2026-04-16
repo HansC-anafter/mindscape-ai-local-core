@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Callable
 
+from app.services.runtime_contract_paths import build_validation_pythonpath
+
 logger = logging.getLogger(__name__)
 
 
@@ -148,11 +150,8 @@ class PlaybookValidator:
                 text=True,
                 timeout=timeout_seconds,
                 env={
-                    **dict(os.environ),
+                    **self._build_subprocess_env(),
                     "LLM_MOCK": "false",
-                    "BASE_URL": "http://localhost:8200",
-                    "PYTHONPATH": f"{self.local_core_root}:{self.local_core_root / 'backend'}",
-                    "CAPABILITIES_PATH": str(self.capabilities_dir),
                 },
             )
         except subprocess.TimeoutExpired:
@@ -231,11 +230,8 @@ class PlaybookValidator:
                 text=True,
                 timeout=5,  # Structure validation should complete in 1 second, 5 second buffer
                 env={
-                    **dict(os.environ),
+                    **self._build_subprocess_env(),
                     "LLM_MOCK": "false",  # Skip execution test, no mock needed
-                    "BASE_URL": "http://localhost:8200",
-                    "PYTHONPATH": f"{self.local_core_root}:{self.local_core_root / 'backend'}",
-                    "CAPABILITIES_PATH": str(self.capabilities_dir)
                 }
             )
 
@@ -258,6 +254,18 @@ class PlaybookValidator:
             })
             logger.error(f"Playbook {playbook_code} structure validation error: {e}")
             return False
+
+    def _build_subprocess_env(self) -> Dict[str, str]:
+        """Construct a validator subprocess environment with contract import roots."""
+        return {
+            **dict(os.environ),
+            "BASE_URL": "http://localhost:8200",
+            "PYTHONPATH": build_validation_pythonpath(
+                self.local_core_root,
+                self.capabilities_dir,
+            ),
+            "CAPABILITIES_PATH": str(self.capabilities_dir),
+        }
 
     def _parse_successful_validation(
         self,

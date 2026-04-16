@@ -24,6 +24,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from .motion_generation_receipt import MotionGenerationReceipt
+
 
 class NarrativeRole(str, Enum):
     ESTABLISH_STATE = "establish_state"
@@ -83,6 +85,10 @@ class QualityGateState(str, Enum):
     ESCALATE_LOCAL_SCENE = "escalate_local_scene"
 
 
+class WorldInterchangeKind(str, Enum):
+    OPENUSD = "openusd"
+
+
 OBJECT_REUSE_SCHEMA_VERSION = "object_reuse.v1"
 OBJECT_WORKLOAD_SNAPSHOT_SCHEMA_VERSION = "object_workload_snapshot.v1"
 CHARACTER_BINDING_MODES = {"reference_only", "adapter_only", "hybrid"}
@@ -90,6 +96,13 @@ PERFORMANCE_MODES = {"portrait_animation", "audio_driven_talking_head"}
 PERFORMANCE_REPLAY_SCOPES = {
     "same_identity_only",
     "retargetable_cross_identity",
+}
+CHARACTER_ADAPTER_SCOPE_KINDS = {"scene", "subject"}
+CHARACTER_ADAPTER_SLOT_ROLES = {
+    "identity",
+    "identity_face",
+    "identity_body",
+    "style",
 }
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
@@ -128,6 +141,52 @@ def _normalize_choice(value: Any, allowed: set[str]) -> str:
     if normalized in allowed:
         return normalized
     return ""
+
+
+def _normalize_optional_int(value: Any) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(normalized, 0)
+
+
+def _normalize_optional_float(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_model_list(values: Any, model_cls: type[BaseModel]) -> list[Any]:
+    if not isinstance(values, list):
+        return []
+    normalized: list[Any] = []
+    seen: set[str] = set()
+    for raw in values:
+        if isinstance(raw, model_cls):
+            item = raw
+        elif isinstance(raw, dict):
+            item = model_cls.model_validate(raw)
+        elif hasattr(raw, "model_dump"):
+            item = model_cls.model_validate(raw.model_dump(mode="python"))
+        else:
+            continue
+        marker = json.dumps(
+            item.model_dump(mode="json"),
+            sort_keys=True,
+            ensure_ascii=False,
+            default=str,
+        )
+        if marker in seen:
+            continue
+        seen.add(marker)
+        normalized.append(item)
+    return normalized
 
 
 def _normalize_bbox_payload(value: Any) -> Optional[dict[str, int]]:
@@ -580,6 +639,194 @@ class ScenePackageRef(BaseModel):
         return self
 
 
+class SceneSubjectLocator(BaseModel):
+    reference_id: str = ""
+    frame_index: Optional[int] = None
+    person_track_id: str = ""
+    bbox: dict[str, int] = Field(default_factory=dict)
+    mask_asset_ref: dict[str, Any] = Field(default_factory=dict)
+    anchor_asset_ref: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneSubjectLocator":
+        self.reference_id = str(self.reference_id or "").strip()
+        self.frame_index = _normalize_optional_int(self.frame_index)
+        self.person_track_id = str(self.person_track_id or "").strip()
+        self.bbox = dict(_normalize_bbox_payload(self.bbox) or {})
+        if not isinstance(self.mask_asset_ref, dict):
+            self.mask_asset_ref = {}
+        if not isinstance(self.anchor_asset_ref, dict):
+            self.anchor_asset_ref = {}
+        if not isinstance(self.provenance, dict):
+            self.provenance = {}
+        return self
+
+
+class SceneSubjectRef(BaseModel):
+    subject_id: str = ""
+    cast_id: str = ""
+    role_id: str = ""
+    source_reference_ids: list[str] = Field(default_factory=list)
+    locators: list[SceneSubjectLocator] = Field(default_factory=list)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneSubjectRef":
+        self.subject_id = str(self.subject_id or "").strip()
+        self.cast_id = str(self.cast_id or "").strip()
+        self.role_id = str(self.role_id or "").strip()
+        self.source_reference_ids = _normalize_string_list(self.source_reference_ids)
+        self.locators = _normalize_model_list(self.locators, SceneSubjectLocator)
+        if not self.subject_id:
+            subject_seed = [
+                self.cast_id,
+                self.role_id,
+                *self.source_reference_ids,
+            ]
+            if subject_seed:
+                self.subject_id = f"subj_{_stable_short_hash(*subject_seed)}"
+        if not isinstance(self.provenance, dict):
+            self.provenance = {}
+        return self
+
+
+class CharacterAdapterSlot(BaseModel):
+    slot_id: str = ""
+    slot_role: str = ""
+    scope_kind: str = ""
+    subject_id: str = ""
+    role_id: str = ""
+    adapter_kind: str = ""
+    backend_capability: str = ""
+    binding_mode: str = ""
+    package_refs: list[dict[str, Any]] = Field(default_factory=list)
+    strength: Optional[float] = None
+    clip_strength: Optional[float] = None
+    source_reference_ids: list[str] = Field(default_factory=list)
+    mask_asset_ref: dict[str, Any] = Field(default_factory=dict)
+    anchor_asset_ref: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "CharacterAdapterSlot":
+        self.slot_id = str(self.slot_id or "").strip()
+        self.slot_role = str(self.slot_role or "").strip().lower()
+        if self.slot_role in CHARACTER_ADAPTER_SLOT_ROLES:
+            self.slot_role = self.slot_role
+        self.subject_id = str(self.subject_id or "").strip()
+        self.role_id = str(self.role_id or "").strip()
+        self.adapter_kind = str(self.adapter_kind or "").strip().lower()
+        self.backend_capability = str(self.backend_capability or "").strip().lower()
+        self.binding_mode = _normalize_choice(
+            self.binding_mode,
+            CHARACTER_BINDING_MODES,
+        )
+        self.package_refs = _normalize_structured_dict_list(self.package_refs)
+        self.strength = _normalize_optional_float(self.strength)
+        self.clip_strength = _normalize_optional_float(self.clip_strength)
+        self.source_reference_ids = _normalize_string_list(self.source_reference_ids)
+        if not isinstance(self.mask_asset_ref, dict):
+            self.mask_asset_ref = {}
+        if not isinstance(self.anchor_asset_ref, dict):
+            self.anchor_asset_ref = {}
+        if not isinstance(self.provenance, dict):
+            self.provenance = {}
+        normalized_scope = _normalize_choice(
+            self.scope_kind,
+            CHARACTER_ADAPTER_SCOPE_KINDS,
+        )
+        if not normalized_scope:
+            normalized_scope = "subject" if self.subject_id else "scene"
+        self.scope_kind = normalized_scope
+        if not self.slot_id:
+            slot_seed: list[Any] = [
+                self.scope_kind,
+                self.subject_id,
+                self.role_id,
+                self.slot_role,
+                self.binding_mode,
+            ]
+            primary_package_id = ""
+            if self.package_refs:
+                primary_package_id = str(
+                    self.package_refs[0].get("package_id")
+                    or self.package_refs[0].get("artifact_id")
+                    or ""
+                ).strip()
+            if primary_package_id:
+                slot_seed.append(primary_package_id)
+            slot_seed = [part for part in slot_seed if str(part or "").strip()]
+            if slot_seed:
+                self.slot_id = f"slot_{_stable_short_hash(*slot_seed)}"
+        return self
+
+
+def _build_legacy_character_adapter_slot(
+    *,
+    binding_mode: str,
+    package_refs: list[dict[str, Any]],
+    source_reference_ids: list[str],
+) -> Optional[CharacterAdapterSlot]:
+    normalized_package_refs = _normalize_structured_dict_list(package_refs)
+    normalized_binding_mode = _normalize_choice(binding_mode, CHARACTER_BINDING_MODES)
+    normalized_source_reference_ids = _normalize_string_list(source_reference_ids)
+    if not normalized_package_refs and not normalized_binding_mode:
+        return None
+    return CharacterAdapterSlot(
+        slot_id="legacy_identity_primary",
+        slot_role="identity",
+        scope_kind="scene",
+        binding_mode=normalized_binding_mode,
+        package_refs=normalized_package_refs,
+        source_reference_ids=normalized_source_reference_ids,
+    )
+
+
+def _legacy_character_adapter_slot_to_mirror(
+    slots: list[CharacterAdapterSlot],
+) -> Optional[CharacterAdapterSlot]:
+    if len(slots) != 1:
+        return None
+    slot = slots[0]
+    if slot.scope_kind != "scene":
+        return None
+    if slot.slot_role not in {"identity", "identity_face", "identity_body"}:
+        return None
+    return slot
+
+
+class WorldInterchangeRef(BaseModel):
+    kind: WorldInterchangeKind = WorldInterchangeKind.OPENUSD
+    stage_ref: dict[str, Any] = Field(default_factory=dict)
+    entry_layer_ref: dict[str, Any] = Field(default_factory=dict)
+    layer_refs: list[dict[str, Any]] = Field(default_factory=list)
+    variant_selections: dict[str, str] = Field(default_factory=dict)
+    composition_metadata: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "WorldInterchangeRef":
+        if not isinstance(self.stage_ref, dict):
+            self.stage_ref = {}
+        if not isinstance(self.entry_layer_ref, dict):
+            self.entry_layer_ref = {}
+        self.layer_refs = _normalize_structured_dict_list(self.layer_refs)
+        normalized_variants: dict[str, str] = {}
+        if isinstance(self.variant_selections, dict):
+            for raw_key, raw_value in self.variant_selections.items():
+                key = str(raw_key or "").strip()
+                value = str(raw_value or "").strip()
+                if key and value:
+                    normalized_variants[key] = value
+        self.variant_selections = normalized_variants
+        if not isinstance(self.composition_metadata, dict):
+            self.composition_metadata = {}
+        if not isinstance(self.provenance, dict):
+            self.provenance = {}
+        return self
+
+
 class DirectionIR(BaseModel):
     ir_id: str = Field(default_factory=lambda: f"ir_{uuid.uuid4().hex[:12]}")
     intent: SceneIntent = Field(default_factory=SceneIntent)
@@ -592,6 +839,8 @@ class DirectionIR(BaseModel):
     subject_anchors: list[str] = Field(default_factory=list)
     role_requirements: list[dict[str, Any]] = Field(default_factory=list)
     character_bindings: list[dict[str, Any]] = Field(default_factory=list)
+    scene_subjects: list[SceneSubjectRef] = Field(default_factory=list)
+    character_adapter_slots: list[CharacterAdapterSlot] = Field(default_factory=list)
     character_package_refs: list[dict[str, Any]] = Field(default_factory=list)
     character_binding_mode: str = ""
     performance_requirements: list[str] = Field(default_factory=list)
@@ -623,6 +872,14 @@ class DirectionIR(BaseModel):
         self.character_bindings = _normalize_structured_dict_list(
             self.character_bindings
         )
+        self.scene_subjects = _normalize_model_list(
+            self.scene_subjects,
+            SceneSubjectRef,
+        )
+        self.character_adapter_slots = _normalize_model_list(
+            self.character_adapter_slots,
+            CharacterAdapterSlot,
+        )
         self.character_package_refs = _normalize_structured_dict_list(
             self.character_package_refs
         )
@@ -630,6 +887,25 @@ class DirectionIR(BaseModel):
             self.character_binding_mode,
             CHARACTER_BINDING_MODES,
         )
+        if not self.character_adapter_slots:
+            legacy_slot = _build_legacy_character_adapter_slot(
+                binding_mode=self.character_binding_mode,
+                package_refs=self.character_package_refs,
+                source_reference_ids=(
+                    self.subject_reference_ids or self.source_reference_ids
+                ),
+            )
+            if legacy_slot is not None:
+                self.character_adapter_slots = [legacy_slot]
+        elif not self.character_package_refs and not self.character_binding_mode:
+            mirrored_legacy_slot = _legacy_character_adapter_slot_to_mirror(
+                self.character_adapter_slots
+            )
+            if mirrored_legacy_slot is not None:
+                self.character_package_refs = _normalize_structured_dict_list(
+                    mirrored_legacy_slot.package_refs
+                )
+                self.character_binding_mode = mirrored_legacy_slot.binding_mode
         self.performance_requirements = _normalize_string_list(
             self.performance_requirements
         )
@@ -682,6 +958,8 @@ class Scene(BaseModel):
     direction_ir: Optional[DirectionIR] = None
     scene_package_selector: Optional[ScenePackageSelector] = None
     scene_package_ref: Optional[ScenePackageRef] = None
+    world_interchange_refs: list[WorldInterchangeRef] = Field(default_factory=list)
+    motion_receipt: Optional[MotionGenerationReceipt] = None
     scene_consistency_contract: SceneConsistencyContract = Field(
         default_factory=SceneConsistencyContract
     )

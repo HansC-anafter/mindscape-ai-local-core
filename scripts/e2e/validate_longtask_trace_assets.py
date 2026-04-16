@@ -8,6 +8,7 @@ import json
 import re
 import sys
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -28,6 +29,22 @@ def _write_text(path: Path, text: str) -> None:
     path.write_text(text.rstrip() + "\n", encoding="utf-8")
 
 
+def _sync_summary_acceptance_status(trace_dir: Path, acceptance_status: str) -> None:
+    summary_path = trace_dir / "summary.json"
+    if not summary_path.exists():
+        return
+    try:
+        payload = _load_json(summary_path)
+    except Exception:
+        return
+    if not isinstance(payload, dict):
+        return
+    if payload.get("acceptance_status") == acceptance_status:
+        return
+    payload["acceptance_status"] = acceptance_status
+    _write_json(summary_path, payload)
+
+
 def _slugify(filename: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", Path(filename).stem.lower()).strip("_")
 
@@ -45,6 +62,56 @@ def _coerce_text(value: Any) -> Optional[str]:
         return None
     text = value.strip()
     return text or None
+
+
+def _parse_timestamp(value: Any) -> Optional[datetime]:
+    text = _coerce_text(value)
+    if not text:
+        return None
+    normalized = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _infer_workspace_root(trace_dir: Path) -> Optional[Path]:
+    candidates = []
+    if len(trace_dir.parents) >= 4:
+        candidates.append(trace_dir.parents[3])
+    candidates.append(Path.cwd())
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate.resolve()) if candidate.exists() else str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if (candidate / "data" / "e2e-traces").exists():
+            return candidate
+    return candidates[0] if candidates else None
+
+
+def _workspace_file_is_current_run(path: Path, session_payload: Dict[str, Any]) -> bool:
+    if not path.is_file():
+        return False
+
+    session_start = _parse_timestamp(session_payload.get("started_at"))
+    compile_job = session_payload.get("compile_job") or {}
+    session_end = (
+        _parse_timestamp(session_payload.get("ended_at"))
+        or _parse_timestamp(compile_job.get("completed_at"))
+        or _parse_timestamp(compile_job.get("updated_at"))
+    )
+    file_mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+
+    if session_start and file_mtime < session_start - timedelta(seconds=5):
+        return False
+    if session_end and file_mtime > session_end + timedelta(minutes=5):
+        return False
+    return True
 
 
 def _looks_like_runtime_quota_or_rate_limit(text: Optional[str]) -> bool:
@@ -71,9 +138,40 @@ def _detect_runtime_quota_block(session_payload: Dict[str, Any]) -> bool:
     candidates = [
         metadata.get("pipeline_stage_error"),
         metadata.get("last_round_failure"),
+        metadata.get("last_round_status"),
         compile_job.get("error"),
     ]
-    return any(_looks_like_runtime_quota_or_rate_limit(candidate) for candidate in candidates)
+    if any(_looks_like_runtime_quota_or_rate_limit(candidate) for candidate in candidates):
+        return True
+
+    if _coerce_text(metadata.get("last_round_status")) == "quota_fallback":
+        return True
+
+    compile_job_metadata = compile_job.get("metadata") or {}
+    if _coerce_text(compile_job_metadata.get("dispatch_status")) == "quota_blocked":
+        return True
+
+    for item in session_payload.get("action_items") or []:
+        if not isinstance(item, dict):
+            continue
+        if any(
+            _looks_like_runtime_quota_or_rate_limit(item.get(key))
+            for key in ("error", "landing_error")
+        ):
+            return True
+
+    for trace in session_payload.get("traces") or []:
+        if not isinstance(trace, dict):
+            continue
+        if _coerce_text(trace.get("reason")) == "runtime_quota_or_rate_limit":
+            return True
+        if any(
+            _looks_like_runtime_quota_or_rate_limit(trace.get(key))
+            for key in ("error", "message", "detail")
+        ):
+            return True
+
+    return False
 
 
 def _collect_session_execution_ids(session_payload: Dict[str, Any]) -> set[str]:
@@ -200,10 +298,24 @@ def _resolve_deliverable_artifact(
     return best_artifact, best_source, best_score
 
 
-def _candidate_content_paths(artifact: Dict[str, Any], filename: str) -> List[Tuple[Path, str]]:
+def _candidate_content_paths(
+    artifact: Optional[Dict[str, Any]],
+    filename: str,
+    *,
+    workspace_root: Optional[Path],
+    session_payload: Dict[str, Any],
+) -> List[Tuple[Path, str]]:
+    candidates: List[Tuple[Path, str]] = []
+    if workspace_root:
+        workspace_file = workspace_root / filename
+        if _workspace_file_is_current_run(workspace_file, session_payload):
+            candidates.append((workspace_file, "workspace_root.current_run"))
+
+    if artifact is None:
+        return candidates
+
     metadata = artifact.get("metadata") or {}
     landing = metadata.get("landing") or {}
-    candidates: List[Tuple[Path, str]] = []
 
     file_path = _coerce_text(artifact.get("file_path"))
     if file_path:
@@ -243,17 +355,18 @@ def _candidate_content_paths(artifact: Dict[str, Any], filename: str) -> List[Tu
 
 
 def _read_deliverable_content(
-    artifact: Optional[Dict[str, Any]], filename: str
+    artifact: Optional[Dict[str, Any]],
+    filename: str,
+    *,
+    workspace_root: Optional[Path],
+    session_payload: Dict[str, Any],
 ) -> Dict[str, Any]:
-    if artifact is None:
-        return {
-            "content_found": False,
-            "content_source": None,
-            "content_path": None,
-            "content": None,
-        }
-
-    for path, source in _candidate_content_paths(artifact, filename):
+    for path, source in _candidate_content_paths(
+        artifact,
+        filename,
+        workspace_root=workspace_root,
+        session_payload=session_payload,
+    ):
         if path.is_file():
             try:
                 return {
@@ -270,6 +383,14 @@ def _read_deliverable_content(
                     "content": None,
                     "error": "non_utf8_attachment",
                 }
+
+    if artifact is None:
+        return {
+            "content_found": False,
+            "content_source": None,
+            "content_path": None,
+            "content": None,
+        }
 
     is_markdown_deliverable = filename.lower().endswith(".md")
 
@@ -356,11 +477,22 @@ def _evaluate_deliverable(
     artifacts: List[Dict[str, Any]],
     session_payload: Dict[str, Any],
     quality_rules: Dict[str, Any],
+    *,
+    workspace_root: Optional[Path],
 ) -> Dict[str, Any]:
     filename = spec_item["filename"]
     artifact, matched_by, match_score = _resolve_deliverable_artifact(artifacts, filename)
-    content_snapshot = _read_deliverable_content(artifact, filename)
+    content_snapshot = _read_deliverable_content(
+        artifact,
+        filename,
+        workspace_root=workspace_root,
+        session_payload=session_payload,
+    )
     content = content_snapshot.get("content") or ""
+    workspace_file_landed = content_snapshot.get("content_source") == "workspace_root.current_run"
+    if artifact is None and workspace_file_landed:
+        matched_by = "workspace_root.current_run"
+        match_score = 100
     named_asset_required = filename.lower().endswith(".md")
     named_asset_found = bool(content_snapshot.get("content_found")) and bool(
         content_snapshot.get("content_path")
@@ -396,7 +528,7 @@ def _evaluate_deliverable(
     blocked_items = _extract_blocking_items(session_payload, filename)
 
     automated_pass = (
-        artifact is not None
+        (artifact is not None or workspace_file_landed)
         and bool(content_snapshot.get("content_found"))
         and (not named_asset_required or named_asset_found)
         and not missing_sections
@@ -414,7 +546,7 @@ def _evaluate_deliverable(
 
     result = {
         "filename": filename,
-        "artifact_found": artifact is not None,
+        "artifact_found": artifact is not None or workspace_file_landed,
         "artifact_id": artifact.get("id") if artifact else None,
         "artifact_title": artifact.get("title") if artifact else None,
         "matched_by": matched_by,
@@ -581,6 +713,7 @@ def validate_trace(
     artifact_inventory = _load_json(trace_dir / "10_artifact_inventory.json")
     all_artifacts = _artifact_inventory_items(artifact_inventory)
     artifacts = _filter_artifacts_for_session(all_artifacts, session_payload)
+    workspace_root = _infer_workspace_root(trace_dir)
 
     memory_detail_path = trace_dir / "15_governance_memory_detail.json"
     memory_detail = _load_json(memory_detail_path) if memory_detail_path.exists() else None
@@ -591,6 +724,7 @@ def validate_trace(
             artifacts=artifacts,
             session_payload=session_payload,
             quality_rules=spec.get("quality_rules") or {},
+            workspace_root=workspace_root,
         )
         for deliverable in spec.get("deliverables") or []
     ]
@@ -674,7 +808,12 @@ def validate_trace(
         else:
             blocking_issues.append("Session did not reach closed + finalize completed.")
     if not asset_pass:
-        blocking_issues.append("One or more deliverables did not land as readable named assets.")
+        if runtime_quota_blocked:
+            blocking_issues.append(
+                "Runtime quota or rate-limit blocked one or more deliverables before named assets landed."
+            )
+        else:
+            blocking_issues.append("One or more deliverables did not land as readable named assets.")
     if not automated_quality_pass:
         blocking_issues.append("One or more deliverables failed automated quality checks.")
     if not governance["pass"]:
@@ -686,6 +825,8 @@ def validate_trace(
 
     if runtime_quota_blocked and not orchestration_pass:
         final_status = "l1_runtime_quota_blocked"
+    elif runtime_quota_blocked and not asset_pass:
+        final_status = "l2_runtime_quota_blocked"
     elif not orchestration_pass:
         final_status = "l1_orchestration_fail"
     elif not asset_pass:
@@ -720,6 +861,7 @@ def validate_trace(
     _write_json(trace_dir / "14_quality_scorecard.json", scorecard)
     _write_text(trace_dir / "14_quality_scorecard.md", _build_markdown_scorecard(scorecard, verdict))
     _write_json(trace_dir / "16_acceptance_verdict.json", verdict)
+    _sync_summary_acceptance_status(trace_dir, final_status)
     return 0
 
 

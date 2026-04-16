@@ -6,6 +6,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from backend.app.models.meeting_session import MeetingSession
+from backend.app.models.request_contract import (
+    DeliverableSpec,
+    RequestContract,
+    ScaleEstimate,
+)
 from backend.app.services.orchestration.meeting_agents import DeliberationDepth
 from backend.app.services.orchestration.meeting.round_router import (
     build_executor_routing_graph,
@@ -504,4 +509,84 @@ async def test_stage_deliberation_salvages_quota_failure_after_planner_progress(
     )
     assert session.metadata["deliberation_fallback"]["decision_source"] == (
         "latest_planner_proposal"
+    )
+
+
+@pytest.mark.asyncio
+async def test_stage_deliberation_bootstraps_request_contract_fallback_on_round_one_quota(
+    monkeypatch,
+):
+    import backend.app.services.orchestration.meeting.engine as engine_module
+
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        agenda=["Trace request-contract quota fallback"],
+    )
+    session.max_rounds = 5
+    request_contract = RequestContract(
+        goals=["Create three markdown deliverables"],
+        deliverables=[
+            DeliverableSpec(id="D1", name="persona_operating_system.md"),
+            DeliverableSpec(id="D2", name="instagram_week1_calendar.md"),
+            DeliverableSpec(id="D3", name="reel_hook_bank.md"),
+        ],
+        scale_estimate=ScaleEstimate.STANDARD,
+        source_message="Create the three markdown deliverables.",
+    )
+    session.metadata = {"request_contract": request_contract.model_dump(mode="json")}
+    engine = _RoundProgressHarness(session=session)
+    engine._request_contract = request_contract
+    monkeypatch.setattr(
+        engine_module,
+        "select_deliberation_depth",
+        lambda **kwargs: DeliberationDepth.STANDARD,
+    )
+    engine.ctx = SimpleNamespace(budget_headroom_pct=1.0)
+    engine._rag_tool_cache = []
+    engine.orchestrator = SimpleNamespace(
+        should_stop=lambda: False,
+        record_iteration=lambda: None,
+        record_turn=lambda: None,
+        record_error=lambda: None,
+    )
+    engine._start_session = lambda: None
+    engine._emit_meeting_stage = AsyncMock()
+    engine._emit_round_event = lambda *args, **kwargs: None
+    engine._emit_turn = lambda *args, **kwargs: None
+    engine._emit_decision_proposal = lambda *args, **kwargs: None
+    engine._try_coverage_audit = AsyncMock()
+    engine._prepare_round_routing_graph = lambda *args, **kwargs: None
+    engine._persist_round_progress = lambda *args, **kwargs: None
+    engine._emit_decision_final = lambda *args, **kwargs: None
+    engine._is_converged = lambda *args, **kwargs: False
+
+    engine._role_turn = AsyncMock(
+        side_effect=[
+            RuntimeError(
+                "Meeting turn failed for role 'facilitator' at round 1: "
+                "Meeting turn generation failed: Preferred agent 'codex_cli' failed: "
+                "You've hit your usage limit."
+            ),
+        ]
+    )
+
+    decision, planner_proposals, critic_notes, converged = await engine._stage_deliberation(
+        "Trace request-contract fallback"
+    )
+
+    assert "persona_operating_system.md" in decision
+    assert planner_proposals == [decision]
+    assert critic_notes == []
+    assert converged is False
+    assert session.status.value != "failed"
+    assert session.round_count == 1
+    assert session.metadata["last_round_status"] == "quota_fallback"
+    assert session.metadata["partial_rounds"] == 1
+    assert session.metadata["deliberation_fallback"]["reason"] == (
+        "runtime_quota_or_rate_limit"
+    )
+    assert session.metadata["deliberation_fallback"]["decision_source"] == (
+        "request_contract_bootstrap"
     )

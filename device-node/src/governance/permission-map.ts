@@ -78,6 +78,9 @@ export class PermissionMap {
                         "~/Downloads/**",
                         "~/.mindscape/runtimes/**",
                         "~/.mindscape/models/**",
+                        "${LAF_HOST_RUNTIME_ROOT:-~/.mindscape/runtimes/layer_asset_forge}/**",
+                        "${MINDSCAPE_MODELS_HOST_DIR:-~/.mindscape/models}/**",
+                        "${MINDSCAPE_STORAGE_HOST_DIR:-~/.mindscape/storage}/**",
                     ],
                     denied_paths: ["~/.ssh/**", "~/.gnupg/**", "~/.aws/**", "~/.config/gcloud/**"],
                 },
@@ -218,9 +221,23 @@ export class PermissionMap {
     }
 
     private expandPath(p: string): string {
-        if (p.startsWith("~")) {
-            return path.join(process.env.HOME || "/", p.slice(1));
+        const expandedEnv = p.replace(
+            /\$\{([A-Z0-9_]+)(:-([^}]*))?\}/gi,
+            (match, name: string, _withDefault: string | undefined, fallback: string | undefined) => {
+                const value = process.env[name];
+                if (value && value.trim()) {
+                    return value;
+                }
+                if (typeof fallback === "string") {
+                    return fallback;
+                }
+                return match;
+            }
+        );
+
+        if (expandedEnv.startsWith("~")) {
+            return path.join(process.env.HOME || "/", expandedEnv.slice(1));
         }
-        return p;
+        return expandedEnv;
     }
 }

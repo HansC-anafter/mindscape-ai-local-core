@@ -1,24 +1,39 @@
 code: review
 display_name: "Review"
 version: "1.0.0"
-description: "Review reminder and suggestion services"
-side_effect_level: "soft_write"
+type: feature
+description: "Legacy review reminder and suggestion services migrated out of local-core source tree."
+
+portability:
+  min_local_core_version: "0.9.0"
+  environments:
+    - cloud
+    - local-core
+  degradation_strategy: graceful
+
+runtime_affinity: local
 deprecated: true
-deprecation_note: "This capability will be moved to cloud. Use cloud capability instead."
+deprecation_note: "Legacy capability migrated to cloud canonical source. Prefer installed pack/runtime indirection over local-core source imports."
+
+dependencies:
+  required: []
+  optional: []
 
 tools:
-  - name: maybe_suggest_review
+  - code: maybe_suggest_review
+    name: maybe_suggest_review
     description: "Check if user should be reminded to review"
-    backend: "app.capabilities.review.services.review_suggestion:ReviewSuggestionService.maybe_suggest_review"
+    backend: "capabilities.review.services.review_suggestion:ReviewSuggestionService.maybe_suggest_review"
     input_schema:
       type: object
       properties:
         profile_id:
           type: string
 
-  - name: record_review_completed
+  - code: record_review_completed
+    name: record_review_completed
     description: "Record that review has been completed"
-    backend: "app.capabilities.review.services.review_suggestion:ReviewSuggestionService.record_review_completed"
+    backend: "capabilities.review.services.review_suggestion:ReviewSuggestionService.record_review_completed"
     input_schema:
       type: object
       properties:

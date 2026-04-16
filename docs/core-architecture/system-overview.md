@@ -1,6 +1,6 @@
 # System Overview: Mindscape Engine
 
-This document provides a complete system overview, showing how the current public architecture of Mindscape Engine fits together: governance context, live deliberation, governed memory, and optional actuation.
+This document provides the current public system overview for Mindscape Engine: governance context, live deliberation, bounded planning artifacts, governed memory, and the consumer/runtime lanes that execute work without collapsing provider-specific payloads back into the core.
 
 ## The Complete Flow: From User to Artifact
 
@@ -15,30 +15,30 @@ Signal / Event Plane (MindEvent + SurfaceEvent)
     ↓
 Governance Context (Intent + Lens + Policy + Mind-Model VC)
     ↓
-Governance Context Compilation (Task / Policy / Lens / Assets-Memory)
-    ↓
-Mind Meeting Runtime (deliberation, convergence, dispatch, closure)
+Mind Meeting Runtime (deliberation, clarification, convergence, closure)
     ↕
 Governed Memory Fabric (episodic / interface / core / procedural / serving)
     ↓
-Optional Project Detector + Project / Flow
+TaskIR (control plane)
+    +
+SpatialSchedulingIR (planning plane when requested)
     ↓
-Optional Playbook Runner + Tools
+Consumer Runtimes / Optional Local Actuation
     ↓
-Sandbox / External Runtimes (project file world)
-    ↓
-Artifacts, Decisions, and Writebacks
+Artifacts + Runtime Receipts + World Summary / Writeback
 ```
 
 ## Mindscape Engine Flow
 
 The current public engine flow can be expressed as:
 
-> **Governance Context → Meeting Runtime ↔ Governed Memory Fabric → Optional Actuation / External Runtimes → Artifacts, Decisions, and Writebacks**
+> **Governance Context → Meeting Runtime ↔ Governed Memory Fabric → TaskIR / SpatialSchedulingIR → Consumer Runtimes / Optional Local Actuation → Artifacts, Runtime Receipts, and World Summary / Writeback**
 
-The cognitive core is:
+The cognitive and planning core is:
 
 - **Mind Meeting Runtime**: handles live thinking, clarification, convergence, dispatch, and loop closure
+- **TaskIR**: carries execution-ready work, dependencies, and dispatch boundaries
+- **SpatialSchedulingIR**: carries bounded spatial/world execution intent when the workflow needs it
 - **Governed Memory Fabric**: handles long-term continuity, evidence, episodic compression, durable memory, and serving
 
 It operates under a governance context:
@@ -94,6 +94,7 @@ It operates under a governance context:
 - **Ingress Router**: Single routing entry for chat, API intake, and handoff compilation
 - **Five-Layer Pipeline**: Deliberation → Semantic Bridge → Convergence + Dispatch Gate → Transport → Supervision
 - **Loop Closure**: Meeting close is a first-class write boundary for summarization, extraction, and follow-up
+- **Artifact Emission**: Produces `TaskIR`, and can also emit `SpatialSchedulingIR` when a workflow needs bounded spatial/world planning
 - **Dispatch**: Routes work into projects, playbooks, tools, and external runtimes
 - See [Mind Meeting — Five-Layer Architecture](./meeting-engine-dispatch.md) for details
 
@@ -103,16 +104,22 @@ It operates under a governance context:
 - **Interface Memory**: workspace/project/member-facing operating surfaces
 - **Core / Procedural Memory**: durable preferences, principles, anti-goals, and working patterns
 - **Serving Layer**: vector search, graph traversal, and symbolic filters route the right memory packet back into execution
+- **World Summary / Writeback**: runtime outcomes are written back as bounded summaries, constraint summaries, traceability keys, and artifact references rather than provider-native payloads
 - See [Governed Memory Fabric](./governed-memory-fabric.md) for details
 
-#### 7. Project Detector + Project / Flow
-- **Project Detector**: LLM-based detection of project-worthy conversations
-- **Project Creation**: Automatic or user-confirmed project creation
-- **Project Assignment**: Suggests human and AI PMs
-- **Flow Association**: Each Project has a PlaybookFlow
-- **Project Continuity**: Projects become containers for execution, artifacts, decisions, and memory projections
+#### 7. TaskIR Control Plane
+- **Purpose**: packages execution-ready work after meeting convergence
+- **Typical contents**: intent IDs, dependencies, dispatch decisions, engine/runtime preferences, artifacts, and execution metadata
+- **Role**: defines what should run next without embedding provider-native execution payloads
+- See [Mind Meeting — Five-Layer Architecture](./meeting-engine-dispatch.md) for details
 
-#### 8. Mind Lens & Lens Composition
+#### 8. SpatialSchedulingIR Planning Plane
+- **Purpose**: packages bounded spatial/world execution intent when a workflow needs scene, subject, object, or camera-aware planning
+- **Typical contents**: entities, time windows, anchors, constraint summaries, consumer hints, and artifact references
+- **Role**: lets multiple downstream consumers share one planning artifact without forcing local-core to own provider-specific runtime payloads
+- See [Spatial Runtime Planning](./spatial-runtime-planning.md) for details
+
+#### 9. Mind Lens & Lens Composition
 - **Mind Lens**: Perspective/viewpoint system - how to see, where to focus attention, how to make trade-offs
 - **Shared Contract**: The same lens contract is edited in **Mindscape Graph** (mind map mode) and applied in **Workspace execution** (runtime mode)
 - **Lens Composition**: Multi-lens combination recipes for complex scenarios
@@ -120,29 +127,32 @@ It operates under a governance context:
 - **Execution Context Integration**: Lens values influence how tasks are interpreted
 - See [Mind Lens Architecture](./mind-lens.md) and [Lens Composition Architecture](./lens-composition.md) for details
 
-#### 9. Playbook Runner + Tools
+#### 10. Consumer Runtimes / Playbook Runner + Tools
 - **Playbook Execution**: Executes `playbook.md + playbook.json`
 - **AI Team Roles**: Multiple AI roles collaborate (planner, writer, analyst)
 - **Tool Calls**: Playbooks can call tools (filesystem, API, etc.)
 - **Execution Trace**: Every step is logged and visible
 - **Project Mode**: Playbooks can access project sandbox and context
 - **Lens Integration**: Playbook execution uses resolved lens values from Execution Context
+- **Runtime Consumer Principle**: the project/playbook/tool stack is one important consumer lane, not the only mental model for the repo
 
-#### 10. Sandbox / External Runtimes
+#### 11. Sandbox / External Runtimes
 - **Path Structure**: `sandboxes/{workspace_id}/{project_type}/{project_id}/`
 - **Shared Space**: All playbooks in a project share the same sandbox
 - **Artifact Storage**: Generated files, drafts, and intermediate results
 - **Workspace Isolation**: Complete isolation between workspaces
+- **Installed Runtime Packs**: external or installable runtimes can consume bounded artifacts and return normalized receipts without taking ownership of local-core governance
 
-#### 11. Artifacts, Decisions, and Writebacks
+#### 12. Artifacts, Runtime Receipts, and Writebacks
 - **Artifact Registry**: Tracks all artifacts generated in a project
 - **Artifact Relationships**: Artifacts can depend on other artifacts
-- **Decision History**: Writebacks preserve key decisions, rationale, and evidence links
+- **Runtime Receipts**: downstream runtimes return normalized receipts and bounded context, not raw provider internals
+- **Decision History**: Writebacks preserve key decisions, rationale, evidence links, and world/runtime summaries
 - **Export**: Artifacts can be exported or synced via Portable Configuration
 
-## Project / Playbook Flow: The Mental Model
+## Project / Playbook Flow: One Important Consumer Path
 
-The **Project / Playbook flow** is the default mental model for organizing work:
+The **Project / Playbook flow** remains one important mental model for organizing work when you want end-to-end local execution:
 
 ```text
 Project  →  Intents  →  Playbooks  →  AI Team Execution  →  Artifacts & Decisions
@@ -240,11 +250,13 @@ Project: "OpenSEO MVP"
 
 | README Concept | Architecture Component | Documentation |
 |---------------|------------------------|---------------|
-| **Mindscape Engine** | Governance Context → Meeting Runtime ↔ Governed Memory Fabric → Optional Actuation | This document |
+| **Mindscape Engine** | Governance Context → Meeting Runtime ↔ Governed Memory Fabric → TaskIR / SpatialSchedulingIR → Consumer runtimes | This document |
 | **Surface & Command Bus** | SurfaceDefinition + CommandBus + EventStream | [Surface & Command Bus Architecture](./surface-command-bus.md) |
 | **Mind Lens** | MindLensInstance + MindLensSchema + RuntimeMindLens | [Mind Lens Architecture](./mind-lens.md) |
 | **Lens Composition** | LensComposition + FusionService | [Lens Composition Architecture](./lens-composition.md) |
 | **Execution Context Four-Layer Model** | Task/Policy/Lens/Assets conceptual mapping | [Execution Context Four-Layer Model](./execution-context-four-layer-model.md) |
+| **TaskIR** | Bounded execution-ready control artifact | [Mind Meeting Architecture](./meeting-engine-dispatch.md) |
+| **SpatialSchedulingIR** | Bounded spatial/world planning artifact | [Spatial Runtime Planning](./spatial-runtime-planning.md) |
 | **Project** | Project model + ProjectManager + ProjectDetector | [Project + Flow Architecture](./project-flow/project-flow-architecture.md) |
 | **Intents** | IntentCards + IntentClusters + Intent Steward | [Legacy Event, Intent, and Memory/Embedding Architecture](./memory-intent-architecture.md) |
 | **Governed Memory Fabric** | Episodic/core/procedural memory + serving boundaries | [Governed Memory Fabric](./governed-memory-fabric.md) |
@@ -303,6 +315,6 @@ Project: "OpenSEO MVP"
 
 ## Next Steps
 
-- **Understand Core Concepts**: [Architecture Documentation](./README.md)
-- **Deep Dive into Components**: See [Reading Guide](./README.md#reading-guide)
-- **Extend the System**: [For Contributors](./README.md#for-contributors)
+- **Understand the planning split**: [Spatial Runtime Planning](./spatial-runtime-planning.md)
+- **Understand memory and writeback boundaries**: [Governed Memory Fabric](./governed-memory-fabric.md)
+- **See public-facing scenarios**: [Demo Gallery](../demo-gallery/README.md) and [Use Case Gallery](../use-cases/README.md)

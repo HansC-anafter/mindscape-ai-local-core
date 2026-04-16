@@ -592,3 +592,52 @@ async def test_stage_decompose_and_dispatch_accepts_request_contract_fallback_pr
         == "persona_operating_system.md"
     )
     assert compiled_ir.phases[1].input_params["deliverable_id"] == "D2"
+
+
+def test_action_intents_from_program_spec_includes_deliverable_bindings():
+    program_spec = ProgramSpec.model_validate(
+        {
+            "workstreams": [
+                {
+                    "id": "WS1",
+                    "name": "Persona OS",
+                    "description": "Create the persona operating system.",
+                    "estimated_units": 1,
+                    "produces_deliverables": ["D1"],
+                    "eligible_engines": ["playbook:cis_mind_identity"],
+                }
+            ],
+            "milestones": [],
+            "dependency_graph": {"WS1": []},
+            "target_outputs": ["persona_operating_system.md"],
+            "scale": "program",
+            "coverage_snapshot": {
+                "entries": [
+                    {
+                        "deliverable_id": "D1",
+                        "deliverable_name": "persona_operating_system.md",
+                        "covered_by": ["WS1"],
+                    }
+                ]
+            },
+        }
+    )
+
+    action_intents = action_intents_from_program_spec(
+        program_spec,
+        default_workspace_id="ws-001",
+        deliverable_bindings={
+            "D1": {
+                "deliverable_id": "D1",
+                "deliverable_name": "persona_operating_system.md",
+                "deliverable_path": "persona_operating_system.md",
+            }
+        },
+    )
+
+    assert len(action_intents) == 1
+    assert action_intents[0].input_params["deliverable_id"] == "D1"
+    assert (
+        action_intents[0].input_params["deliverable_path"]
+        == "persona_operating_system.md"
+    )

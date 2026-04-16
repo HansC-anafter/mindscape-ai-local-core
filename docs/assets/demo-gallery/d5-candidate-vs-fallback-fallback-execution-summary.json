@@ -1,0 +1,65 @@
+{
+  "status": "executed",
+  "error": "",
+  "source_image_path": "/Users/shock/Projects_local/workspace/mindscape-ai-local-core/docs/assets/demo-gallery/d1-single-image-preview-mesh-01-source.png",
+  "depth_map_path": "/private/var/folders/9y/106r5vfd30ndwsh8yp78g4fc0000gq/T/codex_blender_depth_mesh_smoke_b8zhfp49/temp/sib_6e28ccdc92cd/single_image_effect/source_depth/predicted_depth.png",
+  "material_texture_paths": {
+    "base_color": "/private/var/folders/9y/106r5vfd30ndwsh8yp78g4fc0000gq/T/codex_blender_depth_mesh_smoke_b8zhfp49/temp/sib_6e28ccdc92cd/single_image_effect/material/base_color.png",
+    "roughness": "/private/var/folders/9y/106r5vfd30ndwsh8yp78g4fc0000gq/T/codex_blender_depth_mesh_smoke_b8zhfp49/temp/sib_6e28ccdc92cd/single_image_effect/material/roughness.png",
+    "metallic": "/private/var/folders/9y/106r5vfd30ndwsh8yp78g4fc0000gq/T/codex_blender_depth_mesh_smoke_b8zhfp49/temp/sib_6e28ccdc92cd/single_image_effect/material/metallic.png"
+  },
+  "workfile_path": "/private/var/folders/9y/106r5vfd30ndwsh8yp78g4fc0000gq/T/codex_blender_depth_mesh_smoke_b8zhfp49/temp/sib_6e28ccdc92cd/workfile.blend",
+  "object_count": 5,
+  "collection_count": 2,
+  "mesh_name": "BootstrapDepthMesh",
+  "camera_name": "BootstrapDepthCamera",
+  "light_name": "BootstrapDepthSun",
+  "foreground_card_name": "",
+  "foreground_layer_payload": {},
+  "scene_structure_summary": {
+    "layout_mode": "layered",
+    "object_candidate_count": 0,
+    "textured_object_card_count": 0,
+    "support_surface_count": 1,
+    "anchor_plane_count": 1,
+    "foreground_subject_separated": false,
+    "room_shell_mode": "simple_room",
+    "segmentation_mode": "degraded"
+  },
+  "mesh_info": {
+    "image_width": 1280,
+    "image_height": 960,
+    "depth_width": 320,
+    "depth_height": 240,
+    "vertex_count": 19200,
+    "face_count": 18921,
+    "focal_length_px": 1152.0,
+    "depth_near": 1.0,
+    "depth_far": 7.5,
+    "material_profile": "usd_preview_surface_interop_v1",
+    "foreground_card_name": "",
+    "foreground_layer_applied": false,
+    "scene_structure_info": {
+      "layout_mode": "layered",
+      "scene_structure_object_count": 0,
+      "support_surface_count": 1,
+      "anchor_count": 1,
+      "collection_name": "BootstrapSceneStructure",
+      "summary": {
+        "layout_mode": "layered",
+        "object_candidate_count": 0,
+        "textured_object_card_count": 0,
+        "support_surface_count": 1,
+        "anchor_plane_count": 1,
+        "foreground_subject_separated": false,
+        "room_shell_mode": "simple_room",
+        "segmentation_mode": "degraded"
+      }
+    }
+  },
+  "export_scene_result": {
+    "ready": true,
+    "filepath": "/private/var/folders/9y/106r5vfd30ndwsh8yp78g4fc0000gq/T/codex_blender_depth_mesh_smoke_b8zhfp49/exports/sib_6e28ccdc92cd/export_scene.usda",
+    "format": "usda"
+  }
+}

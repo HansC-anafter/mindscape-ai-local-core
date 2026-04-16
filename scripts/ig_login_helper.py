@@ -40,26 +40,75 @@ def normalize_profile_name(raw: str) -> str:
     return normalized or "default"
 
 
-def resolve_profile_dir(profile_name: str, user_data_dir: str | None) -> tuple[Path, str]:
+def _read_dotenv_value(dotenv_path: Path, key: str) -> str | None:
+    try:
+        for line in dotenv_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            current_key, raw_value = stripped.split("=", 1)
+            if current_key.strip() != key:
+                continue
+            value = raw_value.strip().strip('"').strip("'")
+            return value or None
+    except Exception:
+        return None
+    return None
+
+
+def _expand_host_path(raw_path: str, repo_root: Path) -> Path:
+    expanded = os.path.expandvars(os.path.expanduser((raw_path or "").strip()))
+    path = Path(expanded)
+    if path.is_absolute():
+        return path.resolve()
+    return (repo_root / path).resolve()
+
+
+def resolve_local_core_data_root(repo_root: Path) -> tuple[Path, str]:
+    env_value = (os.environ.get("LOCAL_CORE_DATA_HOST_DIR") or "").strip()
+    if env_value:
+        return _expand_host_path(env_value, repo_root), "env:LOCAL_CORE_DATA_HOST_DIR"
+
+    dotenv_value = _read_dotenv_value(repo_root / ".env", "LOCAL_CORE_DATA_HOST_DIR")
+    if dotenv_value:
+        return _expand_host_path(dotenv_value, repo_root), ".env:LOCAL_CORE_DATA_HOST_DIR"
+
+    return (repo_root / "data").resolve(), "fallback:repo_data"
+
+
+def _resolve_user_data_dir(user_data_dir: str, repo_root: Path, data_root: Path) -> Path:
+    raw = (user_data_dir or "").strip()
+    if not raw:
+        return data_root
+
+    expanded = os.path.expandvars(os.path.expanduser(raw))
+    if expanded == "/app/data":
+        return data_root.resolve()
+    if expanded.startswith("/app/data/"):
+        suffix = expanded[len("/app/data/"):].strip("/")
+        return (data_root / suffix).resolve()
+
+    path = Path(expanded)
+    if path.is_absolute():
+        return path.resolve()
+    return (repo_root / path).resolve()
+
+
+def resolve_profile_dir(profile_name: str, user_data_dir: str | None, data_root: Path) -> tuple[Path, str]:
     repo_root = Path(__file__).parent.parent
     if user_data_dir:
-        raw_path = Path(user_data_dir).expanduser()
-        if raw_path.is_absolute():
-            profile_dir = raw_path
-        else:
-            profile_dir = (repo_root / raw_path).resolve()
+        profile_dir = _resolve_user_data_dir(user_data_dir, repo_root, data_root)
         profile_label = profile_dir.name or normalize_profile_name(profile_name)
         return profile_dir, profile_label
 
     normalized_name = normalize_profile_name(profile_name)
-    profile_dir = repo_root / "data" / "ig-browser-profiles" / normalized_name
+    profile_dir = data_root / "ig-browser-profiles" / normalized_name
     return profile_dir, normalized_name
 
 
-def to_app_profile_path(profile_dir: Path) -> str:
-    repo_data_root = (Path(__file__).parent.parent / "data").resolve()
+def to_app_profile_path(profile_dir: Path, data_root: Path) -> str:
     try:
-        relative = profile_dir.resolve().relative_to(repo_data_root)
+        relative = profile_dir.resolve().relative_to(data_root.resolve())
     except ValueError:
         return str(profile_dir.resolve())
     return f"/app/data/{relative.as_posix()}"
@@ -79,14 +128,21 @@ async def main():
     )
     args = parser.parse_args()
 
-    profile_dir, profile_label = resolve_profile_dir(args.profile_name, (args.user_data_dir or "").strip() or None)
+    repo_root = Path(__file__).parent.parent
+    data_root, data_root_source = resolve_local_core_data_root(repo_root)
+    profile_dir, profile_label = resolve_profile_dir(
+        args.profile_name,
+        (args.user_data_dir or "").strip() or None,
+        data_root,
+    )
     profile_dir.mkdir(parents=True, exist_ok=True)
-    app_profile_path = to_app_profile_path(profile_dir)
+    app_profile_path = to_app_profile_path(profile_dir, data_root)
 
     print("=" * 60)
     print("IG Login Helper")
     print("=" * 60)
     print(f"Access profile: {profile_label}")
+    print(f"Host data root: {data_root} ({data_root_source})")
     print(f"Browser profile will be saved to: {profile_dir}")
     print(f"Container path: {app_profile_path}")
     print()

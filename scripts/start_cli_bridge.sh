@@ -49,6 +49,13 @@ log_info()  { echo -e "${GREEN}[INFO]${NC}  $1"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+LOCK_ROOT="${MINDSCAPE_BRIDGE_LOCK_ROOT:-/tmp/mindscape-cli-bridge-locks}"
+LOCK_SIGNATURE=""
+LOCK_KEY=""
+LOCK_DIR=""
+LOCK_PID_FILE=""
+LOCK_HELD=false
+
 python_has_websockets() {
     local python_bin="$1"
     [[ -n "$python_bin" && -x "$python_bin" ]] || return 1
@@ -143,6 +150,9 @@ while [[ $# -gt 0 ]]; do
             echo "  MINDSCAPE_WORKSPACE_ID   Workspace ID"
             echo "  MINDSCAPE_SURFACE        Surface type"
             echo "  MINDSCAPE_CLIENT_ID      Explicit client ID"
+            echo "  MINDSCAPE_CODEX_HOME_AUTO_DISCOVER Optional auto-discovery for logged Codex homes (default: true)"
+            echo "  MINDSCAPE_CODEX_HOME_SEED_REGISTRY Optional registry file for remembered Codex host-session seeds"
+            echo "  MINDSCAPE_CODEX_HOME_POOL Optional ':'-separated list of Codex session homes for host-session pool registration"
             exit 0
             ;;
         *)
@@ -162,7 +172,46 @@ if [[ "$ALL_MODE" == "true" && -n "$CLIENT_ID" ]]; then
     exit 1
 fi
 
+LOCK_SIGNATURE="${SURFACE}|${ALL_MODE}|${WORKSPACE_ID}|${BACKEND_HOST}|${CLIENT_ID}"
+LOCK_KEY="$(printf '%s' "$LOCK_SIGNATURE" | tr -cs '[:alnum:]' '_')"
+LOCK_DIR="${LOCK_ROOT}/${LOCK_KEY}"
+LOCK_PID_FILE="${LOCK_DIR}/pid"
+
+release_bridge_lock() {
+    if [[ "$LOCK_HELD" == "true" && -f "$LOCK_PID_FILE" ]]; then
+        local owner_pid
+        owner_pid="$(cat "$LOCK_PID_FILE" 2>/dev/null || true)"
+        if [[ "$owner_pid" == "$$" ]]; then
+            rm -rf "$LOCK_DIR" 2>/dev/null || true
+        fi
+    fi
+}
+
+acquire_bridge_lock() {
+    mkdir -p "$LOCK_ROOT"
+
+    while true; do
+        if mkdir "$LOCK_DIR" 2>/dev/null; then
+            printf '%s\n' "$$" >"$LOCK_PID_FILE"
+            LOCK_HELD=true
+            return 0
+        fi
+
+        local owner_pid=""
+        owner_pid="$(cat "$LOCK_PID_FILE" 2>/dev/null || true)"
+        if [[ -n "$owner_pid" ]] && kill -0 "$owner_pid" 2>/dev/null; then
+            log_warn "Bridge watcher already active for $LOCK_SIGNATURE (pid=$owner_pid); exiting duplicate watcher"
+            exit 0
+        fi
+
+        rm -rf "$LOCK_DIR" 2>/dev/null || true
+    done
+}
+
+trap release_bridge_lock EXIT
+
 print_banner
+acquire_bridge_lock
 
 # --- Pre-flight checks ---
 
@@ -189,16 +238,17 @@ fi
 
 # 4. Check backend is reachable
 BACKEND_HTTP="http://$BACKEND_HOST"
+OWNER_USER_ID="${MINDSCAPE_OWNER_USER_ID:-default-user}"
 if ! curl -s --connect-timeout 3 "$BACKEND_HTTP/health" &>/dev/null; then
     log_warn "Backend at $BACKEND_HTTP may not be ready (health check failed)"
     log_warn "Proceeding anyway -- the client will retry with backoff"
 fi
 
-# --- Helper: fetch all workspace IDs ---
-# Connects bridge to every workspace. Previously filtered by open projects,
-# but that excluded valid workspaces with no projects yet.
+# --- Helper: fetch active workspace IDs ---
+# Only connect bridge watchers to workspaces that currently have live compile,
+# meeting, or pending dispatch demand for this surface.
 fetch_active_workspace_ids() {
-    curl -s "$BACKEND_HTTP/api/v1/workspaces/?owner_user_id=default-user" 2>/dev/null \
+    curl -s "$BACKEND_HTTP/api/v1/workspaces/active?owner_user_id=$OWNER_USER_ID&surface=$SURFACE" 2>/dev/null \
         | python3 -c "
 import sys, json
 
@@ -221,37 +271,51 @@ except Exception:
 
 # Also keep a simple version for single-workspace auto-detect
 fetch_first_workspace_id() {
-    curl -s "$BACKEND_HTTP/api/v1/workspaces/?owner_user_id=default-user" 2>/dev/null \
+    curl -s "$BACKEND_HTTP/api/v1/workspaces/active?owner_user_id=$OWNER_USER_ID&surface=$SURFACE" 2>/dev/null \
         | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    if isinstance(data, list) and len(data) > 0:
-        print(data[0]['id'])
-    elif isinstance(data, dict) and 'workspaces' in data:
+    if isinstance(data, dict) and 'workspaces' in data:
         ws = data['workspaces']
         if len(ws) > 0:
             print(ws[0]['id'])
+    elif isinstance(data, list) and len(data) > 0:
+        print(data[0]['id'])
 except:
     pass
 " 2>/dev/null
 }
 
+refresh_codex_seed_registry() {
+    if [[ "$SURFACE" != "codex_cli" ]]; then
+        return 0
+    fi
+    if [[ "${MINDSCAPE_CODEX_HOME_AUTO_DISCOVER:-true}" == "false" ]]; then
+        return 0
+    fi
+    if ! "$PYTHON_BIN" "$CLIENT_SCRIPT" \
+        --surface "$SURFACE" \
+        --refresh-codex-seeds >/dev/null 2>&1; then
+        log_warn "Codex seed refresh failed; watcher will keep polling"
+    fi
+}
+
 # 5. Resolve workspace(s)
+refresh_codex_seed_registry
 if [[ "$ALL_MODE" == "true" ]]; then
-    log_info "Fetching all workspaces..."
+    log_info "Fetching active workspaces for surface: $SURFACE"
     ALL_WS_IDS=$(fetch_active_workspace_ids)
     WS_COUNT=$(echo "$ALL_WS_IDS" | grep -c . || true)
     if [[ "$WS_COUNT" -eq 0 ]]; then
-        log_error "No workspaces found."
-        exit 1
+        log_warn "No active workspaces found."
     fi
-    log_info "Found $WS_COUNT workspace(s)"
+    log_info "Found $WS_COUNT active workspace(s)"
 elif [[ -z "$WORKSPACE_ID" ]]; then
-    log_info "Auto-detecting workspace ID..."
+    log_info "Auto-detecting active workspace ID..."
     WORKSPACE_ID=$(fetch_first_workspace_id)
     if [[ -z "$WORKSPACE_ID" ]]; then
-        log_error "Could not auto-detect workspace ID."
+        log_error "Could not auto-detect an active workspace ID."
         log_error "Please specify: $0 --workspace-id YOUR_WORKSPACE_ID"
         log_info "You can find your workspace ID in the web console URL or settings."
         exit 1
@@ -287,6 +351,7 @@ fi
 # --- Environment for HostBridgeTaskExecutor ---
 export PYTHONPATH="$PROJECT_DIR:$PROJECT_DIR/backend:${PYTHONPATH:-}"
 export MINDSCAPE_WORKSPACE_ROOT="${MINDSCAPE_WORKSPACE_ROOT:-$PROJECT_DIR}"
+export MINDSCAPE_OWNER_USER_ID="$OWNER_USER_ID"
 if [[ "$SURFACE" == "gemini_cli" ]]; then
     export MINDSCAPE_CLI_RUNTIME_CMD="$PYTHON_BIN $PROJECT_DIR/scripts/gemini_cli_runtime_bridge.py"
     export GEMINI_CLI_RUNTIME_CMD="${GEMINI_CLI_RUNTIME_CMD:-$MINDSCAPE_CLI_RUNTIME_CMD}"
@@ -295,6 +360,12 @@ fi
 # --- Gemini auth (resolved by backend /api/v1/auth/cli-token) ---
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$BACKEND_HOST}"
+if [[ "$SURFACE" == "codex_cli" && -n "${MINDSCAPE_CODEX_HOME_POOL:-}" ]]; then
+    log_info "Codex host-session pool configured via MINDSCAPE_CODEX_HOME_POOL"
+fi
+if [[ "$SURFACE" == "codex_cli" && "${MINDSCAPE_CODEX_HOME_AUTO_DISCOVER:-true}" != "false" ]]; then
+    log_info "Codex host-session seed discovery is enabled"
+fi
 
 # --- Start bridge ---
 if [[ "$ALL_MODE" == "true" ]]; then
@@ -344,6 +415,7 @@ if [[ "$ALL_MODE" == "true" ]]; then
         for pid in "${RUNNING_PIDS[@]}"; do
             kill "$pid" 2>/dev/null || true
         done
+        release_bridge_lock
         exit 0
     }
     trap cleanup_all INT TERM
@@ -352,9 +424,9 @@ if [[ "$ALL_MODE" == "true" ]]; then
     ALL_WS_IDS=$(fetch_active_workspace_ids)
     WS_COUNT=$(echo "$ALL_WS_IDS" | grep -c . || true)
     if [[ "$WS_COUNT" -eq 0 ]]; then
-        log_warn "No workspaces found. Watcher will poll for new ones..."
+        log_warn "No active workspaces found. Watcher will poll for new ones..."
     else
-        log_info "Found $WS_COUNT workspace(s)"
+        log_info "Found $WS_COUNT active workspace(s)"
         while IFS= read -r ws_id; do
             [[ -z "$ws_id" ]] && continue
             spawn_bridge "$ws_id"
@@ -366,6 +438,7 @@ if [[ "$ALL_MODE" == "true" ]]; then
     # Watcher loop: poll for workspace changes every 15s
     while true; do
         sleep 15
+        refresh_codex_seed_registry
 
         # 1. Detect dead child processes — collect indices first to avoid
         #    mutating arrays during iteration (bash mutation-during-iteration bug)
@@ -396,8 +469,12 @@ if [[ "$ALL_MODE" == "true" ]]; then
         fi
 
         # 2. Fetch current workspaces
-        CURRENT_WS_IDS=$(fetch_active_workspace_ids 2>/dev/null || true)
-        [[ -z "$CURRENT_WS_IDS" ]] && continue
+        CURRENT_WS_IDS=$(fetch_active_workspace_ids 2>/dev/null)
+        FETCH_STATUS=$?
+        if [[ "$FETCH_STATUS" -ne 0 ]]; then
+            log_warn "Active workspace poll failed for surface ${SURFACE}; keeping current bridges"
+            continue
+        fi
 
         # 3. Spawn bridges for NEW workspaces
         while IFS= read -r ws_id; do
@@ -442,6 +519,7 @@ else
     if [[ -n "$CLIENT_ID" ]]; then
         CLIENT_ARGS+=(--client-id "$CLIENT_ID")
     fi
+    refresh_codex_seed_registry
 
     exec "$PYTHON_BIN" "$CLIENT_SCRIPT" \
         --workspace-id "$WORKSPACE_ID" \

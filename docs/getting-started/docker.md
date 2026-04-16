@@ -170,21 +170,44 @@ docker compose exec postgres psql -U mindscape -d mindscape_vectors
 
 ## Data Persistence
 
-Data is persisted in Docker volumes:
+Local-Core persists data through a mix of Docker bind mounts and database
+volumes. The exact host roots are environment-driven, not always `./data`.
 
-- **PostgreSQL data**: `postgres_data` volume
-- **Application data**: `./data` directory (mounted from host)
-- **Logs**: `./logs` directory (mounted from host)
+Current compose surfaces include:
 
-To backup data:
+- **PostgreSQL data**: container-managed database storage
+- **App data**: `${LOCAL_CORE_DATA_HOST_DIR}` -> `/app/data`
+- **Logs**: `${LOCAL_CORE_LOGS_HOST_DIR}` -> `/app/logs`
+- **Mindscape runtime tree**: `/root/.mindscape/*`
+  - workspace capability data
+  - artifact storage
+  - model weights
+  - runtime/secrets subtrees
+
+The authoritative topology is documented in:
+[Local Runtime Persistence Topology](../core-architecture/local-runtime-persistence-topology.md)
+
+Do not assume that every subtree under `/root/.mindscape` comes from the same
+host root unless your compose env policy explicitly makes that true.
+
+To backup data, use the configured host roots instead of assuming `./data`
+contains the whole runtime state:
 
 ```bash
 # Backup PostgreSQL
 docker compose exec postgres pg_dump -U mindscape mindscape_vectors > backup.sql
 
-# Backup application data
-tar -czf data-backup.tar.gz ./data
+# Backup configured app data host root
+tar -czf app-data-backup.tar.gz "${LOCAL_CORE_DATA_HOST_DIR:-./data}"
 ```
+
+At minimum, a full runtime backup should account for:
+
+- `${LOCAL_CORE_DATA_HOST_DIR}`
+- `${LOCAL_CORE_LOGS_HOST_DIR}`
+- `${LOCAL_CORE_SECRETS_HOST_DIR}`
+- `${MINDSCAPE_STORAGE_HOST_DIR}`
+- `${MINDSCAPE_MODELS_HOST_DIR}`
 
 ## Development Mode
 
@@ -308,4 +331,3 @@ For production deployment:
 - See [Installation Guide](./installation.md) for non-Docker setup
 - See [Quick Start Guide](./quick-start.md) for first-time usage
 - See [Architecture Documentation](../architecture/) for system design
-

@@ -158,6 +158,44 @@ class MeetingIRCompilerMixin:
             metadata=metadata,
         )
 
+        governance = metadata.get_governance()
+        if governance is not None:
+            try:
+                from backend.app.services.orchestration.meeting.spatial_scheduling_compiler import (
+                    build_spatial_schedule_context,
+                    build_spatial_scheduling_ir,
+                    create_spatial_schedule_artifact,
+                    persist_spatial_schedule_context_to_session,
+                    should_emit_spatial_schedule,
+                )
+
+                if should_emit_spatial_schedule(governance):
+                    schedule = build_spatial_scheduling_ir(
+                        workspace_id=workspace_id,
+                        decision=decision,
+                        action_items=action_items,
+                        action_intents=action_intents,
+                        governance=governance,
+                        task_id=task_id,
+                        session_id=getattr(getattr(self, "session", None), "id", None),
+                    )
+                    artifact = create_spatial_schedule_artifact(
+                        schedule=schedule,
+                        task_id=task_id,
+                    )
+                    task_ir.add_artifact(artifact)
+                    if getattr(self, "session", None) is not None:
+                        persist_spatial_schedule_context_to_session(
+                            session=self.session,
+                            workspace_id=workspace_id,
+                            spatial_schedule_context=build_spatial_schedule_context(
+                                schedule,
+                                artifact,
+                            ),
+                        )
+            except Exception as exc:
+                logger.warning("Failed to emit spatial scheduling artifact: %s", exc)
+
         logger.info(
             "Compiled TaskIR %s with %d phases from meeting session",
             task_id,

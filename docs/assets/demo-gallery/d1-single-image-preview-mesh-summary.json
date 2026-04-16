@@ -1,0 +1,588 @@
+{
+  "success": true,
+  "backend": "single_image_modeled_mesh_composition_backend",
+  "run_dir": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x",
+  "scene_model_ref": {
+    "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/scene_model.glb",
+    "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_model.glb",
+    "storage_type": "local",
+    "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_model.glb",
+    "content_type": "model/gltf-binary",
+    "kind": "scene_model",
+    "format": "glb",
+    "identifier": "sib_771753ead794/scene_model.glb"
+  },
+  "scene_mesh_ref": {
+    "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/scene_mesh.glb",
+    "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_mesh.glb",
+    "storage_type": "local",
+    "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_mesh.glb",
+    "content_type": "model/gltf-binary",
+    "kind": "scene_mesh",
+    "format": "glb",
+    "identifier": "sib_771753ead794/scene_mesh.glb"
+  },
+  "person_model_ref": {
+    "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/person_model.glb",
+    "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_model.glb",
+    "storage_type": "local",
+    "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_model.glb",
+    "content_type": "model/gltf-binary",
+    "kind": "person_model",
+    "format": "glb",
+    "identifier": "sib_771753ead794/person_model.glb"
+  },
+  "person_mesh_ref": {
+    "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/person_mesh.glb",
+    "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_mesh.glb",
+    "storage_type": "local",
+    "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_mesh.glb",
+    "content_type": "model/gltf-binary",
+    "kind": "person_mesh",
+    "format": "glb",
+    "identifier": "sib_771753ead794/person_mesh.glb"
+  },
+  "preview_blend_ref": {
+    "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+    "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+    "storage_type": "local",
+    "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+    "content_type": "application/x-blender",
+    "kind": "blender_workfile",
+    "format": "blend",
+    "identifier": "sib_771753ead794/workfile.blend"
+  },
+  "dcc_scene_bundle_ref": {
+    "entry_manifest_ref": {
+      "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/dcc_scene_bundle_manifest.json",
+      "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/dcc_scene_bundle_manifest.json",
+      "storage_type": "local",
+      "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/dcc_scene_bundle_manifest.json",
+      "content_type": "application/json",
+      "kind": "dcc_scene_bundle_manifest",
+      "format": "json",
+      "identifier": "sib_771753ead794/dcc_scene_bundle_manifest.json"
+    },
+    "metadata": {
+      "bridge_kind": "blender",
+      "scene_source_kind": "single_image_bootstrap",
+      "backend": "single_image_modeled_mesh_composition_backend",
+      "workspace_id": "",
+      "scene_id": "sc_smoke_modeled_mesh",
+      "bootstrap_id": "sib_771753ead794"
+    }
+  },
+  "bundle_compilation": {
+    "status": "compiled",
+    "blockers": []
+  },
+  "mesh_validation": {
+    "scene_model_present": true,
+    "scene_mesh_present": true,
+    "person_model_present": true,
+    "person_mesh_present": true,
+    "blender_separate_operability": true,
+    "scene_edit_mode_ready": true,
+    "scene_sculpt_mode_ready": true,
+    "person_edit_mode_ready": true,
+    "person_sculpt_mode_ready": true,
+    "oblique_view_valid": true,
+    "editable_mesh_ready": true,
+    "primary_contract_ready": true,
+    "missing_gates": []
+  },
+  "promotion_state": "candidate",
+  "warnings": [
+    "checkpoint_unspecified",
+    "runtime_cuda_unavailable",
+    "triposr_effective_marching_cubes_backend:skimage",
+    "subject_evidence_bbox_defaulted"
+  ],
+  "world_bridge_contract": {
+    "bridge_kind": "blender",
+    "dcc_scene_bundle_ref": {
+      "kind": "blender_scene_bundle",
+      "bundle_format": "directory_manifest",
+      "entry_manifest_ref": {
+        "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/dcc_scene_bundle_manifest.json",
+        "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/dcc_scene_bundle_manifest.json",
+        "storage_type": "local",
+        "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/dcc_scene_bundle_manifest.json",
+        "content_type": "application/json",
+        "kind": "dcc_scene_bundle_manifest",
+        "format": "json",
+        "identifier": "sib_771753ead794/dcc_scene_bundle_manifest.json"
+      },
+      "entry_workfile_ref": {
+        "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+        "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+        "storage_type": "local",
+        "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+        "content_type": "application/x-blender",
+        "kind": "blender_workfile",
+        "format": "blend",
+        "identifier": "sib_771753ead794/workfile.blend"
+      },
+      "member_refs": [
+        {
+          "role": "export_scene",
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/export_scene.usda",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/export_scene.usda",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/export_scene.usda",
+          "content_type": "text/plain; charset=utf-8",
+          "kind": "blender_export_scene",
+          "format": "usda",
+          "identifier": "sib_771753ead794/export_scene.usda"
+        },
+        {
+          "role": "preview_blend",
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+          "content_type": "application/x-blender",
+          "kind": "blender_workfile",
+          "format": "blend",
+          "identifier": "sib_771753ead794/workfile.blend"
+        },
+        {
+          "role": "generated_environment_candidate",
+          "kind": "single_image_environment",
+          "artifact_format": "json_candidate",
+          "entry_ref": {
+            "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/generated_environment_candidate.json",
+            "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/generated_environment_candidate.json",
+            "storage_type": "local",
+            "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/generated_environment_candidate.json",
+            "content_type": "application/json",
+            "kind": "single_image_environment_candidate",
+            "format": "json",
+            "identifier": "sib_771753ead794/generated_environment_candidate.json"
+          },
+          "source_image_ref": {
+            "file_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/synthetic_modeled_scene.png"
+          },
+          "backend": "single_image_modeled_mesh_composition_backend",
+          "approximation_summary": [
+            {
+              "approximation_kind": "single_image_bootstrap",
+              "reconstruction_fidelity": "approximate",
+              "bridge_action": "single_image_scene_model_backend_runtime_executed",
+              "downstream_rebuild_required": false
+            },
+            {
+              "approximation_kind": "single_image_bootstrap",
+              "reconstruction_fidelity": "approximate",
+              "bridge_action": "single_image_person_model_backend_runtime_executed",
+              "downstream_rebuild_required": false
+            },
+            {
+              "approximation_kind": "single_image_bootstrap",
+              "reconstruction_fidelity": "approximate",
+              "bridge_action": "scene_person_modeled_mesh_composed_in_blender",
+              "downstream_rebuild_required": false
+            }
+          ],
+          "metadata": {
+            "status": "normalized_export_ready",
+            "scene_source_kind": "single_image_bootstrap",
+            "backend_output_format": "usda",
+            "resolved_source_kind": "file_path",
+            "source_image_name": "synthetic_modeled_scene.png"
+          }
+        },
+        {
+          "role": "scene_model",
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/scene_model.glb",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_model.glb",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_model.glb",
+          "content_type": "model/gltf-binary",
+          "kind": "scene_model",
+          "format": "glb",
+          "identifier": "sib_771753ead794/scene_model.glb"
+        },
+        {
+          "role": "scene_mesh",
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/scene_mesh.glb",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_mesh.glb",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_mesh.glb",
+          "content_type": "model/gltf-binary",
+          "kind": "scene_mesh",
+          "format": "glb",
+          "identifier": "sib_771753ead794/scene_mesh.glb"
+        },
+        {
+          "role": "person_model",
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/person_model.glb",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_model.glb",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_model.glb",
+          "content_type": "model/gltf-binary",
+          "kind": "person_model",
+          "format": "glb",
+          "identifier": "sib_771753ead794/person_model.glb"
+        },
+        {
+          "role": "person_mesh",
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/person_mesh.glb",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_mesh.glb",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_mesh.glb",
+          "content_type": "model/gltf-binary",
+          "kind": "person_mesh",
+          "format": "glb",
+          "identifier": "sib_771753ead794/person_mesh.glb"
+        },
+        {
+          "role": "normalization_report",
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+          "content_type": "application/json",
+          "kind": "blender_normalization_report",
+          "format": "json",
+          "identifier": "sib_771753ead794/normalization_report.json"
+        }
+      ],
+      "source_world_interchange_ref": {},
+      "source_stage_manifest_ref": {},
+      "selected_layer_families": [],
+      "variant_selections": {},
+      "metadata": {
+        "bridge_kind": "blender",
+        "scene_source_kind": "single_image_bootstrap",
+        "backend": "single_image_modeled_mesh_composition_backend",
+        "workspace_id": "",
+        "scene_id": "sc_smoke_modeled_mesh",
+        "bootstrap_id": "sib_771753ead794"
+      }
+    },
+    "ue_interchange_bundle_ref": {
+      "kind": "ue_interchange_bundle",
+      "bundle_format": "directory_manifest",
+      "entry_manifest_ref": {
+        "storage_key": "blender_bridge/bundles/00b0a5e8db43/ue_interchange_bundle_manifest.json",
+        "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/bundles/00b0a5e8db43/ue_interchange_bundle_manifest.json",
+        "storage_type": "local",
+        "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/bundles/00b0a5e8db43/ue_interchange_bundle_manifest.json",
+        "content_type": "application/json",
+        "kind": "ue_interchange_bundle_manifest",
+        "format": "json",
+        "identifier": "00b0a5e8db43/ue_interchange_bundle_manifest.json"
+      },
+      "import_recipe_ref": {
+        "storage_key": "blender_bridge/bundles/00b0a5e8db43/ue_import_recipe.json",
+        "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/bundles/00b0a5e8db43/ue_import_recipe.json",
+        "storage_type": "local",
+        "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/bundles/00b0a5e8db43/ue_import_recipe.json",
+        "content_type": "application/json",
+        "kind": "ue_import_recipe",
+        "format": "json",
+        "identifier": "00b0a5e8db43/ue_import_recipe.json"
+      },
+      "member_refs": [
+        {
+          "role": "scene_usd",
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/export_scene.usda",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/export_scene.usda",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/export_scene.usda",
+          "content_type": "text/plain; charset=utf-8",
+          "kind": "blender_export_scene",
+          "format": "usda",
+          "identifier": "sib_771753ead794/export_scene.usda",
+          "source_resolution": "single_image_bootstrap"
+        },
+        {
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+          "content_type": "application/x-blender",
+          "kind": "blender_workfile",
+          "format": "blend",
+          "identifier": "sib_771753ead794/workfile.blend",
+          "role": "dcc_workfile"
+        },
+        {
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+          "content_type": "application/json",
+          "kind": "blender_normalization_report",
+          "format": "json",
+          "identifier": "sib_771753ead794/normalization_report.json",
+          "role": "material_bake_manifest"
+        }
+      ],
+      "format_allowlist": [
+        "usd",
+        "usda",
+        "usdc",
+        "glb",
+        "gltf",
+        "fbx",
+        "png",
+        "jpg",
+        "json"
+      ],
+      "source_dcc_scene_bundle_ref": {
+        "kind": "blender_scene_bundle",
+        "bundle_format": "directory_manifest",
+        "entry_manifest_ref": {
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/dcc_scene_bundle_manifest.json",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/dcc_scene_bundle_manifest.json",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/dcc_scene_bundle_manifest.json",
+          "content_type": "application/json",
+          "kind": "dcc_scene_bundle_manifest",
+          "format": "json",
+          "identifier": "sib_771753ead794/dcc_scene_bundle_manifest.json"
+        },
+        "entry_workfile_ref": {
+          "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+          "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+          "storage_type": "local",
+          "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+          "content_type": "application/x-blender",
+          "kind": "blender_workfile",
+          "format": "blend",
+          "identifier": "sib_771753ead794/workfile.blend"
+        },
+        "member_refs": [
+          {
+            "role": "export_scene",
+            "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/export_scene.usda",
+            "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/export_scene.usda",
+            "storage_type": "local",
+            "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/export_scene.usda",
+            "content_type": "text/plain; charset=utf-8",
+            "kind": "blender_export_scene",
+            "format": "usda",
+            "identifier": "sib_771753ead794/export_scene.usda"
+          },
+          {
+            "role": "preview_blend",
+            "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+            "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+            "storage_type": "local",
+            "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/workfile.blend",
+            "content_type": "application/x-blender",
+            "kind": "blender_workfile",
+            "format": "blend",
+            "identifier": "sib_771753ead794/workfile.blend"
+          },
+          {
+            "role": "generated_environment_candidate",
+            "kind": "single_image_environment",
+            "artifact_format": "json_candidate",
+            "entry_ref": {
+              "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/generated_environment_candidate.json",
+              "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/generated_environment_candidate.json",
+              "storage_type": "local",
+              "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/generated_environment_candidate.json",
+              "content_type": "application/json",
+              "kind": "single_image_environment_candidate",
+              "format": "json",
+              "identifier": "sib_771753ead794/generated_environment_candidate.json"
+            },
+            "source_image_ref": {
+              "file_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/synthetic_modeled_scene.png"
+            },
+            "backend": "single_image_modeled_mesh_composition_backend",
+            "approximation_summary": [
+              {
+                "approximation_kind": "single_image_bootstrap",
+                "reconstruction_fidelity": "approximate",
+                "bridge_action": "single_image_scene_model_backend_runtime_executed",
+                "downstream_rebuild_required": false
+              },
+              {
+                "approximation_kind": "single_image_bootstrap",
+                "reconstruction_fidelity": "approximate",
+                "bridge_action": "single_image_person_model_backend_runtime_executed",
+                "downstream_rebuild_required": false
+              },
+              {
+                "approximation_kind": "single_image_bootstrap",
+                "reconstruction_fidelity": "approximate",
+                "bridge_action": "scene_person_modeled_mesh_composed_in_blender",
+                "downstream_rebuild_required": false
+              }
+            ],
+            "metadata": {
+              "status": "normalized_export_ready",
+              "scene_source_kind": "single_image_bootstrap",
+              "backend_output_format": "usda",
+              "resolved_source_kind": "file_path",
+              "source_image_name": "synthetic_modeled_scene.png"
+            }
+          },
+          {
+            "role": "scene_model",
+            "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/scene_model.glb",
+            "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_model.glb",
+            "storage_type": "local",
+            "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_model.glb",
+            "content_type": "model/gltf-binary",
+            "kind": "scene_model",
+            "format": "glb",
+            "identifier": "sib_771753ead794/scene_model.glb"
+          },
+          {
+            "role": "scene_mesh",
+            "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/scene_mesh.glb",
+            "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_mesh.glb",
+            "storage_type": "local",
+            "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/scene_mesh.glb",
+            "content_type": "model/gltf-binary",
+            "kind": "scene_mesh",
+            "format": "glb",
+            "identifier": "sib_771753ead794/scene_mesh.glb"
+          },
+          {
+            "role": "person_model",
+            "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/person_model.glb",
+            "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_model.glb",
+            "storage_type": "local",
+            "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_model.glb",
+            "content_type": "model/gltf-binary",
+            "kind": "person_model",
+            "format": "glb",
+            "identifier": "sib_771753ead794/person_model.glb"
+          },
+          {
+            "role": "person_mesh",
+            "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/person_mesh.glb",
+            "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_mesh.glb",
+            "storage_type": "local",
+            "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/person_mesh.glb",
+            "content_type": "model/gltf-binary",
+            "kind": "person_mesh",
+            "format": "glb",
+            "identifier": "sib_771753ead794/person_mesh.glb"
+          },
+          {
+            "role": "normalization_report",
+            "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+            "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+            "storage_type": "local",
+            "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+            "content_type": "application/json",
+            "kind": "blender_normalization_report",
+            "format": "json",
+            "identifier": "sib_771753ead794/normalization_report.json"
+          }
+        ],
+        "source_world_interchange_ref": {},
+        "source_stage_manifest_ref": {},
+        "selected_layer_families": [],
+        "variant_selections": {},
+        "metadata": {
+          "bridge_kind": "blender",
+          "scene_source_kind": "single_image_bootstrap",
+          "backend": "single_image_modeled_mesh_composition_backend",
+          "workspace_id": "",
+          "scene_id": "sc_smoke_modeled_mesh",
+          "bootstrap_id": "sib_771753ead794"
+        }
+      },
+      "source_world_interchange_ref": {},
+      "normalization_report_ref": {
+        "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+        "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+        "storage_type": "local",
+        "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/normalization_report.json",
+        "content_type": "application/json",
+        "kind": "blender_normalization_report",
+        "format": "json",
+        "identifier": "sib_771753ead794/normalization_report.json"
+      },
+      "approximation_summary": [
+        {
+          "approximation_kind": "single_image_bootstrap",
+          "reconstruction_fidelity": "approximate",
+          "bridge_action": "single_image_scene_model_backend_runtime_executed",
+          "downstream_rebuild_required": false
+        },
+        {
+          "approximation_kind": "single_image_bootstrap",
+          "reconstruction_fidelity": "approximate",
+          "bridge_action": "single_image_person_model_backend_runtime_executed",
+          "downstream_rebuild_required": false
+        },
+        {
+          "approximation_kind": "single_image_bootstrap",
+          "reconstruction_fidelity": "approximate",
+          "bridge_action": "scene_person_modeled_mesh_composed_in_blender",
+          "downstream_rebuild_required": false
+        }
+      ],
+      "metadata": {
+        "target_runtime_family": "ue5",
+        "target_import_path": "interchange",
+        "import_profile": "default_world_import_v1",
+        "scene_source_kind": "single_image_bootstrap"
+      }
+    },
+    "source_world_interchange_ref": {},
+    "normalization_report_ref": {},
+    "approximation_summary": [
+      {
+        "approximation_kind": "single_image_bootstrap",
+        "reconstruction_fidelity": "approximate",
+        "bridge_action": "single_image_scene_model_backend_runtime_executed",
+        "downstream_rebuild_required": false
+      },
+      {
+        "approximation_kind": "single_image_bootstrap",
+        "reconstruction_fidelity": "approximate",
+        "bridge_action": "single_image_person_model_backend_runtime_executed",
+        "downstream_rebuild_required": false
+      },
+      {
+        "approximation_kind": "single_image_bootstrap",
+        "reconstruction_fidelity": "approximate",
+        "bridge_action": "scene_person_modeled_mesh_composed_in_blender",
+        "downstream_rebuild_required": false
+      }
+    ],
+    "consumer_hints": {
+      "import_mode_preference": "ue_interchange_bundle",
+      "fallback_mode": "openusd_stage"
+    },
+    "bootstrap_receipt_ref": {
+      "storage_key": "blender_bridge/single_image_bootstrap/sib_771753ead794/single_image_bootstrap_receipt.json",
+      "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/single_image_bootstrap_receipt.json",
+      "storage_type": "local",
+      "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/single_image_bootstrap/sib_771753ead794/single_image_bootstrap_receipt.json",
+      "content_type": "application/json",
+      "kind": "single_image_bootstrap_receipt",
+      "format": "json",
+      "identifier": "sib_771753ead794/single_image_bootstrap_receipt.json"
+    },
+    "scene_source_kind": "single_image_bootstrap",
+    "backend_output_format": "usda",
+    "promotion_state": "candidate",
+    "bridge_receipt_ref": {
+      "storage_key": "blender_bridge/bundles/887f1b460b3f/blender_bridge_receipt.json",
+      "url": "/api/v1/capabilities/video_renderer/storage/codex_blender_modeled_mesh_smoke/blender_bridge/bundles/887f1b460b3f/blender_bridge_receipt.json",
+      "storage_type": "local",
+      "local_path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/storage/codex_blender_modeled_mesh_smoke/blender_bridge/bundles/887f1b460b3f/blender_bridge_receipt.json",
+      "content_type": "application/json",
+      "kind": "blender_bridge_receipt",
+      "format": "json",
+      "identifier": "887f1b460b3f/blender_bridge_receipt.json"
+    }
+  },
+  "preview_render": {
+    "path": "/tmp/codex_blender_modeled_mesh_smoke_l62yhw4x/preview_render.png",
+    "render_engine": "BLENDER_EEVEE_NEXT",
+    "timed_out_after_render": false
+  }
+}

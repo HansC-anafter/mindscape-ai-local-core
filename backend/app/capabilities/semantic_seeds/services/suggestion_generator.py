@@ -9,8 +9,6 @@ import json
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-import psycopg2
-from psycopg2.extras import RealDictCursor
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +32,8 @@ class SuggestionGenerator:
 
     def _get_connection(self):
         """Get PostgreSQL connection"""
+        import psycopg2
+
         return psycopg2.connect(**self.postgres_config)
 
     async def generate_suggestions(
@@ -82,6 +82,8 @@ class SuggestionGenerator:
         cutoff_date = datetime.utcnow() - timedelta(days=days_back)
 
         try:
+            from psycopg2.extras import RealDictCursor
+
             with self._get_connection() as conn:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute('''
@@ -160,6 +162,8 @@ class SuggestionGenerator:
         seed_type = seed.get('seed_type', seed.get('source_type', 'unknown'))
 
         try:
+            from psycopg2.extras import RealDictCursor
+
             with self._get_connection() as conn:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -416,4 +420,3 @@ Return JSON format:
             CREATE INDEX IF NOT EXISTS idx_suggestions_generated_at
             ON mindscape_suggestions(generated_at DESC)
         ''')
-

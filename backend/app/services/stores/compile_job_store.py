@@ -4,6 +4,7 @@ Compile job store for handoff bundle compile lifecycle persistence.
 
 import asyncio
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -43,42 +44,94 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_compile_jobs_status ON compile_jobs(status, updated_at DESC)",
 ]
 
+ALTER_DDL_BY_COLUMN = [
+    ("project_id", "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS project_id TEXT"),
+    ("thread_id", "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS thread_id TEXT"),
+    ("profile_id", "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS profile_id TEXT"),
+    ("session_id", "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS session_id TEXT"),
+    ("handoff_id", "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS handoff_id TEXT"),
+    (
+        "source_device_id",
+        "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS source_device_id TEXT",
+    ),
+    (
+        "status",
+        "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'accepted'",
+    ),
+    (
+        "result",
+        "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS result JSONB DEFAULT '{}'::jsonb",
+    ),
+    ("error", "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS error TEXT"),
+    (
+        "metadata",
+        "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb",
+    ),
+    (
+        "created_at",
+        "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()",
+    ),
+    (
+        "updated_at",
+        "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()",
+    ),
+    ("started_at", "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ"),
+    (
+        "completed_at",
+        "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
+    ),
+]
+
 
 class CompileJobStore(PostgresStoreBase):
     """Postgres persistence for handoff compile jobs."""
 
     _table_ensured = False
+    _ensure_lock = threading.Lock()
 
     def __init__(self, db_role: str = "core"):
         super().__init__(db_role=db_role)
-        if not CompileJobStore._table_ensured:
-            self.ensure_table()
-            CompileJobStore._table_ensured = True
+        self.ensure_table()
+
+    def _existing_columns(self, conn) -> set[str]:
+        rows = conn.execute(
+            text(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'compile_jobs'
+                """
+            )
+        ).fetchall()
+        columns: set[str] = set()
+        for row in rows:
+            if hasattr(row, "column_name"):
+                columns.add(str(row.column_name))
+                continue
+            if isinstance(row, dict):
+                column_name = row.get("column_name")
+                if column_name is not None:
+                    columns.add(str(column_name))
+                    continue
+            columns.add(str(row[0]))
+        return columns
 
     def ensure_table(self) -> None:
-        alter_ddls = [
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS project_id TEXT",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS thread_id TEXT",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS profile_id TEXT",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS session_id TEXT",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS handoff_id TEXT",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS source_device_id TEXT",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'accepted'",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS result JSONB DEFAULT '{}'::jsonb",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS error TEXT",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ",
-            "ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
-        ]
-        with self.transaction() as conn:
-            conn.execute(text(TABLE_DDL))
-            for alter in alter_ddls:
-                conn.execute(text(alter))
-            for idx in INDEX_DDL:
-                conn.execute(text(idx))
-        logger.info("compile_jobs table ensured")
+        if CompileJobStore._table_ensured:
+            return
+        with CompileJobStore._ensure_lock:
+            if CompileJobStore._table_ensured:
+                return
+            with self.transaction() as conn:
+                conn.execute(text(TABLE_DDL))
+                existing_columns = self._existing_columns(conn)
+                for column_name, alter in ALTER_DDL_BY_COLUMN:
+                    if column_name not in existing_columns:
+                        conn.execute(text(alter))
+                for idx in INDEX_DDL:
+                    conn.execute(text(idx))
+            CompileJobStore._table_ensured = True
+            logger.info("compile_jobs table ensured")
 
     def create(self, job: CompileJob) -> CompileJob:
         with self.transaction() as conn:
@@ -303,6 +356,7 @@ class CompileJobStore(PostgresStoreBase):
         status: Optional[str] = None,
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
+        clear_error: bool = False,
         metadata: Optional[Dict[str, Any]] = None,
         started_at: Any = None,
         completed_at: Any = None,
@@ -323,7 +377,7 @@ class CompileJobStore(PostgresStoreBase):
         if result is not None:
             updates.append("result = :result")
             params["result"] = self.serialize_json(result)
-        if error is not None:
+        if error is not None or clear_error:
             updates.append("error = :error")
             params["error"] = error
         if metadata is not None:
@@ -387,6 +441,7 @@ class CompileJobStore(PostgresStoreBase):
             status=job.status.value,
             result=job.result,
             error=job.error,
+            clear_error=True,
             metadata=job.metadata,
             completed_at=job.completed_at,
         )

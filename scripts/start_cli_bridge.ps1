@@ -50,6 +50,11 @@ if ($Help) {
     Write-Host "  -Host_ HOST:PORT  Backend host (default: localhost:8200)"
     Write-Host "  -Surface SURFACE  Agent surface type (required)"
     Write-Host "  -Help             Show this help"
+    Write-Host ""
+    Write-Host "Environment variables:"
+    Write-Host "  MINDSCAPE_CODEX_HOME_AUTO_DISCOVER  Optional auto-discovery for logged Codex homes (default: true)"
+    Write-Host "  MINDSCAPE_CODEX_HOME_SEED_REGISTRY  Optional registry file for remembered Codex host-session seeds"
+    Write-Host "  MINDSCAPE_CODEX_HOME_POOL  Optional ';'-separated list of Codex session homes for host-session pool registration"
     exit 0
 }
 
@@ -87,6 +92,7 @@ if (-not (Test-Path $ClientScript)) {
 
 # 4. Check backend health
 $BackendHttp = "http://$Host_"
+$OwnerUserId = if ($env:MINDSCAPE_OWNER_USER_ID) { $env:MINDSCAPE_OWNER_USER_ID } else { "default-user" }
 try {
     $health = Invoke-RestMethod -Uri "$BackendHttp/health" -TimeoutSec 3 -ErrorAction SilentlyContinue
     Write-Info "Backend health: OK"
@@ -95,10 +101,10 @@ try {
     Write-Warn "Proceeding anyway -- the client will retry with backoff"
 }
 
-# --- Helper: fetch workspace IDs ---
+# --- Helper: fetch active workspace IDs ---
 function Get-WorkspaceIds {
     try {
-        $response = Invoke-RestMethod -Uri "$BackendHttp/api/v1/workspaces/?owner_user_id=default-user" -TimeoutSec 5
+        $response = Invoke-RestMethod -Uri "$BackendHttp/api/v1/workspaces/active?owner_user_id=$OwnerUserId&surface=$Surface" -TimeoutSec 5
         $ids = @()
         if ($response -is [array]) {
             $ids = $response | ForEach-Object { $_.id } | Where-Object { $_ }
@@ -112,21 +118,36 @@ function Get-WorkspaceIds {
     }
 }
 
+function Invoke-CodexSeedRefresh {
+    if ($Surface -ne "codex_cli") {
+        return
+    }
+    if ($env:MINDSCAPE_CODEX_HOME_AUTO_DISCOVER -eq "false") {
+        return
+    }
+    try {
+        python $ClientScript --surface $Surface --refresh-codex-seeds *> $null
+    } catch {
+        Write-Warn "Codex seed refresh failed; watcher will keep polling"
+    }
+}
+
 # 5. Resolve workspace(s)
+Invoke-CodexSeedRefresh
 if ($All) {
-    Write-Info "Fetching all workspaces..."
+    Write-Info "Fetching active workspaces for surface: $Surface"
     $wsIds = Get-WorkspaceIds
     if ($wsIds.Count -eq 0) {
-        Write-Warn "No workspaces found. Watcher will poll for new ones..."
+        Write-Warn "No active workspaces found. Watcher will poll for new ones..."
     }
     else {
-        Write-Info "Found $($wsIds.Count) workspace(s)"
+        Write-Info "Found $($wsIds.Count) active workspace(s)"
     }
 } elseif (-not $WorkspaceId) {
-    Write-Info "Auto-detecting workspace ID..."
+    Write-Info "Auto-detecting active workspace ID..."
     $wsIds = Get-WorkspaceIds
     if ($wsIds.Count -eq 0) {
-        Write-Err "Could not auto-detect workspace ID."
+        Write-Err "Could not auto-detect an active workspace ID."
         Write-Err "Please specify: .\scripts\start_cli_bridge.ps1 -WorkspaceId YOUR_WORKSPACE_ID"
         exit 1
     }
@@ -169,6 +190,13 @@ if ($detected -eq 0) {
 $env:PYTHONPATH = "$ProjectDir;$($ProjectDir)\backend;$($env:PYTHONPATH)"
 $env:MINDSCAPE_WORKSPACE_ROOT = if ($env:MINDSCAPE_WORKSPACE_ROOT) { $env:MINDSCAPE_WORKSPACE_ROOT } else { $ProjectDir }
 $env:MINDSCAPE_BACKEND_API_URL = if ($env:MINDSCAPE_BACKEND_API_URL) { $env:MINDSCAPE_BACKEND_API_URL } else { $BackendHttp }
+$env:MINDSCAPE_OWNER_USER_ID = $OwnerUserId
+if ($Surface -eq "codex_cli" -and $env:MINDSCAPE_CODEX_HOME_POOL) {
+    Write-Info "Codex host-session pool configured via MINDSCAPE_CODEX_HOME_POOL"
+}
+if ($Surface -eq "codex_cli" -and $env:MINDSCAPE_CODEX_HOME_AUTO_DISCOVER -ne "false") {
+    Write-Info "Codex host-session seed discovery is enabled"
+}
 if ($Surface -eq "gemini_cli") {
     $env:MINDSCAPE_CLI_RUNTIME_CMD = "python $BridgeScript"
     if (-not $env:GEMINI_CLI_RUNTIME_CMD) {
@@ -181,7 +209,7 @@ function Start-BridgeJob {
 
     Write-Info "  Starting bridge for workspace: $WsId"
     $job = Start-Job -ScriptBlock {
-        param($PythonPath, $ClientScript, $WsId, $Host_, $Surface, $WorkspaceRoot, $RuntimeCmd, $BackendUrl)
+        param($PythonPath, $ClientScript, $WsId, $Host_, $Surface, $WorkspaceRoot, $RuntimeCmd, $BackendUrl, $CodexHomePool, $CodexAutoDiscover, $CodexSeedRegistry, $OwnerUserId)
         $env:PYTHONPATH = $PythonPath
         if ($Surface -eq "gemini_cli") {
             $env:MINDSCAPE_CLI_RUNTIME_CMD = $RuntimeCmd
@@ -189,7 +217,17 @@ function Start-BridgeJob {
                 $env:GEMINI_CLI_RUNTIME_CMD = $RuntimeCmd
             }
         }
+        if ($Surface -eq "codex_cli" -and $CodexHomePool) {
+            $env:MINDSCAPE_CODEX_HOME_POOL = $CodexHomePool
+        }
+        if ($Surface -eq "codex_cli" -and $CodexAutoDiscover) {
+            $env:MINDSCAPE_CODEX_HOME_AUTO_DISCOVER = $CodexAutoDiscover
+        }
+        if ($Surface -eq "codex_cli" -and $CodexSeedRegistry) {
+            $env:MINDSCAPE_CODEX_HOME_SEED_REGISTRY = $CodexSeedRegistry
+        }
         $env:MINDSCAPE_BACKEND_API_URL = $BackendUrl
+        $env:MINDSCAPE_OWNER_USER_ID = $OwnerUserId
         $env:MINDSCAPE_WORKSPACE_ROOT = $WorkspaceRoot
         python $ClientScript --workspace-id $WsId --host $Host_ --surface $Surface --workspace-root $WorkspaceRoot
     } -ArgumentList @(
@@ -200,7 +238,11 @@ function Start-BridgeJob {
         $Surface,
         $env:MINDSCAPE_WORKSPACE_ROOT,
         $env:MINDSCAPE_CLI_RUNTIME_CMD,
-        $env:MINDSCAPE_BACKEND_API_URL
+        $env:MINDSCAPE_BACKEND_API_URL,
+        $env:MINDSCAPE_CODEX_HOME_POOL,
+        $env:MINDSCAPE_CODEX_HOME_AUTO_DISCOVER,
+        $env:MINDSCAPE_CODEX_HOME_SEED_REGISTRY,
+        $env:MINDSCAPE_OWNER_USER_ID
     )
     Write-Info "  Bridge job $($job.Id) started for $WsId"
     return $job
@@ -245,6 +287,7 @@ if ($All) {
             }
 
             Start-Sleep -Seconds 15
+            Invoke-CodexSeedRefresh
             $currentWorkspaceIds = @(Get-WorkspaceIds)
 
             foreach ($wsId in $currentWorkspaceIds) {
@@ -271,5 +314,6 @@ if ($All) {
         }
     }
 } else {
+    Invoke-CodexSeedRefresh
     python $ClientScript --workspace-id $WorkspaceId --host $Host_ --surface $Surface --workspace-root $env:MINDSCAPE_WORKSPACE_ROOT
 }

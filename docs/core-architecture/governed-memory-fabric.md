@@ -13,16 +13,21 @@ Mindscape treats memory as part of long-term continuity and agent cognition.
 
 The current architecture direction is:
 
-> **Mindscape Operating Engine = Meeting Runtime + Governed Memory Fabric, under Governance Context, driving Actuation Layer**
+> **Mindscape Operating Engine = Governance Context + Meeting Runtime + Governed Memory Fabric + bounded planning artifacts, with downstream consumer runtimes returning bounded summaries and refs**
 
 Where:
 
 - **Governance Context** = Intent + Mind-Lens + Policy
-- **Meeting Runtime** = live deliberation, convergence, dispatch, and loop closure
-- **Governed Memory Fabric** = long-term continuity, evidence, promotion, invalidation, and serving
-- **Actuation Layer** = Project / Flow + Playbooks / Tools + Sandbox / external runtimes
+- **Meeting Runtime** = live deliberation, convergence, dispatch, loop closure, and bounded artifact emission
+- **Governed Memory Fabric** = long-term continuity, evidence, promotion, invalidation, serving, and bounded world/runtime writeback
+- **Planning Artifacts** = `TaskIR` and, when requested, `SpatialSchedulingIR`
+- **Consumer Runtimes / Actuation Layer** = Project / Flow + Playbooks / Tools + Sandbox / installed runtime packs / external runtimes
 
-This is why memory in Mindscape is part of the agent core.
+This is why memory in Mindscape is part of the agent core rather than a passive log sink.
+
+Important boundary:
+
+> Governed memory stores bounded summaries, traceability keys, and artifact references. It must not become a dump for raw provider payloads or per-frame runtime caches.
 
 ---
 
@@ -58,7 +63,7 @@ It also needs to answer:
 
 ---
 
-## The Four-Part Architecture
+## The Operating Layers
 
 ## 1. Governance Context
 
@@ -91,7 +96,18 @@ Its responsibilities include:
 
 It is where short-horizon thinking happens.
 
-## 3. Governed Memory Fabric
+## 3. Planning Artifacts
+
+Between meeting-time cognition and downstream runtime execution, Mindscape uses bounded planning artifacts.
+
+These artifacts include:
+
+- `TaskIR` for execution-ready control
+- `SpatialSchedulingIR` when the workflow needs spatial/world-aware planning
+
+They exist to keep governance and traceability in local-core while preventing provider-native payloads from becoming the host's public contract.
+
+## 4. Governed Memory Fabric
 
 The Governed Memory Fabric is the long-horizon continuity layer.
 
@@ -103,9 +119,9 @@ Its responsibilities include:
 - revising or invalidating outdated memory
 - serving the right memory packet back into execution
 
-It operates as a governed memory model for continuity, revision, and serving.
+It operates as a governed memory model for continuity, revision, serving, and bounded writeback.
 
-## 4. Actuation Layer
+## 5. Consumer Runtimes / Actuation Layer
 
 The Actuation Layer turns cognition into work in the world.
 
@@ -198,6 +214,16 @@ Formal canonical write boundaries are the moments where memory formation should 
 
 Workflow outcomes such as artifact milestones, reasoning traces, governance receipts, and execution traces are evidence intake surfaces in the current rollout.
 They can be brought into deliberation and attached to governed memory, but they do not independently create canonical memory items outside meeting-time or meta-meeting-time closure.
+
+For spatial/runtime-oriented workflows, canonical writeback should prefer:
+
+- schedule summary
+- constraint summary
+- normalized runtime receipt facts
+- artifact references
+- traceability keys such as `source_schedule_id`
+
+It should not store raw runtime payloads as canonical memory.
 
 Without explicit write boundaries, memory collapses back into logs and prompt stuffing.
 

@@ -249,12 +249,18 @@ def action_intents_from_program_spec(
     program_spec: ProgramSpec,
     *,
     default_workspace_id: Optional[str] = None,
+    deliverable_bindings: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[ActionIntent]:
     """Project ProgramSpec workstreams back into ActionIntent objects."""
     intents: List[ActionIntent] = []
     for workstream in program_spec.workstreams:
         preferred_engine, playbook_code, tool_name = _resolve_engine_binding(
             workstream.eligible_engines
+        )
+        deliverable_inputs = _build_workstream_deliverable_inputs(
+            workstream=workstream,
+            deliverable_bindings=deliverable_bindings or {},
+            coverage_snapshot=program_spec.coverage_snapshot,
         )
         intents.append(
             ActionIntent(
@@ -271,6 +277,7 @@ def action_intents_from_program_spec(
                     if playbook_code or tool_name
                     else IntentConfidence.MEDIUM
                 ),
+                input_params=deliverable_inputs or None,
             )
         )
     return intents

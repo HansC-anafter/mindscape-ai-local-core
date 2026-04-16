@@ -44,6 +44,8 @@ logger = logging.getLogger("task_executor")
 
 DEFAULT_TASK_TIMEOUT = 600  # 10 minutes
 MAX_OUTPUT_SIZE = 100_000  # characters
+CODEX_POOL_MAX_TASK_ATTEMPTS = 3
+DEFAULT_AUTH_BUNDLE_TIMEOUT_SECONDS = 10.0
 
 
 @dataclass
@@ -327,10 +329,24 @@ class HostBridgeTaskExecutor:
             f"{backend_url}/api/v1/auth/cli-token?"
             f"{urllib.parse.urlencode(params)}"
         )
+        timeout_seconds = DEFAULT_AUTH_BUNDLE_TIMEOUT_SECONDS
+        raw_timeout = os.environ.get(
+            "MINDSCAPE_CLI_AUTH_BUNDLE_TIMEOUT_SECONDS",
+            "",
+        ).strip()
+        if raw_timeout:
+            try:
+                timeout_seconds = max(1.0, float(raw_timeout))
+            except ValueError:
+                logger.warning(
+                    "[TaskExecutor] Invalid MINDSCAPE_CLI_AUTH_BUNDLE_TIMEOUT_SECONDS=%r; using %.1fs",
+                    raw_timeout,
+                    DEFAULT_AUTH_BUNDLE_TIMEOUT_SECONDS,
+                )
         try:
             req = urllib.request.Request(url, method="GET")
             req.add_header("Accept", "application/json")
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
                 data = json.loads(resp.read().decode())
             env = data.get("env")
             data["env"] = (
@@ -363,6 +379,43 @@ class HostBridgeTaskExecutor:
             self._fetch_runtime_auth_bundle_sync,
             runtime_name,
             ctx,
+        )
+
+    def _report_runtime_quota_exhausted_sync(
+        self,
+        runtime_name: str,
+        runtime_id: str,
+    ) -> None:
+        backend_url = self._resolve_backend_api_url()
+        if not backend_url:
+            return
+        url = (
+            f"{backend_url}/api/v1/auth/runtime-quota-exhausted?"
+            f"{urllib.parse.urlencode({'surface': runtime_name, 'runtime_id': runtime_id})}"
+        )
+        try:
+            req = urllib.request.Request(url, method="POST")
+            req.add_header("Accept", "application/json")
+            with urllib.request.urlopen(req, timeout=5):
+                return
+        except (urllib.error.URLError, OSError):
+            logger.warning(
+                "[TaskExecutor] Failed to report quota exhaustion for %s runtime %s",
+                runtime_name,
+                runtime_id,
+            )
+
+    async def _report_runtime_quota_exhausted(
+        self,
+        runtime_name: str,
+        runtime_id: str,
+    ) -> None:
+        if not runtime_id:
+            return
+        await asyncio.to_thread(
+            self._report_runtime_quota_exhausted_sync,
+            runtime_name,
+            runtime_id,
         )
 
     @staticmethod
@@ -608,8 +661,11 @@ class HostBridgeTaskExecutor:
             )
 
         prompt = self._build_runtime_prompt(ctx)
-        auth_bundle = await self._fetch_runtime_auth_env("codex_cli", ctx)
-        extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
+        max_attempts = max(
+            1,
+            int(os.environ.get("MINDSCAPE_CODEX_POOL_MAX_TASK_ATTEMPTS", CODEX_POOL_MAX_TASK_ATTEMPTS)),
+        )
+        attempted_runtime_ids: set[str] = set()
 
         with tempfile.NamedTemporaryFile(
             prefix="mindscape_codex_last_",
@@ -635,20 +691,102 @@ class HostBridgeTaskExecutor:
         if ctx.max_duration:
             # Codex currently does not expose an explicit timeout flag; runner timeout is enforced outside.
             pass
-        await self._report_progress(ctx.execution_id, 15, "Calling Codex CLI")
         try:
-            return await asyncio.wait_for(
-                self._run_cli_agent_subprocess(
-                    ctx,
-                    cmd,
-                    cwd,
-                    runtime_name="codex_cli",
-                    last_message_path=last_message_path,
-                    snapshot_root=snapshot_root,
-                    snapshot_paths=snapshot_paths,
-                    extra_env=extra_env if isinstance(extra_env, dict) else None,
-                ),
-                timeout=timeout,
+            last_quota_error = ""
+            for attempt in range(1, max_attempts + 1):
+                auth_bundle = await self._fetch_runtime_auth_env("codex_cli", ctx)
+                extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
+                selected_runtime_id = (
+                    str(auth_bundle.get("selected_runtime_id") or "").strip()
+                    if isinstance(auth_bundle, dict)
+                    else ""
+                )
+                if attempt > 1 and not selected_runtime_id:
+                    pool_error = ""
+                    if isinstance(auth_bundle, dict):
+                        pool_error = str(
+                            auth_bundle.get("error")
+                            or auth_bundle.get("warning")
+                            or ""
+                        ).strip()
+                    error_text = (
+                        f"{last_quota_error} (pool failover unavailable: {pool_error})"
+                        if last_quota_error and pool_error
+                        else last_quota_error
+                        or pool_error
+                        or "Codex pool failover did not yield an alternate runtime"
+                    )
+                    return ExecutionResult(
+                        status="failed",
+                        output="",
+                        error=error_text,
+                        metadata={"selected_runtime_id": None},
+                    )
+                if selected_runtime_id and selected_runtime_id in attempted_runtime_ids:
+                    logger.warning(
+                        "[TaskExecutor] Codex pool returned previously attempted runtime %s for %s; stopping failover loop",
+                        selected_runtime_id,
+                        ctx.execution_id,
+                    )
+                    error_text = (
+                        f"{last_quota_error} (pool reused exhausted runtime {selected_runtime_id})"
+                        if last_quota_error
+                        else f"Codex pool reused exhausted runtime {selected_runtime_id}"
+                    )
+                    return ExecutionResult(
+                        status="failed",
+                        output="",
+                        error=error_text,
+                        metadata={"selected_runtime_id": selected_runtime_id},
+                    )
+
+                progress_message = "Calling Codex CLI"
+                if attempt > 1:
+                    progress_message = f"Retrying Codex CLI via pool failover ({attempt}/{max_attempts})"
+                await self._report_progress(ctx.execution_id, 15, progress_message)
+
+                result = await asyncio.wait_for(
+                    self._run_cli_agent_subprocess(
+                        ctx,
+                        cmd,
+                        cwd,
+                        runtime_name="codex_cli",
+                        last_message_path=last_message_path,
+                        snapshot_root=snapshot_root,
+                        snapshot_paths=snapshot_paths,
+                        extra_env=extra_env if isinstance(extra_env, dict) else None,
+                        selected_runtime_id=selected_runtime_id,
+                    ),
+                    timeout=timeout,
+                )
+                if result.status == "completed":
+                    return result
+
+                if not self._looks_like_quota_exhaustion(
+                    (result.error or "") or (result.output or "")
+                ):
+                    return result
+
+                if not selected_runtime_id:
+                    return result
+
+                last_quota_error = str((result.error or "") or (result.output or "")).strip()
+                attempted_runtime_ids.add(selected_runtime_id)
+                if attempt >= max_attempts:
+                    return result
+
+                logger.warning(
+                    "[TaskExecutor] Codex runtime %s quota-like failure for %s; attempting pool failover (%d/%d)",
+                    selected_runtime_id,
+                    ctx.execution_id,
+                    attempt,
+                    max_attempts,
+                )
+
+            return ExecutionResult(
+                status="failed",
+                output="",
+                error="Codex pool failover exhausted without a successful execution",
             )
         finally:
             try:
@@ -779,6 +917,7 @@ class HostBridgeTaskExecutor:
         snapshot_root: Optional[str] = None,
         snapshot_paths: Optional[List[str]] = None,
         extra_env: Optional[Dict[str, str]] = None,
+        selected_runtime_id: Optional[str] = None,
     ) -> ExecutionResult:
         resolved_snapshot_root = (snapshot_root or "").strip()
         before_files = (
@@ -867,9 +1006,17 @@ class HostBridgeTaskExecutor:
                 output=output or "(no response from agent)",
                 files_modified=files_modified,
                 files_created=files_created,
-                metadata={"effective_sandbox_path": resolved_snapshot_root or cwd},
+                metadata={
+                    "effective_sandbox_path": resolved_snapshot_root or cwd,
+                    "selected_runtime_id": selected_runtime_id or None,
+                },
             )
         if synthesized_error:
+            if selected_runtime_id and self._looks_like_quota_exhaustion(synthesized_error):
+                await self._report_runtime_quota_exhausted(
+                    runtime_name,
+                    selected_runtime_id,
+                )
             logger.warning(
                 "[TaskExecutor] %s subprocess pid=%s produced no usable agent message "
                 "for %s: %s",
@@ -884,7 +1031,15 @@ class HostBridgeTaskExecutor:
                 error=synthesized_error,
                 files_modified=files_modified,
                 files_created=files_created,
-                metadata={"effective_sandbox_path": resolved_snapshot_root or cwd},
+                metadata={
+                    "effective_sandbox_path": resolved_snapshot_root or cwd,
+                    "selected_runtime_id": selected_runtime_id or None,
+                },
+            )
+        if selected_runtime_id and self._looks_like_quota_exhaustion(stderr or stdout):
+            await self._report_runtime_quota_exhausted(
+                runtime_name,
+                selected_runtime_id,
             )
         logger.warning(
             "[TaskExecutor] %s subprocess pid=%s finished with code %s for %s",
@@ -899,7 +1054,10 @@ class HostBridgeTaskExecutor:
             error=f"Exit code {proc.returncode}: {stderr[:500] or stdout[:500]}",
             files_modified=files_modified,
             files_created=files_created,
-            metadata={"effective_sandbox_path": resolved_snapshot_root or cwd},
+            metadata={
+                "effective_sandbox_path": resolved_snapshot_root or cwd,
+                "selected_runtime_id": selected_runtime_id or None,
+            },
         )
 
     @classmethod
@@ -951,6 +1109,21 @@ class HostBridgeTaskExecutor:
             if matches:
                 return matches[-1].strip()
         return None
+
+    @staticmethod
+    def _looks_like_quota_exhaustion(message: str) -> bool:
+        normalized = str(message or "").lower()
+        if not normalized:
+            return False
+        markers = (
+            "usage limit",
+            "rate limit",
+            "quota",
+            "too many requests",
+            "resource_exhausted",
+            "429",
+        )
+        return any(marker in normalized for marker in markers)
 
     @staticmethod
     def _snapshot_files(

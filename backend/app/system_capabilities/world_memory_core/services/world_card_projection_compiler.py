@@ -37,6 +37,24 @@ class WorldCardProjectionCompiler:
             if fps is not None:
                 line += f" @ {fps}fps"
             summary_lines.append(line)
+        if packet.active_schedule:
+            schedule_id = str(packet.active_schedule.get("schedule_id") or "").strip()
+            title = str(packet.active_schedule.get("title") or "").strip()
+            status = str(packet.active_schedule.get("status") or "").strip()
+            segment_count = packet.active_schedule.get("segment_count")
+            entity_kinds = packet.active_schedule.get("entity_kinds") or []
+            schedule_label = title or schedule_id or "schedule_active"
+            line = f"Active schedule: {schedule_label}"
+            if status:
+                line += f" [{status}]"
+            if segment_count is not None:
+                line += f" segments={segment_count}"
+            summary_lines.append(line)
+            if entity_kinds:
+                suggested_focus.append(
+                    "Scheduled entities: "
+                    + ", ".join(str(kind) for kind in entity_kinds[:5])
+                )
         if packet.geo_anchor:
             lat = packet.geo_anchor.get("lat")
             lng = packet.geo_anchor.get("lng")
@@ -72,11 +90,23 @@ class WorldCardProjectionCompiler:
                 suggested_focus.append(
                     "Motion artifacts: " + ", ".join(artifact_kinds)
                 )
+        if packet.schedule_artifact_refs:
+            schedule_artifact_ids = []
+            for item in packet.schedule_artifact_refs[:4]:
+                artifact_id = str((item or {}).get("artifact_id") or "").strip()
+                if artifact_id:
+                    schedule_artifact_ids.append(artifact_id)
+            if schedule_artifact_ids:
+                suggested_focus.append(
+                    "Schedule artifacts: " + ", ".join(schedule_artifact_ids)
+                )
 
         for key, value in packet.resource_constraints.items():
             constraints.append(f"{key}={value}")
         for key, value in packet.motion_constraints.items():
             constraints.append(f"motion_{key}={value}")
+        for key, value in packet.schedule_constraints.items():
+            constraints.append(f"schedule_{key}={value}")
 
         if not summary_lines:
             summary_lines.append("No explicit world scene is active yet.")

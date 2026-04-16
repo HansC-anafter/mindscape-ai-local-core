@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 _RUNNER_SENTINEL_PATH = Path("/app/data/.restart_runner")
 _RUNNER_SENTINEL_TTL_SECONDS = 300
+_RUNNER_DRAIN_SENTINEL_PATH = Path("/app/data/.drain_runner")
+_RUNNER_DRAIN_TTL_SECONDS = 4 * 60 * 60
 
 RUNNER_POOL_SERVICES = (
     "runner-default",
@@ -37,6 +39,11 @@ class RestartRequest(BaseModel):
     service: str = Field(default="backend")
 
 
+class RunnerDrainRequest(BaseModel):
+    enabled: bool = Field(default=True)
+    ttl_seconds: int = Field(default=_RUNNER_DRAIN_TTL_SECONDS, ge=30, le=86400)
+
+
 def _build_manual_instruction(targets: list[str]) -> str:
     return f"docker compose restart {' '.join(targets)}"
 
@@ -47,6 +54,15 @@ def _expand_service_targets(service: str) -> list[str]:
     if service == "runner":
         return list(RUNNER_POOL_SERVICES)
     return [service]
+
+
+def _build_runner_drain_sentinel(ttl_seconds: int) -> Dict[str, Any]:
+    return {
+        "request_id": uuid.uuid4().hex,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "ttl_seconds": ttl_seconds,
+        "mode": "drain",
+    }
 
 
 def _is_localhost(request: Request) -> bool:
@@ -449,6 +465,61 @@ async def restart_service(request: Request, body: RestartRequest = RestartReques
         logger.error(f"Failed to restart service: {e}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Failed to restart service: {str(e)}"
+        )
+
+
+@router.post("/runner-drain", response_model=Dict[str, Any])
+async def set_runner_drain(
+    request: Request,
+    body: RunnerDrainRequest = RunnerDrainRequest(),
+):
+    """Enable or clear the runner drain sentinel.
+
+    When enabled, runners keep servicing inflight work but stop dequeuing
+    additional tasks until the sentinel is cleared or expires.
+    """
+    try:
+        if not _is_localhost(request):
+            raise HTTPException(
+                status_code=403,
+                detail="Runner drain API is restricted to localhost",
+            )
+
+        if body.enabled:
+            sentinel = _build_runner_drain_sentinel(body.ttl_seconds)
+            _RUNNER_DRAIN_SENTINEL_PATH.write_text(
+                json.dumps(sentinel),
+                encoding="utf-8",
+            )
+            logger.info(
+                "Runner drain sentinel written: %s",
+                sentinel["request_id"],
+            )
+            return {
+                "success": True,
+                "enabled": True,
+                "method": "runner_drain_sentinel",
+                "path": str(_RUNNER_DRAIN_SENTINEL_PATH),
+                "sentinel": sentinel,
+                "message": "Runner drain enabled; runners will stop dequeuing new tasks.",
+            }
+
+        _RUNNER_DRAIN_SENTINEL_PATH.unlink(missing_ok=True)
+        logger.info("Runner drain sentinel cleared")
+        return {
+            "success": True,
+            "enabled": False,
+            "method": "runner_drain_sentinel",
+            "path": str(_RUNNER_DRAIN_SENTINEL_PATH),
+            "message": "Runner drain cleared; runners may resume dequeuing.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to update runner drain sentinel: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update runner drain sentinel: {str(e)}",
         )
 
 

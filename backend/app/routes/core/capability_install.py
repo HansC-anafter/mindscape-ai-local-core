@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/capability-packs", tags=["Capability Packs"])
 OVERWRITE_CONFIRMATION_PHRASE = "OVERWRITE"
+OVERWRITE_REVIEW_CONFIRMATION_PHRASE = "REVIEWED_LOCAL_DIFFS"
 
 installed_packs_store = InstalledPacksStore()
 pack_activation_service = PackActivationService()
@@ -160,6 +161,39 @@ def _require_explicit_overwrite_confirmation(
     )
 
 
+def _build_dirty_overwrite_detail(
+    *,
+    dirty,
+    incoming_version: Optional[str],
+    review_payload: Optional[Dict[str, Any]],
+    error: str,
+    message: str,
+    hint: str,
+) -> Dict[str, Any]:
+    detail: Dict[str, Any] = {
+        "error": error,
+        "message": message,
+        "installed_version": dirty.installed_version,
+        "installed_at": dirty.installed_at,
+        "incoming_version": incoming_version,
+        "modified": dirty.modified,
+        "added": dirty.added,
+        "deleted": dirty.deleted,
+        "summary": dirty.summary(),
+        "required_confirmation": OVERWRITE_CONFIRMATION_PHRASE,
+        "required_review_confirmation": OVERWRITE_REVIEW_CONFIRMATION_PHRASE,
+        "review_required": True,
+        "review_summary": (
+            "Review each conflict against the incoming pack before force overwrite. "
+            "If any local-core fix is missing from cloud source, reconcile source first."
+        ),
+        "hint": hint,
+    }
+    if review_payload is not None:
+        detail["review"] = review_payload
+    return detail
+
+
 # ------------------------------------------------------------------
 # Shared install pipeline
 # ------------------------------------------------------------------
@@ -188,6 +222,7 @@ async def run_install_pipeline(
     fastapi_app,
     mindpack_path: Path,
     allow_overwrite: bool,
+    overwrite_review_confirmation: str,
     source_label: str,
     extra_metadata: Optional[Dict[str, Any]] = None,
 ) -> InstallPipelineResult:
@@ -209,7 +244,9 @@ async def run_install_pipeline(
     Args:
         fastapi_app:      The FastAPI ``app`` instance (for hot-reload).
         mindpack_path:    Path to the ``.mindpack`` file.
-        allow_overwrite:  If True, skip dirty-state guard.
+        allow_overwrite:  If True, skip dirty-state guard after explicit review.
+        overwrite_review_confirmation: Explicit phrase confirming the installer
+                                       reviewed per-file diffs for dirty paths.
         source_label:     Human-readable source (e.g. ``"install-from-file"``).
         extra_metadata:   Extra fields merged into ``pack_metadata``.
 
@@ -280,35 +317,64 @@ async def run_install_pipeline(
         existing_cap_dir = capabilities_dir / capability_code
         if existing_cap_dir.exists():
             try:
-                from app.services.install_integrity import check_dirty_state
+                from app.services.install_integrity import (
+                    build_dirty_review_payload,
+                    check_dirty_state,
+                )
 
                 dirty = check_dirty_state(existing_cap_dir)
-                if dirty.is_dirty and not allow_overwrite:
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "error": "local_modifications_detected",
-                            "message": (
-                                f"{capability_code}: {len(dirty.modified)} modified, "
-                                f"{len(dirty.added)} added, {len(dirty.deleted)} deleted "
-                                f"since v{dirty.installed_version} install"
-                            ),
-                            "installed_version": dirty.installed_version,
-                            "installed_at": dirty.installed_at,
-                            "incoming_version": pipeline.version,
-                            "modified": dirty.modified,
-                            "added": dirty.added,
-                            "deleted": dirty.deleted,
-                            "summary": dirty.summary(),
-                            "required_confirmation": OVERWRITE_CONFIRMATION_PHRASE,
-                            "hint": (
-                                "Set allow_overwrite=true and "
-                                f"overwrite_confirmation={OVERWRITE_CONFIRMATION_PHRASE} "
-                                "to force install"
-                            ),
-                        },
+                if dirty.is_dirty:
+                    review_payload = build_dirty_review_payload(
+                        existing_cap_dir, cap_dir, dirty
                     )
-                elif dirty.is_dirty:
+                    if not allow_overwrite:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=_build_dirty_overwrite_detail(
+                                dirty=dirty,
+                                incoming_version=pipeline.version,
+                                review_payload=review_payload,
+                                error="local_modifications_detected",
+                                message=(
+                                    f"{capability_code}: {len(dirty.modified)} modified, "
+                                    f"{len(dirty.added)} added, {len(dirty.deleted)} deleted "
+                                    f"since v{dirty.installed_version} install"
+                                ),
+                                hint=(
+                                    "Review the per-file diffs first. Only if every local change "
+                                    "is already reflected in cloud source, resubmit with "
+                                    "allow_overwrite=true, "
+                                    f"overwrite_confirmation={OVERWRITE_CONFIRMATION_PHRASE}, and "
+                                    "overwrite_review_confirmation="
+                                    f"{OVERWRITE_REVIEW_CONFIRMATION_PHRASE}."
+                                ),
+                            ),
+                        )
+                    if (
+                        str(overwrite_review_confirmation or "").strip()
+                        != OVERWRITE_REVIEW_CONFIRMATION_PHRASE
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail=_build_dirty_overwrite_detail(
+                                dirty=dirty,
+                                incoming_version=pipeline.version,
+                                review_payload=review_payload,
+                                error="overwrite_review_confirmation_required",
+                                message=(
+                                    "Force overwrite is blocked until local modification diffs "
+                                    "are reviewed."
+                                ),
+                                hint=(
+                                    "Inspect each diff item. If the incoming pack does not omit "
+                                    "required local-core fixes, resubmit with "
+                                    "allow_overwrite=true, "
+                                    f"overwrite_confirmation={OVERWRITE_CONFIRMATION_PHRASE}, and "
+                                    "overwrite_review_confirmation="
+                                    f"{OVERWRITE_REVIEW_CONFIRMATION_PHRASE}."
+                                ),
+                            ),
+                        )
                     logger.warning(
                         "Force overwriting %s with local modifications: %s",
                         capability_code,
@@ -363,6 +429,24 @@ async def run_install_pipeline(
         )
         post_handler.run_required_tasks(cap_dir, capability_code, manifest, result)
 
+        contract_lane_changed = False
+        try:
+            from app.services.runtime_contract_registry import RuntimeContractRegistry
+
+            contract_sync = RuntimeContractRegistry(local_core_root).sync_pack_contracts(
+                capability_code,
+                manifest,
+            )
+            contract_lane_changed = contract_sync.requires_restart
+            if contract_sync.alias_modules:
+                logger.info(
+                    "Synced runtime contract aliases for %s: %s",
+                    capability_code,
+                    ", ".join(contract_sync.alias_modules),
+                )
+        except Exception as exc:
+            result.add_error(f"Failed to sync runtime contract registry: {exc}")
+
         # 4. Reload capability registry
         hot_reload_performed = False
         activation_error: Optional[str] = None
@@ -380,7 +464,16 @@ async def run_install_pipeline(
             if hasattr(registry, "_tools_cache"):
                 registry._tools_cache.clear()
 
-            if hot_reload_enabled():
+            if contract_lane_changed:
+                load_capabilities(reset=True)
+                result.add_warning(
+                    "Contract import paths changed; skipping in-process hot reload and requiring a backend restart."
+                )
+                logger.info(
+                    "Skipped in-process hot reload for %s because contract import paths changed",
+                    capability_code,
+                )
+            elif hot_reload_enabled():
                 pipeline.hot_reload_result = await run_in_threadpool(
                     reload_capability_routes,
                     fastapi_app,
@@ -701,6 +794,7 @@ async def install_from_file(
     file: UploadFile = File(...),
     allow_overwrite: str = Form("false"),
     overwrite_confirmation: str = Form(""),
+    overwrite_review_confirmation: str = Form(""),
     profile_id: str = Query(
         "default-user", description="User profile ID for role mapping"
     ),
@@ -734,6 +828,7 @@ async def install_from_file(
             fastapi_app=fastapi_request.app,
             mindpack_path=tmp_path,
             allow_overwrite=overwrite,
+            overwrite_review_confirmation=overwrite_review_confirmation,
             source_label="install-from-file",
             extra_metadata={"installed_from_file": True},
         )
@@ -793,6 +888,12 @@ async def install_from_cloud(
     ),
     overwrite_confirmation: str = Query(
         "", description="Explicit confirmation phrase required when allow_overwrite=true"
+    ),
+    overwrite_review_confirmation: str = Query(
+        "",
+        description=(
+            "Explicit confirmation phrase required after reviewing local diff conflicts"
+        ),
     ),
 ):
     """
@@ -855,6 +956,7 @@ async def install_from_cloud(
                 fastapi_app=fastapi_request.app,
                 mindpack_path=pack_file,
                 allow_overwrite=overwrite,
+                overwrite_review_confirmation=overwrite_review_confirmation,
                 source_label="install-from-cloud",
                 extra_metadata={
                     "installed_from_cloud": True,

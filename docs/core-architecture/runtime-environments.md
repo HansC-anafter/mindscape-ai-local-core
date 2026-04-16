@@ -6,6 +6,9 @@
 
 Mindscape supports multiple runtime environments — isolated backends where playbooks and tools can execute. The default runtime is the local-core instance itself, but users can register additional runtimes (e.g., GPU servers, specialized cloud services) via the Settings UI or API.
 
+For the local-core runtime's host persistence roots and Docker mount policy, see
+[Local Runtime Persistence Topology](./local-runtime-persistence-topology.md).
+
 ---
 
 ## Runtime Types

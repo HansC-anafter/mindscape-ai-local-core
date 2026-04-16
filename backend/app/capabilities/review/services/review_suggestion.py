@@ -4,13 +4,14 @@ Review reminder service: check if user should be reminded to review
 """
 
 import logging
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Optional
 
-from ....services.mindscape_store import MindscapeStore
-from ....services.habit_store import HabitStore
-from ....models.mindscape import ReviewPreferences
+if TYPE_CHECKING:
+    from app.models.mindscape import ReviewPreferences
+else:
+    ReviewPreferences = Any
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,9 @@ class ReviewSuggestionService:
     """Review reminder service"""
 
     def __init__(self, db_path: str = None):
+        from app.services.habit_store import HabitStore
+        from app.services.mindscape_store import MindscapeStore
+
         self.mindscape_store = MindscapeStore(db_path)
         self.habit_store = HabitStore(db_path)
 

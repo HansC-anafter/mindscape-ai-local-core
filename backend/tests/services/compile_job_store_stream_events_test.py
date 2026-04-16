@@ -88,3 +88,37 @@ def test_emit_stream_event_schedules_workspace_publish(monkeypatch):
         "entry_point": "compile",
         "handoff_id": "handoff-stream-001",
     }
+
+
+def test_mark_succeeded_clears_existing_error(monkeypatch):
+    job = _make_job()
+    job.mark_failed(
+        "quota_exhausted",
+        session_id=job.session_id,
+        metadata={"dispatch_status": "all_failed"},
+    )
+    store = object.__new__(CompileJobStore)
+    update_call = {}
+
+    monkeypatch.setattr(store, "get_by_id", lambda job_id: job)
+
+    def fake_update(job_id, **kwargs):
+        update_call["job_id"] = job_id
+        update_call.update(kwargs)
+        return job
+
+    monkeypatch.setattr(store, "update", fake_update)
+    monkeypatch.setattr(store, "_emit_stream_event", lambda updated_job: None)
+
+    store.mark_succeeded(
+        job.id,
+        session_id=job.session_id,
+        result={"status": "compiled"},
+        metadata={"handoff_id": "handoff-stream-002"},
+    )
+
+    assert job.error is None
+    assert update_call["job_id"] == job.id
+    assert update_call["status"] == "succeeded"
+    assert update_call["error"] is None
+    assert update_call["clear_error"] is True

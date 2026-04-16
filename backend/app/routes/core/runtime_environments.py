@@ -56,7 +56,7 @@ class CreateRuntimeEnvironmentRequest(BaseModel):
     config_url: str = Field(..., description="Configuration page URL")
     auth_type: str = Field(
         default="none",
-        description="Authentication type: 'api_key', 'oauth2', 'token', or 'none'",
+        description="Authentication type: 'api_key', 'oauth2', 'host_session', or 'none'",
     )
     auth_config: Optional[Dict[str, Any]] = Field(
         None, description="Authentication configuration"
@@ -71,6 +71,9 @@ class CreateRuntimeEnvironmentRequest(BaseModel):
     recommended_for_dispatch: bool = Field(
         default=False, description="Recommended for Dispatch"
     )
+    pool_group: Optional[str] = Field(None, description="Optional runtime pool group")
+    pool_enabled: bool = Field(True, description="Whether this runtime participates in pool rotation")
+    pool_priority: int = Field(0, description="Lower values are selected first in a pool")
 
 
 class UpdateRuntimeEnvironmentRequest(BaseModel):
@@ -87,6 +90,9 @@ class UpdateRuntimeEnvironmentRequest(BaseModel):
     supports_dispatch: Optional[bool] = None
     supports_cell: Optional[bool] = None
     recommended_for_dispatch: Optional[bool] = None
+    pool_group: Optional[str] = None
+    pool_enabled: Optional[bool] = None
+    pool_priority: Optional[int] = None
 
 
 @router.get("")
@@ -189,6 +195,9 @@ async def create_runtime_environment(
             supports_dispatch=request.supports_dispatch,
             supports_cell=request.supports_cell,
             recommended_for_dispatch=request.recommended_for_dispatch,
+            pool_group=request.pool_group,
+            pool_enabled=request.pool_enabled,
+            pool_priority=request.pool_priority,
         )
 
         db.add(runtime)
@@ -323,6 +332,12 @@ async def update_runtime_environment(
             runtime.supports_cell = request.supports_cell
         if request.recommended_for_dispatch is not None:
             runtime.recommended_for_dispatch = request.recommended_for_dispatch
+        if request.pool_group is not None:
+            runtime.pool_group = request.pool_group
+        if request.pool_enabled is not None:
+            runtime.pool_enabled = request.pool_enabled
+        if request.pool_priority is not None:
+            runtime.pool_priority = request.pool_priority
 
         # Update metadata (merge with existing)
         if request.metadata is not None:
@@ -332,16 +347,28 @@ async def update_runtime_environment(
 
         # Update authentication if provided
         if request.auth_type is not None:
+            if not auth_service.validate_auth_config(
+                request.auth_type,
+                request.auth_config if request.auth_config is not None else runtime.auth_config,
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid authentication configuration for auth_type '{request.auth_type}'",
+                )
             runtime.auth_type = request.auth_type
-            if request.auth_config is not None:
-                # Validate and encrypt
-                if not auth_service.validate_auth_config(
-                    request.auth_type, request.auth_config
-                ):
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid authentication configuration for auth_type '{request.auth_type}'",
-                    )
+
+        if request.auth_config is not None:
+            if not auth_service.validate_auth_config(
+                runtime.auth_type,
+                request.auth_config,
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid authentication configuration for auth_type '{runtime.auth_type}'",
+                )
+            if runtime.auth_type == "host_session":
+                runtime.auth_config = request.auth_config
+            else:
                 runtime.auth_config = auth_service.encrypt_credentials(
                     request.auth_config
                 )

@@ -26,6 +26,8 @@ import stat
 from datetime import datetime, timezone
 from contextlib import suppress
 
+from backend.app.services.runtime_persistence_paths import get_model_root
+
 
 def _utc_now():
     """Return timezone-aware UTC now."""
@@ -37,6 +39,45 @@ DOWNLOAD_RETRY_ATTEMPTS = 5
 DOWNLOAD_RETRY_BASE_DELAY_SECONDS = 2
 DOWNLOAD_CONNECT_TIMEOUT_SECONDS = 30
 DOWNLOAD_READ_TIMEOUT_SECONDS = 300
+
+
+def _validate_safetensors_file(path: Path) -> Optional[str]:
+    try:
+        file_size = path.stat().st_size
+    except FileNotFoundError:
+        return "file_missing"
+    except OSError as exc:
+        return f"stat_failed:{exc}"
+
+    if file_size < 12:
+        return "file_too_small"
+
+    try:
+        with path.open("rb") as handle:
+            header_len_raw = handle.read(8)
+            if len(header_len_raw) != 8:
+                return "header_prefix_missing"
+            header_len = int.from_bytes(header_len_raw, "little", signed=False)
+            if header_len <= 0:
+                return "header_length_invalid"
+            if 8 + header_len > file_size:
+                return "header_length_out_of_bounds"
+            if header_len > 16 * 1024 * 1024:
+                return "header_length_unreasonably_large"
+            header_bytes = handle.read(header_len)
+            if len(header_bytes) != header_len:
+                return "header_truncated"
+    except OSError as exc:
+        return f"read_failed:{exc}"
+
+    try:
+        header = json.loads(header_bytes.decode("utf-8"))
+    except Exception:
+        return "header_json_invalid"
+
+    if not isinstance(header, dict):
+        return "header_not_object"
+    return None
 
 
 class DownloadStrategy(str, Enum):
@@ -90,6 +131,17 @@ class LicenseInfo:
 
 
 @dataclass
+class ComplianceInfo:
+    """Reviewed productization/compliance metadata for a model/checkpoint."""
+
+    upstream_repo: Optional[str] = None
+    checkpoint_id: Optional[str] = None
+    checkpoint_license_url: Optional[str] = None
+    dataset_provenance_summary: Optional[str] = None
+    license_reviewed: bool = False
+
+
+@dataclass
 class HardwareRequirements:
     """Hardware requirements for running a model."""
 
@@ -118,6 +170,7 @@ class ModelInfo:
     provider: ModelProvider
     files: List[ModelFile]
     license: LicenseInfo
+    compliance: ComplianceInfo
     hardware_requirements: HardwareRequirements
     role: str = "other"  # Role for path mapping (checkpoints, loras, etc.)
     quality_profiles: Dict[str, QualityProfile] = field(default_factory=dict)
@@ -195,7 +248,7 @@ class ModelWeightsInstaller:
     }
 
     def __init__(
-        self, cache_root: str = "~/.mindscape/models", config_path: Optional[str] = None
+        self, cache_root: Optional[str] = None, config_path: Optional[str] = None
     ):
         """
         Initialize ModelWeightsInstaller.
@@ -204,7 +257,12 @@ class ModelWeightsInstaller:
             cache_root: Root directory for model cache
             config_path: Optional path to global config file
         """
-        self.cache_root = Path(cache_root).expanduser()
+        normalized_cache_root = str(cache_root or "").strip()
+        self.cache_root = (
+            Path(normalized_cache_root).expanduser()
+            if normalized_cache_root
+            else get_model_root()
+        )
         self.cache_root.mkdir(parents=True, exist_ok=True)
 
         self.config_path = config_path
@@ -334,6 +392,16 @@ class ModelWeightsInstaller:
             redistribution_allowed=license_data.get("redistribution_allowed", False),
             commercial_use_allowed=license_data.get("commercial_use_allowed", False),
         )
+        compliance_data = data.get("compliance", {})
+        compliance = ComplianceInfo(
+            upstream_repo=compliance_data.get("upstream_repo"),
+            checkpoint_id=compliance_data.get("checkpoint_id"),
+            checkpoint_license_url=compliance_data.get("checkpoint_license_url"),
+            dataset_provenance_summary=compliance_data.get(
+                "dataset_provenance_summary"
+            ),
+            license_reviewed=bool(compliance_data.get("license_reviewed", False)),
+        )
 
         hw_data = data.get("hardware_requirements", {})
         hardware = HardwareRequirements(
@@ -359,6 +427,7 @@ class ModelWeightsInstaller:
             role=data.get("role", "other"),
             files=files,
             license=license_info,
+            compliance=compliance,
             hardware_requirements=hardware,
             quality_profiles=quality_profiles,
             repo_id=data.get("repo_id"),
@@ -404,6 +473,8 @@ class ModelWeightsInstaller:
             manifest_path = self._find_manifest_path(pack_code)
             if manifest_path:
                 self.load_manifest(pack_code, manifest_path)
+            else:
+                self._discover_runtime_install_manifest(pack_code, model_id)
 
         if key not in self._models:
             raise ModelNotFoundError(
@@ -415,9 +486,13 @@ class ModelWeightsInstaller:
         # Check license compliance
         self._check_license(model_info)
 
-        # Check if already downloaded and verified
+        # Check if already downloaded and verified. Re-verify on access so stale or
+        # externally-mutated files do not remain silently trusted forever.
         if not force_download and model_info.status == ModelStatus.VERIFIED:
-            return model_info
+            if self._verify_model_files(model_info):
+                return model_info
+            model_info.status = ModelStatus.CORRUPTED
+            self._save_state()
 
         # Download if needed
         if force_download or model_info.status in [
@@ -451,6 +526,84 @@ class ModelWeightsInstaller:
         for path in possible_paths:
             if path.exists():
                 return path
+        return None
+
+    def _discover_runtime_install_manifest(
+        self,
+        pack_code: str,
+        model_id: str,
+    ) -> Optional[Path]:
+        """Best-effort lookup for runtime-install manifests materialized under LOCAL_STORAGE_PATH."""
+        normalized_pack_code = str(pack_code or "").strip()
+        normalized_model_id = str(model_id or "").strip()
+        if not normalized_pack_code or not normalized_model_id:
+            return None
+
+        local_storage = Path(
+            os.getenv("LOCAL_STORAGE_PATH", "/tmp/mindscape_storage")
+        ).expanduser()
+        if not self._safe_path_exists(local_storage):
+            return None
+
+        package_token = ""
+        token_match = re.match(r"^(ctp_[A-Za-z0-9]+)", normalized_model_id)
+        if token_match:
+            package_token = token_match.group(1)
+
+        patterns: List[str] = []
+        if package_token:
+            patterns.extend(
+                [
+                    f"*/{normalized_pack_code}/runtime_installs/{package_token}/*/*/model-manifest.yaml",
+                    f"{normalized_pack_code}/runtime_installs/{package_token}/*/*/model-manifest.yaml",
+                ]
+            )
+        patterns.extend(
+            [
+                f"*/{normalized_pack_code}/runtime_installs/*/*/*/model-manifest.yaml",
+                f"{normalized_pack_code}/runtime_installs/*/*/*/model-manifest.yaml",
+            ]
+        )
+
+        seen: set[str] = set()
+        for pattern in patterns:
+            for candidate in local_storage.glob(pattern):
+                candidate_path = candidate.expanduser()
+                candidate_key = str(candidate_path)
+                if candidate_key in seen or not candidate_path.is_file():
+                    continue
+                seen.add(candidate_key)
+                try:
+                    with candidate_path.open("r", encoding="utf-8") as handle:
+                        manifest = yaml.safe_load(handle) or {}
+                except Exception:
+                    logger.debug(
+                        "Failed to inspect runtime install manifest %s",
+                        candidate_path,
+                        exc_info=True,
+                    )
+                    continue
+
+                manifest_model_ids = {
+                    str(model.get("model_id") or "").strip()
+                    for model in (manifest.get("models") or [])
+                    if isinstance(model, dict)
+                }
+                for profile in manifest.get("profiles") or []:
+                    if not isinstance(profile, dict):
+                        continue
+                    manifest_model_ids.update(
+                        str(raw_model_id or "").strip()
+                        for raw_model_id in (profile.get("model_ids") or [])
+                        if str(raw_model_id or "").strip()
+                    )
+
+                if normalized_model_id not in manifest_model_ids:
+                    continue
+
+                self.load_manifest(normalized_pack_code, candidate_path)
+                return candidate_path
+
         return None
 
     def _check_license(self, model_info: ModelInfo) -> None:
@@ -880,6 +1033,17 @@ class ModelWeightsInstaller:
             if not self._safe_path_exists(file_path):
                 return False
 
+            if file_path.suffix.lower() == ".safetensors":
+                validation_error = _validate_safetensors_file(file_path)
+                if validation_error:
+                    logger.warning(
+                        "Structural safetensors validation failed for %s: %s",
+                        file_path,
+                        validation_error,
+                    )
+                    file_info.is_verified = False
+                    return False
+
             if file_info.expected_hash and not self._is_placeholder_hash(
                 file_info.expected_hash
             ):
@@ -923,8 +1087,7 @@ class ModelWeightsInstaller:
 
     def get_model_path(self, pack_code: str, model_id: str) -> Optional[Path]:
         """Get local path for a model (None if not downloaded)."""
-        key = self._get_model_key(pack_code, model_id)
-        model_info = self._models.get(key)
+        model_info = self.get_model_info(pack_code, model_id)
         if model_info and model_info.status in [
             ModelStatus.DOWNLOADED,
             ModelStatus.VERIFIED,
@@ -945,6 +1108,10 @@ class ModelWeightsInstaller:
     def get_model_info(self, pack_code: str, model_id: str) -> Optional[ModelInfo]:
         """Get model info by pack and model_id."""
         key = self._get_model_key(pack_code, model_id)
+        model_info = self._models.get(key)
+        if model_info is not None:
+            return model_info
+        self._discover_runtime_install_manifest(pack_code, model_id)
         return self._models.get(key)
 
     def verify_model(self, pack_code: str, model_id: str) -> bool:
@@ -1044,7 +1211,7 @@ _MODEL_WEIGHTS_INSTALLER: Optional[ModelWeightsInstaller] = None
 
 
 def get_model_weights_installer(
-    cache_root: str = "~/.mindscape/models",
+    cache_root: Optional[str] = None,
 ) -> ModelWeightsInstaller:
     """Get or create singleton ModelWeightsInstaller instance."""
     global _MODEL_WEIGHTS_INSTALLER

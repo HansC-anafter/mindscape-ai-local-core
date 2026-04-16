@@ -5,6 +5,7 @@ from pathlib import Path
 
 from backend.app.services.install_integrity import (
     MANIFEST_FILENAME,
+    build_dirty_review_payload,
     check_dirty_state,
     compute_dir_hashes,
     save_install_manifest,
@@ -136,3 +137,40 @@ def test_check_dirty_state_fail_closed_when_manifest_path_is_directory(tmp_path:
     result = check_dirty_state(tmp_path)
     assert result.is_dirty is True
     assert result.modified == ["<manifest unreadable — cannot determine changes>"]
+
+
+def test_build_dirty_review_payload_marks_matching_incoming_content(tmp_path: Path):
+    existing_cap_dir = tmp_path / "existing"
+    incoming_cap_dir = tmp_path / "incoming"
+    _write(existing_cap_dir / "services" / "worker.py", "print('local v2')\n")
+    save_install_manifest(existing_cap_dir, "1.0.0", {"services/worker.py": "sha256:old"})
+    _write(incoming_cap_dir / "services" / "worker.py", "print('local v2')\n")
+
+    dirty = check_dirty_state(existing_cap_dir)
+    payload = build_dirty_review_payload(existing_cap_dir, incoming_cap_dir, dirty)
+
+    assert payload["total_items"] == 1
+    item = payload["items"][0]
+    assert item["path"] == "services/worker.py"
+    assert item["comparison_state"] == "matches_incoming"
+    assert item["incoming_matches_local"] is True
+    assert item["preview"] is None
+
+
+def test_build_dirty_review_payload_includes_unified_diff_for_conflicts(tmp_path: Path):
+    existing_cap_dir = tmp_path / "existing"
+    incoming_cap_dir = tmp_path / "incoming"
+    _write(existing_cap_dir / "scripts" / "sync.py", "print('local fix')\n")
+    save_install_manifest(existing_cap_dir, "1.0.0", {"scripts/sync.py": "sha256:old"})
+    _write(incoming_cap_dir / "scripts" / "sync.py", "print('cloud old')\n")
+
+    dirty = check_dirty_state(existing_cap_dir)
+    payload = build_dirty_review_payload(existing_cap_dir, incoming_cap_dir, dirty)
+
+    assert payload["total_items"] == 1
+    item = payload["items"][0]
+    assert item["path"] == "scripts/sync.py"
+    assert item["comparison_state"] == "differs_from_incoming"
+    assert item["incoming_matches_local"] is False
+    assert "--- local-core/scripts/sync.py" in str(item["preview"])
+    assert "+++ incoming-pack/scripts/sync.py" in str(item["preview"])

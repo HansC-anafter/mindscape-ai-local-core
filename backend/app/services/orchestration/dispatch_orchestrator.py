@@ -99,6 +99,7 @@ class DispatchOrchestrator:
         # Best-effort execution context carried across one execute() call.
         self._current_governance: Any = None
         self._workspace_runtime_context_cache: Dict[str, Dict[str, Any]] = {}
+        self._terminal_markdown_deliverable_phase_ids: Set[str] = set()
 
     # ------------------------------------------------------------------
     # Public API
@@ -141,6 +142,13 @@ class DispatchOrchestrator:
                 if dep_id in phase_map:
                     dependents[dep_id].append(p.id)
                     in_degree[p.id] += 1
+
+        self._terminal_markdown_deliverable_phase_ids = (
+            self._compute_terminal_markdown_deliverable_phase_ids(
+                phases=phases,
+                dependents=dependents,
+            )
+        )
 
         # Identify ready phases (in_degree == 0)
         ready: List[str] = [pid for pid, deg in in_degree.items() if deg == 0]
@@ -394,12 +402,6 @@ class DispatchOrchestrator:
             if upstream_context:
                 action_item["_upstream_context"] = upstream_context
 
-        # Check if action_item is pre-blocked (policy gate)
-        landing_status = action_item.get("landing_status", "")
-        if landing_status in ("policy_blocked", "dispatch_error", "boundary_violation"):
-            attempt.mark_skipped(f"pre_blocked:{landing_status}")
-            return {"status": "skipped", "reason": landing_status}
-
         self._hydrate_phase_deliverable_targets_from_action_item(phase, action_item)
 
         # Resolve target workspace
@@ -415,6 +417,12 @@ class DispatchOrchestrator:
             action_item=action_item,
             target_workspace_id=target_ws,
         )
+
+        # Check if action_item is pre-blocked (policy gate)
+        landing_status = action_item.get("landing_status", "")
+        if landing_status in ("policy_blocked", "dispatch_error", "boundary_violation"):
+            attempt.mark_skipped(f"pre_blocked:{landing_status}")
+            return {"status": "skipped", "reason": landing_status}
 
         # G4: Per-phase lens binding
         if self._lens_injector:
@@ -1631,11 +1639,18 @@ class DispatchOrchestrator:
             return False
         if tool_name.startswith("filesystem_"):
             return False
-        if not tool_name and preferred_engine and not preferred_engine.startswith("agent:"):
-            return False
 
         targets = self._extract_deliverable_targets(phase)
         if not targets:
+            return False
+
+        phase_markdown_keys = self._extract_markdown_deliverable_keys(phase)
+        if (
+            phase_markdown_keys
+            and self._terminal_markdown_deliverable_phase_ids
+            and getattr(phase, "id", None)
+            not in self._terminal_markdown_deliverable_phase_ids
+        ):
             return False
 
         governance_deliverables = self._resolve_governance_deliverables_for_phase(phase)
@@ -1652,6 +1667,54 @@ class DispatchOrchestrator:
             if str(deliverable.get("mime_type") or "").strip().lower() == "text/markdown":
                 return True
         return False
+
+    def _extract_markdown_deliverable_keys(self, phase: PhaseIR) -> Set[str]:
+        keys: Set[str] = set()
+        for target in self._extract_deliverable_targets(phase):
+            deliverable_path = str(target.get("deliverable_path") or "").strip().lower()
+            if not deliverable_path.endswith(".md"):
+                continue
+            deliverable_id = str(target.get("deliverable_id") or "").strip()
+            if deliverable_id:
+                keys.add(f"id:{deliverable_id}")
+            if deliverable_path:
+                keys.add(f"path:{deliverable_path}")
+        return keys
+
+    def _compute_terminal_markdown_deliverable_phase_ids(
+        self,
+        *,
+        phases: List[PhaseIR],
+        dependents: Dict[str, List[str]],
+    ) -> Set[str]:
+        phase_keys: Dict[str, Set[str]] = {
+            phase.id: self._extract_markdown_deliverable_keys(phase) for phase in phases
+        }
+
+        def has_markdown_descendant_overlap(
+            phase_id: str,
+            target_keys: Set[str],
+        ) -> bool:
+            if not target_keys:
+                return False
+            stack: List[str] = list(dependents.get(phase_id, []))
+            seen: Set[str] = set()
+            while stack:
+                candidate = stack.pop()
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                if phase_keys.get(candidate, set()).intersection(target_keys):
+                    return True
+                stack.extend(dependents.get(candidate, []))
+            return False
+
+        return {
+            phase.id
+            for phase in phases
+            if phase_keys.get(phase.id)
+            and not has_markdown_descendant_overlap(phase.id, phase_keys[phase.id])
+        }
 
     async def _resolve_workspace_runtime_context(
         self,
@@ -1896,6 +1959,15 @@ class DispatchOrchestrator:
             "max_duration": 900,
             "context": agent_context,
         }
+        policy_reason_code = str(action_item.get("policy_reason_code") or "").strip()
+        landing_error = str(action_item.get("landing_error") or "").lower()
+        if action_item.get("landing_status") == "policy_blocked" and (
+            policy_reason_code == "REQUIRED_INPUT_MISSING"
+            or "missing required inputs" in landing_error
+        ):
+            action_item["landing_status"] = "rerouted_external_agent"
+            action_item.pop("landing_error", None)
+            action_item.pop("policy_blocks", None)
         logger.info(
             "Promoted deliverable phase %s from tool %s to external agent %s",
             getattr(phase, "id", None),

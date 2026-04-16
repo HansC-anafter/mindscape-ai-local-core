@@ -33,6 +33,19 @@ except ImportError:
     JSON_SCHEMA_AVAILABLE = False
     JsonSchemaValidationError = Exception
 
+CONTRACT_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
+PACK_CODE_PATTERN = re.compile(r"^[a-z0-9_]+$")
+CONTRACT_MODULE_PATTERN = re.compile(
+    r"^(app\.)?capabilities\.[a-z0-9_]+\.schema(?:\.[A-Za-z0-9_]+)+$"
+)
+CONTRACT_VERSION_PATTERN = re.compile(
+    r"^[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[-+][A-Za-z0-9_.-]+)?$"
+)
+CONTRACT_RANGE_PATTERN = re.compile(r"^[\^~<>=!, 0-9A-Za-z_.-]+$")
+LEGACY_ALIAS_PATTERN = re.compile(
+    r"^(shared|backend\.shared)\.schemas\.[A-Za-z0-9_]+$"
+)
+
 
 @dataclass
 class ValidationError:
@@ -69,6 +82,195 @@ def _resolve_schema_path_guard(
     except ValueError:
         return None, f"schema_path escapes pack directory: {schema_path_str}"
     return resolved, None
+
+
+def _validate_contract_metadata(
+    *,
+    capability_code: str,
+    manifest: Dict[str, Any],
+    errors: List[ValidationError],
+    warnings: List[ValidationError],
+) -> None:
+    """Validate pack_dependencies, contract_exports, and contract_imports."""
+    pack_dependencies = manifest.get("pack_dependencies")
+    if pack_dependencies is not None:
+        if not isinstance(pack_dependencies, dict):
+            errors.append(
+                ValidationError(
+                    capability=capability_code,
+                    field="pack_dependencies",
+                    message="pack_dependencies must be an object.",
+                    severity="error",
+                )
+            )
+        else:
+            for key in ("required", "optional"):
+                entries = pack_dependencies.get(key, [])
+                if entries is None:
+                    continue
+                if not isinstance(entries, list) or any(
+                    not isinstance(entry, str) or not PACK_CODE_PATTERN.match(entry)
+                    for entry in entries
+                ):
+                    errors.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=f"pack_dependencies.{key}",
+                            message=(
+                                f"pack_dependencies.{key} must be a list of pack codes "
+                                "(lowercase letters, digits, underscore)."
+                            ),
+                            severity="error",
+                        )
+                    )
+
+    contract_exports = manifest.get("contract_exports")
+    if contract_exports is not None:
+        if not isinstance(contract_exports, list):
+            errors.append(
+                ValidationError(
+                    capability=capability_code,
+                    field="contract_exports",
+                    message="contract_exports must be a list.",
+                    severity="error",
+                )
+            )
+        else:
+            for index, export in enumerate(contract_exports):
+                field_prefix = f"contract_exports[{index}]"
+                if not isinstance(export, dict):
+                    errors.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=field_prefix,
+                            message="contract export entry must be an object.",
+                            severity="error",
+                        )
+                    )
+                    continue
+                contract_id = export.get("contract_id", "")
+                module = export.get("module", "")
+                version = export.get("version", "")
+                if not isinstance(contract_id, str) or not CONTRACT_ID_PATTERN.match(contract_id):
+                    errors.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=f"{field_prefix}.contract_id",
+                            message="contract_id must match ^[a-z0-9_]+$.",
+                            severity="error",
+                        )
+                    )
+                if not isinstance(module, str) or not CONTRACT_MODULE_PATTERN.match(module):
+                    errors.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=f"{field_prefix}.module",
+                            message=(
+                                "module must point to a pack-owned schema module such as "
+                                "capabilities.<pack>.schema.<module>."
+                            ),
+                            severity="error",
+                        )
+                    )
+                elif not (
+                    module.startswith(f"capabilities.{capability_code}.")
+                    or module.startswith(f"app.capabilities.{capability_code}.")
+                ):
+                    warnings.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=f"{field_prefix}.module",
+                            message=(
+                                "contract export module does not appear to be owned by this "
+                                "pack; verify canonical ownership."
+                            ),
+                            severity="warning",
+                        )
+                    )
+                if not isinstance(version, str) or not CONTRACT_VERSION_PATTERN.match(version):
+                    errors.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=f"{field_prefix}.version",
+                            message="version must be a semver-like string.",
+                            severity="error",
+                        )
+                    )
+                legacy_aliases = export.get("legacy_aliases", [])
+                if legacy_aliases is None:
+                    legacy_aliases = []
+                if not isinstance(legacy_aliases, list) or any(
+                    not isinstance(alias, str) or not LEGACY_ALIAS_PATTERN.match(alias)
+                    for alias in legacy_aliases
+                ):
+                    errors.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=f"{field_prefix}.legacy_aliases",
+                            message=(
+                                "legacy_aliases must be a list of shared.schemas.* or "
+                                "backend.shared.schemas.* paths."
+                            ),
+                            severity="error",
+                        )
+                    )
+
+    contract_imports = manifest.get("contract_imports")
+    if contract_imports is not None:
+        if not isinstance(contract_imports, list):
+            errors.append(
+                ValidationError(
+                    capability=capability_code,
+                    field="contract_imports",
+                    message="contract_imports must be a list.",
+                    severity="error",
+                )
+            )
+        else:
+            for index, contract_import in enumerate(contract_imports):
+                field_prefix = f"contract_imports[{index}]"
+                if not isinstance(contract_import, dict):
+                    errors.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=field_prefix,
+                            message="contract import entry must be an object.",
+                            severity="error",
+                        )
+                    )
+                    continue
+                contract_id = contract_import.get("contract_id", "")
+                provider_pack = contract_import.get("provider_pack", "")
+                version_range = contract_import.get("version_range", "")
+                if not isinstance(contract_id, str) or not CONTRACT_ID_PATTERN.match(contract_id):
+                    errors.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=f"{field_prefix}.contract_id",
+                            message="contract_id must match ^[a-z0-9_]+$.",
+                            severity="error",
+                        )
+                    )
+                if not isinstance(provider_pack, str) or not PACK_CODE_PATTERN.match(provider_pack):
+                    errors.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=f"{field_prefix}.provider_pack",
+                            message="provider_pack must be a lowercase pack code.",
+                            severity="error",
+                        )
+                    )
+                if not isinstance(version_range, str) or not CONTRACT_RANGE_PATTERN.match(
+                    version_range
+                ):
+                    errors.append(
+                        ValidationError(
+                            capability=capability_code,
+                            field=f"{field_prefix}.version_range",
+                            message="version_range must be a non-empty semver range string.",
+                            severity="error",
+                        )
+                    )
 
 
 def validate_manifest(manifest_path: Path) -> ValidationResult:
@@ -654,6 +856,13 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
                     severity="warning",
                 )
             )
+
+    _validate_contract_metadata(
+        capability_code=capability_code,
+        manifest=manifest,
+        errors=errors,
+        warnings=warnings,
+    )
 
     # ========================================================================
     # Return Results

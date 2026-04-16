@@ -119,3 +119,64 @@ def test_world_memory_writeback_persists_motion_fields():
     assert snapshot["active_motion"]["motion_id"] == "motion-demo"
     assert snapshot["motion_artifact_refs"][0]["artifact_kind"] == "motion_fbx"
     assert snapshot["motion_constraints"]["retarget_profile"] == "ue5_mannequin"
+
+
+def test_world_memory_writeback_persists_spatial_schedule_summary():
+    store = _FakeStore()
+    orchestrator = WorldMemoryWritebackOrchestrator(store=store)
+    workspace = SimpleNamespace(id="ws-schedule", metadata={})
+    session = SimpleNamespace(
+        id="session-schedule",
+        project_id="proj-schedule",
+        metadata={
+            "world_memory_packet": {
+                "snapshot_id": "snap-schedule",
+                "source": "meeting_governed",
+                "scene_id": "scene.schedule",
+                "current_zone": "stage_left",
+                "active_schedule": {
+                    "schedule_id": "ssched-demo",
+                    "status": "planned",
+                    "title": "Blocking pass",
+                    "segment_count": 2,
+                    "entity_kinds": ["actor"],
+                },
+                "schedule_artifact_refs": [
+                    {
+                        "artifact_id": "task-demo/artifacts/spatial_schedule",
+                        "artifact_type": "application/vnd.mindscape.spatial-scheduling+json",
+                        "uri": "task-ir://task-demo/artifacts/spatial_schedule",
+                    }
+                ],
+                "schedule_constraints": {"motion_constraint_count": 1},
+                "metadata": {"workspace_mode": "director"},
+            },
+            "world_card_projection": {
+                "title": "World Card",
+                "summary_lines": [
+                    "Scene: scene.schedule",
+                    "Active schedule: Blocking pass [planned] segments=2",
+                ],
+            },
+            "world_card_text": "World Card\n- Scene: scene.schedule\n- Active schedule: Blocking pass [planned] segments=2",
+            "spatial_schedule_context": {
+                "schedule_id": "ssched-demo",
+                "status": "planned",
+                "title": "Blocking pass",
+                "segment_count": 2,
+            },
+        },
+    )
+
+    result = orchestrator.run_for_closed_session(
+        session=session,
+        workspace=workspace,
+        profile_id="profile-schedule",
+    )
+
+    snapshot = workspace.metadata["world_memory_core"]["current_root"]["current_snapshot"]
+
+    assert result["updated"] is True
+    assert snapshot["active_schedule"]["schedule_id"] == "ssched-demo"
+    assert snapshot["schedule_constraints"]["motion_constraint_count"] == 1
+    assert workspace.metadata["spatial_schedule_context"]["schedule_id"] == "ssched-demo"

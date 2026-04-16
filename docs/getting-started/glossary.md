@@ -219,6 +219,72 @@ This glossary defines the core terminology used in Mindscape AI. Understanding t
 
 ---
 
+## Spatial Runtime Concepts / 空間執行概念
+
+### TaskIR
+
+| Language | Definition |
+|----------|------------|
+| **English** | The bounded control-plane artifact emitted by the meeting/runtime stack. It packages execution-ready work, dependencies, dispatch boundaries, and artifact references without embedding provider-native payloads. |
+| **中文** | 由 meeting/runtime stack 產生的受限控制面 artifact。它封裝可執行工作、依賴、dispatch 邊界與 artifact refs，但不直接承載 provider-native payload。 |
+
+**Avoid using**: Raw dispatch payload, provider request body
+
+---
+
+### SpatialSchedulingIR
+
+| Language | Definition |
+|----------|------------|
+| **English** | The bounded planning-plane artifact for spatial/world execution intent. It describes entities, timing, anchors, and constraint summaries when a workflow needs scene-, subject-, object-, or camera-aware planning. |
+| **中文** | 用於空間/世界執行意圖的受限規劃面 artifact。當工作流需要場景、主體、物件或鏡頭感知的規劃時，它會描述 entities、時間窗、anchors 與 constraint summaries。 |
+
+**Avoid using**: Provider-native runtime payload, universal physics graph
+
+---
+
+### Preview Mesh
+
+| Language | Definition |
+|----------|------------|
+| **English** | A preview-oriented mesh artifact that is meant to be inspectable, editable, or comparable. A preview mesh proves structural operability, not final production quality. |
+| **中文** | 面向預覽的 mesh artifact，用來檢視、編修或比較。Preview mesh 證明的是結構可操作性，而不是最終 production 品質。 |
+
+**Avoid using**: Final reconstruction, production-ready mesh
+
+---
+
+### Scene Package
+
+| Language | Definition |
+|----------|------------|
+| **English** | A structured scene artifact or artifact family that preserves scene identity, references, and downstream handoff readiness. It is broader than a single file export. |
+| **中文** | 一種保留場景識別、引用關係與下游交接準備度的結構化場景 artifact 或 artifact family。它不等同於單一匯出檔案。 |
+
+**Avoid using**: Just a zip, final runtime import
+
+---
+
+### World Summary
+
+| Language | Definition |
+|----------|------------|
+| **English** | The bounded continuity record written back after execution. It preserves summary-level schedule, constraint, state, and artifact references rather than raw runtime payloads. |
+| **中文** | 執行後寫回的受限 continuity 記錄。它保存的是 schedule、constraint、state 與 artifact refs 的 summary 層資訊，而不是 raw runtime payload。 |
+
+**Avoid using**: Runtime cache dump, provider log export
+
+---
+
+### Source Schedule ID
+
+| Language | Definition |
+|----------|------------|
+| **English** | The traceability key that links a runtime receipt or downstream artifact back to the schedule artifact that produced it. |
+| **中文** | 把 runtime receipt 或下游 artifact 追溯回產生它的 schedule artifact 的追蹤鍵。 |
+
+**Avoid using**: Opaque runtime-only job ID
+
 ### Capability Pack
 
 | Language | Definition |

@@ -500,7 +500,7 @@ class RuntimeAuthService:
         Validate authentication configuration.
 
         Args:
-            auth_type: Type of authentication ("api_key", "oauth2", "none")
+            auth_type: Type of authentication ("api_key", "oauth2", "host_session", "none")
             auth_config: Authentication configuration dictionary
 
         Returns:
@@ -508,6 +508,9 @@ class RuntimeAuthService:
         """
         if auth_type == "none":
             return True
+
+        if auth_type == "host_session":
+            return auth_config is None or isinstance(auth_config, dict)
 
         if not auth_config:
             return False

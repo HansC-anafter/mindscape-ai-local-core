@@ -104,6 +104,13 @@ class WorldMemoryWritebackOrchestrator:
             "last_session_id": getattr(session, "id", None),
             "updated_at": _utc_now_iso(),
         }
+        spatial_schedule_context = dict(
+            session_metadata.get("spatial_schedule_context") or {}
+        )
+        if spatial_schedule_context:
+            workspace_metadata["spatial_schedule_context"] = deepcopy(
+                spatial_schedule_context
+            )
         workspace.metadata = workspace_metadata
         self.store.workspaces.update_workspace_sync(workspace)
 
@@ -150,6 +157,13 @@ class WorldMemoryWritebackOrchestrator:
                 if isinstance(item, dict)
             ],
             motion_constraints=dict(packet.get("motion_constraints") or {}),
+            active_schedule=dict(packet.get("active_schedule") or {}) or None,
+            schedule_artifact_refs=[
+                dict(item)
+                for item in list(packet.get("schedule_artifact_refs") or [])
+                if isinstance(item, dict)
+            ],
+            schedule_constraints=dict(packet.get("schedule_constraints") or {}),
             geo_anchor=packet.get("geo_anchor"),
             venue_context=packet.get("venue_context"),
             route_context=packet.get("route_context"),

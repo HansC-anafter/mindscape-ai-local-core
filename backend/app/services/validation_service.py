@@ -366,6 +366,18 @@ class ValidationService:
                 elif "code" not in pb:
                     errors.append(f"Playbook {i} missing 'code' field")
 
+        pack_dependencies = manifest.get("pack_dependencies")
+        if pack_dependencies is not None and not isinstance(pack_dependencies, dict):
+            errors.append("Field 'pack_dependencies' must be an object")
+
+        contract_exports = manifest.get("contract_exports")
+        if contract_exports is not None and not isinstance(contract_exports, list):
+            errors.append("Field 'contract_exports' must be a list")
+
+        contract_imports = manifest.get("contract_imports")
+        if contract_imports is not None and not isinstance(contract_imports, list):
+            errors.append("Field 'contract_imports' must be a list")
+
         return len(errors) == 0, errors
 
     def _validate_manifest_files(
@@ -515,12 +527,59 @@ class ValidationService:
             if conflict_code in installed_packs:
                 errors.append(f"Conflicts with installed capability: {conflict_code}")
 
-        dependencies = manifest.get("dependencies", [])
-        for dep_code in dependencies:
+        required_pack_deps, optional_pack_deps = self._extract_pack_dependencies(manifest)
+        for dep_code in required_pack_deps + optional_pack_deps:
             if dep_code not in installed_packs:
                 warnings.append(f"Missing dependency: {dep_code}")
 
         return len(errors) == 0, errors, warnings
+
+    def _extract_pack_dependencies(self, manifest: Dict) -> Tuple[List[str], List[str]]:
+        pack_dependencies = manifest.get("pack_dependencies")
+        if isinstance(pack_dependencies, dict):
+            required = [
+                dep
+                for dep in pack_dependencies.get("required", []) or []
+                if isinstance(dep, str) and dep.strip()
+            ]
+            optional = [
+                dep
+                for dep in pack_dependencies.get("optional", []) or []
+                if isinstance(dep, str) and dep.strip()
+            ]
+            return required, optional
+
+        dependencies = manifest.get("dependencies")
+        if isinstance(dependencies, list):
+            return [
+                dep
+                for dep in dependencies
+                if isinstance(dep, str) and "." not in dep
+            ], []
+
+        if not isinstance(dependencies, dict):
+            return [], []
+
+        required = [
+            dep
+            for dep in dependencies.get("required", []) or []
+            if isinstance(dep, str) and "." not in dep
+        ]
+        optional: List[str] = []
+        for dep in dependencies.get("optional", []) or []:
+            if isinstance(dep, str) and "." not in dep:
+                optional.append(dep)
+            elif isinstance(dep, dict):
+                code = dep.get("code")
+                name = dep.get("name")
+                if (
+                    isinstance(code, str)
+                    and code.strip()
+                    and "." not in code
+                    and (not isinstance(name, str) or not name.strip())
+                ):
+                    optional.append(code)
+        return required, optional
 
     def _get_installed_packs(self) -> List[str]:
         """Get list of installed pack IDs"""

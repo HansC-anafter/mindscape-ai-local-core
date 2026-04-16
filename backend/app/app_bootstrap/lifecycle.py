@@ -333,7 +333,6 @@ async def run_startup(app: FastAPI):
         from backend.app.services.stores.meeting_session_store import MeetingSessionStore
 
         _ms_store = MeetingSessionStore()
-        _ms_store.ensure_table()
         logger.info("meeting_sessions table ensured (startup)")
     except Exception as e:
         logger.warning(f"Meeting session table bootstrap failed (non-blocking): {e}")
@@ -342,7 +341,6 @@ async def run_startup(app: FastAPI):
         from backend.app.services.stores.compile_job_store import CompileJobStore
 
         _compile_job_store = CompileJobStore()
-        _compile_job_store.ensure_table()
         logger.info("compile_jobs table ensured (startup)")
 
         asyncio.create_task(_start_compile_job_startup_services())

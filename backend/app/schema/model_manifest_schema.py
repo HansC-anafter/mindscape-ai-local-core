@@ -63,6 +63,16 @@ class LicenseSchema(BaseModel):
     commercial_use_allowed: bool = False
 
 
+class ComplianceSchema(BaseModel):
+    """Reviewed productization/compliance metadata for a model/checkpoint."""
+
+    upstream_repo: Optional[str] = None
+    checkpoint_id: Optional[str] = None
+    checkpoint_license_url: Optional[str] = None
+    dataset_provenance_summary: Optional[str] = None
+    license_reviewed: bool = False
+
+
 class HardwareRequirementsSchema(BaseModel):
     """Schema for hardware requirements."""
 
@@ -120,6 +130,7 @@ class ModelSchema(BaseModel):
     quality_profiles: Dict[str, QualityProfileSchema] = Field(default_factory=dict)
     dependencies: DependenciesSchema = Field(default_factory=DependenciesSchema)
     data_locality: DataLocalitySchema = Field(default_factory=DataLocalitySchema)
+    compliance: ComplianceSchema = Field(default_factory=ComplianceSchema)
 
     @field_validator("repo_id")
     @classmethod

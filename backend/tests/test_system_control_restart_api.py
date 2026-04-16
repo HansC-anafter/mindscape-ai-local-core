@@ -174,6 +174,46 @@ def test_restart_specific_runner_pool_offline_falls_back_to_manual(monkeypatch):
     assert data["instruction"] == "docker compose restart runner-browser"
 
 
+def test_runner_drain_enable_writes_sentinel(monkeypatch, tmp_path):
+    webhook = StubRestartWebhook(configured=True)
+    client, system_control = _build_client(monkeypatch, webhook)
+    sentinel_path = tmp_path / "drain_runner.json"
+    monkeypatch.setattr(system_control, "_RUNNER_DRAIN_SENTINEL_PATH", sentinel_path)
+
+    response = client.post(
+        "/api/v1/system-settings/runner-drain",
+        json={"enabled": True, "ttl_seconds": 900},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["enabled"] is True
+    assert data["method"] == "runner_drain_sentinel"
+    assert data["sentinel"]["ttl_seconds"] == 900
+    assert sentinel_path.exists()
+
+
+def test_runner_drain_disable_clears_sentinel(monkeypatch, tmp_path):
+    webhook = StubRestartWebhook(configured=True)
+    client, system_control = _build_client(monkeypatch, webhook)
+    sentinel_path = tmp_path / "drain_runner.json"
+    sentinel_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(system_control, "_RUNNER_DRAIN_SENTINEL_PATH", sentinel_path)
+
+    response = client.post(
+        "/api/v1/system-settings/runner-drain",
+        json={"enabled": False},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["enabled"] is False
+    assert data["method"] == "runner_drain_sentinel"
+    assert sentinel_path.exists() is False
+
+
 def test_queue_metrics_includes_active_runner_heartbeats(monkeypatch):
     webhook = StubRestartWebhook(configured=True)
     client, system_control = _build_client(monkeypatch, webhook)

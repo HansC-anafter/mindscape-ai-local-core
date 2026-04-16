@@ -12,6 +12,7 @@ import time
 from typing import Any, Dict, Optional
 
 from backend.app.services.compile_job_reconciler import (
+    closed_session_compile_failed,
     summarize_meeting_session_tasks,
 )
 
@@ -519,26 +520,38 @@ class MessageHandlersMixin:
         }
 
         if session.status == MeetingStatus.CLOSED and task_summary["terminal"]:
-            compile_job_store.mark_succeeded(
-                compile_job.id,
-                session_id=session.id,
-                result={
-                    "session_id": session.id,
-                    "meeting_status": "closed",
-                    "decision": getattr(session, "decision", None),
-                    "action_items_count": len(getattr(session, "action_items", []) or []),
-                    "dispatch_status": (getattr(session, "metadata", None) or {}).get(
-                        "dispatch_status"
-                    ),
-                    "phase_results": [],
-                    "program_run_id": (getattr(session, "metadata", None) or {}).get(
-                        "program_run_id"
-                    ),
-                    "session_task_total": task_summary["total"],
-                    "session_task_statuses": task_summary["statuses"],
-                },
-                metadata=metadata,
+            dispatch_status = (getattr(session, "metadata", None) or {}).get(
+                "dispatch_status"
             )
+            if closed_session_compile_failed(
+                task_summary,
+                dispatch_status=dispatch_status,
+            ):
+                compile_job_store.mark_failed(
+                    compile_job.id,
+                    "meeting_session_closed_with_all_failed_tasks",
+                    session_id=session.id,
+                    metadata={**metadata, "dispatch_status": dispatch_status},
+                )
+            else:
+                compile_job_store.mark_succeeded(
+                    compile_job.id,
+                    session_id=session.id,
+                    result={
+                        "session_id": session.id,
+                        "meeting_status": "closed",
+                        "decision": getattr(session, "decision", None),
+                        "action_items_count": len(getattr(session, "action_items", []) or []),
+                        "dispatch_status": dispatch_status,
+                        "phase_results": [],
+                        "program_run_id": (getattr(session, "metadata", None) or {}).get(
+                            "program_run_id"
+                        ),
+                        "session_task_total": task_summary["total"],
+                        "session_task_statuses": task_summary["statuses"],
+                    },
+                    metadata={**metadata, "dispatch_status": dispatch_status},
+                )
         elif session.status == MeetingStatus.FAILED:
             compile_job_store.mark_failed(
                 compile_job.id,

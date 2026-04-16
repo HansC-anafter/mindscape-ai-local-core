@@ -334,7 +334,10 @@ def should_stop_workflow_after_error(
     step_result: Dict[str, Any],
 ) -> bool:
     """Return whether an errored step should stop the workflow."""
-    if step_result.get("status") != "error":
+    if str(step_result.get("status") or "").strip().lower() not in {
+        "error",
+        "failed",
+    }:
         return False
 
     error_handling = step.error_handling

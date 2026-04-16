@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Dict, Optional, Callable, Any, List
 import logging
 from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
+from app.services.runtime_contract_paths import (
+    prepend_import_paths,
+    resolve_capability_runtime_import_roots,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,17 +24,7 @@ TOOL_REGISTRY: Dict[str, Dict] = {}  # tool_name -> {capability, tool_info, back
 
 def _ensure_capability_import_paths(sys_path: list[str], capability_dir: Path) -> None:
     """Expose capability, app, and backend roots for runtime pack imports."""
-    capability_dir = Path(capability_dir)
-    capabilities_root = capability_dir.parent
-    app_root = capabilities_root.parent
-    backend_root = app_root.parent
-
-    ordered_paths = (backend_root, app_root, capabilities_root)
-    for path in reversed(ordered_paths):
-        path_str = str(path)
-        if path_str in sys_path:
-            sys_path.remove(path_str)
-        sys_path.insert(0, path_str)
+    prepend_import_paths(sys_path, resolve_capability_runtime_import_roots(capability_dir))
 
 
 class CapabilityRegistry:

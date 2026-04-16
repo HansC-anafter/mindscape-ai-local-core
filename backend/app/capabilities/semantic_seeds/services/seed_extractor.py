@@ -10,8 +10,6 @@ import json
 import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-import psycopg2
-from psycopg2.extras import RealDictCursor
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +39,8 @@ class SeedExtractor:
 
     def _get_connection(self):
         """Get PostgreSQL connection"""
+        import psycopg2
+
         return psycopg2.connect(**self.postgres_config)
 
     async def extract_seeds_from_content(
@@ -73,7 +73,7 @@ class SeedExtractor:
             return []
 
         try:
-            from backend.app.services.i18n_service import get_i18n_service
+            from app.services.i18n_service import get_i18n_service
 
             locale = locale or "en"
             i18n = get_i18n_service(default_locale=locale)

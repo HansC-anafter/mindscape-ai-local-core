@@ -841,6 +841,105 @@ class TestActuatorBindingNormalization:
 
 class TestDeliverableExternalAgentPromotion:
     @pytest.mark.asyncio
+    async def test_only_terminal_markdown_deliverable_phase_reroutes_to_external_agent(
+        self, monkeypatch
+    ):
+        session = FakeSession(
+            workspace_id="ws-1",
+            metadata={
+                "executor_target_client_id": "client-e2e-001",
+                "execution_context_snapshot": {"executor_runtime_id": "codex_cli"},
+            },
+        )
+        orch = DispatchOrchestrator(
+            session=session,
+            profile_id="user-1",
+            project_id="proj-1",
+        )
+        governance = SimpleNamespace(
+            goals=["Land the final markdown deliverable inside the workspace."],
+            requested_output_type="text/markdown",
+            deliverables=[
+                {
+                    "name": "persona_operating_system.md",
+                    "description": "品牌人格操作系統文件",
+                    "mime_type": "text/markdown",
+                }
+            ],
+        )
+
+        upstream_phase = FakePhaseIR(
+            id="ws-upstream",
+            source_intent_id="intent-upstream",
+            name="Build evidence ledger",
+            description="Prepare the upstream evidence ledger before drafting the final persona file.",
+            tool_name="cis_mind_identity",
+            preferred_engine="playbook:cis_mind_identity",
+            input_params={
+                "deliverable_id": "D1",
+                "deliverable_name": "persona_operating_system.md",
+                "deliverable_path": "persona_operating_system.md",
+            },
+        )
+        terminal_phase = FakePhaseIR(
+            id="ws-terminal",
+            source_intent_id="intent-terminal",
+            name="Draft persona operating system",
+            description="Create the final persona markdown deliverable.",
+            tool_name="cis_mind_identity",
+            preferred_engine="playbook:cis_mind_identity",
+            input_params={
+                "deliverable_id": "D1",
+                "deliverable_name": "persona_operating_system.md",
+                "deliverable_path": "persona_operating_system.md",
+            },
+            depends_on=["ws-upstream"],
+        )
+        action_items = [
+            {
+                "title": "Build evidence ledger",
+                "intent_id": "intent-upstream",
+                "description": "Prepare the upstream evidence ledger.",
+            },
+            {
+                "title": "Draft persona operating system",
+                "intent_id": "intent-terminal",
+                "description": "Create the final persona markdown deliverable.",
+            },
+        ]
+
+        monkeypatch.setattr(
+            orch,
+            "_resolve_workspace_runtime_context",
+            AsyncMock(
+                return_value={
+                    "agent_id": "codex_cli",
+                    "workspace_storage_base": "/tmp/ws-1",
+                    "target_client_id": "client-e2e-001",
+                }
+            ),
+        )
+        external_dispatch = AsyncMock(
+            return_value={
+                "task_id": "task-terminal",
+                "execution_id": "task-terminal",
+                "tool_name": "core.external_agent_execute",
+            }
+        )
+        monkeypatch.setattr(orch, "_execute_tool_inline", external_dispatch)
+
+        task_ir = FakeTaskIR(
+            phases=[upstream_phase, terminal_phase],
+            metadata=SimpleNamespace(get_governance=lambda: governance),
+        )
+        result = await orch.execute(task_ir=task_ir, action_items=action_items)
+
+        assert result["status"] == "ok"
+        assert upstream_phase.tool_name != "core.external_agent_execute"
+        assert terminal_phase.tool_name == "core.external_agent_execute"
+        external_dispatch.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_markdown_deliverable_tool_phase_reroutes_to_external_agent(
         self, monkeypatch
     ):
@@ -1255,6 +1354,97 @@ class TestDeliverableExternalAgentPromotion:
         assert phase.preferred_engine == "tool:core.external_agent_execute"
         assert phase.input_params["agent"] == "codex_cli"
         assert "instagram_week1_calendar.md" in phase.input_params["task"]
+
+    @pytest.mark.asyncio
+    async def test_required_input_policy_blocked_markdown_deliverable_reroutes_and_dispatches(
+        self, monkeypatch
+    ):
+        session = FakeSession(
+            workspace_id="ws-1",
+            metadata={
+                "executor_target_client_id": "client-e2e-001",
+                "execution_context_snapshot": {"executor_runtime_id": "codex_cli"},
+            },
+        )
+        orch = DispatchOrchestrator(
+            session=session,
+            profile_id="user-1",
+            project_id="proj-1",
+        )
+        governance = SimpleNamespace(
+            goals=["Land the final markdown deliverable inside the workspace."],
+            requested_output_type="text/markdown",
+            deliverables=[
+                {
+                    "name": "reel_hook_bank.md",
+                    "description": "可直接使用的短影音 hook bank",
+                    "mime_type": "text/markdown",
+                }
+            ],
+        )
+
+        phase = FakePhaseIR(
+            id="ws-reel-hooks",
+            source_intent_id="intent-reel-hooks",
+            name="Draft reel hook bank",
+            description="Create the final reel hook bank markdown deliverable.",
+            tool_name="ig.ig_complete_workflow_tool",
+            preferred_engine="tool:ig.ig_complete_workflow_tool",
+            input_params={
+                "deliverable_id": "D3",
+                "deliverable_name": "reel_hook_bank.md",
+                "deliverable_path": "reel_hook_bank.md",
+            },
+        )
+        action_item = {
+            "title": "Draft reel hook bank",
+            "intent_id": "intent-reel-hooks",
+            "description": "Create the final reel hook bank markdown deliverable.",
+            "landing_status": "policy_blocked",
+            "policy_reason_code": "REQUIRED_INPUT_MISSING",
+            "landing_error": "Playbook 'ig_post_generation' missing required inputs ['source_content']",
+            "policy_blocks": [
+                {
+                    "reason_code": "REQUIRED_INPUT_MISSING",
+                    "missing_fields": ["source_content"],
+                }
+            ],
+        }
+
+        monkeypatch.setattr(
+            orch,
+            "_resolve_workspace_runtime_context",
+            AsyncMock(
+                return_value={
+                    "agent_id": "codex_cli",
+                    "workspace_storage_base": "/tmp/ws-1",
+                    "target_client_id": "client-e2e-001",
+                }
+            ),
+        )
+        monkeypatch.setattr(
+            orch,
+            "_execute_tool_inline",
+            AsyncMock(
+                return_value={
+                    "task_id": "task-external-hooks",
+                    "execution_id": "task-external-hooks",
+                    "tool_name": "core.external_agent_execute",
+                }
+            ),
+        )
+
+        task_ir = FakeTaskIR(
+            phases=[phase],
+            metadata=SimpleNamespace(get_governance=lambda: governance),
+        )
+        result = await orch.execute(task_ir=task_ir, action_items=[action_item])
+
+        assert result["status"] == "ok"
+        assert phase.tool_name == "core.external_agent_execute"
+        assert action_item["landing_status"] == "task_created"
+        assert "landing_error" not in action_item
+        assert "policy_blocks" not in action_item
 
 
 class TestPlaybookCodeExtraction:

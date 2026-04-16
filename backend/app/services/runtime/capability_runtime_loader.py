@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from backend.app.core.runtime_port import RuntimePort
+from backend.app.services.runtime_contract_paths import prepend_import_paths, resolve_capability_runtime_import_roots
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,7 @@ class CapabilityRuntimeLoader:
 
             # Add pack directory to Python path temporarily
             pack_dir_str = str(pack_path)
+            prepend_import_paths(sys.path, resolve_capability_runtime_import_roots(pack_path))
             if pack_dir_str not in sys.path:
                 sys.path.insert(0, pack_dir_str)
 

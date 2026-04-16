@@ -265,6 +265,11 @@ def test_start_session_persists_prefetched_governed_memory_and_world_sidecars():
             "summary_lines": ["Scene: scene.demo", "Zone: main_floor"],
         },
         "world_card_text": "World Card\n- Scene: scene.demo\n- Zone: main_floor",
+        "spatial_schedule_context": {
+            "schedule_id": "ssched-001",
+            "status": "planned",
+            "segment_count": 1,
+        },
     }
     engine._memory_context_summary = "Routing mode: director / standard"
 
@@ -275,6 +280,7 @@ def test_start_session_persists_prefetched_governed_memory_and_world_sidecars():
     assert session.metadata["world_memory_packet"]["scene_id"] == "scene.demo"
     assert session.metadata["world_card_projection"]["summary_lines"][1] == "Zone: main_floor"
     assert "Scene: scene.demo" in session.metadata["world_card_text"]
+    assert session.metadata["spatial_schedule_context"]["schedule_id"] == "ssched-001"
     assert session.metadata["memory_context_summary"] == "Routing mode: director / standard"
 
 

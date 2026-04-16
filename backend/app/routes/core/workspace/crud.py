@@ -20,8 +20,10 @@ from fastapi import (
     Path as PathParam,
     Query,
     Body,
+    Depends,
 )
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 
 from ....models.workspace import (
     Workspace,
@@ -35,12 +37,40 @@ from ....services.mindscape_store import MindscapeStore
 from ....services.storage_path_validator import StoragePathValidator
 from ....services.storage_path_resolver import StoragePathResolver
 from ....services.workspace_welcome_service import WorkspaceWelcomeService
+from ....services.active_workspace_service import build_active_workspace_payload
 
 from .utils import ensure_workspace_launch_status
 
+try:
+    from ....database.session import get_db_postgres as get_db
+except ImportError:
+    try:
+        from ....database import get_db_postgres as get_db
+    except ImportError:
+        from mindscape.di.providers import get_db_session as get_db
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
-store = MindscapeStore()
+
+
+def _build_store() -> MindscapeStore:
+    return MindscapeStore()
+
+
+class _LazyStoreProxy:
+    def __init__(self):
+        self._store: Optional[MindscapeStore] = None
+
+    def _resolve(self) -> MindscapeStore:
+        if self._store is None:
+            self._store = _build_store()
+        return self._store
+
+    def __getattr__(self, item: str):
+        return getattr(self._resolve(), item)
+
+
+store = _LazyStoreProxy()
 
 
 @router.get("/", response_model=List[Workspace])
@@ -82,6 +112,44 @@ async def list_workspaces(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to list workspaces: {str(e)}"
+        )
+
+
+@router.get("/active")
+async def list_active_workspaces(
+    owner_user_id: str = Query(..., description="Owner user ID"),
+    surface: Optional[str] = Query(
+        None,
+        description="Optional runtime surface filter, e.g. codex_cli",
+    ),
+    limit: int = Query(200, ge=1, le=500, description="Maximum number of workspaces"),
+    include_system: bool = Query(
+        False, description="Include system workspaces (validation, testing, etc.)"
+    ),
+    db: Session = Depends(get_db),
+):
+    """List workspaces that currently need a live CLI bridge."""
+    try:
+        workspaces = await asyncio.to_thread(
+            store.list_workspaces,
+            owner_user_id=owner_user_id,
+            primary_project_id=None,
+            limit=limit,
+        )
+        if not include_system:
+            workspaces = [
+                ws for ws in workspaces if not getattr(ws, "is_system", False)
+            ]
+
+        active_payload = build_active_workspace_payload(
+            workspaces=workspaces,
+            db=db,
+            surface=surface,
+        )
+        return {"workspaces": active_payload, "count": len(active_payload)}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list active workspaces: {str(e)}"
         )
 
 

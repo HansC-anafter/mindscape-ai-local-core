@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from backend.app.services.model_weights_installer import (
+    ComplianceInfo,
     DownloadError,
     HardwareRequirements,
     LicenseInfo,
@@ -62,6 +63,11 @@ class _FakeSession:
         return response
 
 
+def _mock_safetensors_bytes(payload: bytes = b"\x00\x00") -> bytes:
+    header = b"{}"
+    return len(header).to_bytes(8, "little", signed=False) + header + payload
+
+
 def _make_model_info() -> ModelInfo:
     return ModelInfo(
         model_id="test_model",
@@ -77,6 +83,7 @@ def _make_model_info() -> ModelInfo:
             )
         ],
         license=LicenseInfo(spdx_id="Apache-2.0"),
+        compliance=ComplianceInfo(),
         hardware_requirements=HardwareRequirements(),
         download_urls=["https://example.com/model.bin"],
         status=ModelStatus.NOT_DOWNLOADED,
@@ -98,6 +105,7 @@ def _make_nested_model_info() -> ModelInfo:
             )
         ],
         license=LicenseInfo(spdx_id="Apache-2.0"),
+        compliance=ComplianceInfo(),
         hardware_requirements=HardwareRequirements(),
         download_urls=["https://example.com/model.bin"],
         status=ModelStatus.NOT_DOWNLOADED,
@@ -119,6 +127,7 @@ def _make_local_bundle_file_model_info(capability_dir: Path) -> ModelInfo:
             )
         ],
         license=LicenseInfo(spdx_id="Apache-2.0"),
+        compliance=ComplianceInfo(),
         hardware_requirements=HardwareRequirements(),
         local_bundle={
             "bundle_id": "character-pack-001",
@@ -144,6 +153,7 @@ def _make_local_bundle_directory_model_info(capability_dir: Path) -> ModelInfo:
             )
         ],
         license=LicenseInfo(spdx_id="Apache-2.0"),
+        compliance=ComplianceInfo(),
         hardware_requirements=HardwareRequirements(),
         local_bundle={
             "bundle_id": "character-pack-001",
@@ -328,7 +338,7 @@ async def test_ensure_model_materializes_local_bundle_file(tmp_path):
     bundle_dir = capability_dir / "bundles" / "character-pack-001"
     source_file = bundle_dir / "hero.safetensors"
     source_file.parent.mkdir(parents=True, exist_ok=True)
-    source_file.write_bytes(b"bundle-data")
+    source_file.write_bytes(_mock_safetensors_bytes())
 
     installer = ModelWeightsInstaller(cache_root=str(tmp_path / "model-cache"))
     model_info = _make_local_bundle_file_model_info(capability_dir)
@@ -350,7 +360,7 @@ async def test_ensure_model_materializes_local_bundle_file(tmp_path):
     assert resolved.local_path.resolve() == store_dir.resolve()
     assert final_file.exists()
     assert not final_file.is_symlink()
-    assert final_file.read_bytes() == b"bundle-data"
+    assert final_file.read_bytes() == _mock_safetensors_bytes()
 
 
 @pytest.mark.asyncio
@@ -365,7 +375,7 @@ async def test_ensure_model_materializes_local_bundle_directory(tmp_path):
         / "hero.safetensors"
     )
     source_file.parent.mkdir(parents=True, exist_ok=True)
-    source_file.write_bytes(b"bundle-dir")
+    source_file.write_bytes(_mock_safetensors_bytes(b"\x01\x02"))
 
     installer = ModelWeightsInstaller(cache_root=str(tmp_path / "model-cache"))
     model_info = _make_local_bundle_directory_model_info(capability_dir)
@@ -387,4 +397,130 @@ async def test_ensure_model_materializes_local_bundle_directory(tmp_path):
     assert resolved.local_path.resolve() == store_dir.resolve()
     assert final_file.exists()
     assert not final_file.is_symlink()
-    assert final_file.read_bytes() == b"bundle-dir"
+    assert final_file.read_bytes() == _mock_safetensors_bytes(b"\x01\x02")
+
+
+@pytest.mark.asyncio
+async def test_ensure_model_rejects_invalid_local_bundle_safetensors(tmp_path):
+    capability_dir = tmp_path / "capabilities" / "character_training"
+    bundle_dir = capability_dir / "bundles" / "character-pack-001"
+    source_file = bundle_dir / "hero.safetensors"
+    source_file.parent.mkdir(parents=True, exist_ok=True)
+    source_file.write_text("soft-gaze-runtime-smoke", encoding="utf-8")
+
+    installer = ModelWeightsInstaller(cache_root=str(tmp_path / "model-cache"))
+    model_info = _make_local_bundle_file_model_info(capability_dir)
+    model_key = installer._get_model_key(model_info.pack_code, model_info.model_id)
+    installer._models[model_key] = model_info
+
+    with pytest.raises(Exception):
+        await installer.ensure_model(model_info.pack_code, model_info.model_id)
+
+    assert model_info.status == ModelStatus.CORRUPTED
+
+
+@pytest.mark.asyncio
+async def test_ensure_model_reverifies_already_verified_invalid_safetensors(tmp_path):
+    cache_root = tmp_path / "model-cache"
+    installer = ModelWeightsInstaller(cache_root=str(cache_root))
+
+    view_dir = cache_root / "loras" / "by_pack" / "character_training" / "verified_demo"
+    store_dir = cache_root / "loras" / "store" / "verified-demo-fingerprint"
+    store_dir.mkdir(parents=True, exist_ok=True)
+    bad_file = store_dir / "hero.safetensors"
+    bad_file.write_text("soft-gaze-runtime-smoke", encoding="utf-8")
+    bundle_source = tmp_path / "bundles" / "demo" / "hero.safetensors"
+    bundle_source.parent.mkdir(parents=True, exist_ok=True)
+    bundle_source.write_text("soft-gaze-runtime-smoke", encoding="utf-8")
+    view_dir.parent.mkdir(parents=True, exist_ok=True)
+    view_dir.symlink_to(os.path.relpath(store_dir, start=view_dir.parent))
+
+    model_info = ModelInfo(
+        model_id="verified_demo",
+        pack_code="character_training",
+        display_name="Verified Demo",
+        provider=ModelProvider.LOCAL_BUNDLE,
+        role="lora",
+        files=[
+            ModelFile(
+                filename="hero.safetensors",
+                expected_hash="placeholder",
+                size_bytes=bad_file.stat().st_size,
+                local_path=bad_file,
+                is_downloaded=True,
+                is_verified=True,
+            )
+        ],
+        license=LicenseInfo(
+            spdx_id="MIT",
+            redistribution_allowed=True,
+            commercial_use_allowed=True,
+        ),
+        compliance=ComplianceInfo(),
+        hardware_requirements=HardwareRequirements(),
+        local_bundle={"bundle_id": "demo", "relative_path": "hero.safetensors"},
+        manifest_dir=tmp_path,
+        local_path=view_dir,
+        status=ModelStatus.VERIFIED,
+    )
+    model_key = installer._get_model_key(model_info.pack_code, model_info.model_id)
+    installer._models[model_key] = model_info
+
+    with pytest.raises(Exception):
+        await installer.ensure_model(model_info.pack_code, model_info.model_id)
+
+    assert model_info.status == ModelStatus.CORRUPTED
+
+
+def test_get_model_info_discovers_runtime_install_manifest_from_local_storage(
+    monkeypatch, tmp_path
+):
+    storage_root = tmp_path / "vr_storage"
+    manifest_path = (
+        storage_root
+        / "default"
+        / "character_training"
+        / "runtime_installs"
+        / "ctp_demo"
+        / "sdxl"
+        / "hybrid"
+        / "model-manifest.yaml"
+    )
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        "\n".join(
+            [
+                "manifest_version: 1.0.0",
+                "pack_code: character_training",
+                "models:",
+                '  - model_id: "ctp_demo_sdxl_lora_hero_v1"',
+                '    display_name: "Hero LoRA"',
+                '    role: "lora"',
+                '    provider: "local_bundle"',
+                "    files:",
+                '      - filename: "hero.safetensors"',
+                '        expected_hash: "placeholder"',
+                "        size_bytes: 12",
+                "    local_bundle:",
+                '      bundle_id: "ctp_demo"',
+                '      relative_path: "hero.safetensors"',
+                "profiles:",
+                '  - profile_id: "package_ctp_demo"',
+                '    model_ids: ["ctp_demo_sdxl_lora_hero_v1"]',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("LOCAL_STORAGE_PATH", str(storage_root))
+    installer = ModelWeightsInstaller(cache_root=str(tmp_path / "model-cache"))
+
+    model_info = installer.get_model_info(
+        "character_training",
+        "ctp_demo_sdxl_lora_hero_v1",
+    )
+
+    assert model_info is not None
+    assert model_info.model_id == "ctp_demo_sdxl_lora_hero_v1"
+    assert model_info.manifest_dir == manifest_path.parent

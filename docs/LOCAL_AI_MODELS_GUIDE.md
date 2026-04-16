@@ -172,7 +172,9 @@ ComfyUI:  Wan2.2 1.3B + SDXL Lightning
 
 **Q: 模型存在哪裡？**
 - Ollama：`~/.ollama/models/`
-- ComfyUI：`~/.mindscape/models/`（由 ModelWeightsInstaller 管理）
+- ComfyUI / Local-Core pack models：容器內 canonical path 是 `/root/.mindscape/models/`
+- 在目前 dev compose 中，這通常映射到 host 的 `MINDSCAPE_MODELS_HOST_DIR`
+- 具體 host root 與整體 runtime data topology 以 [Local Runtime Persistence Topology](./core-architecture/local-runtime-persistence-topology.md) 為準
 
 **Q: VRAM 不夠怎麼辦？**
 - 使用 `--lowvram` 啟動 ComfyUI

@@ -516,6 +516,97 @@ async def test_governance_context_read_model_forwards_provider_neutral_motion_co
 
 
 @pytest.mark.asyncio
+async def test_governance_context_read_model_forwards_spatial_schedule_context(
+    monkeypatch,
+):
+    workspace = SimpleNamespace(
+        id="ws-1",
+        owner_user_id="profile-1",
+        primary_project_id="proj-1",
+        mode="research",
+        execution_mode="hybrid",
+        runtime_profile=SimpleNamespace(metadata={"memory_scope": "extended"}),
+        sandbox_config={"tool_policies": {"network": "restricted"}},
+        metadata={
+            "mind_lens": {"label": "Research editor"},
+            "spatial_schedule_context": {
+                "schedule_id": "ssched_demo",
+                "status": "planned",
+                "title": "Blocking pass",
+                "entity_kinds": ["actor"],
+                "segment_count": 1,
+                "constraint_summary": {"motion_constraint_count": 1},
+                "artifact_refs": [
+                    {
+                        "artifact_id": "task-demo/artifacts/spatial_schedule",
+                        "artifact_type": "application/vnd.mindscape.spatial-scheduling+json",
+                        "uri": "task-ir://task-demo/artifacts/spatial_schedule",
+                    }
+                ],
+            },
+        },
+    )
+
+    def _fake_export_context(self, **kwargs):
+        assert kwargs["spatial_schedule_context"]["schedule_id"] == "ssched_demo"
+        return {
+            "world_memory_packet": {
+                "workspace_id": "ws-1",
+                "snapshot_id": "snap-schedule",
+                "source": "synthetic",
+                "scene_id": "scene.demo",
+                "current_zone": "main_floor",
+                "active_schedule": {
+                    "schedule_id": "ssched_demo",
+                    "status": "planned",
+                    "title": "Blocking pass",
+                    "segment_count": 1,
+                    "entity_kinds": ["actor"],
+                },
+                "schedule_artifact_refs": kwargs["spatial_schedule_context"]["artifact_refs"],
+                "schedule_constraints": kwargs["spatial_schedule_context"][
+                    "constraint_summary"
+                ],
+            },
+            "world_card_projection": {
+                "title": "World Card",
+                "summary_lines": [
+                    "Scene: scene.demo",
+                    "Active schedule: Blocking pass [planned] segments=1",
+                ],
+                "constraints": ["schedule_motion_constraint_count=1"],
+                "suggested_focus": [],
+                "metadata": {"source": "synthetic"},
+            },
+            "world_card_text": "World Card\n- Active schedule: Blocking pass [planned] segments=1",
+            "spatial_schedule_context": kwargs["spatial_schedule_context"],
+        }
+
+    monkeypatch.setattr(
+        "backend.app.system_capabilities.world_memory_core.services.context_export_facade.ContextExportFacade.export_context",
+        _fake_export_context,
+    )
+
+    read_model = GovernanceContextReadModel(
+        store=SimpleNamespace(),
+        workspace_core_memory_service=_FakeWorkspaceCoreMemoryService(),
+        project_memory_service=_FakeProjectMemoryService(),
+        member_profile_memory_service=_FakeMemberProfileMemoryService(),
+        personal_knowledge_store=_FakePersonalKnowledgeStore(),
+        goal_ledger_store=_FakeGoalLedgerStore(),
+        memory_item_store=_FakeMemoryItemStore(),
+    )
+
+    packet = await read_model.build_for_workspace(workspace)
+
+    assert packet["spatial_schedule_context"]["schedule_id"] == "ssched_demo"
+    assert (
+        packet["world_memory_packet"]["active_schedule"]["schedule_id"] == "ssched_demo"
+    )
+    assert "Active schedule: Blocking pass" in packet["world_card_text"]
+
+
+@pytest.mark.asyncio
 async def test_governance_context_read_model_degrades_when_world_memory_export_raises(
     monkeypatch,
 ):

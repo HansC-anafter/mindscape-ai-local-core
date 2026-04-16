@@ -28,6 +28,12 @@ x-runner-environment: &runner-environment
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
   OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
   IG_REFERENCE_CATALOG_MODE: ${IG_REFERENCE_CATALOG_MODE:-dual}
+  WORKSPACE_STORAGE_ROOT: ${WORKSPACE_STORAGE_ROOT:-/root/.mindscape/workspaces}
+  MINDSCAPE_MODEL_ROOT: ${MINDSCAPE_MODEL_ROOT:-/root/.mindscape/models}
+  MINDSCAPE_STORAGE_HOST_DIR: ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}
+  MINDSCAPE_MODELS_HOST_DIR: ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}
+  LAF_HOST_RUNTIME_ROOT: ${LAF_HOST_RUNTIME_ROOT:-~/.mindscape/runtimes/layer_asset_forge}
+  LOCAL_CORE_PROJECT_ROOT: ${LOCAL_CORE_PROJECT_ROOT:-${PWD}}
   LOCAL_STORAGE_PATH: /root/.mindscape/storage/layer_asset_forge
   TZ: ${TZ:-UTC}
   LOCAL_CORE_RUNNER_PROCESS: "1"
@@ -134,6 +140,12 @@ services:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - IG_REFERENCE_CATALOG_MODE=${IG_REFERENCE_CATALOG_MODE:-dual}
+      - WORKSPACE_STORAGE_ROOT=${WORKSPACE_STORAGE_ROOT:-/root/.mindscape/workspaces}
+      - MINDSCAPE_MODEL_ROOT=${MINDSCAPE_MODEL_ROOT:-/root/.mindscape/models}
+      - MINDSCAPE_STORAGE_HOST_DIR=${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}
+      - MINDSCAPE_MODELS_HOST_DIR=${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}
+      - LAF_HOST_RUNTIME_ROOT=${LAF_HOST_RUNTIME_ROOT:-~/.mindscape/runtimes/layer_asset_forge}
+      - LOCAL_CORE_PROJECT_ROOT=${LOCAL_CORE_PROJECT_ROOT:-${PWD}}
       # LLM Intent Extractor
       - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-true}
       # D2: Legacy Cleanup - Disable legacy fallback

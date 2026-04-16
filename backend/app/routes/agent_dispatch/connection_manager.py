@@ -79,6 +79,32 @@ def _websocket_requires_accept(websocket: Any) -> bool:
     )
 
 
+async def _accept_websocket_if_needed(websocket: Any) -> None:
+    """Accept the websocket only when it is still safe to do so.
+
+    During backend shutdown/reload, uvicorn can reject or implicitly advance
+    the ASGI websocket state after our state probe but before ``accept()``
+    executes. In that narrow window ``accept()`` raises a RuntimeError even
+    though we are handling a reconnect race rather than a real application bug.
+    Suppress only the known ASGI state-transition failure and let all other
+    errors surface.
+    """
+
+    if not _websocket_requires_accept(websocket):
+        return
+
+    try:
+        await websocket.accept()
+    except RuntimeError as exc:
+        message = str(exc)
+        if "websocket.accept" not in message:
+            raise
+        logger.warning(
+            "[AgentWS] Suppressing websocket.accept race during connect: %s",
+            message,
+        )
+
+
 def _get_worker_instance_id() -> str:
     """Return a worker identity stable for this process lifetime."""
     return f"{socket.gethostname()}:{os.getpid()}"
@@ -165,8 +191,7 @@ class ConnectionMixin:
         if not normalized_surface:
             raise ValueError("surface_type is required for agent connections")
 
-        if _websocket_requires_accept(websocket):
-            await websocket.accept()
+        await _accept_websocket_if_needed(websocket)
 
         cid = client_id or str(uuid.uuid4())
 

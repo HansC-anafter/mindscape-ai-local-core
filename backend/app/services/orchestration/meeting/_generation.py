@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _NON_RETRIABLE_RUNTIME_PATTERNS = (
     "terminalquotaerror",
+    "usage limit",
     "exhausted your capacity",
     "quota exceeded",
     "resource_exhausted",

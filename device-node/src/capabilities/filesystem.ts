@@ -170,11 +170,28 @@ export async function filesystemList(
 }
 
 function expandPath(p: string): string {
-    if (p.startsWith("~")) {
-        return path.join(process.env.HOME || "/", p.slice(1));
+    const expandedEnv = p.replace(
+        /\$\{([A-Z0-9_]+)(:-([^}]*))?\}/gi,
+        (match, name: string, _withDefault: string | undefined, fallback: string | undefined) => {
+            const value = process.env[name];
+            if (value && value.trim()) {
+                return value;
+            }
+            if (typeof fallback === "string") {
+                return fallback;
+            }
+            return match;
+        }
+    );
+
+    if (expandedEnv.startsWith("~")) {
+        return path.join(process.env.HOME || "/", expandedEnv.slice(1));
     }
-    if (!path.isAbsolute(p)) {
-        return path.resolve(process.cwd(), p);
+    if (expandedEnv.includes("${")) {
+        return expandedEnv;
     }
-    return p;
+    if (!path.isAbsolute(expandedEnv)) {
+        return path.resolve(process.cwd(), expandedEnv);
+    }
+    return expandedEnv;
 }

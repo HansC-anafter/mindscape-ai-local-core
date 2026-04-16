@@ -1,6 +1,6 @@
 ---
 name: evidence-based-planning
-description: Formal workflow for writing implementation plans. Enforces evidence-first discipline from problem definition through plan verification.
+description: Formal workflow for writing implementation plans. Enforces evidence-first discipline from problem definition through plan verification, while keeping plans grounded in user workflows and product narrative.
 ---
 
 # Evidence-Based Planning
@@ -10,6 +10,36 @@ description: Formal workflow for writing implementation plans. Enforces evidence
 **No implementation plan may be written until all problems are defined with evidence, and every proposed change has its insertion point verified against actual code.**
 
 Violation of this rule produces plans with wrong line numbers, invalid data source assumptions, and designs that reference nonexistent APIs.
+
+## Product Narrative Guardrail
+
+Evidence-first does **not** mean engineering-only language.
+
+For any implementation plan that defines or changes a capability pack, workflow, feature surface, automation, or user-visible behavior, the plan MUST begin with a plain-language product framing section **before** the technical problem register.
+
+If a plan cannot explain itself without leading with pack names, APIs, or runtime components, the plan is not ready.
+
+### Required opening block for product-facing plans
+
+Before Phase 2, include a plain-language section that answers:
+
+1. What real-world problem this pack/feature solves
+2. How it solves that problem at the workflow level
+3. What using it should feel like for the operator or end user
+4. What the standard user journey / operating logic looks like
+5. What P0 does **not** promise
+6. What artifacts, approvals, or traceability the user should be left with
+
+### Required companion block
+
+Also include a `True / False` productization checklist that can be used to detect drift early.
+
+Rules:
+
+- Each checklist item must be a clear product or workflow statement, not a vague aspiration
+- Each item must say what `TRUE` means and what `FALSE` means
+- Any `FALSE` item should be treated as a design warning, not as a cosmetic documentation issue
+- The checklist must be understandable to a product/operator stakeholder without repo-specific context
 
 ---
 
@@ -57,6 +87,8 @@ Rules:
 - Each problem must cite at least one evidence item
 - No problem may be inferred without code or runtime evidence
 - Problem list goes at the TOP of the analysis report
+- Each problem should make the product or operator impact legible, not just the technical gap
+- For pack/productization plans, at least one problem must describe what breaks in the user flow if the issue is left unresolved
 
 **FMEA-lite scoring** — prioritize which problems to fix first:
 
@@ -128,8 +160,11 @@ Rules:
 - Every data source referenced must have been verified in Phase 3
 - Every model attribute must have been confirmed to exist
 - Group changes by dependency order (independent first)
+- For product-facing work, begin the plan with the required plain-language product framing and `True / False` checklist before the technical implementation series
 - **Traceability**: Every implementation block MUST explicitly state which Phase 2 Problem ID it resolves (e.g., `Resolves Problem #2`).
+- Every implementation block should also state the user-facing behavior, operator step, or product outcome it enables
 - **Provide concrete code diffs OR precise code replacement logic** for all critical modifications at verified insertion points
+- If the plan depends on an unresolved host/kernel seam, specify the downgrade or handoff path explicitly instead of assuming a future API will exist
 - Include verification commands for each phase
 
 ### Phase 5: Citation Audit (CoVe Final Pass)
@@ -153,6 +188,8 @@ Rules:
 - List specific scenarios (e.g., "sunny day", "error case").
 - Provide the exact verification steps (Where to click, what `curl` or SQL command to run).
 - Define explicitly what constitutes a "Pass" and a "Fail" for the verification, mapping back to the original Problem ID.
+- For product-facing plans, the first validation scenario should be an operator or user journey, not just an API-level proof
+- If approval, handoff, publish, measurement, or writeback are part of the story, the SOP must verify artifact continuity across those steps
 - **🚨 DATA BACKUP WARNING**: If the verification SOP requires modifying, deleting, or overwriting data (e.g., database records, static files), you MUST instruct the user to **perform a data backup BEFORE making any code changes**. This backup step must be placed at the VERY BEGINNING of the Implementation Plan (Phase 4), NOT buried inside the Testing SOP (Phase 6).
 
   > **Standard Backup Procedure:**
@@ -205,6 +242,24 @@ Rules:
 
 **RIGHT**: Always run Phase 3.5. Assume failure, enumerate modes, verify each one is ruled out.
 
+### 6. Abstract Stack-First Framing
+
+**WRONG**: Start with "Add orchestration service around A/B/C" without first explaining the operator workflow.
+
+**RIGHT**: Start with the user journey or operator flow, then map that flow onto the actual packs, APIs, services, and artifacts.
+
+### 7. Technical Closure Without Product Closure
+
+**WRONG**: "Preview works" while approval, handoff, writeback, or follow-on measurement are undefined.
+
+**RIGHT**: State clearly where the product loop ends in this phase, what handoff artifact remains, and what later phase closes the rest of the loop.
+
+### 8. Runtime-First Product Definition
+
+**WRONG**: Define the feature primarily as an integration with model/runtime/provider X.
+
+**RIGHT**: Define the feature primarily as a user-facing capability; treat models and runtimes as replaceable execution backends unless the product requirement truly depends on one specific runtime.
+
 ---
 
 ## Pre-Delivery Checklist
@@ -213,6 +268,8 @@ Before delivering any implementation plan:
 
 - [ ] Every problem cites evidence items
 - [ ] Problems are severity-scored and ordered by priority
+- [ ] For product-facing work, the plan opens with a plain-language product/UX framing section
+- [ ] For product-facing work, the plan includes a `True / False` productization checklist
 - [ ] Every insertion point has been `view_file`'d and confirmed
 - [ ] Every data source dependency has been verified for content and format
 - [ ] Every model attribute access has been confirmed to exist
@@ -221,8 +278,10 @@ Before delivering any implementation plan:
 - [ ] Pre-mortem failure modes have been enumerated and ruled out
 - [ ] Changes are ordered by dependency (independent first)
 - [ ] Every implementation block traces back to a specific Problem ID from Phase 2
+- [ ] Every implementation block makes the user-facing outcome or operator step clear
 - [ ] Concrete code diffs or explicit replacement logic are provided for key changes
 - [ ] Verification commands are included for each phase
 - [ ] A Validation Checklist (Phase 6) with explicit pass/fail criteria and commands is included
+- [ ] The plan explicitly states what P0 does not promise and where the product loop ends for this phase
 - [ ] 🚨 Data backup instructions are placed at the very start of Implementation (if testing modifies data)
 - [ ] An Evaluation/Automated Testing section (Phase 7) is included to prevent regression

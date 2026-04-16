@@ -472,13 +472,13 @@ class TaskResultLandingService:
 
         execution_trace = result_data.get("execution_trace")
         if not isinstance(execution_trace, dict):
-            return []
+            execution_trace = {}
 
-        sandbox_path = _clean_string(execution_trace.get("sandbox_path"))
-        if not sandbox_path:
-            return []
-        sandbox_root = pathlib.Path(sandbox_path).expanduser().resolve()
-        if not sandbox_root.exists():
+        sandbox_root = TaskResultLandingService._resolve_attachment_snapshot_root(
+            result_data=result_data,
+            execution_trace=execution_trace,
+        )
+        if sandbox_root is None:
             return []
 
         desired_filenames = TaskResultLandingService._deliverable_filenames_from_identity(
@@ -490,7 +490,7 @@ class TaskResultLandingService:
         )
         identity_only_paths: set[str] = set()
         for key in ("files_created", "files_modified"):
-            values = execution_trace.get(key) or []
+            values = execution_trace.get(key) or result_data.get(key) or []
             if isinstance(values, list):
                 candidate_paths.extend(values)
         seen_candidate_paths = {
@@ -553,6 +553,34 @@ class TaskResultLandingService:
         return attachments
 
     @staticmethod
+    def _resolve_attachment_snapshot_root(
+        *,
+        result_data: Dict[str, Any],
+        execution_trace: Dict[str, Any],
+    ) -> Optional[pathlib.Path]:
+        candidates: List[Any] = [
+            execution_trace.get("sandbox_path"),
+            execution_trace.get("effective_sandbox_path"),
+        ]
+        result_metadata = result_data.get("metadata") or {}
+        if isinstance(result_metadata, dict):
+            candidates.extend(
+                [
+                    result_metadata.get("effective_sandbox_path"),
+                    result_metadata.get("workspace_root"),
+                ]
+            )
+
+        for raw_path in candidates:
+            candidate = _clean_string(raw_path)
+            if not candidate:
+                continue
+            candidate_path = pathlib.Path(candidate).expanduser().resolve()
+            if candidate_path.exists():
+                return candidate_path
+        return None
+
+    @staticmethod
     def _deliverable_probe_paths_from_identity(
         deliverable_identity: Dict[str, Any],
     ) -> List[str]:
@@ -606,13 +634,8 @@ class TaskResultLandingService:
         ) or TaskResultLandingService._coerce_utc_datetime(
             getattr(task, "created_at", None)
         )
-        completed_at = TaskResultLandingService._coerce_utc_datetime(
-            getattr(task, "completed_at", None)
-        )
 
         if started_at and file_mtime < (started_at - timedelta(seconds=2)):
-            return False
-        if completed_at and file_mtime > (completed_at + timedelta(seconds=2)):
             return False
         return True
 

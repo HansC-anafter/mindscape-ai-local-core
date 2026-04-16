@@ -1,19 +1,29 @@
 # Mindscape AI Local Core
 
-> **Open-source, local-first cognitive engine for human-governable AI workflows.**
+> **Open-source, local-first governance and planning runtime for human-governable AI workflows.**
 
 [English](README.md) | [中文](README.zh.md)
 
-`mindscape-ai-local-core` is the open-source core of **Mindscape AI** — a **local-first**, **human-governable** cognitive engine for agentic workflows.
+`mindscape-ai-local-core` is the open-source core of **Mindscape AI** — a **local-first**, **human-governable** governance and planning runtime for agentic workflows.
 
-It turns your long-term goals, projects, and creative themes into a **governable, navigable mindscape** for AI that can **think and act with you across time** — with full traceability, rollback, and human oversight.
+It turns your long-term goals, projects, creative themes, and runtime constraints into a **governable, navigable mindscape** for AI that can **think, plan, and route work with you across time** — with full traceability, rollback, and human oversight.
 
 You can use it in two ways:
 
-- as a **cognitive engine** inside your existing agent stack
-- as an **end-to-end local workspace** with optional `Project / Flow / Playbook / Sandbox` actuation
+- as a **governance and planning engine** inside your existing agent stack
+- as an **end-to-end local workspace** with optional `Project / Flow / Playbook / Sandbox` actuation and installable runtime consumers
 
 It is also natively compatible with **Agent Skills (`SKILL.md`)** and **MCP**, so it can plug into existing agent workflows without requiring the local actuation layer.
+
+## What You Can Understand Today
+
+If you want the current public-safe story before reading deep architecture docs, start here:
+
+- [System Overview](./docs/core-architecture/system-overview.md) — public architecture after `SpatialSchedulingIR` becomes a first-class planning artifact
+- [Spatial Runtime Planning](./docs/core-architecture/spatial-runtime-planning.md) — what `TaskIR` and `SpatialSchedulingIR` each do
+- [Artifact Taxonomy](./docs/reference/artifact-taxonomy.md) — public-safe names for preview meshes, scene packages, runtime receipts, and world summaries
+- [Demo Gallery](./docs/demo-gallery/README.md) — the shortest path to "what can this repo demonstrate today?"
+- [Use Case Gallery](./docs/use-cases/README.md) — scenario-oriented deep dives, including single-image preview mesh and fixed-scene subject swap
 
 ### 🎯 Two Core Principles
 
@@ -40,17 +50,19 @@ Both the **Mindscape Graph** (mind map mode) and **Workspace execution** (runtim
 
 ## 🧠 Mindscape Engine
 
-Mindscape AI is a local-first engine that compiles governance context, runs live deliberation, preserves long-term continuity, and optionally routes work into local or external execution layers.
+Mindscape AI is a local-first engine that compiles governance context, runs live deliberation, emits traceable planning artifacts, preserves long-term continuity, and optionally routes work into local or external execution layers.
 
-> **Governance Context → Meeting Runtime ↔ Governed Memory Fabric → Optional Actuation / External Runtimes → Artifacts, Decisions, and Writeback**
+> **Governance Context → Meeting Runtime ↔ Governed Memory Fabric → TaskIR / SpatialSchedulingIR → Consumer Runtimes / Optional Local Actuation → Artifacts, Runtime Receipts, and World Summary / Writeback**
 
 The core pieces are:
 
 - **Governance Context** — `Intent`, `Mind-Lens`, and `Policy` define why work matters, how trade-offs are made, and what boundaries cannot be crossed; when needed, `Mind-Model VC` tracks how those governance clues change over time.
-- **Meeting Runtime** — Mindscape Meeting handles live deliberation, clarification, convergence, dispatch, and loop closure.
-- **Governed Memory Fabric** — evidence, episodic compression, durable memory, invalidation, and serving preserve continuity across runs.
-- **Optional Actuation** — `Project / Flow / Playbook / Tools / Sandbox` or external runtimes turn cognition into execution when needed.
-- **Reviewable Outputs** — execution traces, artifacts, decisions, and writebacks keep the system inspectable and correctable over time.
+- **Meeting Runtime** — Mindscape Meeting handles live deliberation, clarification, convergence, dispatch, loop closure, and artifact emission.
+- **TaskIR Control Plane** — the bounded control artifact for execution-ready intents, dependencies, and dispatch decisions.
+- **SpatialSchedulingIR Planning Plane** — the bounded planning artifact for spatial/world execution intent when a workflow needs scene, subject, object, or camera-aware scheduling.
+- **Governed Memory Fabric** — evidence, episodic compression, durable memory, invalidation, and serving preserve continuity across runs; writeback stores bounded summaries and references rather than provider-native payloads.
+- **Consumer Runtimes / Optional Local Actuation** — `Project / Flow / Playbook / Tools / Sandbox` or installed runtime packs consume the bounded artifacts and perform execution when needed.
+- **Reviewable Outputs** — execution traces, artifacts, runtime receipts, decisions, and world summaries keep the system inspectable and correctable over time.
 
 This repo packages these pieces into a local engine that can either plug into your existing agent stack or power an end-to-end local workspace.
 
@@ -132,18 +144,19 @@ Framework logos are the property of their respective projects and are used here 
 
 ## Scenario Families
 
-Mindscape is best understood through the kinds of continuity it governs.
+Mindscape is best understood through the kinds of continuity and artifact closure it governs.
 
-| Scenario family | What Mindscape governs | Example execution surfaces |
-|-----------------|------------------------|----------------------------|
-| **Brand and Content Governance** | Brand voice, storyline continuity, cross-channel consistency, rollback-able content decisions | websites, social media, newsletters, customer support |
-| **Narrative Direction and Role Evolution** | Character arcs, performer cues, persona targets, storyline-to-execution continuity | film previs, creator workflows, community-facing digital personas |
-| **Research and Knowledge Continuity** | Intent-aware research tracking, evidence packs, disagreement briefs, long-form synthesis | research assistants, writing systems, book workflows |
-| **Practice and Coaching Loops** | Session memory, progress baselines, feedback safety, retention loops | coaching apps, guided practice systems, domain companions |
+| Scenario family | What Mindscape governs | Public examples |
+|-----------------|------------------------|-----------------|
+| **Brand and Content Governance** | Brand voice, storyline continuity, cross-channel consistency, rollback-able content decisions | [Brand Content Governance](./docs/use-cases/brand-content-governance.md) |
+| **Narrative Direction and Role Evolution** | Character arcs, performer cues, persona targets, storyline-to-execution continuity | [Portable Expert Viewpoint Modules](./docs/use-cases/portable-expert-viewpoint-modules.md) |
+| **Spatial Runtime and Scene Continuity** | Scene identity, subject continuity, preview mesh assets, world/runtime handoff summaries | [Single-Image Preview Mesh](./docs/use-cases/single-image-preview-mesh.md), [Fixed-Scene Subject Swap](./docs/use-cases/fixed-scene-subject-swap.md) |
+| **Research and Knowledge Continuity** | Intent-aware research tracking, evidence packs, disagreement briefs, long-form synthesis | [Yearly Personal Book](./docs/use-cases/yearly-personal-book.md) |
+| **Practice and Coaching Loops** | Session memory, progress baselines, feedback safety, retention loops | public deep dive in progress |
 | **Agentic Workflow Sidecar** | Deliberation, reflection, memory packet routing, governed writeback across runs | OpenAI Agents SDK, LangGraph, CrewAI, custom MCP/A2A stacks |
 
 These are **scenario families**.
-Public documentation stays at the level of governance, deliberation, memory, continuity, and generic integration boundaries.
+Public documentation stays at the level of governance, planning artifacts, memory, continuity, and bounded runtime outcomes rather than provider-specific payloads.
 
 ---
 

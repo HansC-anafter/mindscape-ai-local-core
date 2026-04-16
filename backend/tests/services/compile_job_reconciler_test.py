@@ -6,7 +6,28 @@ from backend.app.services.compile_job_reconciler import CompileJobReconciler
 import asyncio
 
 
-def _make_running_job(session_id: str | None = None) -> CompileJob:
+def _make_running_job(
+    session_id: str | None = None,
+    *,
+    executor_target_client_id: str | None = None,
+) -> CompileJob:
+    recovery_context = {
+        "handoff_in": {
+            "handoff_id": "handoff-reconcile-001",
+            "workspace_id": "ws-reconcile-001",
+            "intent_summary": "resume this compile",
+            "goals": [],
+            "deliverables": [],
+        },
+        "workspace_id": "ws-reconcile-001",
+        "project_id": "proj-reconcile-001",
+        "profile_id": "profile-reconcile-001",
+        "thread_id": "thread-reconcile-001",
+        "source_device_id": "device-reconcile-001",
+    }
+    if executor_target_client_id:
+        recovery_context["executor_target_client_id"] = executor_target_client_id
+
     job = CompileJob.new(
         workspace_id="ws-reconcile-001",
         project_id="proj-reconcile-001",
@@ -15,27 +36,35 @@ def _make_running_job(session_id: str | None = None) -> CompileJob:
         session_id=session_id,
         metadata={
             "entry_point": "compile",
-            "_internal_recovery_context": {
-                "handoff_in": {
-                    "handoff_id": "handoff-reconcile-001",
-                    "workspace_id": "ws-reconcile-001",
-                    "intent_summary": "resume this compile",
-                    "goals": [],
-                    "deliverables": [],
-                },
-                "workspace_id": "ws-reconcile-001",
-                "project_id": "proj-reconcile-001",
-                "profile_id": "profile-reconcile-001",
-                "thread_id": "thread-reconcile-001",
-                "source_device_id": "device-reconcile-001",
-            },
+            "_internal_recovery_context": recovery_context,
         },
     )
     job.mark_running(session_id=session_id, metadata={"route_kind": "meeting"})
     return job
 
 
-def _make_accepted_job(session_id: str | None = None) -> CompileJob:
+def _make_accepted_job(
+    session_id: str | None = None,
+    *,
+    executor_target_client_id: str | None = None,
+) -> CompileJob:
+    recovery_context = {
+        "handoff_in": {
+            "handoff_id": "handoff-reconcile-001",
+            "workspace_id": "ws-reconcile-001",
+            "intent_summary": "resume this compile",
+            "goals": [],
+            "deliverables": [],
+        },
+        "workspace_id": "ws-reconcile-001",
+        "project_id": "proj-reconcile-001",
+        "profile_id": "profile-reconcile-001",
+        "thread_id": "thread-reconcile-001",
+        "source_device_id": "device-reconcile-001",
+    }
+    if executor_target_client_id:
+        recovery_context["executor_target_client_id"] = executor_target_client_id
+
     return CompileJob.new(
         workspace_id="ws-reconcile-001",
         project_id="proj-reconcile-001",
@@ -44,20 +73,7 @@ def _make_accepted_job(session_id: str | None = None) -> CompileJob:
         session_id=session_id,
         metadata={
             "entry_point": "compile",
-            "_internal_recovery_context": {
-                "handoff_in": {
-                    "handoff_id": "handoff-reconcile-001",
-                    "workspace_id": "ws-reconcile-001",
-                    "intent_summary": "resume this compile",
-                    "goals": [],
-                    "deliverables": [],
-                },
-                "workspace_id": "ws-reconcile-001",
-                "project_id": "proj-reconcile-001",
-                "profile_id": "profile-reconcile-001",
-                "thread_id": "thread-reconcile-001",
-                "source_device_id": "device-reconcile-001",
-            },
+            "_internal_recovery_context": recovery_context,
         },
     )
 
@@ -227,6 +243,7 @@ def test_reconcile_startup_orphans_marks_closed_session_job_succeeded():
                 "session_task_total": 1,
                 "session_incomplete_tasks": 0,
                 "session_task_statuses": {"succeeded": 1},
+                "dispatch_status": None,
             },
         }
     ]
@@ -293,6 +310,7 @@ def test_reconcile_startup_orphans_marks_active_session_and_job_failed(monkeypat
                 "session_task_total": 0,
                 "session_incomplete_tasks": 0,
                 "session_task_statuses": {},
+                "dispatch_status": None,
             },
         }
     ]
@@ -342,6 +360,7 @@ def test_reconcile_startup_orphans_marks_missing_session_job_failed(monkeypatch)
                 "session_task_total": 0,
                 "session_incomplete_tasks": 0,
                 "session_task_statuses": {},
+                "dispatch_status": None,
             },
         }
     ]
@@ -387,6 +406,54 @@ def test_reconcile_startup_orphans_does_not_mark_success_when_session_tasks_runn
                 "session_task_total": 2,
                 "session_incomplete_tasks": 1,
                 "session_task_statuses": {"succeeded": 1, "running": 1},
+                "dispatch_status": None,
+            },
+        }
+    ]
+
+
+def test_reconcile_startup_orphans_marks_closed_session_all_failed_tasks_failed():
+    session = _make_active_session()
+    session.action_items = [{"description": "ship"}]
+    session.close()
+    job = _make_running_job(session.id)
+    job.metadata["dispatch_status"] = "all_failed"
+    compile_job_store = FakeCompileJobStore([job])
+    meeting_session_store = FakeMeetingSessionStore({session.id: session})
+    tasks_store = FakeTasksStore(
+        [
+            FakeTask(session.id, TaskStatus.FAILED),
+            FakeTask(session.id, TaskStatus.FAILED),
+        ]
+    )
+
+    reconciler = CompileJobReconciler(
+        compile_job_store=compile_job_store,
+        meeting_session_store=meeting_session_store,
+        tasks_store=tasks_store,
+    )
+    summary = reconciler.reconcile_startup_orphans()
+
+    assert summary == {
+        "inspected": 1,
+        "succeeded": 0,
+        "failed": 1,
+        "session_failed": 0,
+    }
+    assert compile_job_store.mark_succeeded_calls == []
+    assert compile_job_store.mark_failed_calls == [
+        {
+            "job_id": job.id,
+            "error": "meeting_session_closed_with_all_failed_tasks",
+            "session_id": session.id,
+            "metadata": {
+                "recovery_reason": "startup_orphan_reconcile",
+                "reconciled_from_startup": True,
+                "session_status": "closed",
+                "session_task_total": 2,
+                "session_incomplete_tasks": 0,
+                "session_task_statuses": {"failed": 2},
+                "dispatch_status": "all_failed",
             },
         }
     ]
@@ -569,6 +636,105 @@ def test_dispatch_pending_accepted_jobs_resumes_accepted_job(monkeypatch):
         "dispatch_reason": "runtime_queue_claim",
         "queued_dispatch": True,
     }
+
+
+def test_recover_startup_orphans_skips_targeted_job_when_client_unavailable(monkeypatch):
+    session = _make_active_session()
+    session.round_count = 2
+    session.metadata["pipeline_stage"] = "deliberation"
+    job = _make_running_job(
+        session.id,
+        executor_target_client_id="codex-client-missing",
+    )
+    compile_job_store = FakeCompileJobStore([job])
+    meeting_session_store = FakeMeetingSessionStore({session.id: session})
+
+    monkeypatch.setattr(
+        CompileJobReconciler,
+        "_is_executor_target_available",
+        staticmethod(lambda **kwargs: False),
+    )
+    schedule_calls = []
+    monkeypatch.setattr(
+        CompileJobReconciler,
+        "_schedule_resume",
+        lambda *args, **kwargs: schedule_calls.append((args, kwargs)),
+    )
+
+    reconciler = CompileJobReconciler(
+        compile_job_store=compile_job_store,
+        meeting_session_store=meeting_session_store,
+        tasks_store=FakeTasksStore([]),
+    )
+    summary = asyncio.run(reconciler.recover_startup_orphans())
+
+    assert summary == {
+        "inspected": 1,
+        "resumed": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "session_failed": 0,
+        "skipped": 1,
+    }
+    assert schedule_calls == []
+    assert compile_job_store.claim_calls == []
+    assert compile_job_store.requeue_calls == [
+        {
+            "job_id": job.id,
+            "session_id": session.id,
+            "metadata": {
+                "recovery_reason": "startup_orphan_reconcile",
+                "deferred_for_target_client": True,
+                "executor_target_client_id": "codex-client-missing",
+            },
+        }
+    ]
+    updated_session = meeting_session_store.updated_sessions[-1]
+    assert updated_session.status.value == "planned"
+    assert updated_session.round_count == 0
+
+
+def test_dispatch_pending_accepted_jobs_skips_targeted_job_when_client_unavailable(
+    monkeypatch,
+):
+    session = _make_active_session()
+    job = _make_accepted_job(
+        session.id,
+        executor_target_client_id="codex-client-missing",
+    )
+    compile_job_store = FakeCompileJobStore([job])
+    meeting_session_store = FakeMeetingSessionStore({session.id: session})
+
+    monkeypatch.setattr(
+        CompileJobReconciler,
+        "_is_executor_target_available",
+        staticmethod(lambda **kwargs: False),
+    )
+    schedule_calls = []
+    monkeypatch.setattr(
+        CompileJobReconciler,
+        "_schedule_resume",
+        lambda *args, **kwargs: schedule_calls.append((args, kwargs)),
+    )
+
+    reconciler = CompileJobReconciler(
+        compile_job_store=compile_job_store,
+        meeting_session_store=meeting_session_store,
+        tasks_store=FakeTasksStore([]),
+    )
+    summary = asyncio.run(reconciler.dispatch_pending_accepted_jobs())
+
+    assert summary == {
+        "inspected": 1,
+        "resumed": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "session_failed": 0,
+        "skipped": 1,
+    }
+    assert schedule_calls == []
+    assert compile_job_store.claim_calls == []
+    assert compile_job_store.requeue_calls == []
 
 
 def test_requeue_running_jobs_for_shutdown_requeues_active_job():

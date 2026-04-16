@@ -18,6 +18,59 @@ from backend.app.models.workspace import Task, TaskStatus
 logger = logging.getLogger(__name__)
 
 
+def _normalize_contract_deliverables(raw_deliverables: Any) -> List[Dict[str, Any]]:
+    normalized_deliverables: List[Dict[str, Any]] = []
+    for index, raw_deliverable in enumerate(raw_deliverables or [], start=1):
+        if hasattr(raw_deliverable, "model_dump"):
+            candidate = raw_deliverable.model_dump(mode="json")
+        elif isinstance(raw_deliverable, dict):
+            candidate = dict(raw_deliverable)
+        else:
+            candidate = {
+                "id": getattr(raw_deliverable, "id", None),
+                "name": getattr(raw_deliverable, "name", None),
+                "quantity": getattr(raw_deliverable, "quantity", None),
+                "acceptance_criteria": getattr(
+                    raw_deliverable,
+                    "acceptance_criteria",
+                    None,
+                ),
+            }
+
+        deliverable_id = str(candidate.get("id") or f"D{index}").strip()
+        deliverable_name = str(
+            candidate.get("name") or f"deliverable_{index}"
+        ).strip()
+        if not deliverable_id or not deliverable_name:
+            continue
+        normalized_deliverables.append(
+            {
+                "id": deliverable_id,
+                "name": deliverable_name,
+                "quantity": candidate.get("quantity"),
+                "acceptance_criteria": candidate.get("acceptance_criteria") or [],
+            }
+        )
+    return normalized_deliverables
+
+
+def _deliverable_bindings_from_contract(
+    normalized_deliverables: List[Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    bindings: Dict[str, Dict[str, Any]] = {}
+    for deliverable in normalized_deliverables:
+        deliverable_id = str(deliverable.get("id") or "").strip()
+        deliverable_name = str(deliverable.get("name") or "").strip()
+        if not deliverable_id or not deliverable_name:
+            continue
+        bindings[deliverable_id] = {
+            "deliverable_id": deliverable_id,
+            "deliverable_name": deliverable_name,
+            "deliverable_path": deliverable_name,
+        }
+    return bindings
+
+
 class MeetingActionItemsMixin:
     """Mixin providing action item methods for MeetingEngine."""
 
@@ -84,9 +137,20 @@ class MeetingActionItemsMixin:
                 coverage_snapshot=self._get_program_spec_coverage_snapshot(),
             )
             if structured_program_spec is not None:
+                contract = getattr(self, "_request_contract", None)
+                raw_deliverables = getattr(contract, "deliverables", None)
+                if not raw_deliverables:
+                    session_metadata = getattr(self.session, "metadata", None) or {}
+                    raw_contract = session_metadata.get("request_contract")
+                    if isinstance(raw_contract, dict):
+                        raw_deliverables = raw_contract.get("deliverables")
+                deliverable_bindings = _deliverable_bindings_from_contract(
+                    _normalize_contract_deliverables(raw_deliverables)
+                )
                 intents = action_intents_from_program_spec(
                     structured_program_spec,
                     default_workspace_id=workspace_id,
+                    deliverable_bindings=deliverable_bindings,
                 )
                 self._pending_program_spec = structured_program_spec
                 self._pending_program_spec_source = "executor_structured"
@@ -155,38 +219,7 @@ class MeetingActionItemsMixin:
             if isinstance(raw_contract, dict):
                 raw_deliverables = raw_contract.get("deliverables")
 
-        normalized_deliverables: List[Dict[str, Any]] = []
-        for index, raw_deliverable in enumerate(raw_deliverables or [], start=1):
-            if hasattr(raw_deliverable, "model_dump"):
-                candidate = raw_deliverable.model_dump(mode="json")
-            elif isinstance(raw_deliverable, dict):
-                candidate = dict(raw_deliverable)
-            else:
-                candidate = {
-                    "id": getattr(raw_deliverable, "id", None),
-                    "name": getattr(raw_deliverable, "name", None),
-                    "quantity": getattr(raw_deliverable, "quantity", None),
-                    "acceptance_criteria": getattr(
-                        raw_deliverable,
-                        "acceptance_criteria",
-                        None,
-                    ),
-                }
-
-            deliverable_id = str(candidate.get("id") or f"D{index}").strip()
-            deliverable_name = str(
-                candidate.get("name") or f"deliverable_{index}"
-            ).strip()
-            if not deliverable_id or not deliverable_name:
-                continue
-            normalized_deliverables.append(
-                {
-                    "id": deliverable_id,
-                    "name": deliverable_name,
-                    "quantity": candidate.get("quantity"),
-                    "acceptance_criteria": candidate.get("acceptance_criteria") or [],
-                }
-            )
+        normalized_deliverables = _normalize_contract_deliverables(raw_deliverables)
 
         if not normalized_deliverables:
             return None
@@ -242,6 +275,9 @@ class MeetingActionItemsMixin:
         intents = action_intents_from_program_spec(
             fallback_program_spec,
             default_workspace_id=workspace_id,
+            deliverable_bindings=_deliverable_bindings_from_contract(
+                normalized_deliverables
+            ),
         )
 
         for intent, deliverable in zip(intents, normalized_deliverables):

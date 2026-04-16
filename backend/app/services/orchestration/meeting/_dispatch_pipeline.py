@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from backend.app.services.compile_job_reconciler import (
+    closed_session_compile_failed,
     summarize_meeting_session_tasks,
 )
 
@@ -191,22 +192,33 @@ def _reconcile_compile_job_terminal_state(
             return
 
         if session.status == MeetingStatus.CLOSED:
-            compile_job_store.mark_succeeded(
-                compile_job.id,
-                session_id=session.id,
-                result={
-                    "session_id": session.id,
-                    "meeting_status": "closed",
-                    "decision": decision,
-                    "action_items_count": len(action_items or []),
-                    "dispatch_status": terminal_metadata.get("dispatch_status"),
-                    "phase_results": dispatch_phase_results or [],
-                    "program_run_id": program_run_id,
-                    "session_task_total": task_summary["total"],
-                    "session_task_statuses": task_summary["statuses"],
-                },
-                metadata=terminal_metadata,
-            )
+            if closed_session_compile_failed(
+                task_summary,
+                dispatch_status=terminal_metadata.get("dispatch_status"),
+            ):
+                compile_job_store.mark_failed(
+                    compile_job.id,
+                    "meeting_session_closed_with_all_failed_tasks",
+                    session_id=session.id,
+                    metadata=terminal_metadata,
+                )
+            else:
+                compile_job_store.mark_succeeded(
+                    compile_job.id,
+                    session_id=session.id,
+                    result={
+                        "session_id": session.id,
+                        "meeting_status": "closed",
+                        "decision": decision,
+                        "action_items_count": len(action_items or []),
+                        "dispatch_status": terminal_metadata.get("dispatch_status"),
+                        "phase_results": dispatch_phase_results or [],
+                        "program_run_id": program_run_id,
+                        "session_task_total": task_summary["total"],
+                        "session_task_statuses": task_summary["statuses"],
+                    },
+                    metadata=terminal_metadata,
+                )
         elif session.status == MeetingStatus.FAILED:
             compile_job_store.mark_failed(
                 compile_job.id,

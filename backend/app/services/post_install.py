@@ -22,6 +22,34 @@ from .post_install_modules.playbook_validator import PlaybookValidator
 logger = logging.getLogger(__name__)
 
 
+def _build_dependency_checker(
+    local_core_root: Path,
+    capabilities_dir: Path,
+) -> DependencyChecker:
+    """
+    Instantiate the active dependency checker implementation.
+
+    Local-core currently carries both a legacy checker (no __init__ args) and
+    a newer checker (expects local_core_root/capabilities_dir). Pack installs
+    run inside long-lived runtimes where import resolution may still surface
+    the legacy class. Keep the install pipeline tolerant to either shape.
+    """
+    try:
+        return DependencyChecker(
+            local_core_root=local_core_root,
+            capabilities_dir=capabilities_dir,
+        )
+    except TypeError as exc:
+        if "takes no arguments" not in str(exc):
+            raise
+        checker = DependencyChecker()
+        if hasattr(checker, "local_core_root"):
+            checker.local_core_root = local_core_root
+        if hasattr(checker, "capabilities_dir"):
+            checker.capabilities_dir = capabilities_dir
+        return checker
+
+
 class PostInstallHandler:
     """Handle post-installation tasks: dependencies, degradation, bootstrap, validation"""
 
@@ -49,7 +77,10 @@ class PostInstallHandler:
 
         # Initialize modular components
         self.dependency_installer = DependencyInstaller(local_core_root)
-        self.dependency_checker = DependencyChecker()
+        self.dependency_checker = _build_dependency_checker(
+            local_core_root,
+            capabilities_dir,
+        )
         self.degradation_registrar = DegradationRegistrar()
         self.playbook_validator = PlaybookValidator(
             local_core_root,

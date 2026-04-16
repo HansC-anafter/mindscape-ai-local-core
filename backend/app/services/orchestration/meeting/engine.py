@@ -1107,6 +1107,7 @@ class MeetingEngine(
         except Exception as exc:
             if await self._try_salvage_deliberation_runtime_failure(
                 error=exc,
+                user_message=user_message,
                 planner_proposals=planner_proposals,
                 critic_notes=critic_notes,
             ):
@@ -1171,22 +1172,39 @@ class MeetingEngine(
         self,
         *,
         error: Exception,
+        user_message: str,
         planner_proposals: List[str],
         critic_notes: List[str],
     ) -> bool:
-        """Convert late-round quota failures into a recoverable deliberation fallback.
+        """Convert quota failures into a recoverable deliberation fallback.
 
         If the runtime quota/rate limit is hit after we already have at least one
         planner proposal, proceed with the latest planner proposal instead of
-        failing the whole meeting. This keeps the pipeline moving into action
-        extraction/dispatch when the only blocker is the next role turn budget.
+        failing the whole meeting. If round 1 fails before any planner proposal
+        exists, bootstrap a deterministic fallback decision from the compiled
+        request contract so action extraction can continue from contract truth.
         """
         if not self._is_runtime_quota_or_rate_limit_error(error):
             return False
+        decision_source = "latest_planner_proposal"
         if not planner_proposals:
-            return False
+            fallback_decision = self._build_request_contract_deliberation_fallback_decision(
+                user_message=user_message,
+            )
+            if not fallback_decision:
+                return False
+            planner_proposals.append(fallback_decision)
+            decision_source = "request_contract_bootstrap"
 
-        fallback_round = max(int(getattr(self.session, "round_count", 0) or 0), len(planner_proposals))
+        fallback_round = max(
+            int(getattr(self.session, "round_count", 0) or 0),
+            len(planner_proposals),
+        )
+        if decision_source == "request_contract_bootstrap":
+            self.session.round_count = max(
+                int(getattr(self.session, "round_count", 0) or 0),
+                fallback_round,
+            )
         if self.session.metadata is None:
             self.session.metadata = {}
 
@@ -1198,7 +1216,7 @@ class MeetingEngine(
         self.session.metadata["last_round_updated_at"] = _utc_now_iso()
         self.session.metadata["deliberation_fallback"] = {
             "reason": "runtime_quota_or_rate_limit",
-            "decision_source": "latest_planner_proposal",
+            "decision_source": decision_source,
             "planner_proposal_count": len(planner_proposals),
             "critic_note_count": len(critic_notes),
             "error": str(error),
@@ -1208,11 +1226,16 @@ class MeetingEngine(
 
         await self._emit_meeting_stage(
             "deliberation",
-            "Runtime quota hit during deliberation; proceeding with the latest planner proposal.",
+            (
+                "Runtime quota hit during deliberation; proceeding with the latest planner proposal."
+                if decision_source == "latest_planner_proposal"
+                else "Runtime quota hit during deliberation; proceeding with request-contract fallback."
+            ),
         )
         logger.warning(
-            "Deliberation quota fallback engaged for session %s after %d planner proposal(s): %s",
+            "Deliberation quota fallback engaged for session %s via %s after %d planner proposal(s): %s",
             self.session.id,
+            decision_source,
             len(planner_proposals),
             error,
         )
@@ -1221,6 +1244,53 @@ class MeetingEngine(
         except Exception:
             logger.warning("Failed to persist deliberation quota fallback state")
         return True
+
+    def _build_request_contract_deliberation_fallback_decision(
+        self,
+        *,
+        user_message: str,
+    ) -> Optional[str]:
+        deliverable_names: List[str] = []
+        source_message = ""
+
+        contract = getattr(self, "_request_contract", None)
+        raw_deliverables = getattr(contract, "deliverables", None)
+        source_message = str(getattr(contract, "source_message", "") or "").strip()
+
+        if not raw_deliverables:
+            session_metadata = getattr(self.session, "metadata", None) or {}
+            raw_contract = session_metadata.get("request_contract")
+            if isinstance(raw_contract, dict):
+                raw_deliverables = raw_contract.get("deliverables")
+                source_message = source_message or str(
+                    raw_contract.get("source_message") or ""
+                ).strip()
+
+        for item in raw_deliverables or []:
+            if isinstance(item, dict):
+                name = str(item.get("name") or "").strip()
+            else:
+                name = str(getattr(item, "name", "") or "").strip()
+            if name:
+                deliverable_names.append(name)
+
+        if not deliverable_names:
+            return None
+
+        request_text = source_message or str(user_message or "").strip()
+        deliverables_text = "; ".join(deliverable_names)
+        if request_text:
+            return (
+                "Proceed with request-contract fallback for the original request: "
+                f"{request_text}\n"
+                f"Deliverables: {deliverables_text}\n"
+                "Preserve constraints and produce readable, file-backed outputs for each deliverable."
+            )
+        return (
+            "Proceed with request-contract fallback. "
+            f"Deliverables: {deliverables_text}. "
+            "Preserve constraints and produce readable, file-backed outputs for each deliverable."
+        )
 
     async def _stage_extract_actions(
         self,

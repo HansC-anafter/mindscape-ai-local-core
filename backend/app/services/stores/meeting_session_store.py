@@ -6,8 +6,10 @@ state snapshots, and links to decisions/traces/intents.
 """
 
 import logging
+import os
+import threading
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
-from datetime import datetime
 
 from sqlalchemy import text
 
@@ -16,6 +18,68 @@ from backend.app.services.stores.postgres_base import PostgresStoreBase
 from backend.app.models.meeting_session import MeetingSession, MeetingStatus
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_ACTIVE_SESSION_WINDOW_MINUTES = 24 * 60
+
+
+def _active_session_window_minutes() -> int:
+    raw = str(
+        os.getenv(
+            "MINDSCAPE_ACTIVE_MEETING_WINDOW_MINUTES",
+            _DEFAULT_ACTIVE_SESSION_WINDOW_MINUTES,
+        )
+    ).strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_ACTIVE_SESSION_WINDOW_MINUTES
+    return value if value > 0 else _DEFAULT_ACTIVE_SESSION_WINDOW_MINUTES
+
+
+def _coerce_datetime(raw: Any) -> Optional[datetime]:
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, datetime):
+        return raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+    if isinstance(raw, str):
+        normalized = raw.strip()
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return None
+
+
+def _session_last_activity_at(session: MeetingSession) -> Optional[datetime]:
+    metadata = getattr(session, "metadata", None) or {}
+    candidates = [
+        _coerce_datetime(getattr(session, "started_at", None)),
+        _coerce_datetime(metadata.get("last_round_updated_at")),
+        _coerce_datetime(metadata.get("pipeline_stage_updated_at")),
+    ]
+    valid = [candidate for candidate in candidates if candidate]
+    if not valid:
+        return None
+    return max(valid)
+
+
+def is_active_session_fresh(
+    session: MeetingSession,
+    *,
+    now: Optional[datetime] = None,
+    window: Optional[timedelta] = None,
+) -> bool:
+    if not session or not session.is_active:
+        return False
+    effective_now = now or datetime.now(timezone.utc)
+    effective_window = window or timedelta(minutes=_active_session_window_minutes())
+    last_activity_at = _session_last_activity_at(session)
+    if last_activity_at is None:
+        return False
+    return last_activity_at >= (effective_now - effective_window)
 
 
 TABLE_DDL = """
@@ -69,42 +133,97 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_meeting_sessions_active ON meeting_sessions(workspace_id, ended_at)",
 ]
 
+ALTER_DDL_BY_COLUMN = [
+    ("project_id", "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS project_id TEXT"),
+    ("lens_id", "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS lens_id TEXT"),
+    (
+        "status",
+        "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'planned'",
+    ),
+    (
+        "meeting_type",
+        "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS meeting_type TEXT NOT NULL DEFAULT 'general'",
+    ),
+    (
+        "agenda",
+        "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS agenda JSONB DEFAULT '[]'::jsonb",
+    ),
+    (
+        "success_criteria",
+        "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS success_criteria JSONB DEFAULT '[]'::jsonb",
+    ),
+    (
+        "round_count",
+        "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS round_count INTEGER DEFAULT 0",
+    ),
+    (
+        "max_rounds",
+        "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS max_rounds INTEGER DEFAULT 5",
+    ),
+    (
+        "action_items",
+        "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS action_items JSONB DEFAULT '[]'::jsonb",
+    ),
+    (
+        "minutes_md",
+        "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS minutes_md TEXT DEFAULT ''",
+    ),
+]
+
 
 class MeetingSessionStore(PostgresStoreBase):
     """Store for MeetingSession persistence (Postgres)."""
 
     _table_ensured = False
+    _ensure_lock = threading.Lock()
 
     def __init__(self, db_role: str = "core"):
         super().__init__(db_role=db_role)
-        if not MeetingSessionStore._table_ensured:
-            self.ensure_table()
-            MeetingSessionStore._table_ensured = True
+        self.ensure_table()
+
+    def _existing_columns(self, conn) -> set[str]:
+        rows = conn.execute(
+            text(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'meeting_sessions'
+                """
+            )
+        ).fetchall()
+        columns: set[str] = set()
+        for row in rows:
+            if hasattr(row, "column_name"):
+                columns.add(str(row.column_name))
+                continue
+            if isinstance(row, dict):
+                column_name = row.get("column_name")
+                if column_name is not None:
+                    columns.add(str(column_name))
+                    continue
+            columns.add(str(row[0]))
+        return columns
 
     def ensure_table(self) -> None:
         """Create the meeting_sessions and meeting_decisions tables if they do not exist."""
-        alter_ddls = [
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS project_id TEXT",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS lens_id TEXT",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'planned'",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS meeting_type TEXT NOT NULL DEFAULT 'general'",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS agenda JSONB DEFAULT '[]'::jsonb",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS success_criteria JSONB DEFAULT '[]'::jsonb",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS round_count INTEGER DEFAULT 0",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS max_rounds INTEGER DEFAULT 5",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS action_items JSONB DEFAULT '[]'::jsonb",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS minutes_md TEXT DEFAULT ''",
-        ]
-        with self.transaction() as conn:
-            conn.execute(text(TABLE_DDL))
-            conn.execute(text(DECISIONS_TABLE_DDL))
-            for alter in alter_ddls:
-                conn.execute(text(alter))
-            for idx in INDEX_DDL:
-                conn.execute(text(idx))
-            for idx in DECISIONS_INDEX_DDL:
-                conn.execute(text(idx))
-        logger.info("meeting_sessions + meeting_decisions tables ensured")
+        if MeetingSessionStore._table_ensured:
+            return
+        with MeetingSessionStore._ensure_lock:
+            if MeetingSessionStore._table_ensured:
+                return
+            with self.transaction() as conn:
+                conn.execute(text(TABLE_DDL))
+                conn.execute(text(DECISIONS_TABLE_DDL))
+                existing_columns = self._existing_columns(conn)
+                for column_name, alter in ALTER_DDL_BY_COLUMN:
+                    if column_name not in existing_columns:
+                        conn.execute(text(alter))
+                for idx in INDEX_DDL:
+                    conn.execute(text(idx))
+                for idx in DECISIONS_INDEX_DDL:
+                    conn.execute(text(idx))
+            MeetingSessionStore._table_ensured = True
+            logger.info("meeting_sessions + meeting_decisions tables ensured")
 
     # ============== Write ==============
 
@@ -284,7 +403,8 @@ class MeetingSessionStore(PostgresStoreBase):
         """Get the currently active (un-ended) session for a workspace/thread.
 
         Uses the idx_meeting_sessions_active index (workspace_id, ended_at).
-        Only considers sessions with actionable statuses (planned/active/closing).
+        Only considers sessions with actionable statuses (planned/active/closing)
+        and recent activity within the active-session freshness window.
         """
         # Common status filter to exclude failed/aborted/closed sessions
         status_clause = "AND status IN ('planned', 'active', 'closing')"
@@ -297,7 +417,7 @@ class MeetingSessionStore(PostgresStoreBase):
                   AND thread_id = :thread_id
                   AND ended_at IS NULL
                   {status_clause}
-                ORDER BY started_at DESC LIMIT 1
+                ORDER BY started_at DESC
             """
             params = {
                 "workspace_id": workspace_id,
@@ -311,7 +431,7 @@ class MeetingSessionStore(PostgresStoreBase):
                   AND project_id = :project_id
                   AND ended_at IS NULL
                   {status_clause}
-                ORDER BY started_at DESC LIMIT 1
+                ORDER BY started_at DESC
             """
             params = {"workspace_id": workspace_id, "project_id": project_id}
         elif thread_id:
@@ -321,7 +441,7 @@ class MeetingSessionStore(PostgresStoreBase):
                   AND thread_id = :thread_id
                   AND ended_at IS NULL
                   {status_clause}
-                ORDER BY started_at DESC LIMIT 1
+                ORDER BY started_at DESC
             """
             params = {"workspace_id": workspace_id, "thread_id": thread_id}
         else:
@@ -330,15 +450,17 @@ class MeetingSessionStore(PostgresStoreBase):
                 WHERE workspace_id = :workspace_id
                   AND ended_at IS NULL
                   {status_clause}
-                ORDER BY started_at DESC LIMIT 1
+                ORDER BY started_at DESC
             """
             params = {"workspace_id": workspace_id}
 
         with self.get_connection() as conn:
-            row = conn.execute(text(query), params).fetchone()
-            if not row:
-                return None
-            return self._row_to_session(row)
+            rows = conn.execute(text(query), params).fetchall()
+            for row in rows:
+                session = self._row_to_session(row)
+                if is_active_session_fresh(session):
+                    return session
+            return None
 
     def list_by_workspace(
         self,

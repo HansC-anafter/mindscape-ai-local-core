@@ -56,6 +56,25 @@ def summarize_meeting_session_tasks(
     }
 
 
+def closed_session_compile_failed(
+    task_summary: Dict[str, Any],
+    *,
+    dispatch_status: Optional[str] = None,
+) -> bool:
+    normalized_dispatch_status = str(dispatch_status or "").strip().lower()
+    if normalized_dispatch_status == "all_failed":
+        return True
+
+    total = int(task_summary.get("total") or 0)
+    statuses = task_summary.get("statuses") or {}
+    failed = int(statuses.get(TaskStatus.FAILED.value, 0) or 0)
+    cancelled = int(statuses.get(TaskStatus.CANCELLED_BY_USER.value, 0) or 0)
+    expired = int(statuses.get(TaskStatus.EXPIRED.value, 0) or 0)
+    failed_terminal = failed + cancelled + expired
+
+    return total > 0 and failed_terminal >= total
+
+
 class CompileJobReconciler:
     """Reconcile orphaned compile jobs against meeting session truth."""
 
@@ -297,6 +316,40 @@ class CompileJobReconciler:
             if not recovery_context:
                 return self._reconcile_job(job, reason=reconcile_reason)
 
+            workspace_id = recovery_context.get("workspace_id") or job.workspace_id
+            target_client_id = str(
+                recovery_context.get("executor_target_client_id") or ""
+            ).strip()
+            if target_client_id and not self._is_executor_target_available(
+                workspace_id=workspace_id,
+                target_client_id=target_client_id,
+            ):
+                logger.info(
+                    "Compile job %s recovery deferred: target client unavailable "
+                    "(workspace=%s client_id=%s reason=%s)",
+                    getattr(job, "id", "unknown"),
+                    workspace_id,
+                    target_client_id,
+                    reconcile_reason,
+                )
+                if job_status == "running":
+                    self._reset_session_for_resume(
+                        session,
+                        interrupted_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                    requeued_job = self._compile_job_store.requeue_for_resume(
+                        job.id,
+                        session_id=getattr(session, "id", None),
+                        metadata={
+                            "recovery_reason": reconcile_reason,
+                            "deferred_for_target_client": True,
+                            "executor_target_client_id": target_client_id,
+                        },
+                    )
+                    if not requeued_job:
+                        return "skipped"
+                return "skipped"
+
             if job_status == "running":
                 self._reset_session_for_resume(
                     session,
@@ -447,8 +500,23 @@ class CompileJobReconciler:
         metadata["session_task_total"] = task_summary["total"]
         metadata["session_incomplete_tasks"] = task_summary["incomplete"]
         metadata["session_task_statuses"] = task_summary["statuses"]
+        metadata["dispatch_status"] = (
+            ((getattr(job, "metadata", None) or {}).get("dispatch_status"))
+            or ((getattr(session, "metadata", None) or {}).get("dispatch_status"))
+        )
 
         if self._session_closed_successfully(session) and task_summary["terminal"]:
+            if closed_session_compile_failed(
+                task_summary,
+                dispatch_status=metadata.get("dispatch_status"),
+            ):
+                self._compile_job_store.mark_failed(
+                    job.id,
+                    "meeting_session_closed_with_all_failed_tasks",
+                    session_id=getattr(session, "id", None),
+                    metadata=metadata,
+                )
+                return "failed"
             self._compile_job_store.mark_succeeded(
                 job.id,
                 session_id=getattr(session, "id", None),
@@ -533,6 +601,49 @@ class CompileJobReconciler:
         metadata = getattr(job, "metadata", None) or {}
         ctx = metadata.get("_internal_recovery_context")
         return dict(ctx) if isinstance(ctx, dict) else None
+
+    @staticmethod
+    def _is_executor_target_available(
+        *,
+        workspace_id: Optional[str],
+        target_client_id: Optional[str],
+    ) -> bool:
+        target_client = str(target_client_id or "").strip()
+        workspace = str(workspace_id or "").strip()
+        if not target_client or not workspace:
+            return True
+
+        try:
+            from backend.app.routes.agent_dispatch.connection_manager import (
+                _get_core_db_connection,
+            )
+
+            conn = _get_core_db_connection()
+            if not conn:
+                return False
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT 1 FROM ws_connections "
+                        "WHERE workspace_id = %s "
+                        "AND client_id = %s "
+                        "AND authenticated = TRUE "
+                        "AND last_heartbeat > NOW() - INTERVAL '90 seconds' "
+                        "LIMIT 1",
+                        (workspace, target_client),
+                    )
+                    return cur.fetchone() is not None
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.warning(
+                "Compile job target client availability probe failed "
+                "(workspace=%s client_id=%s): %s",
+                workspace,
+                target_client,
+                exc,
+            )
+            return False
 
     def _reset_session_for_resume(
         self,

@@ -44,6 +44,7 @@ async def test_codex_cli_uses_workspace_root_without_snapshot_when_sandbox_missi
         snapshot_root=None,
         snapshot_paths=None,
         extra_env=None,
+        selected_runtime_id=None,
     ):
         captured["cwd"] = cwd
         captured["snapshot_root"] = snapshot_root
@@ -88,6 +89,7 @@ async def test_codex_cli_uses_targeted_snapshot_for_expected_deliverable_when_sa
         snapshot_root=None,
         snapshot_paths=None,
         extra_env=None,
+        selected_runtime_id=None,
     ):
         captured["cwd"] = cwd
         captured["snapshot_root"] = snapshot_root
@@ -138,6 +140,7 @@ async def test_codex_cli_uses_existing_sandbox_for_snapshot(monkeypatch, tmp_pat
         snapshot_root=None,
         snapshot_paths=None,
         extra_env=None,
+        selected_runtime_id=None,
     ):
         captured["cwd"] = cwd
         captured["snapshot_root"] = snapshot_root
@@ -348,3 +351,167 @@ async def test_codex_cli_prefers_last_agent_message(monkeypatch, tmp_path):
 
     assert result.status == "completed"
     assert result.output == Path(last_message_path).read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_codex_cli_retries_with_next_runtime_after_quota_failure(monkeypatch, tmp_path):
+    executor = HostBridgeTaskExecutor(
+        workspace_root=str(tmp_path),
+        runtime_surface="codex_cli",
+    )
+
+    auth_bundles = [
+        {
+            "selected_runtime_id": "runtime-a",
+            "env": {"CODEX_HOME": "/tmp/codex-a"},
+        },
+        {
+            "selected_runtime_id": "runtime-b",
+            "env": {"CODEX_HOME": "/tmp/codex-b"},
+        },
+    ]
+    seen_runtime_ids = []
+
+    async def _fake_fetch_runtime_auth_env(runtime_name, ctx):
+        return auth_bundles.pop(0)
+
+    async def _fake_run_cli_agent_subprocess(
+        ctx,
+        cmd,
+        cwd,
+        runtime_name,
+        last_message_path=None,
+        snapshot_root=None,
+        snapshot_paths=None,
+        extra_env=None,
+        selected_runtime_id=None,
+    ):
+        seen_runtime_ids.append(selected_runtime_id)
+        if selected_runtime_id == "runtime-a":
+            return ExecutionResult(
+                status="failed",
+                output="",
+                error="You've hit your usage limit.",
+                metadata={"selected_runtime_id": selected_runtime_id},
+            )
+        return ExecutionResult(
+            status="completed",
+            output="ok",
+            metadata={"selected_runtime_id": selected_runtime_id},
+        )
+
+    monkeypatch.setattr(executor, "_fetch_runtime_auth_env", _fake_fetch_runtime_auth_env)
+    monkeypatch.setattr(executor, "_run_cli_agent_subprocess", _fake_run_cli_agent_subprocess)
+    monkeypatch.setattr(executor, "_resolve_runtime_binary", lambda _: "/bin/echo")
+
+    ctx = _make_ctx(tmp_path, "")
+    result = await executor._execute_via_codex_cli(ctx, timeout=30)
+
+    assert result.status == "completed"
+    assert result.output == "ok"
+    assert seen_runtime_ids == ["runtime-a", "runtime-b"]
+
+
+@pytest.mark.asyncio
+async def test_codex_cli_stops_when_pool_reuses_exhausted_runtime(monkeypatch, tmp_path):
+    executor = HostBridgeTaskExecutor(
+        workspace_root=str(tmp_path),
+        runtime_surface="codex_cli",
+    )
+
+    async def _fake_fetch_runtime_auth_env(runtime_name, ctx):
+        return {
+            "selected_runtime_id": "runtime-a",
+            "env": {"CODEX_HOME": "/tmp/codex-a"},
+        }
+
+    attempt_count = 0
+
+    async def _fake_run_cli_agent_subprocess(
+        ctx,
+        cmd,
+        cwd,
+        runtime_name,
+        last_message_path=None,
+        snapshot_root=None,
+        snapshot_paths=None,
+        extra_env=None,
+        selected_runtime_id=None,
+    ):
+        nonlocal attempt_count
+        attempt_count += 1
+        return ExecutionResult(
+            status="failed",
+            output="",
+            error="usage limit",
+            metadata={"selected_runtime_id": selected_runtime_id},
+        )
+
+    monkeypatch.setattr(executor, "_fetch_runtime_auth_env", _fake_fetch_runtime_auth_env)
+    monkeypatch.setattr(executor, "_run_cli_agent_subprocess", _fake_run_cli_agent_subprocess)
+    monkeypatch.setattr(executor, "_resolve_runtime_binary", lambda _: "/bin/echo")
+
+    ctx = _make_ctx(tmp_path, "")
+    result = await executor._execute_via_codex_cli(ctx, timeout=30)
+
+    assert result.status == "failed"
+    assert "reused exhausted runtime" in (result.error or "")
+    assert attempt_count == 1
+
+
+@pytest.mark.asyncio
+async def test_codex_cli_stops_failover_when_no_alternate_runtime_is_selected(
+    monkeypatch,
+    tmp_path,
+):
+    executor = HostBridgeTaskExecutor(
+        workspace_root=str(tmp_path),
+        runtime_surface="codex_cli",
+    )
+
+    auth_bundles = [
+        {
+            "selected_runtime_id": "runtime-a",
+            "env": {"CODEX_HOME": "/tmp/codex-a"},
+        },
+        {
+            "warning": "No available Codex runtimes in pool",
+            "env": {},
+        },
+    ]
+    attempt_count = 0
+
+    async def _fake_fetch_runtime_auth_env(runtime_name, ctx):
+        return auth_bundles.pop(0)
+
+    async def _fake_run_cli_agent_subprocess(
+        ctx,
+        cmd,
+        cwd,
+        runtime_name,
+        last_message_path=None,
+        snapshot_root=None,
+        snapshot_paths=None,
+        extra_env=None,
+        selected_runtime_id=None,
+    ):
+        nonlocal attempt_count
+        attempt_count += 1
+        return ExecutionResult(
+            status="failed",
+            output="",
+            error="You've hit your usage limit.",
+            metadata={"selected_runtime_id": selected_runtime_id},
+        )
+
+    monkeypatch.setattr(executor, "_fetch_runtime_auth_env", _fake_fetch_runtime_auth_env)
+    monkeypatch.setattr(executor, "_run_cli_agent_subprocess", _fake_run_cli_agent_subprocess)
+    monkeypatch.setattr(executor, "_resolve_runtime_binary", lambda _: "/bin/echo")
+
+    ctx = _make_ctx(tmp_path, "")
+    result = await executor._execute_via_codex_cli(ctx, timeout=30)
+
+    assert result.status == "failed"
+    assert "usage limit" in (result.error or "").lower()
+    assert "No available Codex runtimes in pool" in (result.error or "")
+    assert attempt_count == 1
