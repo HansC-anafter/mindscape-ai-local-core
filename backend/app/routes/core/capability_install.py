@@ -219,6 +219,40 @@ class InstallPipelineResult:
     validation: Optional[Dict[str, Any]] = None
 
 
+def _set_validation_followup_result(
+    pipeline: InstallPipelineResult,
+    *,
+    reason: str,
+) -> None:
+    if pipeline.restart_required and pipeline.webhook_result is None:
+        pipeline.webhook_result = {"sent": False, "reason": reason}
+
+
+def _should_run_restart_webhook(pipeline: InstallPipelineResult) -> bool:
+    return bool(pipeline.restart_required and pipeline.webhook_result is None)
+
+
+def _schedule_pack_validation_on_current_loop(
+    *,
+    pack_id: str,
+    manifest: Dict[str, Any],
+    manifest_path: Optional[Path],
+    restart_required: bool,
+    version: str,
+    extra_metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    from app.services.pack_validation_background import schedule_pack_validation
+
+    return schedule_pack_validation(
+        pack_id=pack_id,
+        manifest=manifest,
+        manifest_path=manifest_path,
+        restart_required=restart_required,
+        version=version,
+        extra_metadata=extra_metadata,
+    )
+
+
 async def run_install_pipeline(
     *,
     fastapi_app,
@@ -633,7 +667,7 @@ async def run_install_pipeline(
             logger.warning("Failed to persist pack activation state: %s", exc)
             result.add_warning(f"Failed to persist pack activation state: {exc}")
 
-        # Step 6.5 — re-index tool embeddings in background (non-fatal, non-blocking)
+        # Step 6.5 - re-index tool embeddings in background (non-fatal, non-blocking)
         import asyncio as _asyncio
 
         try:
@@ -698,12 +732,7 @@ async def run_install_pipeline(
         # 7. Validation / webhook background follow-up
         if validation_state is not None:
             try:
-                from app.services.pack_validation_background import (
-                    schedule_pack_validation,
-                )
-
-                scheduled = await run_in_threadpool(
-                    schedule_pack_validation,
+                scheduled = _schedule_pack_validation_on_current_loop(
                     pack_id=capability_code,
                     manifest=manifest,
                     manifest_path=installed_manifest_path
@@ -717,11 +746,18 @@ async def run_install_pipeline(
                     result.add_warning(
                         f"Playbook validation scheduled in background for {capability_code}."
                     )
-                    if pipeline.restart_required:
-                        pipeline.webhook_result = {
-                            "sent": False,
-                            "reason": "scheduled_background_validation",
-                        }
+                    _set_validation_followup_result(
+                        pipeline,
+                        reason="scheduled_background_validation",
+                    )
+                else:
+                    result.add_warning(
+                        f"Playbook validation already running in background for {capability_code}."
+                    )
+                    _set_validation_followup_result(
+                        pipeline,
+                        reason="background_validation_already_running",
+                    )
             except Exception as exc:
                 logger.warning(
                     "Failed to schedule background playbook validation for %s: %s",
@@ -762,8 +798,12 @@ async def run_install_pipeline(
                 result.add_warning(
                     f"Failed to schedule background playbook validation: {exc}"
                 )
+                _set_validation_followup_result(
+                    pipeline,
+                    reason="validation_schedule_failed",
+                )
 
-        if pipeline.restart_required and pipeline.webhook_result is None:
+        if _should_run_restart_webhook(pipeline):
             try:
                 webhook_service = get_restart_webhook_service()
                 if webhook_service.is_configured():

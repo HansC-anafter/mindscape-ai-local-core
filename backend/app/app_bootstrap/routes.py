@@ -56,6 +56,9 @@ from backend.app.services.capability_api_loader import (
     load_manifest_for_descriptor,
     seed_capability_api_descriptors,
 )
+from backend.app.app_bootstrap.startup_seeded_activation import (
+    record_startup_seeded_activation_pending,
+)
 from app.services.pack_activation_service import PackActivationService
 
 logger = logging.getLogger(__name__)
@@ -209,13 +212,13 @@ def register_core_routes(app: FastAPI) -> None:
                     if not descriptor_group:
                         continue
                     descriptor = descriptor_group[0]
-                    activation_service.record_activation_pending(
+                    record_startup_seeded_activation_pending(
+                        activation_service=activation_service,
                         pack_id=descriptor.capability_code,
                         manifest=load_manifest_for_descriptor(descriptor),
                         manifest_path=descriptor.manifest_path
                         if descriptor.manifest_path.exists()
                         else None,
-                        activation_mode="startup_seeded",
                     )
                 if allowlist:
                     logger.info(
