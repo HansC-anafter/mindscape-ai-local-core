@@ -111,19 +111,14 @@ try:
     print(
         f"Alembic using PostgreSQL: {postgres_url.split('@')[-1] if '@' in postgres_url else postgres_url}"
     )
-
-    # Dynamically set version_locations to include postgres/versions
-    # We need both the common versions and postgres versions
-    common_versions = os.path.join(backend_dir, "alembic_migrations", "versions")
-    postgres_versions = os.path.join(
-        backend_dir, "alembic_migrations", "postgres", "versions"
+    from app.services.migrations.runtime_locations import (
+        configure_runtime_version_locations,
     )
 
-    locations = [common_versions, postgres_versions]
-
-    # Use os.pathsep to combine (alembic.ini sets version_path_separator = os)
-    config.set_main_option(
-        "version_locations", os.pathsep.join(locations)
+    locations = configure_runtime_version_locations(
+        config,
+        capabilities_root=backend_dir / "app" / "capabilities",
+        db_type="postgres",
     )
     print(f"Version locations established for {len(locations)} paths.")
 

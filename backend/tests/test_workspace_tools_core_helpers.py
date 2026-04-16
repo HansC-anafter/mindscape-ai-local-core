@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from backend.app.services.tools.schemas import ToolMetadata
 from backend.app.services.tools.workspace_tools import WorkspaceQueryDatabaseTool
 from backend.app.services.tools.workspace_tools_core.errors import (
     WorkspaceQueryValidationError,
@@ -106,3 +107,23 @@ def test_workspace_query_database_tool_wrapper_uses_core_validator():
         "SELECT id FROM ig_accounts_flat WHERE ig_accounts_flat.workspace_id = %s "
         "AND bio LIKE '%%copy%%' LIMIT 25"
     )
+
+
+def test_workspace_query_database_tool_summarizes_large_table_sets(monkeypatch):
+    tables = {f"table_{index:02d}" for index in range(20)}
+
+    monkeypatch.setattr(
+        WorkspaceQueryDatabaseTool,
+        "_collect_tables_from_registry",
+        classmethod(lambda cls: (tables, tables)),
+    )
+
+    tool = WorkspaceQueryDatabaseTool()
+
+    assert isinstance(tool.metadata, ToolMetadata)
+    assert len(tool.metadata.description) <= 500
+    assert "+12 more" in tool.metadata.description
+    assert "table_19" not in tool.metadata.description
+    sql_query_description = tool.metadata.input_schema.properties["sql_query"]["description"]
+    assert "Allowed tables include:" in sql_query_description
+    assert "table_19" not in sql_query_description

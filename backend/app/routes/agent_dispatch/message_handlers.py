@@ -482,12 +482,18 @@ class MessageHandlersMixin:
 
     @staticmethod
     def _reconcile_compile_job_after_task_terminal(meeting_session_id: str) -> None:
-        from backend.app.models.compile_job import CompileJobStatus
-        from backend.app.models.meeting_session import MeetingStatus
-        from backend.app.services.stores.compile_job_store import CompileJobStore
-        from backend.app.services.stores.meeting_session_store import (
-            MeetingSessionStore,
-        )
+        try:
+            from backend.app.models.compile_job import CompileJobStatus
+            from backend.app.models.meeting_session import MeetingStatus
+            from backend.app.services.stores.compile_job_store import CompileJobStore
+            from backend.app.services.stores.meeting_session_store import (
+                MeetingSessionStore,
+            )
+        except ImportError:
+            logger.debug(
+                "[AgentWS] Compile-job reconciliation skipped; compile-job source is unavailable"
+            )
+            return
 
         meeting_session_store = MeetingSessionStore()
         compile_job_store = CompileJobStore()

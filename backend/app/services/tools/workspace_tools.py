@@ -589,6 +589,8 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
     MAX_ROWS = 100
     STATEMENT_TIMEOUT_MS = 10_000  # 10 seconds
     MAX_RESPONSE_BYTES = 500_000  # 500 KB
+    _TABLE_SUMMARY_LIMIT = 8
+    _TABLE_SUMMARY_MAX_CHARS = 140
 
     @classmethod
     def _collect_tables_from_registry(cls) -> tuple:
@@ -647,17 +649,14 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
         WorkspaceQueryDatabaseTool.ALLOWED_TABLES = allowed
         WorkspaceQueryDatabaseTool.WORKSPACE_SCOPED_TABLES = scoped
 
-        table_list = ", ".join(sorted(self.ALLOWED_TABLES)) or "(none registered)"
+        table_summary = self._summarize_allowed_tables()
         metadata = ToolMetadata(
             name="workspace_query_database",
             description=(
-                "Execute a read-only SQL SELECT query against the workspace database. "
-                "Use this tool to query and analyze data such as IG accounts, follow edges, "
-                "posts, and generated personas. "
-                f"Allowed tables: {table_list}. "
+                "Execute a read-only SQL SELECT query against registered workspace tables. "
+                f"Allowed tables include: {table_summary}. "
                 f"Results are limited to {self.MAX_ROWS} rows. "
-                "Only SELECT statements are permitted. "
-                "workspace_id is required to scope results to the current workspace."
+                "Only SELECT statements are permitted, and workspace_id scoping is enforced automatically."
             ),
             input_schema=ToolInputSchema(
                 type="object",
@@ -666,8 +665,8 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
                         "type": "string",
                         "description": (
                             "SQL SELECT query to execute. Only SELECT is allowed. "
-                            "Do NOT include workspace_id filtering -- it is added automatically. "
-                            f"Allowed tables: {table_list}"
+                            "Do not include workspace_id filtering; it is added automatically. "
+                            f"Allowed tables include: {table_summary}"
                         ),
                     },
                     "workspace_id": {
@@ -684,6 +683,28 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
             tags=["database", "sql", "analytics", "ig"],
         )
         super().__init__(metadata)
+
+    @classmethod
+    def _summarize_allowed_tables(cls) -> str:
+        """Summarize registered queryable tables without exceeding metadata limits."""
+        tables = sorted(cls.ALLOWED_TABLES)
+        if not tables:
+            return "(none registered)"
+
+        summary_tables = tables[: cls._TABLE_SUMMARY_LIMIT]
+        summary = ", ".join(summary_tables)
+        remaining = len(tables) - len(summary_tables)
+        if remaining > 0:
+            summary = f"{summary}, +{remaining} more"
+
+        if len(summary) <= cls._TABLE_SUMMARY_MAX_CHARS:
+            return summary
+
+        trimmed = summary[: cls._TABLE_SUMMARY_MAX_CHARS - 3].rstrip(", ")
+        if "," in trimmed:
+            trimmed = trimmed.rsplit(",", 1)[0]
+        trimmed = trimmed.rstrip(", ")
+        return f"{trimmed}..."
 
     def _strip_comments(self, sql: str) -> str:
         """Remove SQL comments to prevent injection via comments."""

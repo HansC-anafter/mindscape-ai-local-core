@@ -13,6 +13,7 @@ from alembic.script import ScriptDirectory
 
 from .scanner import MigrationScanner, MigrationMetadata
 from .dependency_resolver import DependencyResolver
+from .runtime_locations import configure_runtime_version_locations
 from .validator import MigrationValidator
 
 logger = logging.getLogger(__name__)
@@ -249,22 +250,11 @@ class MigrationOrchestrator:
                     "script_location",
                     (alembic_config.parent / script_location).resolve().as_posix(),
                 )
-
-            version_locations = config.get_main_option("version_locations")
-            if version_locations:
-                resolved_locations = []
-                for location in version_locations.split(os.pathsep):
-                    location = location.strip()
-                    if not location:
-                        continue
-                    if Path(location).is_absolute():
-                        resolved_locations.append(location)
-                    else:
-                        resolved_locations.append(
-                            (alembic_config.parent / location).resolve().as_posix()
-                        )
-                if resolved_locations:
-                    config.set_main_option("version_locations", os.pathsep.join(resolved_locations))
+            configure_runtime_version_locations(
+                config,
+                capabilities_root=self.capabilities_root,
+                db_type=db_type,
+            )
 
             return ScriptDirectory.from_config(config)
         except Exception as e:
@@ -276,6 +266,7 @@ class MigrationOrchestrator:
         backend_dir = alembic_config.parent
         backend_path = str(backend_dir)
         config_path = alembic_config.as_posix()
+        capabilities_root = self.capabilities_root.resolve().as_posix()
 
         # Use subprocess with explicit Python path manipulation via environment
         # This avoids the module import conflict with /app/backend/alembic directory
@@ -315,8 +306,20 @@ os.chdir(backend_path)
 # Now import and execute
 from alembic.config import Config
 from alembic import command
+from app.services.migrations.runtime_locations import configure_runtime_version_locations
 
 config = Config('{config_path}')
+script_location = config.get_main_option('script_location')
+if script_location and not Path(script_location).is_absolute():
+    config.set_main_option(
+        'script_location',
+        (Path('{backend_path}') / script_location).resolve().as_posix(),
+    )
+configure_runtime_version_locations(
+    config,
+    capabilities_root=Path('{capabilities_root}'),
+    db_type='postgres',
+)
 command.upgrade(config, '{revision}')
 """
 
