@@ -1,6 +1,17 @@
 """Tests verifying application bootstrap modularity and modern lifecycle."""
+import asyncio
+import sys
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 @pytest.mark.integration
 def test_app_lifespan_manager():
@@ -135,3 +146,229 @@ async def test_tool_rag_pack_embedding_sync_offloads_store_calls(monkeypatch):
     assert ("status", "brand_identity") in calls
     assert ("record", "ig", 2) in calls
     assert ("record", "brand_identity", 2) in calls
+
+
+def test_consume_preflight_contract_decision_trusts_and_deletes(monkeypatch):
+    from backend.app.app_bootstrap import lifecycle
+
+    deleted = []
+    contract = {
+        "written_at": time.time(),
+        "db_fingerprint": "fp-1",
+        "db_ok": True,
+        "critical_tables_ok": True,
+    }
+
+    monkeypatch.setattr(lifecycle, "read_preflight_contract", lambda: dict(contract))
+    monkeypatch.setattr(lifecycle, "compute_db_fingerprint", lambda: "fp-1")
+    monkeypatch.setattr(
+        lifecycle,
+        "delete_preflight_contract",
+        lambda: deleted.append("deleted"),
+    )
+
+    trusted, reason, loaded = lifecycle._consume_preflight_contract_decision()
+
+    assert trusted is True
+    assert reason == "trusted"
+    assert loaded == contract
+    assert deleted == ["deleted"]
+
+
+def test_preflight_detects_revision_graph_failure_markers():
+    from backend.scripts.preflight_db import _is_revision_graph_failure
+
+    assert _is_revision_graph_failure("KeyError: '20260311000000'") is True
+    assert (
+        _is_revision_graph_failure(
+            "Revision 20260311000000 referenced from 20260322000000 is not present"
+        )
+        is True
+    )
+    assert _is_revision_graph_failure("ordinary migration timeout") is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_tool_rag_corpus_ensures_table_before_index(monkeypatch):
+    from backend.app.services.tool_rag_refresh import refresh_tool_rag_corpus
+
+    calls = []
+
+    class _FakeToolEmbeddingService:
+        async def ensure_table(self):
+            calls.append("ensure_table")
+
+        async def ensure_indexed(self):
+            calls.append("ensure_indexed")
+            return 7
+
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.services.tool_embedding_service",
+        SimpleNamespace(ToolEmbeddingService=_FakeToolEmbeddingService),
+    )
+
+    _tes, indexed_count, mode = await refresh_tool_rag_corpus(
+        log_prefix="test refresh"
+    )
+
+    assert calls == ["ensure_table", "ensure_indexed"]
+    assert indexed_count == 7
+    assert mode == "ensure_indexed"
+
+
+@pytest.mark.asyncio
+async def test_refresh_tool_rag_corpus_falls_back_to_full_index(monkeypatch):
+    from backend.app.services.tool_rag_refresh import refresh_tool_rag_corpus
+
+    calls = []
+
+    class _FakeToolEmbeddingService:
+        async def ensure_table(self):
+            calls.append("ensure_table")
+
+        async def ensure_indexed(self):
+            calls.append("ensure_indexed")
+            raise RuntimeError("multimodel unavailable")
+
+        async def index_all_tools(self):
+            calls.append("index_all_tools")
+            return 11
+
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.services.tool_embedding_service",
+        SimpleNamespace(ToolEmbeddingService=_FakeToolEmbeddingService),
+    )
+
+    _tes, indexed_count, mode = await refresh_tool_rag_corpus(
+        log_prefix="test refresh fallback"
+    )
+
+    assert calls == ["ensure_table", "ensure_indexed", "index_all_tools"]
+    assert indexed_count == 11
+    assert mode == "index_all_tools_fallback"
+
+
+@pytest.mark.asyncio
+async def test_lifespan_schedules_post_ready_tool_rag_task(monkeypatch):
+    from backend.app.app_bootstrap import lifecycle
+
+    app = FastAPI()
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def fake_startup(_app):
+        return None
+
+    async def fake_shutdown(_app):
+        task = getattr(_app.state, lifecycle._TOOL_RAG_POST_READY_TASK_ATTR)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            cancelled.set()
+
+    async def fake_warmup(_app):
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    monkeypatch.setattr(lifecycle, "run_startup", fake_startup)
+    monkeypatch.setattr(lifecycle, "run_shutdown", fake_shutdown)
+    monkeypatch.setattr(lifecycle, "_run_post_ready_tool_rag_warmup", fake_warmup)
+
+    async with lifecycle.lifespan(app):
+        await asyncio.wait_for(started.wait(), timeout=1)
+        task = getattr(app.state, lifecycle._TOOL_RAG_POST_READY_TASK_ATTR)
+        assert task.get_name() == "tool-rag-post-ready-warmup"
+        assert task.done() is False
+
+    assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_run_shutdown_cancels_post_ready_tool_rag_task(monkeypatch):
+    from backend.app.app_bootstrap import lifecycle
+
+    app = FastAPI()
+    cancelled = asyncio.Event()
+
+    async def fake_pending():
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    setattr(
+        app.state,
+        lifecycle._TOOL_RAG_POST_READY_TASK_ATTR,
+        asyncio.create_task(fake_pending()),
+    )
+    await asyncio.sleep(0)
+
+    class _FakeDispatchManager:
+        def stop_background_services(self):
+            return None
+
+    class _FakeCompileJobReconciler:
+        def __init__(self, **_kwargs):
+            return None
+
+        def requeue_running_jobs_for_shutdown(self, *, job_ids):
+            return {
+                "inspected": len(job_ids),
+                "requeued": 0,
+                "session_reset": 0,
+                "skipped": 0,
+            }
+
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.services.compile_job_dispatch_manager",
+        SimpleNamespace(get_compile_job_dispatch_manager=lambda: _FakeDispatchManager()),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.services.compile_job_reconciler",
+        SimpleNamespace(CompileJobReconciler=_FakeCompileJobReconciler),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.services.compile_job_task_registry",
+        SimpleNamespace(
+            compile_job_task_registry=SimpleNamespace(
+                snapshot=lambda: [],
+                cancel=lambda _job_id: None,
+                unregister=lambda _job_id: None,
+            )
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.services.stores.compile_job_store",
+        SimpleNamespace(CompileJobStore=lambda: object()),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.services.stores.meeting_session_store",
+        SimpleNamespace(MeetingSessionStore=lambda: object()),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.capabilities.performance_direction.services.scene_generation_dispatch_manager",
+        SimpleNamespace(get_scene_generation_dispatch_manager=lambda: _FakeDispatchManager()),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.routes.agent_dispatch",
+        SimpleNamespace(get_agent_dispatch_manager=lambda: _FakeDispatchManager()),
+    )
+
+    await lifecycle.run_shutdown(app)
+
+    assert cancelled.is_set()
