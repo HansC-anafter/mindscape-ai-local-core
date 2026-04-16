@@ -26,6 +26,7 @@ from fastapi import (
     UploadFile,
 )
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from app.services.pack_activation_service import PackActivationService
 from app.services.stores.installed_packs_store import InstalledPacksStore
@@ -275,7 +276,10 @@ async def run_install_pipeline(
 
     # 1. Extract mindpack
     extractor = MindpackExtractor(local_core_root)
-    extract_ok, temp_dir, capability_code, cap_dir = extractor.extract(mindpack_path)
+    extract_ok, temp_dir, capability_code, cap_dir = await run_in_threadpool(
+        extractor.extract,
+        mindpack_path,
+    )
 
     if not extract_ok or not capability_code or not cap_dir:
         raise HTTPException(
@@ -305,8 +309,11 @@ async def run_install_pipeline(
 
         validator = ManifestValidator(local_core_root)
         skip_validation = os.getenv("MINDSCAPE_SKIP_VALIDATION", "0") == "1"
-        is_valid, validation_errors, validation_warnings = validator.validate(
-            manifest_path, cap_dir, skip_validation=skip_validation
+        is_valid, validation_errors, validation_warnings = await run_in_threadpool(
+            validator.validate,
+            manifest_path,
+            cap_dir,
+            skip_validation=skip_validation,
         )
         if not is_valid and not skip_validation:
             raise HTTPException(
@@ -323,10 +330,13 @@ async def run_install_pipeline(
                     check_dirty_state,
                 )
 
-                dirty = check_dirty_state(existing_cap_dir)
+                dirty = await run_in_threadpool(check_dirty_state, existing_cap_dir)
                 if dirty.is_dirty:
-                    review_payload = build_dirty_review_payload(
-                        existing_cap_dir, cap_dir, dirty
+                    review_payload = await run_in_threadpool(
+                        build_dirty_review_payload,
+                        existing_cap_dir,
+                        cap_dir,
+                        dirty,
                     )
                     if not allow_overwrite:
                         raise HTTPException(
@@ -395,19 +405,32 @@ async def run_install_pipeline(
         playbook_installer.specs_dir = specs_dir
         playbook_installer.i18n_base_dir = i18n_base_dir
         playbook_installer.local_core_root = local_core_root
-        playbook_installer._install_playbooks(
-            cap_dir, capability_code, manifest, result
+        await run_in_threadpool(
+            playbook_installer._install_playbooks,
+            cap_dir,
+            capability_code,
+            manifest,
+            result,
         )
 
         runtime_installer = RuntimeAssetsInstaller(
             local_core_root=local_core_root, capabilities_dir=capabilities_dir
         )
-        runtime_installer.install_all(
-            cap_dir, capability_code, manifest, result, temp_dir
+        await run_in_threadpool(
+            runtime_installer.install_all,
+            cap_dir,
+            capability_code,
+            manifest,
+            result,
+            temp_dir,
         )
 
         # Migrations
-        runtime_installer.execute_migrations(capability_code, result)
+        await run_in_threadpool(
+            runtime_installer.execute_migrations,
+            capability_code,
+            result,
+        )
         if hasattr(result, "migration_status") and result.migration_status:
             mig = result.migration_status.get(capability_code)
             if mig in ("failed", "error"):
@@ -428,13 +451,20 @@ async def run_install_pipeline(
             specs_dir=specs_dir,
             validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call,
         )
-        post_handler.run_required_tasks(cap_dir, capability_code, manifest, result)
+        await run_in_threadpool(
+            post_handler.run_required_tasks,
+            cap_dir,
+            capability_code,
+            manifest,
+            result,
+        )
 
         contract_lane_changed = False
         try:
             from app.services.runtime_contract_registry import RuntimeContractRegistry
 
-            contract_sync = RuntimeContractRegistry(local_core_root).sync_pack_contracts(
+            contract_sync = await run_in_threadpool(
+                RuntimeContractRegistry(local_core_root).sync_pack_contracts,
                 capability_code,
                 manifest,
             )
@@ -457,7 +487,6 @@ async def run_install_pipeline(
                 hot_reload_enabled,
                 reload_capability_routes,
             )
-            from starlette.concurrency import run_in_threadpool
 
             registry = get_registry()
             if hasattr(registry, "_capabilities_cache"):
@@ -466,7 +495,7 @@ async def run_install_pipeline(
                 registry._tools_cache.clear()
 
             if contract_lane_changed:
-                load_capabilities(reset=True)
+                await run_in_threadpool(load_capabilities, reset=True)
                 result.add_warning(
                     "Contract import paths changed; skipping in-process hot reload and requiring a backend restart."
                 )
@@ -483,7 +512,7 @@ async def run_install_pipeline(
                 hot_reload_performed = True
                 logger.info(f"Hot reload completed for {capability_code}")
             else:
-                load_capabilities(reset=True)
+                await run_in_threadpool(load_capabilities, reset=True)
                 logger.info(f"Reloaded capability registry for {capability_code}")
         except Exception as exc:
             activation_error = f"Failed to reload capability registry/routes: {exc}"
@@ -492,7 +521,7 @@ async def run_install_pipeline(
             try:
                 from app.services.capability_registry import load_capabilities
 
-                load_capabilities(reset=True)
+                await run_in_threadpool(load_capabilities, reset=True)
             except Exception:
                 pass
 
@@ -566,7 +595,8 @@ async def run_install_pipeline(
             pack_metadata["validation"] = validation_state
 
         try:
-            installed_packs_store.upsert_pack(
+            await run_in_threadpool(
+                installed_packs_store.upsert_pack,
                 pack_id=capability_code,
                 installed_at=_utc_now(),
                 enabled=True,
@@ -577,7 +607,8 @@ async def run_install_pipeline(
             result.add_warning(f"Failed to register pack in database: {exc}")
 
         try:
-            pipeline.activation = pack_activation_service.record_install_outcome(
+            pipeline.activation = await run_in_threadpool(
+                pack_activation_service.record_install_outcome,
                 pack_id=capability_code,
                 manifest=manifest,
                 install_result=result,
@@ -590,7 +621,8 @@ async def run_install_pipeline(
                 activation_error=activation_error,
             )
             if validation_state is not None:
-                pipeline.activation = pack_activation_service.record_validation_pending(
+                pipeline.activation = await run_in_threadpool(
+                    pack_activation_service.record_validation_pending,
                     pack_id=capability_code,
                     manifest=manifest,
                     manifest_path=installed_manifest_path
@@ -670,7 +702,8 @@ async def run_install_pipeline(
                     schedule_pack_validation,
                 )
 
-                scheduled = schedule_pack_validation(
+                scheduled = await run_in_threadpool(
+                    schedule_pack_validation,
                     pack_id=capability_code,
                     manifest=manifest,
                     manifest_path=installed_manifest_path
@@ -705,11 +738,13 @@ async def run_install_pipeline(
                     errors=[f"Failed to schedule background playbook validation: {exc}"],
                 )
                 try:
-                    installed_packs_store.update_metadata(
+                    await run_in_threadpool(
+                        installed_packs_store.update_metadata,
                         capability_code,
                         {"validation": failure_state},
                     )
-                    pipeline.activation = pack_activation_service.record_validation_failed(
+                    pipeline.activation = await run_in_threadpool(
+                        pack_activation_service.record_validation_failed,
                         pack_id=capability_code,
                         manifest=manifest,
                         error=f"Failed to schedule background playbook validation: {exc}",
@@ -760,8 +795,12 @@ async def run_install_pipeline(
 
             installed_cap_dir = capabilities_dir / capability_code
             if installed_cap_dir.exists():
-                hashes = compute_dir_hashes(installed_cap_dir)
-                save_install_manifest(
+                hashes = await run_in_threadpool(
+                    compute_dir_hashes,
+                    installed_cap_dir,
+                )
+                await run_in_threadpool(
+                    save_install_manifest,
                     installed_cap_dir,
                     pack_metadata.get("version", "1.0.0"),
                     hashes,

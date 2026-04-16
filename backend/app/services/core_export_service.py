@@ -4,6 +4,7 @@ Handles backup and portable configuration export for local use
 """
 
 import json
+import logging
 from datetime import datetime, timezone
 
 
@@ -25,9 +26,15 @@ from backend.app.models.playbook import Playbook
 from backend.app.models.ai_role import AIRoleConfig
 from backend.app.models.tool_connection import ToolConnectionTemplate
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.playbook_store import PlaybookStore
 from backend.app.services.ai_role_store import AIRoleStore
+from backend.app.services.playbook_registry import PlaybookSource
+from backend.app.services.playbook_service import PlaybookService
 from backend.app.services.tool_registry import ToolRegistryService
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_EXPORT_LOCALE = "zh-TW"
+DEFAULT_USER_PLAYBOOK_WORKSPACE = "default"
 
 
 class CoreExportService:
@@ -43,12 +50,14 @@ class CoreExportService:
     def __init__(
         self,
         mindscape_store: Optional[MindscapeStore] = None,
-        playbook_store: Optional[PlaybookStore] = None,
+        playbook_service: Optional[PlaybookService] = None,
         ai_role_store: Optional[AIRoleStore] = None,
         tool_registry: Optional[ToolRegistryService] = None,
     ):
         self.mindscape_store = mindscape_store or MindscapeStore()
-        self.playbook_store = playbook_store or PlaybookStore()
+        self.playbook_service = playbook_service or PlaybookService(
+            store=self.mindscape_store
+        )
         self.ai_role_store = ai_role_store or AIRoleStore()
         import os
         data_dir = os.getenv("DATA_DIR", "./data")
@@ -69,7 +78,7 @@ class CoreExportService:
 
         intents = await self.mindscape_store.get_intents_by_profile(profile_id)
         ai_roles = self.ai_role_store.get_enabled_roles(profile_id)
-        playbooks = self.playbook_store.list_playbooks()
+        playbooks = await self._load_playbooks_for_export()
         tool_connections = self.tool_registry.get_connections_by_profile(profile_id)
 
         # Create backup (including credentials if requested)
@@ -113,7 +122,7 @@ class CoreExportService:
 
         intents = await self.mindscape_store.get_intents_by_profile(profile_id)
         ai_roles = self.ai_role_store.get_enabled_roles(profile_id)
-        playbooks = self.playbook_store.list_playbooks()
+        playbooks = await self._load_playbooks_for_export()
         tool_templates_data = self.tool_registry.export_as_templates(profile_id)
 
         # Get confirmed habits (optional, can be excluded for privacy)
@@ -152,7 +161,9 @@ class CoreExportService:
             mindscape_template=self._sanitize_profile(profile),
             ai_roles=[self._serialize_ai_role(role) for role in ai_roles],
             playbooks=[self._serialize_playbook(pb) for pb in playbooks],
-            tool_connection_templates=[template.model_dump() for template in tool_templates],
+            tool_connection_templates=[
+                template.model_dump() for template in tool_templates_data
+            ],
             role_tool_mappings=self._build_role_tool_mappings(ai_roles),
             intent_templates=[
                 self._serialize_intent_template(intent)
@@ -174,7 +185,7 @@ class CoreExportService:
         profile = await self.mindscape_store.get_profile(profile_id)
         intents = await self.mindscape_store.get_intents_by_profile(profile_id)
         ai_roles = self.ai_role_store.get_enabled_roles(profile_id)
-        playbooks = self.playbook_store.list_playbooks()
+        playbooks = await self._load_playbooks_for_export()
         tool_connections = self.tool_registry.get_connections_by_profile(profile_id)
 
         return ExportPreview(
@@ -227,6 +238,58 @@ class CoreExportService:
             json.dump(config.model_dump(), f, indent=2, ensure_ascii=False)
 
         return str(filepath)
+
+    async def _load_playbooks_for_export(self) -> List[Playbook]:
+        """Resolve exportable playbooks through PlaybookService without legacy APIs."""
+        playbook_metadata_by_key: Dict[tuple[str, str], Any] = {}
+        metadata_sources = (
+            (PlaybookSource.USER, DEFAULT_USER_PLAYBOOK_WORKSPACE),
+            (PlaybookSource.CAPABILITY, None),
+            (PlaybookSource.SYSTEM, None),
+        )
+
+        for source, workspace_id in metadata_sources:
+            metadata_list = await self.playbook_service.list_playbooks(
+                workspace_id=workspace_id,
+                locale=None,
+                source=source,
+            )
+            for metadata in metadata_list:
+                key = (metadata.playbook_code, metadata.locale)
+                playbook_metadata_by_key.setdefault(key, metadata)
+
+        playbooks: List[Playbook] = []
+        for metadata in playbook_metadata_by_key.values():
+            workspace_id = (
+                DEFAULT_USER_PLAYBOOK_WORKSPACE
+                if metadata.owner_type.value == "user"
+                else None
+            )
+            lookup_code = self._build_playbook_lookup_code(metadata)
+            playbook = await self.playbook_service.get_playbook(
+                playbook_code=lookup_code,
+                locale=metadata.locale or DEFAULT_EXPORT_LOCALE,
+                workspace_id=workspace_id,
+            )
+            if playbook:
+                playbooks.append(playbook)
+                continue
+
+            logger.warning(
+                "Failed to resolve playbook for export: code=%s locale=%s workspace_id=%s",
+                lookup_code,
+                metadata.locale,
+                workspace_id,
+            )
+
+        return playbooks
+
+    @staticmethod
+    def _build_playbook_lookup_code(metadata) -> str:
+        capability_code = getattr(metadata, "capability_code", None)
+        if capability_code:
+            return f"{capability_code}.{metadata.playbook_code}"
+        return metadata.playbook_code
 
     # Private helper methods
 

@@ -580,6 +580,12 @@ async def get_cli_token(
                     "auth_mode": pool_result.get("auth_mode", "host_session"),
                     "env": pool_result.get("env", {}),
                     "selected_runtime_id": pool_result.get("selected_runtime_id"),
+                    "available_runtime_count": pool_result.get(
+                        "available_runtime_count"
+                    ),
+                    "available_quota_scope_count": pool_result.get(
+                        "available_quota_scope_count"
+                    ),
                     "requested_workspace_id": pool_result.get("requested_workspace_id"),
                     "effective_workspace_id": pool_result.get("effective_workspace_id"),
                     "auth_workspace_id": pool_result.get("auth_workspace_id"),

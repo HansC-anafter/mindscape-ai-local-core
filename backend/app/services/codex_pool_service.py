@@ -100,6 +100,8 @@ class CodexPoolService:
                     )
 
             auth_service = RuntimeAuthService()
+            available_runtime_count = len(runtimes)
+            available_quota_scope_count = self._count_distinct_quota_scopes(runtimes)
             for runtime in runtimes:
                 bundle = self._build_runtime_bundle(runtime, auth_service)
                 if not bundle:
@@ -108,13 +110,21 @@ class CodexPoolService:
                 runtime.last_error_code = None
                 db.commit()
                 bundle["selected_runtime_id"] = runtime.id
+                bundle["available_runtime_count"] = available_runtime_count
+                bundle["available_quota_scope_count"] = available_quota_scope_count
                 return bundle
 
             if preferred_runtime_id and not allow_fallback:
                 return {
                     "error": f"Preferred Codex runtime unavailable: {preferred_runtime_id}",
+                    "available_runtime_count": available_runtime_count,
+                    "available_quota_scope_count": available_quota_scope_count,
                 }
-            return {"error": "No available Codex runtimes in pool"}
+            return {
+                "error": "No available Codex runtimes in pool",
+                "available_runtime_count": available_runtime_count,
+                "available_quota_scope_count": available_quota_scope_count,
+            }
         finally:
             db.close()
 
@@ -255,3 +265,11 @@ class CodexPoolService:
         metadata = dict(getattr(runtime, "extra_metadata", None) or {})
         value = str(metadata.get("quota_scope_key") or "").strip()
         return value or None
+
+    @classmethod
+    def _count_distinct_quota_scopes(cls, runtimes: list[Any]) -> int:
+        scopes = {
+            cls._quota_scope_key(runtime) or f"runtime:{getattr(runtime, 'id', '')}"
+            for runtime in runtimes
+        }
+        return len(scopes)

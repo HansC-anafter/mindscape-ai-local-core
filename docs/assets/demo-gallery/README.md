@@ -35,6 +35,15 @@ Examples:
 - `fallback-execution-summary.json`: execution summary for the current degraded fallback evidence
 - `compare-card-summary.json`: trace file for the generated comparison card
 
+### D3. Complex Relation Stress Preview Mesh
+
+- `01-source.jpeg`: copyright-safe denser indoor source image used for the stress or honesty lane
+- `02-preview-render.png`: front-facing preview still from the generated Blender bundle
+- `03-oblique-view.png`: documentation capture that makes the rough spatial split easier to inspect
+- `04-side-view.png`: documentation capture that proves non-flat candidate depth under a messier scene
+- `summary.json`: public-safe summary for current stress-lane status, warnings, and claims
+- `views-summary.json`: shot metadata for the checked-in stills
+
 ## Public-safe Rules
 
 - Keep titles and captions provider-neutral unless provider naming is needed for operator debugging.

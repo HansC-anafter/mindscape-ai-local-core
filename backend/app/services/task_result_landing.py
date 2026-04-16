@@ -474,11 +474,11 @@ class TaskResultLandingService:
         if not isinstance(execution_trace, dict):
             execution_trace = {}
 
-        sandbox_root = TaskResultLandingService._resolve_attachment_snapshot_root(
+        sandbox_roots = TaskResultLandingService._resolve_attachment_snapshot_roots(
             result_data=result_data,
             execution_trace=execution_trace,
         )
-        if sandbox_root is None:
+        if not sandbox_roots:
             return []
 
         desired_filenames = TaskResultLandingService._deliverable_filenames_from_identity(
@@ -518,26 +518,32 @@ class TaskResultLandingService:
                 continue
             if filename in seen:
                 continue
-            file_path = (sandbox_root / candidate_rel).resolve()
+            resolved_file_path: Optional[pathlib.Path] = None
+            for sandbox_root in sandbox_roots:
+                file_path = (sandbox_root / candidate_rel).resolve()
+                try:
+                    file_path.relative_to(sandbox_root)
+                except ValueError:
+                    continue
+                if not file_path.is_file():
+                    continue
+                if (
+                    candidate_rel in identity_only_paths
+                    and not TaskResultLandingService._file_matches_task_window(
+                        file_path=file_path,
+                        task=task,
+                    )
+                ):
+                    continue
+                resolved_file_path = file_path
+                break
+            if resolved_file_path is None:
+                continue
             try:
-                file_path.relative_to(sandbox_root)
-            except ValueError:
-                continue
-            if not file_path.is_file():
-                continue
-            if (
-                candidate_rel in identity_only_paths
-                and not TaskResultLandingService._file_matches_task_window(
-                    file_path=file_path,
-                    task=task,
-                )
-            ):
-                continue
-            try:
-                content = file_path.read_text(encoding="utf-8")
+                content = resolved_file_path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 try:
-                    content = file_path.read_bytes()
+                    content = resolved_file_path.read_bytes()
                 except OSError:
                     continue
             except OSError:
@@ -553,11 +559,11 @@ class TaskResultLandingService:
         return attachments
 
     @staticmethod
-    def _resolve_attachment_snapshot_root(
+    def _resolve_attachment_snapshot_roots(
         *,
         result_data: Dict[str, Any],
         execution_trace: Dict[str, Any],
-    ) -> Optional[pathlib.Path]:
+    ) -> List[pathlib.Path]:
         candidates: List[Any] = [
             execution_trace.get("sandbox_path"),
             execution_trace.get("effective_sandbox_path"),
@@ -571,14 +577,18 @@ class TaskResultLandingService:
                 ]
             )
 
+        roots: List[pathlib.Path] = []
+        seen: set[pathlib.Path] = set()
         for raw_path in candidates:
             candidate = _clean_string(raw_path)
             if not candidate:
                 continue
             candidate_path = pathlib.Path(candidate).expanduser().resolve()
-            if candidate_path.exists():
-                return candidate_path
-        return None
+            if not candidate_path.exists() or candidate_path in seen:
+                continue
+            seen.add(candidate_path)
+            roots.append(candidate_path)
+        return roots
 
     @staticmethod
     def _deliverable_probe_paths_from_identity(

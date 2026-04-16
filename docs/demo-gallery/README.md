@@ -79,6 +79,21 @@ Current baseline checked in on `2026-04-16`:
 - fallback evidence currently focuses on preview/rendered output plus execution summary, not full parity with the candidate lane
 - a public-safe comparison card is now checked in for faster onboarding
 
+### 6. Complex Relation Stress Case
+
+- **What goes in**: one denser indoor image with a subject plus multiple scene objects and surfaces
+- **What comes out**: a rough but inspectable scene-plus-person candidate bundle
+- **What this proves**: the preview artifact contract can still close on a harder image, not just the clean hero lane
+- **What this does not prove**: polished production geometry or clean launcher behavior on every host
+- **Current status**: candidate stress-case preview lane
+- **Deep dive**: [Complex Relation Stress Preview Mesh](../use-cases/complex-relation-stress-preview-mesh.md)
+
+Current baseline checked in on `2026-04-16`:
+
+- public-safe source input plus `front / oblique / side` stills are now checked in
+- the lane proves bounded artifact closure under messier indoor conditions
+- this case should be read as an honesty layer, not as the first hero screenshot
+
 ## Screenshot Rule
 
 When screenshots are added, each demo should include:

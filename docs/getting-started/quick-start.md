@@ -25,9 +25,10 @@ If you want the shortest path to "what can this repo show me today?", read these
 
 1. [Demo Gallery](../demo-gallery/README.md)
 2. [Single-Image Preview Mesh](../use-cases/single-image-preview-mesh.md)
-3. [Candidate vs Fallback Comparison](../use-cases/candidate-vs-fallback-comparison.md)
-4. [Fixed-Scene Subject Swap](../use-cases/fixed-scene-subject-swap.md)
-5. [Artifact Taxonomy](../reference/artifact-taxonomy.md)
+3. [Complex Relation Stress Preview Mesh](../use-cases/complex-relation-stress-preview-mesh.md)
+4. [Candidate vs Fallback Comparison](../use-cases/candidate-vs-fallback-comparison.md)
+5. [Fixed-Scene Subject Swap](../use-cases/fixed-scene-subject-swap.md)
+6. [Artifact Taxonomy](../reference/artifact-taxonomy.md)
 
 What you will learn:
 
@@ -38,6 +39,7 @@ What you will learn:
 Current checked-in evidence:
 
 - the `Single-Image Preview Mesh` lane now includes a source image, a captured preview render, and a machine-readable smoke summary
+- the `Complex Relation Stress Preview Mesh` lane now adds a public-safe honesty case for a denser indoor image, with front/oblique/side stills checked in
 
 Important:
 

@@ -10,7 +10,7 @@
 |-----------------|-----------------------------------|-----------------|
 | **Brand and Content Governance** | Brand voice, cross-channel consistency, storyline coverage, rollback-able content decisions | [Brand Content Governance](./brand-content-governance.md) |
 | **Narrative Direction and Role Evolution** | Role arcs, performer guidance, persona targets, storyline-to-execution continuity | [Portable Expert Viewpoint Modules](./portable-expert-viewpoint-modules.md) |
-| **Spatial Runtime and Scene Continuity** | Scene identity, subject continuity, preview mesh assets, world/runtime handoff summaries | [Single-Image Preview Mesh](./single-image-preview-mesh.md), [Fixed-Scene Subject Swap](./fixed-scene-subject-swap.md) |
+| **Spatial Runtime and Scene Continuity** | Scene identity, subject continuity, preview mesh assets, world/runtime handoff summaries | [Single-Image Preview Mesh](./single-image-preview-mesh.md), [Fixed-Scene Subject Swap](./fixed-scene-subject-swap.md), [Complex Relation Stress Preview Mesh](./complex-relation-stress-preview-mesh.md) |
 | **Research and Knowledge Continuity** | Intent-aware research tracking, evidence packs, long-form synthesis, knowledge consolidation | [Yearly Personal Book](./yearly-personal-book.md) |
 | **Practice and Coaching Loops** | Session baselines, guided feedback, safety, retention, and long-term progress | Public deep dive coming soon |
 | **Agentic Workflow Sidecar** | Deliberation, memory packet routing, governed writeback across runs | public deep dive coming soon |
@@ -33,6 +33,7 @@ The detailed public use cases in this directory currently focus on representativ
 
 - [Brand Content Governance](./brand-content-governance.md)
 - [Candidate vs Fallback Comparison](./candidate-vs-fallback-comparison.md)
+- [Complex Relation Stress Preview Mesh](./complex-relation-stress-preview-mesh.md)
 - [Single-Image Preview Mesh](./single-image-preview-mesh.md) — includes checked-in smoke evidence and the first public-safe screenshot pair
 - [Fixed-Scene Subject Swap](./fixed-scene-subject-swap.md)
 - [Portable Expert Viewpoint Modules](./portable-expert-viewpoint-modules.md)

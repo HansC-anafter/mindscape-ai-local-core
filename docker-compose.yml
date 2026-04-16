@@ -229,7 +229,10 @@ services:
       LOCAL_CORE_RUNNER_PROFILE: browser_local
       LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_BROWSER_ACCEPTED_PARTITIONS:-browser_local}
       LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_BROWSER_ACCEPTED_RESOURCE_CLASSES:-browser}
-      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-4}
+      # Total browser-runner task cap. Lock-specific concurrency still applies inside this ceiling.
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-2}
+      # Cap concurrent thumbnail browser fallbacks without changing task semantics.
+      IG_THUMBNAIL_BROWSER_FALLBACK_MAX_INFLIGHT: ${IG_THUMBNAIL_BROWSER_FALLBACK_MAX_INFLIGHT:-1}
 
   runner-vision:
     <<: *runner-common

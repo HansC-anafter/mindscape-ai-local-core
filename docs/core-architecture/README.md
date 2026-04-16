@@ -31,6 +31,8 @@ Important public-safe boundaries:
 
 - local-core owns governance, bounded planning, and bounded writeback
 - installable/runtime packs own provider-specific execution logic
+- pack workbench/product UI source is pack-owned via `manifest.yaml`
+  `ui_components`, while Local-Core hosts the installed runtime shell/loader
 - world memory stores summaries, refs, and traceability keys rather than raw provider payloads
 - `Project / Flow / Playbook / Sandbox` remain an important consumer path, but they are not the only public mental model anymore
 
@@ -104,7 +106,10 @@ Architecture and implementation details for upgrading execution-scoped chat from
 Corrective implementation plan for restoring the proper boundary: cloud repo remains pack authoring/packaging only, while Local-Core remains the runtime host for workspace-generic execution operator surfaces and execution-chat runtime.
 
 #### [Workbench Execution Chat Entry](./workbench-execution-chat-entry.md)
-Historical draft of the earlier pack-launched entry model. Kept for audit, but superseded by the toolbar revision document above.
+Historical draft of the earlier pack-launched entry model. Kept for audit only.
+Do not use it to infer pack workbench ownership; use the toolbar revision
+document above plus pack `manifest.yaml` `ui_components` as the current source
+of truth.
 
 #### [Workspace Execution Operator Toolbar Cleanup Checklist](./workspace-execution-operator-toolbar-cleanup-checklist-2026-03-22.md)
 Executed cleanup checklist for removing the rejected Local-Core launcher/context-menu experiment while preserving the canonical Local-Core execution runtime.

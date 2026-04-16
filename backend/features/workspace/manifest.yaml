@@ -6,7 +6,6 @@ version: 1.0.0
 description: Core workspace features including timeline, chat, routines, and executions.
 routes:
   - backend.features.workspace.routes:router
-  - backend.features.workspace.ig_avatar_proxy:router
 playbooks:
   - workspace_setup
   - workspace_chat

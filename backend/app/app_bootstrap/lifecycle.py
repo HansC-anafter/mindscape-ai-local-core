@@ -16,6 +16,7 @@ from backend.app.services.tool_rag_refresh import refresh_tool_rag_corpus
 
 logger = logging.getLogger(__name__)
 _TOOL_RAG_POST_READY_TASK_ATTR = "_tool_rag_post_ready_task"
+_PACK_VALIDATION_RESUME_TASK_ATTR = "_pack_validation_resume_task"
 
 
 async def _sync_tool_rag_pack_embedding_state(
@@ -91,6 +92,27 @@ async def _run_post_ready_tool_rag_warmup(app: FastAPI) -> None:
     except Exception as exc:
         app.state.tool_rag_post_ready_completed = False
         logger.warning("Tool RAG post-ready warm-up failed: %s", exc, exc_info=True)
+
+
+async def _resume_pending_pack_validations_post_ready() -> None:
+    """Resume pending pack validations without blocking API bind/startup."""
+    try:
+        from backend.app.services.pack_validation_background import (
+            resume_pending_pack_validations,
+        )
+
+        await asyncio.sleep(0)
+        await resume_pending_pack_validations()
+        logger.info("Pending pack validations resume task completed")
+    except asyncio.CancelledError:
+        logger.info("Pending pack validations resume task cancelled")
+        raise
+    except Exception as exc:
+        logger.warning(
+            "Pending pack validations resume task failed: %s",
+            exc,
+            exc_info=True,
+        )
 
 
 async def _run_compile_job_startup_recovery() -> None:
@@ -544,15 +566,18 @@ async def run_startup(app: FastAPI):
         )
 
     try:
-        import asyncio
-        from backend.app.services.pack_validation_background import (
-            resume_pending_pack_validations,
+        pending_pack_validation_task = asyncio.create_task(
+            _resume_pending_pack_validations_post_ready(),
+            name="pending-pack-validations-resume",
         )
-
-        asyncio.create_task(resume_pending_pack_validations())
-        logger.info("Pending pack validations resume task started")
+        setattr(
+            app.state,
+            _PACK_VALIDATION_RESUME_TASK_ATTR,
+            pending_pack_validation_task,
+        )
+        logger.info("Pending pack validations resume task scheduled")
     except Exception as e:
-        logger.warning(f"Failed to resume pending pack validations: {e}")
+        logger.warning(f"Failed to schedule pending pack validations resume task: {e}")
 
     capture_phase_duration("startup.total", startup_started, logger)
 
@@ -568,6 +593,19 @@ async def run_shutdown(app: FastAPI):
             logger.info("Tool RAG post-ready warm-up task cancelled during shutdown")
         except Exception as exc:
             logger.warning("Tool RAG post-ready task shutdown wait failed: %s", exc)
+
+    pack_validation_task = getattr(app.state, _PACK_VALIDATION_RESUME_TASK_ATTR, None)
+    if pack_validation_task is not None and not pack_validation_task.done():
+        pack_validation_task.cancel()
+        try:
+            await pack_validation_task
+        except asyncio.CancelledError:
+            logger.info("Pending pack validations resume task cancelled during shutdown")
+        except Exception as exc:
+            logger.warning(
+                "Pending pack validations resume task shutdown wait failed: %s",
+                exc,
+            )
 
     if hasattr(app.state, "cloud_connector"):
         connector = app.state.cloud_connector
