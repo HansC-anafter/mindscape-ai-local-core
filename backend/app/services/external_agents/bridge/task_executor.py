@@ -15,6 +15,7 @@ Usage:
     executor = HostBridgeTaskExecutor(workspace_root="/path/to/project")
     client = HostBridgeWSClient(
         workspace_id="ws-123",
+        surface="codex_cli",
         task_handler=executor,
     )
 """
@@ -23,9 +24,12 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shlex
 import shutil
+import socket
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -42,6 +46,13 @@ logger = logging.getLogger("task_executor")
 
 DEFAULT_TASK_TIMEOUT = 600  # 10 minutes
 MAX_OUTPUT_SIZE = 100_000  # characters
+CODEX_POOL_MAX_TASK_ATTEMPTS = 3
+DEFAULT_CLI_STALL_TIMEOUT_SECONDS = 180.0
+DEFAULT_AUTH_BUNDLE_TIMEOUT_SECONDS = 20.0
+DEFAULT_AUTH_BUNDLE_MAX_ATTEMPTS = 3
+DEFAULT_AUTH_BUNDLE_RETRY_DELAY_SECONDS = 0.5
+DEFAULT_QUOTA_REPORT_TIMEOUT_SECONDS = 10.0
+DEFAULT_QUOTA_REPORT_MAX_ATTEMPTS = 2
 
 
 @dataclass
@@ -67,6 +78,7 @@ class ExecutionContext:
     uploaded_files: List[Dict[str, Any]] = field(default_factory=list)
     recommended_pack_codes: List[str] = field(default_factory=list)
     file_hint: str = ""
+    inputs: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dispatch(cls, msg: Dict[str, Any]) -> "ExecutionContext":
@@ -92,6 +104,7 @@ class ExecutionContext:
             uploaded_files=ctx.get("uploaded_files", []),
             recommended_pack_codes=ctx.get("recommended_pack_codes", []),
             file_hint=ctx.get("file_hint", ""),
+            inputs=ctx.get("inputs", {}) if isinstance(ctx.get("inputs", {}), dict) else {},
         )
 
 
@@ -105,9 +118,11 @@ class ExecutionResult:
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     files_modified: List[str] = field(default_factory=list)
     files_created: List[str] = field(default_factory=list)
+    attachments: List[Dict[str, Any]] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload = {
             "status": self.status,
             "output": self.output,
             "error": self.error,
@@ -115,6 +130,11 @@ class ExecutionResult:
             "files_modified": self.files_modified,
             "files_created": self.files_created,
         }
+        if self.attachments:
+            payload["attachments"] = self.attachments
+        if self.metadata:
+            payload["metadata"] = self.metadata
+        return payload
 
 
 # Type for progress callback: async fn(execution_id, percent, message)
@@ -142,7 +162,7 @@ class HostBridgeTaskExecutor:
         timeout: int = DEFAULT_TASK_TIMEOUT,
         command_builder: Optional[Callable[[ExecutionContext], List[str]]] = None,
         progress_callback: Optional[ProgressCallback] = None,
-        runtime_surface: str = "gemini_cli",
+        runtime_surface: Optional[str] = None,
     ):
         """
         Args:
@@ -156,7 +176,9 @@ class HostBridgeTaskExecutor:
         self.timeout = timeout
         self.command_builder = command_builder or self._default_command_builder
         self.progress_callback = progress_callback
-        self.runtime_surface = runtime_surface or "gemini_cli"
+        self.runtime_surface = (runtime_surface or "").strip().lower()
+        if not self.runtime_surface:
+            raise ValueError("runtime_surface is required for HostBridgeTaskExecutor")
 
         # Track active executions for cancellation
         self._active: Dict[str, asyncio.subprocess.Process] = {}
@@ -257,7 +279,7 @@ class HostBridgeTaskExecutor:
         ctx: ExecutionContext,
         timeout: int,
     ) -> ExecutionResult:
-        runtime_surface = (self.runtime_surface or "gemini_cli").strip().lower()
+        runtime_surface = self.runtime_surface
         if runtime_surface == "gemini_cli":
             return await self._execute_via_gemini_runtime_bridge(ctx, timeout=timeout)
         if runtime_surface == "codex_cli":
@@ -317,32 +339,55 @@ class HostBridgeTaskExecutor:
             f"{backend_url}/api/v1/auth/cli-token?"
             f"{urllib.parse.urlencode(params)}"
         )
-        try:
-            req = urllib.request.Request(url, method="GET")
-            req.add_header("Accept", "application/json")
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read().decode())
-            env = data.get("env")
-            data["env"] = (
-                {
-                    str(key): str(value)
-                    for key, value in env.items()
-                    if value is not None and str(value) != ""
-                }
-                if isinstance(env, dict)
-                else {}
-            )
-            return data
-        except (urllib.error.URLError, json.JSONDecodeError, OSError) as exc:
-            logger.warning(
-                "[TaskExecutor] Failed to fetch auth bundle for %s: %s",
-                runtime_name,
-                exc,
-            )
-            return {
-                "auth_mode": "env_fallback",
-                "env": self._fallback_runtime_auth_env(runtime_name),
-            }
+        timeout_seconds = self._parse_env_float(
+            "MINDSCAPE_CLI_AUTH_BUNDLE_TIMEOUT_SECONDS",
+            DEFAULT_AUTH_BUNDLE_TIMEOUT_SECONDS,
+            minimum=1.0,
+        )
+        max_attempts = self._parse_env_int(
+            "MINDSCAPE_CLI_AUTH_BUNDLE_MAX_ATTEMPTS",
+            DEFAULT_AUTH_BUNDLE_MAX_ATTEMPTS,
+            minimum=1,
+        )
+        retry_delay_seconds = self._parse_env_float(
+            "MINDSCAPE_CLI_AUTH_BUNDLE_RETRY_DELAY_SECONDS",
+            DEFAULT_AUTH_BUNDLE_RETRY_DELAY_SECONDS,
+            minimum=0.0,
+        )
+        last_exc: Optional[BaseException] = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                req = urllib.request.Request(url, method="GET")
+                req.add_header("Accept", "application/json")
+                with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+                    data = json.loads(resp.read().decode())
+                env = data.get("env")
+                data["env"] = (
+                    {
+                        str(key): str(value)
+                        for key, value in env.items()
+                        if value is not None and str(value) != ""
+                    }
+                    if isinstance(env, dict)
+                    else {}
+                )
+                return data
+            except (urllib.error.URLError, json.JSONDecodeError, OSError) as exc:
+                last_exc = exc
+                if attempt < max_attempts and self._is_retryable_http_error(exc):
+                    time.sleep(retry_delay_seconds)
+                    continue
+                break
+
+        logger.warning(
+            "[TaskExecutor] Failed to fetch auth bundle for %s: %s",
+            runtime_name,
+            last_exc,
+        )
+        return {
+            "auth_mode": "env_fallback",
+            "env": self._fallback_runtime_auth_env(runtime_name),
+        }
 
     async def _fetch_runtime_auth_env(
         self,
@@ -353,6 +398,106 @@ class HostBridgeTaskExecutor:
             self._fetch_runtime_auth_bundle_sync,
             runtime_name,
             ctx,
+        )
+
+    def _report_runtime_quota_exhausted_sync(
+        self,
+        runtime_name: str,
+        runtime_id: str,
+    ) -> None:
+        backend_url = self._resolve_backend_api_url()
+        if not backend_url:
+            return
+        url = (
+            f"{backend_url}/api/v1/auth/runtime-quota-exhausted?"
+            f"{urllib.parse.urlencode({'surface': runtime_name, 'runtime_id': runtime_id})}"
+        )
+        timeout_seconds = self._parse_env_float(
+            "MINDSCAPE_CLI_RUNTIME_QUOTA_REPORT_TIMEOUT_SECONDS",
+            DEFAULT_QUOTA_REPORT_TIMEOUT_SECONDS,
+            minimum=1.0,
+        )
+        max_attempts = self._parse_env_int(
+            "MINDSCAPE_CLI_RUNTIME_QUOTA_REPORT_MAX_ATTEMPTS",
+            DEFAULT_QUOTA_REPORT_MAX_ATTEMPTS,
+            minimum=1,
+        )
+        last_exc: Optional[BaseException] = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                req = urllib.request.Request(url, method="POST")
+                req.add_header("Accept", "application/json")
+                with urllib.request.urlopen(req, timeout=timeout_seconds):
+                    return
+            except (urllib.error.URLError, OSError) as exc:
+                last_exc = exc
+                if attempt < max_attempts and self._is_retryable_http_error(exc):
+                    continue
+                break
+        logger.warning(
+            "[TaskExecutor] Failed to report quota exhaustion for %s runtime %s",
+            runtime_name,
+            runtime_id,
+        )
+
+    @staticmethod
+    def _parse_env_float(name: str, default: float, *, minimum: float) -> float:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return default
+        try:
+            return max(minimum, float(raw))
+        except ValueError:
+            logger.warning(
+                "[TaskExecutor] Invalid %s=%r; using %.1f",
+                name,
+                raw,
+                default,
+            )
+            return default
+
+    @staticmethod
+    def _parse_env_int(name: str, default: int, *, minimum: int) -> int:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return default
+        try:
+            return max(minimum, int(raw))
+        except ValueError:
+            logger.warning(
+                "[TaskExecutor] Invalid %s=%r; using %d",
+                name,
+                raw,
+                default,
+            )
+            return default
+
+    @staticmethod
+    def _is_retryable_http_error(exc: BaseException) -> bool:
+        if isinstance(exc, TimeoutError | socket.timeout):
+            return True
+        if isinstance(exc, urllib.error.URLError):
+            reason = exc.reason
+            if isinstance(reason, TimeoutError | socket.timeout):
+                return True
+            if isinstance(reason, OSError) and "timed out" in str(reason).lower():
+                return True
+            return "timed out" in str(exc).lower()
+        if isinstance(exc, OSError):
+            return "timed out" in str(exc).lower()
+        return False
+
+    async def _report_runtime_quota_exhausted(
+        self,
+        runtime_name: str,
+        runtime_id: str,
+    ) -> None:
+        if not runtime_id:
+            return
+        await asyncio.to_thread(
+            self._report_runtime_quota_exhausted_sync,
+            runtime_name,
+            runtime_id,
         )
 
     @staticmethod
@@ -436,6 +581,7 @@ class HostBridgeTaskExecutor:
             "task": ctx.task,
             "allowed_tools": ctx.allowed_tools,
             "max_duration": timeout,
+            "model": ctx.model,
             "backend_api_url": backend_url,
             "context": {
                 "project_id": ctx.project_id,
@@ -579,9 +725,15 @@ class HostBridgeTaskExecutor:
         timeout: int,
     ) -> ExecutionResult:
         binary = self._resolve_runtime_binary("codex_cli")
-        cwd = ctx.sandbox_path or self.workspace_root
-        if not os.path.isdir(cwd):
-            cwd = self.workspace_root
+        cwd, snapshot_root, snapshot_paths = self._resolve_cli_runtime_paths(ctx)
+        stall_timeout = min(
+            float(timeout),
+            self._parse_env_float(
+                "MINDSCAPE_CLI_STALL_TIMEOUT_SECONDS",
+                DEFAULT_CLI_STALL_TIMEOUT_SECONDS,
+                minimum=5.0,
+            ),
+        )
 
         control_cmd = self._build_codex_control_command(binary, ctx.control_action)
         if control_cmd:
@@ -592,13 +744,19 @@ class HostBridgeTaskExecutor:
                     control_cmd,
                     cwd,
                     runtime_name="codex_cli",
+                    snapshot_root=snapshot_root,
+                    snapshot_paths=snapshot_paths,
+                    stall_timeout=stall_timeout,
                 ),
                 timeout=timeout,
             )
 
         prompt = self._build_runtime_prompt(ctx)
-        auth_bundle = await self._fetch_runtime_auth_env("codex_cli", ctx)
-        extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
+        max_attempts = max(
+            1,
+            int(os.environ.get("MINDSCAPE_CODEX_POOL_MAX_TASK_ATTEMPTS", CODEX_POOL_MAX_TASK_ATTEMPTS)),
+        )
+        attempted_runtime_ids: set[str] = set()
 
         with tempfile.NamedTemporaryFile(
             prefix="mindscape_codex_last_",
@@ -624,18 +782,121 @@ class HostBridgeTaskExecutor:
         if ctx.max_duration:
             # Codex currently does not expose an explicit timeout flag; runner timeout is enforced outside.
             pass
-        await self._report_progress(ctx.execution_id, 15, "Calling Codex CLI")
         try:
-            return await asyncio.wait_for(
-                self._run_cli_agent_subprocess(
-                    ctx,
-                    cmd,
-                    cwd,
-                    runtime_name="codex_cli",
-                    last_message_path=last_message_path,
-                    extra_env=extra_env if isinstance(extra_env, dict) else None,
-                ),
-                timeout=timeout,
+            last_quota_error = ""
+            attempt = 1
+            while attempt <= max_attempts:
+                auth_bundle = await self._fetch_runtime_auth_env("codex_cli", ctx)
+                if isinstance(auth_bundle, dict):
+                    bundle_attempt_capacity_raw = (
+                        auth_bundle.get("available_quota_scope_count")
+                        or auth_bundle.get("available_runtime_count")
+                        or 0
+                    )
+                    try:
+                        bundle_attempt_capacity = int(bundle_attempt_capacity_raw)
+                    except (TypeError, ValueError):
+                        bundle_attempt_capacity = 0
+                    if bundle_attempt_capacity > max_attempts:
+                        max_attempts = bundle_attempt_capacity
+                extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
+                selected_runtime_id = (
+                    str(auth_bundle.get("selected_runtime_id") or "").strip()
+                    if isinstance(auth_bundle, dict)
+                    else ""
+                )
+                if attempt > 1 and not selected_runtime_id:
+                    pool_error = ""
+                    if isinstance(auth_bundle, dict):
+                        pool_error = str(
+                            auth_bundle.get("error")
+                            or auth_bundle.get("warning")
+                            or ""
+                        ).strip()
+                    error_text = (
+                        f"{last_quota_error} (pool failover unavailable: {pool_error})"
+                        if last_quota_error and pool_error
+                        else last_quota_error
+                        or pool_error
+                        or "Codex pool failover did not yield an alternate runtime"
+                    )
+                    return ExecutionResult(
+                        status="failed",
+                        output="",
+                        error=error_text,
+                        metadata={"selected_runtime_id": None},
+                    )
+                if selected_runtime_id and selected_runtime_id in attempted_runtime_ids:
+                    logger.warning(
+                        "[TaskExecutor] Codex pool returned previously attempted runtime %s for %s; stopping failover loop",
+                        selected_runtime_id,
+                        ctx.execution_id,
+                    )
+                    error_text = (
+                        f"{last_quota_error} (pool reused exhausted runtime {selected_runtime_id})"
+                        if last_quota_error
+                        else f"Codex pool reused exhausted runtime {selected_runtime_id}"
+                    )
+                    return ExecutionResult(
+                        status="failed",
+                        output="",
+                        error=error_text,
+                        metadata={"selected_runtime_id": selected_runtime_id},
+                    )
+
+                progress_message = "Calling Codex CLI"
+                if attempt > 1:
+                    progress_message = f"Retrying Codex CLI via pool failover ({attempt}/{max_attempts})"
+                await self._report_progress(ctx.execution_id, 15, progress_message)
+
+                result = await asyncio.wait_for(
+                    self._run_cli_agent_subprocess(
+                        ctx,
+                        cmd,
+                        cwd,
+                        runtime_name="codex_cli",
+                        last_message_path=last_message_path,
+                        snapshot_root=snapshot_root,
+                        snapshot_paths=snapshot_paths,
+                        extra_env=extra_env if isinstance(extra_env, dict) else None,
+                        selected_runtime_id=selected_runtime_id,
+                        stall_timeout=stall_timeout,
+                    ),
+                    timeout=timeout,
+                )
+                if result.status == "completed":
+                    return result
+
+                if not self._should_retry_codex_runtime_fault(result):
+                    return result
+
+                if not selected_runtime_id:
+                    return result
+
+                last_quota_error = str((result.error or "") or (result.output or "")).strip()
+                attempted_runtime_ids.add(selected_runtime_id)
+                if attempt >= max_attempts:
+                    return result
+
+                failure_label = (
+                    "quota-like failure"
+                    if self._looks_like_quota_exhaustion(last_quota_error)
+                    else "retryable runtime fault"
+                )
+                logger.warning(
+                    "[TaskExecutor] Codex runtime %s %s for %s; attempting pool failover (%d/%d)",
+                    selected_runtime_id,
+                    failure_label,
+                    ctx.execution_id,
+                    attempt,
+                    max_attempts,
+                )
+                attempt += 1
+
+            return ExecutionResult(
+                status="failed",
+                output="",
+                error="Codex pool failover exhausted without a successful execution",
             )
         finally:
             try:
@@ -650,9 +911,7 @@ class HostBridgeTaskExecutor:
     ) -> ExecutionResult:
         binary = self._resolve_runtime_binary("claude_code_cli")
         prompt = self._build_runtime_prompt(ctx)
-        cwd = ctx.sandbox_path or self.workspace_root
-        if not os.path.isdir(cwd):
-            cwd = self.workspace_root
+        cwd, snapshot_root, snapshot_paths = self._resolve_cli_runtime_paths(ctx)
         auth_bundle = await self._fetch_runtime_auth_env("claude_code_cli", ctx)
         extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
 
@@ -671,16 +930,101 @@ class HostBridgeTaskExecutor:
             15,
             "Calling Claude Code CLI",
         )
+        stall_timeout = min(
+            float(timeout),
+            self._parse_env_float(
+                "MINDSCAPE_CLI_STALL_TIMEOUT_SECONDS",
+                DEFAULT_CLI_STALL_TIMEOUT_SECONDS,
+                minimum=5.0,
+            ),
+        )
         return await asyncio.wait_for(
             self._run_cli_agent_subprocess(
                 ctx,
                 cmd,
                 cwd,
                 runtime_name="claude_code_cli",
+                snapshot_root=snapshot_root,
+                snapshot_paths=snapshot_paths,
                 extra_env=extra_env if isinstance(extra_env, dict) else None,
+                stall_timeout=stall_timeout,
             ),
             timeout=timeout,
         )
+
+    @staticmethod
+    def _expected_snapshot_paths(ctx: ExecutionContext) -> List[str]:
+        inputs = ctx.inputs if isinstance(ctx.inputs, dict) else {}
+        candidates: List[str] = []
+
+        deliverable_path = inputs.get("deliverable_path")
+        if isinstance(deliverable_path, str) and deliverable_path.strip():
+            raw = deliverable_path.strip()
+            candidates.append(raw)
+            basename = os.path.basename(raw)
+            if basename and basename != raw:
+                candidates.append(basename)
+
+        deliverable_targets = inputs.get("deliverable_targets")
+        if isinstance(deliverable_targets, list):
+            for item in deliverable_targets:
+                if not isinstance(item, dict):
+                    continue
+                raw = (item.get("deliverable_path") or "").strip()
+                if not raw:
+                    continue
+                candidates.append(raw)
+                basename = os.path.basename(raw)
+                if basename and basename != raw:
+                    candidates.append(basename)
+
+        deduped: List[str] = []
+        seen: set[str] = set()
+        for raw in candidates:
+            normalized = raw.replace("\\", "/").lstrip("./")
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(normalized)
+        return deduped
+
+    def _resolve_cli_runtime_paths(
+        self,
+        ctx: ExecutionContext,
+    ) -> tuple[str, str, List[str]]:
+        """Resolve the CLI working dir and the optional diff snapshot root.
+
+        Host bridges receive sandbox paths from backend dispatch payloads, but those
+        paths may only exist inside the backend container. When the host cannot see
+        that sandbox, we still let CLI runtimes execute from the workspace root for
+        repository context. When a deliverable path is known, we probe only that
+        expected file so markdown assets can still be landed.
+        """
+        sandbox_path = (ctx.sandbox_path or "").strip()
+        if sandbox_path and os.path.isdir(sandbox_path):
+            return sandbox_path, sandbox_path, []
+
+        cwd = self.workspace_root if os.path.isdir(self.workspace_root) else os.getcwd()
+        expected_paths = self._expected_snapshot_paths(ctx)
+        if sandbox_path:
+            if expected_paths:
+                logger.warning(
+                    "[TaskExecutor] Host sandbox %r unavailable for %s; "
+                    "using cwd=%r with targeted snapshot for %s",
+                    sandbox_path,
+                    ctx.execution_id,
+                    cwd,
+                    expected_paths,
+                )
+            else:
+                logger.warning(
+                    "[TaskExecutor] Host sandbox %r unavailable for %s; "
+                    "using cwd=%r without file snapshot",
+                    sandbox_path,
+                    ctx.execution_id,
+                    cwd,
+                )
+        return cwd, (cwd if expected_paths else ""), expected_paths
 
     async def _run_cli_agent_subprocess(
         self,
@@ -689,9 +1033,18 @@ class HostBridgeTaskExecutor:
         cwd: str,
         runtime_name: str,
         last_message_path: Optional[str] = None,
+        snapshot_root: Optional[str] = None,
+        snapshot_paths: Optional[List[str]] = None,
         extra_env: Optional[Dict[str, str]] = None,
+        selected_runtime_id: Optional[str] = None,
+        stall_timeout: Optional[float] = None,
     ) -> ExecutionResult:
-        before_files = self._snapshot_files(cwd)
+        resolved_snapshot_root = (snapshot_root or "").strip()
+        before_files = (
+            self._snapshot_files(resolved_snapshot_root, only_paths=snapshot_paths)
+            if resolved_snapshot_root
+            else {}
+        )
         env = os.environ.copy()
         env["MINDSCAPE_AGENT_RUNTIME"] = runtime_name
         env["MINDSCAPE_AGENT_EXECUTION_ID"] = ctx.execution_id
@@ -712,12 +1065,42 @@ class HostBridgeTaskExecutor:
             cwd=cwd,
             env=env,
         )
+        logger.info(
+            "[TaskExecutor] Spawned %s subprocess pid=%s for execution %s",
+            runtime_name,
+            proc.pid,
+            ctx.execution_id,
+        )
         self._active[ctx.execution_id] = proc
         progress_task = asyncio.create_task(
             self._progress_ticker(ctx.execution_id, proc)
         )
 
-        stdout_bytes, stderr_bytes = await proc.communicate()
+        try:
+            stdout_bytes, stderr_bytes = await self._wait_for_cli_subprocess(
+                proc=proc,
+                runtime_name=runtime_name,
+                execution_id=ctx.execution_id,
+                last_message_path=last_message_path,
+                snapshot_root=resolved_snapshot_root,
+                snapshot_paths=snapshot_paths,
+                stall_timeout=stall_timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            progress_task.cancel()
+            try:
+                await progress_task
+            except asyncio.CancelledError:
+                pass
+            return ExecutionResult(
+                status="timeout",
+                output="",
+                error=str(exc),
+                metadata={
+                    "effective_sandbox_path": resolved_snapshot_root or cwd,
+                    "selected_runtime_id": selected_runtime_id or None,
+                },
+            )
 
         progress_task.cancel()
         try:
@@ -725,41 +1108,368 @@ class HostBridgeTaskExecutor:
         except asyncio.CancelledError:
             pass
 
-        after_files = self._snapshot_files(cwd)
+        after_files = (
+            self._snapshot_files(resolved_snapshot_root, only_paths=snapshot_paths)
+            if resolved_snapshot_root
+            else {}
+        )
         files_created, files_modified = self._diff_file_snapshots(before_files, after_files)
+        attachments = self._collect_targeted_attachments(
+            snapshot_root=resolved_snapshot_root,
+            cwd=cwd,
+            snapshot_paths=snapshot_paths,
+        )
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
         stderr = stderr_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
         output = stdout
+        synthesized_error: Optional[str] = None
 
-        if last_message_path and os.path.isfile(last_message_path):
-            try:
-                output = Path(last_message_path).read_text(encoding="utf-8").strip() or output
-            except OSError:
-                pass
-        if not output and stderr:
-            output = stderr
+        if runtime_name == "codex_cli":
+            output, synthesized_error = self._resolve_codex_cli_output(
+                stdout=stdout,
+                stderr=stderr,
+                last_message_path=last_message_path,
+            )
+        else:
+            if last_message_path and os.path.isfile(last_message_path):
+                try:
+                    output = (
+                        Path(last_message_path).read_text(encoding="utf-8").strip()
+                        or output
+                    )
+                except OSError:
+                    pass
+            if not output and stderr:
+                output = stderr
 
-        if proc.returncode == 0:
+        if proc.returncode == 0 and not synthesized_error:
+            logger.info(
+                "[TaskExecutor] %s subprocess pid=%s finished with code 0 for %s",
+                runtime_name,
+                proc.pid,
+                ctx.execution_id,
+            )
             return ExecutionResult(
                 status="completed",
                 output=output or "(no response from agent)",
                 files_modified=files_modified,
                 files_created=files_created,
+                attachments=attachments,
+                metadata={
+                    "effective_sandbox_path": resolved_snapshot_root or cwd,
+                    "selected_runtime_id": selected_runtime_id or None,
+                },
             )
+        if synthesized_error:
+            if selected_runtime_id and self._looks_like_quota_exhaustion(synthesized_error):
+                await self._report_runtime_quota_exhausted(
+                    runtime_name,
+                    selected_runtime_id,
+                )
+            logger.warning(
+                "[TaskExecutor] %s subprocess pid=%s produced no usable agent message "
+                "for %s: %s",
+                runtime_name,
+                proc.pid,
+                ctx.execution_id,
+                synthesized_error,
+            )
+            return ExecutionResult(
+                status="failed",
+                output=output,
+                error=synthesized_error,
+                files_modified=files_modified,
+                files_created=files_created,
+                attachments=attachments,
+                metadata={
+                    "effective_sandbox_path": resolved_snapshot_root or cwd,
+                    "selected_runtime_id": selected_runtime_id or None,
+                },
+            )
+        if selected_runtime_id and self._looks_like_quota_exhaustion(stderr or stdout):
+            await self._report_runtime_quota_exhausted(
+                runtime_name,
+                selected_runtime_id,
+            )
+        logger.warning(
+            "[TaskExecutor] %s subprocess pid=%s finished with code %s for %s",
+            runtime_name,
+            proc.pid,
+            proc.returncode,
+            ctx.execution_id,
+        )
         return ExecutionResult(
             status="failed",
             output=output,
             error=f"Exit code {proc.returncode}: {stderr[:500] or stdout[:500]}",
             files_modified=files_modified,
             files_created=files_created,
+            attachments=attachments,
+            metadata={
+                "effective_sandbox_path": resolved_snapshot_root or cwd,
+                "selected_runtime_id": selected_runtime_id or None,
+            },
         )
 
+    async def _wait_for_cli_subprocess(
+        self,
+        *,
+        proc: asyncio.subprocess.Process,
+        runtime_name: str,
+        execution_id: str,
+        last_message_path: Optional[str],
+        snapshot_root: str,
+        snapshot_paths: Optional[List[str]],
+        stall_timeout: Optional[float],
+    ) -> tuple[bytes, bytes]:
+        communicate_task = asyncio.create_task(proc.communicate())
+        if not stall_timeout or stall_timeout <= 0:
+            return await communicate_task
+
+        poll_interval = min(5.0, max(0.5, stall_timeout / 6.0))
+        last_activity_at = time.monotonic()
+        last_activity_signature = self._cli_activity_signature(
+            last_message_path=last_message_path,
+            snapshot_root=snapshot_root,
+            snapshot_paths=snapshot_paths,
+        )
+
+        while True:
+            done, _ = await asyncio.wait({communicate_task}, timeout=poll_interval)
+            if communicate_task in done:
+                return await communicate_task
+
+            current_signature = self._cli_activity_signature(
+                last_message_path=last_message_path,
+                snapshot_root=snapshot_root,
+                snapshot_paths=snapshot_paths,
+            )
+            if current_signature != last_activity_signature:
+                last_activity_signature = current_signature
+                last_activity_at = time.monotonic()
+                continue
+
+            if time.monotonic() - last_activity_at < stall_timeout:
+                continue
+
+            logger.warning(
+                "[TaskExecutor] %s subprocess pid=%s stalled for %ss without message/file activity (%s)",
+                runtime_name,
+                proc.pid,
+                int(stall_timeout),
+                execution_id,
+            )
+            proc.kill()
+            await communicate_task
+            raise asyncio.TimeoutError(
+                f"{runtime_name} subprocess stalled after {int(stall_timeout)}s without file or message activity"
+            )
+
     @staticmethod
-    def _snapshot_files(root: str) -> Dict[str, tuple[int, int]]:
+    def _cli_activity_signature(
+        *,
+        last_message_path: Optional[str],
+        snapshot_root: str,
+        snapshot_paths: Optional[List[str]],
+    ) -> tuple[tuple[str, int, int], ...]:
+        observed: List[tuple[str, int, int]] = []
+
+        def _record(path: Path) -> None:
+            try:
+                stat = path.stat()
+            except OSError:
+                return
+            observed.append((str(path), int(stat.st_size), int(stat.st_mtime_ns)))
+
+        if last_message_path:
+            candidate = Path(last_message_path)
+            if candidate.is_file():
+                _record(candidate)
+
+        root_path = Path(snapshot_root) if snapshot_root else None
+        if root_path and root_path.is_dir() and isinstance(snapshot_paths, list):
+            seen_paths: set[str] = set()
+            for raw_path in snapshot_paths:
+                if not isinstance(raw_path, str):
+                    continue
+                normalized = raw_path.replace("\\", "/").lstrip("./")
+                filename = os.path.basename(normalized)
+                for probe in (normalized, filename):
+                    if not probe:
+                        continue
+                    candidate = root_path / probe
+                    candidate_str = str(candidate)
+                    if candidate_str in seen_paths or not candidate.is_file():
+                        continue
+                    _record(candidate)
+                    seen_paths.add(candidate_str)
+                    break
+
+        observed.sort()
+        return tuple(observed)
+
+    @staticmethod
+    def _collect_targeted_attachments(
+        *,
+        snapshot_root: str,
+        cwd: str,
+        snapshot_paths: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        if not isinstance(snapshot_paths, list) or not snapshot_paths:
+            return []
+
+        roots: List[Path] = []
+        seen_roots: set[str] = set()
+        for raw_root in (snapshot_root, cwd):
+            candidate = str(raw_root or "").strip()
+            if not candidate or candidate in seen_roots or not os.path.isdir(candidate):
+                continue
+            seen_roots.add(candidate)
+            roots.append(Path(candidate))
+
+        attachments: List[Dict[str, Any]] = []
+        seen_filenames: set[str] = set()
+        for raw_path in snapshot_paths:
+            if not isinstance(raw_path, str):
+                continue
+            normalized = raw_path.replace("\\", "/").lstrip("./")
+            filename = os.path.basename(normalized)
+            if not normalized or not filename or filename in seen_filenames:
+                continue
+
+            resolved_file: Optional[Path] = None
+            for root in roots:
+                for probe in (normalized, filename):
+                    candidate = root / probe
+                    if candidate.is_file():
+                        resolved_file = candidate
+                        break
+                if resolved_file is not None:
+                    break
+            if resolved_file is None:
+                continue
+
+            try:
+                content: Any = resolved_file.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                try:
+                    content = resolved_file.read_bytes()
+                except OSError:
+                    continue
+            except OSError:
+                continue
+
+            attachments.append(
+                {
+                    "filename": filename,
+                    "content": content,
+                }
+            )
+            seen_filenames.add(filename)
+
+        return attachments
+
+    @classmethod
+    def _resolve_codex_cli_output(
+        cls,
+        *,
+        stdout: str,
+        stderr: str,
+        last_message_path: Optional[str],
+    ) -> tuple[str, Optional[str]]:
+        """Prefer Codex's final agent message; reject transcript-only fallbacks."""
+        last_message = ""
+        if last_message_path and os.path.isfile(last_message_path):
+            try:
+                last_message = Path(last_message_path).read_text(
+                    encoding="utf-8"
+                ).strip()
+            except OSError:
+                last_message = ""
+        if last_message:
+            return last_message, None
+
+        transcript_only = "OpenAI Codex v" in stdout and "User instructions:" in stdout
+        no_last_message = "no last agent message" in stderr.lower()
+        codex_error = cls._extract_codex_cli_error(stdout=stdout, stderr=stderr)
+
+        if codex_error:
+            return "", codex_error
+        if no_last_message or transcript_only:
+            detail = "Codex CLI completed without producing a final agent message"
+            if stderr:
+                detail = f"{detail}; {stderr[:400]}"
+            return "", detail
+
+        output = stdout or stderr
+        return output, None
+
+    @staticmethod
+    def _extract_codex_cli_error(*, stdout: str, stderr: str) -> Optional[str]:
+        """Pull the most relevant Codex CLI error line from stderr/stdout."""
+        for source in (stderr, stdout):
+            if not source:
+                continue
+            matches = re.findall(
+                r"(?:^|\n)(?:\[[^\n]*\]\s*)?ERROR:\s*(.+)",
+                source,
+                flags=re.MULTILINE,
+            )
+            if matches:
+                return matches[-1].strip()
+        return None
+
+    @staticmethod
+    def _looks_like_quota_exhaustion(message: str) -> bool:
+        normalized = str(message or "").lower()
+        if not normalized:
+            return False
+        markers = (
+            "usage limit",
+            "rate limit",
+            "quota",
+            "too many requests",
+            "resource_exhausted",
+            "429",
+        )
+        return any(marker in normalized for marker in markers)
+
+    @classmethod
+    def _should_retry_codex_runtime_fault(cls, result: ExecutionResult) -> bool:
+        message = str((result.error or "") or (result.output or "")).strip()
+        if cls._looks_like_quota_exhaustion(message):
+            return True
+        if result.status == "timeout":
+            return True
+        normalized = message.lower()
+        return "subprocess stalled after" in normalized
+
+    @staticmethod
+    def _snapshot_files(
+        root: str,
+        *,
+        only_paths: Optional[List[str]] = None,
+    ) -> Dict[str, tuple[int, int]]:
         if not root or not os.path.isdir(root):
             return {}
         snapshot: Dict[str, tuple[int, int]] = {}
+        if only_paths:
+            for rel_path in only_paths:
+                if not isinstance(rel_path, str):
+                    continue
+                normalized = rel_path.replace("\\", "/").lstrip("./")
+                if not normalized:
+                    continue
+                full_path = os.path.join(root, normalized)
+                if not os.path.isfile(full_path):
+                    continue
+                try:
+                    stat = os.stat(full_path)
+                except OSError:
+                    continue
+                snapshot[normalized] = (stat.st_mtime_ns, stat.st_size)
+            return snapshot
         skip_dirs = {".git", "__pycache__", "node_modules", ".pytest_cache"}
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [name for name in dirnames if name not in skip_dirs]

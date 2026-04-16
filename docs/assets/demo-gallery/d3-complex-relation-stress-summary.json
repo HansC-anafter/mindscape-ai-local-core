@@ -1,0 +1,41 @@
+{
+  "status": "candidate_preview_artifact",
+  "category": "spatial_runtime_honesty_case",
+  "source_image": "d3-complex-relation-stress-01-source.jpeg",
+  "promotion_state": "candidate",
+  "mesh_validation": {
+    "primary_contract_ready": true,
+    "blender_separate_operability": true,
+    "scene_edit_mode_ready": true,
+    "scene_sculpt_mode_ready": true,
+    "person_edit_mode_ready": true,
+    "person_sculpt_mode_ready": true,
+    "oblique_view_valid": true
+  },
+  "observed_behavior": [
+    "scene and person preview artifacts were emitted for a multi-object indoor source image",
+    "the composition bundle emitted a reviewable Blender workfile and an export scene artifact",
+    "the stills checked in for this page were captured from the generated Blender bundle after composition completed"
+  ],
+  "what_this_proves": [
+    "bounded scene-plus-person candidate artifacts can still be emitted for a more complex indoor image",
+    "the repo can show a stress or honesty case without pretending it is equivalent to the cleaner hero lane"
+  ],
+  "what_this_does_not_prove": [
+    "production-grade geometry quality for dense indoor scenes",
+    "clean launcher stability on every host/runtime combination"
+  ],
+  "warnings": [
+    "checkpoint_unspecified",
+    "runtime_cuda_unavailable",
+    "triposr_effective_marching_cubes_backend:skimage",
+    "host_auto_background_launcher_cleanup_pending"
+  ],
+  "assets": {
+    "source": "d3-complex-relation-stress-01-source.jpeg",
+    "preview_render": "d3-complex-relation-stress-02-preview-render.png",
+    "oblique_view": "d3-complex-relation-stress-03-oblique-view.png",
+    "side_view": "d3-complex-relation-stress-04-side-view.png",
+    "views_summary": "d3-complex-relation-stress-views-summary.json"
+  }
+}

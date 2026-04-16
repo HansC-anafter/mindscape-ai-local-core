@@ -13,21 +13,303 @@ Supported modes:
       - vertex_ai       : GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION
   - Codex CLI:
       - openai_api_key  : OPENAI_API_KEY
-      - host_session    : empty env, host login is expected
+      - host_session    : host login, optionally isolated via runtime pool env
   - Claude Code CLI:
       - anthropic_api_key: ANTHROPIC_API_KEY
       - host_session     : empty env, host token is expected
 """
 
+import hashlib
 import logging
 import os
 import time
+from typing import Any, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+
+class RegisterHostSessionRuntimeRequest(BaseModel):
+    workspace_id: str = Field(..., description="Workspace that owns this runtime")
+    surface: str = Field(..., description="CLI surface, e.g. codex_cli")
+    owner_user_id: Optional[str] = Field(
+        default=None,
+        description="Optional workspace owner hint to avoid reloading workspace state",
+    )
+    client_id: Optional[str] = Field(
+        default=None,
+        description="Connected bridge client id for traceability",
+    )
+    runtime_id: Optional[str] = Field(
+        default=None,
+        description="Optional explicit runtime id override",
+    )
+    runtime_name: Optional[str] = Field(
+        default=None,
+        description="Optional display name override",
+    )
+    pool_group: Optional[str] = Field(
+        default=None,
+        description="Optional pool group override",
+    )
+    pool_enabled: bool = Field(
+        default=True,
+        description="Whether this runtime participates in pool rotation",
+    )
+    pool_priority: int = Field(
+        default=0,
+        description="Lower values are selected earlier within a pool",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Runtime metadata such as CODEX_HOME/HOME/XDG paths",
+    )
+
+
+def _default_pool_group_for_surface(surface: str) -> Optional[str]:
+    normalized = (surface or "").strip().lower()
+    if normalized == "codex_cli":
+        return "codex-cli-pool"
+    if normalized == "gemini_cli":
+        return "gca-pool"
+    return None
+
+
+def _load_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
+    if not workspace_id:
+        return None
+    try:
+        from ...services.stores.postgres.workspaces_store import PostgresWorkspacesStore
+
+        workspace = PostgresWorkspacesStore().get_workspace_sync(workspace_id)
+        return getattr(workspace, "owner_user_id", None) if workspace else None
+    except Exception:
+        logger.exception(
+            "Failed to resolve workspace owner for host-session runtime registration: %s",
+            workspace_id,
+        )
+        return None
+
+
+def _stable_host_session_runtime_id(
+    *,
+    owner_user_id: str,
+    surface: str,
+    client_id: Optional[str],
+    metadata: dict[str, Any],
+    explicit_runtime_id: Optional[str] = None,
+) -> str:
+    explicit = str(explicit_runtime_id or "").strip()
+    if explicit:
+        return explicit
+
+    home_hint = ""
+    for key in (
+        "CODEX_HOME",
+        "codex_home",
+        "host_session_home",
+        "HOME",
+        "XDG_CONFIG_HOME",
+    ):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            home_hint = value.strip()
+            break
+    if not home_hint:
+        home_hint = str(client_id or "default").strip() or "default"
+
+    digest = hashlib.sha1(
+        f"{owner_user_id}|{surface}|{home_hint}".encode("utf-8")
+    ).hexdigest()[:12]
+    normalized_surface = "".join(
+        ch if ch.isalnum() or ch in ("-", "_") else "-"
+        for ch in (surface or "cli")
+    ).strip("-") or "cli"
+    return f"runtime-{normalized_surface}-{digest}"
+
+
+def _upsert_host_session_runtime(
+    *,
+    owner_user_id: str,
+    request: RegisterHostSessionRuntimeRequest,
+) -> dict[str, Any]:
+    try:
+        from ...database.session import get_db_postgres as get_db
+    except ImportError:
+        try:
+            from ...database import get_db_postgres as get_db
+        except ImportError:
+            from mindscape.di.providers import get_db_session as get_db
+
+    from ...models.runtime_environment import RuntimeEnvironment
+
+    db = next(get_db())
+    try:
+        runtime_id = _stable_host_session_runtime_id(
+            owner_user_id=owner_user_id,
+            surface=request.surface,
+            client_id=request.client_id,
+            metadata=request.metadata,
+            explicit_runtime_id=request.runtime_id,
+        )
+        runtime = (
+            db.query(RuntimeEnvironment)
+            .filter(RuntimeEnvironment.id == runtime_id)
+            .first()
+        )
+        metadata = dict(request.metadata or {})
+        metadata.update(
+            {
+                "surface": request.surface,
+                "registered_via": "host_session_bridge",
+                "last_workspace_id": request.workspace_id,
+                "last_client_id": request.client_id,
+            }
+        )
+        pool_group = request.pool_group or _default_pool_group_for_surface(request.surface)
+        runtime_name = (
+            str(request.runtime_name or "").strip()
+            or f"{request.surface} host session"
+        )
+        config_url = f"/settings/runtime-environments/{runtime_id}"
+
+        if runtime is None:
+            runtime = RuntimeEnvironment(
+                id=runtime_id,
+                user_id=owner_user_id,
+                name=runtime_name,
+                description=f"Auto-registered host session for {request.surface}",
+                icon="terminal",
+                config_url=config_url,
+                auth_type="host_session",
+                auth_config={},
+                extra_metadata=metadata,
+                status="active",
+                auth_status="connected",
+                is_default=False,
+                supports_dispatch=True,
+                supports_cell=True,
+                recommended_for_dispatch=False,
+                pool_group=pool_group,
+                pool_enabled=request.pool_enabled,
+                pool_priority=request.pool_priority,
+                last_error_code=None,
+            )
+            db.add(runtime)
+        else:
+            if runtime.user_id != owner_user_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Runtime id collision for '{runtime_id}' while registering "
+                        f"{request.surface} host session"
+                    ),
+                )
+            runtime.name = runtime_name
+            runtime.description = f"Auto-registered host session for {request.surface}"
+            runtime.icon = runtime.icon or "terminal"
+            runtime.config_url = config_url
+            runtime.auth_type = "host_session"
+            runtime.auth_config = {}
+            existing_meta = dict(runtime.extra_metadata or {})
+            existing_meta.update(metadata)
+            runtime.extra_metadata = existing_meta
+            runtime.status = "active"
+            runtime.auth_status = "connected"
+            runtime.pool_group = pool_group
+            runtime.pool_enabled = request.pool_enabled
+            runtime.pool_priority = request.pool_priority
+            runtime.last_error_code = None
+
+        home_value = str(metadata.get("HOME") or "").strip()
+        codex_home_value = str(metadata.get("CODEX_HOME") or "").strip()
+        if home_value and codex_home_value:
+            candidates = (
+                db.query(RuntimeEnvironment)
+                .filter(
+                    RuntimeEnvironment.user_id == owner_user_id,
+                    RuntimeEnvironment.auth_type == "host_session",
+                )
+                .all()
+            )
+            for candidate in candidates:
+                if candidate.id == runtime.id:
+                    continue
+                candidate_meta = dict(candidate.extra_metadata or {})
+                candidate_surface = str(candidate_meta.get("surface") or "").strip().lower()
+                candidate_home = str(candidate_meta.get("HOME") or "").strip()
+                candidate_codex_home = str(candidate_meta.get("CODEX_HOME") or "").strip()
+                if candidate_surface != request.surface:
+                    continue
+                if candidate_home != home_value:
+                    continue
+                if candidate_codex_home:
+                    continue
+                if candidate.pool_group != pool_group:
+                    continue
+                candidate.pool_enabled = False
+                candidate_meta["shadowed_by_runtime_id"] = runtime.id
+                candidate.extra_metadata = candidate_meta
+
+        db.commit()
+        db.refresh(runtime)
+        payload = runtime.to_dict(include_sensitive=False)
+        payload["runtime_id"] = runtime.id
+        payload["owner_user_id"] = owner_user_id
+        return payload
+    finally:
+        db.close()
+
+def _get_codex_pool_bundle(
+    workspace_id: str | None = None,
+    auth_workspace_id: str | None = None,
+    source_workspace_id: str | None = None,
+) -> dict:
+    try:
+        from ...services.codex_pool_service import CodexPoolService
+        from ...services.codex_workspace_resolver import CodexWorkspaceResolver
+
+        selection = None
+        if workspace_id:
+            try:
+                selection = CodexWorkspaceResolver().resolve(
+                    workspace_id=workspace_id,
+                    auth_workspace_id=auth_workspace_id,
+                    source_workspace_id=source_workspace_id,
+                )
+            except ValueError:
+                logger.debug(
+                    "Workspace-scoped Codex pool selection not configured for workspace %s",
+                    workspace_id,
+                )
+
+        preferred_runtime_id = selection.selected_runtime_id if selection else None
+        allow_fallback = not bool(preferred_runtime_id)
+        pool_result = CodexPoolService().get_active_auth_bundle(
+            preferred_runtime_id=preferred_runtime_id,
+            allow_fallback=allow_fallback,
+        )
+        if "env" in pool_result and selection:
+            pool_result.update(
+                {
+                    "requested_workspace_id": selection.requested_workspace_id,
+                    "effective_workspace_id": selection.effective_workspace_id,
+                    "auth_workspace_id": selection.auth_workspace_id,
+                    "source_workspace_id": selection.source_workspace_id,
+                    "selection_reason": selection.selection_reason,
+                    "selection_trace": list(selection.trace),
+                }
+            )
+        return pool_result
+    except Exception:
+        logger.exception("Codex pool token lookup failed")
+        return {
+            "error": "Codex pool token lookup failed",
+        }
 
 
 def _get_gca_token(
@@ -288,6 +570,30 @@ async def get_cli_token(
         surface_name = (surface or "gemini_cli").strip().lower()
 
         if surface_name == "codex_cli":
+            pool_result = _get_codex_pool_bundle(
+                workspace_id=workspace_id,
+                auth_workspace_id=auth_workspace_id,
+                source_workspace_id=source_workspace_id,
+            )
+            if "env" in pool_result:
+                return {
+                    "auth_mode": pool_result.get("auth_mode", "host_session"),
+                    "env": pool_result.get("env", {}),
+                    "selected_runtime_id": pool_result.get("selected_runtime_id"),
+                    "available_runtime_count": pool_result.get(
+                        "available_runtime_count"
+                    ),
+                    "available_quota_scope_count": pool_result.get(
+                        "available_quota_scope_count"
+                    ),
+                    "requested_workspace_id": pool_result.get("requested_workspace_id"),
+                    "effective_workspace_id": pool_result.get("effective_workspace_id"),
+                    "auth_workspace_id": pool_result.get("auth_workspace_id"),
+                    "source_workspace_id": pool_result.get("source_workspace_id"),
+                    "selection_reason": pool_result.get("selection_reason"),
+                    "selection_trace": pool_result.get("selection_trace", []),
+                }
+
             api_key = settings.get("openai_api_key", "")
             if not api_key:
                 api_key = os.environ.get("OPENAI_API_KEY", "")
@@ -299,6 +605,7 @@ async def get_cli_token(
             return {
                 "auth_mode": "host_session",
                 "env": {},
+                "warning": pool_result.get("error"),
                 "note": "Codex CLI will use any credentials already stored on the host.",
             }
 
@@ -434,6 +741,79 @@ async def get_cli_token(
             "env": {},
             "error": f"system_settings unavailable and no env fallback: {e}",
         }
+
+
+@router.post("/cli-runtime/register-host-session")
+async def register_host_session_runtime(
+    request: RegisterHostSessionRuntimeRequest,
+) -> dict[str, Any]:
+    surface_name = (request.surface or "").strip().lower()
+    if surface_name != "codex_cli":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Host-session runtime registration is not implemented for {surface_name}",
+        )
+
+    owner_user_id = str(request.owner_user_id or "").strip()
+    if not owner_user_id:
+        owner_user_id = _load_workspace_owner_user_id(request.workspace_id) or ""
+    if not owner_user_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workspace not found or owner unavailable: {request.workspace_id}",
+        )
+
+    runtime = _upsert_host_session_runtime(
+        owner_user_id=owner_user_id,
+        request=request,
+    )
+    return {
+        "registered": True,
+        "runtime_id": runtime.get("runtime_id") or runtime.get("id"),
+        "owner_user_id": owner_user_id,
+        "runtime": runtime,
+    }
+
+
+@router.post("/runtime-quota-exhausted")
+async def report_runtime_quota_exhausted(
+    runtime_id: str = Query(...),
+    surface: str = Query(...),
+):
+    surface_name = (surface or "").strip().lower()
+    if not runtime_id.strip():
+        return {"reported": False, "error": "runtime_id is required"}
+
+    if surface_name == "codex_cli":
+        from ...services.codex_pool_service import CodexPoolService
+
+        result = CodexPoolService().report_quota_exhausted(runtime_id.strip())
+        if result is None:
+            return {"reported": False, "error": f"Unknown Codex runtime: {runtime_id}"}
+        return {
+            "reported": True,
+            "surface": surface_name,
+            "runtime_id": runtime_id.strip(),
+            "cooldown_until": result.get("cooldown_until"),
+        }
+
+    if surface_name == "gemini_cli":
+        from ...services.gca_pool_service import GCAPoolService
+
+        result = GCAPoolService().report_quota_exhausted(runtime_id.strip())
+        if result is None:
+            return {"reported": False, "error": f"Unknown GCA runtime: {runtime_id}"}
+        return {
+            "reported": True,
+            "surface": surface_name,
+            "runtime_id": runtime_id.strip(),
+            "cooldown_until": result.get("cooldown_until"),
+        }
+
+    return {
+        "reported": False,
+        "error": f"Quota reporting is not implemented for surface '{surface_name}'",
+    }
 
 
 @router.get("/agent-context")

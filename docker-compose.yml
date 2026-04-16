@@ -27,6 +27,13 @@ x-runner-environment: &runner-environment
   PYTHONPATH: /app:/app/backend:/app/backend/app
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
   OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+  IG_REFERENCE_CATALOG_MODE: ${IG_REFERENCE_CATALOG_MODE:-dual}
+  WORKSPACE_STORAGE_ROOT: ${WORKSPACE_STORAGE_ROOT:-/root/.mindscape/workspaces}
+  MINDSCAPE_MODEL_ROOT: ${MINDSCAPE_MODEL_ROOT:-/root/.mindscape/models}
+  MINDSCAPE_STORAGE_HOST_DIR: ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}
+  MINDSCAPE_MODELS_HOST_DIR: ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}
+  LAF_HOST_RUNTIME_ROOT: ${LAF_HOST_RUNTIME_ROOT:-~/.mindscape/runtimes/layer_asset_forge}
+  LOCAL_CORE_PROJECT_ROOT: ${LOCAL_CORE_PROJECT_ROOT:-${PWD}}
   LOCAL_STORAGE_PATH: /root/.mindscape/storage/layer_asset_forge
   TZ: ${TZ:-UTC}
   LOCAL_CORE_RUNNER_PROCESS: "1"
@@ -34,15 +41,17 @@ x-runner-environment: &runner-environment
   LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS: ${LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS:-15000}
   LOCAL_CORE_RUNNER_CANCEL_POLL_INTERVAL_MS: ${LOCAL_CORE_RUNNER_CANCEL_POLL_INTERVAL_MS:-2000}
   LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS: ${LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS:-3600}
+  MEETING_DYNAMIC_ROUTING_ENABLED: ${MEETING_DYNAMIC_ROUTING_ENABLED:-false}
+  MEETING_DYNAMIC_ROUTING_TRACE_ENABLED: ${MEETING_DYNAMIC_ROUTING_TRACE_ENABLED:-false}
 
 x-runner-volumes: &runner-volumes
   - ./backend:/app/backend:rw
   - ./scripts:/app/scripts:rw
-  - ./data:/app/data:rw
-  - ./data/secrets:/root/.mindscape:rw
+  - "${LOCAL_CORE_DATA_HOST_DIR:-./data}:/app/data:rw"
+  - "${LOCAL_CORE_SECRETS_HOST_DIR:-./data/secrets}:/root/.mindscape:rw"
   - ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}:/root/.mindscape/models:rw
   - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
-  - ./logs:/app/logs:rw
+  - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
   - ./web-console:/app/web-console:rw
 
 x-runner-common: &runner-common
@@ -130,10 +139,20 @@ services:
       # Ollama (Host) - Use host.docker.internal to access Ollama running on Mac/Windows host
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - IG_REFERENCE_CATALOG_MODE=${IG_REFERENCE_CATALOG_MODE:-dual}
+      - WORKSPACE_STORAGE_ROOT=${WORKSPACE_STORAGE_ROOT:-/root/.mindscape/workspaces}
+      - MINDSCAPE_MODEL_ROOT=${MINDSCAPE_MODEL_ROOT:-/root/.mindscape/models}
+      - MINDSCAPE_STORAGE_HOST_DIR=${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}
+      - MINDSCAPE_MODELS_HOST_DIR=${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}
+      - LAF_HOST_RUNTIME_ROOT=${LAF_HOST_RUNTIME_ROOT:-~/.mindscape/runtimes/layer_asset_forge}
+      - LOCAL_CORE_PROJECT_ROOT=${LOCAL_CORE_PROJECT_ROOT:-${PWD}}
       # LLM Intent Extractor
       - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-true}
       # D2: Legacy Cleanup - Disable legacy fallback
       - PLAYBOOK_DISABLE_LEGACY=${PLAYBOOK_DISABLE_LEGACY:-1}
+      # Meeting routing feature flags
+      - MEETING_DYNAMIC_ROUTING_ENABLED=${MEETING_DYNAMIC_ROUTING_ENABLED:-false}
+      - MEETING_DYNAMIC_ROUTING_TRACE_ENABLED=${MEETING_DYNAMIC_ROUTING_TRACE_ENABLED:-false}
       # Cloud Extension (optional - leave empty to disable)
       # Note: CLOUD_API_URL should be configured in docker-compose.override.yml
       # to keep Local-Core configuration clean (architecture compliance)
@@ -148,11 +167,11 @@ services:
     volumes:
       - ./backend:/app/backend:rw
       - ./scripts:/app/scripts:rw
-      - ./data:/app/data:rw
-      - ./data/secrets:/root/.mindscape:rw
+      - "${LOCAL_CORE_DATA_HOST_DIR:-./data}:/app/data:rw"
+      - "${LOCAL_CORE_SECRETS_HOST_DIR:-./data/secrets}:/root/.mindscape:rw"
       - ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}:/root/.mindscape/models:rw
       - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
-      - ./logs:/app/logs:rw
+      - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
       - ./web-console:/app/web-console:rw
       # Mount user's custom directory for workspace storage (optional)
       # Uncomment and set the path below to mount your Documents or other directory
@@ -210,7 +229,10 @@ services:
       LOCAL_CORE_RUNNER_PROFILE: browser_local
       LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_BROWSER_ACCEPTED_PARTITIONS:-browser_local}
       LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_BROWSER_ACCEPTED_RESOURCE_CLASSES:-browser}
-      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-4}
+      # Total browser-runner task cap. Lock-specific concurrency still applies inside this ceiling.
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-2}
+      # Cap concurrent thumbnail browser fallbacks without changing task semantics.
+      IG_THUMBNAIL_BROWSER_FALLBACK_MAX_INFLIGHT: ${IG_THUMBNAIL_BROWSER_FALLBACK_MAX_INFLIGHT:-1}
 
   runner-vision:
     <<: *runner-common
@@ -283,7 +305,7 @@ services:
       - PGDATA=/var/lib/postgresql/data/pgdata
       - TZ=${TZ:-UTC}
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - "${LOCAL_CORE_POSTGRES_HOST_DIR:-./data/postgres}:/var/lib/postgresql/data"
       - ./docker/postgres/init-dual-dbs.sh:/docker-entrypoint-initdb.d/00-init-dual-dbs.sh:ro
     networks:
       - mindscape-network
@@ -337,7 +359,7 @@ services:
       - TZ=${TZ:-UTC}
       - PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
     volumes:
-      - ./data:/app/data:ro
+      - "${LOCAL_CORE_DATA_HOST_DIR:-./data}:/app/data:ro"
     networks:
       - mindscape-network
     healthcheck:
@@ -397,8 +419,8 @@ services:
       - TZ=${TZ:-UTC}
     volumes:
       - ./xtts-service/main.py:/app/main.py:ro
-      - ./data/tts/voices:/app/voices:rw
-      - ./data/tts/output:/app/data/tts/output:rw
+      - "${LOCAL_CORE_TTS_VOICES_HOST_DIR:-./data/tts/voices}:/app/voices:rw"
+      - "${LOCAL_CORE_TTS_OUTPUT_HOST_DIR:-./data/tts/output}:/app/data/tts/output:rw"
       - xtts_model_cache:/root/.local/share/tts
     networks:
       - mindscape-network

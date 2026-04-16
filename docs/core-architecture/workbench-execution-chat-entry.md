@@ -1,10 +1,25 @@
 # Workbench Execution Chat Entry
 
-Superseded: this draft captured a now-rejected pack-launched entry model.  
-Use [Workspace Generic Execution Operator Toolbar Revision](./workspace-generic-execution-operator-toolbar-revision.md) as the active implementation guidance.
+Archived / superseded: this draft captured a now-rejected pack-launched entry
+model. Use
+[Workspace Generic Execution Operator Toolbar Revision](./workspace-generic-execution-operator-toolbar-revision.md)
+as the active implementation guidance.
 
-Status: Historical  
-Scope: Local-Core architecture-managed implementation details for exposing execution-scoped chat as a generic operator surface from any workspace-mounted pack workbench.
+Status: Historical
+Scope: Local-Core architecture-managed implementation details for exposing
+execution-scoped chat as a generic operator surface from any
+workspace-mounted pack workbench.
+
+## Errata
+
+Do not cite this document for pack workbench ownership.
+
+- Pack workbench/product UI source is pack-owned and declared through pack
+  `manifest.yaml` `ui_components`.
+- Local-Core is the runtime host and loader for installed pack UI plus
+  workspace-generic execution/operator surfaces.
+- This document only discusses how a pack workbench launches the canonical
+  Local-Core execution chat after the workbench already exists.
 
 ## Why This Exists
 

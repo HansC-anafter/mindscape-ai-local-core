@@ -1,97 +1,92 @@
 # Quick Start Guide
 
-Welcome to **Mindscape AI Local Core**! This guide will help you get started quickly.
+Mindscape AI Local Core can be approached in two fast paths:
 
-## Prerequisites
+1. **Demo-first** — see what the repo can demonstrate today
+2. **Engine-first** — understand the architecture before touching any runtime lane
 
-Before starting, make sure you have:
+## Before You Start
 
-1. ✅ Installed Mindscape AI Local Core (see [Installation Guide](./installation.md))
-2. ✅ Configured at least one LLM API key (OpenAI, Anthropic, or Google Vertex AI)
-3. ✅ Started the backend server (`uvicorn app.main:app --reload`)
-4. ✅ (Optional) Started the frontend (`npm run dev` in `web-console/`)
+Make sure you have:
 
-## First Steps
+1. Installed Mindscape AI Local Core (see [Installation Guide](./installation.md))
+2. Configured at least one LLM API key if you want live meeting/runtime behavior
+3. Started the backend server
+4. Optionally started the frontend if you want the full workspace UI
 
-### 1. Access the Web Interface
+Default local URLs:
 
-Open your browser and navigate to:
 - **Frontend**: `http://localhost:3001` (Docker) or `http://localhost:3000` (manual install)
-- **API Docs**: `http://localhost:8000/docs` (FastAPI automatic documentation)
+- **API Docs**: `http://localhost:8000/docs`
 
-### 2. Create Your First Workspace
+## Path A: Demo-First
 
-1. In the web interface, click "New Workspace" or use the API:
-   ```bash
-   curl -X POST "http://localhost:8000/api/v1/workspaces" \
-     -H "Content-Type: application/json" \
-     -d '{"name": "My First Workspace"}'
-   ```
+If you want the shortest path to "what can this repo show me today?", read these in order:
 
-### 3. Send Your First Message
+1. [Demo Gallery](../demo-gallery/README.md)
+2. [Single-Image Preview Mesh](../use-cases/single-image-preview-mesh.md)
+3. [Complex Relation Stress Preview Mesh](../use-cases/complex-relation-stress-preview-mesh.md)
+4. [Candidate vs Fallback Comparison](../use-cases/candidate-vs-fallback-comparison.md)
+5. [Fixed-Scene Subject Swap](../use-cases/fixed-scene-subject-swap.md)
+6. [Artifact Taxonomy](../reference/artifact-taxonomy.md)
 
-1. In the workspace, type a message in the chat interface
-2. Mindscape AI will:
-   - Extract intents from your message
-   - Suggest relevant playbooks/workflows
-   - Execute workflows automatically (if configured)
+What you will learn:
 
-### 4. Explore Playbooks
+- which outputs are `preview`, `candidate`, or `fallback`
+- which artifacts are public-safe to talk about
+- which demos are scene/subject continuity stories rather than pack implementation stories
 
-Playbooks are multi-step workflows that can:
-- Process files
-- Generate content
-- Organize information
-- And more!
+Current checked-in evidence:
 
-Try saying:
-- "Summarize this document" (with a file attached)
-- "Create a todo list for my project"
-- "Extract key points from this text"
+- the `Single-Image Preview Mesh` lane now includes a source image, a captured preview render, and a machine-readable smoke summary
+- the `Complex Relation Stress Preview Mesh` lane now adds a public-safe honesty case for a denser indoor image, with front/oblique/side stills checked in
 
-## Key Concepts
+Important:
 
-### Workspaces
+- some demo lanes depend on installable capability/runtime packs from `mindscape-ai-cloud`
+- local-core remains the governance host and bounded writeback layer
 
-A workspace is your personal AI assistant environment. Each workspace:
-- Has its own conversation history
-- Maintains its own timeline of activities
-- Can have multiple playbooks running
+## Path B: Engine-First
 
-### Intents
+If you want the architecture before the demos, read these in order:
 
-Intents are automatically extracted from your messages. They help Mindscape AI understand what you want to do.
+1. [System Overview](../core-architecture/system-overview.md)
+2. [Spatial Runtime Planning](../core-architecture/spatial-runtime-planning.md)
+3. [Governed Memory Fabric](../core-architecture/governed-memory-fabric.md)
+4. [Mind Meeting — Five-Layer Architecture](../core-architecture/meeting-engine-dispatch.md)
 
-### Playbooks
+What you will learn:
 
-Playbooks are reusable workflows that can:
-- Process files
-- Generate content
-- Organize information
-- Execute multi-step tasks
+- how governance context, meeting runtime, and memory fit together
+- why `TaskIR` and `SpatialSchedulingIR` are different artifacts
+- where consumer runtimes stop and local-core ownership begins
 
-### Timeline
+## Create a Workspace
 
-The timeline shows:
-- Your conversation history
-- Playbook execution results
-- File processing results
-- Intent extraction results
+When you want to explore the host runtime directly:
+
+1. Open the web interface
+2. Create a workspace, or call the API:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/workspaces" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "My First Workspace"}'
+```
+
+3. Start a conversation in the workspace
+4. Use that workspace as the host for playbooks, installed runtime packs, and future writeback
+
+## Core Terms To Know
+
+- **Workspace** — the governed host container for conversations, artifacts, and continuity
+- **Meeting Runtime** — the live deliberation layer
+- **TaskIR** — the bounded control artifact for execution-ready work
+- **SpatialSchedulingIR** — the bounded planning artifact for spatial/world execution intent
+- **World Summary / Writeback** — the bounded continuity record written back after execution
 
 ## Next Steps
 
-1. **Explore Playbooks**: Try different playbooks to see what they can do
-2. **Upload Files**: Upload documents and see how Mindscape AI processes them
-3. **Customize**: Configure settings and preferences
-4. **Read Documentation**: Check out the [User Guides](../guides/) for more details
-
-## Getting Help
-
-- **Documentation**: See [Documentation Index](../../README.md)
-- **Issues**: Open an issue on GitHub
-- **FAQ**: Check [FAQ](../faq/README.md)
-
----
-
-**Happy exploring!** 🚀
-
+- If you want scenario examples, go to [Use Case Gallery](../use-cases/README.md)
+- If you want the public-safe artifact names, go to [Artifact Taxonomy](../reference/artifact-taxonomy.md)
+- If you want the local/cloud split, read [Local/Cloud Boundary](../core-architecture/local-cloud-boundary.md)

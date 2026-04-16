@@ -26,15 +26,18 @@ from fastapi import (
     UploadFile,
 )
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from app.services.pack_activation_service import PackActivationService
 from app.services.stores.installed_packs_store import InstalledPacksStore
 from app.services.restart_webhook import get_restart_webhook_service
+from app.services.tool_rag_refresh import refresh_tool_rag_corpus
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/capability-packs", tags=["Capability Packs"])
 OVERWRITE_CONFIRMATION_PHRASE = "OVERWRITE"
+OVERWRITE_REVIEW_CONFIRMATION_PHRASE = "REVIEWED_LOCAL_DIFFS"
 
 installed_packs_store = InstalledPacksStore()
 pack_activation_service = PackActivationService()
@@ -160,6 +163,39 @@ def _require_explicit_overwrite_confirmation(
     )
 
 
+def _build_dirty_overwrite_detail(
+    *,
+    dirty,
+    incoming_version: Optional[str],
+    review_payload: Optional[Dict[str, Any]],
+    error: str,
+    message: str,
+    hint: str,
+) -> Dict[str, Any]:
+    detail: Dict[str, Any] = {
+        "error": error,
+        "message": message,
+        "installed_version": dirty.installed_version,
+        "installed_at": dirty.installed_at,
+        "incoming_version": incoming_version,
+        "modified": dirty.modified,
+        "added": dirty.added,
+        "deleted": dirty.deleted,
+        "summary": dirty.summary(),
+        "required_confirmation": OVERWRITE_CONFIRMATION_PHRASE,
+        "required_review_confirmation": OVERWRITE_REVIEW_CONFIRMATION_PHRASE,
+        "review_required": True,
+        "review_summary": (
+            "Review each conflict against the incoming pack before force overwrite. "
+            "If any local-core fix is missing from cloud source, reconcile source first."
+        ),
+        "hint": hint,
+    }
+    if review_payload is not None:
+        detail["review"] = review_payload
+    return detail
+
+
 # ------------------------------------------------------------------
 # Shared install pipeline
 # ------------------------------------------------------------------
@@ -188,6 +224,7 @@ async def run_install_pipeline(
     fastapi_app,
     mindpack_path: Path,
     allow_overwrite: bool,
+    overwrite_review_confirmation: str,
     source_label: str,
     extra_metadata: Optional[Dict[str, Any]] = None,
 ) -> InstallPipelineResult:
@@ -209,7 +246,9 @@ async def run_install_pipeline(
     Args:
         fastapi_app:      The FastAPI ``app`` instance (for hot-reload).
         mindpack_path:    Path to the ``.mindpack`` file.
-        allow_overwrite:  If True, skip dirty-state guard.
+        allow_overwrite:  If True, skip dirty-state guard after explicit review.
+        overwrite_review_confirmation: Explicit phrase confirming the installer
+                                       reviewed per-file diffs for dirty paths.
         source_label:     Human-readable source (e.g. ``"install-from-file"``).
         extra_metadata:   Extra fields merged into ``pack_metadata``.
 
@@ -237,7 +276,10 @@ async def run_install_pipeline(
 
     # 1. Extract mindpack
     extractor = MindpackExtractor(local_core_root)
-    extract_ok, temp_dir, capability_code, cap_dir = extractor.extract(mindpack_path)
+    extract_ok, temp_dir, capability_code, cap_dir = await run_in_threadpool(
+        extractor.extract,
+        mindpack_path,
+    )
 
     if not extract_ok or not capability_code or not cap_dir:
         raise HTTPException(
@@ -267,8 +309,11 @@ async def run_install_pipeline(
 
         validator = ManifestValidator(local_core_root)
         skip_validation = os.getenv("MINDSCAPE_SKIP_VALIDATION", "0") == "1"
-        is_valid, validation_errors, validation_warnings = validator.validate(
-            manifest_path, cap_dir, skip_validation=skip_validation
+        is_valid, validation_errors, validation_warnings = await run_in_threadpool(
+            validator.validate,
+            manifest_path,
+            cap_dir,
+            skip_validation=skip_validation,
         )
         if not is_valid and not skip_validation:
             raise HTTPException(
@@ -280,35 +325,67 @@ async def run_install_pipeline(
         existing_cap_dir = capabilities_dir / capability_code
         if existing_cap_dir.exists():
             try:
-                from app.services.install_integrity import check_dirty_state
+                from app.services.install_integrity import (
+                    build_dirty_review_payload,
+                    check_dirty_state,
+                )
 
-                dirty = check_dirty_state(existing_cap_dir)
-                if dirty.is_dirty and not allow_overwrite:
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "error": "local_modifications_detected",
-                            "message": (
-                                f"{capability_code}: {len(dirty.modified)} modified, "
-                                f"{len(dirty.added)} added, {len(dirty.deleted)} deleted "
-                                f"since v{dirty.installed_version} install"
-                            ),
-                            "installed_version": dirty.installed_version,
-                            "installed_at": dirty.installed_at,
-                            "incoming_version": pipeline.version,
-                            "modified": dirty.modified,
-                            "added": dirty.added,
-                            "deleted": dirty.deleted,
-                            "summary": dirty.summary(),
-                            "required_confirmation": OVERWRITE_CONFIRMATION_PHRASE,
-                            "hint": (
-                                "Set allow_overwrite=true and "
-                                f"overwrite_confirmation={OVERWRITE_CONFIRMATION_PHRASE} "
-                                "to force install"
-                            ),
-                        },
+                dirty = await run_in_threadpool(check_dirty_state, existing_cap_dir)
+                if dirty.is_dirty:
+                    review_payload = await run_in_threadpool(
+                        build_dirty_review_payload,
+                        existing_cap_dir,
+                        cap_dir,
+                        dirty,
                     )
-                elif dirty.is_dirty:
+                    if not allow_overwrite:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=_build_dirty_overwrite_detail(
+                                dirty=dirty,
+                                incoming_version=pipeline.version,
+                                review_payload=review_payload,
+                                error="local_modifications_detected",
+                                message=(
+                                    f"{capability_code}: {len(dirty.modified)} modified, "
+                                    f"{len(dirty.added)} added, {len(dirty.deleted)} deleted "
+                                    f"since v{dirty.installed_version} install"
+                                ),
+                                hint=(
+                                    "Review the per-file diffs first. Only if every local change "
+                                    "is already reflected in cloud source, resubmit with "
+                                    "allow_overwrite=true, "
+                                    f"overwrite_confirmation={OVERWRITE_CONFIRMATION_PHRASE}, and "
+                                    "overwrite_review_confirmation="
+                                    f"{OVERWRITE_REVIEW_CONFIRMATION_PHRASE}."
+                                ),
+                            ),
+                        )
+                    if (
+                        str(overwrite_review_confirmation or "").strip()
+                        != OVERWRITE_REVIEW_CONFIRMATION_PHRASE
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail=_build_dirty_overwrite_detail(
+                                dirty=dirty,
+                                incoming_version=pipeline.version,
+                                review_payload=review_payload,
+                                error="overwrite_review_confirmation_required",
+                                message=(
+                                    "Force overwrite is blocked until local modification diffs "
+                                    "are reviewed."
+                                ),
+                                hint=(
+                                    "Inspect each diff item. If the incoming pack does not omit "
+                                    "required local-core fixes, resubmit with "
+                                    "allow_overwrite=true, "
+                                    f"overwrite_confirmation={OVERWRITE_CONFIRMATION_PHRASE}, and "
+                                    "overwrite_review_confirmation="
+                                    f"{OVERWRITE_REVIEW_CONFIRMATION_PHRASE}."
+                                ),
+                            ),
+                        )
                     logger.warning(
                         "Force overwriting %s with local modifications: %s",
                         capability_code,
@@ -328,19 +405,32 @@ async def run_install_pipeline(
         playbook_installer.specs_dir = specs_dir
         playbook_installer.i18n_base_dir = i18n_base_dir
         playbook_installer.local_core_root = local_core_root
-        playbook_installer._install_playbooks(
-            cap_dir, capability_code, manifest, result
+        await run_in_threadpool(
+            playbook_installer._install_playbooks,
+            cap_dir,
+            capability_code,
+            manifest,
+            result,
         )
 
         runtime_installer = RuntimeAssetsInstaller(
             local_core_root=local_core_root, capabilities_dir=capabilities_dir
         )
-        runtime_installer.install_all(
-            cap_dir, capability_code, manifest, result, temp_dir
+        await run_in_threadpool(
+            runtime_installer.install_all,
+            cap_dir,
+            capability_code,
+            manifest,
+            result,
+            temp_dir,
         )
 
         # Migrations
-        runtime_installer.execute_migrations(capability_code, result)
+        await run_in_threadpool(
+            runtime_installer.execute_migrations,
+            capability_code,
+            result,
+        )
         if hasattr(result, "migration_status") and result.migration_status:
             mig = result.migration_status.get(capability_code)
             if mig in ("failed", "error"):
@@ -361,7 +451,32 @@ async def run_install_pipeline(
             specs_dir=specs_dir,
             validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call,
         )
-        post_handler.run_required_tasks(cap_dir, capability_code, manifest, result)
+        await run_in_threadpool(
+            post_handler.run_required_tasks,
+            cap_dir,
+            capability_code,
+            manifest,
+            result,
+        )
+
+        contract_lane_changed = False
+        try:
+            from app.services.runtime_contract_registry import RuntimeContractRegistry
+
+            contract_sync = await run_in_threadpool(
+                RuntimeContractRegistry(local_core_root).sync_pack_contracts,
+                capability_code,
+                manifest,
+            )
+            contract_lane_changed = contract_sync.requires_restart
+            if contract_sync.alias_modules:
+                logger.info(
+                    "Synced runtime contract aliases for %s: %s",
+                    capability_code,
+                    ", ".join(contract_sync.alias_modules),
+                )
+        except Exception as exc:
+            result.add_error(f"Failed to sync runtime contract registry: {exc}")
 
         # 4. Reload capability registry
         hot_reload_performed = False
@@ -372,7 +487,6 @@ async def run_install_pipeline(
                 hot_reload_enabled,
                 reload_capability_routes,
             )
-            from starlette.concurrency import run_in_threadpool
 
             registry = get_registry()
             if hasattr(registry, "_capabilities_cache"):
@@ -380,7 +494,16 @@ async def run_install_pipeline(
             if hasattr(registry, "_tools_cache"):
                 registry._tools_cache.clear()
 
-            if hot_reload_enabled():
+            if contract_lane_changed:
+                await run_in_threadpool(load_capabilities, reset=True)
+                result.add_warning(
+                    "Contract import paths changed; skipping in-process hot reload and requiring a backend restart."
+                )
+                logger.info(
+                    "Skipped in-process hot reload for %s because contract import paths changed",
+                    capability_code,
+                )
+            elif hot_reload_enabled():
                 pipeline.hot_reload_result = await run_in_threadpool(
                     reload_capability_routes,
                     fastapi_app,
@@ -389,7 +512,7 @@ async def run_install_pipeline(
                 hot_reload_performed = True
                 logger.info(f"Hot reload completed for {capability_code}")
             else:
-                load_capabilities(reset=True)
+                await run_in_threadpool(load_capabilities, reset=True)
                 logger.info(f"Reloaded capability registry for {capability_code}")
         except Exception as exc:
             activation_error = f"Failed to reload capability registry/routes: {exc}"
@@ -398,7 +521,7 @@ async def run_install_pipeline(
             try:
                 from app.services.capability_registry import load_capabilities
 
-                load_capabilities(reset=True)
+                await run_in_threadpool(load_capabilities, reset=True)
             except Exception:
                 pass
 
@@ -472,7 +595,8 @@ async def run_install_pipeline(
             pack_metadata["validation"] = validation_state
 
         try:
-            installed_packs_store.upsert_pack(
+            await run_in_threadpool(
+                installed_packs_store.upsert_pack,
                 pack_id=capability_code,
                 installed_at=_utc_now(),
                 enabled=True,
@@ -483,7 +607,8 @@ async def run_install_pipeline(
             result.add_warning(f"Failed to register pack in database: {exc}")
 
         try:
-            pipeline.activation = pack_activation_service.record_install_outcome(
+            pipeline.activation = await run_in_threadpool(
+                pack_activation_service.record_install_outcome,
                 pack_id=capability_code,
                 manifest=manifest,
                 install_result=result,
@@ -496,7 +621,8 @@ async def run_install_pipeline(
                 activation_error=activation_error,
             )
             if validation_state is not None:
-                pipeline.activation = pack_activation_service.record_validation_pending(
+                pipeline.activation = await run_in_threadpool(
+                    pack_activation_service.record_validation_pending,
                     pack_id=capability_code,
                     manifest=manifest,
                     manifest_path=installed_manifest_path
@@ -511,16 +637,16 @@ async def run_install_pipeline(
         import asyncio as _asyncio
 
         try:
-            from backend.app.services.tool_embedding_service import (
-                ToolEmbeddingService as _TES,
-            )
-
             async def _bg_reindex():
                 try:
-                    n = await _TES().ensure_indexed()
-                    if n <= 0:
-                        n = await _TES().index_all_tools()
-                    logger.info("Tool RAG re-indexed after install: %d tools", n)
+                    _, indexed_count, mode = await refresh_tool_rag_corpus(
+                        log_prefix="Tool RAG install refresh"
+                    )
+                    logger.info(
+                        "Tool RAG re-indexed after install: %d tools (mode=%s)",
+                        indexed_count,
+                        mode,
+                    )
                     try:
                         pack_activation_service.record_embedding_succeeded(
                             pack_id=capability_code,
@@ -576,7 +702,8 @@ async def run_install_pipeline(
                     schedule_pack_validation,
                 )
 
-                scheduled = schedule_pack_validation(
+                scheduled = await run_in_threadpool(
+                    schedule_pack_validation,
                     pack_id=capability_code,
                     manifest=manifest,
                     manifest_path=installed_manifest_path
@@ -611,11 +738,13 @@ async def run_install_pipeline(
                     errors=[f"Failed to schedule background playbook validation: {exc}"],
                 )
                 try:
-                    installed_packs_store.update_metadata(
+                    await run_in_threadpool(
+                        installed_packs_store.update_metadata,
                         capability_code,
                         {"validation": failure_state},
                     )
-                    pipeline.activation = pack_activation_service.record_validation_failed(
+                    pipeline.activation = await run_in_threadpool(
+                        pack_activation_service.record_validation_failed,
                         pack_id=capability_code,
                         manifest=manifest,
                         error=f"Failed to schedule background playbook validation: {exc}",
@@ -666,8 +795,12 @@ async def run_install_pipeline(
 
             installed_cap_dir = capabilities_dir / capability_code
             if installed_cap_dir.exists():
-                hashes = compute_dir_hashes(installed_cap_dir)
-                save_install_manifest(
+                hashes = await run_in_threadpool(
+                    compute_dir_hashes,
+                    installed_cap_dir,
+                )
+                await run_in_threadpool(
+                    save_install_manifest,
                     installed_cap_dir,
                     pack_metadata.get("version", "1.0.0"),
                     hashes,
@@ -701,6 +834,7 @@ async def install_from_file(
     file: UploadFile = File(...),
     allow_overwrite: str = Form("false"),
     overwrite_confirmation: str = Form(""),
+    overwrite_review_confirmation: str = Form(""),
     profile_id: str = Query(
         "default-user", description="User profile ID for role mapping"
     ),
@@ -734,6 +868,7 @@ async def install_from_file(
             fastapi_app=fastapi_request.app,
             mindpack_path=tmp_path,
             allow_overwrite=overwrite,
+            overwrite_review_confirmation=overwrite_review_confirmation,
             source_label="install-from-file",
             extra_metadata={"installed_from_file": True},
         )
@@ -793,6 +928,12 @@ async def install_from_cloud(
     ),
     overwrite_confirmation: str = Query(
         "", description="Explicit confirmation phrase required when allow_overwrite=true"
+    ),
+    overwrite_review_confirmation: str = Query(
+        "",
+        description=(
+            "Explicit confirmation phrase required after reviewing local diff conflicts"
+        ),
     ),
 ):
     """
@@ -855,6 +996,7 @@ async def install_from_cloud(
                 fastapi_app=fastapi_request.app,
                 mindpack_path=pack_file,
                 allow_overwrite=overwrite,
+                overwrite_review_confirmation=overwrite_review_confirmation,
                 source_label="install-from-cloud",
                 extra_metadata={
                     "installed_from_cloud": True,

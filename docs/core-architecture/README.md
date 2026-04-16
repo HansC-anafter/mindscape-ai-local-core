@@ -1,31 +1,40 @@
 # Architecture Documentation
 
-This directory contains the complete architecture documentation for Mindscape AI, including system architecture, core concepts, and current public framing.
+This directory contains the architecture documentation for Mindscape AI Local Core, including the current public framing, planning/runtime boundaries, and the deeper implementation-oriented references that support them.
 
 ## Start Here
 
-**New to the architecture?** Read [System Overview](./system-overview.md) first to understand how Mindscape Engine fits together: governance context, meeting runtime, governed memory, and optional actuation.
+**New to the architecture?** Read these in order:
+
+1. [System Overview](./system-overview.md) — the public architecture after `SpatialSchedulingIR` becomes a first-class planning artifact
+2. [Spatial Runtime Planning](./spatial-runtime-planning.md) — how `TaskIR` and `SpatialSchedulingIR` divide responsibilities
+3. [Governed Memory Fabric](./governed-memory-fabric.md) — what the memory layer stores, and what it must not store
+4. [Mind Meeting — Five-Layer Architecture](./meeting-engine-dispatch.md) — the meeting pipeline that emits the bounded artifacts
+5. [Local/Cloud Boundary](./local-cloud-boundary.md) — where local-core stops and installable/runtime packs begin
 
 ## Current Architecture Status
 
-**Mindscape Engine + Optional Local Actuation** is the current public architecture framing.
+The current public framing is:
 
-- **Governance Context**: Intent + Lens + Policy define the agent core and execution boundaries
-- **Meeting Runtime**: Live reasoning, clarification, convergence, dispatch, and closure
-- **Governed Memory Fabric**: Long-term continuity, evidence, episodic consolidation, durable memory, and serving
-- **External Runtime Adapters**: Framework-aware integration for local or third-party execution environments
-- **Optional Local Actuation**: Project / Flow / Playbook / Sandbox when end-to-end local execution is needed
+> **Governance Context → Meeting Runtime ↔ Governed Memory Fabric → TaskIR / SpatialSchedulingIR → Consumer Runtimes / Optional Local Actuation → Artifacts, Runtime Receipts, and World Summary / Writeback**
 
-**Implemented execution infrastructure**:
+Key points:
 
-- **Project Management**: Complete lifecycle management (create, update, close, archive)
-- **Project Detection**: Automatic project suggestion from conversations
-- **Playbook Flow Execution**: Multi-playbook orchestration with dependency resolution
-- **Project Sandbox**: Workspace-isolated file space for each project
-- **Artifact Registry**: Automatic artifact tracking and registration
-- **Memory Surfaces**: Workspace core, project, and member profile memories remain active as public memory surfaces
-- **Flow Checkpointing**: Resume execution from any node
-- **API Endpoints**: Full REST API for projects and flows
+- **Governance Context** defines why work matters, how trade-offs are made, and what boundaries cannot be crossed.
+- **Meeting Runtime** performs live deliberation, clarification, convergence, dispatch, and closure.
+- **TaskIR** is the control-plane artifact for execution-ready work.
+- **SpatialSchedulingIR** is the planning-plane artifact for spatial/world execution intent when a workflow needs it.
+- **Governed Memory Fabric** serves continuity into the meeting and ingests bounded summaries back after execution.
+- **Consumer Runtimes / Optional Local Actuation** include the project/playbook/tool stack plus installed runtime packs and external execution environments.
+
+Important public-safe boundaries:
+
+- local-core owns governance, bounded planning, and bounded writeback
+- installable/runtime packs own provider-specific execution logic
+- pack workbench/product UI source is pack-owned via `manifest.yaml`
+  `ui_components`, while Local-Core hosts the installed runtime shell/loader
+- world memory stores summaries, refs, and traceability keys rather than raw provider payloads
+- `Project / Flow / Playbook / Sandbox` remain an important consumer path, but they are not the only public mental model anymore
 
 ### Architecture Components
 
@@ -97,7 +106,10 @@ Architecture and implementation details for upgrading execution-scoped chat from
 Corrective implementation plan for restoring the proper boundary: cloud repo remains pack authoring/packaging only, while Local-Core remains the runtime host for workspace-generic execution operator surfaces and execution-chat runtime.
 
 #### [Workbench Execution Chat Entry](./workbench-execution-chat-entry.md)
-Historical draft of the earlier pack-launched entry model. Kept for audit, but superseded by the toolbar revision document above.
+Historical draft of the earlier pack-launched entry model. Kept for audit only.
+Do not use it to infer pack workbench ownership; use the toolbar revision
+document above plus pack `manifest.yaml` `ui_components` as the current source
+of truth.
 
 #### [Workspace Execution Operator Toolbar Cleanup Checklist](./workspace-execution-operator-toolbar-cleanup-checklist-2026-03-22.md)
 Executed cleanup checklist for removing the rejected Local-Core launcher/context-menu experiment while preserving the canonical Local-Core execution runtime.
@@ -132,6 +144,9 @@ Unified five-layer meeting architecture: deliberation, semantic bridge, converge
 #### [Runtime Environments](./runtime-environments.md)
 Multi-runtime management architecture for executing playbooks and tools across local and remote backends. Includes settings extension panels and auto-discovery.
 
+#### [Local Runtime Persistence Topology](./local-runtime-persistence-topology.md)
+Canonical local-core runtime data-root policy for `workspaces`, `storage`, `models`, `runtimes`, and their Docker mount mappings. Read this when changing host persistence paths, compose env policy, or any pack that assumes `/root/.mindscape/*`.
+
 #### [Sandbox System](./sandbox/)
 System-level Sandbox architecture, unifying all AI write operations.
 
@@ -148,9 +163,11 @@ Project and Playbook Flow architecture for multi-playbook collaboration.
 ### Mindscape Operating Engine
 
 1. **Governance Context** - Intent + Lens + Policy define what matters, how to see, and what cannot be violated
-2. **Meeting Runtime** - Handles live deliberation, convergence, dispatch, and loop closure
-3. **Governed Memory Fabric** - Preserves evidence, builds episodes, promotes durable memory, and serves continuity back into execution
-4. **Actuation Layer** - Project / Flow + Playbooks / Tools + Sandbox / external runtimes
+2. **Meeting Runtime** - Handles live deliberation, clarification, convergence, dispatch, and loop closure
+3. **TaskIR Control Plane** - Packages execution-ready work, dependencies, and dispatch boundaries
+4. **SpatialSchedulingIR Planning Plane** - Packages bounded spatial/world execution intent when the workflow needs scene, subject, object, or camera-aware planning
+5. **Governed Memory Fabric** - Preserves evidence, builds episodes, promotes durable memory, and serves continuity back into execution
+6. **Consumer Runtimes / Optional Local Actuation** - Project / Flow + Playbooks / Tools + Sandbox / installed runtime packs + external runtimes
 
 ### Project + Flow + Sandbox Architecture (v2.0)
 

@@ -1,0 +1,24 @@
+{
+  "camera_name": "DocCaptureCamera",
+  "shots": [
+    {
+      "name": "front",
+      "output_path": "d3-complex-relation-stress-02-preview-render.png",
+      "lens_mm": 42.0
+    },
+    {
+      "name": "oblique",
+      "output_path": "d3-complex-relation-stress-03-oblique-view.png",
+      "lens_mm": 42.0
+    },
+    {
+      "name": "side",
+      "output_path": "d3-complex-relation-stress-04-side-view.png",
+      "lens_mm": 42.0
+    }
+  ],
+  "notes": [
+    "all three stills were captured from the same generated Blender workfile",
+    "the side and oblique views are included to keep the stress-case page honest about mesh roughness and non-flat depth"
+  ]
+}
