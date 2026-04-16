@@ -87,7 +87,7 @@ The execution-chat overlay decides how the Local-Core execution chat behaves onc
 - loop budget
 - discussion persona
 
-`x_platform.local_core.execution_chat` 只是把這些能力接進 Local-Core 的 execution chat 操作面。
+`x_platform.local_core.execution_chat` only wires these capabilities into the Local-Core execution-chat operating surface.
 
 It does **not** define whether a pack workbench is allowed to launch execution chat in the first place.  
 The launch contract comes from the existence of `workspace_id + execution_id`.
@@ -276,7 +276,7 @@ Equivalent route resolution is owned by Local-Core and must remain canonical:
 /workspaces/{workspaceId}/executions/{executionId}?open=chat&chat_focus_token=<token>
 ```
 
-`x_platform.local_core.execution_chat` 只是把這些能力接進 Local-Core 的 execution chat 操作面。
+`x_platform.local_core.execution_chat` only wires these capabilities into the Local-Core execution-chat operating surface.
 
 Current adopter status:
 
