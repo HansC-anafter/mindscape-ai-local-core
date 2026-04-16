@@ -5,7 +5,9 @@ Handles session start/close transitions, locale resolution,
 and workspace playbook discovery.
 """
 
+import asyncio
 import logging
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -17,6 +19,86 @@ logger = logging.getLogger(__name__)
 
 class MeetingSessionMixin:
     """Mixin providing session lifecycle methods for MeetingEngine."""
+
+    @staticmethod
+    def _parse_schedule_updated_at(value: Any) -> Optional[datetime]:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        normalized = value.replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+
+    @classmethod
+    def _should_overwrite_workspace_schedule(
+        cls,
+        existing: Optional[Dict[str, Any]],
+        incoming: Optional[Dict[str, Any]],
+    ) -> bool:
+        if not isinstance(incoming, dict) or not incoming.get("schedule_id"):
+            return False
+        if not isinstance(existing, dict) or not existing.get("schedule_id"):
+            return True
+
+        incoming_updated_at = cls._parse_schedule_updated_at(incoming.get("updated_at"))
+        existing_updated_at = cls._parse_schedule_updated_at(existing.get("updated_at"))
+        if incoming_updated_at and existing_updated_at:
+            return incoming_updated_at >= existing_updated_at
+        if incoming_updated_at and not existing_updated_at:
+            return True
+        if not incoming_updated_at and existing_updated_at:
+            return False
+        return incoming.get("schedule_id") != existing.get("schedule_id") or incoming == existing
+
+    def _schedule_workspace_update(self, workspace: Any) -> None:
+        update_workspace = getattr(getattr(self, "store", None), "update_workspace", None)
+        if not callable(update_workspace):
+            return
+
+        async def _persist() -> None:
+            try:
+                await update_workspace(workspace)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to persist workspace spatial schedule summary for %s: %s",
+                    getattr(workspace, "id", "unknown"),
+                    exc,
+                )
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(_persist())
+            return
+
+        loop.create_task(_persist())
+
+    def _writeback_spatial_schedule_context_to_workspace(self) -> None:
+        context = self.session.metadata.get("spatial_schedule_context")
+        workspace = getattr(self, "workspace", None)
+        if not isinstance(context, dict) or workspace is None:
+            return
+
+        if getattr(workspace, "metadata", None) is None:
+            workspace.metadata = {}
+
+        existing = dict(getattr(workspace, "metadata", {}).get("spatial_schedule_context", {}) or {})
+        if not self._should_overwrite_workspace_schedule(existing, context):
+            self.session.metadata["spatial_schedule_writeback"] = {
+                "status": "stale_skipped",
+                "schedule_id": context.get("schedule_id"),
+                "updated_at": context.get("updated_at"),
+            }
+            return
+
+        workspace.metadata["spatial_schedule_context"] = dict(context)
+        self.session.metadata["spatial_schedule_writeback"] = {
+            "status": "applied",
+            "schedule_id": context.get("schedule_id"),
+            "updated_at": context.get("updated_at"),
+        }
+        self._schedule_workspace_update(workspace)
 
     @staticmethod
     def _packet_has_core_layer(core: Optional[Dict[str, Any]]) -> bool:
@@ -547,6 +629,7 @@ class MeetingSessionMixin:
             ],
             action_items=action_items,
         )
+        self._writeback_spatial_schedule_context_to_workspace()
         self.session_store.update(self.session)
 
         self._emit_event(

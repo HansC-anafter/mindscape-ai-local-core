@@ -33,13 +33,22 @@ class _FakeWritebackOrchestrator:
         }
 
 
+class _FakeStore:
+    def __init__(self) -> None:
+        self.updated_workspaces = []
+
+    async def update_workspace(self, workspace) -> None:
+        self.updated_workspaces.append(workspace)
+
+
 @dataclass
 class _FakeEngine(MeetingSessionMixin):
     session: MeetingSession
 
     def __post_init__(self) -> None:
         self.session_store = _FakeSessionStore()
-        self.workspace = SimpleNamespace(id=self.session.workspace_id)
+        self.store = _FakeStore()
+        self.workspace = SimpleNamespace(id=self.session.workspace_id, metadata={})
         self.profile_id = "profile-001"
         self.emitted_events: list[dict] = []
         self._selected_memory_packet_trace = None
@@ -136,6 +145,66 @@ def test_close_session_records_canonical_memory_and_emits_memory_writeback(
         engine.emitted_events[1]["payload"]["canonical_memory"]["memory_item_id"]
         == "mem-001"
     )
+
+
+def test_close_session_writes_spatial_schedule_context_to_workspace():
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        agenda=["Write back schedule summary"],
+    )
+    session.start()
+    session.metadata["spatial_schedule_context"] = {
+        "schedule_id": "ssched_001",
+        "updated_at": "2026-04-16T12:00:00+00:00",
+        "active_segments": [{"segment_id": "seg-001", "title": "Enter frame"}],
+    }
+    engine = _FakeEngine(session=session)
+
+    engine._close_session(
+        minutes_md="Persist schedule summary to workspace metadata.",
+        action_items=[{"title": "Persist schedule"}],
+        dispatch_result={"status": "accepted"},
+    )
+
+    assert (
+        engine.workspace.metadata["spatial_schedule_context"]["schedule_id"] == "ssched_001"
+    )
+    assert session.metadata["spatial_schedule_writeback"]["status"] == "applied"
+    assert len(engine.store.updated_workspaces) == 1
+
+
+def test_close_session_skips_stale_spatial_schedule_writeback():
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        agenda=["Skip stale schedule summary"],
+    )
+    session.start()
+    session.metadata["spatial_schedule_context"] = {
+        "schedule_id": "ssched_old",
+        "updated_at": "2026-04-16T10:00:00+00:00",
+    }
+    engine = _FakeEngine(session=session)
+    engine.workspace.metadata["spatial_schedule_context"] = {
+        "schedule_id": "ssched_newer",
+        "updated_at": "2026-04-16T13:00:00+00:00",
+    }
+
+    engine._close_session(
+        minutes_md="Do not overwrite newer workspace schedule summary.",
+        action_items=[{"title": "Skip stale writeback"}],
+        dispatch_result={"status": "accepted"},
+    )
+
+    assert (
+        engine.workspace.metadata["spatial_schedule_context"]["schedule_id"]
+        == "ssched_newer"
+    )
+    assert session.metadata["spatial_schedule_writeback"]["status"] == "stale_skipped"
+    assert engine.store.updated_workspaces == []
 
 
 def test_start_session_records_workflow_evidence_diagnostics():
