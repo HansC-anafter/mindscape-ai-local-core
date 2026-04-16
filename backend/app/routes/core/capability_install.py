@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 from app.services.pack_activation_service import PackActivationService
 from app.services.stores.installed_packs_store import InstalledPacksStore
 from app.services.restart_webhook import get_restart_webhook_service
+from app.services.tool_rag_refresh import refresh_tool_rag_corpus
 
 logger = logging.getLogger(__name__)
 
@@ -511,16 +512,16 @@ async def run_install_pipeline(
         import asyncio as _asyncio
 
         try:
-            from backend.app.services.tool_embedding_service import (
-                ToolEmbeddingService as _TES,
-            )
-
             async def _bg_reindex():
                 try:
-                    n = await _TES().ensure_indexed()
-                    if n <= 0:
-                        n = await _TES().index_all_tools()
-                    logger.info("Tool RAG re-indexed after install: %d tools", n)
+                    _, indexed_count, mode = await refresh_tool_rag_corpus(
+                        log_prefix="Tool RAG install refresh"
+                    )
+                    logger.info(
+                        "Tool RAG re-indexed after install: %d tools (mode=%s)",
+                        indexed_count,
+                        mode,
+                    )
                     try:
                         pack_activation_service.record_embedding_succeeded(
                             pack_id=capability_code,

@@ -18,6 +18,19 @@ import time
 import subprocess
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from backend.app.app_bootstrap.startup_contract import (
+    capture_phase_duration,
+    compute_db_fingerprint,
+    new_startup_boot_id,
+    write_preflight_contract,
+)
+
+_LAST_MIGRATION_FAILURE_DETAILS: str | None = None
+
 
 def ensure_databases():
     """Create missing databases by connecting to the default 'postgres' DB."""
@@ -100,6 +113,7 @@ def ensure_databases():
 
 def run_migrations():
     """Run Alembic migrations to ensure all tables exist."""
+    global _LAST_MIGRATION_FAILURE_DETAILS
     # Determine paths inside Docker container
     backend_dir = "/app/backend"
     alembic_ini = os.path.join(backend_dir, "alembic.postgres.ini")
@@ -126,6 +140,7 @@ def run_migrations():
             timeout=120,
         )
         if result.returncode == 0:
+            _LAST_MIGRATION_FAILURE_DETAILS = None
             print("[preflight] Alembic migrations completed successfully")
             if result.stderr:
                 # Alembic logs to stderr
@@ -134,6 +149,9 @@ def run_migrations():
                         print(f"[preflight] {line.strip()}")
             return True
         else:
+            _LAST_MIGRATION_FAILURE_DETAILS = "\n".join(
+                part for part in [result.stdout, result.stderr] if part
+            )
             print(f"[preflight] Alembic migration failed (exit {result.returncode})")
             if result.stdout:
                 print(f"[preflight] stdout: {result.stdout[:5000]}")
@@ -141,14 +159,29 @@ def run_migrations():
                 print(f"[preflight] stderr: {result.stderr[:5000]}")
             return False
     except subprocess.TimeoutExpired:
+        _LAST_MIGRATION_FAILURE_DETAILS = "timeout"
         print("[preflight] Alembic migration timed out after 120s")
         return False
     except FileNotFoundError:
+        _LAST_MIGRATION_FAILURE_DETAILS = "alembic_command_not_found"
         print("[preflight] alembic command not found, skipping migrations")
         return False
     except Exception as e:
+        _LAST_MIGRATION_FAILURE_DETAILS = str(e)
         print(f"[preflight] Migration error: {e}")
         return False
+
+
+def _is_revision_graph_failure(details: str | None) -> bool:
+    if not details:
+        return False
+    patterns = (
+        "KeyError:",
+        "Revision ",
+        "Can't locate revision identified by",
+        "is not present",
+    )
+    return any(pattern in details for pattern in patterns)
 
 
 def _repair_script_path() -> str:
@@ -275,89 +308,183 @@ def verify_critical_tables():
 
 
 if __name__ == "__main__":
+    preflight_started = time.monotonic()
+    startup_boot_id = new_startup_boot_id()
+    db_fingerprint = compute_db_fingerprint()
+    phase_timings: dict[str, int] = {}
+    repair_dry_run_ok = False
+    repair_apply_ok = False
+    migration_ok = False
+    migration_retry_ok = False
+
+    db_phase_started = time.monotonic()
     db_ok = ensure_databases()
+    phase_timings["ensure_databases_ms"] = capture_phase_duration(
+        "preflight.ensure_databases",
+        db_phase_started,
+        print,
+        extra={"boot_id": startup_boot_id, "ok": str(db_ok).lower()},
+    )
+
     if db_ok:
-        repair_ok = False
-        if try_repair_alembic_state(apply=False):
+        repair_dry_run_started = time.monotonic()
+        repair_dry_run_ok = try_repair_alembic_state(apply=False)
+        phase_timings["repair_dry_run_ms"] = capture_phase_duration(
+            "preflight.repair_dry_run",
+            repair_dry_run_started,
+            print,
+            extra={"boot_id": startup_boot_id, "ok": str(repair_dry_run_ok).lower()},
+        )
+
+        if repair_dry_run_ok:
             print(
                 "[preflight] Detected populated unstamped Alembic state; "
                 "attempting automatic head stamp before upgrade."
             )
-            repair_ok = try_repair_alembic_state(apply=True)
+            repair_apply_started = time.monotonic()
+            repair_apply_ok = try_repair_alembic_state(apply=True)
+            phase_timings["repair_apply_ms"] = capture_phase_duration(
+                "preflight.repair_apply",
+                repair_apply_started,
+                print,
+                extra={
+                    "boot_id": startup_boot_id,
+                    "ok": str(repair_apply_ok).lower(),
+                },
+            )
 
-        migration_ok = repair_ok or run_migrations()
+        migration_started = time.monotonic()
+        migration_ok = repair_apply_ok or run_migrations()
+        phase_timings["run_migrations_ms"] = capture_phase_duration(
+            "preflight.run_migrations",
+            migration_started,
+            print,
+            extra={
+                "boot_id": startup_boot_id,
+                "ok": str(migration_ok).lower(),
+                "mode": "repair_apply_skip" if repair_apply_ok else "alembic_upgrade",
+            },
+        )
         if not migration_ok:
             print("[preflight] WARNING: Alembic migration returned failure")
-            # Clean up stale alembic_version entries if tables are missing
-            # This handles the case where a previous failed migration left
-            # partial state (e.g. some tables created, version stamped, but
-            # subsequent migrations failed). Without cleanup, Alembic would
-            # skip already-stamped migrations and still fail.
-            try:
-                import psycopg2
-                from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+            if _is_revision_graph_failure(_LAST_MIGRATION_FAILURE_DETAILS):
+                print(
+                    "[preflight] Skipping alembic_version cleanup because the Alembic "
+                    "revision graph is invalid in this runtime."
+                )
+            else:
+                # Clean up stale alembic_version entries if tables are missing.
+                # This only applies when the revision graph itself is valid and
+                # the failure looks like a partially-applied database state.
+                try:
+                    import psycopg2
+                    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
-                pg_host = os.getenv(
-                    "POSTGRES_CORE_HOST", os.getenv("POSTGRES_HOST", "postgres")
-                )
-                pg_port = int(
-                    os.getenv("POSTGRES_CORE_PORT", os.getenv("POSTGRES_PORT", "5432"))
-                )
-                pg_user = os.getenv(
-                    "POSTGRES_CORE_USER", os.getenv("POSTGRES_USER", "mindscape")
-                )
-                pg_pass = os.getenv(
-                    "POSTGRES_CORE_PASSWORD",
-                    os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
-                )
-                core_db = os.getenv("POSTGRES_CORE_DB", "mindscape_core")
+                    pg_host = os.getenv(
+                        "POSTGRES_CORE_HOST", os.getenv("POSTGRES_HOST", "postgres")
+                    )
+                    pg_port = int(
+                        os.getenv("POSTGRES_CORE_PORT", os.getenv("POSTGRES_PORT", "5432"))
+                    )
+                    pg_user = os.getenv(
+                        "POSTGRES_CORE_USER", os.getenv("POSTGRES_USER", "mindscape")
+                    )
+                    pg_pass = os.getenv(
+                        "POSTGRES_CORE_PASSWORD",
+                        os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
+                    )
+                    core_db = os.getenv("POSTGRES_CORE_DB", "mindscape_core")
 
-                conn = psycopg2.connect(
-                    host=pg_host,
-                    port=pg_port,
-                    user=pg_user,
-                    password=pg_pass,
-                    dbname=core_db,
-                    connect_timeout=5,
-                )
-                conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-                cur = conn.cursor()
+                    conn = psycopg2.connect(
+                        host=pg_host,
+                        port=pg_port,
+                        user=pg_user,
+                        password=pg_pass,
+                        dbname=core_db,
+                        connect_timeout=5,
+                    )
+                    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+                    cur = conn.cursor()
 
-                # Check if alembic_version exists and has entries
-                cur.execute(
-                    "SELECT EXISTS ("
-                    "  SELECT 1 FROM information_schema.tables"
-                    "  WHERE table_name = 'alembic_version' AND table_schema = 'public'"
-                    ")"
-                )
-                if cur.fetchone()[0]:
-                    cur.execute("SELECT version_num FROM alembic_version")
-                    versions = [r[0] for r in cur.fetchall()]
-                    if versions:
-                        print(
-                            f"[preflight] Cleaning stale alembic_version entries: {versions}"
-                        )
-                        cur.execute("DELETE FROM alembic_version")
+                    # Check if alembic_version exists and has entries
+                    cur.execute(
+                        "SELECT EXISTS ("
+                        "  SELECT 1 FROM information_schema.tables"
+                        "  WHERE table_name = 'alembic_version' AND table_schema = 'public'"
+                        ")"
+                    )
+                    if cur.fetchone()[0]:
+                        cur.execute("SELECT version_num FROM alembic_version")
+                        versions = [r[0] for r in cur.fetchall()]
+                        if versions:
+                            print(
+                                f"[preflight] Cleaning stale alembic_version entries: {versions}"
+                            )
+                            cur.execute("DELETE FROM alembic_version")
 
-                cur.close()
-                conn.close()
+                    cur.close()
+                    conn.close()
 
-                # Retry migration after cleanup
-                print("[preflight] Retrying Alembic migration after cleanup...")
-                migration_ok = run_migrations()
-                if migration_ok:
-                    print("[preflight] Migration succeeded on retry")
-            except Exception as e:
-                print(f"[preflight] Cleanup/retry failed: {e}")
+                    # Retry migration after cleanup
+                    print("[preflight] Retrying Alembic migration after cleanup...")
+                    retry_started = time.monotonic()
+                    migration_retry_ok = run_migrations()
+                    phase_timings["run_migrations_retry_ms"] = capture_phase_duration(
+                        "preflight.run_migrations_retry",
+                        retry_started,
+                        print,
+                        extra={
+                            "boot_id": startup_boot_id,
+                            "ok": str(migration_retry_ok).lower(),
+                        },
+                    )
+                    migration_ok = migration_retry_ok
+                    if migration_ok:
+                        print("[preflight] Migration succeeded on retry")
+                except Exception as e:
+                    print(f"[preflight] Cleanup/retry failed: {e}")
     else:
         print("[preflight] Skipping migrations since database setup failed")
 
     # Verify critical tables exist regardless of migration result
+    tables_started = time.monotonic()
     tables_ok = verify_critical_tables()
+    phase_timings["verify_critical_tables_ms"] = capture_phase_duration(
+        "preflight.verify_critical_tables",
+        tables_started,
+        print,
+        extra={"boot_id": startup_boot_id, "ok": str(tables_ok).lower()},
+    )
+
+    preflight_total_ms = int((time.monotonic() - preflight_started) * 1000)
+    write_preflight_contract(
+        {
+            "startup_boot_id": startup_boot_id,
+            "written_at": time.time(),
+            "db_fingerprint": db_fingerprint,
+            "db_ok": db_ok,
+            "critical_tables_ok": tables_ok,
+            "migration_ok": migration_ok,
+            "repair_dry_run_ok": repair_dry_run_ok,
+            "repair_apply_ok": repair_apply_ok,
+            "migration_retry_ok": migration_retry_ok,
+            "phase_timings_ms": phase_timings,
+            "preflight_total_ms": preflight_total_ms,
+        }
+    )
+    print(
+        "[preflight] Wrote startup contract "
+        f"(boot_id={startup_boot_id}, total_ms={preflight_total_ms})"
+    )
+
     if not tables_ok:
         print("[preflight] FATAL: Critical tables missing after migration!")
         print("[preflight] The application cannot start without these tables.")
         print("[preflight] Check PostgreSQL connection and Alembic configuration.")
         sys.exit(1)
 
+    print(
+        f"[startup-phase] label=preflight.total duration_ms={preflight_total_ms} "
+        f"boot_id={startup_boot_id}"
+    )
     print("[preflight] Preflight complete, starting application...")
