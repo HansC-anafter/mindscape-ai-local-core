@@ -1,4 +1,4 @@
-# Use Case Gallery / 使用案例集
+# Use Case Gallery
 
 > Public use cases should explain **scenario families**, operator journeys, and bounded artifacts without forcing readers to start from pack internals.
 
