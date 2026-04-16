@@ -185,9 +185,37 @@ def _persist_legacy_running_task(
             started_at=existing_task.started_at or utc_now_fn(),
             error=None,
         )
+        _reconcile_ig_capability_task_state(
+            playbook_code=playbook_code,
+            workspace_id=workspace_id,
+            execution_id=execution_id,
+            inputs=execution_context.get("inputs")
+            if isinstance(execution_context.get("inputs"), dict)
+            else {},
+            task_status=TaskStatus.RUNNING,
+            task_error=None,
+            created_at=existing_task.created_at or utc_now_fn(),
+            completed_at=None,
+            workflow_result=merged_context.get("workflow_result")
+            if isinstance(merged_context.get("workflow_result"), dict)
+            else None,
+        )
         return tasks_store, existing_task
 
     tasks_store.create_task(task)
+    _reconcile_ig_capability_task_state(
+        playbook_code=playbook_code,
+        workspace_id=workspace_id,
+        execution_id=execution_id,
+        inputs=execution_context.get("inputs")
+        if isinstance(execution_context.get("inputs"), dict)
+        else {},
+        task_status=TaskStatus.RUNNING,
+        task_error=None,
+        created_at=task.created_at or utc_now_fn(),
+        completed_at=None,
+        workflow_result=None,
+    )
     return tasks_store, task
 
 
@@ -259,6 +287,74 @@ def _reconcile_ig_reference_terminal_state(
             "PlaybookRunExecutor: Failed to reconcile IG reference task state",
             exc_info=True,
         )
+
+
+def _reconcile_ig_batch_pin_account_summary(
+    *,
+    playbook_code: str,
+    workspace_id: Optional[str],
+    execution_id: Optional[str],
+    inputs: Optional[Dict[str, Any]],
+    task_status: Any,
+    created_at: Any,
+    completed_at: Any = None,
+    workflow_result: Optional[Dict[str, Any]] = None,
+) -> None:
+    if playbook_code != "ig_batch_pin_references" or not workspace_id:
+        return
+    if not isinstance(inputs, dict):
+        return
+    try:
+        from capabilities.ig.services.batch_pin_account_summary_store import (
+            BatchPinAccountSummaryStore,
+        )
+
+        BatchPinAccountSummaryStore().reconcile_task_state(
+            workspace_id=workspace_id,
+            execution_id=execution_id,
+            inputs=inputs,
+            task_status=task_status,
+            created_at=created_at,
+            completed_at=completed_at,
+            workflow_result=workflow_result,
+        )
+    except Exception:
+        logger.warning(
+            "PlaybookRunExecutor: Failed to reconcile IG batch pin account summary",
+            exc_info=True,
+        )
+
+
+def _reconcile_ig_capability_task_state(
+    *,
+    playbook_code: str,
+    workspace_id: Optional[str],
+    execution_id: Optional[str],
+    inputs: Optional[Dict[str, Any]],
+    task_status: Any,
+    task_error: Optional[str],
+    created_at: Any,
+    completed_at: Any = None,
+    workflow_result: Optional[Dict[str, Any]] = None,
+) -> None:
+    _reconcile_ig_reference_terminal_state(
+        playbook_code=playbook_code,
+        workspace_id=workspace_id,
+        inputs=inputs,
+        task_status=task_status,
+        task_error=task_error,
+        workflow_result=workflow_result,
+    )
+    _reconcile_ig_batch_pin_account_summary(
+        playbook_code=playbook_code,
+        workspace_id=workspace_id,
+        execution_id=execution_id,
+        inputs=inputs,
+        task_status=task_status,
+        created_at=created_at,
+        completed_at=completed_at,
+        workflow_result=workflow_result,
+    )
 
 
 async def execute_legacy_workflow(
@@ -389,19 +485,23 @@ async def execute_legacy_workflow(
             execution_context["current_step_index"] = total_steps
             execution_context["workflow_result"] = result
             merged_context.update(execution_context)
+            completed_at = _utc_now()
             tasks_store.update_task(
                 task.id,
                 execution_context=merged_context,
                 status=TaskStatus.FAILED if workflow_failed else TaskStatus.SUCCEEDED,
-                completed_at=_utc_now(),
+                completed_at=completed_at,
                 error="Workflow completed with step errors" if workflow_failed else None,
             )
-            _reconcile_ig_reference_terminal_state(
+            _reconcile_ig_capability_task_state(
                 playbook_code=playbook_code,
                 workspace_id=workspace_id,
+                execution_id=execution_id,
                 inputs=normalized_inputs,
                 task_status="FAILED" if workflow_failed else "SUCCEEDED",
                 task_error="Workflow completed with step errors" if workflow_failed else None,
+                created_at=task.created_at or completed_at,
+                completed_at=completed_at,
                 workflow_result=result if isinstance(result, dict) else None,
             )
             await _land_governed_result(
@@ -425,19 +525,23 @@ async def execute_legacy_workflow(
                 else {}
             )
             merged_context.update(execution_context)
+            failed_at = _utc_now()
             tasks_store.update_task(
                 task.id,
                 execution_context=merged_context,
                 status=TaskStatus.FAILED,
-                completed_at=_utc_now(),
+                completed_at=failed_at,
                 error=error_info.user_message,
             )
-            _reconcile_ig_reference_terminal_state(
+            _reconcile_ig_capability_task_state(
                 playbook_code=playbook_code,
                 workspace_id=workspace_id,
+                execution_id=execution_id,
                 inputs=normalized_inputs,
                 task_status="FAILED",
                 task_error=error_info.user_message,
+                created_at=task.created_at or failed_at,
+                completed_at=failed_at,
                 workflow_result=merged_context.get("workflow_result")
                 if isinstance(merged_context.get("workflow_result"), dict)
                 else None,
