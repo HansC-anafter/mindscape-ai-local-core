@@ -158,6 +158,25 @@ class MeetingIRCompilerMixin:
             metadata=metadata,
         )
 
+        try:
+            from backend.app.services.orchestration.meeting.spatial_scheduling_compiler import (
+                emit_spatial_schedule_for_task_ir,
+            )
+
+            emit_spatial_schedule_for_task_ir(
+                task_ir=task_ir,
+                session=getattr(self, "session", None),
+                decision=decision,
+                action_items=action_items,
+                action_intents=action_intents,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to emit spatial schedule artifact for task %s: %s",
+                task_id,
+                exc,
+            )
+
         logger.info(
             "Compiled TaskIR %s with %d phases from meeting session",
             task_id,

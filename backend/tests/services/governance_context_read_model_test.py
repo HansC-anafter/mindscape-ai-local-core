@@ -238,3 +238,105 @@ async def test_governance_context_read_model_compiles_selected_packet():
     assert "Old stale goal" not in formatted
     assert "Already done" not in formatted
     assert "stale episode should not be included" not in formatted.lower()
+
+
+@pytest.mark.asyncio
+async def test_governance_context_read_model_includes_canonical_spatial_schedule_context():
+    workspace = SimpleNamespace(
+        id="ws-1",
+        owner_user_id="profile-1",
+        primary_project_id="proj-1",
+        mode="research",
+        execution_mode="hybrid",
+        runtime_profile=SimpleNamespace(metadata={"memory_scope": "extended"}),
+        sandbox_config={},
+        metadata={
+            "spatial_schedule_context": {
+                "schedule_id": "ssched_001",
+                "schema_version": "2026-04-16",
+                "status": "planned",
+                "artifact_ref": {
+                    "artifact_id": "task-1/spatial_schedule",
+                    "type": "application/vnd.mindscape.spatial-scheduling+json",
+                },
+                "entity_kinds": ["actor"],
+                "active_segments": [
+                    {
+                        "segment_id": "seg_001",
+                        "title": "Enter frame",
+                        "entity_refs": ["actor.main"],
+                        "anchor_ids": ["scene.demo"],
+                    }
+                ],
+                "constraint_summary": {"consumer_hints": ["performance_direction"]},
+                "updated_at": "2026-04-16T12:00:00Z",
+            }
+        },
+    )
+
+    read_model = GovernanceContextReadModel(
+        store=SimpleNamespace(),
+        workspace_core_memory_service=_FakeWorkspaceCoreMemoryService(),
+        project_memory_service=_FakeProjectMemoryService(),
+        member_profile_memory_service=_FakeMemberProfileMemoryService(),
+        personal_knowledge_store=_FakePersonalKnowledgeStore(),
+        goal_ledger_store=_FakeGoalLedgerStore(),
+        memory_item_store=_FakeMemoryItemStore(),
+    )
+
+    packet = await read_model.build_for_workspace(workspace)
+
+    assert (
+        packet["governance_context"]["spatial_schedule_context"]["schedule_id"]
+        == "ssched_001"
+    )
+    assert packet["governance_context"]["sources"]["has_spatial_schedule"] is True
+
+
+@pytest.mark.asyncio
+async def test_governance_context_read_model_upgrades_legacy_spatial_schedule_context():
+    workspace = SimpleNamespace(
+        id="ws-1",
+        owner_user_id="profile-1",
+        primary_project_id="proj-1",
+        mode="research",
+        execution_mode="hybrid",
+        runtime_profile=SimpleNamespace(metadata={"memory_scope": "extended"}),
+        sandbox_config={},
+        metadata={
+            "spatial_schedule_context": {
+                "schedule_id": "ssched_legacy",
+                "source_artifact_id": "task-2/spatial_schedule",
+                "active_segment_ids": ["seg_legacy"],
+                "consumer_refs": [
+                    {
+                        "consumer_code": "motion_runtime",
+                        "status": "completed",
+                        "receipt_artifact_id": "motion-receipt-1",
+                    }
+                ],
+            }
+        },
+    )
+
+    read_model = GovernanceContextReadModel(
+        store=SimpleNamespace(),
+        workspace_core_memory_service=_FakeWorkspaceCoreMemoryService(),
+        project_memory_service=_FakeProjectMemoryService(),
+        member_profile_memory_service=_FakeMemberProfileMemoryService(),
+        personal_knowledge_store=_FakePersonalKnowledgeStore(),
+        goal_ledger_store=_FakeGoalLedgerStore(),
+        memory_item_store=_FakeMemoryItemStore(),
+    )
+
+    packet = await read_model.build_for_workspace(workspace)
+    spatial_schedule_context = packet["governance_context"]["spatial_schedule_context"]
+
+    assert spatial_schedule_context["artifact_ref"]["artifact_id"] == "task-2/spatial_schedule"
+    assert spatial_schedule_context["active_segments"][0]["segment_id"] == "seg_legacy"
+    assert (
+        spatial_schedule_context["consumer_receipts"]["motion_runtime"]["receipt_ref"][
+            "artifact_id"
+        ]
+        == "motion-receipt-1"
+    )

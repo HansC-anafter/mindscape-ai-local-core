@@ -30,6 +30,9 @@ from backend.app.services.stores.postgres.memory_item_store import MemoryItemSto
 from backend.app.services.stores.postgres.personal_knowledge_store import (
     PersonalKnowledgeStore,
 )
+from backend.shared.schemas.spatial_scheduling import (
+    SPATIAL_SCHEDULING_SCHEMA_VERSION,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +112,7 @@ class GovernanceContextReadModel:
             session_id=session_id,
         )
         policy_context = self._build_policy_context(workspace_ref)
+        spatial_schedule_context = self._build_spatial_schedule_context(workspace_ref)
 
         memory_packet = self.selector.select_packet(
             canonical_items=canonical_items,
@@ -137,7 +141,9 @@ class GovernanceContextReadModel:
                     "goal_count": len(goal_entries),
                     "has_project_memory": project_memory is not None,
                     "has_member_memory": member_memory is not None,
+                    "has_spatial_schedule": spatial_schedule_context is not None,
                 },
+                "spatial_schedule_context": spatial_schedule_context,
             },
             "memory_packet": memory_packet,
         }
@@ -297,6 +303,104 @@ class GovernanceContextReadModel:
             for key, value in policy_context.items()
             if value not in (None, {}, [])
         }
+
+    def _build_spatial_schedule_context(
+        self,
+        workspace: Any,
+    ) -> Optional[Dict[str, Any]]:
+        workspace_metadata = dict(getattr(workspace, "metadata", {}) or {})
+        raw = dict(workspace_metadata.get("spatial_schedule_context", {}) or {})
+        if not raw:
+            return None
+
+        artifact_ref = raw.get("artifact_ref")
+        if not isinstance(artifact_ref, dict) or not artifact_ref.get("artifact_id"):
+            artifact_ref = self._derive_schedule_artifact_ref(raw)
+
+        active_segments = raw.get("active_segments")
+        if not isinstance(active_segments, list):
+            active_segments = self._derive_active_segments(raw)
+
+        consumer_receipts = raw.get("consumer_receipts")
+        if not isinstance(consumer_receipts, dict):
+            consumer_receipts = self._derive_consumer_receipts(raw)
+
+        schedule_revision_refs = raw.get("schedule_revision_refs")
+        if not isinstance(schedule_revision_refs, list):
+            schedule_revision_refs = []
+
+        normalized = {
+            "schedule_id": raw.get("schedule_id"),
+            "schema_version": raw.get("schema_version")
+            or SPATIAL_SCHEDULING_SCHEMA_VERSION,
+            "status": raw.get("status") or "planned",
+            "artifact_ref": artifact_ref,
+            "source_task_id": raw.get("source_task_id"),
+            "source_session_id": raw.get("source_session_id"),
+            "entity_kinds": list(raw.get("entity_kinds") or []),
+            "active_segments": active_segments,
+            "constraint_summary": dict(raw.get("constraint_summary") or {}),
+            "schedule_revision_refs": schedule_revision_refs,
+            "consumer_receipts": consumer_receipts,
+            "updated_at": raw.get("updated_at"),
+        }
+        return {
+            key: value
+            for key, value in normalized.items()
+            if value not in (None, {}, [])
+        }
+
+    @staticmethod
+    def _derive_schedule_artifact_ref(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        source_artifact_id = raw.get("source_artifact_id")
+        if source_artifact_id:
+            return {
+                "artifact_id": source_artifact_id,
+                "type": raw.get("artifact_type")
+                or "application/vnd.mindscape.spatial-scheduling+json",
+            }
+
+        artifact_refs = list(raw.get("artifact_refs") or [])
+        for artifact_ref in artifact_refs:
+            if isinstance(artifact_ref, dict) and artifact_ref.get("artifact_id"):
+                return {
+                    "artifact_id": artifact_ref.get("artifact_id"),
+                    "type": artifact_ref.get("type")
+                    or "application/vnd.mindscape.spatial-scheduling+json",
+                }
+        return None
+
+    @staticmethod
+    def _derive_active_segments(raw: Dict[str, Any]) -> list[Dict[str, Any]]:
+        segment_ids = list(raw.get("active_segment_ids") or [])
+        segments = []
+        for segment_id in segment_ids:
+            segments.append(
+                {
+                    "segment_id": segment_id,
+                    "title": segment_id,
+                    "entity_refs": [],
+                    "anchor_ids": [],
+                }
+            )
+        return segments
+
+    @staticmethod
+    def _derive_consumer_receipts(raw: Dict[str, Any]) -> Dict[str, Any]:
+        receipts: Dict[str, Any] = {}
+        for consumer_ref in list(raw.get("consumer_refs") or []):
+            if not isinstance(consumer_ref, dict):
+                continue
+            consumer_code = consumer_ref.get("consumer_code")
+            if not consumer_code:
+                continue
+            receipts[str(consumer_code)] = {
+                "status": consumer_ref.get("status"),
+                "receipt_ref": {
+                    "artifact_id": consumer_ref.get("receipt_artifact_id"),
+                },
+            }
+        return receipts
 
     async def build_for_workspace_id(
         self,
