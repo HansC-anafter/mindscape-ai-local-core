@@ -57,7 +57,7 @@ def test_is_contract_trustworthy_enforces_ttl_and_fingerprint():
     ) == (False, "stale")
 
 
-def test_record_startup_seeded_activation_pending_preserves_existing_state():
+def test_record_startup_seeded_activation_pending_promotes_pending_restart_to_pending_activation():
     class FakeActivationService:
         def __init__(self):
             self.calls = []
@@ -65,28 +65,33 @@ def test_record_startup_seeded_activation_pending_preserves_existing_state():
         def get_state(self, pack_id):
             assert pack_id == "demo_pack"
             return {
-                "install_state": "validation_pending",
+                "install_state": "installed",
                 "activation_state": "pending_restart",
             }
 
         def record_activation_pending(self, **kwargs):
             self.calls.append(kwargs)
-            return {"status": "unexpected"}
+            return {"status": "recorded", **kwargs}
 
     service = FakeActivationService()
+    manifest_path = Path("/tmp/demo_pack/manifest.yaml")
 
     result = record_startup_seeded_activation_pending(
         activation_service=service,
         pack_id="demo_pack",
         manifest={"code": "demo_pack"},
-        manifest_path=Path("/tmp/demo_pack/manifest.yaml"),
+        manifest_path=manifest_path,
     )
 
-    assert result == {
-        "install_state": "validation_pending",
-        "activation_state": "pending_restart",
-    }
-    assert service.calls == []
+    assert result["status"] == "recorded"
+    assert service.calls == [
+        {
+            "pack_id": "demo_pack",
+            "manifest": {"code": "demo_pack"},
+            "manifest_path": manifest_path,
+            "activation_mode": "startup_seeded",
+        }
+    ]
 
 
 def test_record_startup_seeded_activation_pending_records_when_state_not_preserved():

@@ -7,7 +7,6 @@ from app.services.pack_activation_service import PackActivationService
 logger = logging.getLogger(__name__)
 
 _PRESERVE_STARTUP_SEEDED_INSTALL_STATES = {"validation_failed", "validation_pending"}
-_PRESERVE_STARTUP_SEEDED_ACTIVATION_STATES = {"pending_restart"}
 
 
 def should_preserve_startup_seeded_activation(
@@ -15,11 +14,6 @@ def should_preserve_startup_seeded_activation(
 ) -> bool:
     if not existing_state:
         return False
-    if (
-        existing_state.get("activation_state")
-        in _PRESERVE_STARTUP_SEEDED_ACTIVATION_STATES
-    ):
-        return True
     return (
         existing_state.get("install_state")
         in _PRESERVE_STARTUP_SEEDED_INSTALL_STATES
