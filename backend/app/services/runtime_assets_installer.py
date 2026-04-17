@@ -58,31 +58,34 @@ class RuntimeAssetsInstaller:
             result: InstallResult to update
             temp_dir: Temporary extraction directory (for ZIP format manifest location)
         """
-        # 1. Install tools
+        # 1. Install scripts
+        self.install_scripts(cap_dir, capability_code, result)
+
+        # 2. Install tools
         self.install_tools(cap_dir, capability_code, result)
 
-        # 2. Install services
+        # 3. Install services
         self.install_services(cap_dir, capability_code, result)
 
-        # 2b. Install jobs directory
+        # 3b. Install jobs directory
         self.install_jobs(cap_dir, capability_code, result)
 
-        # 3. Install API endpoints
+        # 4. Install API endpoints
         self.install_api_endpoints(cap_dir, capability_code, result)
 
-        # 4. Install schema modules
+        # 5. Install schema modules
         self.install_schema_modules(cap_dir, capability_code, result)
 
-        # 5. Install database models
+        # 6. Install database models
         self.install_database_models(cap_dir, capability_code, result)
 
-        # 5b. Install capability models (models/ directory)
+        # 6b. Install capability models (models/ directory)
         self.install_capability_models(cap_dir, capability_code, result)
 
-        # 6. Install migrations directory (copy migrations/ to capability directory)
+        # 7. Install migrations directory (copy migrations/ to capability directory)
         self.install_migrations_directory(cap_dir, capability_code, result)
 
-        # 7. Install migrations (copy migration files to alembic/versions/)
+        # 8. Install migrations (copy migration files to alembic/versions/)
         self.install_migrations(cap_dir, capability_code, result)
 
         # Note: Migration execution is deferred to capability_packs.py install_from_file
@@ -127,6 +130,40 @@ class RuntimeAssetsInstaller:
         logger.info(
             f"Installed workflows directory for {capability_code}: {len(installed)} files"
         )
+
+    def install_scripts(
+        self, cap_dir: Path, capability_code: str, result: InstallResult
+    ):
+        """Install capability scripts"""
+        scripts_dir = cap_dir / "scripts"
+        if not scripts_dir.exists():
+            return
+
+        target_scripts_dir = self.capabilities_dir / capability_code / "scripts"
+        target_scripts_dir.mkdir(parents=True, exist_ok=True)
+
+        for script_file in scripts_dir.glob("*.py"):
+            if script_file.name.startswith("__") and script_file.name != "__init__.py":
+                continue
+
+            target_script = target_scripts_dir / script_file.name
+            shutil.copy2(script_file, target_script)
+            script_name = script_file.stem
+            if script_name != "__init__":
+                result.add_installed("scripts", script_name)
+            logger.debug(f"Installed script: {script_name}")
+
+        for item in scripts_dir.iterdir():
+            if not item.is_dir():
+                continue
+            if item.name.startswith("__"):
+                continue
+            target_subdir = target_scripts_dir / item.name
+            if target_subdir.exists():
+                shutil.rmtree(target_subdir)
+            shutil.copytree(item, target_subdir)
+            logger.debug(f"Installed scripts subdirectory: {item.name}")
+            result.add_installed("script_dirs", item.name)
 
     def install_tools(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install capability tools"""

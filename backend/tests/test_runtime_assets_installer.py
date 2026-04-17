@@ -2,6 +2,40 @@ from app.services.install_result import InstallResult
 from app.services.runtime_assets_installer import RuntimeAssetsInstaller
 
 
+def test_install_scripts_copies_runtime_assets(tmp_path):
+    local_core_root = tmp_path / "local-core"
+    capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
+    capabilities_dir.mkdir(parents=True)
+
+    cap_dir = tmp_path / "extracted" / "layer_asset_forge"
+    scripts_dir = cap_dir / "scripts"
+    nested_dir = scripts_dir / "nested"
+    pycache_dir = scripts_dir / "__pycache__"
+    nested_dir.mkdir(parents=True)
+    pycache_dir.mkdir(parents=True)
+
+    (scripts_dir / "__init__.py").write_text("# package\n", encoding="utf-8")
+    (scripts_dir / "laf_pose_worker.py").write_text("MAX_INSTANCES = 8\n", encoding="utf-8")
+    (nested_dir / "helper.py").write_text("HELPER = True\n", encoding="utf-8")
+    (pycache_dir / "laf_pose_worker.cpython-312.pyc").write_bytes(b"compiled")
+
+    installer = RuntimeAssetsInstaller(
+        local_core_root=local_core_root,
+        capabilities_dir=capabilities_dir,
+    )
+    result = InstallResult(capability_code="layer_asset_forge")
+
+    installer.install_scripts(cap_dir, "layer_asset_forge", result)
+
+    target_scripts_dir = capabilities_dir / "layer_asset_forge" / "scripts"
+    assert (target_scripts_dir / "__init__.py").exists()
+    assert (target_scripts_dir / "laf_pose_worker.py").read_text(encoding="utf-8") == "MAX_INSTANCES = 8\n"
+    assert (target_scripts_dir / "nested" / "helper.py").read_text(encoding="utf-8") == "HELPER = True\n"
+    assert not (target_scripts_dir / "__pycache__" / "laf_pose_worker.cpython-312.pyc").exists()
+    assert result.installed.get("scripts") == ["laf_pose_worker"]
+    assert result.installed.get("script_dirs") == ["nested"]
+
+
 def test_install_capability_models_copies_runtime_assets(tmp_path):
     local_core_root = tmp_path / "local-core"
     capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
