@@ -681,8 +681,14 @@ class HostBridgeWSClient:
             return False
 
         status_code = self._websocket_status_code(exc)
-        is_forbidden = status_code == 403 or "HTTP 403" in str(exc)
-        if not is_forbidden:
+        error_text = str(exc)
+        transport_denied = (
+            status_code == 403
+            or "HTTP 403" in error_text
+            or "did not receive a valid HTTP response" in error_text
+            or "Connection reset by peer" in error_text
+        )
+        if not transport_denied:
             self._ws_forbidden_count = 0
             return False
 
