@@ -5,12 +5,15 @@ from alembic.config import Config
 from app.services.migrations.runtime_locations import configure_runtime_version_locations
 
 
-def _write_revision(path: Path, revision: str) -> None:
+def _write_revision(path: Path, revision: str, *, typed: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    revision_line = (
+        f'revision: str = "{revision}"' if typed else f'revision = "{revision}"'
+    )
     path.write_text(
         "\n".join(
             [
-                f'revision = "{revision}"',
+                revision_line,
                 'down_revision = None',
                 'branch_labels = None',
             ]
@@ -117,4 +120,71 @@ def test_configure_runtime_version_locations_stages_only_missing_runtime_revisio
     assert staged_dir != capability_versions_dir
     assert sorted(path.name for path in staged_dir.glob("*.py")) == [
         "20260330000001_unique.py",
+    ]
+
+
+def test_configure_runtime_version_locations_dedupes_typed_revision_assignments(
+    tmp_path: Path,
+) -> None:
+    declared_versions_dir = tmp_path / "declared_versions"
+    _write_revision(
+        declared_versions_dir / "20260326160000_create_character_training_tables.py",
+        "20260326160000",
+        typed=True,
+    )
+    _write_revision(
+        declared_versions_dir / "20260327235959_add_character_package_contract_fields.py",
+        "20260327235959",
+        typed=True,
+    )
+
+    capabilities_root = tmp_path / "capabilities"
+    capability_dir = capabilities_root / "character_training"
+    capability_dir.mkdir(parents=True, exist_ok=True)
+    (capability_dir / "migrations.yaml").write_text(
+        "\n".join(
+            [
+                "db: postgres",
+                "revisions:",
+                '  - "20260326160000"',
+                '  - "20260327235959"',
+                '  - "20260403143000"',
+                "migration_paths:",
+                '  - "migrations/versions/"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    capability_versions_dir = capability_dir / "migrations" / "versions"
+    _write_revision(
+        capability_versions_dir / "20260326160000_create_character_training_tables.py",
+        "20260326160000",
+        typed=True,
+    )
+    _write_revision(
+        capability_versions_dir / "20260327235959_add_character_package_contract_fields.py",
+        "20260327235959",
+        typed=True,
+    )
+    _write_revision(
+        capability_versions_dir / "20260403143000_add_training_job_runtime_status.py",
+        "20260403143000",
+        typed=True,
+    )
+
+    config = _build_config(tmp_path, declared_versions_dir)
+
+    locations = configure_runtime_version_locations(
+        config,
+        capabilities_root=capabilities_root,
+        db_type="postgres",
+    )
+
+    assert locations[0] == declared_versions_dir.as_posix()
+    assert len(locations) == 2
+
+    staged_dir = Path(locations[1])
+    assert staged_dir != capability_versions_dir
+    assert sorted(path.name for path in staged_dir.glob("*.py")) == [
+        "20260403143000_add_training_job_runtime_status.py",
     ]

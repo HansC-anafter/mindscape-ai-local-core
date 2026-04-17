@@ -317,14 +317,14 @@ def register_core_routes(app: FastAPI) -> None:
     except Exception as e:
         logger.debug(f"MCP Bridge routes not registered: {e}")
 
-    # Agent WebSocket routes (real-time task dispatch to IDE agents)
+    # Agent dispatch routes (WebSocket + REST polling task dispatch to IDE agents)
     try:
-        from backend.app.routes.agent_websocket import router as agent_ws_router
+        from backend.app.routes.agent_dispatch import router as agent_dispatch_router
 
-        app.include_router(agent_ws_router, tags=["agent-websocket"])
-        logger.info("Agent WebSocket routes registered")
+        app.include_router(agent_dispatch_router, tags=["agent-dispatch"])
+        logger.info("Agent dispatch routes registered")
     except Exception as e:
-        logger.debug(f"Agent WebSocket routes not registered: {e}")
+        logger.debug(f"Agent dispatch routes not registered: {e}")
 
     # Device Node WebSocket + HTTP routes (host sidecar communication)
     try:

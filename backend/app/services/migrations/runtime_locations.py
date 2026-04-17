@@ -15,7 +15,9 @@ from alembic.config import Config
 from .scanner import MigrationScanner
 
 
-_REVISION_PATTERN = re.compile(r"""revision\s*=\s*['"]([^'"]+)['"]""")
+_REVISION_PATTERN = re.compile(
+    r"""\brevision\b\s*(?::\s*[^=]+)?\s*=\s*['"]([^'"]+)['"]"""
+)
 
 
 def _resolve_declared_version_locations(config: Config) -> list[str]:
