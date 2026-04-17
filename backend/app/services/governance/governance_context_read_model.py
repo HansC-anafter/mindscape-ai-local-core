@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
@@ -25,15 +26,15 @@ from backend.app.services.memory.workspace_core_memory import (
     WorkspaceCoreMemoryService,
 )
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.orchestration.meeting.spatial_scheduling_compiler import (
+    merge_spatial_schedule_context,
+    normalize_spatial_schedule_context,
+)
 from backend.app.services.stores.postgres.goal_ledger_store import GoalLedgerStore
 from backend.app.services.stores.postgres.memory_item_store import MemoryItemStore
 from backend.app.services.stores.postgres.personal_knowledge_store import (
     PersonalKnowledgeStore,
 )
-from backend.shared.schemas.spatial_scheduling import (
-    SPATIAL_SCHEDULING_SCHEMA_VERSION,
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -52,6 +53,7 @@ class GovernanceContextReadModel:
         memory_item_store: Optional[MemoryItemStore] = None,
         selector: Optional[LensPolicyMemorySelector] = None,
         packet_compiler: Optional[MemoryPacketCompiler] = None,
+        meeting_session_store: Optional[Any] = None,
     ):
         self.store = store or MindscapeStore()
         self.workspace_core_memory_service = (
@@ -68,6 +70,7 @@ class GovernanceContextReadModel:
         self.memory_item_store = memory_item_store or MemoryItemStore()
         self.selector = selector or LensPolicyMemorySelector()
         self.packet_compiler = packet_compiler or MemoryPacketCompiler()
+        self.meeting_session_store = meeting_session_store
 
     async def build_for_workspace(
         self,
@@ -112,7 +115,11 @@ class GovernanceContextReadModel:
             session_id=session_id,
         )
         policy_context = self._build_policy_context(workspace_ref)
-        spatial_schedule_context = self._build_spatial_schedule_context(workspace_ref)
+        spatial_schedule_context = self._build_spatial_schedule_context(
+            workspace_ref,
+            workspace_id=resolved_workspace_id,
+            session_id=session_id,
+        )
 
         memory_packet = self.selector.select_packet(
             canonical_items=canonical_items,
@@ -307,48 +314,112 @@ class GovernanceContextReadModel:
     def _build_spatial_schedule_context(
         self,
         workspace: Any,
+        *,
+        workspace_id: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         workspace_metadata = dict(getattr(workspace, "metadata", {}) or {})
-        raw = dict(workspace_metadata.get("spatial_schedule_context", {}) or {})
-        if not raw:
+        workspace_context = normalize_spatial_schedule_context(
+            workspace_metadata.get("spatial_schedule_context")
+        )
+        session_context = self._safe_get_session_spatial_schedule_context(
+            workspace_id=workspace_id or getattr(workspace, "id", None),
+            session_id=session_id,
+        )
+        if session_context is None:
+            return workspace_context
+        if workspace_context is None:
+            return session_context
+        if not self._should_prefer_session_schedule(
+            existing=workspace_context,
+            incoming=session_context,
+        ):
+            return workspace_context
+        return merge_spatial_schedule_context(
+            existing=workspace_context,
+            incoming=session_context,
+        )
+
+    def _safe_get_session_spatial_schedule_context(
+        self,
+        *,
+        workspace_id: Optional[str],
+        session_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        if not session_id:
             return None
 
-        artifact_ref = raw.get("artifact_ref")
-        if not isinstance(artifact_ref, dict) or not artifact_ref.get("artifact_id"):
-            artifact_ref = self._derive_schedule_artifact_ref(raw)
+        session_store = self.meeting_session_store
+        if session_store is None:
+            try:
+                from backend.app.services.stores.meeting_session_store import (
+                    MeetingSessionStore,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "MeetingSessionStore import failed for spatial schedule context: %s",
+                    exc,
+                )
+                return None
+            session_store = MeetingSessionStore()
+            self.meeting_session_store = session_store
 
-        active_segments = raw.get("active_segments")
-        if not isinstance(active_segments, list):
-            active_segments = self._derive_active_segments(raw)
+        get_by_id = getattr(session_store, "get_by_id", None)
+        if not callable(get_by_id):
+            return None
 
-        consumer_receipts = raw.get("consumer_receipts")
-        if not isinstance(consumer_receipts, dict):
-            consumer_receipts = self._derive_consumer_receipts(raw)
+        try:
+            session = get_by_id(session_id)
+        except Exception as exc:
+            logger.debug(
+                "Failed to load meeting session %s for spatial schedule context: %s",
+                session_id,
+                exc,
+            )
+            return None
 
-        schedule_revision_refs = raw.get("schedule_revision_refs")
-        if not isinstance(schedule_revision_refs, list):
-            schedule_revision_refs = []
+        if session is None:
+            return None
+        if workspace_id and getattr(session, "workspace_id", None) not in (None, workspace_id):
+            return None
+        return normalize_spatial_schedule_context(
+            dict(getattr(session, "metadata", {}) or {}).get("spatial_schedule_context")
+        )
 
-        normalized = {
-            "schedule_id": raw.get("schedule_id"),
-            "schema_version": raw.get("schema_version")
-            or SPATIAL_SCHEDULING_SCHEMA_VERSION,
-            "status": raw.get("status") or "planned",
-            "artifact_ref": artifact_ref,
-            "source_task_id": raw.get("source_task_id"),
-            "source_session_id": raw.get("source_session_id"),
-            "entity_kinds": list(raw.get("entity_kinds") or []),
-            "active_segments": active_segments,
-            "constraint_summary": dict(raw.get("constraint_summary") or {}),
-            "schedule_revision_refs": schedule_revision_refs,
-            "consumer_receipts": consumer_receipts,
-            "updated_at": raw.get("updated_at"),
-        }
-        return {
-            key: value
-            for key, value in normalized.items()
-            if value not in (None, {}, [])
-        }
+    @staticmethod
+    def _should_prefer_session_schedule(
+        *,
+        existing: Optional[Dict[str, Any]],
+        incoming: Optional[Dict[str, Any]],
+    ) -> bool:
+        if not isinstance(incoming, dict) or not incoming.get("schedule_id"):
+            return False
+        if not isinstance(existing, dict) or not existing.get("schedule_id"):
+            return True
+
+        incoming_updated_at = GovernanceContextReadModel._parse_schedule_updated_at(
+            incoming.get("updated_at")
+        )
+        existing_updated_at = GovernanceContextReadModel._parse_schedule_updated_at(
+            existing.get("updated_at")
+        )
+        if incoming_updated_at and existing_updated_at:
+            return incoming_updated_at >= existing_updated_at
+        if incoming_updated_at and not existing_updated_at:
+            return True
+        if not incoming_updated_at and existing_updated_at:
+            return False
+        return incoming.get("schedule_id") != existing.get("schedule_id") or incoming == existing
+
+    @staticmethod
+    def _parse_schedule_updated_at(value: Any) -> Optional[datetime]:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        normalized = value.replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
 
     @staticmethod
     def _derive_schedule_artifact_ref(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:

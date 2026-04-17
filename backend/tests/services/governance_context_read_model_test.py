@@ -192,6 +192,14 @@ class _FakeMemoryItemStore:
         ]
 
 
+class _FakeMeetingSessionStore:
+    def __init__(self, sessions=None):
+        self.sessions = sessions or {}
+
+    def get_by_id(self, session_id):
+        return self.sessions.get(session_id)
+
+
 @pytest.mark.asyncio
 async def test_governance_context_read_model_compiles_selected_packet():
     workspace = SimpleNamespace(
@@ -340,3 +348,138 @@ async def test_governance_context_read_model_upgrades_legacy_spatial_schedule_co
         ]
         == "motion-receipt-1"
     )
+
+
+@pytest.mark.asyncio
+async def test_governance_context_read_model_prefers_newer_session_schedule_context():
+    workspace = SimpleNamespace(
+        id="ws-1",
+        owner_user_id="profile-1",
+        primary_project_id="proj-1",
+        mode="research",
+        execution_mode="hybrid",
+        runtime_profile=SimpleNamespace(metadata={"memory_scope": "extended"}),
+        sandbox_config={},
+        metadata={
+            "spatial_schedule_context": {
+                "schedule_id": "ssched_same",
+                "artifact_ref": {"artifact_id": "task-workspace/spatial_schedule"},
+                "consumer_receipts": {
+                    "motion_runtime": {
+                        "status": "completed",
+                        "receipt_ref": {"artifact_id": "motion-receipt-001"},
+                    }
+                },
+                "updated_at": "2026-04-16T10:00:00+00:00",
+            }
+        },
+    )
+    meeting_session_store = _FakeMeetingSessionStore(
+        sessions={
+            "sess-merge": SimpleNamespace(
+                id="sess-merge",
+                workspace_id="ws-1",
+                metadata={
+                    "spatial_schedule_context": {
+                        "schedule_id": "ssched_same",
+                        "artifact_ref": {"artifact_id": "task-session/spatial_schedule"},
+                        "consumer_receipts": {
+                            "performance_direction": {
+                                "status": "compiled",
+                                "receipt_ref": {"artifact_id": "pd-storyboard-001"},
+                            }
+                        },
+                        "updated_at": "2026-04-16T12:00:00+00:00",
+                    }
+                },
+            )
+        }
+    )
+
+    read_model = GovernanceContextReadModel(
+        store=SimpleNamespace(),
+        workspace_core_memory_service=_FakeWorkspaceCoreMemoryService(),
+        project_memory_service=_FakeProjectMemoryService(),
+        member_profile_memory_service=_FakeMemberProfileMemoryService(),
+        personal_knowledge_store=_FakePersonalKnowledgeStore(),
+        goal_ledger_store=_FakeGoalLedgerStore(),
+        memory_item_store=_FakeMemoryItemStore(),
+        meeting_session_store=meeting_session_store,
+    )
+
+    packet = await read_model.build_for_workspace(workspace, session_id="sess-merge")
+    spatial_schedule_context = packet["governance_context"]["spatial_schedule_context"]
+
+    assert spatial_schedule_context["schedule_id"] == "ssched_same"
+    assert spatial_schedule_context["artifact_ref"]["artifact_id"] == "task-session/spatial_schedule"
+    assert (
+        spatial_schedule_context["consumer_receipts"]["motion_runtime"]["receipt_ref"][
+            "artifact_id"
+        ]
+        == "motion-receipt-001"
+    )
+    assert (
+        spatial_schedule_context["consumer_receipts"]["performance_direction"][
+            "receipt_ref"
+        ]["artifact_id"]
+        == "pd-storyboard-001"
+    )
+
+
+@pytest.mark.asyncio
+async def test_governance_context_read_model_records_replan_session_schedule_as_latest():
+    workspace = SimpleNamespace(
+        id="ws-1",
+        owner_user_id="profile-1",
+        primary_project_id="proj-1",
+        mode="research",
+        execution_mode="hybrid",
+        runtime_profile=SimpleNamespace(metadata={"memory_scope": "extended"}),
+        sandbox_config={},
+        metadata={
+            "spatial_schedule_context": {
+                "schedule_id": "ssched_old",
+                "artifact_ref": {"artifact_id": "task-old/spatial_schedule"},
+                "updated_at": "2026-04-16T10:00:00+00:00",
+            }
+        },
+    )
+    meeting_session_store = _FakeMeetingSessionStore(
+        sessions={
+            "sess-replan": SimpleNamespace(
+                id="sess-replan",
+                workspace_id="ws-1",
+                metadata={
+                    "spatial_schedule_context": {
+                        "schedule_id": "ssched_new",
+                        "artifact_ref": {"artifact_id": "task-new/spatial_schedule"},
+                        "updated_at": "2026-04-16T12:00:00+00:00",
+                    }
+                },
+            )
+        }
+    )
+
+    read_model = GovernanceContextReadModel(
+        store=SimpleNamespace(),
+        workspace_core_memory_service=_FakeWorkspaceCoreMemoryService(),
+        project_memory_service=_FakeProjectMemoryService(),
+        member_profile_memory_service=_FakeMemberProfileMemoryService(),
+        personal_knowledge_store=_FakePersonalKnowledgeStore(),
+        goal_ledger_store=_FakeGoalLedgerStore(),
+        memory_item_store=_FakeMemoryItemStore(),
+        meeting_session_store=meeting_session_store,
+    )
+
+    packet = await read_model.build_for_workspace(workspace, session_id="sess-replan")
+    spatial_schedule_context = packet["governance_context"]["spatial_schedule_context"]
+
+    assert spatial_schedule_context["schedule_id"] == "ssched_new"
+    assert spatial_schedule_context["schedule_revision_refs"] == [
+        {
+            "schedule_id": "ssched_old",
+            "relation": "supersedes",
+            "artifact_ref": {"artifact_id": "task-old/spatial_schedule"},
+            "updated_at": "2026-04-16T10:00:00+00:00",
+        }
+    ]
