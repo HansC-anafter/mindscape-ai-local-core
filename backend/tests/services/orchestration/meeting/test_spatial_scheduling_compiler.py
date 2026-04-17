@@ -82,6 +82,69 @@ def test_compile_to_task_ir_emits_spatial_schedule_artifact_and_session_sidecars
     assert "Active schedule:" in meeting.session.metadata["world_card_text"]
 
 
+def test_compile_to_task_ir_projects_schedule_via_world_memory_core_and_preserves_world_card_context():
+    meeting = _FakeMeeting()
+    meeting.session.metadata["profile_id"] = "profile-001"
+    meeting.session.metadata["performance_context"] = {
+        "context_version": "performance_context.v1",
+        "storyboard_id": "sb-demo",
+        "scene_id": "scene.demo",
+        "performance_mode": "audio_driven_talking_head",
+        "execution_bridge": "mms_storyboard_preview",
+        "preview_ready_state": "ready",
+        "face_lane_active": True,
+        "face_source_type": "speaker_audio",
+        "body_lane_active": False,
+        "body_source_type": "motion_context",
+        "retarget_ready_state": "ready",
+        "updated_at": "2026-04-16T12:10:00+00:00",
+        "expires_at": "2099-01-01T00:00:00Z",
+        "source_run_id": "perf-run-demo",
+    }
+    handoff = HandoffIn(
+        handoff_id="handoff-001b",
+        workspace_id="ws-001",
+        intent_summary="Block actor movement on stage with performance context",
+        goals=["Plan a staged actor movement"],
+        governance_constraints={
+            "spatial_schedule": {
+                "requested": True,
+                "consumer_hints": ["performance_direction"],
+            }
+        },
+    )
+
+    meeting._compile_to_task_ir(
+        decision="Actor enters frame and lands on the stage mark.",
+        action_items=[
+            {
+                "intent_id": "intent-001b",
+                "title": "Enter frame",
+                "description": "Primary actor walks to stage mark.",
+                "entity_id": "actor.main",
+                "entity_kind": "actor",
+                "intent_tags": ["performance", "blocking"],
+            }
+        ],
+        handoff_in=handoff,
+    )
+
+    world_packet = meeting.session.metadata["world_memory_packet"]
+    assert world_packet["active_schedule"]["title"] == "Enter frame"
+    assert world_packet["performance_state"]["performance_mode"] == "audio_driven_talking_head"
+    assert world_packet["metadata"]["performance_freshness"] == "fresh"
+
+    projection = meeting.session.metadata["world_card_projection"]
+    assert "Scene: scene.demo" in projection["summary_lines"]
+    assert "Zone: main_floor" in projection["summary_lines"]
+    assert "Active schedule: Enter frame" in projection["summary_lines"]
+    assert "Performance mode: audio_driven_talking_head" in projection["summary_lines"]
+    assert "schedule_consumer_hints=performance_direction" in projection["constraints"]
+    assert "schedule_intent_summary=Plan a staged actor movement" in projection["constraints"]
+    assert "performance_execution_bridge=mms_storyboard_preview" in projection["constraints"]
+    assert "Performance run: perf-run-demo" in meeting.session.metadata["world_card_text"]
+
+
 def test_compile_to_task_ir_does_not_emit_spatial_schedule_for_markdown_only_requests():
     meeting = _FakeMeeting()
     handoff = HandoffIn(

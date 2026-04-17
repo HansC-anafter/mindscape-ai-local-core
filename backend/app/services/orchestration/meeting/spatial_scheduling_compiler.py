@@ -184,28 +184,76 @@ def persist_spatial_schedule_context_to_session(
 
 def refresh_world_sidecars(session: Any, context: Dict[str, Any]) -> None:
     """Project the bounded schedule summary into lightweight world sidecars."""
+    from backend.app.system_capabilities.world_memory_core.schema.world_card_projection import (
+        WorldCardProjection,
+    )
+    from backend.app.system_capabilities.world_memory_core.services.world_card_projection_compiler import (
+        WorldCardProjectionCompiler,
+    )
+    from backend.app.system_capabilities.world_memory_core.services.world_state_adapter import (
+        WorldStateAdapter,
+    )
+
     if getattr(session, "metadata", None) is None:
         session.metadata = {}
     metadata = session.metadata
 
-    world_packet = dict(metadata.get("world_memory_packet") or {})
-    world_packet["active_schedule"] = _build_active_schedule_projection(context)
-    world_packet["schedule_artifact_refs"] = [dict(context.get("artifact_ref") or {})]
-    world_packet["schedule_constraints"] = dict(context.get("constraint_summary") or {})
-    metadata["world_memory_packet"] = world_packet
+    adapter = WorldStateAdapter()
+    packet = adapter.build_packet(
+        adapter.normalize_receipt(
+            workspace_id=str(getattr(session, "workspace_id", "") or ""),
+            profile_id=str(metadata.get("profile_id") or ""),
+            governance_context=dict(metadata.get("governance_context") or {}),
+            spatial_schedule_context=context,
+            performance_context=dict(metadata.get("performance_context") or {}),
+        )
+    )
 
-    projection = dict(metadata.get("world_card_projection") or {})
-    summary_lines = list(projection.get("summary_lines") or [])
-    schedule_line = _build_world_card_schedule_line(context)
-    summary_lines = [line for line in summary_lines if not str(line).startswith("Active schedule:")]
-    summary_lines.append(schedule_line)
-    projection["summary_lines"] = summary_lines
-    metadata["world_card_projection"] = projection
+    existing_world_packet = dict(metadata.get("world_memory_packet") or {})
+    existing_world_packet["active_schedule"] = (
+        dict(packet.active_schedule) if packet.active_schedule else None
+    )
+    existing_world_packet["schedule_artifact_refs"] = [
+        dict(ref) for ref in packet.schedule_artifact_refs
+    ]
+    existing_world_packet["schedule_constraints"] = dict(packet.schedule_constraints)
+    if packet.performance_state:
+        existing_world_packet["performance_state"] = dict(packet.performance_state)
+    if packet.metadata:
+        existing_world_packet["metadata"] = dict(packet.metadata)
+    metadata["world_memory_packet"] = existing_world_packet
 
-    world_card_lines = _split_world_card_lines(metadata.get("world_card_text"))
-    world_card_lines = [line for line in world_card_lines if not line.startswith("Active schedule:")]
-    world_card_lines.append(schedule_line)
-    metadata["world_card_text"] = "\n".join(world_card_lines).strip()
+    compiler = WorldCardProjectionCompiler()
+    generated_projection = compiler.compile(packet)
+    existing_projection = dict(metadata.get("world_card_projection") or {})
+    existing_summary_lines = [
+        line
+        for line in list(existing_projection.get("summary_lines") or [])
+        if not _is_generated_world_card_summary_line(line)
+    ]
+    existing_constraints = [
+        line
+        for line in list(existing_projection.get("constraints") or [])
+        if not _is_generated_world_card_constraint(line)
+    ]
+    merged_projection = WorldCardProjection(
+        title=str(existing_projection.get("title") or generated_projection.title),
+        summary_lines=existing_summary_lines + list(generated_projection.summary_lines),
+        constraints=existing_constraints + list(generated_projection.constraints),
+        suggested_focus=list(existing_projection.get("suggested_focus") or []),
+        metadata={
+            **dict(existing_projection.get("metadata") or {}),
+            **dict(generated_projection.metadata),
+        },
+    )
+    metadata["world_card_projection"] = {
+        "title": merged_projection.title,
+        "summary_lines": list(merged_projection.summary_lines),
+        "constraints": list(merged_projection.constraints),
+        "suggested_focus": list(merged_projection.suggested_focus),
+        "metadata": dict(merged_projection.metadata),
+    }
+    metadata["world_card_text"] = compiler.render_text(merged_projection)
 
 
 def emit_spatial_schedule_for_task_ir(
@@ -1061,44 +1109,23 @@ def _parse_updated_at(value: Any) -> Optional[datetime]:
         return None
 
 
-def _build_active_schedule_projection(context: Dict[str, Any]) -> Dict[str, Any]:
-    consumer_refs = []
-    for consumer_code, receipt in dict(context.get("consumer_receipts") or {}).items():
-        if not isinstance(receipt, dict):
-            continue
-        receipt_ref = receipt.get("receipt_ref") or {}
-        consumer_refs.append(
-            {
-                "consumer_code": consumer_code,
-                "status": receipt.get("status"),
-                "receipt_artifact_id": receipt_ref.get("artifact_id"),
-            }
+def _is_generated_world_card_summary_line(line: Any) -> bool:
+    text = str(line or "").strip()
+    return text.startswith(
+        (
+            "Active schedule:",
+            "Performance mode:",
+            "Performance preview state:",
+            "Face lane:",
+            "Body lane:",
+            "Performance context freshness:",
         )
-
-    return {
-        "schedule_id": context.get("schedule_id"),
-        "status": context.get("status"),
-        "entity_kinds": list(context.get("entity_kinds") or []),
-        "active_segments": list(context.get("active_segments") or []),
-        "consumer_refs": consumer_refs,
-        "revision_refs": list(context.get("schedule_revision_refs") or []),
-        "updated_at": context.get("updated_at"),
-    }
+    )
 
 
-def _build_world_card_schedule_line(context: Dict[str, Any]) -> str:
-    active_segments = list(context.get("active_segments") or [])
-    if active_segments:
-        title = active_segments[0].get("title") or context.get("schedule_id")
-    else:
-        title = context.get("schedule_id")
-    return f"Active schedule: {title}"
-
-
-def _split_world_card_lines(text: Any) -> list[str]:
-    if not isinstance(text, str) or not text.strip():
-        return []
-    return [line for line in text.splitlines() if line.strip()]
+def _is_generated_world_card_constraint(line: Any) -> bool:
+    text = str(line or "").strip()
+    return text.startswith(("schedule_", "performance_"))
 
 
 __all__ = [
