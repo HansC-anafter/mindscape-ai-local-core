@@ -988,10 +988,23 @@ def _normalize_schedule_revision_ref(raw_revision: Any) -> Optional[Dict[str, An
     if not schedule_id:
         return None
 
+    artifact_ref = _normalize_artifact_ref(raw_revision.get("artifact_ref"))
+    if artifact_ref is None:
+        artifact_ref = _normalize_artifact_ref(
+            {
+                "artifact_id": raw_revision.get("artifact_id"),
+                "artifact_type": raw_revision.get("artifact_type")
+                or raw_revision.get("type"),
+                "uri": raw_revision.get("uri"),
+            }
+        )
+
     normalized = {
         "schedule_id": schedule_id,
-        "relation": raw_revision.get("relation") or "supersedes",
-        "artifact_ref": _normalize_artifact_ref(raw_revision.get("artifact_ref")),
+        "relation": raw_revision.get("relation")
+        or raw_revision.get("relationship")
+        or "supersedes",
+        "artifact_ref": artifact_ref,
         "updated_at": raw_revision.get("updated_at"),
     }
     return {
