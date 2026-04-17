@@ -201,6 +201,26 @@ def _normalize_model_list(values: Any, model_cls: type[BaseModel]) -> list[Any]:
     return normalized
 
 
+def _normalize_optional_model_payload(
+    value: Any,
+    model_cls: type[BaseModel],
+) -> Optional[Any]:
+    if value in (None, "", {}):
+        return None
+    if isinstance(value, model_cls):
+        item = value
+    elif isinstance(value, dict):
+        item = model_cls.model_validate(value)
+    elif hasattr(value, "model_dump"):
+        item = model_cls.model_validate(value.model_dump(mode="python"))
+    else:
+        return None
+    has_content = getattr(item, "has_content", None)
+    if callable(has_content) and not has_content():
+        return None
+    return item
+
+
 def _normalize_bbox_payload(value: Any) -> Optional[dict[str, int]]:
     if not isinstance(value, dict):
         return None
@@ -585,6 +605,441 @@ class SceneConsistencyContract(BaseModel):
         self.allowed_variation = _normalize_string_list(self.allowed_variation)
         self.degradation_policy = str(self.degradation_policy or "reference_only").strip()
         return self
+
+
+class SceneDecisionItem(BaseModel):
+    decision_id: str = ""
+    topic: str = ""
+    status: str = ""
+    resolution: str = ""
+    owner: str = ""
+    notes: list[str] = Field(default_factory=list)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneDecisionItem":
+        self.decision_id = str(self.decision_id or "").strip()
+        self.topic = str(self.topic or "").strip()
+        self.status = str(self.status or "").strip()
+        self.resolution = str(self.resolution or "").strip()
+        self.owner = str(self.owner or "").strip()
+        self.notes = _normalize_string_list(self.notes)
+        if not isinstance(self.provenance, dict):
+            self.provenance = {}
+        return self
+
+    def has_content(self) -> bool:
+        return any(
+            (
+                self.decision_id,
+                self.topic,
+                self.status,
+                self.resolution,
+                self.owner,
+                self.notes,
+            )
+        )
+
+
+class SceneDecisionLedger(BaseModel):
+    summary: str = ""
+    open_questions: list[str] = Field(default_factory=list)
+    decisions: list[SceneDecisionItem] = Field(default_factory=list)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneDecisionLedger":
+        self.summary = str(self.summary or "").strip()
+        self.open_questions = _normalize_string_list(self.open_questions)
+        self.decisions = _normalize_model_list(self.decisions, SceneDecisionItem)
+        self.decisions = [item for item in self.decisions if item.has_content()]
+        if not isinstance(self.provenance, dict):
+            self.provenance = {}
+        return self
+
+    def has_content(self) -> bool:
+        return bool(self.summary or self.open_questions or self.decisions)
+
+
+class SceneContinuityEditorial(BaseModel):
+    continuity_notes: list[str] = Field(default_factory=list)
+    coverage_requirements: list[str] = Field(default_factory=list)
+    editorial_notes: list[str] = Field(default_factory=list)
+    handoff_status: str = ""
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneContinuityEditorial":
+        self.continuity_notes = _normalize_string_list(self.continuity_notes)
+        self.coverage_requirements = _normalize_string_list(
+            self.coverage_requirements
+        )
+        self.editorial_notes = _normalize_string_list(self.editorial_notes)
+        self.handoff_status = str(self.handoff_status or "").strip()
+        if not isinstance(self.provenance, dict):
+            self.provenance = {}
+        return self
+
+    def has_content(self) -> bool:
+        return bool(
+            self.continuity_notes
+            or self.coverage_requirements
+            or self.editorial_notes
+            or self.handoff_status
+        )
+
+
+class SceneDecisionComment(BaseModel):
+    comment_id: str = ""
+    body: str = ""
+    author: str = ""
+    created_at: str = ""
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneDecisionComment":
+        self.comment_id = str(self.comment_id or "").strip()
+        self.body = str(self.body or "").strip()
+        self.author = str(self.author or "").strip()
+        self.created_at = str(self.created_at or "").strip()
+        return self
+
+    def has_content(self) -> bool:
+        return bool(self.comment_id or self.body or self.author or self.created_at)
+
+
+class SceneReviewCandidate(BaseModel):
+    candidate_id: str = ""
+    label: str = ""
+    run_id: str = ""
+    artifact_id: str = ""
+    asset_ref: dict[str, Any] = Field(default_factory=dict)
+    source_kind: str = ""
+    status: str = ""
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneReviewCandidate":
+        self.candidate_id = str(self.candidate_id or "").strip()
+        self.label = str(self.label or "").strip()
+        self.run_id = str(self.run_id or "").strip()
+        self.artifact_id = str(self.artifact_id or "").strip()
+        if not isinstance(self.asset_ref, dict):
+            self.asset_ref = {}
+        self.source_kind = str(self.source_kind or "").strip()
+        self.status = str(self.status or "").strip().lower()
+        return self
+
+    def has_content(self) -> bool:
+        return bool(
+            self.candidate_id
+            or self.label
+            or self.run_id
+            or self.artifact_id
+            or self.asset_ref
+            or self.source_kind
+            or self.status
+        )
+
+
+class SceneLedgerDecisionItem(BaseModel):
+    decision_id: str = ""
+    title: str = ""
+    summary: str = ""
+    owner: str = ""
+    status: str = ""
+    next_action: str = ""
+    linked_run_id: str = ""
+    linked_artifact_id: str = ""
+    candidate_ids: list[str] = Field(default_factory=list)
+    comments: list[SceneDecisionComment] = Field(default_factory=list)
+    resolution_note: str = ""
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneLedgerDecisionItem":
+        self.decision_id = str(self.decision_id or "").strip()
+        self.title = str(self.title or "").strip()
+        self.summary = str(self.summary or "").strip()
+        self.owner = str(self.owner or "").strip()
+        self.status = str(self.status or "").strip().lower()
+        self.next_action = str(self.next_action or "").strip()
+        self.linked_run_id = str(self.linked_run_id or "").strip()
+        self.linked_artifact_id = str(self.linked_artifact_id or "").strip()
+        self.candidate_ids = _normalize_string_list(self.candidate_ids)
+        self.comments = _normalize_model_list(self.comments, SceneDecisionComment)
+        self.comments = [item for item in self.comments if item.has_content()]
+        self.resolution_note = str(self.resolution_note or "").strip()
+        if not isinstance(self.provenance, dict):
+            self.provenance = {}
+        return self
+
+    def has_content(self) -> bool:
+        return bool(
+            self.decision_id
+            or self.title
+            or self.summary
+            or self.owner
+            or self.status
+            or self.next_action
+            or self.linked_run_id
+            or self.linked_artifact_id
+            or self.candidate_ids
+            or self.comments
+            or self.resolution_note
+        )
+
+
+class SceneContinuityNote(BaseModel):
+    note_id: str = ""
+    title: str = ""
+    body: str = ""
+    risk_level: str = ""
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneContinuityNote":
+        self.note_id = str(self.note_id or "").strip()
+        self.title = str(self.title or "").strip()
+        self.body = str(self.body or "").strip()
+        self.risk_level = str(self.risk_level or "").strip().lower()
+        return self
+
+    def has_content(self) -> bool:
+        return bool(self.note_id or self.title or self.body or self.risk_level)
+
+
+class SceneEditorialConcern(BaseModel):
+    concern_id: str = ""
+    title: str = ""
+    body: str = ""
+    status: str = ""
+
+    @model_validator(mode="after")
+    def normalize_payload(self) -> "SceneEditorialConcern":
+        self.concern_id = str(self.concern_id or "").strip()
+        self.title = str(self.title or "").strip()
+        self.body = str(self.body or "").strip()
+        self.status = str(self.status or "").strip().lower()
+        return self
+
+    def has_content(self) -> bool:
+        return bool(self.concern_id or self.title or self.body or self.status)
+
+
+def _scene_blocked_decision_items(
+    items: list[SceneLedgerDecisionItem],
+) -> list[SceneLedgerDecisionItem]:
+    return [
+        item
+        for item in items
+        if str(item.status or "").strip().lower() == "blocked"
+    ]
+
+
+def _scene_ledger_from_flat_items(
+    items: list[SceneLedgerDecisionItem],
+    current_value: Optional[SceneDecisionLedger] = None,
+) -> Optional[SceneDecisionLedger]:
+    if not items:
+        return current_value
+    decisions = [
+        SceneDecisionItem(
+            decision_id=item.decision_id,
+            topic=item.title,
+            status=item.status,
+            resolution=item.resolution_note or item.summary,
+            owner=item.owner,
+            notes=_normalize_string_list(
+                [item.next_action, *[comment.body for comment in item.comments]]
+            ),
+            provenance=dict(item.provenance or {}),
+        )
+        for item in items
+        if item.has_content()
+    ]
+    if not decisions:
+        return current_value
+    current_summary = current_value.summary if current_value is not None else ""
+    current_questions = (
+        list(current_value.open_questions) if current_value is not None else []
+    )
+    current_provenance = (
+        dict(current_value.provenance or {}) if current_value is not None else {}
+    )
+    summary = current_summary or next(
+        (
+            item.summary or item.resolution_note or item.title
+            for item in items
+            if item.has_content()
+        ),
+        "",
+    )
+    return SceneDecisionLedger(
+        summary=summary,
+        open_questions=current_questions,
+        decisions=decisions,
+        provenance=current_provenance,
+    )
+
+
+def _scene_ledger_items_from_legacy(
+    ledger: Optional[SceneDecisionLedger],
+) -> list[SceneLedgerDecisionItem]:
+    if ledger is None:
+        return []
+    items: list[SceneLedgerDecisionItem] = []
+    for index, decision in enumerate(ledger.decisions):
+        comment_records = [
+            SceneDecisionComment(
+                comment_id=f"comment_{_stable_short_hash(decision.decision_id, note_index, note)}",
+                body=note,
+            )
+            for note_index, note in enumerate(decision.notes or [])
+            if str(note or "").strip()
+        ]
+        items.append(
+            SceneLedgerDecisionItem(
+                decision_id=decision.decision_id
+                or f"decision_{index + 1}",
+                title=decision.topic,
+                summary=decision.resolution or decision.topic,
+                owner=decision.owner,
+                status=decision.status,
+                next_action=decision.notes[0] if decision.notes else "",
+                comments=comment_records,
+                resolution_note=decision.resolution,
+                provenance=dict(decision.provenance or {}),
+            )
+        )
+    return [item for item in items if item.has_content()]
+
+
+def _scene_continuity_flat_has_content(
+    continuity_notes: list[SceneContinuityNote],
+    coverage_risks: list[str],
+    coverage_completeness: str,
+    editorial_concerns: list[SceneEditorialConcern],
+    approval_state: str,
+) -> bool:
+    return bool(
+        continuity_notes
+        or coverage_risks
+        or str(coverage_completeness or "").strip()
+        or editorial_concerns
+        or str(approval_state or "").strip()
+    )
+
+
+def _scene_continuity_editorial_from_flat(
+    *,
+    continuity_notes: list[SceneContinuityNote],
+    coverage_risks: list[str],
+    coverage_completeness: str,
+    editorial_concerns: list[SceneEditorialConcern],
+    approval_state: str,
+    current_value: Optional[SceneContinuityEditorial] = None,
+) -> Optional[SceneContinuityEditorial]:
+    if not _scene_continuity_flat_has_content(
+        continuity_notes,
+        coverage_risks,
+        coverage_completeness,
+        editorial_concerns,
+        approval_state,
+    ):
+        return current_value
+    continuity_note_strings = _normalize_string_list(
+        [note.body or note.title for note in continuity_notes]
+    )
+    editorial_note_strings = _normalize_string_list(
+        [concern.body or concern.title for concern in editorial_concerns]
+    )
+    current_handoff_status = (
+        str(current_value.handoff_status or "").strip()
+        if current_value is not None
+        else ""
+    )
+    handoff_status = str(approval_state or "").strip()
+    if (
+        current_handoff_status == "ready_for_preview"
+        and str(coverage_completeness or "").strip() == "ready"
+        and handoff_status in {"", "needs_review"}
+    ):
+        handoff_status = current_handoff_status
+    elif not handoff_status:
+        handoff_status = current_handoff_status
+    if not handoff_status and str(coverage_completeness or "").strip() == "ready":
+        handoff_status = "ready_for_preview"
+    return SceneContinuityEditorial(
+        continuity_notes=continuity_note_strings,
+        coverage_requirements=_normalize_string_list(coverage_risks),
+        editorial_notes=editorial_note_strings,
+        handoff_status=handoff_status,
+        provenance=(
+            dict(current_value.provenance or {}) if current_value is not None else {}
+        ),
+    )
+
+
+def _scene_continuity_notes_from_legacy(
+    continuity_editorial: Optional[SceneContinuityEditorial],
+) -> list[SceneContinuityNote]:
+    if continuity_editorial is None:
+        return []
+    return [
+        SceneContinuityNote(
+            note_id=f"continuity_{index + 1}",
+            title=f"Continuity note {index + 1}",
+            body=note,
+            risk_level="moderate",
+        )
+        for index, note in enumerate(continuity_editorial.continuity_notes or [])
+        if str(note or "").strip()
+    ]
+
+
+def _scene_editorial_concerns_from_legacy(
+    continuity_editorial: Optional[SceneContinuityEditorial],
+) -> list[SceneEditorialConcern]:
+    if continuity_editorial is None:
+        return []
+    concerns: list[SceneEditorialConcern] = []
+    for index, note in enumerate(continuity_editorial.editorial_notes or []):
+        normalized = str(note or "").strip()
+        if not normalized:
+            continue
+        concerns.append(
+            SceneEditorialConcern(
+                concern_id=f"editorial_{index + 1}",
+                title=normalized[:80],
+                body=normalized,
+                status="open",
+            )
+        )
+    return concerns
+
+
+def _scene_coverage_completeness_from_legacy(
+    continuity_editorial: Optional[SceneContinuityEditorial],
+) -> str:
+    if continuity_editorial is None:
+        return ""
+    handoff_status = str(continuity_editorial.handoff_status or "").strip().lower()
+    if handoff_status == "ready_for_preview":
+        return "ready"
+    if handoff_status == "blocked":
+        return "at_risk"
+    return ""
+
+
+def _scene_approval_state_from_legacy(
+    continuity_editorial: Optional[SceneContinuityEditorial],
+) -> str:
+    if continuity_editorial is None:
+        return ""
+    handoff_status = str(continuity_editorial.handoff_status or "").strip().lower()
+    if handoff_status in {"draft", "needs_review", "approved", "blocked"}:
+        return handoff_status
+    if handoff_status == "ready_for_preview":
+        return "needs_review"
+    return ""
 
 
 class SceneBinding(BaseModel):
@@ -1024,6 +1479,15 @@ class Scene(BaseModel):
     object_assets: list[ObjectAssetRef] = Field(default_factory=list)
     object_reuse_plan: Optional[ObjectReusePlan] = None
     object_workload_snapshot: Optional[ObjectWorkloadSnapshot] = None
+    decision_items: list[SceneLedgerDecisionItem] = Field(default_factory=list)
+    review_candidates: list[SceneReviewCandidate] = Field(default_factory=list)
+    continuity_notes: list[SceneContinuityNote] = Field(default_factory=list)
+    coverage_risks: list[str] = Field(default_factory=list)
+    coverage_completeness: str = ""
+    editorial_concerns: list[SceneEditorialConcern] = Field(default_factory=list)
+    approval_state: str = ""
+    decision_ledger: Optional[SceneDecisionLedger] = None
+    continuity_editorial: Optional[SceneContinuityEditorial] = None
 
     # Voice + soundscape cues
     cue_assets: Optional[CueAssets] = None
@@ -1033,6 +1497,102 @@ class Scene(BaseModel):
 
     # Scene-to-scene transitions
     transitions: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_optional_scene_contracts(self) -> "Scene":
+        self.decision_items = _normalize_model_list(
+            self.decision_items,
+            SceneLedgerDecisionItem,
+        )
+        self.decision_items = [
+            item for item in self.decision_items if item.has_content()
+        ]
+        self.review_candidates = _normalize_model_list(
+            self.review_candidates,
+            SceneReviewCandidate,
+        )
+        self.review_candidates = [
+            item for item in self.review_candidates if item.has_content()
+        ]
+        self.continuity_notes = _normalize_model_list(
+            self.continuity_notes,
+            SceneContinuityNote,
+        )
+        self.continuity_notes = [
+            item for item in self.continuity_notes if item.has_content()
+        ]
+        self.coverage_risks = _normalize_string_list(self.coverage_risks)
+        self.coverage_completeness = str(self.coverage_completeness or "").strip()
+        self.editorial_concerns = _normalize_model_list(
+            self.editorial_concerns,
+            SceneEditorialConcern,
+        )
+        self.editorial_concerns = [
+            item for item in self.editorial_concerns if item.has_content()
+        ]
+        self.approval_state = str(self.approval_state or "").strip().lower()
+        has_flat_decision_items = bool(self.decision_items)
+        has_flat_continuity_payload = _scene_continuity_flat_has_content(
+            self.continuity_notes,
+            self.coverage_risks,
+            self.coverage_completeness,
+            self.editorial_concerns,
+            self.approval_state,
+        )
+        self.decision_ledger = _normalize_optional_model_payload(
+            self.decision_ledger,
+            SceneDecisionLedger,
+        )
+        self.continuity_editorial = _normalize_optional_model_payload(
+            self.continuity_editorial,
+            SceneContinuityEditorial,
+        )
+        if has_flat_decision_items:
+            self.decision_ledger = _scene_ledger_from_flat_items(
+                self.decision_items,
+                self.decision_ledger,
+            )
+        elif self.decision_ledger is not None:
+            self.decision_items = _scene_ledger_items_from_legacy(
+                self.decision_ledger
+            )
+        if has_flat_continuity_payload:
+            self.continuity_editorial = _scene_continuity_editorial_from_flat(
+                continuity_notes=self.continuity_notes,
+                coverage_risks=self.coverage_risks,
+                coverage_completeness=self.coverage_completeness,
+                editorial_concerns=self.editorial_concerns,
+                approval_state=self.approval_state,
+                current_value=self.continuity_editorial,
+            )
+        elif self.continuity_editorial is not None:
+            self.continuity_notes = _scene_continuity_notes_from_legacy(
+                self.continuity_editorial
+            )
+            self.coverage_risks = list(
+                self.continuity_editorial.coverage_requirements or []
+            )
+            self.coverage_completeness = _scene_coverage_completeness_from_legacy(
+                self.continuity_editorial
+            )
+            self.editorial_concerns = _scene_editorial_concerns_from_legacy(
+                self.continuity_editorial
+            )
+            self.approval_state = _scene_approval_state_from_legacy(
+                self.continuity_editorial
+            )
+        blocked_decisions = _scene_blocked_decision_items(self.decision_items)
+        if self.approval_state == "approved" and blocked_decisions:
+            blocked_ids = ", ".join(
+                item.decision_id or item.title or "decision"
+                for item in blocked_decisions
+            )
+            scene_id = str(self.scene_id or "").strip() or "scene"
+            raise ValueError(
+                f"{scene_id}: approval_state=approved conflicts with blocked decision items: "
+                f"{blocked_ids}"
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------

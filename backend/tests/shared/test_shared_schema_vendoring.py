@@ -5,6 +5,7 @@ def test_storyboard_vendor_exposes_character_adapter_slot() -> None:
     module = importlib.import_module("backend.shared.schemas.storyboard")
 
     assert hasattr(module, "CharacterAdapterSlot")
+    assert hasattr(module, "SceneContinuityNote")
 
 
 def test_shared_pose_signal_vendor_is_importable() -> None:
