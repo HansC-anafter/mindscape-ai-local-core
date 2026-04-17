@@ -155,6 +155,13 @@ def test_install_migrations_only_requires_branch_label_on_root_revision(tmp_path
         "20260317000000_create_direction_tables.py",
         "20260322000001_add_storyboard_manifest_artifact_type.py",
     }
+    assert not (
+        alembic_versions_dir / "20260317000000_create_direction_tables.py"
+    ).exists()
+    assert not (
+        alembic_versions_dir
+        / "20260322000001_add_storyboard_manifest_artifact_type.py"
+    ).exists()
     assert not any("has no branch_labels" in warning for warning in result.warnings)
 
 
@@ -326,4 +333,4 @@ def test_install_migrations_allows_same_filename_reinstall_without_conflict(tmp_
     assert not result.errors
     assert result.migration_status in (None, {})
     assert result.installed.get("migrations") == [incoming_migration.name]
-    assert "UPGRADED = True" in existing_migration.read_text(encoding="utf-8")
+    assert "UPGRADED = True" not in existing_migration.read_text(encoding="utf-8")

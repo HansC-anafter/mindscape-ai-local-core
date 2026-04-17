@@ -3,7 +3,6 @@ Migration installation and execution helpers for runtime assets.
 """
 
 import logging
-import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -25,13 +24,29 @@ def _get_alembic_versions_dir(local_core_root: Path) -> Path:
     )
 
 
+def _collect_migration_files(
+    capability_dir: Path,
+    migration_paths: list[str] | None = None,
+) -> list[Path]:
+    collected: list[Path] = []
+    for migration_path in migration_paths or ["migrations/versions/"]:
+        versions_dir = capability_dir / migration_path
+        if not versions_dir.exists():
+            continue
+        for migration_file in versions_dir.glob("*.py"):
+            if migration_file.name.startswith("__"):
+                continue
+            collected.append(migration_file)
+    return collected
+
+
 def install_migrations(
     cap_dir: Path,
     capability_code: str,
     local_core_root: Path,
     result: InstallResult,
 ) -> None:
-    """Install capability migration files into the Alembic versions directory."""
+    """Validate capability migration files without mirroring them into core Alembic trees."""
     migrations_yaml = cap_dir / "migrations.yaml"
     migrations_dir = cap_dir / "migrations"
 
@@ -105,12 +120,10 @@ def install_migrations(
         result.migration_status[capability_code] = "conflict"
         return
 
-    installed_files = []
+    registered_files = []
     for migration_file in migration_files:
-        target_file = alembic_versions_dir / migration_file.name
-        shutil.copy2(migration_file, target_file)
-        logger.debug(f"Installed migration: {migration_file.name}")
-        installed_files.append(migration_file.name)
+        logger.debug(f"Registered capability migration: {migration_file.name}")
+        registered_files.append(migration_file.name)
 
         branch = extract_branch_labels(migration_file)
         down_revision = extract_down_revision(migration_file)
@@ -120,10 +133,12 @@ def install_migrations(
                 f"Set branch_labels = ('{capability_code}',) for Hybrid migration support."
             )
 
-    if installed_files:
-        result.extend_installed("migrations", installed_files)
+    if registered_files:
+        result.extend_installed("migrations", registered_files)
         logger.info(
-            f"Installed {len(installed_files)} migration files for {capability_code}"
+            "Registered %s capability migration files for %s (execution uses capability-local migration paths)",
+            len(registered_files),
+            capability_code,
         )
 
 
@@ -280,6 +295,18 @@ def pack_has_branch_label(capability_code: str, alembic_versions_dir: Path) -> b
     return False
 
 
+def pack_declares_branch_label(
+    capability_code: str,
+    migration_files: list[Path],
+) -> bool:
+    """Check whether capability-local migration files declare the capability branch."""
+    for migration_file in migration_files:
+        labels = extract_branch_labels(migration_file)
+        if capability_code in labels:
+            return True
+    return False
+
+
 def execute_migrations(
     local_core_root: Path,
     capabilities_dir: Path,
@@ -307,24 +334,23 @@ def execute_migrations(
         revisions = []
         use_branch_scoped = False
         alembic_versions_dir = _get_alembic_versions_dir(local_core_root)
+        migration_paths = ["migrations/versions/"]
+        current_migration_files: list[Path] = []
 
         if migrations_yaml.exists():
             with open(migrations_yaml, "r") as file:
                 migration_data = yaml.safe_load(file)
             revisions = migration_data.get("revisions", [])
-
-            migration_paths = migration_data.get("migration_paths", ["migrations/versions/"])
+            migration_paths = migration_data.get("migration_paths", migration_paths)
+            current_migration_files = _collect_migration_files(
+                capability_dir,
+                migration_paths,
+            )
             actual_revisions = set()
-            for migration_path in migration_paths:
-                versions_dir = capability_dir / migration_path
-                if not versions_dir.exists():
-                    continue
-                for migration_file in versions_dir.glob("*.py"):
-                    if migration_file.name.startswith("__"):
-                        continue
-                    revision_id = extract_revision_id(migration_file)
-                    if revision_id:
-                        actual_revisions.add(revision_id)
+            for migration_file in current_migration_files:
+                revision_id = extract_revision_id(migration_file)
+                if revision_id:
+                    actual_revisions.add(revision_id)
 
             declared_set = set(str(revision) for revision in revisions)
             undeclared = actual_revisions - declared_set
@@ -338,7 +364,11 @@ def execute_migrations(
                 logger.warning(drift_message)
                 result.add_warning(drift_message)
         else:
-            if pack_has_branch_label(capability_code, alembic_versions_dir):
+            current_migration_files = _collect_migration_files(
+                capability_dir,
+                migration_paths,
+            )
+            if pack_declares_branch_label(capability_code, current_migration_files):
                 logger.info(
                     f"No migrations.yaml for {capability_code}, but branch_labels found — will use branch-scoped auto-discover"
                 )
@@ -359,15 +389,11 @@ def execute_migrations(
             logger.info(f"No migrations found for {capability_code}")
             return
 
-        current_migration_files = []
-        for migration_path in migration_data.get("migration_paths", ["migrations/versions/"]):
-            versions_dir = capability_dir / migration_path
-            if not versions_dir.exists():
-                continue
-            for migration_file in versions_dir.glob("*.py"):
-                if migration_file.name.startswith("__"):
-                    continue
-                current_migration_files.append(migration_file)
+        if not current_migration_files:
+            current_migration_files = _collect_migration_files(
+                capability_dir,
+                migration_paths,
+            )
 
         conflicting_revisions = detect_revision_conflicts(
             capability_code,
@@ -459,7 +485,7 @@ def execute_migrations(
                     f"Removed revision {revision}, will re-execute migration"
                 )
 
-        if pack_has_branch_label(capability_code, alembic_versions_dir):
+        if pack_declares_branch_label(capability_code, current_migration_files):
             target = f"{capability_code}@head"
             logger.info(
                 f"Branch-scoped migration: upgrading {target} for {capability_code}"
