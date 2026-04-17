@@ -185,6 +185,10 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
                 available = True
                 transport = "ws"
                 reason = "ws_connected"
+            elif self._has_registered_runtime_polling_fallback(workspace_id):
+                available = True
+                transport = "polling"
+                reason = "registered_runtime_polling_fallback"
             else:
                 available = False
                 transport = None
@@ -226,6 +230,25 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
             logger.debug("%s adapter not available: %s", self.RUNTIME_NAME, reason)
 
         return detail
+
+    def _has_registered_runtime_polling_fallback(
+        self,
+        workspace_id: Optional[str] = None,
+    ) -> bool:
+        if self.RUNTIME_NAME != "codex_cli":
+            return False
+        try:
+            from backend.app.services.codex_pool_service import CodexPoolService
+
+            bundle = CodexPoolService().get_active_auth_bundle()
+            return "env" in bundle and not bundle.get("error")
+        except Exception as exc:
+            logger.debug(
+                "Failed to resolve registered runtime polling fallback for %s: %s",
+                workspace_id,
+                exc,
+            )
+            return False
 
     def _has_active_polling_runners(self) -> bool:
         """Check if the runner container is alive via its PostgreSQL heartbeat.
@@ -303,6 +326,11 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
             if self.strategy == "ws":
                 # Fail-fast: if no WS client is connected, return an
                 # immediate error instead of queuing and timing out.
+                target_client_id = ""
+                if isinstance(request.agent_config, dict):
+                    target_client_id = str(
+                        request.agent_config.get("target_client_id") or ""
+                    ).strip()
                 ws_connected = self.ws_manager is not None and (
                     hasattr(self.ws_manager, "has_connections")
                     and self.ws_manager.has_connections(
@@ -310,7 +338,22 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
                         surface_type=self.RUNTIME_NAME,
                     )
                 )
-                if not ws_connected:
+                if not ws_connected and target_client_id:
+                    logger.info(
+                        "%s: no local WS client, dispatching directly to target client %s",
+                        self.__class__.__name__,
+                        target_client_id,
+                    )
+                    response = await self._execute_via_ws(request, execution_id)
+                elif not ws_connected and self._has_registered_runtime_polling_fallback(
+                    request.workspace_id or None
+                ):
+                    logger.info(
+                        "%s: no WS client connected, falling back to polling transport",
+                        self.__class__.__name__,
+                    )
+                    response = await self._execute_via_polling(request, execution_id)
+                elif not ws_connected:
                     logger.warning(
                         "%s: no WS client connected, failing fast instead of queuing",
                         self.__class__.__name__,
@@ -325,7 +368,8 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
                             "to connect the host bridge."
                         ),
                     )
-                response = await self._execute_via_ws(request, execution_id)
+                else:
+                    response = await self._execute_via_ws(request, execution_id)
             elif self.strategy == "polling":
                 response = await self._execute_via_polling(request, execution_id)
             elif self.strategy == "sampling":
@@ -384,6 +428,11 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
             "type": "dispatch",
             **payload,
         }
+        target_client_id = ""
+        if isinstance(request.agent_config, dict):
+            target_client_id = str(
+                request.agent_config.get("target_client_id") or ""
+            ).strip()
 
         try:
             # Send and wait for result
@@ -396,6 +445,7 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
                 message=ws_message,
                 execution_id=execution_id,
                 timeout=request.max_duration_seconds or self.RESULT_TIMEOUT,
+                target_client_id=target_client_id or None,
             )
 
             # Check if dispatch_and_wait returned a timeout status
