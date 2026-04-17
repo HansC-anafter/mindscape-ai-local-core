@@ -17,6 +17,7 @@ from backend.app.services.tool_rag_refresh import refresh_tool_rag_corpus
 logger = logging.getLogger(__name__)
 _TOOL_RAG_POST_READY_TASK_ATTR = "_tool_rag_post_ready_task"
 _PACK_VALIDATION_RESUME_TASK_ATTR = "_pack_validation_resume_task"
+_RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR = "_runtime_migrations_post_ready_task"
 
 
 async def _sync_tool_rag_pack_embedding_state(
@@ -110,6 +111,61 @@ async def _resume_pending_pack_validations_post_ready() -> None:
     except Exception as exc:
         logger.warning(
             "Pending pack validations resume task failed: %s",
+            exc,
+            exc_info=True,
+        )
+
+
+async def _run_post_ready_runtime_migrations(app: FastAPI) -> None:
+    """Run capability/runtime migrations after readiness so bind is never blocked."""
+    try:
+        from pathlib import Path
+        from backend.app.services.migrations import MigrationOrchestrator
+
+        await asyncio.sleep(0)
+
+        app_dir = Path(__file__).parent.parent
+        capabilities_root = app_dir / "capabilities"
+        alembic_configs = {
+            "postgres": app_dir.parent / "alembic.postgres.ini",
+        }
+
+        orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
+        logger.info("Post-ready runtime migrations starting")
+        postgres_result = await asyncio.to_thread(
+            orchestrator.apply,
+            "postgres",
+            False,
+        )
+        status = postgres_result.get("status")
+        if status == "validation_failed":
+            logger.error(
+                "Post-ready PostgreSQL migration validation failed: %s",
+                postgres_result.get("failed_checks"),
+            )
+            await asyncio.to_thread(init_mindscape_tables)
+            logger.info("Mindscape tables initialized via init_db.py fallback")
+        elif status == "error":
+            logger.error(
+                "Post-ready PostgreSQL migration error: %s",
+                postgres_result.get("error"),
+            )
+            await asyncio.to_thread(init_mindscape_tables)
+            logger.info("Mindscape tables initialized via init_db.py fallback")
+        else:
+            logger.info(
+                "Post-ready PostgreSQL migrations: %s, applied: %s",
+                status,
+                postgres_result.get("migrations_applied", 0),
+            )
+        app.state.runtime_migrations_post_ready_completed = True
+    except asyncio.CancelledError:
+        logger.info("Post-ready runtime migrations task cancelled")
+        raise
+    except Exception as exc:
+        app.state.runtime_migrations_post_ready_completed = False
+        logger.warning(
+            "Post-ready runtime migrations failed: %s",
             exc,
             exc_info=True,
         )
@@ -320,74 +376,11 @@ async def run_startup(app: FastAPI):
         finally:
             capture_phase_duration("startup.db_existence_check", db_check_started, logger)
 
-    # Run database migrations using unified migration orchestrator
-    logger.info("Running database migrations...")
+    # Capability/runtime migrations are deferred to a post-ready task so API bind
+    # never blocks on non-core migration enumeration or multi-pack dry-runs.
+    logger.info("Capability/runtime migrations deferred to post-ready task")
     migration_started = time.monotonic()
-    try:
-        from pathlib import Path
-        from backend.app.services.migrations import MigrationOrchestrator
-
-        # Get path referencing the root backend/app/capabilities directory where packs stay
-        app_dir = Path(__file__).parent.parent
-        capabilities_root = app_dir / "capabilities"
-        alembic_configs = {
-            "postgres": app_dir.parent / "alembic.postgres.ini",
-        }
-
-        orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
-
-        # Run PostgreSQL migrations
-        logger.info("Checking PostgreSQL migrations...")
-        postgres_result = orchestrator.apply("postgres", dry_run=False)
-        if postgres_result.get("status") == "validation_failed":
-            logger.error(
-                f"PostgreSQL migration validation failed: {postgres_result.get('failed_checks')}"
-            )
-            logger.warning("Falling back to init_db.py for PostgreSQL tables...")
-            try:
-                init_mindscape_tables()
-                logger.info("Mindscape tables initialized via init_db.py fallback")
-            except Exception as e:
-                logger.warning(
-                    f"Failed to initialize mindscape tables via init_db.py: {e}"
-                )
-        elif postgres_result.get("status") == "error":
-            logger.error(f"PostgreSQL migration error: {postgres_result.get('error')}")
-            logger.warning("Falling back to init_db.py for PostgreSQL tables...")
-            try:
-                init_mindscape_tables()
-                logger.info("Mindscape tables initialized via init_db.py fallback")
-            except Exception as e:
-                logger.warning(
-                    f"Failed to initialize mindscape tables via init_db.py: {e}"
-                )
-        else:
-            logger.info(
-                f"PostgreSQL migrations: {postgres_result.get('status')}, applied: {postgres_result.get('migrations_applied', 0)}"
-            )
-            logger.info("Database migrations completed via unified migration system")
-    except ImportError as e:
-        logger.warning(f"Migration orchestrator not available: {e}")
-        logger.warning("Falling back to init_db.py...")
-        try:
-            init_mindscape_tables()
-            logger.info("Mindscape tables initialized via init_db.py fallback")
-        except Exception as e:
-            logger.warning(
-                f"Failed to initialize mindscape tables (will retry on first use): {e}"
-            )
-    except Exception as e:
-        logger.error(f"Migration system error: {e}", exc_info=True)
-        logger.warning("Falling back to init_db.py...")
-        try:
-            init_mindscape_tables()
-            logger.info("Mindscape tables initialized via init_db.py fallback")
-        except Exception as e2:
-            logger.warning(
-                f"Failed to initialize mindscape tables (will retry on first use): {e2}"
-            )
-    finally:
-        capture_phase_duration("startup.migration_orchestrator", migration_started, logger)
+    capture_phase_duration("startup.migration_orchestrator_deferred", migration_started, logger)
 
     # Re-run ensure_default_profile after migrations complete.
     try:
@@ -607,6 +600,23 @@ async def run_shutdown(app: FastAPI):
                 exc,
             )
 
+    runtime_migrations_task = getattr(
+        app.state,
+        _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR,
+        None,
+    )
+    if runtime_migrations_task is not None and not runtime_migrations_task.done():
+        runtime_migrations_task.cancel()
+        try:
+            await runtime_migrations_task
+        except asyncio.CancelledError:
+            logger.info("Post-ready runtime migrations task cancelled during shutdown")
+        except Exception as exc:
+            logger.warning(
+                "Post-ready runtime migrations task shutdown wait failed: %s",
+                exc,
+            )
+
     if hasattr(app.state, "cloud_connector"):
         connector = app.state.cloud_connector
         if connector:
@@ -690,6 +700,16 @@ async def lifespan(app: FastAPI):
     )
     setattr(app.state, _TOOL_RAG_POST_READY_TASK_ATTR, tool_rag_task)
     logger.info("Tool RAG post-ready warm-up task scheduled")
+    runtime_migrations_task = asyncio.create_task(
+        _run_post_ready_runtime_migrations(app),
+        name="runtime-migrations-post-ready",
+    )
+    setattr(
+        app.state,
+        _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR,
+        runtime_migrations_task,
+    )
+    logger.info("Post-ready runtime migrations task scheduled")
     try:
         yield
     finally:
