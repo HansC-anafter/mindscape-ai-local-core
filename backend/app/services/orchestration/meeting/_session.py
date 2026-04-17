@@ -13,6 +13,10 @@ from typing import Any, Dict, List, Optional
 
 from backend.app.models.meeting_session import MeetingStatus
 from backend.app.models.mindscape import EventType
+from backend.app.services.orchestration.meeting.spatial_scheduling_compiler import (
+    merge_spatial_schedule_context,
+    normalize_spatial_schedule_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +79,9 @@ class MeetingSessionMixin:
         loop.create_task(_persist())
 
     def _writeback_spatial_schedule_context_to_workspace(self) -> None:
-        context = self.session.metadata.get("spatial_schedule_context")
+        context = normalize_spatial_schedule_context(
+            self.session.metadata.get("spatial_schedule_context")
+        )
         workspace = getattr(self, "workspace", None)
         if not isinstance(context, dict) or workspace is None:
             return
@@ -83,7 +89,9 @@ class MeetingSessionMixin:
         if getattr(workspace, "metadata", None) is None:
             workspace.metadata = {}
 
-        existing = dict(getattr(workspace, "metadata", {}).get("spatial_schedule_context", {}) or {})
+        existing = normalize_spatial_schedule_context(
+            getattr(workspace, "metadata", {}).get("spatial_schedule_context")
+        )
         if not self._should_overwrite_workspace_schedule(existing, context):
             self.session.metadata["spatial_schedule_writeback"] = {
                 "status": "stale_skipped",
@@ -92,7 +100,10 @@ class MeetingSessionMixin:
             }
             return
 
-        workspace.metadata["spatial_schedule_context"] = dict(context)
+        workspace.metadata["spatial_schedule_context"] = merge_spatial_schedule_context(
+            existing=existing,
+            incoming=context,
+        )
         self.session.metadata["spatial_schedule_writeback"] = {
             "status": "applied",
             "schedule_id": context.get("schedule_id"),

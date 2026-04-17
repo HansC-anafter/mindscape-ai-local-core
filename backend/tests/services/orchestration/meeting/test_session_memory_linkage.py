@@ -175,6 +175,102 @@ def test_close_session_writes_spatial_schedule_context_to_workspace():
     assert len(engine.store.updated_workspaces) == 1
 
 
+def test_close_session_merges_same_schedule_spatial_schedule_writeback():
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        agenda=["Merge same-schedule summary"],
+    )
+    session.start()
+    session.metadata["spatial_schedule_context"] = {
+        "schedule_id": "ssched_same",
+        "artifact_ref": {"artifact_id": "task-new/spatial_schedule"},
+        "active_segments": [{"segment_id": "seg-new", "title": "Updated window"}],
+        "consumer_receipts": {
+            "performance_direction": {
+                "status": "compiled",
+                "receipt_ref": {"artifact_id": "pd-storyboard-001"},
+            }
+        },
+        "updated_at": "2026-04-16T12:00:00+00:00",
+    }
+    engine = _FakeEngine(session=session)
+    engine.workspace.metadata["spatial_schedule_context"] = {
+        "schedule_id": "ssched_same",
+        "artifact_ref": {"artifact_id": "task-old/spatial_schedule"},
+        "active_segments": [{"segment_id": "seg-old", "title": "Old window"}],
+        "consumer_receipts": {
+            "motion_runtime": {
+                "status": "completed",
+                "receipt_ref": {"artifact_id": "motion-receipt-001"},
+            }
+        },
+        "updated_at": "2026-04-16T10:00:00+00:00",
+    }
+
+    engine._close_session(
+        minutes_md="Merge same-schedule writeback summaries.",
+        action_items=[{"title": "Merge schedule summary"}],
+        dispatch_result={"status": "accepted"},
+    )
+
+    context = engine.workspace.metadata["spatial_schedule_context"]
+    assert context["schedule_id"] == "ssched_same"
+    assert context["artifact_ref"]["artifact_id"] == "task-new/spatial_schedule"
+    assert context["active_segments"][0]["segment_id"] == "seg-new"
+    assert context["consumer_receipts"]["motion_runtime"]["receipt_ref"]["artifact_id"] == (
+        "motion-receipt-001"
+    )
+    assert (
+        context["consumer_receipts"]["performance_direction"]["receipt_ref"]["artifact_id"]
+        == "pd-storyboard-001"
+    )
+    assert context["updated_at"] == "2026-04-16T12:00:00+00:00"
+    assert session.metadata["spatial_schedule_writeback"]["status"] == "applied"
+
+
+def test_close_session_replan_adds_superseded_schedule_revision_ref():
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        agenda=["Record superseded schedule"],
+    )
+    session.start()
+    session.metadata["spatial_schedule_context"] = {
+        "schedule_id": "ssched_new",
+        "artifact_ref": {"artifact_id": "task-new/spatial_schedule"},
+        "active_segments": [{"segment_id": "seg-new", "title": "New plan"}],
+        "updated_at": "2026-04-16T12:00:00+00:00",
+    }
+    engine = _FakeEngine(session=session)
+    engine.workspace.metadata["spatial_schedule_context"] = {
+        "schedule_id": "ssched_old",
+        "artifact_ref": {"artifact_id": "task-old/spatial_schedule"},
+        "active_segments": [{"segment_id": "seg-old", "title": "Old plan"}],
+        "updated_at": "2026-04-16T10:00:00+00:00",
+    }
+
+    engine._close_session(
+        minutes_md="Replace the prior plan with a new schedule.",
+        action_items=[{"title": "Replan schedule"}],
+        dispatch_result={"status": "accepted"},
+    )
+
+    context = engine.workspace.metadata["spatial_schedule_context"]
+    assert context["schedule_id"] == "ssched_new"
+    assert context["schedule_revision_refs"] == [
+        {
+            "schedule_id": "ssched_old",
+            "relation": "supersedes",
+            "artifact_ref": {"artifact_id": "task-old/spatial_schedule"},
+            "updated_at": "2026-04-16T10:00:00+00:00",
+        }
+    ]
+    assert session.metadata["spatial_schedule_writeback"]["status"] == "applied"
+
+
 def test_close_session_skips_stale_spatial_schedule_writeback():
     session = MeetingSession.new(
         workspace_id="ws-001",

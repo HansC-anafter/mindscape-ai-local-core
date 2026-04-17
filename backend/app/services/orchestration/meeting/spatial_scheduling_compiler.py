@@ -59,9 +59,18 @@ def build_spatial_scheduling_ir(
     """Compile a provider-neutral spatial schedule from meeting outputs."""
     items = _normalize_source_items(action_items, action_intents)
     consumer_hints = _extract_consumer_hints(governance)
+    world_anchors = _collect_world_anchors(world_context)
+    anchors = _collect_anchors(items, world_anchors)
     entities = _collect_entities(items)
-    anchors = _collect_anchors(items, world_context)
-    segments = _build_segments(items, anchors)
+    segments = _build_segments(
+        items,
+        anchors,
+        world_anchor_ids=[anchor.anchor_id for anchor in world_anchors],
+    )
+    timebase, source_conflicts = _resolve_timebase(
+        world_context=world_context,
+        items=items,
+    )
     constraint_summary = _build_constraint_summary(
         items=items,
         governance=governance,
@@ -80,13 +89,13 @@ def build_spatial_scheduling_ir(
         metadata={
             "source_task_id": task_id,
             "source_session_id": session_id,
-            "timebase": _extract_timebase(world_context, items),
+            "timebase": timebase,
             "emission_reason": _derive_emission_reason(governance),
             "compiler_version": SPATIAL_SCHEDULE_COMPILER_VERSION,
             "operator_prompt_summary": _summarize_operator_prompt(governance),
             "world_context_refs": _extract_world_context_refs(world_context),
             "governance_snapshot": _build_governance_snapshot(governance),
-            "source_conflicts": [],
+            "source_conflicts": source_conflicts,
         },
     )
     return schedule
@@ -144,6 +153,7 @@ def build_spatial_schedule_context(
         "artifact_ref": {
             "artifact_id": artifact.id,
             "type": artifact.type,
+            "uri": artifact.uri,
         },
         "source_task_id": schedule.metadata.get("source_task_id"),
         "source_session_id": schedule.metadata.get("source_session_id"),
@@ -163,7 +173,13 @@ def persist_spatial_schedule_context_to_session(
     """Persist the canonical schedule summary on the meeting session."""
     if getattr(session, "metadata", None) is None:
         session.metadata = {}
-    session.metadata["spatial_schedule_context"] = context
+    existing = normalize_spatial_schedule_context(
+        session.metadata.get("spatial_schedule_context")
+    )
+    session.metadata["spatial_schedule_context"] = merge_spatial_schedule_context(
+        existing=existing,
+        incoming=context,
+    )
 
 
 def refresh_world_sidecars(session: Any, context: Dict[str, Any]) -> None:
@@ -237,10 +253,11 @@ def _normalize_source_items(
     action_items: list[dict[str, Any]],
     action_intents: Optional[list[Any]],
 ) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
+    action_item_records: list[dict[str, Any]] = []
+    action_intent_records: list[dict[str, Any]] = []
     if action_intents:
         for index, intent in enumerate(action_intents):
-            items.append(
+            action_intent_records.append(
                 {
                     "segment_id": getattr(intent, "intent_id", None) or f"seg_{index + 1:03d}",
                     "order": index,
@@ -256,39 +273,110 @@ def _normalize_source_items(
                     "entity_refs": list(getattr(intent, "entity_refs", None) or []),
                     "anchors": list(getattr(intent, "anchors", None) or []),
                     "metadata": dict(getattr(intent, "metadata", None) or {}),
+                    "source_kinds": ["action_intent"],
                 }
             )
-    else:
-        for index, item in enumerate(action_items):
-            item = dict(item or {})
-            items.append(
-                {
-                    "segment_id": item.get("intent_id") or item.get("segment_id") or f"seg_{index + 1:03d}",
-                    "order": index,
-                    "title": item.get("title") or item.get("action") or f"Step {index + 1}",
-                    "description": item.get("description") or item.get("detail"),
-                    "intent_id": item.get("intent_id"),
-                    "intent_tags": list(item.get("intent_tags") or []),
-                    "motion_constraint_objects": list(item.get("motion_constraint_objects") or []),
-                    "entity_id": item.get("entity_id"),
-                    "entity_kind": item.get("entity_kind"),
-                    "entity_refs": list(item.get("entity_refs") or []),
-                    "anchors": list(item.get("anchors") or []),
-                    "metadata": dict(item.get("metadata") or {}),
-                    "role": item.get("role"),
-                }
-            )
-    return items
+    for index, item in enumerate(action_items):
+        item = dict(item or {})
+        action_item_records.append(
+            {
+                "segment_id": item.get("intent_id") or item.get("segment_id") or f"seg_{index + 1:03d}",
+                "order": index,
+                "title": item.get("title") or item.get("action") or f"Step {index + 1}",
+                "description": item.get("description") or item.get("detail"),
+                "intent_id": item.get("intent_id"),
+                "intent_tags": list(item.get("intent_tags") or []),
+                "motion_constraint_objects": list(item.get("motion_constraint_objects") or []),
+                "entity_id": item.get("entity_id"),
+                "entity_kind": item.get("entity_kind"),
+                "entity_refs": list(item.get("entity_refs") or []),
+                "anchors": list(item.get("anchors") or []),
+                "metadata": dict(item.get("metadata") or {}),
+                "role": item.get("role"),
+                "source_kinds": ["action_item"],
+            }
+        )
+
+    if not action_intent_records:
+        return action_item_records
+
+    merged: dict[str, dict[str, Any]] = {
+        record["segment_id"]: dict(record)
+        for record in action_intent_records
+    }
+    ordered_segment_ids = [record["segment_id"] for record in action_intent_records]
+    for action_item_record in action_item_records:
+        segment_id = action_item_record["segment_id"]
+        existing = merged.get(segment_id)
+        if existing is None:
+            merged[segment_id] = dict(action_item_record)
+            ordered_segment_ids.append(segment_id)
+            continue
+        merged[segment_id] = _merge_source_item(
+            stronger=existing,
+            weaker=action_item_record,
+        )
+    return [merged[segment_id] for segment_id in ordered_segment_ids]
+
+
+def _merge_source_item(
+    *,
+    stronger: dict[str, Any],
+    weaker: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(stronger)
+    for field in ("title", "description", "intent_id", "entity_id", "entity_kind", "role"):
+        if not merged.get(field) and weaker.get(field):
+            merged[field] = weaker.get(field)
+
+    merged["intent_tags"] = _merge_unique_strings(
+        list(stronger.get("intent_tags") or []),
+        list(weaker.get("intent_tags") or []),
+    )
+    merged["motion_constraint_objects"] = list(
+        stronger.get("motion_constraint_objects") or weaker.get("motion_constraint_objects") or []
+    )
+    merged["entity_refs"] = _merge_entity_refs(
+        list(stronger.get("entity_refs") or []),
+        list(weaker.get("entity_refs") or []),
+    )
+    merged["anchors"] = _merge_anchor_payloads(
+        list(stronger.get("anchors") or []),
+        list(weaker.get("anchors") or []),
+    )
+    merged["metadata"] = _merge_metadata_dicts(
+        stronger=dict(stronger.get("metadata") or {}),
+        weaker=dict(weaker.get("metadata") or {}),
+    )
+    merged["source_kinds"] = _merge_unique_strings(
+        list(stronger.get("source_kinds") or []),
+        list(weaker.get("source_kinds") or []),
+    )
+    return merged
 
 
 def _extract_consumer_hints(governance: Optional[Dict[str, Any]]) -> list[str]:
+    hints: list[str] = []
+
+    def _append_hint(raw_hint: Any) -> None:
+        hint = str(raw_hint or "").strip()
+        if hint and hint not in hints:
+            hints.append(hint)
+
     constraints = (governance or {}).get("governance_constraints")
-    if not isinstance(constraints, dict):
-        return []
-    spatial_schedule = constraints.get("spatial_schedule")
-    if not isinstance(spatial_schedule, dict):
-        return []
-    return [str(hint) for hint in list(spatial_schedule.get("consumer_hints") or []) if hint]
+    if isinstance(constraints, dict):
+        spatial_schedule = constraints.get("spatial_schedule")
+        if isinstance(spatial_schedule, dict):
+            for hint in list(spatial_schedule.get("consumer_hints") or []):
+                _append_hint(hint)
+
+    for deliverable in list((governance or {}).get("deliverables") or []):
+        if not isinstance(deliverable, dict):
+            continue
+        for hint in list(deliverable.get("consumer_hints") or []):
+            _append_hint(hint)
+
+    return hints
 
 
 def _collect_entities(items: Iterable[dict[str, Any]]) -> list[SpatialEntityRef]:
@@ -322,10 +410,7 @@ def _collect_entities(items: Iterable[dict[str, Any]]) -> list[SpatialEntityRef]
     return list(entities.values())
 
 
-def _collect_anchors(
-    items: Iterable[dict[str, Any]],
-    world_context: Optional[Dict[str, Any]],
-) -> list[SpatialAnchor]:
+def _collect_world_anchors(world_context: Optional[Dict[str, Any]]) -> list[SpatialAnchor]:
     anchors: dict[str, SpatialAnchor] = {}
 
     if isinstance(world_context, dict):
@@ -343,6 +428,16 @@ def _collect_anchors(
                 anchor_kind="zone",
                 metadata={"source": "world_memory_packet"},
             )
+    return list(anchors.values())
+
+
+def _collect_anchors(
+    items: Iterable[dict[str, Any]],
+    world_anchors: list[SpatialAnchor],
+) -> list[SpatialAnchor]:
+    anchors: dict[str, SpatialAnchor] = {
+        anchor.anchor_id: anchor for anchor in list(world_anchors or [])
+    }
 
     for item in items:
         for anchor in list(item.get("anchors") or []):
@@ -369,6 +464,8 @@ def _collect_anchors(
 def _build_segments(
     items: Iterable[dict[str, Any]],
     anchors: list[SpatialAnchor],
+    *,
+    world_anchor_ids: list[str],
 ) -> list[SpatialScheduleSegment]:
     default_anchor_ids = [anchor.anchor_id for anchor in anchors]
     segments: list[SpatialScheduleSegment] = []
@@ -383,7 +480,9 @@ def _build_segments(
                 anchor_ids.append(anchor)
             elif isinstance(anchor, dict) and anchor.get("anchor_id"):
                 anchor_ids.append(anchor["anchor_id"])
-        if not anchor_ids:
+        if world_anchor_ids:
+            anchor_ids = _merge_unique_strings(world_anchor_ids, anchor_ids)
+        elif not anchor_ids:
             anchor_ids = list(default_anchor_ids)
 
         segments.append(
@@ -484,18 +583,482 @@ def _build_governance_snapshot(governance: Optional[Dict[str, Any]]) -> dict[str
     }
 
 
-def _extract_timebase(
+def _resolve_timebase(
     world_context: Optional[Dict[str, Any]],
     items: Iterable[dict[str, Any]],
-) -> Optional[dict[str, Any]]:
+) -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]]:
+    source_conflicts: list[dict[str, Any]] = []
+    world_timebase = None
     if isinstance(world_context, dict) and isinstance(world_context.get("timebase"), dict):
-        return dict(world_context["timebase"])
+        world_timebase = dict(world_context["timebase"])
 
     for item in items:
         metadata = item.get("metadata")
         if isinstance(metadata, dict) and isinstance(metadata.get("timebase"), dict):
-            return dict(metadata["timebase"])
+            item_timebase = dict(metadata["timebase"])
+            if world_timebase is not None:
+                if item_timebase != world_timebase:
+                    source_conflicts.append(
+                        {
+                            "field": "timebase",
+                            "winner": "world_context",
+                            "ignored_sources": list(item.get("source_kinds") or []),
+                            "segment_id": item.get("segment_id"),
+                        }
+                    )
+                continue
+            return item_timebase, source_conflicts
+    return world_timebase, source_conflicts
+
+
+def _merge_unique_strings(primary: list[Any], secondary: list[Any]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for raw_value in [*(primary or []), *(secondary or [])]:
+        value = str(raw_value or "").strip()
+        if not value:
+            continue
+        key = value.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(value)
+    return merged
+
+
+def _merge_entity_refs(
+    primary: list[Any],
+    secondary: list[Any],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_ref in [*(primary or []), *(secondary or [])]:
+        if not isinstance(raw_ref, dict):
+            continue
+        entity_id = str(raw_ref.get("entity_id") or "").strip()
+        if not entity_id:
+            continue
+        if entity_id.lower() in seen:
+            continue
+        seen.add(entity_id.lower())
+        merged.append(dict(raw_ref))
+    return merged
+
+
+def _merge_anchor_payloads(
+    primary: list[Any],
+    secondary: list[Any],
+) -> list[Any]:
+    merged: list[Any] = []
+    seen: set[str] = set()
+    for raw_anchor in [*(primary or []), *(secondary or [])]:
+        if isinstance(raw_anchor, str):
+            anchor_id = raw_anchor.strip()
+            normalized_anchor = anchor_id
+        elif isinstance(raw_anchor, dict):
+            anchor_id = str(raw_anchor.get("anchor_id") or "").strip()
+            normalized_anchor = dict(raw_anchor)
+        else:
+            continue
+        if not anchor_id:
+            continue
+        key = anchor_id.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(normalized_anchor)
+    return merged
+
+
+def _merge_metadata_dicts(
+    *,
+    stronger: dict[str, Any],
+    weaker: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(weaker)
+    merged.update(stronger)
+    return merged
+
+
+def normalize_spatial_schedule_context(
+    raw: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+
+    artifact_ref = raw.get("artifact_ref")
+    if not isinstance(artifact_ref, dict) or not artifact_ref.get("artifact_id"):
+        artifact_ref = _derive_schedule_artifact_ref(raw)
+
+    active_segments = raw.get("active_segments")
+    if not isinstance(active_segments, list):
+        active_segments = _derive_active_segments(raw)
+
+    consumer_receipts = raw.get("consumer_receipts")
+    if not isinstance(consumer_receipts, dict):
+        consumer_receipts = _derive_consumer_receipts(raw)
+
+    schedule_revision_refs = raw.get("schedule_revision_refs")
+    if not isinstance(schedule_revision_refs, list):
+        schedule_revision_refs = _derive_schedule_revision_refs(raw)
+
+    normalized = {
+        "schedule_id": raw.get("schedule_id"),
+        "schema_version": raw.get("schema_version") or SPATIAL_SCHEDULING_SCHEMA_VERSION,
+        "status": raw.get("status") or "planned",
+        "artifact_ref": _normalize_artifact_ref(artifact_ref),
+        "source_task_id": raw.get("source_task_id"),
+        "source_session_id": raw.get("source_session_id"),
+        "entity_kinds": _merge_unique_strings(list(raw.get("entity_kinds") or []), []),
+        "active_segments": _normalize_active_segments(active_segments),
+        "constraint_summary": _normalize_constraint_summary(raw.get("constraint_summary")),
+        "schedule_revision_refs": _normalize_schedule_revision_refs(schedule_revision_refs),
+        "consumer_receipts": _normalize_consumer_receipts(consumer_receipts),
+        "updated_at": raw.get("updated_at"),
+    }
+    return {
+        key: value
+        for key, value in normalized.items()
+        if value not in (None, {}, [])
+    }
+
+
+def merge_spatial_schedule_context(
+    *,
+    existing: Optional[Dict[str, Any]],
+    incoming: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    normalized_existing = normalize_spatial_schedule_context(existing)
+    normalized_incoming = normalize_spatial_schedule_context(incoming)
+    if normalized_incoming is None:
+        return normalized_existing
+    if normalized_existing is None:
+        return normalized_incoming
+
+    existing_schedule_id = normalized_existing.get("schedule_id")
+    incoming_schedule_id = normalized_incoming.get("schedule_id")
+    if existing_schedule_id and existing_schedule_id == incoming_schedule_id:
+        merged = dict(normalized_existing)
+        merged.update(
+            {
+                "schedule_id": incoming_schedule_id,
+                "schema_version": normalized_incoming.get("schema_version")
+                or normalized_existing.get("schema_version"),
+                "status": normalized_incoming.get("status")
+                or normalized_existing.get("status"),
+                "artifact_ref": normalized_incoming.get("artifact_ref")
+                or normalized_existing.get("artifact_ref"),
+                "source_task_id": normalized_incoming.get("source_task_id")
+                or normalized_existing.get("source_task_id"),
+                "source_session_id": normalized_incoming.get("source_session_id")
+                or normalized_existing.get("source_session_id"),
+                "entity_kinds": _merge_unique_strings(
+                    list(normalized_existing.get("entity_kinds") or []),
+                    list(normalized_incoming.get("entity_kinds") or []),
+                ),
+                "active_segments": list(
+                    normalized_incoming.get("active_segments")
+                    or normalized_existing.get("active_segments")
+                    or []
+                ),
+                "constraint_summary": _merge_constraint_summary(
+                    existing=normalized_existing.get("constraint_summary"),
+                    incoming=normalized_incoming.get("constraint_summary"),
+                ),
+                "schedule_revision_refs": _merge_schedule_revision_refs(
+                    list(normalized_existing.get("schedule_revision_refs") or []),
+                    list(normalized_incoming.get("schedule_revision_refs") or []),
+                ),
+                "consumer_receipts": _merge_consumer_receipts(
+                    existing=normalized_existing.get("consumer_receipts"),
+                    incoming=normalized_incoming.get("consumer_receipts"),
+                ),
+                "updated_at": _select_newest_updated_at(
+                    normalized_existing.get("updated_at"),
+                    normalized_incoming.get("updated_at"),
+                ),
+            }
+        )
+        return {
+            key: value
+            for key, value in merged.items()
+            if value not in (None, {}, [])
+        }
+
+    merged = dict(normalized_incoming)
+    merged["schedule_revision_refs"] = _merge_schedule_revision_refs(
+        list(normalized_existing.get("schedule_revision_refs") or []),
+        [
+            _build_schedule_revision_ref(normalized_existing),
+            *list(normalized_incoming.get("schedule_revision_refs") or []),
+        ],
+    )
+    return {
+        key: value
+        for key, value in merged.items()
+        if value not in (None, {}, [])
+    }
+
+
+def _derive_schedule_artifact_ref(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    artifact_ref = raw.get("artifact_ref")
+    if isinstance(artifact_ref, dict) and artifact_ref.get("artifact_id"):
+        return _normalize_artifact_ref(artifact_ref)
+
+    source_artifact_id = raw.get("source_artifact_id")
+    if source_artifact_id:
+        return {
+            "artifact_id": source_artifact_id,
+            "type": raw.get("artifact_type")
+            or "application/vnd.mindscape.spatial-scheduling+json",
+            "uri": raw.get("artifact_uri"),
+        }
+
+    artifact_refs = list(raw.get("artifact_refs") or [])
+    for artifact_ref in artifact_refs:
+        if isinstance(artifact_ref, dict) and artifact_ref.get("artifact_id"):
+            return _normalize_artifact_ref(artifact_ref)
     return None
+
+
+def _derive_active_segments(raw: Dict[str, Any]) -> list[Dict[str, Any]]:
+    segment_ids = list(raw.get("active_segment_ids") or [])
+    segments = []
+    for segment_id in segment_ids:
+        normalized_segment_id = str(segment_id or "").strip()
+        if not normalized_segment_id:
+            continue
+        segments.append(
+            {
+                "segment_id": normalized_segment_id,
+                "title": normalized_segment_id,
+                "entity_refs": [],
+                "anchor_ids": [],
+            }
+        )
+    return segments
+
+
+def _derive_consumer_receipts(raw: Dict[str, Any]) -> Dict[str, Any]:
+    receipts: Dict[str, Any] = {}
+    for consumer_ref in list(raw.get("consumer_refs") or []):
+        if not isinstance(consumer_ref, dict):
+            continue
+        consumer_code = str(consumer_ref.get("consumer_code") or "").strip()
+        if not consumer_code:
+            continue
+        receipts[consumer_code] = {
+            "status": consumer_ref.get("status"),
+            "receipt_ref": {
+                "artifact_id": consumer_ref.get("receipt_artifact_id"),
+            },
+        }
+    return receipts
+
+
+def _derive_schedule_revision_refs(raw: Dict[str, Any]) -> list[Dict[str, Any]]:
+    revisions = []
+    for revision_ref in list(raw.get("revision_refs") or []):
+        if not isinstance(revision_ref, dict):
+            continue
+        normalized = _normalize_schedule_revision_ref(revision_ref)
+        if normalized is not None:
+            revisions.append(normalized)
+    return revisions
+
+
+def _normalize_artifact_ref(raw: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    artifact_id = str(raw.get("artifact_id") or "").strip()
+    if not artifact_id:
+        return None
+
+    normalized = {
+        "artifact_id": artifact_id,
+        "type": raw.get("type") or raw.get("artifact_type"),
+        "uri": raw.get("uri"),
+    }
+    return {
+        key: value
+        for key, value in normalized.items()
+        if value not in (None, "", [], {})
+    }
+
+
+def _normalize_active_segments(raw_segments: Any) -> list[Dict[str, Any]]:
+    normalized_segments: list[Dict[str, Any]] = []
+    for raw_segment in list(raw_segments or []):
+        if not isinstance(raw_segment, dict):
+            continue
+        segment_id = str(raw_segment.get("segment_id") or "").strip()
+        if not segment_id:
+            continue
+        normalized_segments.append(
+            {
+                "segment_id": segment_id,
+                "title": raw_segment.get("title") or segment_id,
+                "entity_refs": _merge_unique_strings(
+                    list(raw_segment.get("entity_refs") or []),
+                    [],
+                ),
+                "anchor_ids": _merge_unique_strings(
+                    list(raw_segment.get("anchor_ids") or raw_segment.get("anchors") or []),
+                    [],
+                ),
+            }
+        )
+    return normalized_segments
+
+
+def _normalize_constraint_summary(raw_summary: Any) -> Dict[str, Any]:
+    if not isinstance(raw_summary, dict):
+        return {}
+
+    normalized: Dict[str, Any] = {}
+    for key, value in raw_summary.items():
+        if isinstance(value, list):
+            normalized[key] = _merge_unique_strings(list(value), [])
+        elif value not in (None, {}, []):
+            normalized[key] = value
+    return normalized
+
+
+def _normalize_schedule_revision_refs(raw_revisions: Any) -> list[Dict[str, Any]]:
+    normalized_revisions: list[Dict[str, Any]] = []
+    for raw_revision in list(raw_revisions or []):
+        normalized = _normalize_schedule_revision_ref(raw_revision)
+        if normalized is not None:
+            normalized_revisions.append(normalized)
+    return normalized_revisions
+
+
+def _normalize_schedule_revision_ref(raw_revision: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw_revision, dict):
+        return None
+    schedule_id = str(raw_revision.get("schedule_id") or "").strip()
+    if not schedule_id:
+        return None
+
+    normalized = {
+        "schedule_id": schedule_id,
+        "relation": raw_revision.get("relation") or "supersedes",
+        "artifact_ref": _normalize_artifact_ref(raw_revision.get("artifact_ref")),
+        "updated_at": raw_revision.get("updated_at"),
+    }
+    return {
+        key: value
+        for key, value in normalized.items()
+        if value not in (None, "", [], {})
+    }
+
+
+def _normalize_consumer_receipts(raw_receipts: Any) -> Dict[str, Any]:
+    normalized_receipts: Dict[str, Any] = {}
+    if not isinstance(raw_receipts, dict):
+        return normalized_receipts
+
+    for consumer_code, raw_receipt in raw_receipts.items():
+        normalized_consumer_code = str(consumer_code or "").strip()
+        if not normalized_consumer_code or not isinstance(raw_receipt, dict):
+            continue
+        normalized_receipt = {
+            "status": raw_receipt.get("status"),
+            "receipt_ref": _normalize_artifact_ref(raw_receipt.get("receipt_ref")),
+        }
+        normalized_receipts[normalized_consumer_code] = {
+            key: value
+            for key, value in normalized_receipt.items()
+            if value not in (None, "", [], {})
+        }
+    return normalized_receipts
+
+
+def _merge_constraint_summary(
+    *,
+    existing: Any,
+    incoming: Any,
+) -> Dict[str, Any]:
+    merged = _normalize_constraint_summary(existing)
+    for key, value in _normalize_constraint_summary(incoming).items():
+        if isinstance(value, list) and isinstance(merged.get(key), list):
+            merged[key] = _merge_unique_strings(list(merged.get(key) or []), value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _merge_consumer_receipts(
+    *,
+    existing: Any,
+    incoming: Any,
+) -> Dict[str, Any]:
+    merged = _normalize_consumer_receipts(existing)
+    for consumer_code, incoming_receipt in _normalize_consumer_receipts(incoming).items():
+        current_receipt = dict(merged.get(consumer_code) or {})
+        current_receipt.update(incoming_receipt)
+        merged[consumer_code] = current_receipt
+    return merged
+
+
+def _merge_schedule_revision_refs(
+    primary: list[Dict[str, Any]],
+    secondary: list[Dict[str, Any]],
+) -> list[Dict[str, Any]]:
+    merged: list[Dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for revision_ref in [*(primary or []), *(secondary or [])]:
+        normalized = _normalize_schedule_revision_ref(revision_ref)
+        if normalized is None:
+            continue
+        key = (
+            str(normalized.get("schedule_id") or "").lower(),
+            str(normalized.get("relation") or "supersedes").lower(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(normalized)
+    return merged
+
+
+def _build_schedule_revision_ref(context: Dict[str, Any]) -> Dict[str, Any]:
+    revision_ref = {
+        "schedule_id": context.get("schedule_id"),
+        "relation": "supersedes",
+        "artifact_ref": context.get("artifact_ref"),
+        "updated_at": context.get("updated_at"),
+    }
+    return {
+        key: value
+        for key, value in revision_ref.items()
+        if value not in (None, "", [], {})
+    }
+
+
+def _select_newest_updated_at(
+    existing_updated_at: Any,
+    incoming_updated_at: Any,
+) -> Optional[str]:
+    parsed_existing = _parse_updated_at(existing_updated_at)
+    parsed_incoming = _parse_updated_at(incoming_updated_at)
+    if parsed_existing and parsed_incoming:
+        return incoming_updated_at if parsed_incoming >= parsed_existing else existing_updated_at
+    if parsed_incoming:
+        return incoming_updated_at
+    if parsed_existing:
+        return existing_updated_at
+    return incoming_updated_at or existing_updated_at
+
+
+def _parse_updated_at(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
 
 
 def _build_active_schedule_projection(context: Dict[str, Any]) -> Dict[str, Any]:
@@ -545,6 +1108,8 @@ __all__ = [
     "build_spatial_schedule_context",
     "build_spatial_scheduling_ir",
     "emit_spatial_schedule_for_task_ir",
+    "merge_spatial_schedule_context",
+    "normalize_spatial_schedule_context",
     "persist_spatial_schedule_context_to_session",
     "refresh_world_sidecars",
     "should_emit_spatial_schedule",
