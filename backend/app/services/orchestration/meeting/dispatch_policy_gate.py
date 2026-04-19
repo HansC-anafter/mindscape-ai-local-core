@@ -11,6 +11,12 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from backend.app.models.execution_metadata import GOVERNANCE_PAYLOAD_FIELDS
+from backend.app.services.orchestration.playbook_alias_resolution import (
+    extract_tool_slots,
+    load_playbook_spec,
+    parse_playbook_codes,
+    resolve_tool_name_playbook_alias,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +89,37 @@ def check_dispatch_policy(
     for item in action_items:
         playbook_code = item.get("playbook_code")
         tool_name = item.get("tool_name")
+        target_ws = item.get("target_workspace_id") or workspace_id
+        allowed_tools = _get_allowlist(target_ws) if binding_store is not None else None
+
+        # Deterministic rescue: when the executor emits a playbook code in
+        # tool_name (or emits a tool_slot that uniquely maps back to a
+        # playbook), promote it back to playbook dispatch before allowlist
+        # blocking or runner launch. This must run before allowlist
+        # canonicalization because some legacy manifests expose playbook-like
+        # IDs in the workspace allowlist even though they are not executable
+        # runner tools.
+        if isinstance(tool_name, str) and tool_name.strip() and not playbook_code:
+            rescued_playbook = _resolve_tool_name_playbook_alias(
+                tool_name,
+                known_playbook_codes=known_playbook_codes,
+                get_playbook_spec=_get_playbook_spec,
+            )
+            if rescued_playbook:
+                item["tool_name_original"] = tool_name
+                item["tool_name"] = None
+                item["playbook_code"] = rescued_playbook
+                item["tool_name_rerouted_to_playbook"] = True
+                playbook_code = rescued_playbook
+                tool_name = None
+            elif allowed_tools is not None:
+                canonical_tool, _ = _canonicalize_tool_name(tool_name, allowed_tools)
+                if canonical_tool and canonical_tool != tool_name:
+                    item["tool_name_original"] = tool_name
+                    item["tool_name"] = canonical_tool
+                    item["tool_name_normalized"] = True
+                    tool_name = canonical_tool
+
         manifest_entry = (
             manifest_cache.get(playbook_code)
             if playbook_code and isinstance(manifest_cache, dict)
@@ -132,8 +169,6 @@ def check_dispatch_policy(
 
         # Check 2: Tool allowlist (per target workspace)
         if tool_name and binding_store is not None:
-            target_ws = item.get("target_workspace_id") or workspace_id
-            allowed_tools = _get_allowlist(target_ws)
             if allowed_tools is not None:
                 canonical_tool, candidates = _canonicalize_tool_name(
                     tool_name, allowed_tools
@@ -489,16 +524,17 @@ def _build_contract_payload(
             payload[gov_field] = item[gov_field]
 
     if request_contract:
-        if (
-            "acceptance_tests" not in payload
-            and request_contract.get("acceptance_tests") is not None
-        ):
-            payload["acceptance_tests"] = request_contract["acceptance_tests"]
-        if (
-            "governance_constraints" not in payload
-            and request_contract.get("constraints") is not None
-        ):
-            payload["governance_constraints"] = request_contract["constraints"]
+        for gov_field in GOVERNANCE_PAYLOAD_FIELDS:
+            if gov_field in payload:
+                continue
+            if gov_field == "governance_constraints":
+                candidate = request_contract.get(
+                    "governance_constraints"
+                ) or request_contract.get("constraints")
+            else:
+                candidate = request_contract.get(gov_field)
+            if candidate is not None:
+                payload[gov_field] = candidate
 
     return payload
 
@@ -623,14 +659,7 @@ def _find_input_template_references(playbook_spec: Dict[str, Any]) -> Set[str]:
 def _load_playbook_spec(playbook_code: str) -> Optional[Dict[str, Any]]:
     """Load structured playbook spec from playbook.json if available."""
     try:
-        from backend.app.services.playbook_loaders import PlaybookJsonLoader
-
-        playbook_json = PlaybookJsonLoader.load_playbook_json(playbook_code)
-        if playbook_json is None:
-            return None
-        if hasattr(playbook_json, "model_dump"):
-            return playbook_json.model_dump(exclude_none=True)
-        return None
+        return load_playbook_spec(playbook_code)
     except Exception as exc:
         logger.debug("Failed to load playbook.json for %s: %s", playbook_code, exc)
         return None
@@ -642,16 +671,7 @@ def _parse_playbook_codes(cache_str: str) -> set:
     Cache format is lines like '- playbook_code: Playbook Name'.
     Returns empty set if cache is empty or unparseable.
     """
-    codes = set()
-    if not cache_str:
-        return codes
-    for line in cache_str.strip().split("\n"):
-        line = line.strip()
-        if line.startswith("- ") and ":" in line:
-            code_part = line[2:].split(":", 1)[0].strip()
-            if code_part:
-                codes.add(code_part)
-    return codes
+    return parse_playbook_codes(cache_str)
 
 
 def _load_tool_allowlist(
@@ -762,3 +782,26 @@ def _canonicalize_tool_name(
     if len(candidates) == 1:
         return candidates[0], candidates
     return None, candidates
+
+
+def _resolve_tool_name_playbook_alias(
+    tool_name: Any,
+    *,
+    known_playbook_codes: Set[str],
+    get_playbook_spec,
+) -> Optional[str]:
+    """Resolve tool-like actuator names back to a unique playbook code.
+
+    Rescue cases:
+    1. tool_name exactly equals a known playbook_code
+    2. tool_name matches a unique tool_slot declared by a playbook spec
+    """
+    return resolve_tool_name_playbook_alias(
+        tool_name,
+        known_playbook_codes=known_playbook_codes,
+        get_playbook_spec=get_playbook_spec,
+    )
+
+
+def _extract_tool_slots(playbook_spec: Optional[Dict[str, Any]]) -> List[str]:
+    return extract_tool_slots(playbook_spec)

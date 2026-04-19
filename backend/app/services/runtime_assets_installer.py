@@ -24,6 +24,16 @@ from .runtime_assets_installer_core import (
 
 logger = logging.getLogger(__name__)
 
+SCRIPT_DIR_EXCLUDES = {
+    "__pycache__",
+    ".git",
+    "node_modules",
+    ".mypy_cache",
+    ".pytest_cache",
+}
+SCRIPT_FILE_EXCLUDES = {".DS_Store"}
+SCRIPT_SUFFIX_EXCLUDES = {".pyc", ".pyo"}
+
 
 class RuntimeAssetsInstaller:
     """Install runtime assets (tools, services, API, schema, models, migrations, UI, manifest, root files, bundles)"""
@@ -134,36 +144,48 @@ class RuntimeAssetsInstaller:
     def install_scripts(
         self, cap_dir: Path, capability_code: str, result: InstallResult
     ):
-        """Install capability scripts"""
+        """Install capability scripts as a fully replaced runtime tree."""
         scripts_dir = cap_dir / "scripts"
         if not scripts_dir.exists():
             return
 
         target_scripts_dir = self.capabilities_dir / capability_code / "scripts"
+        if target_scripts_dir.exists():
+            shutil.rmtree(target_scripts_dir)
         target_scripts_dir.mkdir(parents=True, exist_ok=True)
 
-        for script_file in scripts_dir.glob("*.py"):
-            if script_file.name.startswith("__") and script_file.name != "__init__.py":
+        copied_files = 0
+        for script_file in sorted(scripts_dir.rglob("*")):
+            if not script_file.is_file():
+                continue
+            if self._should_skip_script_asset(script_file, scripts_dir):
                 continue
 
-            target_script = target_scripts_dir / script_file.name
+            relative_path = script_file.relative_to(scripts_dir)
+            target_script = target_scripts_dir / relative_path
+            target_script.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(script_file, target_script)
-            script_name = script_file.stem
-            if script_name != "__init__":
-                result.add_installed("scripts", script_name)
-            logger.debug(f"Installed script: {script_name}")
+            copied_files += 1
 
-        for item in scripts_dir.iterdir():
-            if not item.is_dir():
-                continue
-            if item.name.startswith("__"):
-                continue
-            target_subdir = target_scripts_dir / item.name
-            if target_subdir.exists():
-                shutil.rmtree(target_subdir)
-            shutil.copytree(item, target_subdir)
-            logger.debug(f"Installed scripts subdirectory: {item.name}")
-            result.add_installed("script_dirs", item.name)
+            relative_script = relative_path.as_posix()
+            if script_file.name != "__init__.py":
+                result.add_installed("scripts", relative_script)
+            logger.debug(f"Installed script asset: {relative_script}")
+
+        logger.info(
+            "Installed scripts directory for %s: %s files",
+            capability_code,
+            copied_files,
+        )
+
+    @staticmethod
+    def _should_skip_script_asset(script_file: Path, scripts_dir: Path) -> bool:
+        relative_path = script_file.relative_to(scripts_dir)
+        if any(part in SCRIPT_DIR_EXCLUDES for part in relative_path.parts[:-1]):
+            return True
+        if script_file.name in SCRIPT_FILE_EXCLUDES:
+            return True
+        return script_file.suffix in SCRIPT_SUFFIX_EXCLUDES
 
     def install_tools(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install capability tools"""

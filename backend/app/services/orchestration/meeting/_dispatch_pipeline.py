@@ -92,39 +92,55 @@ async def stage_decompose_and_dispatch(
 
     decomposer = None
     decomposed_phases = None
-    try:
-        from backend.app.services.orchestration.meeting.meeting_llm_adapter import (
-            MeetingLLMAdapter,
-        )
-        from backend.app.services.orchestration.task_decomposer import (
-            DecompositionPolicy,
-        )
-
-        llm_adapter = MeetingLLMAdapter.from_engine(meeting)
-        scale = "standard"
-        if meeting._request_contract:
-            scale = meeting._request_contract.scale_estimate.value
-        policy = DecompositionPolicy.from_scale(scale)
-        decomposer = TaskDecomposer(
-            llm_adapter=llm_adapter,
-            model_name=meeting.model_name or "",
-            decomposition_policy=policy,
-            max_phases=policy.max_phases_per_wave,
-        )
-        decomposed_phases = await decomposer.decompose(
-            decision=decision,
-            action_items=action_items,
-            available_playbooks=getattr(meeting, "_available_playbooks_cache", ""),
-            available_tools=meeting._build_tool_inventory_block(),
-            force=True,
-        )
+    session_metadata = getattr(meeting.session, "metadata", None) or {}
+    fallback_meta = (
+        session_metadata.get("policy_gate_fallback")
+        if isinstance(session_metadata, dict)
+        else None
+    )
+    skip_decomposition = bool(
+        isinstance(fallback_meta, dict) and fallback_meta.get("replacement_intent_ids")
+    )
+    if skip_decomposition:
         logger.info(
-            "TaskDecomposer produced %d phases from %d action items",
-            len(decomposed_phases) if decomposed_phases else 0,
-            len(action_items),
+            "Skipping TaskDecomposer for session %s because policy fallback is active (replacement_intents=%d)",
+            getattr(meeting.session, "id", "?"),
+            len(fallback_meta.get("replacement_intent_ids") or []),
         )
-    except Exception as exc:
-        logger.warning("TaskDecomposer failed (non-fatal): %s", exc)
+    else:
+        try:
+            from backend.app.services.orchestration.meeting.meeting_llm_adapter import (
+                MeetingLLMAdapter,
+            )
+            from backend.app.services.orchestration.task_decomposer import (
+                DecompositionPolicy,
+            )
+
+            llm_adapter = MeetingLLMAdapter.from_engine(meeting)
+            scale = "standard"
+            if meeting._request_contract:
+                scale = meeting._request_contract.scale_estimate.value
+            policy = DecompositionPolicy.from_scale(scale)
+            decomposer = TaskDecomposer(
+                llm_adapter=llm_adapter,
+                model_name=meeting.model_name or "",
+                decomposition_policy=policy,
+                max_phases=policy.max_phases_per_wave,
+            )
+            decomposed_phases = await decomposer.decompose(
+                decision=decision,
+                action_items=action_items,
+                available_playbooks=getattr(meeting, "_available_playbooks_cache", ""),
+                available_tools=meeting._build_tool_inventory_block(),
+                force=True,
+            )
+            logger.info(
+                "TaskDecomposer produced %d phases from %d action items",
+                len(decomposed_phases) if decomposed_phases else 0,
+                len(action_items),
+            )
+        except Exception as exc:
+            logger.warning("TaskDecomposer failed (non-fatal): %s", exc)
 
     compiled_ir = None
     try:
@@ -170,6 +186,7 @@ async def stage_decompose_and_dispatch(
         on_wave_complete=_on_wave_complete,
         handoff_registry_store=meeting._get_handoff_registry_store(),
         pack_dispatch_adapter=meeting._get_pack_dispatch_adapter(),
+        available_playbooks_cache=getattr(meeting, "_available_playbooks_cache", ""),
     )
     dispatch_result = await orchestrator.execute(
         task_ir=compiled_ir,

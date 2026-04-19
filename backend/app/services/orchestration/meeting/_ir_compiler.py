@@ -129,6 +129,13 @@ class MeetingIRCompilerMixin:
                     deliverables=[d.model_dump() for d in contract.deliverables],
                     acceptance_tests=contract.acceptance_tests,
                     constraints=contract.constraints,
+                    governance_constraints=contract_data.get(
+                        "governance_constraints"
+                    )
+                    or contract.constraints,
+                    requested_output_type=contract_data.get("requested_output_type"),
+                    human_instructions=contract_data.get("human_instructions"),
+                    context_attachments=contract_data.get("context_attachments"),
                 )
                 metadata.set_governance(gov)
             except Exception:

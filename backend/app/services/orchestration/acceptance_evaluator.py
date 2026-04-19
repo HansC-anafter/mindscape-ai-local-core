@@ -19,6 +19,13 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+_PD_STORYBOARD_PLAYBOOK_CODES = {
+    "pd_execute_storyboard_preview",
+    "pd_intake_storyboard_preview",
+    "pd_scene_package_preview_handoff",
+}
+_PD_SUCCESS_STATUSES = {"completed", "preview_done", "succeeded", "success", "done"}
+
 
 @dataclass
 class EvalResult:
@@ -78,6 +85,11 @@ class AcceptanceEvaluator:
 
         # --- Check 3: Produces match ---
         checks.append(self._check_produces_match(parsed_output))
+
+        # --- Check 3b: PD storyboard evidence ---
+        pd_check = self._check_pd_storyboard_evidence(parsed_output, playbook_code)
+        if pd_check is not None:
+            checks.append(pd_check)
 
         # --- Check 4: Acceptance tests ---
         if acceptance_tests:
@@ -248,4 +260,59 @@ class AcceptanceEvaluator:
             "test": f"acceptance: {test_str[:60]}",
             "passed": passed,
             "detail": f"{len(matched)}/{len(keywords)} keywords matched ({match_ratio:.0%})",
+        }
+
+    def _check_pd_storyboard_evidence(
+        self,
+        parsed_output: Optional[Dict[str, Any]],
+        playbook_code: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Require machine-readable storyboard/MMS evidence for PD preview routes."""
+        if playbook_code not in _PD_STORYBOARD_PLAYBOOK_CODES:
+            return None
+        if not parsed_output or not isinstance(parsed_output, dict):
+            return {
+                "test": "pd_storyboard_evidence",
+                "passed": False,
+                "detail": "parsed_output unavailable for PD storyboard evidence",
+            }
+
+        evidence = parsed_output.get("pd_storyboard_evidence")
+        if not isinstance(evidence, dict) or not evidence:
+            return {
+                "test": "pd_storyboard_evidence",
+                "passed": False,
+                "detail": "pd_storyboard_evidence missing",
+            }
+
+        missing_fields: List[str] = []
+        for field_name in ("session_id", "storyboard_id", "run_id", "status"):
+            value = evidence.get(field_name)
+            if not isinstance(value, str) or not value.strip():
+                missing_fields.append(field_name)
+
+        status = str(evidence.get("status") or "").strip().lower()
+        timeline_items_synced = evidence.get("timeline_items_synced")
+        if status and status not in _PD_SUCCESS_STATUSES:
+            missing_fields.append("terminal_success_status")
+        if not isinstance(timeline_items_synced, (int, float)) or isinstance(
+            timeline_items_synced, bool
+        ) or timeline_items_synced <= 0:
+            missing_fields.append("timeline_items_synced")
+
+        if missing_fields:
+            return {
+                "test": "pd_storyboard_evidence",
+                "passed": False,
+                "detail": "missing or invalid PD storyboard evidence: "
+                + ", ".join(missing_fields),
+            }
+
+        return {
+            "test": "pd_storyboard_evidence",
+            "passed": True,
+            "detail": (
+                f"session={evidence['session_id']} storyboard={evidence['storyboard_id']} "
+                f"run={evidence['run_id']} status={evidence['status']}"
+            ),
         }

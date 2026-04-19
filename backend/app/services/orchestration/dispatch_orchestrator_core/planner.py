@@ -5,21 +5,67 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Set
 
+from backend.app.services.orchestration.playbook_alias_resolution import (
+    load_playbook_spec,
+    parse_playbook_codes,
+    resolve_tool_name_playbook_alias,
+)
+from backend.app.services.stores.tasks_store import TasksStore
+from backend.app.services.tools.workspace_tools_core import task_to_payload
+
+
+WORKSPACE_PICK_TOOL_NAMES = {
+    "workspace.pick_relevant_execution",
+    "workspace_pick_relevant_execution",
+}
+EXECUTION_CANDIDATE_TASK_TYPES = {"playbook_execution", "tool_execution"}
+EXECUTION_CANDIDATE_EXCLUDED_PACKS = {"meeting_projection"}
+DEFAULT_EXECUTION_CANDIDATE_LIMIT = 20
+
 
 def normalize_phase_inputs(
     *,
     phases: List[Any],
     action_items: List[Dict[str, Any]],
     session: Any,
+    available_playbooks_cache: str = "",
+    project_id: Optional[str] = None,
 ) -> None:
     """Hydrate weakly-specified meeting phases into executable inputs."""
     phase_map: Dict[str, Any] = {p.id: p for p in phases}
     items_by_title: Dict[str, Dict[str, Any]] = {
         item.get("title", ""): item for item in action_items if item.get("title")
     }
+    known_playbook_codes = parse_playbook_codes(available_playbooks_cache)
+    playbook_spec_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    def get_playbook_spec(playbook_code: str) -> Optional[Dict[str, Any]]:
+        if playbook_code not in playbook_spec_cache:
+            playbook_spec_cache[playbook_code] = load_playbook_spec(playbook_code)
+        return playbook_spec_cache[playbook_code]
+
     for phase in phases:
         params = dict(phase.input_params or {})
         changed = False
+        item = items_by_title.get(phase.name)
+
+        if phase.tool_name:
+            rescued_playbook = resolve_tool_name_playbook_alias(
+                phase.tool_name,
+                known_playbook_codes=known_playbook_codes,
+                get_playbook_spec=get_playbook_spec,
+            )
+            if rescued_playbook:
+                original_tool_name = phase.tool_name
+                phase.preferred_engine = f"playbook:{rescued_playbook}"
+                phase.tool_name = None
+                changed = True
+                if item is not None:
+                    item["tool_name_original"] = item.get("tool_name") or original_tool_name
+                    item["tool_name"] = None
+                    item["playbook_code"] = rescued_playbook
+                    item["tool_name_rerouted_to_playbook"] = True
+                    item["preferred_engine"] = phase.preferred_engine
 
         if phase.tool_name == "frontier_research.process_papers_pipeline":
             query, max_results = derive_research_context(
@@ -71,11 +117,33 @@ def normalize_phase_inputs(
                 params["target_format"] = "ig_caption"
                 changed = True
 
+        if phase.tool_name in WORKSPACE_PICK_TOOL_NAMES:
+            if not params.get("user_query"):
+                user_query = _derive_workspace_pick_query(phase=phase, session=session)
+                if user_query:
+                    params["user_query"] = user_query
+                    changed = True
+            if not params.get("conversation_context"):
+                conversation_context = _derive_conversation_context(session)
+                if conversation_context:
+                    params["conversation_context"] = conversation_context
+                    changed = True
+            if not params.get("candidates"):
+                candidates = _build_workspace_execution_candidates(
+                    workspace_id=phase.target_workspace_id
+                    or getattr(session, "workspace_id", None),
+                    project_id=project_id,
+                )
+                if candidates:
+                    params["candidates"] = candidates
+                    changed = True
+
         if changed:
             phase.input_params = params
-            item = items_by_title.get(phase.name)
             if item is not None:
                 item["input_params"] = dict(params)
+                if phase.tool_name is None and phase.preferred_engine:
+                    item["preferred_engine"] = phase.preferred_engine
 
 
 def derive_research_context(
@@ -170,3 +238,81 @@ def build_ir_provenance(
         "phase_id": phase.id,
         "priority": getattr(phase, "priority", None) or action_item.get("priority"),
     }
+
+
+def _derive_workspace_pick_query(*, phase: Any, session: Any) -> Optional[str]:
+    phase_text = " ".join(
+        filter(None, [phase.name, getattr(phase, "description", "") or ""])
+    ).strip()
+    if phase_text:
+        return phase_text
+
+    agenda = getattr(session, "agenda", None) or []
+    if isinstance(agenda, list):
+        for item in agenda:
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+    return None
+
+
+def _derive_conversation_context(session: Any) -> str:
+    agenda = getattr(session, "agenda", None) or []
+    if not isinstance(agenda, list):
+        return ""
+    agenda_lines = [str(item).strip() for item in agenda if str(item).strip()]
+    return "\n".join(agenda_lines[:5])
+
+
+def _build_workspace_execution_candidates(
+    *,
+    workspace_id: Optional[str],
+    project_id: Optional[str],
+    limit: int = DEFAULT_EXECUTION_CANDIDATE_LIMIT,
+) -> List[Dict[str, Any]]:
+    if not workspace_id:
+        return []
+
+    try:
+        tasks = TasksStore().list_tasks_by_workspace(workspace_id, limit=limit * 5)
+    except Exception:
+        return []
+
+    candidates: List[Dict[str, Any]] = []
+    seen_ids: Set[str] = set()
+
+    for task in tasks:
+        task_type = getattr(task, "task_type", None)
+        if task_type not in EXECUTION_CANDIDATE_TASK_TYPES:
+            continue
+
+        pack_id = getattr(task, "pack_id", None)
+        if not pack_id or pack_id in EXECUTION_CANDIDATE_EXCLUDED_PACKS:
+            continue
+
+        status_obj = getattr(task, "status", None)
+        status = getattr(status_obj, "value", status_obj)
+        if status in {"pending", "planned"}:
+            continue
+
+        task_project_id = getattr(task, "project_id", None)
+        if project_id and task_project_id and task_project_id == project_id:
+            continue
+
+        payload = task_to_payload(task)
+        execution_id = payload.get("execution_id") or payload.get("id")
+        if not execution_id or execution_id in seen_ids:
+            continue
+
+        candidate = dict(payload)
+        candidate["execution_id"] = execution_id
+        candidate.setdefault("id", payload.get("id") or execution_id)
+        candidate.setdefault("playbook_code", payload.get("pack_id") or pack_id)
+        candidate.setdefault("status", status)
+        candidate.setdefault("created_at", payload.get("created_at"))
+
+        seen_ids.add(execution_id)
+        candidates.append(candidate)
+        if len(candidates) >= limit:
+            break
+
+    return candidates

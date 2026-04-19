@@ -9,10 +9,11 @@ Supports rotating across multiple Codex runtimes backed by either:
 from __future__ import annotations
 
 import logging
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlalchemy.sql import func
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ CODEX_POOL_GROUP = "codex-cli-pool"
 BASE_COOLDOWN_SECONDS = 300
 MAX_COOLDOWN_SECONDS = 1800
 BACKOFF_MULTIPLIER = 3
+AUTH_FAILURE_COOLDOWN_SECONDS = 1800
 _HOST_SESSION_ENV_KEYS = (
     "CODEX_HOME",
     "HOME",
@@ -60,71 +62,89 @@ class CodexPoolService:
         try:
             from backend.app.services.runtime_auth_service import RuntimeAuthService
 
-            now = datetime.now(timezone.utc)
-            runtimes = (
-                db.query(RuntimeEnvironment)
-                .filter(
-                    RuntimeEnvironment.pool_group == CODEX_POOL_GROUP,
-                    RuntimeEnvironment.pool_enabled.is_(True),
-                    RuntimeEnvironment.auth_type.in_(("api_key", "host_session", "none")),
-                    or_(
-                        RuntimeEnvironment.cooldown_until.is_(None),
-                        RuntimeEnvironment.cooldown_until < now,
-                    ),
+            try:
+                now = datetime.now(timezone.utc)
+                runtimes = (
+                    db.query(RuntimeEnvironment)
+                    .filter(
+                        RuntimeEnvironment.pool_group == CODEX_POOL_GROUP,
+                        RuntimeEnvironment.pool_enabled.is_(True),
+                        RuntimeEnvironment.auth_type.in_(("api_key", "host_session", "none")),
+                        or_(
+                            RuntimeEnvironment.cooldown_until.is_(None),
+                            RuntimeEnvironment.cooldown_until < now,
+                        ),
+                    )
+                    .order_by(
+                        RuntimeEnvironment.pool_priority.asc(),
+                        RuntimeEnvironment.last_used_at.asc().nullsfirst(),
+                    )
+                    .all()
                 )
-                .order_by(
-                    RuntimeEnvironment.pool_priority.asc(),
-                    RuntimeEnvironment.last_used_at.asc().nullsfirst(),
-                )
-                .all()
-            )
 
-            if preferred_runtime_id:
-                preferred = next(
-                    (runtime for runtime in runtimes if runtime.id == preferred_runtime_id),
-                    None,
-                )
-                if not preferred and not allow_fallback:
+                if preferred_runtime_id:
+                    preferred = next(
+                        (runtime for runtime in runtimes if runtime.id == preferred_runtime_id),
+                        None,
+                    )
+                    if not preferred and not allow_fallback:
+                        return {
+                            "error": f"Preferred Codex runtime unavailable: {preferred_runtime_id}",
+                        }
+                    if preferred:
+                        runtimes = [
+                            preferred,
+                            *[
+                                runtime for runtime in runtimes if runtime.id != preferred_runtime_id
+                            ],
+                        ]
+                    elif allow_fallback:
+                        logger.warning(
+                            "Preferred Codex runtime %s unavailable, falling back to pool ordering",
+                            preferred_runtime_id,
+                        )
+
+                auth_service = RuntimeAuthService()
+                available_runtime_count = len(runtimes)
+                available_quota_scope_count = self._count_distinct_quota_scopes(runtimes)
+                for runtime in runtimes:
+                    bundle = self._build_runtime_bundle(runtime, auth_service)
+                    if not bundle:
+                        continue
+                    runtime.last_used_at = func.now()
+                    runtime.last_error_code = None
+                    db.commit()
+                    bundle["selected_runtime_id"] = runtime.id
+                    bundle["available_runtime_count"] = available_runtime_count
+                    bundle["available_quota_scope_count"] = available_quota_scope_count
+                    return bundle
+
+                if preferred_runtime_id and not allow_fallback:
                     return {
                         "error": f"Preferred Codex runtime unavailable: {preferred_runtime_id}",
+                        "available_runtime_count": available_runtime_count,
+                        "available_quota_scope_count": available_quota_scope_count,
                     }
-                if preferred:
-                    runtimes = [
-                        preferred,
-                        *[runtime for runtime in runtimes if runtime.id != preferred_runtime_id],
-                    ]
-                elif allow_fallback:
-                    logger.warning(
-                        "Preferred Codex runtime %s unavailable, falling back to pool ordering",
-                        preferred_runtime_id,
-                    )
-
-            auth_service = RuntimeAuthService()
-            available_runtime_count = len(runtimes)
-            available_quota_scope_count = self._count_distinct_quota_scopes(runtimes)
-            for runtime in runtimes:
-                bundle = self._build_runtime_bundle(runtime, auth_service)
-                if not bundle:
-                    continue
-                runtime.last_used_at = func.now()
-                runtime.last_error_code = None
-                db.commit()
-                bundle["selected_runtime_id"] = runtime.id
-                bundle["available_runtime_count"] = available_runtime_count
-                bundle["available_quota_scope_count"] = available_quota_scope_count
-                return bundle
-
-            if preferred_runtime_id and not allow_fallback:
                 return {
-                    "error": f"Preferred Codex runtime unavailable: {preferred_runtime_id}",
+                    "error": "No available Codex runtimes in pool",
                     "available_runtime_count": available_runtime_count,
                     "available_quota_scope_count": available_quota_scope_count,
                 }
-            return {
-                "error": "No available Codex runtimes in pool",
-                "available_runtime_count": available_runtime_count,
-                "available_quota_scope_count": available_quota_scope_count,
-            }
+            except Exception:
+                if not hasattr(db, "execute"):
+                    raise
+                if hasattr(db, "rollback"):
+                    db.rollback()
+                logger.warning(
+                    "Codex pool ORM selection path failed; falling back to raw SQL",
+                    exc_info=True,
+                )
+                return self._get_active_auth_bundle_sql(
+                    db,
+                    preferred_runtime_id=preferred_runtime_id,
+                    allow_fallback=allow_fallback,
+                    auth_service=RuntimeAuthService(),
+                )
         finally:
             db.close()
 
@@ -133,57 +153,374 @@ class CodexPoolService:
         db = self._get_db()
         RuntimeEnvironment = self._get_model()
         try:
-            runtime = (
-                db.query(RuntimeEnvironment)
-                .filter(
-                    RuntimeEnvironment.id == runtime_id,
-                    RuntimeEnvironment.pool_group == CODEX_POOL_GROUP,
-                )
-                .first()
-            )
-            if not runtime:
-                return None
-
-            now = datetime.now(timezone.utc)
-            consecutive = self._count_recent_quota_errors(runtime)
-            cooldown_secs = min(
-                BASE_COOLDOWN_SECONDS * (BACKOFF_MULTIPLIER**consecutive),
-                MAX_COOLDOWN_SECONDS,
-            )
-            cooldown_until = now + timedelta(seconds=cooldown_secs)
-            quota_scope_key = self._quota_scope_key(runtime)
-            affected_runtimes = [runtime]
-            if quota_scope_key:
-                sibling_runtimes = (
+            try:
+                runtime = (
                     db.query(RuntimeEnvironment)
                     .filter(
+                        RuntimeEnvironment.id == runtime_id,
                         RuntimeEnvironment.pool_group == CODEX_POOL_GROUP,
-                        RuntimeEnvironment.user_id == runtime.user_id,
                     )
-                    .all()
+                    .first()
                 )
-                affected_runtimes = [
-                    candidate
-                    for candidate in sibling_runtimes
-                    if self._quota_scope_key(candidate) == quota_scope_key
-                ] or [runtime]
+                if not runtime:
+                    return None
 
-            for candidate in affected_runtimes:
-                candidate.cooldown_until = cooldown_until
-                candidate.last_error_code = "429"
-            db.commit()
-            db.refresh(runtime)
-            logger.info(
-                "Codex runtime %s quota exhausted, cooldown %ss (consecutive=%s affected=%s scope=%s)",
-                runtime_id,
-                cooldown_secs,
-                consecutive + 1,
-                len(affected_runtimes),
-                quota_scope_key or "runtime_only",
-            )
-            return runtime.to_dict(include_sensitive=False)
+                now = datetime.now(timezone.utc)
+                consecutive = self._count_recent_quota_errors(runtime)
+                cooldown_secs = min(
+                    BASE_COOLDOWN_SECONDS * (BACKOFF_MULTIPLIER**consecutive),
+                    MAX_COOLDOWN_SECONDS,
+                )
+                cooldown_until = now + timedelta(seconds=cooldown_secs)
+                quota_scope_key = self._quota_scope_key(runtime)
+                affected_runtimes = [runtime]
+                if quota_scope_key:
+                    sibling_runtimes = (
+                        db.query(RuntimeEnvironment)
+                        .filter(
+                            RuntimeEnvironment.pool_group == CODEX_POOL_GROUP,
+                            RuntimeEnvironment.user_id == runtime.user_id,
+                        )
+                        .all()
+                    )
+                    affected_runtimes = [
+                        candidate
+                        for candidate in sibling_runtimes
+                        if self._quota_scope_key(candidate) == quota_scope_key
+                    ] or [runtime]
+
+                for candidate in affected_runtimes:
+                    candidate.cooldown_until = cooldown_until
+                    candidate.last_error_code = "429"
+                db.commit()
+                db.refresh(runtime)
+                logger.info(
+                    "Codex runtime %s quota exhausted, cooldown %ss (consecutive=%s affected=%s scope=%s)",
+                    runtime_id,
+                    cooldown_secs,
+                    consecutive + 1,
+                    len(affected_runtimes),
+                    quota_scope_key or "runtime_only",
+                )
+                return runtime.to_dict(include_sensitive=False)
+            except Exception:
+                if not hasattr(db, "execute"):
+                    raise
+                if hasattr(db, "rollback"):
+                    db.rollback()
+                logger.warning(
+                    "Codex quota cooldown ORM path failed for runtime %s; falling back to raw SQL",
+                    runtime_id,
+                    exc_info=True,
+                )
+                return self._report_quota_exhausted_sql(db, runtime_id)
         finally:
             db.close()
+
+    def report_auth_failure(
+        self,
+        runtime_id: str,
+        *,
+        error_code: str = "401",
+        cooldown_seconds: int = AUTH_FAILURE_COOLDOWN_SECONDS,
+    ) -> Optional[Dict[str, Any]]:
+        """Temporarily cool down a runtime after an auth failure."""
+        db = self._get_db()
+        RuntimeEnvironment = self._get_model()
+        try:
+            try:
+                runtime = (
+                    db.query(RuntimeEnvironment)
+                    .filter(
+                        RuntimeEnvironment.id == runtime_id,
+                        RuntimeEnvironment.pool_group == CODEX_POOL_GROUP,
+                    )
+                    .first()
+                )
+                if not runtime:
+                    return None
+
+                runtime.cooldown_until = datetime.now(timezone.utc) + timedelta(
+                    seconds=max(60, int(cooldown_seconds))
+                )
+                runtime.last_error_code = str(error_code or "401")
+                db.commit()
+                db.refresh(runtime)
+                logger.warning(
+                    "Codex runtime %s auth failed, cooldown %ss (error=%s)",
+                    runtime_id,
+                    max(60, int(cooldown_seconds)),
+                    runtime.last_error_code,
+                )
+                return runtime.to_dict(include_sensitive=False)
+            except Exception:
+                if not hasattr(db, "execute"):
+                    raise
+                if hasattr(db, "rollback"):
+                    db.rollback()
+                logger.warning(
+                    "Codex auth cooldown ORM path failed for runtime %s; falling back to raw SQL",
+                    runtime_id,
+                    exc_info=True,
+                )
+                return self._report_auth_failure_sql(
+                    db,
+                    runtime_id,
+                    error_code=str(error_code or "401"),
+                    cooldown_seconds=max(60, int(cooldown_seconds)),
+                )
+        finally:
+            db.close()
+
+    def _report_quota_exhausted_sql(
+        self,
+        db: Any,
+        runtime_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        runtime = (
+            db.execute(
+                text(
+                    """
+                    SELECT id, user_id, extra_metadata, cooldown_until, last_error_code
+                    FROM runtime_environments
+                    WHERE id = :runtime_id
+                      AND pool_group = :pool_group
+                    LIMIT 1
+                    """
+                ),
+                {"runtime_id": runtime_id, "pool_group": CODEX_POOL_GROUP},
+            )
+            .mappings()
+            .first()
+        )
+        if not runtime:
+            return None
+
+        now = datetime.now(timezone.utc)
+        consecutive = self._count_recent_quota_errors_from_values(
+            runtime.get("last_error_code"),
+            runtime.get("cooldown_until"),
+        )
+        cooldown_secs = min(
+            BASE_COOLDOWN_SECONDS * (BACKOFF_MULTIPLIER**consecutive),
+            MAX_COOLDOWN_SECONDS,
+        )
+        cooldown_until = now + timedelta(seconds=cooldown_secs)
+        quota_scope_key = self._quota_scope_key_from_metadata(runtime.get("extra_metadata"))
+        affected_ids = [runtime_id]
+        if quota_scope_key:
+            sibling_rows = (
+                db.execute(
+                    text(
+                        """
+                        SELECT id, extra_metadata
+                        FROM runtime_environments
+                        WHERE pool_group = :pool_group
+                          AND user_id = :user_id
+                        """
+                    ),
+                    {
+                        "pool_group": CODEX_POOL_GROUP,
+                        "user_id": runtime.get("user_id"),
+                    },
+                )
+                .mappings()
+                .all()
+            )
+            affected_ids = [
+                str(candidate.get("id"))
+                for candidate in sibling_rows
+                if self._quota_scope_key_from_metadata(candidate.get("extra_metadata"))
+                == quota_scope_key
+            ] or [runtime_id]
+
+        for candidate_id in affected_ids:
+            db.execute(
+                text(
+                    """
+                    UPDATE runtime_environments
+                    SET cooldown_until = :cooldown_until,
+                        last_error_code = '429',
+                        updated_at = NOW()
+                    WHERE id = :runtime_id
+                    """
+                ),
+                {
+                    "runtime_id": candidate_id,
+                    "cooldown_until": cooldown_until,
+                },
+            )
+        db.commit()
+        logger.info(
+            "Codex runtime %s quota exhausted via raw SQL, cooldown %ss (consecutive=%s affected=%s scope=%s)",
+            runtime_id,
+            cooldown_secs,
+            consecutive + 1,
+            len(affected_ids),
+            quota_scope_key or "runtime_only",
+        )
+        return {
+            "id": runtime_id,
+            "cooldown_until": cooldown_until.isoformat(),
+            "last_error_code": "429",
+        }
+
+    def _get_active_auth_bundle_sql(
+        self,
+        db: Any,
+        *,
+        preferred_runtime_id: Optional[str],
+        allow_fallback: bool,
+        auth_service: Any,
+    ) -> Dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        runtimes = (
+            db.execute(
+                text(
+                    """
+                    SELECT
+                        id,
+                        auth_type,
+                        auth_config,
+                        extra_metadata,
+                        pool_priority,
+                        last_used_at,
+                        cooldown_until,
+                        last_error_code
+                    FROM runtime_environments
+                    WHERE pool_group = :pool_group
+                      AND pool_enabled = true
+                      AND auth_type IN ('api_key', 'host_session', 'none')
+                      AND (cooldown_until IS NULL OR cooldown_until < :now)
+                    ORDER BY pool_priority ASC, last_used_at ASC NULLS FIRST
+                    """
+                ),
+                {
+                    "pool_group": CODEX_POOL_GROUP,
+                    "now": now,
+                },
+            )
+            .mappings()
+            .all()
+        )
+
+        if preferred_runtime_id:
+            preferred = next(
+                (runtime for runtime in runtimes if str(runtime.get("id")) == preferred_runtime_id),
+                None,
+            )
+            if not preferred and not allow_fallback:
+                return {
+                    "error": f"Preferred Codex runtime unavailable: {preferred_runtime_id}",
+                }
+            if preferred:
+                runtimes = [
+                    preferred,
+                    *[
+                        runtime
+                        for runtime in runtimes
+                        if str(runtime.get("id")) != preferred_runtime_id
+                    ],
+                ]
+            elif allow_fallback:
+                logger.warning(
+                    "Preferred Codex runtime %s unavailable in raw SQL pool selection; falling back",
+                    preferred_runtime_id,
+                )
+
+        available_runtime_count = len(runtimes)
+        available_quota_scope_count = self._count_distinct_quota_scopes_from_rows(runtimes)
+        for runtime in runtimes:
+            bundle = self._build_runtime_bundle_from_row(runtime, auth_service)
+            if not bundle:
+                continue
+            runtime_id = str(runtime.get("id"))
+            db.execute(
+                text(
+                    """
+                    UPDATE runtime_environments
+                    SET last_used_at = NOW(),
+                        last_error_code = NULL,
+                        updated_at = NOW()
+                    WHERE id = :runtime_id
+                    """
+                ),
+                {"runtime_id": runtime_id},
+            )
+            db.commit()
+            bundle["selected_runtime_id"] = runtime_id
+            bundle["available_runtime_count"] = available_runtime_count
+            bundle["available_quota_scope_count"] = available_quota_scope_count
+            return bundle
+
+        if preferred_runtime_id and not allow_fallback:
+            return {
+                "error": f"Preferred Codex runtime unavailable: {preferred_runtime_id}",
+                "available_runtime_count": available_runtime_count,
+                "available_quota_scope_count": available_quota_scope_count,
+            }
+        return {
+            "error": "No available Codex runtimes in pool",
+            "available_runtime_count": available_runtime_count,
+            "available_quota_scope_count": available_quota_scope_count,
+        }
+
+    def _report_auth_failure_sql(
+        self,
+        db: Any,
+        runtime_id: str,
+        *,
+        error_code: str,
+        cooldown_seconds: int,
+    ) -> Optional[Dict[str, Any]]:
+        runtime = (
+            db.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM runtime_environments
+                    WHERE id = :runtime_id
+                      AND pool_group = :pool_group
+                    LIMIT 1
+                    """
+                ),
+                {"runtime_id": runtime_id, "pool_group": CODEX_POOL_GROUP},
+            )
+            .mappings()
+            .first()
+        )
+        if not runtime:
+            return None
+
+        cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
+        db.execute(
+            text(
+                """
+                UPDATE runtime_environments
+                SET cooldown_until = :cooldown_until,
+                    last_error_code = :error_code,
+                    updated_at = NOW()
+                WHERE id = :runtime_id
+                """
+            ),
+            {
+                "runtime_id": runtime_id,
+                "cooldown_until": cooldown_until,
+                "error_code": str(error_code or "401"),
+            },
+        )
+        db.commit()
+        logger.warning(
+            "Codex runtime %s auth failed via raw SQL, cooldown %ss (error=%s)",
+            runtime_id,
+            cooldown_seconds,
+            error_code,
+        )
+        return {
+            "id": runtime_id,
+            "cooldown_until": cooldown_until.isoformat(),
+            "last_error_code": str(error_code or "401"),
+        }
 
     @classmethod
     def _build_runtime_bundle(
@@ -219,6 +556,43 @@ class CodexPoolService:
         return None
 
     @classmethod
+    def _build_runtime_bundle_from_row(
+        cls,
+        runtime: Dict[str, Any],
+        auth_service: Any,
+    ) -> Optional[Dict[str, Any]]:
+        auth_type = str(runtime.get("auth_type") or "none").strip().lower()
+        if auth_type == "api_key":
+            auth_config = cls._coerce_json_dict(runtime.get("auth_config"))
+            try:
+                decrypted = auth_service.decrypt_credentials(auth_config)
+            except Exception:
+                logger.exception(
+                    "Failed to decrypt Codex API key for runtime %s via raw SQL path",
+                    runtime.get("id"),
+                )
+                return None
+            api_key = str(decrypted.get("api_key") or "").strip()
+            if not api_key:
+                return None
+            return {
+                "auth_mode": "openai_api_key",
+                "env": {"OPENAI_API_KEY": api_key},
+                "runtime_auth_type": auth_type,
+            }
+
+        if auth_type in {"host_session", "none"}:
+            metadata = cls._coerce_json_dict(runtime.get("extra_metadata"))
+            env = cls._host_session_env_from_metadata(metadata)
+            return {
+                "auth_mode": "host_session",
+                "env": env,
+                "runtime_auth_type": "host_session",
+            }
+
+        return None
+
+    @classmethod
     def _host_session_env_from_metadata(cls, metadata: Dict[str, Any]) -> Dict[str, str]:
         env: Dict[str, str] = {}
         codex_home = (
@@ -244,11 +618,29 @@ class CodexPoolService:
 
     @staticmethod
     def _count_recent_quota_errors(runtime: Any) -> int:
-        if getattr(runtime, "last_error_code", None) != "429":
+        return CodexPoolService._count_recent_quota_errors_from_values(
+            getattr(runtime, "last_error_code", None),
+            getattr(runtime, "cooldown_until", None),
+        )
+
+    @staticmethod
+    def _count_recent_quota_errors_from_values(
+        last_error_code: Any,
+        cooldown_until: Any,
+    ) -> int:
+        if str(last_error_code or "") != "429":
             return 0
-        cooldown_until = getattr(runtime, "cooldown_until", None)
         if not cooldown_until:
             return 0
+        if isinstance(cooldown_until, str):
+            try:
+                cooldown_until = datetime.fromisoformat(
+                    cooldown_until.replace("Z", "+00:00")
+                )
+            except ValueError:
+                return 0
+        if getattr(cooldown_until, "tzinfo", None) is None:
+            cooldown_until = cooldown_until.replace(tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
         if cooldown_until <= now:
             return 0
@@ -266,6 +658,12 @@ class CodexPoolService:
         value = str(metadata.get("quota_scope_key") or "").strip()
         return value or None
 
+    @staticmethod
+    def _quota_scope_key_from_metadata(metadata: Any) -> Optional[str]:
+        metadata = CodexPoolService._coerce_json_dict(metadata)
+        value = str(metadata.get("quota_scope_key") or "").strip()
+        return value or None
+
     @classmethod
     def _count_distinct_quota_scopes(cls, runtimes: list[Any]) -> int:
         scopes = {
@@ -273,3 +671,25 @@ class CodexPoolService:
             for runtime in runtimes
         }
         return len(scopes)
+
+    @classmethod
+    def _count_distinct_quota_scopes_from_rows(cls, runtimes: list[Dict[str, Any]]) -> int:
+        scopes = {
+            cls._quota_scope_key_from_metadata(runtime.get("extra_metadata"))
+            or f"runtime:{runtime.get('id')}"
+            for runtime in runtimes
+        }
+        return len(scopes)
+
+    @staticmethod
+    def _coerce_json_dict(value: Any) -> Dict[str, Any]:
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+            if isinstance(parsed, dict):
+                return parsed
+        return {}

@@ -16,6 +16,7 @@ Design:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -26,6 +27,11 @@ from backend.app.models.phase_attempt import (
     PhaseAttempt,
 )
 from backend.app.models.task_ir import PhaseIR, PhaseStatus, TaskIR
+from backend.app.services.orchestration.playbook_alias_resolution import (
+    load_playbook_spec,
+    parse_playbook_codes,
+    resolve_tool_name_playbook_alias,
+)
 from backend.app.services.orchestration.dispatch_orchestrator_core.planner import (
     build_ir_provenance,
     derive_research_context,
@@ -65,6 +71,7 @@ class DispatchOrchestrator:
         lens_injector=None,
         handoff_registry_store=None,
         pack_dispatch_adapter=None,
+        available_playbooks_cache: str = "",
     ):
         self.execution_launcher = execution_launcher
         self.tasks_store = tasks_store
@@ -91,6 +98,10 @@ class DispatchOrchestrator:
 
         # Optional spec-aware dispatch adapter.
         self._pack_dispatch_adapter = pack_dispatch_adapter
+        self._available_playbooks_cache = available_playbooks_cache or ""
+        self._known_playbook_codes = parse_playbook_codes(self._available_playbooks_cache)
+        self._playbook_spec_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+        self._workspace_cache: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -394,14 +405,28 @@ class DispatchOrchestrator:
                     exc,
                 )
 
+        # Rescue decomposed phases that lost playbook identity and arrived
+        # as tool-like actuator names.
+        rescued_playbook = self._resolve_phase_playbook_alias(phase.tool_name)
+        if rescued_playbook:
+            original_tool_name = phase.tool_name
+            phase.preferred_engine = f"playbook:{rescued_playbook}"
+            phase.tool_name = None
+            action_item["tool_name_original"] = (
+                action_item.get("tool_name_original")
+                or action_item.get("tool_name")
+                or original_tool_name
+            )
+            action_item["tool_name"] = None
+            action_item["playbook_code"] = rescued_playbook
+            action_item["tool_name_rerouted_to_playbook"] = True
+
         # Resolve engine/adapter — derive from phase attributes, never
         # fall back to nonexistent "generic" playbook.
         engine = phase.preferred_engine
         if not engine:
             if phase.tool_name:
                 engine = f"tool:{phase.tool_name}"
-            elif getattr(phase, "playbook_code", None):
-                engine = f"playbook:{phase.playbook_code}"
             else:
                 engine = "agent:auto"  # let agent pick the playbook
         playbook_code = self._extract_playbook_code(engine)
@@ -450,6 +475,33 @@ class DispatchOrchestrator:
                             if isinstance(result, dict)
                             else None
                         ),
+                    },
+                )
+                return {
+                    "status": "completed",
+                    "workspace_id": target_ws,
+                    "result": result,
+                }
+            elif engine.startswith("agent:"):
+                result = await self._dispatch_agent(
+                    phase=phase,
+                    action_item=action_item,
+                    target_workspace_id=target_ws,
+                    attempt=attempt,
+                    ir_provenance=ir_provenance,
+                    engine=engine,
+                )
+                attempt.mark_completed(result)
+                action_item["landing_status"] = result.get("status", "launched")
+                await self._publish_activity(
+                    "task_dispatched",
+                    {
+                        "phase_id": phase.id,
+                        "phase_name": phase.name,
+                        "engine": engine,
+                        "agent_id": result.get("agent_id"),
+                        "workspace_id": target_ws,
+                        "execution_id": result.get("execution_id"),
                     },
                 )
                 return {
@@ -701,6 +753,101 @@ class DispatchOrchestrator:
                 raise
         return {"task_id": None, "tool_name": phase.tool_name, "dry_run": True}
 
+    async def _dispatch_agent(
+        self,
+        *,
+        phase: PhaseIR,
+        action_item: Dict[str, Any],
+        target_workspace_id: str,
+        attempt: PhaseAttempt,
+        ir_provenance: Dict[str, Any],
+        engine: str,
+    ) -> Dict[str, Any]:
+        """Dispatch a phase directly to the workspace executor runtime."""
+        attempt.mark_started()
+
+        workspace = await self._load_workspace(target_workspace_id)
+        if workspace is None:
+            return {
+                "status": "planned",
+                "reason": "workspace_not_found",
+            }
+
+        runtime_id = self._resolve_agent_runtime(
+            engine=engine,
+            workspace=workspace,
+        )
+        if not runtime_id:
+            return {
+                "status": "planned",
+                "reason": "no_executor_runtime",
+            }
+
+        from backend.app.services.workspace_agent_executor import WorkspaceAgentExecutor
+
+        executor = WorkspaceAgentExecutor(workspace)
+        available = await executor.check_agent_available(runtime_id)
+        if not available:
+            raise RuntimeError(
+                f"Executor {runtime_id} unavailable for workspace {target_workspace_id}"
+            )
+
+        inputs = dict(action_item.get("input_params") or phase.input_params or {})
+        inputs.setdefault("workspace_id", target_workspace_id)
+        if self.project_id and "project_id" not in inputs:
+            inputs["project_id"] = self.project_id
+        if getattr(self.session, "thread_id", None) and "thread_id" not in inputs:
+            inputs["thread_id"] = getattr(self.session, "thread_id", None)
+        if getattr(self.session, "id", None) and "meeting_session_id" not in inputs:
+            inputs["meeting_session_id"] = getattr(self.session, "id", None)
+
+        model_override = self._resolve_capability_profile_model(action_item)
+        conversation_context = self._build_agent_conversation_context(
+            action_item=action_item,
+            inputs=inputs,
+            ir_provenance=ir_provenance,
+        )
+        task = self._build_agent_task(
+            phase=phase,
+            action_item=action_item,
+            inputs=inputs,
+        )
+        context_overrides: Dict[str, Any] = {
+            "meeting_session_id": getattr(self.session, "id", None),
+            "thread_id": getattr(self.session, "thread_id", None),
+            "project_id": self.project_id,
+            "conversation_context": conversation_context,
+            "inputs": inputs,
+            "file_hint": inputs.get("deliverable_path") or "",
+        }
+        if model_override:
+            context_overrides["model"] = model_override
+
+        result = await executor.execute(
+            task=task,
+            agent_id=runtime_id,
+            context_overrides=context_overrides,
+        )
+        if not result.success:
+            raise RuntimeError(result.error or f"{runtime_id} execution failed")
+
+        execution_id = result.execution_id
+        if execution_id:
+            attempt.adapter_meta["execution_id"] = execution_id
+            if self.session:
+                exec_ids = self.session.metadata.setdefault("execution_ids", [])
+                if execution_id not in exec_ids:
+                    exec_ids.append(execution_id)
+
+        return {
+            "status": "launched",
+            "execution_id": execution_id,
+            "agent_id": runtime_id,
+            "trace_id": result.trace_id,
+            "phase_id": attempt.phase_id,
+            "attempt_id": attempt.id,
+        }
+
     def _project_to_task(
         self,
         phase: PhaseIR,
@@ -790,6 +937,113 @@ class DispatchOrchestrator:
         self._attempts[phase.id] = attempt
         return attempt
 
+    async def _load_workspace(self, workspace_id: str) -> Any:
+        if not workspace_id:
+            return None
+        if workspace_id in self._workspace_cache:
+            return self._workspace_cache[workspace_id]
+
+        from backend.app.services.stores.postgres.workspaces_store import (
+            PostgresWorkspacesStore,
+        )
+
+        workspace = await PostgresWorkspacesStore().get_workspace(workspace_id)
+        self._workspace_cache[workspace_id] = workspace
+        return workspace
+
+    @staticmethod
+    def _resolve_agent_runtime(*, engine: str, workspace: Any) -> Optional[str]:
+        if isinstance(engine, str) and engine.startswith("agent:"):
+            requested_runtime = engine.split(":", 1)[1].strip()
+            if requested_runtime and requested_runtime != "auto":
+                return requested_runtime
+
+        resolved_runtime = getattr(workspace, "resolved_executor_runtime", None)
+        if isinstance(resolved_runtime, str) and resolved_runtime.strip():
+            return resolved_runtime.strip()
+
+        executor_runtime = getattr(workspace, "executor_runtime", None)
+        if isinstance(executor_runtime, str) and executor_runtime.strip():
+            return executor_runtime.strip()
+        return None
+
+    @staticmethod
+    def _build_agent_task(
+        *,
+        phase: PhaseIR,
+        action_item: Dict[str, Any],
+        inputs: Dict[str, Any],
+    ) -> str:
+        task = inputs.get("user_request")
+        if isinstance(task, str) and task.strip():
+            return task.strip()
+
+        for candidate in (
+            action_item.get("description"),
+            phase.description,
+            action_item.get("title"),
+            phase.name,
+        ):
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        return "Complete the requested task."
+
+    @staticmethod
+    def _build_agent_conversation_context(
+        *,
+        action_item: Dict[str, Any],
+        inputs: Dict[str, Any],
+        ir_provenance: Dict[str, Any],
+    ) -> str:
+        sections: List[str] = []
+
+        base_context = inputs.get("context")
+        if isinstance(base_context, str) and base_context.strip():
+            sections.append(base_context.strip())
+
+        upstream_context = action_item.get("_upstream_context")
+        if isinstance(upstream_context, dict) and upstream_context:
+            sections.append(
+                "[Upstream Context]\n"
+                + json.dumps(upstream_context, ensure_ascii=False, sort_keys=True)
+            )
+
+        lens_context = action_item.get("_lens_context")
+        if isinstance(lens_context, dict) and lens_context:
+            sections.append(
+                "[Lens Context]\n"
+                + json.dumps(lens_context, ensure_ascii=False, sort_keys=True)
+            )
+
+        if ir_provenance:
+            sections.append(
+                "[IR Provenance]\n"
+                + json.dumps(ir_provenance, ensure_ascii=False, sort_keys=True)
+            )
+
+        return "\n\n".join(section for section in sections if section)
+
+    @staticmethod
+    def _resolve_capability_profile_model(action_item: Dict[str, Any]) -> Optional[str]:
+        cap_profile = action_item.get("capability_profile")
+        if not cap_profile:
+            return None
+
+        try:
+            from backend.app.services.capability_profile_resolver import (
+                CapabilityProfileResolver,
+            )
+
+            resolved_model, _ = CapabilityProfileResolver().resolve(cap_profile)
+            if isinstance(resolved_model, str) and resolved_model.strip():
+                return resolved_model.strip()
+        except Exception as exc:
+            logger.warning(
+                "capability_profile resolve failed for agent dispatch (non-fatal): %s",
+                exc,
+            )
+        return None
+
     def _normalize_phase_inputs(
         self,
         phases: List[PhaseIR],
@@ -800,6 +1054,8 @@ class DispatchOrchestrator:
             phases=phases,
             action_items=action_items,
             session=self.session,
+            available_playbooks_cache=self._available_playbooks_cache,
+            project_id=self.project_id,
         )
 
     def _derive_research_context(
@@ -838,6 +1094,21 @@ class DispatchOrchestrator:
             engine=engine,
             session=self.session,
         )
+
+    def _resolve_phase_playbook_alias(self, tool_name: Optional[str]) -> Optional[str]:
+        """Recover playbook dispatch from tool-like decomposed phase output."""
+        if not tool_name:
+            return None
+        return resolve_tool_name_playbook_alias(
+            tool_name,
+            known_playbook_codes=self._known_playbook_codes,
+            get_playbook_spec=self._get_playbook_spec,
+        )
+
+    def _get_playbook_spec(self, playbook_code: str) -> Optional[Dict[str, Any]]:
+        if playbook_code not in self._playbook_spec_cache:
+            self._playbook_spec_cache[playbook_code] = load_playbook_spec(playbook_code)
+        return self._playbook_spec_cache[playbook_code]
 
     async def _publish_activity(self, event_type: str, data: dict) -> None:
         """Publish event to workspace activity stream (fire-and-forget)."""

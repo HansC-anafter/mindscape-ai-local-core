@@ -169,6 +169,8 @@ def load_and_register_packs(
     app: FastAPI,
     packs_dir: Optional[Path] = None,
     route_collector: Optional[List[Any]] = None,
+    activation_service: Optional[Any] = None,
+    activation_mode: str = "feature_pack_routes",
 ) -> List[Any]:
     """
     Scan packs directory and register enabled packs' routes
@@ -242,6 +244,16 @@ def load_and_register_packs(
             logger.debug(f"Pack {pack_id} has no routes defined")
             continue
 
+        pack_registered_count = 0
+        pack_errors: List[str] = []
+        registered_prefixes = set()
+        manifest_path = None
+        if pack.get("_file_path"):
+            try:
+                manifest_path = Path(str(pack["_file_path"]))
+            except Exception:
+                manifest_path = None
+
         for route_import in routes:
             try:
                 router = load_router_from_string(route_import)
@@ -250,16 +262,21 @@ def load_and_register_packs(
                 before_len = len(app.router.routes) if route_collector is not None else None
                 if pack_id == "workspace":
                     app.include_router(router, tags=[pack_id])
+                    prefix = getattr(router, "prefix", "") or ""
                 else:
                     prefix = f"/api/v1/{pack_id}"
                     app.include_router(router, prefix=prefix, tags=[pack_id])
+                if prefix:
+                    registered_prefixes.add(prefix)
                 if route_collector is not None and before_len is not None:
                     new_routes = app.router.routes[before_len:]
                     route_collector.extend(new_routes)
                     added_routes.extend(new_routes)
                 registered_count += 1
+                pack_registered_count += 1
                 logger.info(f"Registered route from pack '{pack_id}': {route_import}")
             except Exception as e:
+                pack_errors.append(f"{route_import}: {e}")
                 # Log error but continue - loose coupling: missing features should not prevent app startup
                 logger.warning(
                     f"Failed to register route '{route_import}' from pack '{pack_id}': {e}. "
@@ -267,6 +284,32 @@ def load_and_register_packs(
                 )
                 # Continue to next route instead of failing
                 continue
+
+        if activation_service is not None:
+            try:
+                if pack_registered_count > 0:
+                    activation_service.record_activation_succeeded(
+                        pack_id=pack_id,
+                        manifest=pack,
+                        manifest_path=manifest_path if manifest_path and manifest_path.exists() else None,
+                        activation_mode=activation_mode,
+                        registered_prefixes=sorted(registered_prefixes),
+                    )
+                elif pack_errors:
+                    activation_service.record_activation_failed(
+                        pack_id=pack_id,
+                        manifest=pack,
+                        manifest_path=manifest_path if manifest_path and manifest_path.exists() else None,
+                        activation_mode=activation_mode,
+                        error="; ".join(pack_errors),
+                        registered_prefixes=sorted(registered_prefixes),
+                    )
+            except Exception as activation_exc:
+                logger.warning(
+                    "Failed to persist feature-pack activation state for %s: %s",
+                    pack_id,
+                    activation_exc,
+                )
 
     logger.info(f"Successfully registered {registered_count} routes from {len(packs_to_load)} enabled packs")
     return added_routes

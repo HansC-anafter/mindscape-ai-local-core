@@ -1,8 +1,9 @@
 """
 Core LLM: Structured Extract Service
-Extract structured JSON from long text based on schema/description
+Extract structured JSON from long text based on schema/description.
 """
 
+import json
 import logging
 from typing import Dict, Any, Optional
 
@@ -128,3 +129,36 @@ Please output the extraction result in JSON format."""
     except Exception as e:
         logger.error(f"Structured extraction failed: {e}")
         raise
+
+
+async def extract_structured(
+    text: str,
+    schema: Any,
+    example_output: Optional[Dict[str, Any]] = None,
+    llm_provider: Optional[Any] = None,
+    locale: Optional[str] = None,
+    target_language: Optional[str] = None,
+    profile_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Backward-compatible wrapper returning only the extracted payload.
+
+    Older callers import ``extract_structured(prompt, schema)`` and expect the
+    parsed JSON object directly. Keep that contract while the canonical service
+    exposes ``extract(...)`` returning ``{extracted_data, confidence}``.
+    """
+    if isinstance(schema, str):
+        schema_description = schema
+    else:
+        schema_description = json.dumps(schema, ensure_ascii=False, indent=2)
+
+    result = await extract(
+        text=text,
+        schema_description=schema_description,
+        example_output=example_output,
+        llm_provider=llm_provider,
+        locale=locale,
+        target_language=target_language,
+        profile_id=profile_id,
+    )
+    extracted_data = result.get("extracted_data")
+    return extracted_data if isinstance(extracted_data, dict) else {}

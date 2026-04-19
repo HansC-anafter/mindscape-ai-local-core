@@ -7,7 +7,7 @@ state snapshots, and links to decisions/traces/intents.
 
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 
@@ -16,6 +16,15 @@ from backend.app.services.stores.postgres_base import PostgresStoreBase
 from backend.app.models.meeting_session import MeetingSession, MeetingStatus
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_ACTIVE_SESSION_FRESHNESS = timedelta(minutes=30)
+DEFAULT_PLANNED_SESSION_FRESHNESS = timedelta(minutes=15)
+SESSION_ACTIVITY_METADATA_KEYS = (
+    "last_round_updated_at",
+    "pipeline_stage_updated_at",
+    "dispatch_updated_at",
+    "updated_at",
+)
 
 
 TABLE_DDL = """
@@ -68,6 +77,61 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_meeting_sessions_ws_project ON meeting_sessions(workspace_id, project_id)",
     "CREATE INDEX IF NOT EXISTS idx_meeting_sessions_active ON meeting_sessions(workspace_id, ended_at)",
 ]
+
+
+def _coerce_activity_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value))
+        except Exception:
+            return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def is_active_session_fresh(
+    session: MeetingSession,
+    *,
+    now: Optional[datetime] = None,
+    active_ttl: timedelta = DEFAULT_ACTIVE_SESSION_FRESHNESS,
+    planned_ttl: timedelta = DEFAULT_PLANNED_SESSION_FRESHNESS,
+) -> bool:
+    if session is None or session.ended_at is not None:
+        return False
+
+    effective_now = now or datetime.now(timezone.utc)
+    if effective_now.tzinfo is None:
+        effective_now = effective_now.replace(tzinfo=timezone.utc)
+    else:
+        effective_now = effective_now.astimezone(timezone.utc)
+
+    metadata = session.metadata or {}
+    activity_points: List[datetime] = []
+
+    started_at = _coerce_activity_datetime(session.started_at)
+    if started_at is not None:
+        activity_points.append(started_at)
+
+    for key in SESSION_ACTIVITY_METADATA_KEYS:
+        activity_dt = _coerce_activity_datetime(metadata.get(key))
+        if activity_dt is not None:
+            activity_points.append(activity_dt)
+
+    if not activity_points:
+        return False
+
+    last_activity = max(activity_points)
+    ttl = (
+        planned_ttl
+        if session.status == MeetingStatus.PLANNED
+        else active_ttl
+    )
+    return last_activity >= (effective_now - ttl)
 
 
 class MeetingSessionStore(PostgresStoreBase):
@@ -262,6 +326,45 @@ class MeetingSessionStore(PostgresStoreBase):
                 )
             return closed
 
+    def close_stale_active_sessions(
+        self,
+        workspace_id: str,
+        *,
+        project_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        reason: str = "stale_replaced_by_compile",
+        now: Optional[datetime] = None,
+        limit: int = 100,
+    ) -> int:
+        """Abort active-but-stale sessions so new compile intake starts cleanly."""
+        effective_now = now or datetime.now(timezone.utc)
+        closed = 0
+        sessions = self.list_by_workspace(
+            workspace_id,
+            project_id=project_id,
+            limit=limit,
+            offset=0,
+        )
+        for session in sessions:
+            if not session.is_active:
+                continue
+            if project_id and session.project_id != project_id:
+                continue
+            if thread_id and session.thread_id != thread_id:
+                continue
+            if is_active_session_fresh(session, now=effective_now):
+                continue
+            session.abort(reason=reason)
+            self.update(session)
+            closed += 1
+        if closed:
+            logger.info(
+                "Closed %d stale active meeting sessions in workspace %s",
+                closed,
+                workspace_id,
+            )
+        return closed
+
     # ============== Read ==============
 
     def get_by_id(self, session_id: str) -> Optional[MeetingSession]:
@@ -335,10 +438,17 @@ class MeetingSessionStore(PostgresStoreBase):
             params = {"workspace_id": workspace_id}
 
         with self.get_connection() as conn:
-            row = conn.execute(text(query), params).fetchone()
-            if not row:
+            rows = conn.execute(
+                text(query.replace("LIMIT 1", "LIMIT 10")),
+                params,
+            ).fetchall()
+            if not rows:
                 return None
-            return self._row_to_session(row)
+            for row in rows:
+                session = self._row_to_session(row)
+                if is_active_session_fresh(session):
+                    return session
+            return None
 
     def list_by_workspace(
         self,

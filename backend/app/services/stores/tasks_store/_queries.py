@@ -17,6 +17,49 @@ from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASO
 
 logger = logging.getLogger(__name__)
 
+_EXECUTION_LIST_SELECT = """
+    SELECT
+        id,
+        workspace_id,
+        message_id,
+        execution_id,
+        parent_execution_id,
+        project_id,
+        pack_id,
+        task_type,
+        status,
+        params,
+        NULL AS result,
+        CASE
+            WHEN execution_context IS NULL THEN NULL
+            ELSE jsonb_strip_nulls(
+                jsonb_build_object(
+                    'playbook_code', execution_context->>'playbook_code',
+                    'playbook_name', execution_context->>'playbook_name',
+                    'project_id', COALESCE(execution_context->>'project_id', project_id),
+                    'project_name', execution_context->>'project_name',
+                    'paused_at', execution_context->>'paused_at',
+                    'thread_id', execution_context->>'thread_id',
+                    'timeout_diagnostic', execution_context->'timeout_diagnostic'
+                )
+            )
+        END AS execution_context,
+        meeting_session_id,
+        storyline_tags,
+        created_at,
+        next_eligible_at,
+        blocked_reason,
+        blocked_payload,
+        queue_shard,
+        concurrency_key,
+        frontier_state,
+        frontier_enqueued_at,
+        started_at,
+        completed_at,
+        error
+    FROM tasks
+"""
+
 
 class TasksStoreQueryMixin:
     """Read-only query methods for TasksStore."""
@@ -77,6 +120,7 @@ class TasksStoreQueryMixin:
         status: Optional[TaskStatus] = None,
         limit: Optional[int] = None,
         exclude_cancelled: bool = False,
+        task_type: Optional[str] = None,
     ) -> List[Task]:
         """
         List tasks for a workspace
@@ -100,6 +144,14 @@ class TasksStoreQueryMixin:
         if status:
             query_parts.append("AND status = :status")
             params["status"] = status.value
+
+        if task_type:
+            normalized_task_type = str(task_type).strip().lower()
+            if normalized_task_type == "execution":
+                query_parts.append("AND execution_context IS NOT NULL")
+            else:
+                query_parts.append("AND task_type = :task_type")
+                params["task_type"] = task_type
 
         if exclude_cancelled:
             query_parts.append("AND status NOT IN (:cancelled_status, :expired_status)")
@@ -217,7 +269,11 @@ class TasksStoreQueryMixin:
         )
 
     def list_executions_by_project(
-        self, workspace_id: str, project_id: str, limit: Optional[int] = None
+        self,
+        workspace_id: str,
+        project_id: str,
+        limit: Optional[int] = None,
+        include_completed: bool = True,
     ) -> List[Task]:
         """
         List execution tasks for a specific project
@@ -230,17 +286,27 @@ class TasksStoreQueryMixin:
         Returns:
             List of execution tasks for the project
         """
-        query = """
-            SELECT * FROM tasks
+        query = f"""
+            {_EXECUTION_LIST_SELECT}
             WHERE workspace_id = :workspace_id
             AND project_id = :project_id
-            AND task_type = 'execution'
-            ORDER BY created_at DESC
+            AND execution_context IS NOT NULL
         """
         params: Dict[str, Any] = {
             "workspace_id": workspace_id,
             "project_id": project_id,
         }
+
+        if not include_completed:
+            query += """
+            AND status IN (:pending_status, :running_status)
+            """
+            params["pending_status"] = TaskStatus.PENDING.value
+            params["running_status"] = TaskStatus.RUNNING.value
+
+        query += """
+            ORDER BY created_at DESC
+        """
 
         if limit:
             query += " LIMIT :limit"
@@ -248,16 +314,13 @@ class TasksStoreQueryMixin:
 
         with self.get_connection() as conn:
             rows = conn.execute(text(query), params).fetchall()
-            tasks = [self._row_to_task(row) for row in rows]
-
-        for task in tasks:
-            task.result = None
-            task.execution_context = None
-
-        return tasks
+            return [self._row_to_task(row) for row in rows]
 
     def list_executions_by_workspace(
-        self, workspace_id: str, limit: Optional[int] = None
+        self,
+        workspace_id: str,
+        limit: Optional[int] = None,
+        include_completed: bool = True,
     ) -> List[Task]:
         """
         List all Playbook execution tasks (tasks with execution_context) for a workspace
@@ -269,12 +332,23 @@ class TasksStoreQueryMixin:
         Returns:
             List of execution tasks (tasks with execution_context)
         """
-        query = """
-            SELECT * FROM tasks
-            WHERE workspace_id = :workspace_id AND execution_context IS NOT NULL
-            ORDER BY created_at DESC
+        query = f"""
+            {_EXECUTION_LIST_SELECT}
+            WHERE workspace_id = :workspace_id
+            AND execution_context IS NOT NULL
         """
         params: Dict[str, Any] = {"workspace_id": workspace_id}
+
+        if not include_completed:
+            query += """
+            AND status IN (:pending_status, :running_status)
+            """
+            params["pending_status"] = TaskStatus.PENDING.value
+            params["running_status"] = TaskStatus.RUNNING.value
+
+        query += """
+            ORDER BY created_at DESC
+        """
 
         if limit:
             query += " LIMIT :limit"
@@ -282,12 +356,7 @@ class TasksStoreQueryMixin:
 
         with self.get_connection() as conn:
             rows = conn.execute(text(query), params).fetchall()
-            tasks = [self._row_to_task(row) for row in rows]
-
-        for task in tasks:
-            task.result = None
-
-        return tasks
+            return [self._row_to_task(row) for row in rows]
 
     def list_pending_tasks(
         self, workspace_id: str, exclude_cancelled: bool = True

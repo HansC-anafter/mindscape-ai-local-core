@@ -97,6 +97,16 @@ class MeetingEventsMixin:
 
     def _emit_round_event(self, round_number: int, status: str) -> None:
         """Emit a MEETING_ROUND lifecycle event."""
+        try:
+            if self.session.metadata is None:
+                self.session.metadata = {}
+            self.session.metadata["last_round_status"] = status
+            self.session.metadata["last_round_updated_at"] = datetime.now(
+                timezone.utc
+            ).isoformat()
+            self.session_store.update(self.session)
+        except Exception:
+            pass
         self._emit_event(
             EventType.MEETING_ROUND,
             payload={
