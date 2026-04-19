@@ -1,228 +1,290 @@
 ---
 name: evidence-based-planning
-description: Formal workflow for writing implementation plans. Enforces evidence-first discipline from problem definition through plan verification.
+description: Create implementation plans only after collecting evidence from code and runtime. Use for design docs, implementation plans, rollout plans, and refactor plans where every problem statement, insertion point, dependency, and verification step must be source-backed.
 ---
 
 # Evidence-Based Planning
 
+Use this skill when the output is a plan, not code, and the plan must be defensible against the actual repo and runtime state.
+
+This skill is stricter than normal planning:
+
+- no problem statement without evidence
+- no code change proposal without verified insertion points
+- no validation section without concrete commands and pass/fail criteria
+
+If the task also involves diagnosis, apply the rules from `evidence-based-reporting` first, then write the plan.
+
 ## Core Rule
 
-**No implementation plan may be written until all problems are defined with evidence, and every proposed change has its insertion point verified against actual code.**
+**Do not write an implementation plan until the current system has been observed from the real sources of truth.**
 
-Violation of this rule produces plans with wrong line numbers, invalid data source assumptions, and designs that reference nonexistent APIs.
+Sources of truth include:
 
----
+- code with file path and line references
+- runtime state from commands, logs, APIs, or DB queries
+- existing config actually loaded by the running process
 
-## Mandatory Phases
+Reading one file and extrapolating the rest is not evidence.
 
-### Phase 1: Evidence Collection
+## Required Output Shape
 
-Collect evidence for every relevant code path BEFORE defining any problem.
+Every implementation plan should contain these sections in this order:
 
-```
-FOR EACH component under investigation:
-  1. Read the actual code (view_file with exact line ranges)
-  2. Verify runtime state where applicable (docker exec, DB query, log grep)
-  3. Record evidence with file path + line number
-  4. Do NOT write any conclusions yet
-```
+1. Problem list
+2. Evidence
+3. Proposed changes
+4. Verification SOP
+5. Automated test plan
+6. Risks / open questions
 
-**Applies**: `evidence-based-reporting` skill rules. Every claim needs evidence.
+If the user wants a shorter plan, compress the prose, but keep the same logical order.
 
-### Phase 1.5: Historical Regression Analysis (Git History)
+## Workflow
 
-Before defining the current problem, review the git history (`git log -p`) of the component to understand past fixes.
+### Phase 1: Collect Evidence
 
-```
-FOR EACH previous fix related to the component:
-  1. What was the exact code change?
-  2. Why did the author think it would work?
-  3. Why did it ultimately fail (creating the current problem)?
-  4. How does the NEW proposed approach structurally avoid the failure mode of the past fixes?
-```
+Before defining problems, inspect the real system.
 
-This prevents repeating past mistakes (e.g., swapping one unreliable API for another) by formally acknowledging why previous attempts failed.
+For each relevant component:
 
-### Phase 2: Problem Definition + Severity Scoring
+1. Read the exact code path.
+2. Verify runtime state if the claim is about behavior, config, data, or process state.
+3. Record evidence with file paths, line numbers, or command outputs.
+4. Delay conclusions until evidence is collected.
 
-Write a numbered list of concrete problems, each referencing evidence items.
+Minimum evidence standards:
 
-```
-FORMAT:
-  1. **[Problem title]**: [one-line description] (E1, E2)
-  2. **[Problem title]**: [one-line description] (E3, E5)
+| Claim Type | Required Evidence |
+|---|---|
+| Code behavior | file path + verified line numbers |
+| Runtime behavior | logs, curl output, DB query, process inspection |
+| Config source | actual config file plus runtime confirmation when relevant |
+| Missing caller / dead code | full-project grep with explicit scope |
+| Data availability | actual rows/files/index contents, not just schema |
+
+### Phase 2: Define Problems
+
+Write concrete problems backed by the evidence from Phase 1.
+
+Format:
+
+```markdown
+1. **Problem title**: one-sentence description. Evidence: E1, E4.
+2. **Problem title**: one-sentence description. Evidence: E2, E3.
 ```
 
 Rules:
-- Each problem must cite at least one evidence item
-- No problem may be inferred without code or runtime evidence
-- Problem list goes at the TOP of the analysis report
 
-**FMEA-lite scoring** — prioritize which problems to fix first:
+- problems go before the solution
+- every problem cites evidence
+- do not mix diagnosis and fix in the same bullet
+- if two problems share a symptom but have different causes, split them
 
-```
-FOR EACH problem:
-  Severity  (1-5): How bad if this causes a production incident?
-  Detection (1-5): How hard is it to catch before production?
-  Priority = Severity × Detection (higher = fix first)
-```
+### Phase 3: Prioritize
 
-| Problem | Severity | Detection | Priority |
-|---------|----------|-----------|----------|
-| Pipeline 零校驗 | 5 | 5 | 25 |
-| Fallback 吐全量 | 4 | 3 | 12 |
-| RAG 不索引 playbook | 3 | 2 | 6 |
+Score each problem before proposing changes.
 
-This prevents fixing low-impact issues while critical gaps remain open.
+Use:
 
-### Phase 3: Assumption Verification (CoVe)
+- Severity `1-5`: impact if shipped unfixed
+- Detection `1-5`: difficulty of catching it before production
+- Priority = `Severity x Detection`
 
-Before writing any fix, verify every assumption using Chain-of-Verification:
+This prevents a plan from focusing on low-value cleanup while structural failures remain.
 
-```
-FOR EACH proposed change:
-  1. Generate verification question:
-     "How would I prove [assumption] is correct?"
-  2. Execute the verification (view_file, grep, runtime query)
-  3. Record the answer with evidence
-  4. If answer contradicts expectation → update understanding, do NOT ignore
-```
+### Phase 4: Verify Assumptions
 
-Assumption verification table:
+Before proposing a fix, verify every assumption the fix depends on.
 
-| Assumption Type | Verification Question | Method |
-|---|---|---|
-| "Insert code at line N" | "Do lines N-1 and N+1 match what I expect?" | `view_file` that range |
-| "Data source X contains Y" | "What does X actually contain?" | Read indexing/writing code, or query data |
-| "Model has field X with data" | "Is field X populated, or just defined?" | Grep data files + check writer code |
-| "Function X is not called" | "Does a full-project grep find callers?" | Grep full project, report scope |
-| "Object has attribute X" | "Does the class definition include X?" | Grep model/class definition |
-| "N items at runtime" | "What does the count query return?" | Run count in actual environment |
+Typical assumptions to verify:
 
-### Phase 3.5: Pre-Mortem
+- the insertion point still contains the expected code
+- the target class/function/field actually exists
+- the data source contains the shape the plan depends on
+- the runtime path being changed is the one actually used
+- the dependency can be reloaded hot, or cannot
 
-After verifying assumptions, apply adversarial thinking:
+Use this loop:
 
-```
-ASSUME the plan has been implemented and has FAILED.
-List the 3 most likely failure modes:
-
-  1. Data assumption wrong — a field, index, or source doesn't contain
-     what the plan assumes (e.g., schema ≠ data)
-  2. Insertion point shifted — code was refactored, line numbers moved,
-     or method signature changed since evidence was collected
-  3. Runtime dependency missing — service not running, table not created,
-     environment variable not set
-
-FOR EACH failure mode:
-  - Is there evidence ruling it out?
-  - If not: run the verification now
+```text
+FOR EACH assumption:
+  1. Ask: "How do I prove this?"
+  2. Run the check
+  3. Record the result
+  4. If the result contradicts the idea, change the plan
 ```
 
-### Phase 4: Plan Writing
+### Phase 5: Pre-Mortem
 
-Write the implementation plan with verified citations only.
+Assume the plan has been implemented and failed.
 
-Rules:
-- Every `[file.py:LN]` citation must have been verified in Phase 3
-- Every data source referenced must have been verified in Phase 3
-- Every model attribute must have been confirmed to exist
-- Group changes by dependency order (independent first)
-- **Traceability**: Every implementation block MUST explicitly state which Phase 2 Problem ID it resolves (e.g., `Resolves Problem #2`).
-- **Provide concrete code diffs OR precise code replacement logic** for all critical modifications at verified insertion points
-- Include verification commands for each phase
+List the most likely failure modes, then check whether you already have evidence ruling them out.
 
-### Phase 5: Citation Audit (CoVe Final Pass)
+Common failure modes:
 
-After writing the plan, run a final verification pass:
+1. Wrong insertion point after refactor
+2. Schema exists but data is empty or stale
+3. Different worker/process/container serves the real traffic
+4. Cache or registry survives the change and keeps stale state
+5. Validation only covers unit behavior, not propagation to API or UI
 
+If a failure mode is not ruled out, collect more evidence before finishing the plan.
+
+### Phase 6: Write the Plan
+
+Only now write the implementation plan.
+
+For each change block:
+
+- state what it changes
+- state which problem ID it resolves
+- cite the verified insertion point or dependency
+- describe ordering constraints
+- describe how to verify the change
+
+Good format:
+
+```markdown
+### Change 1: Invalidate playbook registry after install
+Resolves Problem #2.
+
+- Update `.../capability_install.py` near the post-install activation path so the install flow invalidates the cached playbook registry before returning.
+- This insertion point was verified at `...:Lxxx-Lyyy`.
+- Do this before the response payload is built so the next request sees fresh registry state.
 ```
-FOR EACH file referenced in the plan:
-  1. Pick the most critical citation (insertion point or data dependency)
-  2. view_file that exact line range
-  3. Confirm the content matches what the plan describes
-  4. If any mismatch: STOP and correct before delivering
-```
 
-### Phase 6: Validation SOP (Standard Operating Procedure)
+### Phase 7: Audit the Plan
 
-Define a rigorous step-by-step SOP that connects the original problem to the fix and how to verify it. 
+Before delivering:
 
-Rules:
-- Give a clear narrative: "How did we diagnose this (Phase 1-3), how did we fix this (Phase 4), and how do we verify it now?"
-- List specific scenarios (e.g., "sunny day", "error case").
-- Provide the exact verification steps (Where to click, what `curl` or SQL command to run).
-- Define explicitly what constitutes a "Pass" and a "Fail" for the verification, mapping back to the original Problem ID.
-- **🚨 DATA BACKUP WARNING**: If the verification SOP requires modifying, deleting, or overwriting data (e.g., database records, static files), you MUST instruct the user to **perform a data backup BEFORE making any code changes**. This backup step must be placed at the VERY BEGINNING of the Implementation Plan (Phase 4), NOT buried inside the Testing SOP (Phase 6).
+1. Re-open the most critical cited code ranges.
+2. Confirm the plan still matches those lines.
+3. Confirm every validation step can actually be run.
+4. Remove any sentence that no longer has evidence behind it.
 
-  > **Standard Backup Procedure:**
-  > - All backups MUST be saved to the local-core `.gitignore`'d directory: `data/backups/`
-  > - For PostgreSQL database backups, use this exact command:
-  >   ```bash
-  >   docker compose exec -T postgres pg_dump -U mindscape -d mindscape_core > data/backups/mindscape_core_pre_test_$(date +%Y%m%d_%H%M%S).sql
-  >   ```
+## Validation SOP Rules
 
-### Phase 7: Evaluation & Automated Testing SOP
+The verification section must be operational, not aspirational.
 
-Propose an exact automated testing strategy that protects the specific logic fixed in this plan.
+Include:
 
-Rules:
-- Do not just write "Write a test". You must propose the **exact test cases** (Input, Mock setup, Expected Output).
-- Explain how this automated test specifically prevents the Problem IDs identified in Phase 2 from recurring.
-- If an automated test is not feasible, explain why and propose a monitoring metric or dashboard.
+- the exact command, click path, or API call
+- expected result
+- what counts as fail
+- which problem ID the check proves fixed
 
----
+Use layered verification when the issue spans multiple layers:
+
+1. Unit or direct function behavior
+2. API or service response
+3. Consumer path
+4. End-to-end symptom check
+
+Do not stop at layer 1 if the original bug was observed at layer 3 or 4.
+
+## Automated Test Plan Rules
+
+Do not write "add tests" as a placeholder.
+
+Specify:
+
+- target test file or module
+- exact scenario
+- required fixtures or mocks
+- expected assertions
+- which problem the test prevents from regressing
+
+If automation is not feasible, say why and propose a concrete monitoring or manual regression check instead.
+
+## Backup Rule
+
+If the implementation or verification touches mutable user data, DB rows, generated artifacts, or installed pack state that could be overwritten, put backup instructions at the start of the plan, before any mutation step.
+
+Do not bury backup steps inside the testing section.
 
 ## Prohibited Patterns
 
-### 1. Plan Before Evidence
+### 1. Plan-First Investigation
 
-**WRONG**: Write an implementation plan, then go back and verify the claims.
+**WRONG**: Draft the architecture fix, then search for evidence that supports it.
 
-**RIGHT**: Phases 1→2→3→3.5→4→5 in strict order. Never write Phase 4 before completing Phase 3.5.
+**RIGHT**: Evidence first, plan second.
 
-### 2. Assumed Data Source Scope
+### 2. Insertion Point From Memory
 
-**WRONG**: "Validation will use data from index X." (never checked what X contains)
+**WRONG**: "Patch around line 240."
 
-**RIGHT**: Before referencing any data source in a design, verify what it actually contains, whether the format matches, and whether the scope covers your full requirement.
+**RIGHT**: Re-open the file and verify the surrounding code before citing the range.
 
-### 3. Schema Field as Available Data
+### 3. Schema-As-Data
 
-**WRONG**: "Model has field `X` — use it for validation." (field defined but never populated)
+**WRONG**: "Use field `x` for the rollout gate" when only the model definition was checked.
 
-**RIGHT**: Check whether the field has actual data. Default-valued fields (`default_factory=list`, `default=None`) are assumed empty until proven otherwise.
+**RIGHT**: Verify the field is populated in real data or by the relevant writer path.
 
-### 4. Unverified Insertion Point
+### 4. Runtime Inference From Source
 
-**WRONG**: "Insert after line 108." (line 108 contains completely different code)
+**WRONG**: "This process restarts on install" because the code contains a reload path.
 
-**RIGHT**: `view_file` the exact insertion point and confirm the surrounding context matches.
+**RIGHT**: Check role flags, running mode, and the actual install response or runtime logs.
 
-### 5. Skipped Pre-Mortem
+### 5. Validation Without Original Symptom
 
-**WRONG**: Plan passes all forward verification, but fails in production because a runtime dependency was never checked.
+**WRONG**: "Unit test passes, so the issue is fixed."
 
-**RIGHT**: Always run Phase 3.5. Assume failure, enumerate modes, verify each one is ruled out.
-
----
+**RIGHT**: Reproduce or re-check the original failing path.
 
 ## Pre-Delivery Checklist
 
-Before delivering any implementation plan:
+- [ ] Every problem statement cites evidence
+- [ ] Priority scoring is included or the ordering rationale is explicit
+- [ ] Every proposed insertion point was re-verified
+- [ ] Every referenced data source was checked for real contents
+- [ ] Every runtime claim has runtime evidence
+- [ ] Every "not used / not called" claim uses full-project grep scope
+- [ ] The plan maps each change to a specific problem ID
+- [ ] The verification SOP contains exact commands or UI actions
+- [ ] The automated test section names concrete scenarios and assertions
+- [ ] Backup steps are included at the start when mutation risk exists
+- [ ] Open questions are clearly marked as unknowns, not treated as facts
 
-- [ ] Every problem cites evidence items
-- [ ] Problems are severity-scored and ordered by priority
-- [ ] Every insertion point has been `view_file`'d and confirmed
-- [ ] Every data source dependency has been verified for content and format
-- [ ] Every model attribute access has been confirmed to exist
-- [ ] Runtime quantities cite actual command output, not code inference
-- [ ] Negation claims use full-project grep with scope reported
-- [ ] Pre-mortem failure modes have been enumerated and ruled out
-- [ ] Changes are ordered by dependency (independent first)
-- [ ] Every implementation block traces back to a specific Problem ID from Phase 2
-- [ ] Concrete code diffs or explicit replacement logic are provided for key changes
-- [ ] Verification commands are included for each phase
-- [ ] A Validation Checklist (Phase 6) with explicit pass/fail criteria and commands is included
-- [ ] 🚨 Data backup instructions are placed at the very start of Implementation (if testing modifies data)
-- [ ] An Evaluation/Automated Testing section (Phase 7) is included to prevent regression
+## Minimal Plan Template
+
+```markdown
+# [Title]
+
+## Problems
+1. **...** Evidence: E1, E2.
+2. **...** Evidence: E3.
+
+## Evidence
+- **E1**: `path/to/file.py:L10-L25` shows ...
+- **E2**: `curl ...` returned ...
+
+## Proposed Changes
+### Change 1: ...
+Resolves Problem #1.
+
+- ...
+
+### Change 2: ...
+Resolves Problem #2.
+
+- ...
+
+## Verification SOP
+1. Run ...
+   Pass: ...
+   Fail: ...
+   Proves: Problem #1
+
+## Automated Test Plan
+- Add/extend `...test...`
+- Scenario: ...
+- Assert: ...
+- Prevents regression of Problem #...
+
+## Risks / Open Questions
+- ...
+```

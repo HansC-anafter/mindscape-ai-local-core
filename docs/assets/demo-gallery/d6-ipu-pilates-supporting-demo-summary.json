@@ -1,0 +1,21 @@
+{
+  "demo_id": "d6-ipu-pilates-supporting-demo",
+  "reference_shortcode": "DRjrJ5KkoS4",
+  "source_handle": "@ipu__pilates",
+  "status": "supporting_demo",
+  "artifact_family": "single_image_bootstrap",
+  "runtime_family": "triposr",
+  "formal_asset_status": "preview_candidate",
+  "promotion_state": "candidate",
+  "primary_contract_ready": true,
+  "public_safe_subset": true,
+  "evidence": {
+    "source_image": "d6-ipu-pilates-supporting-demo-01-source.jpg",
+    "preview_render": "d6-ipu-pilates-supporting-demo-02-preview-render.png"
+  },
+  "notes": [
+    "This supporting demo is the first public-safe closure candidate from the @ipu__pilates curated lane.",
+    "The checked-in public asset set proves bounded image-plus-mesh closure, not final production geometry.",
+    "The current runtime family is TripoSR; this should not be described as a formal SAM3D asset."
+  ]
+}

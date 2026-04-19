@@ -16,24 +16,25 @@ Examples:
 
 ## Current Asset Set
 
+### D0. Meeting-Originated Coffee Spatial Demo
+
+- `d0-coffee-spatial-demo-operator-capture.png`: operator-facing capture from the closed Layer 1/Layer 2 milestone run
+
+### D2. Counter-Camera Non-Actor Spatial Demo
+
+- `d2-counter-camera-spatial-demo-operator-capture.png`: operator-facing capture from the closed non-actor milestone run
+
 ### D1. Single-Image Preview Mesh
 
-- `01-source.png`: copyright-safe source image used for the smoke run
-- `02-preview-render.png`: Blender Workbench capture from the generated review bundle
-- `03-oblique-view.png`: documentation capture that shows the candidate bundle at an inspectable angle
-- `04-side-view.png`: documentation capture that proves non-flat mesh depth
-- `05-separation-proof-card.png`: public-safe operator-facing proof card for the scene/person split
-- `06-artifact-ledger-card.png`: public-safe artifact inventory card derived from the bundle manifest
-- `summary.json`: machine-readable smoke result with status, warnings, and artifact refs
-- `views-summary.json`: camera and shot metadata for the documentation captures
-- `doc-cards-summary.json`: trace file for the generated documentation cards
+- `d1-indoor-clean-space-01-source.png`: public-safe indoor clean-space source image used for the supporting preview lane
+- `d1-indoor-clean-space-02-preview-render.png`: Blender preview render from the checked-in supporting lane
+- `d1-indoor-clean-space-03-oblique-view.png`: documentation still for inspectable angled review
+- `d1-indoor-clean-space-04-side-view.png`: documentation still showing non-flat preview depth
+- `d1-indoor-clean-space-summary.json`: smoke/result summary for the supporting lane
+- `d1-indoor-clean-space-views-summary.json`: shot metadata for the checked-in stills
 
-### D5. Candidate vs Fallback Comparison
-
-- `01-fallback-preview-render.png`: degraded fallback preview render captured from the same source image family as D1
-- `02-compare-card.png`: public-safe comparison card for the candidate and fallback lanes
-- `fallback-execution-summary.json`: execution summary for the current degraded fallback evidence
-- `compare-card-summary.json`: trace file for the generated comparison card
+This checked-in D1 set is a generic public-safe indoor preview lane.
+It is not the `@ipu__pilates` studio reference set.
 
 ### D3. Complex Relation Stress Preview Mesh
 
@@ -43,6 +44,29 @@ Examples:
 - `04-side-view.png`: documentation capture that proves non-flat candidate depth under a messier scene
 - `summary.json`: public-safe summary for current stress-lane status, warnings, and claims
 - `views-summary.json`: shot metadata for the checked-in stills
+
+### D6. `@ipu__pilates` Supporting Demo
+
+- `d6-ipu-pilates-supporting-demo-01-source.jpg`: the first public-safe curated source still promoted from the dedicated `@ipu__pilates` lane
+- `d6-ipu-pilates-supporting-demo-02-preview-render.png`: preview render captured from the corresponding Stage C closure bundle
+- `d6-ipu-pilates-supporting-demo-summary.json`: bounded public summary for the checked-in supporting demo
+
+This D6 set is not the full `@ipu__pilates` curated lane.
+It is the first public-safe checked-in supporting closure candidate from that lane.
+
+## Documented But Not Yet Re-Landed On This Branch
+
+These lanes already have published public docs and status language, but their earlier public-safe screenshot/card sets are not currently present in this directory:
+
+### D4. Fixed-Scene Subject Swap
+
+- supporting continuity lane
+- public deep dive is published, but screenshot bundle is still pending
+
+### D5. Candidate vs Fallback Comparison
+
+- supporting honesty layer
+- compare card and fallback evidence need re-landing before this directory can claim checked-in public assets for D5
 
 ## Public-safe Rules
 

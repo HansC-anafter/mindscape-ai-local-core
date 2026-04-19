@@ -1,0 +1,45 @@
+{
+  "camera_name": "DocCaptureCamera",
+  "scene_center": [
+    0.129,
+    -0.0198,
+    0.0018
+  ],
+  "scene_span": [
+    1.2466,
+    0.6915,
+    1.0246
+  ],
+  "shots": [
+    {
+      "name": "oblique",
+      "output_path": "/Users/shock/Projects_local/workspace/mindscape-ai-local-core/docs-internal/implementation/2026-04-16/evidence/d1c-indoor-clean-space-oblique-view.png",
+      "camera_location": [
+        2.2482,
+        -2.3882,
+        0.999
+      ],
+      "target": [
+        0.129,
+        -0.0198,
+        0.1862
+      ],
+      "lens_mm": 42.0
+    },
+    {
+      "name": "side",
+      "output_path": "/Users/shock/Projects_local/workspace/mindscape-ai-local-core/docs-internal/implementation/2026-04-16/evidence/d1c-indoor-clean-space-side-view.png",
+      "camera_location": [
+        3.1208,
+        -0.2441,
+        0.637
+      ],
+      "target": [
+        0.129,
+        -0.0198,
+        0.1862
+      ],
+      "lens_mm": 42.0
+    }
+  ]
+}

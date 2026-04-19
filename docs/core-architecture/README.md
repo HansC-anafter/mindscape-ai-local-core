@@ -36,6 +36,25 @@ Important public-safe boundaries:
 - world memory stores summaries, refs, and traceability keys rather than raw provider payloads
 - `Project / Flow / Playbook / Sandbox` remain an important consumer path, but they are not the only public mental model anymore
 
+## Milestone Closure Story
+
+When explaining the current milestone to someone who does not know pack internals, use this four-part story:
+
+1. **Meeting-originated intent**
+   The operator says the job in plain language, for example: "have the subject walk to the table, pick up the coffee cup, take a sip, then place it back."
+2. **Dual artifacts, not one overloaded IR**
+   `TaskIR` remains the control plane while `SpatialSchedulingIR` carries bounded spatial/world execution intent.
+3. **Bounded world summary, not runtime-native payloads**
+   Local-Core stores summaries, refs, constraints, and stable trace keys rather than provider request bodies or raw per-frame curves.
+4. **Replaceable consumer lanes**
+   The same schedule/handoff contract can drive different runtime consumers while preserving `schedule_id`, artifact refs, runtime receipts, and world-summary continuity.
+
+Public-facing milestone references:
+
+- [Spatial Runtime Planning](./spatial-runtime-planning.md)
+- [Meeting-Originated Coffee Spatial Demo](../use-cases/meeting-originated-coffee-spatial-demo.md)
+- [Demo Gallery](../demo-gallery/README.md)
+
 ### Architecture Components
 
 #### Project Model

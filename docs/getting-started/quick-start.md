@@ -24,11 +24,12 @@ Default local URLs:
 If you want the shortest path to "what can this repo show me today?", read these in order:
 
 1. [Demo Gallery](../demo-gallery/README.md)
-2. [Single-Image Preview Mesh](../use-cases/single-image-preview-mesh.md)
-3. [Complex Relation Stress Preview Mesh](../use-cases/complex-relation-stress-preview-mesh.md)
-4. [Candidate vs Fallback Comparison](../use-cases/candidate-vs-fallback-comparison.md)
-5. [Fixed-Scene Subject Swap](../use-cases/fixed-scene-subject-swap.md)
-6. [Artifact Taxonomy](../reference/artifact-taxonomy.md)
+2. [Meeting-Originated Coffee Spatial Demo](../use-cases/meeting-originated-coffee-spatial-demo.md)
+3. [Counter-Camera Non-Actor Spatial Demo](../use-cases/counter-camera-nonactor-spatial-demo.md)
+4. [Single-Image Preview Mesh](../use-cases/single-image-preview-mesh.md)
+5. [Candidate vs Fallback Comparison](../use-cases/candidate-vs-fallback-comparison.md)
+6. [Fixed-Scene Subject Swap](../use-cases/fixed-scene-subject-swap.md)
+7. [Artifact Taxonomy](../reference/artifact-taxonomy.md)
 
 What you will learn:
 
@@ -38,8 +39,11 @@ What you will learn:
 
 Current checked-in evidence:
 
-- the `Single-Image Preview Mesh` lane now includes a source image, a captured preview render, and a machine-readable smoke summary
-- the `Complex Relation Stress Preview Mesh` lane now adds a public-safe honesty case for a denser indoor image, with front/oblique/side stills checked in
+- the `Meeting-Originated Coffee Spatial Demo` lane is fully closed on the reference host, with operator capture plus real downstream and stronger consumer receipts
+- the `Counter-Camera Non-Actor Spatial Demo` lane is also fully closed on the reference host, proving the same handoff spine can preserve object/camera/zone semantics
+- the `Single-Image Preview Mesh` lane now has a checked-in generic indoor clean-space supporting asset set, including source, preview, and fixed-angle review stills
+- the `Complex Relation Stress Preview Mesh` lane adds a public-safe honesty case for a denser indoor image, with front/oblique/side stills checked in
+- the `Fixed-Scene Subject Swap` and `Candidate vs Fallback Comparison` pages are now published as supporting productization references, but their public-safe asset sets are not yet fully re-landed on this branch
 
 Important:
 

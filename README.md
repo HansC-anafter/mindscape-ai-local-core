@@ -42,15 +42,39 @@ Both the **Mindscape Graph** (mind map mode) and **Workspace execution** (runtim
 
 Mindscape AI is a local-first engine that compiles governance context, runs live deliberation, preserves long-term continuity, and optionally routes work into local or external execution layers.
 
-> **Governance Context → Meeting Runtime ↔ Governed Memory Fabric → Optional Actuation / External Runtimes → Artifacts, Decisions, and Writeback**
+> **Governance Context → Meeting Runtime ↔ Governed Memory Fabric → TaskIR / SpatialSchedulingIR → Consumer Runtimes / Optional Local Actuation → Artifacts, Runtime Receipts, and World Summary / Writeback**
 
 The core pieces are:
 
 - **Governance Context** — `Intent`, `Mind-Lens`, and `Policy` define why work matters, how trade-offs are made, and what boundaries cannot be crossed; when needed, `Mind-Model VC` tracks how those governance clues change over time.
 - **Meeting Runtime** — Mindscape Meeting handles live deliberation, clarification, convergence, dispatch, and loop closure.
+- **TaskIR** — the control-plane artifact for execution-ready work, dependencies, and dispatch boundaries.
+- **SpatialSchedulingIR** — the planning-plane artifact for bounded spatial/world execution intent when a workflow needs scene, subject, object, or camera-aware planning.
 - **Governed Memory Fabric** — evidence, episodic compression, durable memory, invalidation, and serving preserve continuity across runs.
-- **Optional Actuation** — `Project / Flow / Playbook / Tools / Sandbox` or external runtimes turn cognition into execution when needed.
-- **Reviewable Outputs** — execution traces, artifacts, decisions, and writebacks keep the system inspectable and correctable over time.
+- **Consumer Runtimes / Optional Local Actuation** — `Project / Flow / Playbook / Tools / Sandbox`, installed runtime packs, and external runtimes turn cognition into execution when needed.
+- **Reviewable Outputs** — execution traces, artifacts, runtime receipts, world summaries, and writebacks keep the system inspectable and correctable over time.
+
+### Public Milestone Story
+
+The current public milestone story is:
+
+1. **Meeting accepts governed intent** — the operator states the job in plain language.
+2. **Mindscape emits dual artifacts** — `TaskIR` keeps the control plane stable while `SpatialSchedulingIR` carries bounded world/spatial intent.
+3. **Local-Core keeps only bounded memory surfaces** — world memory stores summaries, refs, constraints, and traceability keys instead of runtime-native payloads.
+4. **Consumer runtimes remain swappable** — the same schedule/handoff contract can drive different runtime lanes while preserving stable IDs and bounded writeback.
+
+The first public acceptance demos for this story are:
+
+- [Meeting-Originated Coffee Spatial Demo](./docs/use-cases/meeting-originated-coffee-spatial-demo.md)
+- [Counter-Camera Non-Actor Spatial Demo](./docs/use-cases/counter-camera-nonactor-spatial-demo.md)
+- [Demo Gallery](./docs/demo-gallery/README.md)
+
+Current milestone status:
+
+- **Layer 1 closed**: the coffee demo now has a real downstream receipt, an operator-facing capture, and one stable-ID spine from meeting to downstream handoff.
+- **Layer 2 closed**: the same schedule spine now reaches a live `motion_runtime -> ComfyUI/Kimodo` stronger lane, returns a completed stronger-backend receipt, and preserves central IR and bounded writeback semantics.
+- **Milestone closed**: the reference host now demonstrates both acceptance layers on one stable schedule spine, so the SpatialSchedulingIR coffee milestone is no longer only a planning claim.
+- **Non-actor closure also verified**: the reference host now has a second closed scenario for `object / camera / zone` semantics through the counter-camera demo, including a real downstream `multi_media_studio` receipt and a completed stronger `motion_runtime` receipt on the same schedule identity.
 
 This repo packages these pieces into a local engine that can either plug into your existing agent stack or power an end-to-end local workspace.
 
@@ -138,6 +162,7 @@ Mindscape is best understood through the kinds of continuity it governs.
 |-----------------|------------------------|----------------------------|
 | **Brand and Content Governance** | Brand voice, storyline continuity, cross-channel consistency, rollback-able content decisions | websites, social media, newsletters, customer support |
 | **Narrative Direction and Role Evolution** | Character arcs, performer cues, persona targets, storyline-to-execution continuity | film previs, creator workflows, community-facing digital personas |
+| **Spatial Runtime and World Handoff** | meeting-originated spatial intent, world summaries, stable-ID handoff, runtime receipt continuity | spatial demos, scene/world previews, world-aware operator flows |
 | **Research and Knowledge Continuity** | Intent-aware research tracking, evidence packs, disagreement briefs, long-form synthesis | research assistants, writing systems, book workflows |
 | **Practice and Coaching Loops** | Session memory, progress baselines, feedback safety, retention loops | coaching apps, guided practice systems, domain companions |
 | **Agentic Workflow Sidecar** | Deliberation, reflection, memory packet routing, governed writeback across runs | OpenAI Agents SDK, LangGraph, CrewAI, custom MCP/A2A stacks |

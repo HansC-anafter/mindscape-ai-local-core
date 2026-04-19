@@ -4,8 +4,14 @@
 
 set -e
 
-API_URL="${API_URL:-http://localhost:8200}"
+CONTROL_PLANE_HOST_PORT="${MINDSCAPE_CONTROL_PLANE_HOST_PORT:-8220}"
+API_URL="${API_URL:-http://localhost:${CONTROL_PLANE_HOST_PORT}}"
 PROVIDER_ID="${PROVIDER_ID:-mindscape-ai}"
+CURL_MAX_TIME="${CURL_MAX_TIME:-10}"
+
+curl_json() {
+    curl -sS --max-time "${CURL_MAX_TIME}" "$@"
+}
 
 echo "🚀 Pack Installation and Verification"
 echo "======================================"
@@ -13,7 +19,7 @@ echo ""
 
 # 1. Check API health
 echo "1. Checking API health..."
-HEALTH=$(curl -s "${API_URL}/health" || echo "{}")
+HEALTH=$(curl_json "${API_URL}/health" || echo "{}")
 if echo "$HEALTH" | grep -q "healthy"; then
     echo "   ✅ API is healthy"
 else
@@ -24,7 +30,7 @@ echo ""
 
 # 2. List available packs from provider
 echo "2. Listing available packs from provider '${PROVIDER_ID}'..."
-PACKS_RESPONSE=$(curl -s "${API_URL}/api/v1/cloud-providers/${PROVIDER_ID}/packs" || echo "{}")
+PACKS_RESPONSE=$(curl_json "${API_URL}/api/v1/cloud-providers/${PROVIDER_ID}/packs" || echo "{}")
 PACKS_COUNT=$(echo "$PACKS_RESPONSE" | python3 -c "
 import sys, json
 try:
@@ -49,7 +55,7 @@ echo ""
 
 # 3. Install default packs
 echo "3. Installing default packs from provider '${PROVIDER_ID}'..."
-INSTALL_RESPONSE=$(curl -s -X POST "${API_URL}/api/v1/cloud-providers/${PROVIDER_ID}/install-default?bundle=default" || echo "{}")
+INSTALL_RESPONSE=$(curl_json -X POST "${API_URL}/api/v1/cloud-providers/${PROVIDER_ID}/install-default?bundle=default" || echo "{}")
 INSTALL_SUCCESS=$(echo "$INSTALL_RESPONSE" | python3 -c "
 import sys, json
 try:
@@ -76,7 +82,7 @@ echo ""
 
 # 5. Verify installed packs
 echo "5. Verifying installed packs..."
-INSTALLED=$(curl -s "${API_URL}/api/v1/capability-packs/installed" || echo "[]")
+INSTALLED=$(curl_json "${API_URL}/api/v1/capability-packs/installed" || echo "[]")
 INSTALLED_COUNT=$(echo "$INSTALLED" | python3 -c "
 import sys, json
 try:
@@ -94,7 +100,7 @@ echo ""
 
 # 6. Check installed capabilities details
 echo "6. Checking installed capabilities details..."
-INSTALLED_CAPS=$(curl -s "${API_URL}/api/v1/capability-packs/installed-capabilities" || echo "[]")
+INSTALLED_CAPS=$(curl_json "${API_URL}/api/v1/capability-packs/installed-capabilities" || echo "[]")
 CAP_COUNT=$(echo "$INSTALLED_CAPS" | python3 -c "
 import sys, json
 try:
@@ -112,4 +118,3 @@ echo ""
 
 echo "✅ Installation and verification complete"
 echo ""
-

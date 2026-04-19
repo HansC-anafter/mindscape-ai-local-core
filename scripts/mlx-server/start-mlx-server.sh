@@ -72,18 +72,25 @@ MLX_PID=$!
 # prolonged unresponsiveness and kills the process so that launchd's
 # KeepAlive: true restarts it automatically.
 #
-# Detection: track '200 OK' lines in stdout log. Each completed inference
-# produces a POST 200 OK line. If no new 200 OK lines appear across
-# WATCHDOG_MAX_FAILURES consecutive checks, AND health check also fails,
-# the process is truly hung.
+# Detection:
+# 1. Count completed HTTP requests from stdout ("200 OK" lines).
+# 2. Track stderr log growth while MLX is busy loading/prefilling.
+# If /v1/models stops responding and neither counter advances across
+# WATCHDOG_MAX_FAILURES consecutive checks, treat the process as hung.
 STDOUT_LOG="$(dirname "$0")/logs/mlx-server.log"
+STDERR_LOG="$(dirname "$0")/logs/mlx-server.error.log"
 
 _count_ok_lines() {
   grep -c "200 OK" "$STDOUT_LOG" 2>/dev/null || echo 0
 }
 
+_file_size() {
+  stat -f "%z" "$1" 2>/dev/null || echo 0
+}
+
 failures=0
 last_ok_count=$(_count_ok_lines)
+last_stderr_size=$(_file_size "$STDERR_LOG")
 
 while kill -0 "$MLX_PID" 2>/dev/null; do
   sleep "$WATCHDOG_INTERVAL"
@@ -95,14 +102,23 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
     fi
     failures=0
     last_ok_count=$(_count_ok_lines)
+    last_stderr_size=$(_file_size "$STDERR_LOG")
   else
-    # Health check failed — did MLX complete any request since last check?
+    # Health check failed — did MLX complete any request or emit progress since last check?
     current_ok_count=$(_count_ok_lines)
+    current_stderr_size=$(_file_size "$STDERR_LOG")
     if [ "$current_ok_count" -gt "$last_ok_count" ]; then
       # New 200 OK lines appeared — MLX completed work, just busy with next request
       echo "[mlx-watchdog] Health check failed but MLX completed requests (${last_ok_count}→${current_ok_count}) — not counting"
       failures=0
       last_ok_count=$current_ok_count
+      last_stderr_size=$current_stderr_size
+    elif [ "$current_stderr_size" -gt "$last_stderr_size" ]; then
+      # stderr grows during model load/prefill and some runtime error paths.
+      # Treat recent log activity as evidence the process is still alive.
+      echo "[mlx-watchdog] Health check failed but MLX emitted stderr progress (${last_stderr_size}→${current_stderr_size}) — not counting"
+      failures=0
+      last_stderr_size=$current_stderr_size
     else
       failures=$((failures + 1))
       echo "[mlx-watchdog] Health check failed, no new completions (${failures}/${WATCHDOG_MAX_FAILURES})"

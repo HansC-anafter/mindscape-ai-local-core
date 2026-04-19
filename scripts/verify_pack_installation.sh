@@ -4,8 +4,14 @@
 
 set -e
 
-API_URL="${API_URL:-http://localhost:8200}"
+CONTROL_PLANE_HOST_PORT="${MINDSCAPE_CONTROL_PLANE_HOST_PORT:-8220}"
+API_URL="${API_URL:-http://localhost:${CONTROL_PLANE_HOST_PORT}}"
 BACKEND_DIR="${BACKEND_DIR:-backend}"
+CURL_MAX_TIME="${CURL_MAX_TIME:-10}"
+
+curl_json() {
+    curl -sS --max-time "${CURL_MAX_TIME}" "$@"
+}
 
 echo "🔍 Pack Installation Verification"
 echo "=================================="
@@ -13,7 +19,7 @@ echo ""
 
 # 1. Check API health
 echo "1. Checking API health..."
-HEALTH=$(curl -s "${API_URL}/health" || echo "{}")
+HEALTH=$(curl_json "${API_URL}/health" || echo "{}")
 if echo "$HEALTH" | grep -q "healthy"; then
     echo "   ✅ API is healthy"
 else
@@ -24,7 +30,7 @@ echo ""
 
 # 2. List installed packs
 echo "2. Listing installed packs..."
-INSTALLED=$(curl -s "${API_URL}/api/v1/capability-packs/installed" || echo "[]")
+INSTALLED=$(curl_json "${API_URL}/api/v1/capability-packs/installed" || echo "[]")
 INSTALLED_COUNT=$(echo "$INSTALLED" | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data) if isinstance(data, list) else 0)")
 echo "   📦 Installed packs: $INSTALLED_COUNT"
 if [ "$INSTALLED_COUNT" -gt 0 ]; then
@@ -34,7 +40,7 @@ echo ""
 
 # 3. List enabled packs
 echo "3. Listing enabled packs..."
-ENABLED=$(curl -s "${API_URL}/api/v1/capability-packs/enabled" || echo "[]")
+ENABLED=$(curl_json "${API_URL}/api/v1/capability-packs/enabled" || echo "[]")
 ENABLED_COUNT=$(echo "$ENABLED" | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data) if isinstance(data, list) else 0)")
 echo "   ✅ Enabled packs: $ENABLED_COUNT"
 if [ "$ENABLED_COUNT" -gt 0 ]; then
@@ -66,7 +72,7 @@ echo ""
 
 # 6. Check installed capabilities details
 echo "6. Checking installed capabilities details..."
-INSTALLED_CAPS=$(curl -s "${API_URL}/api/v1/capability-packs/installed-capabilities" || echo "[]")
+INSTALLED_CAPS=$(curl_json "${API_URL}/api/v1/capability-packs/installed-capabilities" || echo "[]")
 if echo "$INSTALLED_CAPS" | python3 -c "import sys, json; data=json.load(sys.stdin); exit(0 if isinstance(data, list) and len(data) > 0 else 1)" 2>/dev/null; then
     CAP_COUNT=$(echo "$INSTALLED_CAPS" | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data) if isinstance(data, list) else 0)")
     echo "   📦 Installed capabilities: $CAP_COUNT"
@@ -78,4 +84,3 @@ echo ""
 
 echo "✅ Verification complete"
 echo ""
-

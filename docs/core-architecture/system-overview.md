@@ -1,6 +1,6 @@
 # System Overview: Mindscape Engine
 
-This document provides a complete system overview, showing how the current public architecture of Mindscape Engine fits together: governance context, live deliberation, governed memory, and optional actuation.
+This document provides a complete system overview, showing how the current public architecture of Mindscape Engine fits together: governance context, live deliberation, governed memory, dual planning artifacts, and optional or external runtime execution.
 
 ## The Complete Flow: From User to Artifact
 
@@ -21,25 +21,28 @@ Mind Meeting Runtime (deliberation, convergence, dispatch, closure)
     ↕
 Governed Memory Fabric (episodic / interface / core / procedural / serving)
     ↓
-Optional Project Detector + Project / Flow
+TaskIR / SpatialSchedulingIR
     ↓
-Optional Playbook Runner + Tools
+Consumer Runtimes / Optional Local Actuation
     ↓
-Sandbox / External Runtimes (project file world)
-    ↓
-Artifacts, Decisions, and Writebacks
+Artifacts, Runtime Receipts, and World Summary / Writeback
 ```
 
 ## Mindscape Engine Flow
 
 The current public engine flow can be expressed as:
 
-> **Governance Context → Meeting Runtime ↔ Governed Memory Fabric → Optional Actuation / External Runtimes → Artifacts, Decisions, and Writebacks**
+> **Governance Context → Meeting Runtime ↔ Governed Memory Fabric → TaskIR / SpatialSchedulingIR → Consumer Runtimes / Optional Local Actuation → Artifacts, Runtime Receipts, and World Summary / Writeback**
 
 The cognitive core is:
 
 - **Mind Meeting Runtime**: handles live thinking, clarification, convergence, dispatch, and loop closure
 - **Governed Memory Fabric**: handles long-term continuity, evidence, episodic compression, durable memory, and serving
+
+The bounded planning surfaces are:
+
+- **TaskIR**: the control-plane artifact for execution-ready work
+- **SpatialSchedulingIR**: the planning-plane artifact for bounded spatial/world execution intent
 
 It operates under a governance context:
 

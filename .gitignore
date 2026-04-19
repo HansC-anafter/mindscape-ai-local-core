@@ -20,6 +20,7 @@ build/
 # Node
 node_modules/
 .next/
+web-console/.next.backup-*/
 out/
 *.log
 npm-debug.log*
