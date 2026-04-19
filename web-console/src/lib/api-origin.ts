@@ -62,3 +62,22 @@ export function shouldUseSameOriginProxyForBrowser(configuredUrl?: string): bool
     return true;
   }
 }
+
+// Backward-compatible helper for older callers that normalized a browser-facing
+// base URL before building request paths.
+export function normalizeBrowserReachableUrl(configuredUrl?: string): string {
+  const normalized = String(configuredUrl || '').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  if (typeof window === 'undefined') {
+    return normalized;
+  }
+
+  if (shouldUseSameOriginProxyForBrowser(normalized)) {
+    return '';
+  }
+
+  return normalized;
+}

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Optional, Callable, Any, List
 import logging
 from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
+from app.services.pack_activation_service import PackActivationService
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,21 @@ class CapabilityRegistry:
                         'tool_info': tool,
                         'backend': tool.get('backend'),
                     }
+
+                try:
+                    PackActivationService().record_activation_succeeded(
+                        pack_id=capability_code,
+                        manifest=manifest,
+                        manifest_path=manifest_path if manifest_path.exists() else None,
+                        activation_mode="capability_registry_load",
+                        registered_prefixes=[],
+                    )
+                except Exception as activation_exc:
+                    logger.warning(
+                        "Failed to persist capability registry activation state for %s: %s",
+                        capability_code,
+                        activation_exc,
+                    )
 
                 logger.info(f"Loaded capability: {capability_code} ({len(manifest.get('tools', []))} tools)")
 

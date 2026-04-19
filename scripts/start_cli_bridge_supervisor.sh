@@ -6,6 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BRIDGE_SCRIPT="$PROJECT_DIR/scripts/start_cli_bridge.sh"
+LOG_DIR="$PROJECT_DIR/logs"
+LOCK_DIR="$LOG_DIR/.cli-bridge-supervisor.lock"
 SURFACES_CSV="${MINDSCAPE_BRIDGE_SURFACES:-gemini_cli,codex_cli,claude_code_cli}"
 BRIDGE_ARGS=()
 RUNNING_SURFACES=()
@@ -14,6 +16,61 @@ RUNNING_PIDS=()
 log_info()  { echo "[bridge-supervisor][INFO] $1"; }
 log_warn()  { echo "[bridge-supervisor][WARN] $1"; }
 log_error() { echo "[bridge-supervisor][ERROR] $1" >&2; }
+
+surface_runtime_available() {
+    local surface="$1"
+    if [[ "${MINDSCAPE_ALLOW_BACKEND_ONLY_SURFACES:-}" =~ ^(1|true|yes|on)$ ]]; then
+        return 0
+    fi
+
+    case "$surface" in
+        gemini_cli)
+            command -v gemini >/dev/null 2>&1
+            ;;
+        codex_cli)
+            command -v codex >/dev/null 2>&1
+            ;;
+        claude_code_cli)
+            command -v claude >/dev/null 2>&1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+acquire_lock() {
+    mkdir -p "$LOG_DIR"
+
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo "$$" > "$LOCK_DIR/pid"
+        return 0
+    fi
+
+    if [[ -f "$LOCK_DIR/pid" ]]; then
+        local existing_pid
+        existing_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+        if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+            log_warn "Supervisor already running (PID $existing_pid); exiting duplicate instance"
+            exit 0
+        fi
+    fi
+
+    rm -rf "$LOCK_DIR"
+    mkdir "$LOCK_DIR"
+    echo "$$" > "$LOCK_DIR/pid"
+}
+
+release_lock() {
+    if [[ -f "$LOCK_DIR/pid" ]]; then
+        local owner_pid
+        owner_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+        if [[ "$owner_pid" != "$$" ]]; then
+            return 0
+        fi
+    fi
+    rm -rf "$LOCK_DIR"
+}
 
 usage() {
     cat <<'EOF'
@@ -56,6 +113,9 @@ if [[ ! -f "$BRIDGE_SCRIPT" ]]; then
     exit 1
 fi
 
+acquire_lock
+trap release_lock EXIT
+
 if [[ ${#BRIDGE_ARGS[@]} -eq 0 ]]; then
     BRIDGE_ARGS=(--all)
 fi
@@ -68,6 +128,10 @@ fi
 
 spawn_surface() {
     local surface="$1"
+    if ! surface_runtime_available "$surface"; then
+        log_warn "Skipping surface watcher for $surface because its local CLI runtime is unavailable"
+        return 0
+    fi
     log_info "Starting surface watcher: $surface"
     bash "$BRIDGE_SCRIPT" "${BRIDGE_ARGS[@]}" --surface "$surface" &
     local pid=$!

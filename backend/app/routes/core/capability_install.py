@@ -26,8 +26,13 @@ from fastapi import (
     UploadFile,
 )
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 
+from backend.app.core.backend_runtime_mode import (
+    is_execution_plane,
+    should_allow_implicit_pack_reload,
+)
 from app.services.pack_activation_service import PackActivationService
 from app.services.stores.installed_packs_store import InstalledPacksStore
 from app.services.restart_webhook import get_restart_webhook_service
@@ -134,6 +139,159 @@ def _supports_file_touch_reload() -> bool:
     return False
 
 
+def _inspect_auto_reload_blockers() -> Dict[str, Any]:
+    """Return whether auto reload should be deferred to avoid killing active work."""
+    try:
+        from app.services.stores.compile_job_store import CompileJobStore
+
+        store = CompileJobStore()
+        with store.get_connection() as conn:
+            active_compile_jobs = int(
+                conn.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM compile_jobs
+                        WHERE status IN ('accepted', 'running')
+                        """
+                    )
+                ).scalar()
+                or 0
+            )
+            active_meeting_sessions = int(
+                conn.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM meeting_sessions
+                        WHERE ended_at IS NULL
+                          AND status IN ('planned', 'active', 'closing')
+                        """
+                    )
+                ).scalar()
+                or 0
+            )
+            active_pending_dispatch = int(
+                conn.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM pending_dispatch
+                        WHERE status IN ('pending', 'no_client', 'picked')
+                          AND completed_at IS NULL
+                        """
+                    )
+                ).scalar()
+                or 0
+            )
+        if (
+            active_compile_jobs > 0
+            or active_meeting_sessions > 0
+            or active_pending_dispatch > 0
+        ):
+            return {
+                "blocked": True,
+                "reason": "active_workloads",
+                "active_compile_jobs": active_compile_jobs,
+                "active_meeting_sessions": active_meeting_sessions,
+                "active_pending_dispatch": active_pending_dispatch,
+            }
+        return {
+            "blocked": False,
+            "active_compile_jobs": 0,
+            "active_meeting_sessions": 0,
+            "active_pending_dispatch": 0,
+        }
+    except Exception as exc:
+        logger.warning("Failed to inspect auto reload blockers: %s", exc)
+        return {
+            "blocked": True,
+            "reason": "blocker_inspection_failed",
+            "error": str(exc),
+            "active_compile_jobs": None,
+            "active_meeting_sessions": None,
+            "active_pending_dispatch": None,
+        }
+
+
+def _handle_dev_mode_reload_trigger(
+    *,
+    pipeline,
+    result,
+    capability_code: str,
+    env: str,
+    trigger_path: Optional[Path] = None,
+) -> None:
+    if env not in ("development", "dev"):
+        return
+    if not should_allow_implicit_pack_reload(environment=env):
+        if is_execution_plane():
+            result.add_warning(
+                f"Deferred backend auto-reload for {capability_code}: execution-plane backend does not allow implicit pack reloads."
+            )
+            logger.info(
+                "Deferred auto reload for %s because backend is running in execution-plane mode",
+                capability_code,
+            )
+        else:
+            result.add_warning(
+                f"Deferred backend auto-reload for {capability_code}: implicit pack reloads are disabled by configuration."
+            )
+            logger.info(
+                "Deferred auto reload for %s because implicit pack reloads are disabled",
+                capability_code,
+            )
+        return
+    blockers = _inspect_auto_reload_blockers()
+    if blockers.get("blocked"):
+        if blockers.get("reason") == "active_workloads":
+            fragments = []
+            for key, label in (
+                ("active_compile_jobs", "compile_jobs"),
+                ("active_meeting_sessions", "meeting_sessions"),
+                ("active_pending_dispatch", "pending_dispatch"),
+            ):
+                count = blockers.get(key)
+                if isinstance(count, int) and count > 0:
+                    fragments.append(f"{label}={count}")
+            detail = ", ".join(fragments) or "unknown workload counts"
+            result.add_warning(
+                f"Deferred backend auto-reload for {capability_code}: active workloads are still running ({detail})."
+            )
+            logger.info(
+                "Deferred auto reload for %s because active workloads are present: %s",
+                capability_code,
+                detail,
+            )
+        else:
+            result.add_warning(
+                f"Deferred backend auto-reload for {capability_code}: could not safely inspect active workloads."
+            )
+            logger.info(
+                "Deferred auto reload for %s because workload inspection failed",
+                capability_code,
+            )
+        return
+    if _supports_file_touch_reload():
+        try:
+            trigger = trigger_path or Path("/app/backend/app/capabilities/.reload_trigger")
+            trigger.touch()
+            pipeline.restart_triggered = True
+            pipeline.restart_required = False
+            logger.info(f"Reload triggered for {capability_code} via file touch")
+        except Exception as exc:
+            logger.warning(f"Failed to trigger reload: {exc}")
+            result.add_warning(f"Restart required - auto-trigger failed: {exc}")
+    else:
+        result.add_warning(
+            "Backend is not running with --reload; auto file-touch restart skipped."
+        )
+        logger.info(
+            "Auto file-touch restart skipped for %s: --reload not detected",
+            capability_code,
+        )
+
+
 def _parse_bool_flag(value: str) -> bool:
     return str(value or "").strip().lower() in ("true", "1", "yes")
 
@@ -194,6 +352,37 @@ def _build_dirty_overwrite_detail(
     if review_payload is not None:
         detail["review"] = review_payload
     return detail
+
+
+def _control_plane_install_base_url() -> str:
+    host = os.getenv("MINDSCAPE_CONTROL_PLANE_HOST", "localhost")
+    port = os.getenv("MINDSCAPE_CONTROL_PLANE_HOST_PORT", "8220")
+    return f"http://{host}:{port}"
+
+
+def _require_control_plane_install(route_name: str) -> None:
+    if not is_execution_plane():
+        return
+
+    base_url = _control_plane_install_base_url()
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "error": "install_requires_control_plane",
+            "message": (
+                f"{route_name} is disabled on execution-plane backends because "
+                "self-install can complete the filesystem mutation but leave the "
+                "HTTP response hanging."
+            ),
+            "backend_role": "execution",
+            "required_plane": "control",
+            "control_plane_base_url": base_url,
+            "hint": (
+                "Send capability pack install requests to the backend-control "
+                f"service instead, for example {base_url}/api/v1/capability-packs/install-from-file"
+            ),
+        },
+    )
 
 
 # ------------------------------------------------------------------
@@ -566,26 +755,12 @@ async def run_install_pipeline(
         if hot_reload_performed:
             pipeline.restart_required = False
         elif env in ("development", "dev"):
-            if _supports_file_touch_reload():
-                try:
-                    trigger = Path("/app/backend/app/capabilities/.reload_trigger")
-                    trigger.touch()
-                    pipeline.restart_triggered = True
-                    pipeline.restart_required = False
-                    logger.info(
-                        f"Reload triggered for {capability_code} via file touch"
-                    )
-                except Exception as exc:
-                    logger.warning(f"Failed to trigger reload: {exc}")
-                    result.add_warning(f"Restart required - auto-trigger failed: {exc}")
-            else:
-                result.add_warning(
-                    "Backend is not running with --reload; auto file-touch restart skipped."
-                )
-                logger.info(
-                    "Auto file-touch restart skipped for %s: --reload not detected",
-                    capability_code,
-                )
+            _handle_dev_mode_reload_trigger(
+                pipeline=pipeline,
+                result=result,
+                capability_code=capability_code,
+                env=env,
+            )
 
         # Check for errors
         if result.has_errors():
@@ -885,6 +1060,8 @@ async def install_from_file(
     Supports offline installation of capability packages.
     Validates manifest, checks conflicts, and installs to capabilities directory.
     """
+    _require_control_plane_install("install-from-file")
+
     if not file.filename.endswith(".mindpack"):
         raise HTTPException(status_code=400, detail="File must be a .mindpack file")
 
@@ -983,6 +1160,8 @@ async def install_from_cloud(
     Supports any provider that implements the CloudProvider interface.
     """
     try:
+        _require_control_plane_install("install-from-cloud")
+
         overwrite = _parse_bool_flag(allow_overwrite)
         _require_explicit_overwrite_confirmation(
             allow_overwrite=overwrite,

@@ -25,6 +25,8 @@ _RUNTIME_ENV_METADATA_FIELDS = (
     "target_device_id",
 )
 
+_LOCAL_RUNTIME_ALIASES = {"local", "local-core"}
+
 
 @dataclass(frozen=True)
 class RuntimeBindingTarget:
@@ -44,10 +46,30 @@ def _normalized_string(value: Any) -> Optional[str]:
     return normalized or None
 
 
+def _is_local_runtime_id(value: Any) -> bool:
+    normalized = _normalized_string(value)
+    return bool(normalized and normalized.lower() in _LOCAL_RUNTIME_ALIASES)
+
+
+def _coerce_local_runtime_affinity(normalized: dict[str, str]) -> dict[str, str]:
+    if not _is_local_runtime_id(normalized.get("runtime_id")):
+        return normalized
+
+    coerced = dict(normalized)
+    for key in ("runtime_id", "runtime_url", "transport", "site_key", "device_id"):
+        coerced.pop(key, None)
+    coerced["dispatch_mode"] = "docker_local"
+    return coerced
+
+
 def _normalize_runtime_affinity(value: Any) -> dict[str, str]:
     if isinstance(value, str):
         normalized = _normalized_string(value)
-        return {"runtime_id": normalized} if normalized else {}
+        if not normalized:
+            return {}
+        if normalized.lower() in _LOCAL_RUNTIME_ALIASES:
+            return {"dispatch_mode": "docker_local"}
+        return {"runtime_id": normalized}
 
     if not isinstance(value, dict):
         return {}
@@ -57,7 +79,7 @@ def _normalize_runtime_affinity(value: Any) -> dict[str, str]:
         token = _normalized_string(value.get(key))
         if token:
             normalized[key] = token
-    return normalized
+    return _coerce_local_runtime_affinity(normalized)
 
 
 def resolve_task_runtime_affinity(task: Any) -> dict[str, str]:
@@ -84,6 +106,8 @@ def resolve_runtime_binding(
     task_affinity = resolve_task_runtime_affinity(task) if task is not None else {}
 
     runtime_id = task_affinity.get("runtime_id") or _normalized_string(profile.runtime_id)
+    if _is_local_runtime_id(runtime_id):
+        runtime_id = None
     dispatch_mode = (
         task_affinity.get("dispatch_mode")
         or _normalized_string(profile.dispatch_mode)
@@ -116,7 +140,7 @@ def resolve_runtime_binding(
 
 def _load_runtime_environment_snapshot(runtime_id: str) -> Optional[dict[str, Any]]:
     normalized_runtime_id = _normalized_string(runtime_id)
-    if not normalized_runtime_id or normalized_runtime_id == "local-core":
+    if not normalized_runtime_id or _is_local_runtime_id(normalized_runtime_id):
         return None
 
     try:

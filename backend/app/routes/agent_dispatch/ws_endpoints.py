@@ -71,7 +71,7 @@ async def agent_websocket(
             await websocket.send_text(json.dumps(challenge))
         else:
             # Dev mode — send welcome and flush pending
-            flushed = await manager.flush_pending(workspace_id, client)
+            flushed = await manager.flush_pending_with_recovery(workspace_id, client)
             await websocket.send_text(
                 json.dumps(
                     {

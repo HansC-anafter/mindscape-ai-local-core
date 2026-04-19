@@ -101,7 +101,7 @@ class AuthMixin:
             logger.info(f"[AgentWS] Client {client.client_id} authenticated")
 
             # Flush any pending tasks
-            flushed = await self.flush_pending(
+            flushed = await self.flush_pending_with_recovery(
                 client.workspace_id,
                 client,
             )

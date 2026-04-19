@@ -4,6 +4,10 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from backend.app.core.backend_runtime_mode import (
+    should_run_post_ready_runtime_migrations,
+    should_run_post_ready_tool_rag_warmup,
+)
 from backend.app.app_bootstrap.startup_contract import (
     capture_phase_duration,
     compute_db_fingerprint,
@@ -15,6 +19,7 @@ from backend.app.init_db import init_mindscape_tables
 from backend.app.services.tool_rag_refresh import refresh_tool_rag_corpus
 
 logger = logging.getLogger(__name__)
+_PLAYBOOK_REGISTRY_POST_READY_TASK_ATTR = "_playbook_registry_post_ready_task"
 _TOOL_RAG_POST_READY_TASK_ATTR = "_tool_rag_post_ready_task"
 _PACK_VALIDATION_RESUME_TASK_ATTR = "_pack_validation_resume_task"
 _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR = "_runtime_migrations_post_ready_task"
@@ -69,6 +74,8 @@ def _consume_preflight_contract_decision() -> tuple[bool, str, dict]:
 async def _run_post_ready_tool_rag_warmup(app: FastAPI) -> None:
     """Warm the shared tool corpus after readiness, not during startup."""
     try:
+        app.state.tool_rag_post_ready_status = "running"
+        app.state.tool_rag_post_ready_error = None
         from backend.app.services.pack_activation_service import PackActivationService
         from backend.app.services.stores.installed_packs_store import InstalledPacksStore
 
@@ -87,12 +94,43 @@ async def _run_post_ready_tool_rag_warmup(app: FastAPI) -> None:
             installed_packs_store=InstalledPacksStore(),
         )
         app.state.tool_rag_post_ready_completed = True
+        app.state.tool_rag_post_ready_status = "completed"
     except asyncio.CancelledError:
         logger.info("Tool RAG post-ready warm-up cancelled")
+        app.state.tool_rag_post_ready_status = "cancelled"
         raise
     except Exception as exc:
         app.state.tool_rag_post_ready_completed = False
+        app.state.tool_rag_post_ready_status = "failed"
+        app.state.tool_rag_post_ready_error = str(exc)
         logger.warning("Tool RAG post-ready warm-up failed: %s", exc, exc_info=True)
+
+
+async def _run_post_ready_playbook_registry_warmup(app: FastAPI) -> None:
+    """Load local capability playbooks after readiness and reconcile activation state."""
+    try:
+        app.state.playbook_registry_post_ready_status = "running"
+        app.state.playbook_registry_post_ready_error = None
+        from backend.app.services.playbook_registry import get_playbook_registry
+
+        await asyncio.sleep(0)
+        await asyncio.to_thread(get_playbook_registry)
+        app.state.playbook_registry_post_ready_completed = True
+        app.state.playbook_registry_post_ready_status = "completed"
+        logger.info("Playbook registry post-ready warm-up completed")
+    except asyncio.CancelledError:
+        logger.info("Playbook registry post-ready warm-up cancelled")
+        app.state.playbook_registry_post_ready_status = "cancelled"
+        raise
+    except Exception as exc:
+        app.state.playbook_registry_post_ready_completed = False
+        app.state.playbook_registry_post_ready_status = "failed"
+        app.state.playbook_registry_post_ready_error = str(exc)
+        logger.warning(
+            "Playbook registry post-ready warm-up failed: %s",
+            exc,
+            exc_info=True,
+        )
 
 
 async def _resume_pending_pack_validations_post_ready() -> None:
@@ -119,6 +157,8 @@ async def _resume_pending_pack_validations_post_ready() -> None:
 async def _run_post_ready_runtime_migrations(app: FastAPI) -> None:
     """Run capability/runtime migrations after readiness so bind is never blocked."""
     try:
+        app.state.runtime_migrations_post_ready_status = "running"
+        app.state.runtime_migrations_post_ready_error = None
         from pathlib import Path
         from backend.app.services.migrations import MigrationOrchestrator
 
@@ -139,6 +179,10 @@ async def _run_post_ready_runtime_migrations(app: FastAPI) -> None:
         )
         status = postgres_result.get("status")
         if status == "validation_failed":
+            app.state.runtime_migrations_post_ready_status = "validation_failed"
+            app.state.runtime_migrations_post_ready_error = str(
+                postgres_result.get("failed_checks")
+            )
             logger.error(
                 "Post-ready PostgreSQL migration validation failed: %s",
                 postgres_result.get("failed_checks"),
@@ -146,6 +190,10 @@ async def _run_post_ready_runtime_migrations(app: FastAPI) -> None:
             await asyncio.to_thread(init_mindscape_tables)
             logger.info("Mindscape tables initialized via init_db.py fallback")
         elif status == "error":
+            app.state.runtime_migrations_post_ready_status = "error"
+            app.state.runtime_migrations_post_ready_error = str(
+                postgres_result.get("error")
+            )
             logger.error(
                 "Post-ready PostgreSQL migration error: %s",
                 postgres_result.get("error"),
@@ -153,6 +201,19 @@ async def _run_post_ready_runtime_migrations(app: FastAPI) -> None:
             await asyncio.to_thread(init_mindscape_tables)
             logger.info("Mindscape tables initialized via init_db.py fallback")
         else:
+            app.state.runtime_migrations_post_ready_status = status or "completed"
+            if status not in {"completed", "up_to_date"}:
+                detail = (
+                    postgres_result.get("error")
+                    or postgres_result.get("failed_checks")
+                    or postgres_result
+                )
+                app.state.runtime_migrations_post_ready_error = str(detail)
+                logger.warning(
+                    "Post-ready PostgreSQL migrations returned non-success status=%s detail=%s",
+                    status,
+                    detail,
+                )
             logger.info(
                 "Post-ready PostgreSQL migrations: %s, applied: %s",
                 status,
@@ -161,9 +222,12 @@ async def _run_post_ready_runtime_migrations(app: FastAPI) -> None:
         app.state.runtime_migrations_post_ready_completed = True
     except asyncio.CancelledError:
         logger.info("Post-ready runtime migrations task cancelled")
+        app.state.runtime_migrations_post_ready_status = "cancelled"
         raise
     except Exception as exc:
         app.state.runtime_migrations_post_ready_completed = False
+        app.state.runtime_migrations_post_ready_status = "failed"
+        app.state.runtime_migrations_post_ready_error = str(exc)
         logger.warning(
             "Post-ready runtime migrations failed: %s",
             exc,
@@ -231,6 +295,12 @@ async def run_startup(app: FastAPI):
     app.state.preflight_contract_trusted = preflight_contract_trusted
     app.state.preflight_contract_reason = preflight_contract_reason
     app.state.preflight_contract = preflight_contract
+    app.state.playbook_registry_post_ready_status = "deferred"
+    app.state.playbook_registry_post_ready_error = None
+    app.state.tool_rag_post_ready_status = "deferred"
+    app.state.tool_rag_post_ready_error = None
+    app.state.runtime_migrations_post_ready_status = "deferred"
+    app.state.runtime_migrations_post_ready_error = None
     logger.info(
         "Preflight contract decision: trusted=%s reason=%s",
         preflight_contract_trusted,
@@ -577,6 +647,23 @@ async def run_startup(app: FastAPI):
 async def run_shutdown(app: FastAPI):
     """Cleanup on shutdown"""
     logger.warning("Application shutdown hook entered (pid=%s)", os.getpid())
+    playbook_registry_task = getattr(
+        app.state,
+        _PLAYBOOK_REGISTRY_POST_READY_TASK_ATTR,
+        None,
+    )
+    if playbook_registry_task is not None and not playbook_registry_task.done():
+        playbook_registry_task.cancel()
+        try:
+            await playbook_registry_task
+        except asyncio.CancelledError:
+            logger.info("Playbook registry post-ready warm-up task cancelled during shutdown")
+        except Exception as exc:
+            logger.warning(
+                "Playbook registry post-ready task shutdown wait failed: %s",
+                exc,
+            )
+
     tool_rag_task = getattr(app.state, _TOOL_RAG_POST_READY_TASK_ATTR, None)
     if tool_rag_task is not None and not tool_rag_task.done():
         tool_rag_task.cancel()
@@ -694,22 +781,42 @@ async def run_shutdown(app: FastAPI):
 async def lifespan(app: FastAPI):
     """Manage application lifecycle startup and shutdown hooks."""
     await run_startup(app)
-    tool_rag_task = asyncio.create_task(
-        _run_post_ready_tool_rag_warmup(app),
-        name="tool-rag-post-ready-warmup",
-    )
-    setattr(app.state, _TOOL_RAG_POST_READY_TASK_ATTR, tool_rag_task)
-    logger.info("Tool RAG post-ready warm-up task scheduled")
-    runtime_migrations_task = asyncio.create_task(
-        _run_post_ready_runtime_migrations(app),
-        name="runtime-migrations-post-ready",
+    playbook_registry_task = asyncio.create_task(
+        _run_post_ready_playbook_registry_warmup(app),
+        name="playbook-registry-post-ready-warmup",
     )
     setattr(
         app.state,
-        _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR,
-        runtime_migrations_task,
+        _PLAYBOOK_REGISTRY_POST_READY_TASK_ATTR,
+        playbook_registry_task,
     )
-    logger.info("Post-ready runtime migrations task scheduled")
+    logger.info("Playbook registry post-ready warm-up task scheduled")
+    if should_run_post_ready_tool_rag_warmup():
+        tool_rag_task = asyncio.create_task(
+            _run_post_ready_tool_rag_warmup(app),
+            name="tool-rag-post-ready-warmup",
+        )
+        setattr(app.state, _TOOL_RAG_POST_READY_TASK_ATTR, tool_rag_task)
+        logger.info("Tool RAG post-ready warm-up task scheduled")
+    else:
+        setattr(app.state, _TOOL_RAG_POST_READY_TASK_ATTR, None)
+        app.state.tool_rag_post_ready_status = "disabled_by_runtime_policy"
+        logger.info("Tool RAG post-ready warm-up disabled by runtime policy")
+    if should_run_post_ready_runtime_migrations():
+        runtime_migrations_task = asyncio.create_task(
+            _run_post_ready_runtime_migrations(app),
+            name="runtime-migrations-post-ready",
+        )
+        setattr(
+            app.state,
+            _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR,
+            runtime_migrations_task,
+        )
+        logger.info("Post-ready runtime migrations task scheduled")
+    else:
+        setattr(app.state, _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR, None)
+        app.state.runtime_migrations_post_ready_status = "disabled_by_runtime_policy"
+        logger.info("Post-ready runtime migrations disabled by runtime policy")
     try:
         yield
     finally:

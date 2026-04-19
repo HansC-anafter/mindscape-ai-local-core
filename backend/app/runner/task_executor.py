@@ -7,6 +7,7 @@ import multiprocessing as mp
 import os
 import threading
 import time
+import traceback
 from datetime import timedelta
 from typing import Any, Dict, Optional
 
@@ -374,7 +375,45 @@ def _child_execute_playbook(payload: Dict[str, Any]) -> None:
                 project_id=project_id,
             )
 
-    asyncio.run(_run())
+    try:
+        asyncio.run(_run())
+    except Exception as e:
+        if result_file:
+            try:
+                with open(result_file, "w") as f:
+                    json.dump(
+                        {
+                            "status": "failed",
+                            "error": str(e),
+                            "exception_type": type(e).__name__,
+                            "traceback": traceback.format_exc(),
+                        },
+                        f,
+                    )
+            except Exception:
+                pass
+        raise
+
+
+def _build_subprocess_failure_message(
+    result_file: Optional[str], exitcode: int
+) -> str:
+    msg = f"Runner subprocess exited non-zero (exitcode={exitcode})"
+    if not result_file or not os.path.exists(result_file):
+        return msg
+    try:
+        with open(result_file, "r") as f:
+            payload = json.load(f)
+    except Exception:
+        return msg
+
+    if not isinstance(payload, dict):
+        return msg
+
+    detail = payload.get("error") or payload.get("message")
+    if isinstance(detail, str) and detail.strip():
+        return f"{msg}: {detail.strip()}"
+    return msg
 
 
 # ---------------------------------------------------------------------------
@@ -951,7 +990,7 @@ async def _run_single_task(
                 pass
             exitcode = await exec_task
             if exitcode != 0:
-                msg = f"Runner subprocess exited non-zero (exitcode={exitcode})"
+                msg = _build_subprocess_failure_message(result_file, exitcode)
                 await _mark_task_failed(tasks_store, task.id, runner_id, msg, redis_queue)
             else:
                 await _mark_task_succeeded(tasks_store, task.id, runner_id, result_file, redis_queue)

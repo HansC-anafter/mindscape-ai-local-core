@@ -10,9 +10,9 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from .connection_manager import _get_core_db_connection
+from .connection_manager import _get_core_db_connection, _get_worker_instance_id
 from .models import InflightTask
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 class DbFallbackMixin:
     """Mixin: PostgreSQL pending_dispatch cross-worker transport."""
+
+    STALE_PICK_SECONDS: float = 300.0
 
     async def _cross_worker_dispatch_via_db(
         self,
@@ -231,6 +233,49 @@ class DbFallbackMixin:
     # ============================================================
 
     @staticmethod
+    def _db_reclaim_stale_picks(stale_after_seconds: float = 300.0) -> int:
+        """Return orphaned picked rows to pending after a conservative lease window."""
+        conn = _get_core_db_connection()
+        if not conn:
+            return 0
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE pending_dispatch "
+                    "SET status = 'pending', picked_by_pid = NULL, "
+                    "picked_by_worker_instance_id = NULL, picked_at = NULL "
+                    "WHERE status = 'picked' "
+                    "AND completed_at IS NULL "
+                    "AND ("
+                    "     (picked_at IS NOT NULL "
+                    "      AND picked_at < (NOW() - (%s * INTERVAL '1 second')) "
+                    "      AND (last_progress_at IS NULL "
+                    "           OR last_progress_at < (NOW() - (%s * INTERVAL '1 second')))) "
+                    "  OR (picked_by_worker_instance_id IS NOT NULL "
+                    "      AND NOT EXISTS ("
+                    "            SELECT 1 FROM ws_connections ws "
+                    "            WHERE ws.worker_instance_id = pending_dispatch.picked_by_worker_instance_id "
+                    "              AND ws.last_heartbeat > NOW() - INTERVAL '90 seconds'"
+                    "      ))"
+                    ")",
+                    (stale_after_seconds, stale_after_seconds),
+                )
+                reclaimed = cur.rowcount or 0
+            conn.commit()
+            if reclaimed:
+                logger.warning(
+                    "[AgentWS] Reclaimed %s stale picked pending_dispatch row(s)",
+                    reclaimed,
+                )
+            return reclaimed
+        except Exception:
+            conn.rollback()
+            logger.exception("[AgentWS] Failed to reclaim stale picked dispatch rows")
+            return 0
+        finally:
+            conn.close()
+
+    @staticmethod
     def _db_insert_pending_dispatch(
         execution_id: str,
         workspace_id: str,
@@ -257,6 +302,77 @@ class DbFallbackMixin:
             conn.close()
 
     @staticmethod
+    def _db_upsert_local_dispatch(
+        execution_id: str,
+        workspace_id: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        """Persist a locally dispatched WS execution so result replay survives restarts."""
+        conn = _get_core_db_connection()
+        if not conn:
+            return
+        worker_instance_id = _get_worker_instance_id()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO pending_dispatch "
+                    "("
+                    "execution_id, workspace_id, payload, status, picked_by_pid, "
+                    "picked_by_worker_instance_id, picked_at, last_progress_at"
+                    ") "
+                    "VALUES (%s, %s, %s, 'picked', %s, %s, NOW(), NOW()) "
+                    "ON CONFLICT (execution_id) DO UPDATE SET "
+                    "workspace_id = EXCLUDED.workspace_id, "
+                    "payload = EXCLUDED.payload, "
+                    "status = 'picked', "
+                    "result_data = NULL, "
+                    "picked_by_pid = EXCLUDED.picked_by_pid, "
+                    "picked_by_worker_instance_id = EXCLUDED.picked_by_worker_instance_id, "
+                    "picked_at = NOW(), "
+                    "completed_at = NULL, "
+                    "last_progress_at = NOW() "
+                    "WHERE pending_dispatch.completed_at IS NULL "
+                    "   OR pending_dispatch.status <> 'done'",
+                    (
+                        execution_id,
+                        workspace_id,
+                        json.dumps(payload),
+                        os.getpid(),
+                        worker_instance_id,
+                    ),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _db_release_pending_dispatch(
+        execution_id: str,
+        status: str = "pending",
+    ) -> None:
+        """Release a durable dispatch row back to the shared queue."""
+        conn = _get_core_db_connection()
+        if not conn:
+            return
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE pending_dispatch "
+                    "SET status = %s, picked_by_pid = NULL, "
+                    "picked_by_worker_instance_id = NULL, picked_at = NULL "
+                    "WHERE execution_id = %s AND completed_at IS NULL",
+                    (status, execution_id),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        finally:
+            conn.close()
+
+    @staticmethod
     def _db_poll_pending_result(execution_id: str):
         """Poll pending_dispatch for result and progress activity."""
         conn = _get_core_db_connection()
@@ -279,6 +395,37 @@ class DbFallbackMixin:
                         return json.loads(result_data), status, progress_at
                     return result_data, status, progress_at
                 return None, status, progress_at
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _db_get_pending_dispatch_record(execution_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch a durable pending_dispatch record for result recovery paths."""
+        conn = _get_core_db_connection()
+        if not conn:
+            return None
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT workspace_id, payload, status, result_data "
+                    "FROM pending_dispatch "
+                    "WHERE execution_id = %s",
+                    (execution_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                workspace_id, payload_data, status, result_data = row
+                if isinstance(payload_data, str):
+                    payload_data = json.loads(payload_data)
+                if isinstance(result_data, str):
+                    result_data = json.loads(result_data)
+                return {
+                    "workspace_id": workspace_id,
+                    "payload": payload_data,
+                    "status": status,
+                    "result_data": result_data,
+                }
         finally:
             conn.close()
 
@@ -332,6 +479,9 @@ class DbFallbackMixin:
     @staticmethod
     def _db_pick_pending_dispatches(limit: int = 5) -> List[Dict[str, Any]]:
         """Pick pending tasks atomically using FOR UPDATE SKIP LOCKED."""
+        DbFallbackMixin._db_reclaim_stale_picks(
+            stale_after_seconds=DbFallbackMixin.STALE_PICK_SECONDS,
+        )
         conn = _get_core_db_connection()
         if not conn:
             return []
@@ -357,9 +507,10 @@ class DbFallbackMixin:
                     cur.execute(
                         "UPDATE pending_dispatch "
                         "SET status = 'picked', picked_by_pid = %s, "
+                        "picked_by_worker_instance_id = %s, "
                         "picked_at = NOW() "
                         "WHERE id = %s",
-                        (os.getpid(), row_id),
+                        (os.getpid(), _get_worker_instance_id(), row_id),
                     )
                     if isinstance(payload_data, str):
                         payload_data = json.loads(payload_data)

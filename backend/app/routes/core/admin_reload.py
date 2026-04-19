@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Set
 from fastapi import APIRouter, HTTPException
 
+from backend.app.core.backend_runtime_mode import is_execution_plane
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -256,7 +258,7 @@ async def validate_reload():
 
 
 @router.post("/trigger-reload")
-async def trigger_reload(validate_first: bool = True):
+async def trigger_reload(validate_first: bool = True, force: bool = False):
     """
     Trigger graceful uvicorn reload (dev mode only).
 
@@ -275,6 +277,15 @@ async def trigger_reload(validate_first: bool = True):
             status_code=403,
             detail="Reload trigger is only available in development mode. "
             "In production, use 'docker compose restart' or k8s rollout.",
+        )
+    if is_execution_plane() and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Reload trigger is disabled on execution-plane backends. "
+                "Use a control-plane/dev backend for pack iteration, or pass force=true "
+                "for an explicit disruptive reload."
+            ),
         )
 
     if validate_first:

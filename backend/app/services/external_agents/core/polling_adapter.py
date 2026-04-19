@@ -39,7 +39,13 @@ def build_dispatch_payload(
     # Extract conversation context and thread_id from agent_config
     # These are injected by chat_orchestrator_service when routing to agent
     agent_cfg = request.agent_config or {}
-    return {
+    raw_inputs = agent_cfg.get("inputs")
+    inputs = dict(raw_inputs) if isinstance(raw_inputs, dict) else {}
+    deliverable_targets = inputs.get("deliverable_targets")
+    if not isinstance(deliverable_targets, list):
+        deliverable_targets = []
+
+    payload = {
         "execution_id": execution_id,
         "workspace_id": request.workspace_id or "",
         "agent_id": agent_id,
@@ -56,13 +62,45 @@ def build_dispatch_payload(
             "sandbox_path": request.sandbox_path,
             "conversation_context": agent_cfg.get("conversation_context", ""),
             "thread_id": agent_cfg.get("thread_id", ""),
+            "meeting_session_id": agent_cfg.get("meeting_session_id", ""),
             "uploaded_files": agent_cfg.get("uploaded_files", []),
             "recommended_pack_codes": agent_cfg.get("recommended_pack_codes", []),
             "file_hint": agent_cfg.get("file_hint", ""),
             "control_action": agent_cfg.get("control_action", ""),
+            "inputs": inputs,
+        },
+        "metadata": {
+            "inputs": inputs,
         },
         "issued_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    deliverable_path = inputs.get("deliverable_path")
+    if isinstance(deliverable_path, str) and deliverable_path.strip():
+        cleaned_path = deliverable_path.strip()
+        payload["deliverable_path"] = cleaned_path
+        payload["metadata"]["deliverable_path"] = cleaned_path
+
+    deliverable_name = inputs.get("deliverable_name")
+    if isinstance(deliverable_name, str) and deliverable_name.strip():
+        cleaned_name = deliverable_name.strip()
+        payload["deliverable_name"] = cleaned_name
+        payload["metadata"]["deliverable_name"] = cleaned_name
+
+    if deliverable_targets:
+        payload["deliverable_targets"] = deliverable_targets
+        payload["metadata"]["deliverable_targets"] = deliverable_targets
+
+    meeting_session_id = agent_cfg.get("meeting_session_id") or inputs.get(
+        "meeting_session_id"
+    )
+    if isinstance(meeting_session_id, str) and meeting_session_id.strip():
+        cleaned_session_id = meeting_session_id.strip()
+        payload["meeting_session_id"] = cleaned_session_id
+        payload["context"]["meeting_session_id"] = cleaned_session_id
+        payload["metadata"]["meeting_session_id"] = cleaned_session_id
+
+    return payload
 
 
 class PollingRuntimeAdapter(BaseRuntimeAdapter):
@@ -96,6 +134,9 @@ class PollingRuntimeAdapter(BaseRuntimeAdapter):
 
     # Timeout for result from runner (seconds)
     RESULT_TIMEOUT: float = 600.0
+
+    # Maximum time to wait before checking DB for cross-process completion
+    WAIT_SLICE_SECONDS: float = 5.0
 
     def __init__(self, dispatch_store: Optional[Any] = None):
         """
@@ -232,6 +273,7 @@ class PollingRuntimeAdapter(BaseRuntimeAdapter):
             from backend.app.services.stores.tasks_store import TasksStore
             from backend.app.models.workspace import Task, TaskStatus
 
+            payload_context = dispatch_payload.get("context") or {}
             task_record = Task(
                 id=execution_id,
                 workspace_id=workspace_id,
@@ -241,6 +283,13 @@ class PollingRuntimeAdapter(BaseRuntimeAdapter):
                 task_type="agent_dispatch",
                 status=TaskStatus.PENDING,
                 params=dispatch_payload,
+                execution_context={
+                    "thread_id": payload_context.get("thread_id"),
+                    "project_id": payload_context.get("project_id"),
+                    "meeting_session_id": payload_context.get("meeting_session_id"),
+                    "inputs": payload_context.get("inputs") or {},
+                    "agent_id": dispatch_payload.get("agent_id"),
+                },
             )
             TasksStore().create_task(task_record)
             logger.info(f"[{self.RUNTIME_NAME}] Persisted task {execution_id} to DB")
@@ -274,102 +323,145 @@ class PollingRuntimeAdapter(BaseRuntimeAdapter):
             f"{workspace_id}, waiting for result..."
         )
 
-        # Wait for runner to submit result (Future is event-based, no polling)
+        # Wait for runner to submit result.
+        #
+        # The local Future is the fast path, but another backend process may
+        # land the result in DB first. Check the durable task row between wait
+        # slices so cross-process completion does not stall for the full timeout.
         timeout = request.max_duration_seconds or self.RESULT_TIMEOUT
-        try:
-            raw_result = await asyncio.wait_for(result_future, timeout=timeout)
-            elapsed = time.monotonic() - start_time
+        wait_slice = max(0.1, min(float(timeout), self.WAIT_SLICE_SECONDS))
+        deadline = start_time + float(timeout)
 
-            output = raw_result.get("output", "")
-            status = raw_result.get("status", "completed")
-            error = raw_result.get("error")
-
-            return RuntimeExecResponse(
-                success=(status == "completed"),
-                output=output or "Task completed.",
-                duration_seconds=elapsed,
-                exit_code=0 if status == "completed" else -1,
-                error=error,
-                agent_metadata={
-                    "transport": "polling",
-                    "execution_id": execution_id,
-                    "status": status,
-                },
-            )
-
-        except asyncio.TimeoutError:
-            manager._inflight.pop(execution_id, None)
-            elapsed = time.monotonic() - start_time
-            logger.warning(
-                f"[{self.RUNTIME_NAME}] Timed out waiting for result on "
-                f"{execution_id} after {elapsed:.1f}s"
-            )
-
-            # DB recovery: check if result was landed after a restart
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             try:
-                from backend.app.services.stores.tasks_store import TasksStore
-                from backend.app.models.workspace import TaskStatus
-
-                db_task = TasksStore().get_task(execution_id)
-                if db_task and db_task.status == TaskStatus.SUCCEEDED:
-                    logger.info(
-                        f"[{self.RUNTIME_NAME}] DB recovery: found completed "
-                        f"task {execution_id}"
-                    )
-                    result_data = db_task.result or {}
-                    return RuntimeExecResponse(
-                        success=True,
-                        output=result_data.get(
-                            "output", "Task completed (recovered from DB)."
-                        ),
-                        duration_seconds=elapsed,
-                        exit_code=0,
-                        error=None,
-                        agent_metadata={
-                            "transport": "polling",
-                            "execution_id": execution_id,
-                            "status": "completed",
-                            "recovered_from_db": True,
-                        },
-                    )
-                if db_task and db_task.status == TaskStatus.FAILED:
-                    logger.info(
-                        f"[{self.RUNTIME_NAME}] DB recovery: found failed "
-                        f"task {execution_id}"
-                    )
-                    return RuntimeExecResponse(
-                        success=False,
-                        output="",
-                        duration_seconds=elapsed,
-                        exit_code=1,
-                        error=db_task.error or "Task failed (recovered from DB).",
-                        agent_metadata={
-                            "transport": "polling",
-                            "execution_id": execution_id,
-                            "status": "failed",
-                            "recovered_from_db": True,
-                        },
-                    )
-            except Exception as db_err:
-                logger.warning(
-                    f"[{self.RUNTIME_NAME}] DB recovery check failed for "
-                    f"{execution_id}: {db_err}"
+                raw_result = await asyncio.wait_for(
+                    asyncio.shield(result_future),
+                    timeout=min(wait_slice, remaining),
                 )
+                elapsed = time.monotonic() - start_time
+                return self._build_runtime_exec_response(
+                    execution_id=execution_id,
+                    result_data=raw_result,
+                    elapsed=elapsed,
+                )
+            except asyncio.TimeoutError:
+                elapsed = time.monotonic() - start_time
+                recovered = self._recover_response_from_db(
+                    execution_id=execution_id,
+                    elapsed=elapsed,
+                )
+                if recovered is not None:
+                    manager._inflight.pop(execution_id, None)
+                    return recovered
 
-            return RuntimeExecResponse(
-                success=False,
-                output="",
-                duration_seconds=elapsed,
-                error=f"Task dispatched but timed out after {elapsed:.0f}s. "
-                f"Runner may still be executing "
-                f"(execution_id={execution_id}).",
-                exit_code=-1,
-                agent_metadata={
-                    "transport": "polling",
-                    "execution_id": execution_id,
-                    "status": "timeout",
-                },
+        manager._inflight.pop(execution_id, None)
+        elapsed = time.monotonic() - start_time
+        logger.warning(
+            f"[{self.RUNTIME_NAME}] Timed out waiting for result on "
+            f"{execution_id} after {elapsed:.1f}s"
+        )
+
+        recovered = self._recover_response_from_db(
+            execution_id=execution_id,
+            elapsed=elapsed,
+        )
+        if recovered is not None:
+            return recovered
+
+        return RuntimeExecResponse(
+            success=False,
+            output="",
+            duration_seconds=elapsed,
+            error=f"Task dispatched but timed out after {elapsed:.0f}s. "
+            f"Runner may still be executing "
+            f"(execution_id={execution_id}).",
+            exit_code=-1,
+            agent_metadata={
+                "transport": "polling",
+                "execution_id": execution_id,
+                "status": "timeout",
+            },
+        )
+
+    def _build_runtime_exec_response(
+        self,
+        *,
+        execution_id: str,
+        result_data: Dict[str, Any],
+        elapsed: float,
+        recovered_from_db: bool = False,
+    ) -> RuntimeExecResponse:
+        output = result_data.get("output", "")
+        status = result_data.get("status", "completed")
+        error = result_data.get("error")
+        agent_metadata = {
+            "transport": "polling",
+            "execution_id": execution_id,
+            "status": status,
+        }
+        if recovered_from_db:
+            agent_metadata["recovered_from_db"] = True
+
+        return RuntimeExecResponse(
+            success=(status == "completed"),
+            output=output or "Task completed.",
+            duration_seconds=elapsed,
+            exit_code=0 if status == "completed" else -1,
+            error=error,
+            agent_metadata=agent_metadata,
+        )
+
+    def _recover_response_from_db(
+        self,
+        *,
+        execution_id: str,
+        elapsed: float,
+    ) -> Optional[RuntimeExecResponse]:
+        try:
+            from backend.app.services.stores.tasks_store import TasksStore
+            from backend.app.models.workspace import TaskStatus
+
+            db_task = TasksStore().get_task(execution_id)
+            if db_task and db_task.status == TaskStatus.SUCCEEDED:
+                logger.info(
+                    f"[{self.RUNTIME_NAME}] DB recovery: found completed "
+                    f"task {execution_id}"
+                )
+                result_data = db_task.result or {}
+                return self._build_runtime_exec_response(
+                    execution_id=execution_id,
+                    result_data=result_data,
+                    elapsed=elapsed,
+                    recovered_from_db=True,
+                )
+            if db_task and db_task.status == TaskStatus.FAILED:
+                logger.info(
+                    f"[{self.RUNTIME_NAME}] DB recovery: found failed "
+                    f"task {execution_id}"
+                )
+                return RuntimeExecResponse(
+                    success=False,
+                    output="",
+                    duration_seconds=elapsed,
+                    exit_code=1,
+                    error=db_task.error or "Task failed (recovered from DB).",
+                    agent_metadata={
+                        "transport": "polling",
+                        "execution_id": execution_id,
+                        "status": "failed",
+                        "recovered_from_db": True,
+                    },
+                )
+        except Exception as db_err:
+            logger.warning(
+                f"[{self.RUNTIME_NAME}] DB recovery check failed for "
+                f"{execution_id}: {db_err}"
             )
+
+        return None
 
 
 # Backward compatibility alias

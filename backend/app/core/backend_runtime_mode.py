@@ -1,0 +1,109 @@
+"""Backend runtime mode helpers.
+
+Separates stable execution-plane behavior from development control-plane
+behavior so pack installation work does not automatically restart a backend
+that is currently running long-lived execution workloads.
+"""
+
+from __future__ import annotations
+
+import os
+
+
+def _parse_bool(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def get_backend_runtime_role() -> str:
+    """Return the configured backend role.
+
+    Roles:
+    - execution: stable workload-serving plane; never auto-reloads implicitly
+    - control/dev/auto: development-oriented plane
+    """
+
+    raw = (
+        os.getenv("MINDSCAPE_BACKEND_ROLE")
+        or os.getenv("LOCAL_CORE_BACKEND_ROLE")
+        or "auto"
+    )
+    return str(raw).strip().lower() or "auto"
+
+
+def is_execution_plane() -> bool:
+    return get_backend_runtime_role() in {"execution", "stable"}
+
+
+def should_enable_uvicorn_reload(
+    *,
+    environment: str | None = None,
+) -> bool:
+    """Decide whether the API process should run with uvicorn --reload."""
+
+    explicit_reload = _parse_bool(os.getenv("MINDSCAPE_BACKEND_RELOAD"))
+    if explicit_reload is not None:
+        return explicit_reload
+
+    env = str(environment or os.getenv("ENVIRONMENT", "development")).strip().lower()
+    if env not in {"development", "dev"}:
+        return False
+    if is_execution_plane():
+        return False
+    return True
+
+
+def should_allow_implicit_pack_reload(
+    *,
+    environment: str | None = None,
+) -> bool:
+    """Return whether pack installation may trigger implicit backend reloads."""
+
+    explicit = _parse_bool(os.getenv("MINDSCAPE_ALLOW_IMPLICIT_PACK_RELOAD"))
+    if explicit is not None:
+        return explicit
+
+    env = str(environment or os.getenv("ENVIRONMENT", "development")).strip().lower()
+    if env not in {"development", "dev"}:
+        return False
+    if is_execution_plane():
+        return False
+    return True
+
+
+def should_run_post_ready_tool_rag_warmup(
+    *,
+    environment: str | None = None,
+) -> bool:
+    explicit = _parse_bool(os.getenv("MINDSCAPE_POST_READY_TOOL_RAG_WARMUP"))
+    if explicit is not None:
+        return explicit
+
+    env = str(environment or os.getenv("ENVIRONMENT", "development")).strip().lower()
+    if env not in {"development", "dev"}:
+        return True
+    if is_execution_plane():
+        return True
+    return False
+
+
+def should_run_post_ready_runtime_migrations(
+    *,
+    environment: str | None = None,
+) -> bool:
+    explicit = _parse_bool(os.getenv("MINDSCAPE_POST_READY_RUNTIME_MIGRATIONS"))
+    if explicit is not None:
+        return explicit
+
+    env = str(environment or os.getenv("ENVIRONMENT", "development")).strip().lower()
+    if env not in {"development", "dev"}:
+        return True
+    if is_execution_plane():
+        return True
+    return False

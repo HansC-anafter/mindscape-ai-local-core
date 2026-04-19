@@ -393,7 +393,11 @@ def initialize_feature_packs(app: FastAPI) -> None:
         if _capability_hot_reload_enabled():
             reload_capability_routes(app, reason="startup")
         else:
-            load_and_register_packs(app)
+            load_and_register_packs(
+                app,
+                activation_service=PackActivationService(),
+                activation_mode="startup_feature_pack",
+            )
     except Exception as e:
         logger.warning(
             f"Failed to load some feature packs during startup: {e}. App will continue to start."

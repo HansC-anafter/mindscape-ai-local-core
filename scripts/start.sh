@@ -195,7 +195,9 @@ echo ""
 
 # Start Docker services
 echo "Building and starting containers..."
-docker compose up -d
+echo "  - backend (execution plane): http://localhost:8200"
+echo "  - backend-control (control plane): http://localhost:${MINDSCAPE_CONTROL_PLANE_HOST_PORT:-8220}"
+docker compose --profile control-plane up -d
 
 if [ $? -ne 0 ]; then
     echo ""

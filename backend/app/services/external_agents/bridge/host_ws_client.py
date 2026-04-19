@@ -40,8 +40,8 @@ import tempfile
 import time
 from datetime import datetime, timezone
 import urllib.error
+import urllib.parse
 import urllib.request
-import uuid
 from collections import OrderedDict
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
 
@@ -58,6 +58,18 @@ logging.basicConfig(
 logger = logging.getLogger("host_ws_client")
 
 UNKNOWN_EXECUTION_ERROR_RE = re.compile(r"Unknown execution ([0-9a-fA-F-]+)")
+
+
+def _default_client_id(*, workspace_id: str, surface: str) -> str:
+    seed = f"{(surface or '').strip().lower()}::{(workspace_id or '').strip()}"
+    digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]
+    safe_surface = re.sub(r"[^a-z0-9_.-]+", "-", (surface or "").strip().lower()).strip(
+        "-"
+    ) or "surface"
+    safe_workspace = re.sub(
+        r"[^a-zA-Z0-9_.-]+", "-", (workspace_id or "").strip()
+    ).strip("-") or "workspace"
+    return f"{safe_surface}-{safe_workspace}-{digest}"
 
 
 def _env_float(name: str, default: float, *, minimum: Optional[float] = None) -> float:
@@ -129,6 +141,68 @@ def _runtime_identity() -> Dict[str, Any]:
     return identity
 
 
+def _default_backend_api_url(host: str) -> str:
+    explicit = os.environ.get("MINDSCAPE_BACKEND_API_URL", "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+
+    control_host = os.environ.get("MINDSCAPE_CONTROL_PLANE_HOST", "").strip()
+    if control_host:
+        if control_host.startswith(("http://", "https://")):
+            return control_host.rstrip("/")
+        return f"http://{control_host}"
+
+    control_port = os.environ.get("MINDSCAPE_CONTROL_PLANE_HOST_PORT", "").strip() or "8220"
+    normalized_host = (host or "").strip() or "localhost:8200"
+    host_without_scheme = normalized_host.split("://", 1)[-1]
+
+    if host_without_scheme.startswith("[") and "]" in host_without_scheme:
+        closing = host_without_scheme.find("]")
+        host_name = host_without_scheme[: closing + 1]
+    elif ":" in host_without_scheme:
+        host_name = host_without_scheme.rsplit(":", 1)[0]
+    else:
+        host_name = host_without_scheme
+
+    host_name = host_name or "localhost"
+    return f"http://{host_name}:{control_port}"
+
+
+def _format_url_host(host: str, port: Optional[int]) -> str:
+    host = (host or "").strip()
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if port is None:
+        return host
+    return f"{host}:{port}"
+
+
+def _backend_api_url_candidates(base_url: str) -> List[str]:
+    normalized = (base_url or "").strip().rstrip("/")
+    if not normalized:
+        return []
+
+    parsed = urllib.parse.urlsplit(normalized)
+    scheme = parsed.scheme or "http"
+    host = (parsed.hostname or "").strip()
+    port = parsed.port
+    path = parsed.path.rstrip("/")
+
+    hosts: List[str] = []
+    if host:
+        hosts.append(host)
+        if host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}:
+            hosts.extend(["localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal"])
+
+    candidates: List[str] = []
+    for candidate_host in hosts:
+        candidate = f"{scheme}://{_format_url_host(candidate_host, port)}{path}"
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    return candidates or [normalized]
+
+
 class HostBridgeWSClient:
     """
     Host-side WebSocket client for receiving and executing tasks
@@ -153,11 +227,21 @@ class HostBridgeWSClient:
     # longer window than the websockets default so reconnects do not
     # flap during active long-running meetings.
     WS_OPEN_TIMEOUT: float = 30.0
+    # When the backend closes an otherwise healthy idle socket, avoid
+    # instant reconnect storms across every workspace/surface pair.
+    CLEAN_IDLE_RECONNECT_DELAY: float = 15.0
+    CLEAN_BUSY_RECONNECT_DELAY: float = 1.0
+    CLEAN_IDLE_RECONNECT_SPREAD: float = 12.0
+    CLEAN_BUSY_RECONNECT_SPREAD: float = 2.0
+    BACKEND_HEALTHCHECK_TIMEOUT: float = 2.5
+    BACKEND_UNHEALTHY_RECONNECT_DELAY: float = 30.0
+    BACKEND_UNHEALTHY_RECONNECT_SPREAD: float = 20.0
     RESULT_REST_RETRY_ATTEMPTS: int = 4
     RESULT_REST_RETRY_BASE_DELAY: float = 1.0
     HOST_SESSION_REGISTER_TIMEOUT: float = 30.0
     HOST_SESSION_REGISTER_RETRY_INTERVAL: float = 15.0
     HOST_SESSION_REGISTER_REFRESH_INTERVAL: float = 300.0
+    POLLING_RESERVE_MAX_DELAY: float = 30.0
     POLLING_WAIT_SECONDS: float = 5.0
     POLLING_LEASE_SECONDS: float = 60.0
     POLLING_HEARTBEAT_INTERVAL: float = 25.0
@@ -183,7 +267,10 @@ class HostBridgeWSClient:
         self.workspace_id = workspace_id
         self.host = host
         self.auth_secret = auth_secret
-        self.client_id = client_id or str(uuid.uuid4())
+        self.client_id = client_id or _default_client_id(
+            workspace_id=workspace_id,
+            surface=normalized_surface,
+        )
         self.surface = normalized_surface
         self.task_handler = task_handler or self._default_task_handler
         self.owner_user_id = os.environ.get("MINDSCAPE_OWNER_USER_ID", "").strip()
@@ -191,7 +278,7 @@ class HostBridgeWSClient:
         self._ws = None
         self._running = False
         self._reconnect_attempt = 0
-        self._pong_received = asyncio.Event()
+        self._pong_received: Optional[asyncio.Event] = None
         self._active_tasks = 0  # suppress pong-timeout during execution
         self.RESULT_ACK_TIMEOUT = _env_float(
             "MINDSCAPE_RESULT_ACK_TIMEOUT",
@@ -203,10 +290,45 @@ class HostBridgeWSClient:
             self.WS_OPEN_TIMEOUT,
             minimum=1.0,
         )
+        self.CLEAN_IDLE_RECONNECT_DELAY = _env_float(
+            "MINDSCAPE_WS_IDLE_RECONNECT_DELAY",
+            self.CLEAN_IDLE_RECONNECT_DELAY,
+            minimum=1.0,
+        )
+        self.CLEAN_BUSY_RECONNECT_DELAY = _env_float(
+            "MINDSCAPE_WS_BUSY_RECONNECT_DELAY",
+            self.CLEAN_BUSY_RECONNECT_DELAY,
+            minimum=0.1,
+        )
+        self.CLEAN_IDLE_RECONNECT_SPREAD = _env_float(
+            "MINDSCAPE_WS_IDLE_RECONNECT_SPREAD",
+            self.CLEAN_IDLE_RECONNECT_SPREAD,
+            minimum=0.0,
+        )
+        self.CLEAN_BUSY_RECONNECT_SPREAD = _env_float(
+            "MINDSCAPE_WS_BUSY_RECONNECT_SPREAD",
+            self.CLEAN_BUSY_RECONNECT_SPREAD,
+            minimum=0.0,
+        )
         self.PONG_TIMEOUT = _env_float(
             "MINDSCAPE_WS_PONG_TIMEOUT",
             self.PONG_TIMEOUT,
             minimum=1.0,
+        )
+        self.BACKEND_HEALTHCHECK_TIMEOUT = _env_float(
+            "MINDSCAPE_WS_BACKEND_HEALTHCHECK_TIMEOUT",
+            self.BACKEND_HEALTHCHECK_TIMEOUT,
+            minimum=0.2,
+        )
+        self.BACKEND_UNHEALTHY_RECONNECT_DELAY = _env_float(
+            "MINDSCAPE_WS_BACKEND_UNHEALTHY_RECONNECT_DELAY",
+            self.BACKEND_UNHEALTHY_RECONNECT_DELAY,
+            minimum=1.0,
+        )
+        self.BACKEND_UNHEALTHY_RECONNECT_SPREAD = _env_float(
+            "MINDSCAPE_WS_BACKEND_UNHEALTHY_RECONNECT_SPREAD",
+            self.BACKEND_UNHEALTHY_RECONNECT_SPREAD,
+            minimum=0.0,
         )
         self.HOST_SESSION_REGISTER_TIMEOUT = _env_float(
             "MINDSCAPE_CODEX_POOL_REGISTER_TIMEOUT",
@@ -225,6 +347,9 @@ class HostBridgeWSClient:
         )
         self._result_ack_waiters: Dict[str, asyncio.Future[bool]] = {}
         self._background_tasks: Set[asyncio.Task] = set()
+        self._dispatch_lock: Optional[asyncio.Lock] = None
+        self._dispatch_lock_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._dispatch_tasks: Dict[str, asyncio.Task] = {}
         self._recent_results: (
             "OrderedDict[str, tuple[float, float, Dict[str, Any]]]"
         ) = OrderedDict()
@@ -512,8 +637,33 @@ class HostBridgeWSClient:
                 if self._transport_mode == "polling":
                     await self._run_polling_transport()
                     continue
+                backend_ready = await asyncio.to_thread(self._backend_healthcheck_sync)
+                if not backend_ready:
+                    delay = self._backend_unhealthy_delay()
+                    logger.warning(
+                        "Backend healthcheck failed for workspace=%s surface=%s; "
+                        "delaying reconnect by %.1fs",
+                        self.workspace_id,
+                        self.surface,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
                 await self._connect_and_listen()
                 self._ws_forbidden_count = 0
+                if not self._running:
+                    break
+                delay = self._clean_reconnect_delay()
+                logger.info(
+                    "WebSocket session ended cleanly for workspace=%s surface=%s; "
+                    "reconnecting in %.1fs (active_tasks=%s pending_result_acks=%s)",
+                    self.workspace_id,
+                    self.surface,
+                    delay,
+                    self._active_tasks,
+                    self._pending_result_ack_count(),
+                )
+                await asyncio.sleep(delay)
             except Exception as e:
                 if not self._running:
                     break
@@ -574,10 +724,12 @@ class HostBridgeWSClient:
         ) as ws:
             self._ws = ws
             self._reconnect_attempt = 0
+            pong_received = asyncio.Event()
+            self._pong_received = pong_received
             logger.info("Connected!")
 
             # Start heartbeat task
-            heartbeat = asyncio.create_task(self._heartbeat_loop())
+            heartbeat = asyncio.create_task(self._heartbeat_loop(pong_received))
 
             try:
                 async for raw_msg in ws:
@@ -585,16 +737,20 @@ class HostBridgeWSClient:
                         msg = json.loads(raw_msg)
                         # Handle server pong for app-level liveness
                         if msg.get("type") == "pong":
-                            self._pong_received.set()
+                            pong_received.set()
                             continue
                         await self._handle_message(msg)
                     except json.JSONDecodeError:
                         logger.warning(f"Invalid JSON: {raw_msg[:100]}")
             finally:
                 heartbeat.cancel()
+                self._pong_received = None
                 self._ws = None
 
-    async def _heartbeat_loop(self) -> None:
+    async def _heartbeat_loop(
+        self,
+        pong_received: Optional[asyncio.Event] = None,
+    ) -> None:
         """Send periodic pings and verify server responds.
 
         After backend restart, TCP may stay alive but the server-side
@@ -605,17 +761,18 @@ class HostBridgeWSClient:
         IMPORTANT: During active task execution, we skip the pong-or-die
         check because the server may be busy and slow to respond.
         """
+        pong_event = pong_received or self._pong_received or asyncio.Event()
         while True:
             await asyncio.sleep(self.HEARTBEAT_INTERVAL)
             if not self._ws:
                 break
             try:
-                self._pong_received.clear()
+                pong_event.clear()
                 await self._ws.send(json.dumps({"type": "ping"}))
                 # Wait for server pong within timeout
                 try:
                     await asyncio.wait_for(
-                        self._pong_received.wait(),
+                        pong_event.wait(),
                         timeout=self.PONG_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
@@ -646,6 +803,16 @@ class HostBridgeWSClient:
                     await self._ws.close()
                     break
             except Exception:
+                logger.warning(
+                    "Heartbeat loop failed for workspace=%s surface=%s; forcing reconnect",
+                    self.workspace_id,
+                    self.surface,
+                    exc_info=True,
+                )
+                try:
+                    await self._ws.close()
+                except Exception:
+                    pass
                 break
 
     def _backoff_delay(self) -> float:
@@ -658,6 +825,53 @@ class HostBridgeWSClient:
             self.RECONNECT_MAX_DELAY,
         )
         return delay + random.uniform(0, delay * 0.1)
+
+    def _clean_reconnect_delay(self) -> float:
+        """Jittered reconnect delay after a graceful WebSocket close."""
+        base_delay = (
+            self.CLEAN_BUSY_RECONNECT_DELAY
+            if self._has_pending_transport_work()
+            else self.CLEAN_IDLE_RECONNECT_DELAY
+        )
+        spread = (
+            self.CLEAN_BUSY_RECONNECT_SPREAD
+            if self._has_pending_transport_work()
+            else self.CLEAN_IDLE_RECONNECT_SPREAD
+        )
+        return base_delay + self._stable_client_offset(spread)
+
+    def _backend_unhealthy_delay(self) -> float:
+        return self.BACKEND_UNHEALTHY_RECONNECT_DELAY + self._stable_client_offset(
+            self.BACKEND_UNHEALTHY_RECONNECT_SPREAD
+        )
+
+    def _stable_client_offset(self, spread_window: float) -> float:
+        if spread_window <= 0:
+            return 0.0
+        digest = hashlib.sha1(self.client_id.encode("utf-8")).hexdigest()
+        fraction = int(digest[:8], 16) / 0xFFFFFFFF
+        return round(fraction * spread_window, 3)
+
+    def _backend_healthcheck_sync(self) -> bool:
+        timeout = max(0.2, float(self.BACKEND_HEALTHCHECK_TIMEOUT))
+        for path in ("/healthz", "/health"):
+            request = urllib.request.Request(
+                f"http://{self.host}{path}",
+                headers={"Accept": "application/json"},
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    if int(getattr(response, "status", 0)) == 200:
+                        return True
+            except urllib.error.HTTPError as exc:
+                if path == "/healthz" and getattr(exc, "code", None) == 404:
+                    continue
+                return False
+            except Exception:
+                if path == "/healthz":
+                    continue
+                return False
+        return False
 
     def _supports_polling_fallback(self) -> bool:
         return self.surface == "codex_cli" and _env_flag(
@@ -687,6 +901,7 @@ class HostBridgeWSClient:
             or "HTTP 403" in error_text
             or "did not receive a valid HTTP response" in error_text
             or "Connection reset by peer" in error_text
+            or "timed out during opening handshake" in error_text
         )
         if not transport_denied:
             self._ws_forbidden_count = 0
@@ -695,6 +910,15 @@ class HostBridgeWSClient:
         self._ws_forbidden_count += 1
         return self._ws_forbidden_count >= self.WS_FORBIDDEN_POLLING_THRESHOLD
 
+    def _polling_reserve_failure_delay(self, consecutive_failures: int) -> float:
+        if consecutive_failures <= 0:
+            return 0.0
+        exponent = max(0, consecutive_failures - 1)
+        return min(
+            self.RECONNECT_BASE_DELAY * (2 ** exponent),
+            self.POLLING_RESERVE_MAX_DELAY,
+        )
+
     async def _run_polling_transport(self) -> None:
         logger.info(
             "Starting REST polling fallback for workspace=%s surface=%s",
@@ -702,18 +926,24 @@ class HostBridgeWSClient:
             self.surface,
         )
         self._ws_forbidden_count = 0
+        consecutive_poll_failures = 0
 
         while self._running and self._transport_mode == "polling":
             try:
                 tasks = await asyncio.to_thread(self._reserve_pending_tasks_via_rest_sync)
+                consecutive_poll_failures = 0
             except Exception as exc:
+                consecutive_poll_failures += 1
+                delay = self._polling_reserve_failure_delay(consecutive_poll_failures)
                 logger.warning(
-                    "Polling reserve failed for workspace=%s surface=%s: %s",
+                    "Polling reserve failed for workspace=%s surface=%s: %s "
+                    "(retrying in %.1fs)",
                     self.workspace_id,
                     self.surface,
                     exc,
+                    delay,
                 )
-                await asyncio.sleep(self.RECONNECT_BASE_DELAY)
+                await asyncio.sleep(delay)
                 continue
 
             if not tasks:
@@ -725,8 +955,7 @@ class HostBridgeWSClient:
                 await self._handle_polled_dispatch(task)
 
     def _reserve_pending_tasks_via_rest_sync(self) -> List[Dict[str, Any]]:
-        backend_url = self.backend_api_url
-        if not backend_url:
+        if not self.backend_api_urls:
             raise RuntimeError("MINDSCAPE_BACKEND_API_URL is not configured")
 
         query = urllib.parse.urlencode(
@@ -739,20 +968,20 @@ class HostBridgeWSClient:
                 "wait_seconds": self.POLLING_WAIT_SECONDS,
             }
         )
-        req = urllib.request.Request(
-            f"{backend_url}/api/v1/mcp/agent/pending?{query}",
-            headers={"Accept": "application/json"},
-            method="GET",
+        _backend_url, body = self._backend_request_sync(
+            lambda backend_url: urllib.request.Request(
+                f"{backend_url}/api/v1/mcp/agent/pending?{query}",
+                headers={"Accept": "application/json"},
+                method="GET",
+            ),
+            timeout=self.POLLING_WAIT_SECONDS + 10.0,
         )
-        with urllib.request.urlopen(req, timeout=self.POLLING_WAIT_SECONDS + 10.0) as response:
-            body = response.read().decode("utf-8")
         payload = json.loads(body) if body else {}
         tasks = payload.get("tasks")
         return tasks if isinstance(tasks, list) else []
 
     def _ack_reserved_task_via_rest_sync(self, execution_id: str, lease_id: str) -> Dict[str, Any]:
-        backend_url = self.backend_api_url
-        if not backend_url:
+        if not self.backend_api_urls:
             raise RuntimeError("MINDSCAPE_BACKEND_API_URL is not configured")
 
         payload = {
@@ -760,17 +989,18 @@ class HostBridgeWSClient:
             "lease_id": lease_id,
             "client_id": self.client_id,
         }
-        req = urllib.request.Request(
-            f"{backend_url}/api/v1/mcp/agent/ack",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            method="POST",
+        _backend_url, body = self._backend_request_sync(
+            lambda backend_url: urllib.request.Request(
+                f"{backend_url}/api/v1/mcp/agent/ack",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                method="POST",
+            ),
+            timeout=30,
         )
-        with urllib.request.urlopen(req, timeout=30) as response:
-            body = response.read().decode("utf-8")
         return json.loads(body) if body else {}
 
     def _report_progress_via_rest_sync(
@@ -781,8 +1011,7 @@ class HostBridgeWSClient:
         progress_pct: Optional[float] = None,
         message: Optional[str] = None,
     ) -> Dict[str, Any]:
-        backend_url = self.backend_api_url
-        if not backend_url:
+        if not self.backend_api_urls:
             raise RuntimeError("MINDSCAPE_BACKEND_API_URL is not configured")
 
         payload = {
@@ -792,17 +1021,18 @@ class HostBridgeWSClient:
             "progress_pct": progress_pct,
             "message": message,
         }
-        req = urllib.request.Request(
-            f"{backend_url}/api/v1/mcp/agent/progress",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            method="POST",
+        _backend_url, body = self._backend_request_sync(
+            lambda backend_url: urllib.request.Request(
+                f"{backend_url}/api/v1/mcp/agent/progress",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                method="POST",
+            ),
+            timeout=30,
         )
-        with urllib.request.urlopen(req, timeout=30) as response:
-            body = response.read().decode("utf-8")
         return json.loads(body) if body else {}
 
     async def _polling_heartbeat_loop(
@@ -1113,7 +1343,46 @@ class HostBridgeWSClient:
             )
             return
 
-        # 2. Execute (guarded by _active_tasks to suppress pong timeout)
+        existing_task = self._dispatch_tasks.get(execution_id)
+        if existing_task and not existing_task.done():
+            logger.warning(
+                "Duplicate dispatch for %s while a local execution is "
+                "already queued or running; keeping the original run",
+                execution_id,
+            )
+            return
+
+        task = self._start_background_task(
+            self._execute_dispatched_task(execution_id, msg)
+        )
+        self._dispatch_tasks[execution_id] = task
+        task.add_done_callback(
+            lambda _done, eid=execution_id: self._dispatch_tasks.pop(eid, None)
+        )
+
+    async def _execute_dispatched_task(
+        self,
+        execution_id: str,
+        msg: Dict[str, Any],
+    ) -> None:
+        # Serialize local dispatch execution so the receive loop can keep
+        # draining/acking new dispatches without running multiple CLI jobs
+        # concurrently for the same host bridge client.
+        async with self._get_dispatch_lock():
+            await self._run_dispatch_task(execution_id, msg)
+
+    def _get_dispatch_lock(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        if self._dispatch_lock is None or self._dispatch_lock_loop is not loop:
+            self._dispatch_lock = asyncio.Lock()
+            self._dispatch_lock_loop = loop
+        return self._dispatch_lock
+
+    async def _run_dispatch_task(
+        self,
+        execution_id: str,
+        msg: Dict[str, Any],
+    ) -> None:
         self._active_tasks += 1
         start_time = time.monotonic()
         try:
@@ -1302,12 +1571,31 @@ class HostBridgeWSClient:
         backend_url = os.environ.get("MINDSCAPE_BACKEND_API_URL", "").strip()
         if backend_url:
             return backend_url.rstrip("/")
-        host = (self.host or "").strip()
-        if host:
-            if host.startswith("http://") or host.startswith("https://"):
-                return host.rstrip("/")
-            return f"http://{host}"
-        return ""
+        return _default_backend_api_url(self.host)
+
+    @property
+    def backend_api_urls(self) -> List[str]:
+        return _backend_api_url_candidates(self.backend_api_url)
+
+    def _backend_request_sync(
+        self,
+        build_request: Callable[[str], urllib.request.Request],
+        *,
+        timeout: float,
+    ) -> tuple[str, str]:
+        last_exc: Optional[BaseException] = None
+        for backend_url in self.backend_api_urls:
+            try:
+                req = build_request(backend_url)
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    body = response.read().decode("utf-8")
+                return backend_url, body
+            except Exception as exc:
+                last_exc = exc
+                continue
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("MINDSCAPE_BACKEND_API_URL is not configured")
 
     def _should_auto_register_host_session_runtime(self) -> bool:
         if self.surface != "codex_cli":
@@ -1996,26 +2284,23 @@ class HostBridgeWSClient:
         self,
         payloads: Optional[list[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        backend_url = self.backend_api_url
-        if not backend_url:
+        if not self.backend_api_urls:
             raise RuntimeError("MINDSCAPE_BACKEND_API_URL is not configured")
 
         responses: list[Dict[str, Any]] = []
         for payload in payloads or self._build_host_session_runtime_registration_payloads():
-            req = urllib.request.Request(
-                f"{backend_url}/api/v1/auth/cli-runtime/register-host-session",
-                data=json.dumps(payload).encode("utf-8"),
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(
-                req,
+            _backend_url, body = self._backend_request_sync(
+                lambda backend_url, payload=payload: urllib.request.Request(
+                    f"{backend_url}/api/v1/auth/cli-runtime/register-host-session",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                    method="POST",
+                ),
                 timeout=self.HOST_SESSION_REGISTER_TIMEOUT,
-            ) as response:
-                body = response.read().decode("utf-8")
+            )
             responses.append(json.loads(body) if body else {})
 
         primary = responses[0] if responses else {}
@@ -2091,8 +2376,7 @@ class HostBridgeWSClient:
         )
 
     def _submit_result_via_rest_sync(self, result_message: Dict[str, Any]) -> Dict[str, Any]:
-        backend_url = self.backend_api_url
-        if not backend_url:
+        if not self.backend_api_urls:
             raise RuntimeError("MINDSCAPE_BACKEND_API_URL is not configured")
 
         payload = {
@@ -2118,17 +2402,18 @@ class HostBridgeWSClient:
             "client_id": self.client_id,
             "lease_id": result_message.get("lease_id"),
         }
-        req = urllib.request.Request(
-            f"{backend_url}/api/v1/mcp/agent/result",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            method="POST",
+        _backend_url, body = self._backend_request_sync(
+            lambda backend_url: urllib.request.Request(
+                f"{backend_url}/api/v1/mcp/agent/result",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                method="POST",
+            ),
+            timeout=10,
         )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            body = response.read().decode("utf-8")
         return json.loads(body) if body else {}
 
     async def _submit_result_via_rest(
@@ -2366,8 +2651,8 @@ def main():
     )
     parser.add_argument(
         "--client-id",
-        default=None,
-        help="Client ID (auto-generated if not provided)",
+        default=os.environ.get("MINDSCAPE_CLIENT_ID") or None,
+        help="Client ID (defaults to MINDSCAPE_CLIENT_ID or stable workspace/surface ID)",
     )
     parser.add_argument(
         "--surface",
@@ -2431,7 +2716,7 @@ def main():
 
     # Auto-derive env vars from CLI args so this works without a wrapper script.
     if not os.environ.get("MINDSCAPE_BACKEND_API_URL"):
-        os.environ["MINDSCAPE_BACKEND_API_URL"] = f"http://{args.host}"
+        os.environ["MINDSCAPE_BACKEND_API_URL"] = _default_backend_api_url(args.host)
     if not os.environ.get("MINDSCAPE_WS_HOST"):
         os.environ["MINDSCAPE_WS_HOST"] = args.host
     # Auth mode is resolved dynamically by the bridge via /api/v1/auth/cli-token.

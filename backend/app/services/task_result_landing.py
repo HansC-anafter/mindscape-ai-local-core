@@ -28,6 +28,12 @@ from app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
 
 logger = logging.getLogger(__name__)
 
+_PD_STORYBOARD_PLAYBOOK_CODES = {
+    "pd_execute_storyboard_preview",
+    "pd_intake_storyboard_preview",
+    "pd_scene_package_preview_handoff",
+}
+
 
 def _utc_now() -> datetime:
     """Return timezone-aware UTC now."""
@@ -269,6 +275,11 @@ class TaskResultLandingService:
             attachment_filenames=attachment_filenames,
             result_data=result_data,
         )
+        pd_storyboard_evidence = self._extract_pd_storyboard_evidence(
+            result_data=result_data,
+            result_json=result_json if isinstance(result_json, dict) else {},
+            task=task,
+        )
         if markdown_failure:
             logger.warning(
                 "Markdown deliverable landing failed exec=%s missing=%s",
@@ -306,6 +317,7 @@ class TaskResultLandingService:
                     has_attachments=len(written_attachments) > 0,
                     landing_metadata=landing_metadata,
                     deliverable_identity=deliverable_identity,
+                    pd_storyboard_evidence=pd_storyboard_evidence,
                 )
                 update_kwargs = {
                     "summary": summary[:2000] if summary else existing.summary,
@@ -339,6 +351,7 @@ class TaskResultLandingService:
                         has_attachments=len(written_attachments) > 0,
                         landing_metadata=landing_metadata,
                         deliverable_identity=deliverable_identity,
+                        pd_storyboard_evidence=pd_storyboard_evidence,
                     ),
                 )
                 self._artifacts_store.create_artifact(artifact)
@@ -366,6 +379,7 @@ class TaskResultLandingService:
                         artifact_id=artifact_id,
                         landing_metadata=landing_metadata,
                         deliverable_identity=deliverable_identity,
+                        pd_storyboard_evidence=pd_storyboard_evidence,
                     ),
                     completed_at=landed_at,
                 )
@@ -919,6 +933,7 @@ class TaskResultLandingService:
         has_attachments: bool,
         landing_metadata: Dict[str, Any],
         deliverable_identity: Dict[str, Any],
+        pd_storyboard_evidence: Dict[str, Any],
     ) -> Dict[str, Any]:
         metadata = dict(existing_metadata or {})
         metadata["source"] = metadata.get("source") or "task_runner"
@@ -944,6 +959,8 @@ class TaskResultLandingService:
             metadata["deliverable_targets"] = list(deliverable_targets)
         if isinstance(attachment_filenames, list) and attachment_filenames:
             metadata["attachment_filenames"] = list(attachment_filenames)
+        if pd_storyboard_evidence:
+            metadata["pd_storyboard_evidence"] = dict(pd_storyboard_evidence)
         return metadata
 
     @staticmethod
@@ -957,6 +974,7 @@ class TaskResultLandingService:
         artifact_id: Optional[str],
         landing_metadata: Dict[str, Any],
         deliverable_identity: Dict[str, Any],
+        pd_storyboard_evidence: Dict[str, Any],
     ) -> Dict[str, Any]:
         result_payload = dict(existing_result or {})
         result_payload.update(
@@ -984,7 +1002,179 @@ class TaskResultLandingService:
             result_payload["deliverable_targets"] = list(deliverable_targets)
         if isinstance(attachment_filenames, list) and attachment_filenames:
             result_payload["attachment_filenames"] = list(attachment_filenames)
+        if pd_storyboard_evidence:
+            result_payload["pd_storyboard_evidence"] = dict(pd_storyboard_evidence)
         return result_payload
+
+    @staticmethod
+    def _resolve_nested_value(data: Dict[str, Any], path: str) -> Any:
+        if not isinstance(data, dict) or not isinstance(path, str) or not path:
+            return None
+        current: Any = data
+        for part in path.split("."):
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+                continue
+            return None
+        return current
+
+    @staticmethod
+    def _has_material_value(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, tuple, set, dict)):
+            return len(value) > 0
+        return True
+
+    @staticmethod
+    def _first_nested_value(roots: List[Dict[str, Any]], paths: List[str]) -> Any:
+        for root in roots:
+            if not isinstance(root, dict):
+                continue
+            for path in paths:
+                value = TaskResultLandingService._resolve_nested_value(root, path)
+                if TaskResultLandingService._has_material_value(value):
+                    return value
+        return None
+
+    @staticmethod
+    def _summarize_storyboard(storyboard: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(storyboard, dict) or not storyboard:
+            return None
+        scenes = storyboard.get("scenes")
+        summary = {
+            "storyboard_id": str(storyboard.get("storyboard_id") or "").strip(),
+            "workspace_id": str(storyboard.get("workspace_id") or "").strip(),
+            "scene_count": len(scenes) if isinstance(scenes, list) else 0,
+        }
+        return {
+            key: value
+            for key, value in summary.items()
+            if value not in ("", None)
+        }
+
+    @staticmethod
+    def _extract_pd_storyboard_evidence(
+        *,
+        result_data: Dict[str, Any],
+        result_json: Dict[str, Any],
+        task: Optional[Any],
+    ) -> Dict[str, Any]:
+        task_result = getattr(task, "result", None)
+        task_metadata = getattr(task, "metadata", None)
+        task_pack_id = str(getattr(task, "pack_id", None) or "").strip()
+        result_steps = result_data.get("steps") if isinstance(result_data, dict) else {}
+        result_json_steps = (
+            result_json.get("steps") if isinstance(result_json, dict) else {}
+        )
+        nested_result = (
+            result_steps.get(task_pack_id)
+            if isinstance(result_steps, dict) and task_pack_id
+            else None
+        )
+        nested_result_json = (
+            result_json_steps.get(task_pack_id)
+            if isinstance(result_json_steps, dict) and task_pack_id
+            else None
+        )
+        roots: List[Dict[str, Any]] = [
+            nested_result if isinstance(nested_result, dict) else {},
+            nested_result_json if isinstance(nested_result_json, dict) else {},
+            result_data,
+            result_json,
+            result_data.get("outputs") if isinstance(result_data.get("outputs"), dict) else {},
+            result_json.get("outputs") if isinstance(result_json.get("outputs"), dict) else {},
+            result_data.get("metadata") if isinstance(result_data.get("metadata"), dict) else {},
+            result_json.get("metadata") if isinstance(result_json.get("metadata"), dict) else {},
+            task_result if isinstance(task_result, dict) else {},
+            task_metadata if isinstance(task_metadata, dict) else {},
+        ]
+        playbook_code = (
+            task_pack_id
+            or str(
+                TaskResultLandingService._first_nested_value(
+                    roots,
+                    [
+                        "playbook_code",
+                        "metadata.playbook_code",
+                        "execution.playbook_code",
+                    ],
+                )
+                or ""
+            ).strip()
+        )
+        if playbook_code not in _PD_STORYBOARD_PLAYBOOK_CODES:
+            return {}
+
+        evidence: Dict[str, Any] = {"playbook_code": playbook_code}
+        session_id = TaskResultLandingService._first_nested_value(
+            roots,
+            [
+                "outputs.session_id",
+                "session_id",
+                "metadata.inputs.session_id",
+                "context.inputs.session_id",
+            ],
+        )
+        if isinstance(session_id, str) and session_id.strip():
+            evidence["session_id"] = session_id.strip()
+
+        storyboard = TaskResultLandingService._first_nested_value(
+            roots,
+            [
+                "outputs.storyboard",
+                "storyboard",
+                "step.generate_storyboard.storyboard",
+            ],
+        )
+        storyboard_summary = TaskResultLandingService._summarize_storyboard(storyboard)
+        if storyboard_summary:
+            evidence["storyboard"] = storyboard_summary
+            storyboard_id = str(storyboard_summary.get("storyboard_id") or "").strip()
+            if storyboard_id:
+                evidence["storyboard_id"] = storyboard_id
+
+        for field_name, paths in (
+            ("source_type", ["outputs.source_type", "source_type", "step.generate_storyboard.source_type"]),
+            ("run_id", ["outputs.run_id", "run_id", "step.execute_storyboard_preview.run_id"]),
+            ("status", ["outputs.status", "status", "step.execute_storyboard_preview.status"]),
+            (
+                "timeline_items_synced",
+                [
+                    "outputs.timeline_items_synced",
+                    "timeline_items_synced",
+                    "step.execute_storyboard_preview.timeline_items_synced",
+                ],
+            ),
+            (
+                "selected_scene_package_selector",
+                [
+                    "outputs.selected_scene_package_selector",
+                    "selected_scene_package_selector",
+                    "step.resolve_scene_package_selector.selected_scene_package_selector",
+                ],
+            ),
+        ):
+            value = TaskResultLandingService._first_nested_value(roots, paths)
+            if not TaskResultLandingService._has_material_value(value):
+                continue
+            evidence[field_name] = value
+
+        return (
+            evidence
+            if any(
+                key in evidence
+                for key in (
+                    "storyboard_id",
+                    "run_id",
+                    "status",
+                    "selected_scene_package_selector",
+                )
+            )
+            else {}
+        )
 
     @staticmethod
     def _should_override_artifact_title(title: Optional[str]) -> bool:

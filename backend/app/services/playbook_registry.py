@@ -61,6 +61,30 @@ class PlaybookSource(str, Enum):
     USER = "user"  # User-defined playbooks
 
 
+def _record_loaded_capability_activation(
+    *,
+    capability_code: str,
+    manifest: Dict[str, Any],
+    manifest_path: Path,
+) -> None:
+    try:
+        from app.services.pack_activation_service import PackActivationService
+
+        PackActivationService().record_activation_succeeded(
+            pack_id=capability_code,
+            manifest=manifest,
+            manifest_path=manifest_path if manifest_path.exists() else None,
+            activation_mode="playbook_registry_load",
+            registered_prefixes=[],
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to persist playbook activation state for %s: %s",
+            capability_code,
+            exc,
+        )
+
+
 class PlaybookRegistry:
     """
     Unified registry for all playbooks
@@ -490,6 +514,13 @@ class PlaybookRegistry:
                 # Parse variants for this playbook (shared helper)
                 self._parse_variants(playbook_config, capability_code, playbook_code)
 
+            if self.capability_playbooks.get(capability_code):
+                _record_loaded_capability_activation(
+                    capability_code=capability_code,
+                    manifest=manifest,
+                    manifest_path=manifest_path,
+                )
+
         except Exception as e:
             logger.error(f"Failed to load capability {capability_dir.name}: {e}")
 
@@ -681,6 +712,12 @@ class PlaybookRegistry:
                 logger.info(
                     f"Loaded {len(self.capability_playbooks[capability_code])} playbooks from {capability_code}"
                 )
+                if self.capability_playbooks.get(capability_code):
+                    _record_loaded_capability_activation(
+                        capability_code=capability_code,
+                        manifest=manifest,
+                        manifest_path=manifest_path,
+                    )
 
             except Exception as e:
                 logger.warning(

@@ -25,6 +25,7 @@ from ....models.workspace import (
     TaskFeedback,
     TaskFeedbackAction,
     TaskFeedbackReasonCode,
+    TaskStatus,
 )
 from ....services.task_status_fix import TaskStatusFixService
 from ....services.remote_step_resend_service import (
@@ -337,24 +338,61 @@ async def get_workspace_tasks(
     workspace_id: str = PathParam(..., description="Workspace ID"),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of tasks"),
     include_completed: bool = Query(False, description="Include completed tasks"),
+    task_type: Optional[str] = Query(None, description="Optional task type filter"),
 ):
     """Get tasks for a workspace"""
     try:
         tasks_store = TasksStore()
+        normalized_task_type = (task_type or "").strip().lower()
+
+        if normalized_task_type == "execution":
+            execution_tasks = await asyncio.to_thread(
+                tasks_store.list_executions_by_workspace,
+                workspace_id,
+                limit,
+                include_completed,
+            )
+            return {"tasks": [task.model_dump() for task in execution_tasks]}
 
         if include_completed:
             # Always include running tasks first — they must never be cut off
             # by ORDER BY created_at DESC LIMIT even if they were created long ago.
-            running = await asyncio.to_thread(tasks_store.list_running_tasks, workspace_id)
+            running = await asyncio.to_thread(
+                tasks_store.list_tasks_by_workspace,
+                workspace_id,
+                TaskStatus.RUNNING,
+                None,
+                False,
+                task_type,
+            )
             remaining_limit = max(0, limit - len(running))
             rest = await asyncio.to_thread(
-                tasks_store.list_tasks_by_workspace, workspace_id, limit=remaining_limit
+                tasks_store.list_tasks_by_workspace,
+                workspace_id,
+                None,
+                remaining_limit,
+                False,
+                task_type,
             )
             running_ids = {t.id for t in running}
             all_tasks = running + [t for t in rest if t.id not in running_ids]
         else:
-            pending = await asyncio.to_thread(tasks_store.list_pending_tasks, workspace_id)
-            running = await asyncio.to_thread(tasks_store.list_running_tasks, workspace_id)
+            pending = await asyncio.to_thread(
+                tasks_store.list_tasks_by_workspace,
+                workspace_id,
+                TaskStatus.PENDING,
+                None,
+                False,
+                task_type,
+            )
+            running = await asyncio.to_thread(
+                tasks_store.list_tasks_by_workspace,
+                workspace_id,
+                TaskStatus.RUNNING,
+                None,
+                False,
+                task_type,
+            )
             all_tasks = (pending + running)[:limit]
 
         return {"tasks": [task.model_dump() for task in all_tasks]}

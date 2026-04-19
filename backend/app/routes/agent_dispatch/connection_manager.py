@@ -26,7 +26,7 @@ _CREATE_WS_CONNECTIONS_SQL = """
 CREATE TABLE IF NOT EXISTS ws_connections (
     id SERIAL PRIMARY KEY,
     workspace_id VARCHAR(64) NOT NULL,
-    client_id VARCHAR(64) NOT NULL UNIQUE,
+    client_id TEXT NOT NULL UNIQUE,
     worker_pid INTEGER NOT NULL,
     worker_instance_id VARCHAR(128),
     surface_type VARCHAR(32) DEFAULT 'gemini_cli',
@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS pending_dispatch (
     status VARCHAR(16) DEFAULT 'pending',
     result_data JSONB,
     picked_by_pid INTEGER,
+    picked_by_worker_instance_id VARCHAR(128),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     picked_at TIMESTAMP WITH TIME ZONE,
     completed_at TIMESTAMP WITH TIME ZONE,
@@ -94,11 +95,20 @@ def _get_core_db_connection():
                     "ADD COLUMN IF NOT EXISTS worker_instance_id "
                     "VARCHAR(128)"
                 )
+                cur.execute(
+                    "ALTER TABLE ws_connections "
+                    "ALTER COLUMN client_id TYPE TEXT"
+                )
                 # Migrate existing tables: add last_progress_at if missing
                 cur.execute(
                     "ALTER TABLE pending_dispatch "
                     "ADD COLUMN IF NOT EXISTS last_progress_at "
                     "TIMESTAMP WITH TIME ZONE"
+                )
+                cur.execute(
+                    "ALTER TABLE pending_dispatch "
+                    "ADD COLUMN IF NOT EXISTS picked_by_worker_instance_id "
+                    "VARCHAR(128)"
                 )
             conn.commit()
             _tables_ensured = True
@@ -222,6 +232,13 @@ class ConnectionMixin:
             # back to the origin worker instead of trapping it in a local queue.
             if task.origin_worker_id and task.origin_worker_id != self._ensure_worker_identity():
                 self._inflight.pop(eid)
+                try:
+                    self._db_release_pending_dispatch(eid, "pending")
+                except Exception:
+                    logger.exception(
+                        "[AgentWS] Failed to release durable dispatch row for %s",
+                        eid,
+                    )
                 if task.payload:
                     try:
                         asyncio.create_task(
@@ -254,6 +271,13 @@ class ConnectionMixin:
             # so flush_pending can reconnect the original result_future.
             if task.payload:
                 task.client_id = "pending"  # mark as awaiting re-dispatch
+                try:
+                    self._db_release_pending_dispatch(eid, "pending")
+                except Exception:
+                    logger.exception(
+                        "[AgentWS] Failed to release durable dispatch row for %s",
+                        eid,
+                    )
                 pending = PendingTask(
                     execution_id=eid,
                     workspace_id=ws_id,

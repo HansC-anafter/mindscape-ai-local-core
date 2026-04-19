@@ -75,6 +75,7 @@ class AgentDispatchManager(
 
     # Max completed execution IDs to track for idempotency
     COMPLETED_MAX_SIZE: int = 1000
+    CONNECTION_CLEANUP_INTERVAL: float = 60.0
 
     def __init__(
         self,
@@ -123,10 +124,25 @@ class AgentDispatchManager(
         # Background consumer task for cross-worker dispatch
         self._consumer_task: Optional[asyncio.Task] = None
         self._pubsub_task: Optional[asyncio.Task] = None
+        self._cleanup_task: Optional[asyncio.Task] = None
         self._pubsub_client = None
         self._pubsub_listener = None
         self._worker_instance_id: Optional[str] = None
         self._pubsub_available: bool = False
+        cleanup_interval = os.environ.get(
+            "AGENT_WS_CONNECTION_CLEANUP_INTERVAL",
+            "",
+        ).strip()
+        if cleanup_interval:
+            try:
+                self.CONNECTION_CLEANUP_INTERVAL = max(5.0, float(cleanup_interval))
+            except ValueError:
+                logger.warning(
+                    "[AgentWS] Invalid AGENT_WS_CONNECTION_CLEANUP_INTERVAL=%r; "
+                    "falling back to %.1fs",
+                    cleanup_interval,
+                    self.CONNECTION_CLEANUP_INTERVAL,
+                )
 
     # ============================================================
     #  Status / diagnostics
@@ -178,6 +194,7 @@ class AgentDispatchManager(
         """Start all cross-worker background services for this worker."""
         self.start_pubsub_listener()
         self.start_dispatch_consumer()
+        self.start_connection_cleanup()
 
     def start_dispatch_consumer(self) -> None:
         """Start the pending dispatch consumer if not already running."""
@@ -194,6 +211,7 @@ class AgentDispatchManager(
         """Stop all background services for this worker."""
         self.stop_dispatch_consumer()
         self.stop_pubsub_listener()
+        self.stop_connection_cleanup()
 
     def stop_dispatch_consumer(self) -> None:
         """Stop the pending dispatch consumer."""
@@ -201,6 +219,40 @@ class AgentDispatchManager(
             self._consumer_task.cancel()
             logger.info("[AgentWS] Dispatch consumer stopped")
             self._consumer_task = None
+
+    def start_connection_cleanup(self) -> None:
+        """Start periodic stale connection cleanup if not already running."""
+        if self._cleanup_task and not self._cleanup_task.done():
+            return
+        try:
+            loop = asyncio.get_event_loop()
+            self._cleanup_task = loop.create_task(self._run_connection_cleanup_loop())
+            logger.info("[AgentWS] Connection cleanup background task started")
+        except Exception:
+            logger.exception("[AgentWS] Failed to start connection cleanup task")
+
+    def stop_connection_cleanup(self) -> None:
+        """Stop periodic stale connection cleanup."""
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            logger.info("[AgentWS] Connection cleanup background task stopped")
+            self._cleanup_task = None
+
+    async def _run_connection_cleanup_loop(self) -> None:
+        """Periodically evict stale ws_connections and reclaim stale DB picks."""
+        interval = max(5.0, float(self.CONNECTION_CLEANUP_INTERVAL))
+        while True:
+            try:
+                await asyncio.to_thread(self._cleanup_stale_connections)
+                await asyncio.to_thread(
+                    self._db_reclaim_stale_picks,
+                    getattr(self, "STALE_PICK_SECONDS", 300.0),
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("[AgentWS] Periodic connection cleanup failed")
+            await asyncio.sleep(interval)
 
 
 # ============================================================

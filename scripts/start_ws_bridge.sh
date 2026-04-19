@@ -40,6 +40,7 @@ url = port_config_service.get_service_url('backend_api')
 print(url.split('://', 1)[-1])
 " 2>/dev/null)
 export MINDSCAPE_WS_HOST="${MINDSCAPE_WS_HOST:-${_RESOLVED_HOST:-localhost:8200}}"
+CONTROL_PLANE_HOST="${MINDSCAPE_CONTROL_PLANE_HOST:-localhost:${MINDSCAPE_CONTROL_PLANE_HOST_PORT:-8220}}"
 export MINDSCAPE_WORKSPACE_ID="${MINDSCAPE_WORKSPACE_ID:-bac7ce63-e768-454d-96f3-3a00e8e1df69}"
 export MINDSCAPE_WORKSPACE_ROOT="${MINDSCAPE_WORKSPACE_ROOT:-$HOME/mindscape-workspace}"
 mkdir -p "$MINDSCAPE_WORKSPACE_ROOT"  # ensure it exists for subprocess cwd
@@ -53,7 +54,7 @@ export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/backend:${PYTHONPATH:-}"
 # --- Gemini auth (resolved by backend /api/v1/auth/cli-token) ---
 # GEMINI_API_KEY can also be set here as env-level override.
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
-export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$MINDSCAPE_WS_HOST}"
+export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$CONTROL_PLANE_HOST}"
 
 # ---- Database connection (needed by HostBridgeTaskExecutor for MCP tools) ----
 # Host-side accesses Docker-mapped port (5433 by default, not container-internal 5432)

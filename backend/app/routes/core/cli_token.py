@@ -20,6 +20,7 @@ Supported modes:
 """
 
 import hashlib
+import json
 import logging
 import os
 import time
@@ -27,6 +28,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,19 @@ def _default_pool_group_for_surface(surface: str) -> Optional[str]:
     if normalized == "gemini_cli":
         return "gca-pool"
     return None
+
+
+def _coerce_json_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
 
 
 def _load_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
@@ -149,120 +164,345 @@ def _upsert_host_session_runtime(
 
     db = next(get_db())
     try:
-        runtime_id = _stable_host_session_runtime_id(
-            owner_user_id=owner_user_id,
-            surface=request.surface,
-            client_id=request.client_id,
-            metadata=request.metadata,
-            explicit_runtime_id=request.runtime_id,
-        )
-        runtime = (
-            db.query(RuntimeEnvironment)
-            .filter(RuntimeEnvironment.id == runtime_id)
-            .first()
-        )
-        metadata = dict(request.metadata or {})
-        metadata.update(
-            {
-                "surface": request.surface,
-                "registered_via": "host_session_bridge",
-                "last_workspace_id": request.workspace_id,
-                "last_client_id": request.client_id,
-            }
-        )
-        pool_group = request.pool_group or _default_pool_group_for_surface(request.surface)
-        runtime_name = (
-            str(request.runtime_name or "").strip()
-            or f"{request.surface} host session"
-        )
-        config_url = f"/settings/runtime-environments/{runtime_id}"
-
-        if runtime is None:
-            runtime = RuntimeEnvironment(
-                id=runtime_id,
-                user_id=owner_user_id,
-                name=runtime_name,
-                description=f"Auto-registered host session for {request.surface}",
-                icon="terminal",
-                config_url=config_url,
-                auth_type="host_session",
-                auth_config={},
-                extra_metadata=metadata,
-                status="active",
-                auth_status="connected",
-                is_default=False,
-                supports_dispatch=True,
-                supports_cell=True,
-                recommended_for_dispatch=False,
-                pool_group=pool_group,
-                pool_enabled=request.pool_enabled,
-                pool_priority=request.pool_priority,
-                last_error_code=None,
+        try:
+            runtime_id = _stable_host_session_runtime_id(
+                owner_user_id=owner_user_id,
+                surface=request.surface,
+                client_id=request.client_id,
+                metadata=request.metadata,
+                explicit_runtime_id=request.runtime_id,
             )
-            db.add(runtime)
-        else:
-            if runtime.user_id != owner_user_id:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"Runtime id collision for '{runtime_id}' while registering "
-                        f"{request.surface} host session"
-                    ),
-                )
-            runtime.name = runtime_name
-            runtime.description = f"Auto-registered host session for {request.surface}"
-            runtime.icon = runtime.icon or "terminal"
-            runtime.config_url = config_url
-            runtime.auth_type = "host_session"
-            runtime.auth_config = {}
-            existing_meta = dict(runtime.extra_metadata or {})
-            existing_meta.update(metadata)
-            runtime.extra_metadata = existing_meta
-            runtime.status = "active"
-            runtime.auth_status = "connected"
-            runtime.pool_group = pool_group
-            runtime.pool_enabled = request.pool_enabled
-            runtime.pool_priority = request.pool_priority
-            runtime.last_error_code = None
-
-        home_value = str(metadata.get("HOME") or "").strip()
-        codex_home_value = str(metadata.get("CODEX_HOME") or "").strip()
-        if home_value and codex_home_value:
-            candidates = (
+            runtime = (
                 db.query(RuntimeEnvironment)
-                .filter(
-                    RuntimeEnvironment.user_id == owner_user_id,
-                    RuntimeEnvironment.auth_type == "host_session",
-                )
-                .all()
+                .filter(RuntimeEnvironment.id == runtime_id)
+                .first()
             )
-            for candidate in candidates:
-                if candidate.id == runtime.id:
-                    continue
-                candidate_meta = dict(candidate.extra_metadata or {})
-                candidate_surface = str(candidate_meta.get("surface") or "").strip().lower()
-                candidate_home = str(candidate_meta.get("HOME") or "").strip()
-                candidate_codex_home = str(candidate_meta.get("CODEX_HOME") or "").strip()
-                if candidate_surface != request.surface:
-                    continue
-                if candidate_home != home_value:
-                    continue
-                if candidate_codex_home:
-                    continue
-                if candidate.pool_group != pool_group:
-                    continue
-                candidate.pool_enabled = False
-                candidate_meta["shadowed_by_runtime_id"] = runtime.id
-                candidate.extra_metadata = candidate_meta
+            metadata = dict(request.metadata or {})
+            metadata.update(
+                {
+                    "surface": request.surface,
+                    "registered_via": "host_session_bridge",
+                    "last_workspace_id": request.workspace_id,
+                    "last_client_id": request.client_id,
+                }
+            )
+            pool_group = request.pool_group or _default_pool_group_for_surface(request.surface)
+            runtime_name = (
+                str(request.runtime_name or "").strip()
+                or f"{request.surface} host session"
+            )
+            config_url = f"/settings/runtime-environments/{runtime_id}"
 
-        db.commit()
-        db.refresh(runtime)
-        payload = runtime.to_dict(include_sensitive=False)
-        payload["runtime_id"] = runtime.id
-        payload["owner_user_id"] = owner_user_id
-        return payload
+            if runtime is None:
+                runtime = RuntimeEnvironment(
+                    id=runtime_id,
+                    user_id=owner_user_id,
+                    name=runtime_name,
+                    description=f"Auto-registered host session for {request.surface}",
+                    icon="terminal",
+                    config_url=config_url,
+                    auth_type="host_session",
+                    auth_config={},
+                    extra_metadata=metadata,
+                    status="active",
+                    auth_status="connected",
+                    is_default=False,
+                    supports_dispatch=True,
+                    supports_cell=True,
+                    recommended_for_dispatch=False,
+                    pool_group=pool_group,
+                    pool_enabled=request.pool_enabled,
+                    pool_priority=request.pool_priority,
+                    last_error_code=None,
+                )
+                db.add(runtime)
+            else:
+                if runtime.user_id != owner_user_id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Runtime id collision for '{runtime_id}' while registering "
+                            f"{request.surface} host session"
+                        ),
+                    )
+                runtime.name = runtime_name
+                runtime.description = f"Auto-registered host session for {request.surface}"
+                runtime.icon = runtime.icon or "terminal"
+                runtime.config_url = config_url
+                runtime.auth_type = "host_session"
+                runtime.auth_config = {}
+                existing_meta = dict(runtime.extra_metadata or {})
+                existing_meta.update(metadata)
+                runtime.extra_metadata = existing_meta
+                runtime.status = "active"
+                runtime.auth_status = "connected"
+                runtime.pool_group = pool_group
+                runtime.pool_enabled = request.pool_enabled
+                runtime.pool_priority = request.pool_priority
+                runtime.last_error_code = None
+
+            home_value = str(metadata.get("HOME") or "").strip()
+            codex_home_value = str(metadata.get("CODEX_HOME") or "").strip()
+            if home_value and codex_home_value:
+                candidates = (
+                    db.query(RuntimeEnvironment)
+                    .filter(
+                        RuntimeEnvironment.user_id == owner_user_id,
+                        RuntimeEnvironment.auth_type == "host_session",
+                    )
+                    .all()
+                )
+                for candidate in candidates:
+                    if candidate.id == runtime.id:
+                        continue
+                    candidate_meta = dict(candidate.extra_metadata or {})
+                    candidate_surface = str(candidate_meta.get("surface") or "").strip().lower()
+                    candidate_home = str(candidate_meta.get("HOME") or "").strip()
+                    candidate_codex_home = str(candidate_meta.get("CODEX_HOME") or "").strip()
+                    if candidate_surface != request.surface:
+                        continue
+                    if candidate_home != home_value:
+                        continue
+                    if candidate_codex_home:
+                        continue
+                    if candidate.pool_group != pool_group:
+                        continue
+                    candidate.pool_enabled = False
+                    candidate_meta["shadowed_by_runtime_id"] = runtime.id
+                    candidate.extra_metadata = candidate_meta
+
+            db.commit()
+            db.refresh(runtime)
+            payload = runtime.to_dict(include_sensitive=False)
+            payload["runtime_id"] = runtime.id
+            payload["owner_user_id"] = owner_user_id
+            return payload
+        except Exception:
+            if not hasattr(db, "execute"):
+                raise
+            if hasattr(db, "rollback"):
+                db.rollback()
+            logger.warning(
+                "Host-session runtime ORM upsert failed for workspace=%s surface=%s; falling back to raw SQL",
+                request.workspace_id,
+                request.surface,
+                exc_info=True,
+            )
+            return _upsert_host_session_runtime_sql(
+                db=db,
+                owner_user_id=owner_user_id,
+                request=request,
+            )
     finally:
         db.close()
+
+
+def _upsert_host_session_runtime_sql(
+    *,
+    db: Any,
+    owner_user_id: str,
+    request: RegisterHostSessionRuntimeRequest,
+) -> dict[str, Any]:
+    runtime_id = _stable_host_session_runtime_id(
+        owner_user_id=owner_user_id,
+        surface=request.surface,
+        client_id=request.client_id,
+        metadata=request.metadata,
+        explicit_runtime_id=request.runtime_id,
+    )
+    metadata = dict(request.metadata or {})
+    metadata.update(
+        {
+            "surface": request.surface,
+            "registered_via": "host_session_bridge",
+            "last_workspace_id": request.workspace_id,
+            "last_client_id": request.client_id,
+        }
+    )
+    pool_group = request.pool_group or _default_pool_group_for_surface(request.surface)
+    runtime_name = (
+        str(request.runtime_name or "").strip()
+        or f"{request.surface} host session"
+    )
+    config_url = f"/settings/runtime-environments/{runtime_id}"
+
+    existing = (
+        db.execute(
+            text(
+                """
+                SELECT id, user_id, extra_metadata
+                FROM runtime_environments
+                WHERE id = :runtime_id
+                LIMIT 1
+                """
+            ),
+            {"runtime_id": runtime_id},
+        )
+        .mappings()
+        .first()
+    )
+    if existing and str(existing.get("user_id")) != owner_user_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Runtime id collision for '{runtime_id}' while registering "
+                f"{request.surface} host session"
+            ),
+        )
+
+    merged_metadata = _coerce_json_dict(existing.get("extra_metadata") if existing else {})
+    merged_metadata.update(metadata)
+    auth_config_json = json.dumps({})
+    metadata_json = json.dumps(merged_metadata)
+
+    payload = (
+        db.execute(
+            text(
+                """
+                INSERT INTO runtime_environments (
+                    id,
+                    user_id,
+                    name,
+                    description,
+                    icon,
+                    config_url,
+                    auth_type,
+                    auth_config,
+                    status,
+                    is_default,
+                    auth_status,
+                    supports_dispatch,
+                    supports_cell,
+                    recommended_for_dispatch,
+                    extra_metadata,
+                    pool_group,
+                    pool_enabled,
+                    pool_priority,
+                    last_error_code,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    :id,
+                    :user_id,
+                    :name,
+                    :description,
+                    :icon,
+                    :config_url,
+                    'host_session',
+                    CAST(:auth_config AS JSONB),
+                    'active',
+                    false,
+                    'connected',
+                    true,
+                    true,
+                    false,
+                    CAST(:extra_metadata AS JSONB),
+                    :pool_group,
+                    :pool_enabled,
+                    :pool_priority,
+                    NULL,
+                    NOW(),
+                    NOW()
+                )
+                ON CONFLICT (id) DO UPDATE SET
+                    user_id = EXCLUDED.user_id,
+                    name = EXCLUDED.name,
+                    description = EXCLUDED.description,
+                    icon = EXCLUDED.icon,
+                    config_url = EXCLUDED.config_url,
+                    auth_type = 'host_session',
+                    auth_config = CAST(:auth_config AS JSONB),
+                    status = 'active',
+                    auth_status = 'connected',
+                    supports_dispatch = true,
+                    supports_cell = true,
+                    recommended_for_dispatch = false,
+                    extra_metadata = CAST(:extra_metadata AS JSONB),
+                    pool_group = EXCLUDED.pool_group,
+                    pool_enabled = EXCLUDED.pool_enabled,
+                    pool_priority = EXCLUDED.pool_priority,
+                    last_error_code = NULL,
+                    updated_at = NOW()
+                RETURNING
+                    id,
+                    name,
+                    description,
+                    icon,
+                    config_url,
+                    auth_type,
+                    status,
+                    is_default,
+                    supports_dispatch,
+                    supports_cell,
+                    recommended_for_dispatch,
+                    extra_metadata,
+                    auth_status,
+                    pool_group,
+                    pool_enabled,
+                    pool_priority,
+                    cooldown_until,
+                    last_used_at,
+                    last_error_code,
+                    created_at,
+                    updated_at
+                """
+            ),
+            {
+                "id": runtime_id,
+                "user_id": owner_user_id,
+                "name": runtime_name,
+                "description": f"Auto-registered host session for {request.surface}",
+                "icon": "terminal",
+                "config_url": config_url,
+                "auth_config": auth_config_json,
+                "extra_metadata": metadata_json,
+                "pool_group": pool_group,
+                "pool_enabled": request.pool_enabled,
+                "pool_priority": request.pool_priority,
+            },
+        )
+        .mappings()
+        .first()
+    )
+    db.commit()
+    if not payload:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upsert host-session runtime {runtime_id}",
+        )
+    return {
+        "id": payload["id"],
+        "runtime_id": payload["id"],
+        "name": payload["name"],
+        "description": payload["description"],
+        "icon": payload["icon"],
+        "config_url": payload["config_url"],
+        "auth_type": payload["auth_type"],
+        "status": payload["status"],
+        "is_default": payload["is_default"],
+        "supports_dispatch": payload["supports_dispatch"],
+        "supports_cell": payload["supports_cell"],
+        "recommended_for_dispatch": payload["recommended_for_dispatch"],
+        "metadata": _coerce_json_dict(payload.get("extra_metadata")),
+        "auth_status": payload["auth_status"],
+        "pool_group": payload["pool_group"],
+        "pool_enabled": payload["pool_enabled"],
+        "pool_priority": payload["pool_priority"],
+        "cooldown_until": (
+            payload["cooldown_until"].isoformat()
+            if payload.get("cooldown_until")
+            else None
+        ),
+        "last_used_at": (
+            payload["last_used_at"].isoformat()
+            if payload.get("last_used_at")
+            else None
+        ),
+        "last_error_code": payload["last_error_code"],
+        "created_at": payload["created_at"].isoformat() if payload.get("created_at") else None,
+        "updated_at": payload["updated_at"].isoformat() if payload.get("updated_at") else None,
+        "owner_user_id": owner_user_id,
+    }
 
 def _get_codex_pool_bundle(
     workspace_id: str | None = None,
@@ -813,6 +1053,39 @@ async def report_runtime_quota_exhausted(
     return {
         "reported": False,
         "error": f"Quota reporting is not implemented for surface '{surface_name}'",
+    }
+
+
+@router.post("/runtime-auth-failure")
+async def report_runtime_auth_failure(
+    runtime_id: str = Query(...),
+    surface: str = Query(...),
+    error_code: str = Query("401"),
+):
+    surface_name = (surface or "").strip().lower()
+    if not runtime_id.strip():
+        return {"reported": False, "error": "runtime_id is required"}
+
+    if surface_name == "codex_cli":
+        from ...services.codex_pool_service import CodexPoolService
+
+        result = CodexPoolService().report_auth_failure(
+            runtime_id.strip(),
+            error_code=error_code.strip() or "401",
+        )
+        if result is None:
+            return {"reported": False, "error": f"Unknown Codex runtime: {runtime_id}"}
+        return {
+            "reported": True,
+            "surface": surface_name,
+            "runtime_id": runtime_id.strip(),
+            "cooldown_until": result.get("cooldown_until"),
+            "error_code": result.get("last_error_code"),
+        }
+
+    return {
+        "reported": False,
+        "error": f"Auth failure reporting is not implemented for surface '{surface_name}'",
     }
 
 

@@ -37,6 +37,10 @@ jobs:
         run: |
           python scripts/ci/validate_router_prefix.py backend/app/capabilities/
 
+      - name: Validate repo-root script boundary
+        run: |
+          python scripts/ci/validate_root_script_collisions.py
+
   validate-manifest:
     name: Validate Manifest Schema
     runs-on: ubuntu-latest
@@ -103,4 +107,3 @@ jobs:
           MINDSCAPE_ENVIRONMENT: ${{ matrix.environment }}
         run: |
           python scripts/ci/verify_capability_status.py backend/app/capabilities/ || echo "verify_capability_status.py not found, skipping"
-

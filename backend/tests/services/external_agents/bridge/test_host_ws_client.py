@@ -2,12 +2,16 @@ import base64
 import asyncio
 import json
 import os
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 import pytest
 
-from backend.app.services.external_agents.bridge.host_ws_client import HostBridgeWSClient
+from backend.app.services.external_agents.bridge.host_ws_client import (
+    HostBridgeWSClient,
+    _default_backend_api_url,
+)
 
 
 def _fake_jwt(payload: dict) -> str:
@@ -43,6 +47,101 @@ def test_host_ws_client_builds_codex_host_session_registration_payload(monkeypat
     assert payload["pool_priority"] == 2
     assert payload["metadata"]["CODEX_HOME"] == "/tmp/codex-session-a"
     assert payload["metadata"]["HOME"] == "/Users/tester"
+
+
+def test_host_ws_client_uses_stable_default_client_id():
+    client_a = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        task_handler=lambda _: None,
+    )
+    client_b = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        task_handler=lambda _: None,
+    )
+    client_c = HostBridgeWSClient(
+        workspace_id="ws-2",
+        host="localhost:8200",
+        surface="codex_cli",
+        task_handler=lambda _: None,
+    )
+
+    assert client_a.client_id == client_b.client_id
+    assert client_a.client_id.startswith("codex_cli-ws-1-")
+    assert client_c.client_id != client_a.client_id
+
+
+def test_default_backend_api_url_prefers_control_plane_port(monkeypatch):
+    monkeypatch.delenv("MINDSCAPE_BACKEND_API_URL", raising=False)
+    monkeypatch.delenv("MINDSCAPE_CONTROL_PLANE_HOST", raising=False)
+    monkeypatch.delenv("MINDSCAPE_CONTROL_PLANE_HOST_PORT", raising=False)
+
+    assert _default_backend_api_url("localhost:8200") == "http://localhost:8220"
+
+
+def test_host_ws_client_backend_api_url_defaults_to_control_plane(monkeypatch):
+    monkeypatch.delenv("MINDSCAPE_BACKEND_API_URL", raising=False)
+    monkeypatch.delenv("MINDSCAPE_CONTROL_PLANE_HOST", raising=False)
+    monkeypatch.setenv("MINDSCAPE_CONTROL_PLANE_HOST_PORT", "8220")
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=lambda _: None,
+    )
+
+    assert client.backend_api_url == "http://localhost:8220"
+
+
+def test_host_ws_client_backend_request_sync_tries_backend_api_candidates(monkeypatch):
+    monkeypatch.setenv("MINDSCAPE_BACKEND_API_URL", "http://localhost:8220")
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=lambda _: None,
+    )
+
+    seen_urls = []
+
+    class _FakeResponse:
+        def __init__(self, body: str):
+            self._body = body.encode("utf-8")
+
+        def read(self):
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_urlopen(req, timeout=0):
+        del timeout
+        seen_urls.append(req.full_url)
+        if req.full_url.startswith("http://localhost:8220"):
+            raise urllib.error.URLError("timed out")
+        return _FakeResponse('{"ok":true}')
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    backend_url, body = client._backend_request_sync(
+        lambda backend_url: urllib.request.Request(f"{backend_url}/health", method="GET"),
+        timeout=1.0,
+    )
+
+    assert seen_urls[0] == "http://localhost:8220/health"
+    assert seen_urls[1] == "http://127.0.0.1:8220/health"
+    assert backend_url == "http://127.0.0.1:8220"
+    assert body == '{"ok":true}'
 
 
 def test_host_ws_client_infers_default_codex_home(monkeypatch, tmp_path):
@@ -210,6 +309,85 @@ def test_host_ws_client_materializes_managed_codex_home_mirrors(monkeypatch, tmp
         assert payload["metadata"]["quota_scope_key"] == primary_scope
         assert payload["metadata"]["quota_scope_home"] == str(codex_primary)
         assert payload["metadata"]["managed_seed_source_home"] == str(codex_primary)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_loop_closes_ws_when_send_raises(monkeypatch):
+    class _BrokenWS:
+        def __init__(self):
+            self.closed = False
+
+        async def send(self, _payload):
+            raise RuntimeError("boom")
+
+        async def close(self):
+            self.closed = True
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=lambda _: None,
+    )
+    client.HEARTBEAT_INTERVAL = 0
+    client._ws = _BrokenWS()
+
+    async def _stop_after_first_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _stop_after_first_sleep)
+
+    await client._heartbeat_loop()
+
+    assert client._ws.closed is True
+
+
+@pytest.mark.asyncio
+async def test_connect_and_listen_recreates_pong_event_per_connection(monkeypatch):
+    stale_event = asyncio.Event()
+
+    class _FakeWS:
+        def __init__(self):
+            self._delivered = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._delivered:
+                raise StopAsyncIteration
+            self._delivered = True
+            assert client._pong_received is not stale_event
+            return json.dumps({"type": "pong"})
+
+    class _FakeConnect:
+        def __init__(self):
+            self.ws = _FakeWS()
+
+        async def __aenter__(self):
+            return self.ws
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=lambda _: None,
+    )
+    client._pong_received = stale_event
+
+    monkeypatch.setattr(
+        "backend.app.services.external_agents.bridge.host_ws_client.websockets.connect",
+        lambda *args, **kwargs: _FakeConnect(),
+    )
+
+    await client._connect_and_listen()
+
+    assert client._pong_received is None
 
 
 def test_host_ws_client_duplicate_account_snapshot_does_not_reduce_mirror_capacity(
@@ -696,6 +874,49 @@ def test_host_ws_client_treats_transport_denial_errors_as_polling_candidates(
     assert client._should_fallback_to_polling(error) is True
 
 
+def test_host_ws_client_treats_ws_open_timeout_as_polling_candidate(
+    monkeypatch, tmp_path
+):
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=lambda _: None,
+    )
+
+    error = RuntimeError("timed out during opening handshake")
+
+    assert client._should_fallback_to_polling(error) is False
+    assert client._should_fallback_to_polling(error) is False
+    assert client._should_fallback_to_polling(error) is True
+
+
+def test_host_ws_client_polling_reserve_backoff_grows_and_caps(monkeypatch, tmp_path):
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=lambda _: None,
+    )
+
+    delays = [
+        client._polling_reserve_failure_delay(attempt)
+        for attempt in range(1, 8)
+    ]
+
+    assert delays == [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0]
+
+
 @pytest.mark.asyncio
 async def test_host_ws_client_handles_polled_dispatch_via_rest(monkeypatch, tmp_path):
     home_dir = tmp_path / "home"
@@ -745,6 +966,110 @@ async def test_host_ws_client_handles_polled_dispatch_via_rest(monkeypatch, tmp_
     assert submitted[0]["execution_id"] == "exec-1"
     assert submitted[0]["lease_id"] == "lease-1"
     assert submitted[0]["metadata"]["transport"] == "polling"
+
+
+@pytest.mark.asyncio
+async def test_host_ws_client_acks_queued_ws_dispatches_without_blocking_receive_loop(
+    monkeypatch, tmp_path
+):
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setenv(
+        "MINDSCAPE_RESULT_SPOOL_PATH",
+        str(tmp_path / "host-ws-client-spool.json"),
+    )
+
+    allow_first_finish = asyncio.Event()
+    first_started = asyncio.Event()
+    second_started = asyncio.Event()
+    completed: list[str] = []
+    sent_messages: list[dict[str, object]] = []
+
+    async def _fake_task_handler(message):
+        execution_id = message["execution_id"]
+        if execution_id == "exec-1":
+            first_started.set()
+            await allow_first_finish.wait()
+        else:
+            second_started.set()
+        completed.append(execution_id)
+        return {
+            "status": "completed",
+            "output": execution_id,
+        }
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=_fake_task_handler,
+    )
+
+    async def _fake_send(message):
+        sent_messages.append(message)
+
+    async def _fake_deliver_result(execution_id, result_message):
+        sent_messages.append(
+            {
+                "type": "result",
+                "execution_id": execution_id,
+                "status": result_message["status"],
+            }
+        )
+        return "ws_push"
+
+    monkeypatch.setattr(client, "_send", _fake_send)
+    monkeypatch.setattr(client, "_deliver_result", _fake_deliver_result)
+
+    await client._handle_dispatch({"execution_id": "exec-1", "task": "first"})
+    await asyncio.wait_for(first_started.wait(), timeout=1)
+
+    await client._handle_dispatch({"execution_id": "exec-2", "task": "second"})
+    await asyncio.sleep(0)
+
+    acked_ids = [
+        message["execution_id"]
+        for message in sent_messages
+        if message.get("type") == "ack"
+    ]
+    assert acked_ids == ["exec-1", "exec-2"]
+    assert not second_started.is_set()
+
+    allow_first_finish.set()
+    await asyncio.wait_for(second_started.wait(), timeout=1)
+
+    for _ in range(20):
+        if completed == ["exec-1", "exec-2"]:
+            break
+        await asyncio.sleep(0.01)
+
+    assert completed == ["exec-1", "exec-2"]
+
+
+def test_host_ws_client_dispatch_lock_binds_to_running_loop(monkeypatch, tmp_path):
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+    )
+
+    assert client._dispatch_lock is None
+    assert client._dispatch_lock_loop is None
+
+    async def _bind_lock():
+        lock = client._get_dispatch_lock()
+        assert lock is client._get_dispatch_lock()
+        assert client._dispatch_lock is lock
+        assert client._dispatch_lock_loop is asyncio.get_running_loop()
+
+    asyncio.run(_bind_lock())
 
 
 def test_host_ws_client_rest_result_payload_includes_attachments(monkeypatch, tmp_path):

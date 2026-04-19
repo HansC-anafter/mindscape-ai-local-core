@@ -3,6 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
+import { getApiBaseUrl } from '@/lib/api-url';
 
 interface ComponentErrorBoundaryProps {
   children: React.ReactNode;
@@ -61,10 +62,7 @@ export default function CapabilityPage() {
   const workspaceId = params?.workspaceId as string;
   const capabilityCode = params?.capabilityCode as string;
 
-  // Resolve API URL from env or config
-  const apiUrl = typeof window !== 'undefined'
-    ? window.location.origin.replace(/:\d+$/, ':8200')
-    : 'http://localhost:8200';
+  const apiUrl = getApiBaseUrl();
 
   const [capabilityInfo, setCapabilityInfo] = useState<CapabilityInfo | null>(null);
   const [uiComponents, setUIComponents] = useState<UIComponentInfo[]>([]);

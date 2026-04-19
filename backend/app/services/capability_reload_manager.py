@@ -75,7 +75,10 @@ def reload_capability_routes(app: FastAPI, reason: str = "manual") -> Dict[str, 
         load_capabilities(reset=True)
 
         added_pack_routes = load_and_register_packs(
-            app, route_collector=state["pack_routes"]
+            app,
+            route_collector=state["pack_routes"],
+            activation_service=PackActivationService(),
+            activation_mode="hot_reload_feature_pack",
         )
 
         allowlist = _get_allowlist_from_env()

@@ -82,18 +82,30 @@ if (-not (Test-Path $ClientScript)) {
 
 # 4. Check backend health
 $BackendHttp = "http://$Host_"
+$ControlPlaneHttp = if ($env:MINDSCAPE_BACKEND_API_URL) {
+    $env:MINDSCAPE_BACKEND_API_URL
+} elseif ($env:MINDSCAPE_CONTROL_PLANE_HOST) {
+    if ($env:MINDSCAPE_CONTROL_PLANE_HOST -match '^https?://') {
+        $env:MINDSCAPE_CONTROL_PLANE_HOST
+    } else {
+        "http://$($env:MINDSCAPE_CONTROL_PLANE_HOST)"
+    }
+} else {
+    $controlPort = if ($env:MINDSCAPE_CONTROL_PLANE_HOST_PORT) { $env:MINDSCAPE_CONTROL_PLANE_HOST_PORT } else { "8220" }
+    "http://localhost:$controlPort"
+}
 try {
-    $health = Invoke-RestMethod -Uri "$BackendHttp/health" -TimeoutSec 3 -ErrorAction SilentlyContinue
-    Write-Info "Backend health: OK"
+    $health = Invoke-RestMethod -Uri "$ControlPlaneHttp/health" -TimeoutSec 3 -ErrorAction SilentlyContinue
+    Write-Info "Control plane health: OK"
 } catch {
-    Write-Warn "Backend at $BackendHttp may not be ready (health check failed)"
+    Write-Warn "Control plane at $ControlPlaneHttp may not be ready (health check failed)"
     Write-Warn "Proceeding anyway -- the client will retry with backoff"
 }
 
 # --- Helper: fetch workspace IDs ---
 function Get-WorkspaceIds {
     try {
-        $response = Invoke-RestMethod -Uri "$BackendHttp/api/v1/workspaces/?owner_user_id=default-user" -TimeoutSec 5
+        $response = Invoke-RestMethod -Uri "$ControlPlaneHttp/api/v1/workspaces/?owner_user_id=default-user" -TimeoutSec 5
         $ids = @()
         if ($response -is [array]) {
             $ids = $response | ForEach-Object { $_.id } | Where-Object { $_ }
@@ -163,7 +175,7 @@ if ($detected -eq 0) {
 # --- Environment ---
 $env:PYTHONPATH = "$ProjectDir;$($ProjectDir)\backend;$($env:PYTHONPATH)"
 $env:MINDSCAPE_WORKSPACE_ROOT = if ($env:MINDSCAPE_WORKSPACE_ROOT) { $env:MINDSCAPE_WORKSPACE_ROOT } else { $ProjectDir }
-$env:MINDSCAPE_BACKEND_API_URL = if ($env:MINDSCAPE_BACKEND_API_URL) { $env:MINDSCAPE_BACKEND_API_URL } else { $BackendHttp }
+$env:MINDSCAPE_BACKEND_API_URL = if ($env:MINDSCAPE_BACKEND_API_URL) { $env:MINDSCAPE_BACKEND_API_URL } else { $ControlPlaneHttp }
 if ($Surface -eq "gemini_cli") {
     $env:MINDSCAPE_CLI_RUNTIME_CMD = "python $BridgeScript"
     if (-not $env:GEMINI_CLI_RUNTIME_CMD) {

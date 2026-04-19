@@ -103,6 +103,19 @@ class TaskDispatchMixin:
         )
         self._inflight[execution_id] = inflight
 
+        try:
+            await asyncio.to_thread(
+                self._db_upsert_local_dispatch,
+                execution_id,
+                workspace_id,
+                message,
+            )
+        except Exception:
+            logger.exception(
+                "[AgentWS] Failed to persist durable local dispatch row for %s",
+                execution_id,
+            )
+
         # Send task to IDE client
         try:
             await client.websocket.send_text(json.dumps(message))
@@ -113,6 +126,17 @@ class TaskDispatchMixin:
         except Exception as e:
             self._inflight.pop(execution_id, None)
             logger.error(f"[AgentWS] Failed to send task {execution_id}: {e}")
+            try:
+                await asyncio.to_thread(
+                    self._db_release_pending_dispatch,
+                    execution_id,
+                    "pending",
+                )
+            except Exception:
+                logger.exception(
+                    "[AgentWS] Failed to release durable local dispatch row for %s",
+                    execution_id,
+                )
             # Enqueue for later retry
             pending = PendingTask(
                 execution_id=execution_id,
@@ -182,6 +206,18 @@ class TaskDispatchMixin:
                             "ACK timeout",
                             execution_id,
                         )
+                        try:
+                            await asyncio.to_thread(
+                                self._db_release_pending_dispatch,
+                                execution_id,
+                                "pending",
+                            )
+                        except Exception:
+                            logger.exception(
+                                "[AgentWS] Failed to release durable dispatch row "
+                                "for %s before shared transport retry",
+                                execution_id,
+                            )
                         return await self._cross_worker_dispatch(
                             workspace_id,
                             message,
@@ -299,3 +335,32 @@ class TaskDispatchMixin:
             )
 
         return flushed
+
+    async def flush_pending_with_recovery(
+        self,
+        workspace_id: str,
+        client: AgentClient,
+        recover_limit: Optional[int] = None,
+    ) -> int:
+        """
+        Rehydrate durable pending tasks before flushing them to a WS client.
+
+        WS reconnects previously only flushed the in-memory queue. If a task had
+        already been durably persisted as pending/cold in the tasks table, it
+        could remain stranded until a polling client explicitly reserved it.
+        """
+        recover_limit = recover_limit or getattr(self, "MAX_PENDING_QUEUE", 100)
+        try:
+            await asyncio.to_thread(
+                self._recover_orphaned_pending_tasks,
+                workspace_id=workspace_id,
+                surface_type=client.surface_type,
+                limit=recover_limit,
+            )
+        except Exception:
+            logger.exception(
+                "[AgentWS] Failed to recover durable pending tasks for %s",
+                workspace_id,
+            )
+
+        return await self.flush_pending(workspace_id, client)

@@ -15,6 +15,8 @@ from backend.app.services.runner_topology import normalize_queue_partition
 
 logger = logging.getLogger(__name__)
 
+_LOCAL_RUNTIME_ALIASES = {"local", "local-core"}
+
 # ---------------------------------------------------------------------------
 # Resource class constants
 # ---------------------------------------------------------------------------
@@ -246,6 +248,8 @@ def _resolve_runtime_affinity_from_profile(
     if isinstance(declared, str):
         normalized = declared.strip()
         if normalized:
+            if normalized.lower() in _LOCAL_RUNTIME_ALIASES:
+                return {"dispatch_mode": "docker_local"}
             return {"runtime_id": normalized}
         return None
 
@@ -259,6 +263,11 @@ def _resolve_runtime_affinity_from_profile(
         and isinstance(value, str)
         and value.strip()
     }
+    runtime_id = normalized.get("runtime_id")
+    if isinstance(runtime_id, str) and runtime_id.lower() in _LOCAL_RUNTIME_ALIASES:
+        for key in ("runtime_id", "runtime_url", "transport", "site_key", "device_id"):
+            normalized.pop(key, None)
+        normalized["dispatch_mode"] = "docker_local"
     return normalized or None
 
 

@@ -195,6 +195,16 @@ async def test_local_ack_timeout_evicts_stale_client_and_retries_shared_transpor
     manager.ACK_DEADLINE_SECONDS = 0.01
     manager.WAIT_SLICE_SECONDS = 0.01
     manager._db_unregister_connection = lambda client_id: None
+    persisted = []
+    released = []
+    manager._db_upsert_local_dispatch = (
+        lambda execution_id, workspace_id, payload: persisted.append(
+            (execution_id, workspace_id, payload["task"])
+        )
+    )
+    manager._db_release_pending_dispatch = (
+        lambda execution_id, status="pending": released.append((execution_id, status))
+    )
 
     websocket = _FakeWebSocket()
     client = AgentClient(
@@ -242,5 +252,7 @@ async def test_local_ack_timeout_evicts_stale_client_and_retries_shared_transpor
     assert websocket.messages == [message]
     assert result["status"] == "completed"
     assert result["output"] == "shared-transport-retry"
+    assert persisted == [("exec-ack-timeout", "ws-1", "retry this stale local client")]
+    assert released == [("exec-ack-timeout", "pending")]
     assert manager.get_client("ws-1", "codex-client", surface_type="codex_cli") is None
     assert manager._pending_queue["ws-1"] == []

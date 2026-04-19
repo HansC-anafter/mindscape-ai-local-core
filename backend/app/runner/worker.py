@@ -486,16 +486,21 @@ async def run_forever() -> None:
     reap_interval_seconds = _env_int("LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS", 60)
     dep_checker = DependencyChecker(cache_ttl=5.0)
 
-    # Kick the bridge once on startup so overdue cold tasks become runnable
-    # even if the dequeue loop stays otherwise idle.
-    await _run_maintenance_cycle(
-        tasks_store,
-        runner_id=runner_id,
-        redis_queue=redis_queue,
-        ready_queues=ready_queues,
-        ready_targets=ready_targets,
-        queue_cycle=queue_cycle,
+    # Kick the bridge once on startup without blocking the main heartbeat/dequeue
+    # loop. The maintenance path can scan queues and DB state; if it stalls, the
+    # runner should still come up and start claiming runnable work.
+    asyncio.create_task(
+        _run_maintenance_cycle(
+            tasks_store,
+            runner_id=runner_id,
+            redis_queue=redis_queue,
+            ready_queues=ready_queues,
+            ready_targets=ready_targets,
+            queue_cycle=queue_cycle,
+        ),
+        name="runner-startup-maintenance-kick",
     )
+    logger.info("Runner startup maintenance kick scheduled")
     asyncio.create_task(
         _maintenance_loop(
             tasks_store,

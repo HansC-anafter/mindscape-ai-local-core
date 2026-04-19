@@ -12,6 +12,10 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import logging
 import uvicorn
 
+from backend.app.core.backend_runtime_mode import (
+    get_backend_runtime_role,
+    should_enable_uvicorn_reload,
+)
 from backend.app.core.security import security_monitor
 from backend.app.app_bootstrap.cors import get_cors_origins, get_cors_origin_regex
 from backend.app.app_bootstrap.routes import register_all_routes
@@ -140,23 +144,83 @@ async def health_check():
     elif any(i.severity == "warning" for i in issues):
         overall_status = "degraded"
 
+    backend_role = get_backend_runtime_role()
+    reload_enabled = should_enable_uvicorn_reload()
+    runtime_migrations_post_ready_status = getattr(
+        app.state,
+        "runtime_migrations_post_ready_status",
+        "unknown",
+    )
+    runtime_migrations_post_ready_error = getattr(
+        app.state,
+        "runtime_migrations_post_ready_error",
+        None,
+    )
+    playbook_registry_post_ready_status = getattr(
+        app.state,
+        "playbook_registry_post_ready_status",
+        "unknown",
+    )
+    playbook_registry_post_ready_error = getattr(
+        app.state,
+        "playbook_registry_post_ready_error",
+        None,
+    )
+    tool_rag_post_ready_status = getattr(
+        app.state,
+        "tool_rag_post_ready_status",
+        "unknown",
+    )
+    tool_rag_post_ready_error = getattr(
+        app.state,
+        "tool_rag_post_ready_error",
+        None,
+    )
+
     return {
         "status": overall_status,
         "service": "my-agent-mindscape-backend",
         "version": "1.0.0",
+        "backend_role": backend_role,
+        "uvicorn_reload_enabled": reload_enabled,
         "components": {
             "backend": backend_status.get("status", "unknown"),
             "llm_configured": llm_status.get("configured", False),
             "llm_available": llm_status.get("available", False),
             "vector_db_connected": vector_db_status.get("connected", False),
             "ocr_service": ocr_status.get("status", "unknown"),
+            "post_ready_playbook_registry": playbook_registry_post_ready_status,
+            "post_ready_runtime_migrations": runtime_migrations_post_ready_status,
+            "tool_rag_post_ready": tool_rag_post_ready_status,
         },
         "llm_configured": llm_status.get("configured", False),
         "llm_available": llm_status.get("available", False),
         "llm_provider": llm_status.get("provider"),
         "vector_db_connected": vector_db_status.get("connected", False),
         "ocr_service": ocr_status,
+        "post_ready_playbook_registry": {
+            "status": playbook_registry_post_ready_status,
+            "error": playbook_registry_post_ready_error,
+        },
+        "post_ready_runtime_migrations": {
+            "status": runtime_migrations_post_ready_status,
+            "error": runtime_migrations_post_ready_error,
+        },
+        "tool_rag_post_ready": {
+            "status": tool_rag_post_ready_status,
+            "error": tool_rag_post_ready_error,
+        },
         "issues": [issue.to_dict() for issue in issues] if issues else [],
+    }
+
+
+@app.get("/healthz")
+async def healthz():
+    """Lightweight liveness probe for container/runtime health."""
+    return {
+        "status": "ok",
+        "backend_role": get_backend_runtime_role(),
+        "reload_enabled": should_enable_uvicorn_reload(),
     }
 
 
@@ -220,15 +284,21 @@ def main():
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
     workers = int(os.getenv("WORKERS", "1"))
+    reload_enabled = should_enable_uvicorn_reload()
 
-    logger.info(f"Starting My Agent Console API on {host}:{port}")
+    logger.info(
+        "Starting My Agent Console API on %s:%s (reload=%s)",
+        host,
+        port,
+        reload_enabled,
+    )
 
     uvicorn.run(
         "backend.app.main:app",
         host=host,
         port=port,
         workers=workers,
-        reload=os.getenv("ENVIRONMENT") == "development",
+        reload=reload_enabled,
         log_level="info",
     )
 

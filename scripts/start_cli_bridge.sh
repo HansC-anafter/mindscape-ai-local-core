@@ -22,12 +22,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CLIENT_SCRIPT="$PROJECT_DIR/backend/app/services/external_agents/bridge/host_ws_client.py"
+LOG_DIR="$PROJECT_DIR/logs"
 
 # Default config
-BACKEND_HOST="${MINDSCAPE_WS_HOST:-localhost:8200}"
+BACKEND_HOST_RAW="${MINDSCAPE_WS_HOST:-localhost:8200}"
+CONTROL_PLANE_HOST_RAW="${MINDSCAPE_CONTROL_PLANE_HOST:-localhost:${MINDSCAPE_CONTROL_PLANE_HOST_PORT:-8220}}"
 WORKSPACE_ID="${MINDSCAPE_WORKSPACE_ID:-}"
 SURFACE="${MINDSCAPE_SURFACE:-gemini_cli}"
 ALL_MODE=false
+CURL_CONNECT_TIMEOUT="${MINDSCAPE_BRIDGE_CURL_CONNECT_TIMEOUT:-3}"
+CURL_MAX_TIME="${MINDSCAPE_BRIDGE_CURL_MAX_TIME:-5}"
 
 # Colors
 RED='\033[0;31m'
@@ -47,6 +51,144 @@ print_banner() {
 log_info()  { echo -e "${GREEN}[INFO]${NC}  $1"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+canonicalize_loopback_host() {
+    local host="$1"
+    case "$host" in
+        localhost)
+            echo "127.0.0.1"
+            ;;
+        localhost:*)
+            echo "127.0.0.1:${host#localhost:}"
+            ;;
+        '[::1]')
+            echo "127.0.0.1"
+            ;;
+        '[::1]:'*)
+            echo "127.0.0.1:${host#\[::1\]:}"
+            ;;
+        *)
+            echo "$host"
+            ;;
+    esac
+}
+
+bridge_curl() {
+    local url="$1"
+    shift || true
+    local -a curl_args=(
+        --silent
+        --show-error
+        --connect-timeout "$CURL_CONNECT_TIMEOUT"
+        --max-time "$CURL_MAX_TIME"
+    )
+    if [[ "$url" == http://127.0.0.1* ]] || [[ "$url" == https://127.0.0.1* ]]; then
+        curl_args+=(--ipv4)
+    fi
+    curl "${curl_args[@]}" "$url" "$@"
+}
+
+build_host_candidates() {
+    local host="$1"
+    local canonical
+    canonical="$(canonicalize_loopback_host "$host")"
+    echo "$host"
+    if [[ "$canonical" != "$host" ]]; then
+        echo "$canonical"
+    fi
+}
+
+bridge_curl_first_success() {
+    local path="$1"
+    shift || true
+    local candidate url
+    while IFS= read -r candidate; do
+        [[ -z "$candidate" ]] && continue
+        url="http://$candidate$path"
+        if bridge_curl "$url" "$@"; then
+            return 0
+        fi
+    done < <(build_host_candidates "$CONTROL_PLANE_HOST_RAW")
+    return 1
+}
+
+BACKEND_HOST="$BACKEND_HOST_RAW"
+CONTROL_PLANE_HOST="$CONTROL_PLANE_HOST_RAW"
+
+surface_runtime_available() {
+    if [[ "${MINDSCAPE_ALLOW_BACKEND_ONLY_SURFACES:-}" =~ ^(1|true|yes|on)$ ]]; then
+        return 0
+    fi
+
+    case "$SURFACE" in
+        gemini_cli)
+            command -v gemini >/dev/null 2>&1
+            ;;
+        codex_cli)
+            command -v codex >/dev/null 2>&1
+            ;;
+        claude_code_cli)
+            command -v claude >/dev/null 2>&1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+surface_lock_dir() {
+    echo "$LOG_DIR/.cli-bridge-${SURFACE}.lock"
+}
+
+acquire_surface_lock() {
+    local lock_dir
+    lock_dir="$(surface_lock_dir)"
+    mkdir -p "$LOG_DIR"
+
+    if mkdir "$lock_dir" 2>/dev/null; then
+        echo "$$" > "$lock_dir/pid"
+        return 0
+    fi
+
+    if [[ -f "$lock_dir/pid" ]]; then
+        local existing_pid
+        existing_pid="$(cat "$lock_dir/pid" 2>/dev/null || true)"
+        if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+            log_warn "Surface watcher for $SURFACE already running (PID $existing_pid); exiting duplicate instance"
+            exit 0
+        fi
+    fi
+
+    rm -rf "$lock_dir"
+    mkdir "$lock_dir"
+    echo "$$" > "$lock_dir/pid"
+}
+
+release_surface_lock() {
+    local lock_dir
+    lock_dir="$(surface_lock_dir)"
+    if [[ -f "$lock_dir/pid" ]]; then
+        local owner_pid
+        owner_pid="$(cat "$lock_dir/pid" 2>/dev/null || true)"
+        if [[ "$owner_pid" != "$$" ]]; then
+            return 0
+        fi
+    fi
+    rm -rf "$lock_dir"
+}
+
+find_existing_bridge_pid() {
+    local ws_id="$1"
+    ps -Ao pid=,command= | while read -r pid cmd; do
+        [[ "$cmd" != *"$CLIENT_SCRIPT"* ]] && continue
+        [[ "$cmd" != *"--workspace-id $ws_id"* ]] && continue
+        [[ "$cmd" != *"--surface $SURFACE"* ]] && continue
+        if [[ "$pid" != "$$" ]]; then
+            echo "$pid"
+            return 0
+        fi
+    done
+}
 
 # Parse CLI args
 while [[ $# -gt 0 ]]; do
@@ -92,6 +234,11 @@ done
 
 print_banner
 
+if ! surface_runtime_available; then
+    log_warn "Skipping $SURFACE bridge watcher because its local CLI runtime is unavailable"
+    exit 0
+fi
+
 # --- Pre-flight checks ---
 
 # 1. Check Python
@@ -114,10 +261,16 @@ if [[ ! -f "$CLIENT_SCRIPT" ]]; then
     exit 1
 fi
 
-# 4. Check backend is reachable
+# 4. Check backend/control plane is reachable
 BACKEND_HTTP="http://$BACKEND_HOST"
-if ! curl -s --connect-timeout 3 "$BACKEND_HTTP/health" &>/dev/null; then
-    log_warn "Backend at $BACKEND_HTTP may not be ready (health check failed)"
+CONTROL_HTTP="${MINDSCAPE_BACKEND_API_URL:-http://$CONTROL_PLANE_HOST}"
+if [[ -z "${MINDSCAPE_BACKEND_API_URL:-}" ]]; then
+    if ! bridge_curl_first_success "/health" &>/dev/null; then
+        log_warn "Control plane at $CONTROL_HTTP may not be ready (health check failed)"
+        log_warn "Proceeding anyway -- the client will retry with backoff"
+    fi
+elif ! bridge_curl "$CONTROL_HTTP/health" &>/dev/null; then
+    log_warn "Control plane at $CONTROL_HTTP may not be ready (health check failed)"
     log_warn "Proceeding anyway -- the client will retry with backoff"
 fi
 
@@ -125,8 +278,14 @@ fi
 # Connects bridge to every workspace. Previously filtered by open projects,
 # but that excluded valid workspaces with no projects yet.
 fetch_active_workspace_ids() {
-    curl -s "$BACKEND_HTTP/api/v1/workspaces/?owner_user_id=default-user" 2>/dev/null \
-        | python3 -c "
+    local payload
+    if [[ -z "${MINDSCAPE_BACKEND_API_URL:-}" ]]; then
+        payload="$(bridge_curl_first_success "/api/v1/workspaces/?owner_user_id=default-user" 2>/dev/null || true)"
+    else
+        payload="$(bridge_curl "$CONTROL_HTTP/api/v1/workspaces/?owner_user_id=default-user" 2>/dev/null || true)"
+    fi
+    [[ -z "$payload" ]] && return 0
+    printf '%s' "$payload" | python3 -c "
 import sys, json
 
 try:
@@ -148,8 +307,14 @@ except Exception:
 
 # Also keep a simple version for single-workspace auto-detect
 fetch_first_workspace_id() {
-    curl -s "$BACKEND_HTTP/api/v1/workspaces/?owner_user_id=default-user" 2>/dev/null \
-        | python3 -c "
+    local payload
+    if [[ -z "${MINDSCAPE_BACKEND_API_URL:-}" ]]; then
+        payload="$(bridge_curl_first_success "/api/v1/workspaces/?owner_user_id=default-user" 2>/dev/null || true)"
+    else
+        payload="$(bridge_curl "$CONTROL_HTTP/api/v1/workspaces/?owner_user_id=default-user" 2>/dev/null || true)"
+    fi
+    [[ -z "$payload" ]] && return 0
+    printf '%s' "$payload" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
@@ -221,10 +386,13 @@ fi
 
 # --- Gemini auth (resolved by backend /api/v1/auth/cli-token) ---
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
-export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$BACKEND_HOST}"
+export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$CONTROL_PLANE_HOST}"
 
 # --- Start bridge ---
 if [[ "$ALL_MODE" == "true" ]]; then
+    acquire_surface_lock
+    trap release_surface_lock EXIT
+
     log_info "Starting bridge with workspace watcher..."
     log_info "Surface:   $SURFACE"
     log_info "Runtime:   ${MINDSCAPE_CLI_RUNTIME_CMD:-${GEMINI_CLI_RUNTIME_CMD:-surface-native}}"
@@ -253,6 +421,14 @@ if [[ "$ALL_MODE" == "true" ]]; then
     # Spawn a bridge for a workspace
     spawn_bridge() {
         local ws_id="$1"
+        local existing_pid
+        existing_pid="$(find_existing_bridge_pid "$ws_id" | head -n 1 || true)"
+        if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+            log_info "  Existing bridge PID $existing_pid already serving $ws_id ($SURFACE)"
+            RUNNING_WS_IDS+=("$ws_id")
+            RUNNING_PIDS+=("$existing_pid")
+            return 0
+        fi
         log_info "  Spawning bridge for workspace: $ws_id"
         "$PYTHON_BIN" "$CLIENT_SCRIPT" \
             --workspace-id "$ws_id" \

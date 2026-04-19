@@ -218,6 +218,7 @@ async def compile_bundle(request: CompileRequest) -> Dict[str, Any]:
     route_decision = await router_instance.decide(
         execution_mode="meeting",
         meeting_enabled=True,
+        executor_runtime=getattr(workspace, "resolved_executor_runtime", None),
         entry_point="compile",
     )
 

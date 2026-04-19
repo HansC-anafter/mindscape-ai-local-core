@@ -86,12 +86,14 @@ x-runner-common: &runner-common
 services:
   # Backend API Service
   backend:
+    image: ${LOCAL_CORE_BACKEND_IMAGE:-mindscape-ai-local-core-backend}
     build:
       context: .
       dockerfile: Dockerfile.backend
     container_name: mindscape-ai-local-core-backend
     shm_size: "2gb"
     restart: unless-stopped
+    command: ["sh", "-c", "exec sh /app/backend/scripts/run_backend_server.sh"]
     ports:
       - "8200:8200"
       - "${SANDBOX_PREVIEW_PORT_START:-3002}-${SANDBOX_PREVIEW_PORT_END:-3020}:${SANDBOX_PREVIEW_PORT_START:-3002}-${SANDBOX_PREVIEW_PORT_END:-3020}"
@@ -101,6 +103,10 @@ services:
       - SANDBOX_PREVIEW_PORT_END=${SANDBOX_PREVIEW_PORT_END:-3020}
       - PYTHONPATH=/app:/app/backend:/app/backend/app
       - ENVIRONMENT=development
+      - MINDSCAPE_BACKEND_ROLE=${MINDSCAPE_BACKEND_ROLE:-execution}
+      - MINDSCAPE_BACKEND_RELOAD=${MINDSCAPE_BACKEND_RELOAD:-}
+      - MINDSCAPE_ALLOW_IMPLICIT_PACK_RELOAD=${MINDSCAPE_ALLOW_IMPLICIT_PACK_RELOAD:-}
+      - MINDSCAPE_POST_READY_RUNTIME_MIGRATIONS=0
       - HOST=0.0.0.0
       - PORT=8200
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -202,12 +208,124 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8200/health')",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8200/healthz')",
         ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 180s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  backend-control:
+    image: ${LOCAL_CORE_BACKEND_IMAGE:-mindscape-ai-local-core-backend}
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: mindscape-ai-local-core-backend-control
+    profiles: ["control-plane"]
+    shm_size: "2gb"
+    restart: unless-stopped
+    command: ["sh", "-c", "exec sh /app/backend/scripts/run_backend_server.sh"]
+    ports:
+      - "${MINDSCAPE_CONTROL_PLANE_HOST_PORT:-8220}:8210"
+    environment:
+      - SANDBOX_PREVIEW_PORT_START=${SANDBOX_PREVIEW_PORT_START:-3002}
+      - SANDBOX_PREVIEW_PORT_END=${SANDBOX_PREVIEW_PORT_END:-3020}
+      - PYTHONPATH=/app:/app/backend:/app/backend/app
+      - ENVIRONMENT=development
+      - MINDSCAPE_BACKEND_ROLE=control
+      - MINDSCAPE_BACKEND_RELOAD=true
+      - MINDSCAPE_ALLOW_IMPLICIT_PACK_RELOAD=true
+      - MINDSCAPE_CONTROL_PLANE_SKIP_MIGRATIONS=1
+      - MINDSCAPE_POST_READY_TOOL_RAG_WARMUP=0
+      - MINDSCAPE_POST_READY_RUNTIME_MIGRATIONS=0
+      - DB_POOL_SIZE=4
+      - DB_MAX_OVERFLOW=2
+      - HOST=0.0.0.0
+      - PORT=8210
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_ENABLED=${REDIS_ENABLED:-true}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-0}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
+      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_CORE_HOST=postgres
+      - POSTGRES_CORE_PORT=5432
+      - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_CORE_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_CORE_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      - POSTGRES_VECTOR_HOST=postgres
+      - POSTGRES_VECTOR_PORT=5432
+      - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_USER:-mindscape}
+      - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
+      - POSTGRES_HOST=${POSTGRES_CORE_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_CORE_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      - LOCAL_AUTH_SECRET=${LOCAL_AUTH_SECRET:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - IG_REFERENCE_CATALOG_MODE=${IG_REFERENCE_CATALOG_MODE:-dual}
+      - WORKSPACE_STORAGE_ROOT=${WORKSPACE_STORAGE_ROOT:-/root/.mindscape/workspaces}
+      - MINDSCAPE_MODEL_ROOT=${MINDSCAPE_MODEL_ROOT:-/root/.mindscape/models}
+      - MINDSCAPE_STORAGE_HOST_DIR=${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}
+      - MINDSCAPE_MODELS_HOST_DIR=${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}
+      - LAF_HOST_RUNTIME_ROOT=${LAF_HOST_RUNTIME_ROOT:-~/.mindscape/runtimes/layer_asset_forge}
+      - LOCAL_CORE_PROJECT_ROOT=${LOCAL_CORE_PROJECT_ROOT:-${PWD}}
+      - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-true}
+      - PLAYBOOK_DISABLE_LEGACY=${PLAYBOOK_DISABLE_LEGACY:-1}
+      - MEETING_DYNAMIC_ROUTING_ENABLED=${MEETING_DYNAMIC_ROUTING_ENABLED:-false}
+      - MEETING_DYNAMIC_ROUTING_TRACE_ENABLED=${MEETING_DYNAMIC_ROUTING_TRACE_ENABLED:-false}
+      - CLOUD_API_URL=${CLOUD_API_URL:-}
+      - CLOUD_LICENSE_KEY=${CLOUD_LICENSE_KEY:-}
+      - XTTS_SERVICE_URL=${XTTS_SERVICE_URL:-http://xtts-service:8020}
+      - LOCAL_STORAGE_PATH=/root/.mindscape/storage/layer_asset_forge
+      - TZ=${TZ:-UTC}
+      - HOST_PROJECT_PATH=${HOST_PROJECT_PATH:-${PWD}}
+    volumes:
+      - ./backend:/app/backend:rw
+      - ./scripts:/app/scripts:rw
+      - "${LOCAL_CORE_DATA_HOST_DIR:-./data}:/app/data:rw"
+      - "${LOCAL_CORE_SECRETS_HOST_DIR:-./data/secrets}:/root/.mindscape:rw"
+      - ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}:/root/.mindscape/models:rw
+      - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
+      - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
+      - ./web-console:/app/web-console:rw
+      - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface:rw
+    deploy:
+      resources:
+        limits:
+          memory: 6g
+    networks:
+      - mindscape-network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8210/healthz')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -230,7 +348,7 @@ services:
       LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_BROWSER_ACCEPTED_PARTITIONS:-browser_local}
       LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_BROWSER_ACCEPTED_RESOURCE_CLASSES:-browser}
       # Total browser-runner task cap. Lock-specific concurrency still applies inside this ceiling.
-      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-2}
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-3}
       # Cap concurrent thumbnail browser fallbacks without changing task semantics.
       IG_THUMBNAIL_BROWSER_FALLBACK_MAX_INFLIGHT: ${IG_THUMBNAIL_BROWSER_FALLBACK_MAX_INFLIGHT:-1}
 
@@ -256,9 +374,10 @@ services:
     environment:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
-      - NEXT_PUBLIC_API_URL=http://localhost:8200
-      - NEXT_PUBLIC_BACKEND_URL=http://localhost:8200
-      - BACKEND_URL=http://backend:8200
+      - NEXT_PUBLIC_API_URL=http://localhost:8220
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:8220
+      - WEB_CONSOLE_BACKEND_URL=http://backend-control:8210
+      - BACKEND_URL=http://backend-control:8210
       - MEDIA_PROXY_URL=http://media-proxy:8000
       - TZ=${TZ:-UTC}
     volumes:

@@ -459,6 +459,14 @@ class WorkspacePickRelevantExecutionTool(MindscapeTool):
                         "type": "object",
                         "description": "Extracted intent from user message",
                     },
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "Workspace ID used to route LLM disambiguation through the preferred executor runtime",
+                    },
+                    "executor_runtime": {
+                        "type": "string",
+                        "description": "Optional executor runtime override for LLM disambiguation",
+                    },
                 },
                 required=["candidates", "user_query"],
             ),
@@ -475,6 +483,8 @@ class WorkspacePickRelevantExecutionTool(MindscapeTool):
         user_query: str,
         conversation_context: str = "",
         extracted_intent: Optional[Dict[str, Any]] = None,
+        workspace_id: Optional[str] = None,
+        executor_runtime: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Pick the most relevant execution from candidates
@@ -527,18 +537,7 @@ class WorkspacePickRelevantExecutionTool(MindscapeTool):
                 or candidates[0].get("id")
             }
 
-        from backend.app.capabilities.core_llm.services.structured import (
-            extract_structured,
-        )
-
-        schema = {
-            "type": "object",
-            "properties": {
-                "execution_id": {"type": "string"},
-                "reason": {"type": "string"},
-            },
-            "required": ["execution_id"],
-        }
+        from backend.app.services.llm.core_llm import core_llm_call
 
         candidate_summary = "\n".join(
             [
@@ -561,7 +560,12 @@ Candidates (filtered):
 Select the best matching execution_id and explain why.
 """
 
-        result = await extract_structured(prompt, schema)
+        result = await core_llm_call(
+            user_message=prompt,
+            response_format="json",
+            workspace_id=workspace_id,
+            executor_runtime=executor_runtime,
+        )
         return {"execution_id": result["execution_id"]}
 
 

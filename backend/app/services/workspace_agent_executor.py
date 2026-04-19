@@ -54,6 +54,7 @@ class AgentExecutionResponse:
     output: str
     artifacts: List[str] = field(default_factory=list)
     error: Optional[str] = None
+    execution_id: Optional[str] = None
     trace_id: Optional[str] = None
     execution_time_seconds: float = 0.0
     risk_level: str = "low"
@@ -189,7 +190,7 @@ class WorkspaceAgentExecutor:
             agent_id=agent_id,
             sandbox_path=sandbox_path,
             context=context,
-            timeout_seconds=self._get_timeout(),
+            timeout_seconds=self._get_timeout(agent_id),
         )
 
         # 6. Start trace
@@ -237,6 +238,11 @@ class WorkspaceAgentExecutor:
                 output=result.output,
                 error=result.error,
                 artifacts=result_artifacts,
+                execution_id=(
+                    result.agent_metadata.get("execution_id")
+                    if isinstance(result.agent_metadata, dict)
+                    else None
+                ),
                 trace_id=trace.trace_id,
                 execution_time_seconds=execution_time,
             )
@@ -346,10 +352,35 @@ class WorkspaceAgentExecutor:
         # Fallback to workspace ID based path
         return f"/tmp/mindscape/workspaces/{self.workspace.id}/sandbox"
 
-    def _get_timeout(self) -> int:
-        """Get execution timeout from sandbox config."""
+    def _get_timeout(self, agent_id: Optional[str] = None) -> int:
+        """Get execution timeout from sandbox config and runtime defaults."""
         sandbox_config = getattr(self.workspace, "sandbox_config", None) or {}
-        return sandbox_config.get("max_execution_time_seconds", 300)
+        workspace_timeout = sandbox_config.get("max_execution_time_seconds", 300)
+        runtime_timeout = None
+        resolved_agent_id = agent_id or getattr(self.workspace, "executor_runtime", None)
+        if resolved_agent_id:
+            try:
+                manifest = self.registry.get_manifest(resolved_agent_id)
+                defaults = getattr(manifest, "defaults", {}) or {}
+                candidate = defaults.get("max_duration")
+                if candidate is not None:
+                    runtime_timeout = int(candidate)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Invalid runtime max_duration for agent %s: %r",
+                    resolved_agent_id,
+                    candidate,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "Failed to resolve runtime timeout for agent %s: %s",
+                    resolved_agent_id,
+                    exc,
+                )
+
+        if runtime_timeout is None:
+            return int(workspace_timeout)
+        return max(int(workspace_timeout), runtime_timeout)
 
 
 async def get_workspace_agent_executor(
