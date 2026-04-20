@@ -93,6 +93,11 @@ class TemplateEngine:
                 # Handle {{step.xxx.yyy}}
                 if var_type == 'step':
                     step_parts = var_path.split('.', 1)
+                    if len(step_parts) < 2:
+                        step_id = step_parts[0]
+                        step_result = step_outputs.get(step_id)
+                        if step_result is not None:
+                            return step_result
                     if len(step_parts) >= 2:
                         step_id, output_path = step_parts[0], step_parts[1]
                         step_result = step_outputs.get(step_id, {})
@@ -142,6 +147,17 @@ class TemplateEngine:
                     # Return raw value for exact match (preserves list/dict types)
                     if value is not None:
                         return value
+
+                # Handle {{context.xxx}}
+                elif var_type == 'context':
+                    value = workflow_context.get(var_path)
+                    if value is not None:
+                        return value
+
+            # For exact-match templates, missing values should stay absent instead
+            # of being coerced into an empty string. This keeps optional object
+            # inputs like spatial_schedule from being passed as "".
+            return None
 
         if '{{step.' in template_str or '{{input.' in template_str:
             logger.debug(f"TemplateEngine: Resolving template string (length={len(template_str)}): {template_str[:200]}...")
@@ -410,4 +426,3 @@ class TemplateEngine:
             resolved_inputs[input_name] = resolved_value
 
         return resolved_inputs
-

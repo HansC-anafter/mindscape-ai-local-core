@@ -84,6 +84,43 @@ def _extract_step_and_output_payloads(
     return step_outputs_payload, outputs_payload
 
 
+def _build_canonical_workflow_result(
+    *,
+    result: Optional[Dict[str, Any]],
+    runtime_result: Any,
+    workflow_failed: bool,
+    step_outputs_payload: Dict[str, Any],
+    outputs_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    canonical_result = dict(result) if isinstance(result, dict) else {}
+    if not canonical_result.get("status"):
+        canonical_result["status"] = (
+            "failed"
+            if workflow_failed
+            else getattr(runtime_result, "status", None) or "failed"
+        )
+
+    if step_outputs_payload:
+        existing_step_outputs = canonical_result.get("step_outputs")
+        if isinstance(existing_step_outputs, dict):
+            merged_step_outputs = dict(step_outputs_payload)
+            merged_step_outputs.update(existing_step_outputs)
+            canonical_result["step_outputs"] = merged_step_outputs
+        else:
+            canonical_result["step_outputs"] = step_outputs_payload
+
+    if outputs_payload:
+        existing_outputs = canonical_result.get("outputs")
+        if isinstance(existing_outputs, dict):
+            merged_outputs = dict(outputs_payload)
+            merged_outputs.update(existing_outputs)
+            canonical_result["outputs"] = merged_outputs
+        else:
+            canonical_result["outputs"] = outputs_payload
+
+    return canonical_result
+
+
 def _extract_sandbox_id(runtime_result: Any) -> Optional[str]:
     metadata = getattr(runtime_result, "metadata", None) or {}
     if isinstance(metadata, dict):
@@ -213,15 +250,13 @@ def persist_runtime_result(
             runtime_result
         )
         workflow_failed = runtime_result_has_errors_fn(runtime_result, result)
-        canonical_workflow_result = result or {
-            "status": (
-                "failed"
-                if workflow_failed
-                else getattr(runtime_result, "status", None) or "failed"
-            ),
-            "step_outputs": step_outputs_payload,
-            "outputs": outputs_payload,
-        }
+        canonical_workflow_result = _build_canonical_workflow_result(
+            result=result,
+            runtime_result=runtime_result,
+            workflow_failed=workflow_failed,
+            step_outputs_payload=step_outputs_payload,
+            outputs_payload=outputs_payload,
+        )
         execution_context = {
             "playbook_code": playbook_code,
             "playbook_name": playbook_name,

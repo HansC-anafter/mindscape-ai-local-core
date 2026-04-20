@@ -149,6 +149,7 @@ class TaskResultLandingService:
             )
 
         task = None
+        execution_context: Dict[str, Any] = {}
         if task_id:
             task = self._tasks_store.get_task(task_id)
         if not task:
@@ -280,6 +281,10 @@ class TaskResultLandingService:
             result_json=result_json if isinstance(result_json, dict) else {},
             task=task,
         )
+        workflow_failure = self._extract_workflow_failure(
+            result_data=result_data,
+            execution_context=execution_context,
+        )
         if markdown_failure:
             logger.warning(
                 "Markdown deliverable landing failed exec=%s missing=%s",
@@ -367,9 +372,12 @@ class TaskResultLandingService:
                     if isinstance(getattr(task, "result", None), dict)
                     else {}
                 )
+                task_status = (
+                    TaskStatus.FAILED if workflow_failure else TaskStatus.SUCCEEDED
+                )
                 self._tasks_store.update_task_status(
                     task_id=task_id,
-                    status=TaskStatus.SUCCEEDED,
+                    status=task_status,
                     result=self._build_task_result_payload(
                         existing_result=existing_task_result,
                         incoming_result=result_data,
@@ -382,8 +390,13 @@ class TaskResultLandingService:
                         pd_storyboard_evidence=pd_storyboard_evidence,
                     ),
                     completed_at=landed_at,
+                    error=workflow_failure,
                 )
-                logger.info("Task updated id=%s status=succeeded", task_id)
+                logger.info(
+                    "Task updated id=%s status=%s",
+                    task_id,
+                    task_status.value,
+                )
             except Exception:
                 logger.exception("Task DB update failed task_id=%s", task_id)
 
@@ -1175,6 +1188,51 @@ class TaskResultLandingService:
             )
             else {}
         )
+
+    @staticmethod
+    def _extract_workflow_failure(
+        *,
+        result_data: Optional[Dict[str, Any]],
+        execution_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        def _from_payload(payload: Optional[Dict[str, Any]]) -> Optional[str]:
+            if not isinstance(payload, dict):
+                return None
+
+            status = str(payload.get("status") or "").strip().lower()
+            if status in {"failed", "error"}:
+                message = _clean_string(payload.get("error")) or _clean_string(
+                    payload.get("message")
+                )
+                return message or "workflow failed"
+
+            for steps_key in ("steps", "step_outputs"):
+                steps = payload.get(steps_key)
+                if not isinstance(steps, dict):
+                    continue
+                for step_id, step_result in steps.items():
+                    if not isinstance(step_result, dict):
+                        continue
+                    step_status = str(step_result.get("status") or "").strip().lower()
+                    step_error = _clean_string(step_result.get("error"))
+                    if step_status in {"failed", "error"} or step_error:
+                        return step_error or f"workflow step {step_id} failed"
+
+            metadata = payload.get("metadata")
+            if isinstance(metadata, dict):
+                return _from_payload(metadata)
+            return None
+
+        failure = _from_payload(result_data)
+        if failure:
+            return failure
+
+        workflow_result = (
+            execution_context.get("workflow_result")
+            if isinstance(execution_context, dict)
+            else None
+        )
+        return _from_payload(workflow_result)
 
     @staticmethod
     def _should_override_artifact_title(title: Optional[str]) -> bool:
