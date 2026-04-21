@@ -20,6 +20,8 @@ def lookup_local_playbook(
     logger: logging.Logger,
 ) -> Optional[Playbook]:
     """Search user, capability, and system caches for a playbook."""
+    fallback_locales = [candidate for candidate in ("zh-TW", "en", "ja") if candidate != locale]
+
     if workspace_id and workspace_id in user_playbooks:
         if playbook_code in user_playbooks[workspace_id]:
             logger.debug(
@@ -72,6 +74,26 @@ def lookup_local_playbook(
             )
             return found_playbook
 
+        found_playbook = playbooks.get(playbook_code)
+        if found_playbook:
+            logger.debug(
+                "Falling back to playbook %s locale %s in capability %s",
+                playbook_code,
+                found_playbook.metadata.locale,
+                capability_code,
+            )
+            return found_playbook
+
+        found_playbook = playbooks.get(full_code)
+        if found_playbook:
+            logger.debug(
+                "Falling back to playbook %s locale %s in capability %s via full code",
+                full_code,
+                found_playbook.metadata.locale,
+                capability_code,
+            )
+            return found_playbook
+
     locale_key = f"{playbook_code}:{locale}"
     for cap_code, playbooks in capability_playbooks.items():
         if locale_key in playbooks:
@@ -104,6 +126,26 @@ def lookup_local_playbook(
             )
             return found_playbook
 
+        found_playbook = playbooks.get(playbook_code)
+        if found_playbook:
+            logger.debug(
+                "Falling back to playbook %s locale %s in capability %s",
+                playbook_code,
+                found_playbook.metadata.locale,
+                cap_code,
+            )
+            return found_playbook
+
+        found_playbook = playbooks.get(full_code)
+        if found_playbook:
+            logger.debug(
+                "Falling back to playbook %s locale %s in capability %s via full code",
+                full_code,
+                found_playbook.metadata.locale,
+                cap_code,
+            )
+            return found_playbook
+
     if locale in system_playbooks:
         if playbook_code in system_playbooks[locale]:
             logger.debug(
@@ -119,7 +161,14 @@ def lookup_local_playbook(
             locale,
             list(system_playbooks[locale].keys()),
         )
-        return None
+    for fallback_locale in fallback_locales:
+        if fallback_locale in system_playbooks and playbook_code in system_playbooks[fallback_locale]:
+            logger.debug(
+                "Falling back to system playbook %s locale %s",
+                playbook_code,
+                fallback_locale,
+            )
+            return system_playbooks[fallback_locale][playbook_code]
 
     logger.debug("Locale %s not found in system playbooks", locale)
     return None

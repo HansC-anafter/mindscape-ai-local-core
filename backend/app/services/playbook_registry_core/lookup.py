@@ -124,6 +124,17 @@ def get_cached_capability_playbook(
     if found_playbook and found_playbook.metadata.locale == locale:
         return found_playbook
 
+    # Fallback to the capability's preferred available locale when the exact
+    # locale is missing. The generic key is already maintained with locale
+    # priority (zh-TW > en > ja, or the only available locale).
+    found_playbook = playbooks.get(playbook_code)
+    if found_playbook:
+        return found_playbook
+
+    found_playbook = playbooks.get(full_code)
+    if found_playbook:
+        return found_playbook
+
     return None
 
 

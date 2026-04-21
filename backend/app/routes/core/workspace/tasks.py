@@ -43,6 +43,21 @@ logger = logging.getLogger(__name__)
 store = MindscapeStore()
 
 
+def _build_workspace_execution_order_clause(order_by: str, order: str) -> str:
+    safe_order = "DESC" if order.lower() == "desc" else "ASC"
+    allowed_columns = {"created_at", "started_at", "completed_at", "status"}
+    safe_key = order_by if order_by in allowed_columns else "created_at"
+
+    # This generic route is primarily consumed as a recent-history feed.
+    # Status-first ordering makes the query catastrophically slow on large
+    # workspaces, so only opt into it when the caller explicitly asks for
+    # status ordering.
+    if safe_key == "status":
+        return build_execution_order_clause(safe_key, order)
+
+    return f"ORDER BY {safe_key} {safe_order}"
+
+
 @dataclass
 class _ExecutionStreamState:
     subscribers: set = field(default_factory=set)  # set[asyncio.Queue[str]]
@@ -484,10 +499,7 @@ async def get_workspace_executions(
             query_parts.append("AND parent_execution_id = :parent_execution_id")
             params["parent_execution_id"] = parent_execution_id
 
-        # Active executions must sort ahead of older completed history even when
-        # the response is grouped by parent, otherwise live runs disappear from
-        # the top-card data source once newer pending child tasks arrive.
-        query_parts.append(build_execution_order_clause(order_by, order))
+        query_parts.append(_build_workspace_execution_order_clause(order_by, order))
 
         query_parts.append("LIMIT :limit")
         params["limit"] = limit

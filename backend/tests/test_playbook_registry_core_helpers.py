@@ -112,6 +112,24 @@ def test_cache_capability_playbook_round_trip():
     )
 
 
+def test_get_cached_capability_playbook_falls_back_to_preferred_cached_locale():
+    capability_playbooks = {
+        "alpha": {
+            "demo": _make_playbook(code="demo", locale="zh-TW"),
+            "alpha.demo": _make_playbook(code="demo", locale="zh-TW"),
+        }
+    }
+
+    result = get_cached_capability_playbook(
+        capability_playbooks,
+        "alpha",
+        "demo",
+        "en",
+    )
+
+    assert result is capability_playbooks["alpha"]["demo"]
+
+
 def test_load_direct_capability_playbook_updates_cache_and_variants(
     tmp_path, monkeypatch
 ):
@@ -179,6 +197,40 @@ def test_lookup_local_playbook_prefers_user_workspace_playbook():
     )
 
     assert result is user_playbook
+
+
+def test_lookup_local_playbook_falls_back_to_capability_preferred_locale():
+    capability_playbook = _make_playbook(code="demo", locale="zh-TW")
+
+    result = lookup_local_playbook(
+        system_playbooks={},
+        capability_playbooks={"alpha": {"demo": capability_playbook}},
+        user_playbooks={},
+        playbook_code="demo",
+        locale="en",
+        workspace_id=None,
+        capability_code="alpha",
+        logger=LOGGER,
+    )
+
+    assert result is capability_playbook
+
+
+def test_lookup_local_playbook_falls_back_to_system_locale():
+    fallback_system_playbook = _make_playbook(code="demo", locale="zh-TW")
+
+    result = lookup_local_playbook(
+        system_playbooks={"zh-TW": {"demo": fallback_system_playbook}},
+        capability_playbooks={},
+        user_playbooks={},
+        playbook_code="demo",
+        locale="en",
+        workspace_id=None,
+        capability_code=None,
+        logger=LOGGER,
+    )
+
+    assert result is fallback_system_playbook
 
 
 def test_collect_playbook_metadata_filters_and_dedupes():
