@@ -25,7 +25,7 @@ export function getApiBaseUrl(): string {
   }
 
   // SSR fallback
-  return 'http://localhost:8200';
+  return 'http://localhost:8220';
 }
 
 /**

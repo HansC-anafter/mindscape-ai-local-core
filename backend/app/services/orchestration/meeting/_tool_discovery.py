@@ -87,6 +87,13 @@ class MeetingToolDiscoveryMixin:
                 item.get(key) if isinstance(item, dict) else None
             )
 
+        def _set(item, key, value):
+            """Unified setter for both ActionIntent and dict."""
+            if isinstance(item, dict):
+                item[key] = value
+            else:
+                setattr(item, key, value)
+
         null_actuator = [
             i
             for i in action_items
@@ -100,6 +107,7 @@ class MeetingToolDiscoveryMixin:
 
             cache_ids = {t["tool_id"] for t in self._rag_tool_cache}
             enriched = 0
+            bound = 0
             for item in null_actuator:
                 title = _get(item, "title") or ""
                 if not title:
@@ -116,45 +124,40 @@ class MeetingToolDiscoveryMixin:
                         cache_ids.add(h["tool_id"])
                         self._rag_tool_cache.append(h)
                         enriched += 1
-            if enriched:
+                top_hit = next(
+                    (
+                        hit
+                        for hit in hits
+                        if isinstance(hit, dict) and str(hit.get("tool_id") or "").strip()
+                    ),
+                    None,
+                )
+                if top_hit and not _get(item, "tool_name") and not _get(item, "playbook_code"):
+                    tool_id = str(top_hit.get("tool_id") or "").strip()
+                    if tool_id:
+                        _set(item, "tool_name", tool_id)
+                        if not _get(item, "engine"):
+                            _set(item, "engine", f"tool:{tool_id}")
+                        if not _get(item, "binding_source"):
+                            _set(item, "binding_source", "layer_c_tool_gap_fill")
+                        bound += 1
+            if enriched or bound:
                 logger.info(
-                    "Layer-C gap-fill: +%d tools for %d null-actuator items",
+                    "Layer-C gap-fill: +%d tools, +%d bindings for %d null-actuator items",
                     enriched,
+                    bound,
                     len(null_actuator),
                 )
-                # Retry executor with enriched cache
-                try:
-                    retry = await self._build_action_items(
-                        decision=decision,
-                        user_message=user_message,
-                        critic_notes=critic_notes,
-                        planner_proposals=planner_proposals,
-                    )
-                    new_bound = sum(
-                        1
-                        for i in retry
-                        if _get(i, "tool_name") or _get(i, "playbook_code")
-                    )
-                    old_bound = sum(
-                        1
-                        for i in action_items
-                        if _get(i, "tool_name") or _get(i, "playbook_code")
-                    )
-                    if new_bound > old_bound:
-                        action_items = retry
-                        logger.info(
-                            "Layer-C retry improved binding: %d -> %d actuators",
-                            old_bound,
-                            new_bound,
-                        )
-                except Exception:
-                    pass  # keep original
         except Exception as exc:
             logger.debug("Layer-C gap-fill failed (non-fatal): %s", exc)
 
         # ── Layer-C playbook gap-refetch ──────────────────────────────
-        # Same pattern as tool gap-refetch but for playbook_code.
-        null_pb = [i for i in action_items if not _get(i, "playbook_code")]
+        # Same pattern as tool gap-refetch but for still-unbound playbook_code.
+        null_pb = [
+            i
+            for i in action_items
+            if not _get(i, "playbook_code") and not _get(i, "tool_name")
+        ]
         if null_pb and has_tool_context:
             try:
                 from app.services.tool_embedding_service import (
@@ -165,6 +168,7 @@ class MeetingToolDiscoveryMixin:
                 pb_ids = {p.get("playbook_code") or p.get("tool_id") for p in pb_cache}
                 tes = ToolEmbeddingService()
                 pb_enriched = 0
+                pb_bound = 0
                 for item in null_pb:
                     title = _get(item, "title") or ""
                     if not title:
@@ -184,36 +188,34 @@ class MeetingToolDiscoveryMixin:
                                 }
                             )
                             pb_enriched += 1
+                    top_match = next(
+                        (
+                            match
+                            for match in pb_matches
+                            if getattr(match, "category", None) == "playbook"
+                            and str(getattr(match, "tool_id", "") or "").strip()
+                        ),
+                        None,
+                    )
+                    if top_match and not _get(item, "playbook_code") and not _get(item, "tool_name"):
+                        playbook_code = str(getattr(top_match, "tool_id", "") or "").strip()
+                        if playbook_code:
+                            _set(item, "playbook_code", playbook_code)
+                            if not _get(item, "engine"):
+                                _set(item, "engine", f"playbook:{playbook_code}")
+                            if not _get(item, "binding_source"):
+                                _set(item, "binding_source", "layer_c_playbook_gap_fill")
+                            pb_bound += 1
 
                 self._rag_playbook_cache = pb_cache
-                if pb_enriched:
+                if pb_enriched or pb_bound:
                     logger.info(
-                        "Layer-C playbook gap-fill: +%d playbooks "
+                        "Layer-C playbook gap-fill: +%d playbooks, +%d bindings "
                         "for %d null-pb items",
                         pb_enriched,
+                        pb_bound,
                         len(null_pb),
                     )
-                    # Retry with enriched playbook cache
-                    try:
-                        retry = await self._build_action_items(
-                            decision=decision,
-                            user_message=user_message,
-                            critic_notes=critic_notes,
-                            planner_proposals=planner_proposals,
-                        )
-                        new_bound = sum(1 for i in retry if _get(i, "playbook_code"))
-                        old_bound = sum(
-                            1 for i in action_items if _get(i, "playbook_code")
-                        )
-                        if new_bound > old_bound:
-                            action_items = retry
-                            logger.info(
-                                "Layer-C playbook retry: %d -> %d bound",
-                                old_bound,
-                                new_bound,
-                            )
-                    except Exception:
-                        pass
             except Exception as pb_exc:
                 logger.debug(
                     "Layer-C playbook gap-fill failed (non-fatal): %s",

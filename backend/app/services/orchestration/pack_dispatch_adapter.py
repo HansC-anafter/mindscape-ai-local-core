@@ -27,12 +27,6 @@ from backend.app.models.execution_metadata import GOVERNANCE_PAYLOAD_FIELDS
 
 logger = logging.getLogger(__name__)
 
-_PD_STORYBOARD_PLAYBOOK_CODES = {
-    "pd_execute_storyboard_preview",
-    "pd_intake_storyboard_preview",
-    "pd_scene_package_preview_handoff",
-}
-
 
 class PackDispatchAdapter:
     """Spec-aware adapter layer between Meeting Engine and Pack execution.
@@ -254,11 +248,14 @@ class PackDispatchAdapter:
                 if resolved_outputs:
                     sidecar["resolved_outputs"] = resolved_outputs
 
-        pd_storyboard_evidence = self._build_pd_storyboard_evidence(
+        acceptance_evidence = self._build_acceptance_evidence(
             playbook_code=playbook_code,
             result_data=result_data,
             resolved_outputs=sidecar.get("resolved_outputs"),
         )
+        if acceptance_evidence:
+            sidecar["acceptance_evidence"] = acceptance_evidence
+        pd_storyboard_evidence = self._build_pd_storyboard_evidence(acceptance_evidence)
         if pd_storyboard_evidence:
             sidecar["pd_storyboard_evidence"] = pd_storyboard_evidence
 
@@ -489,21 +486,30 @@ class PackDispatchAdapter:
         return value
 
     @staticmethod
-    def _build_pd_storyboard_evidence(
+    def _build_acceptance_evidence(
         *,
         playbook_code: Optional[str],
         result_data: Dict[str, Any],
         resolved_outputs: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        if playbook_code not in _PD_STORYBOARD_PLAYBOOK_CODES:
-            return {}
-
         resolved_outputs = (
             dict(resolved_outputs)
             if isinstance(resolved_outputs, dict)
             else {}
         )
-        evidence: Dict[str, Any] = {"playbook_code": playbook_code}
+        evidence: Dict[str, Any] = {
+            "evidence_kind": "storyboard_preview",
+        }
+        if playbook_code:
+            evidence["playbook_code"] = playbook_code
+
+        evidence_indicators = {
+            key
+            for key in ("storyboard", "selected_scene_package_selector", "run_id", "status")
+            if PackDispatchAdapter._has_material_value(resolved_outputs.get(key))
+        }
+        if not evidence_indicators:
+            return {}
 
         session_id = resolved_outputs.get("session_id")
         if not isinstance(session_id, str) or not session_id.strip():
@@ -549,6 +555,20 @@ class PackDispatchAdapter:
             evidence["selected_scene_package_selector"] = selector_summary
 
         return evidence
+
+    @staticmethod
+    def _build_pd_storyboard_evidence(
+        acceptance_evidence: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if not isinstance(acceptance_evidence, dict) or not acceptance_evidence:
+            return {}
+        if acceptance_evidence.get("evidence_kind") != "storyboard_preview":
+            return {}
+        return {
+            key: value
+            for key, value in acceptance_evidence.items()
+            if key != "evidence_kind"
+        }
 
     @staticmethod
     def _first_value(data: Dict[str, Any], paths: List[str]) -> Any:

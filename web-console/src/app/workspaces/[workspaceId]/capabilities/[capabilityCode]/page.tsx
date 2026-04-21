@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
 import { getApiBaseUrl } from '@/lib/api-url';
 
@@ -56,9 +56,19 @@ interface CapabilityInfo {
   scope?: string;
 }
 
+function isMainPageComponent(component: UIComponentInfo): boolean {
+  return Boolean(component.code && (component.code.endsWith('Page') || component.code.endsWith('StudioPage')));
+}
+
+function buildComponentKey(capabilityId: string, componentCode: string): string {
+  return `${capabilityId}:${componentCode}`;
+}
+
 export default function CapabilityPage() {
   const params = useParams();
+  const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const workspaceId = params?.workspaceId as string;
   const capabilityCode = params?.capabilityCode as string;
 
@@ -120,12 +130,8 @@ export default function CapabilityPage() {
 
       // Prioritize main page components (components with code ending in "Page" or "StudioPage")
       // These are typically the entry points that contain the full layout
-      const mainPageComponents = componentsData.filter((c: UIComponentInfo) =>
-        c.code && (c.code.endsWith('Page') || c.code.endsWith('StudioPage'))
-      );
-      const otherComponents = componentsData.filter((c: UIComponentInfo) =>
-        c.code && !c.code.endsWith('Page') && !c.code.endsWith('StudioPage')
-      );
+      const mainPageComponents = componentsData.filter(isMainPageComponent);
+      const otherComponents = componentsData.filter((c: UIComponentInfo) => !isMainPageComponent(c));
 
       // Load main page components first, then others only if no main page component found
       const componentsToLoad = mainPageComponents.length > 0
@@ -162,6 +168,18 @@ export default function CapabilityPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSelectComponent = (componentCode: string, defaultComponentCode: string) => {
+    const nextParams = new URLSearchParams(searchParams?.toString() || '');
+    if (componentCode === defaultComponentCode) {
+      nextParams.delete('component');
+    } else {
+      nextParams.set('component', componentCode);
+    }
+
+    const nextUrl = nextParams.toString() ? `${pathname}?${nextParams.toString()}` : pathname;
+    router.replace(nextUrl, { scroll: false });
   };
 
   if (loading) {
@@ -219,14 +237,31 @@ export default function CapabilityPage() {
     );
   }
 
-  const mainPageComponent = Array.from(loadedComponents.entries()).find(([key]) => {
-    const [, componentCode] = key.split(':');
-    return componentCode.endsWith('Page') || componentCode.endsWith('StudioPage');
-  });
+  const mainPageComponents = uiComponents.filter(isMainPageComponent);
+  const otherComponents = uiComponents.filter((component) => !isMainPageComponent(component));
+  const selectedComponentCode = searchParams?.get('component') || null;
+  const preferredMainPageComponent = selectedComponentCode
+    ? mainPageComponents.find((component) => component.code === selectedComponentCode) || null
+    : null;
+  const resolvedMainPageComponentInfo = preferredMainPageComponent || mainPageComponents[0] || null;
+  const resolvedMainPageEntry = resolvedMainPageComponentInfo
+    ? (() => {
+        const preferredEntry = loadedComponents.get(
+          buildComponentKey(capabilityInfo?.id || capabilityCode, resolvedMainPageComponentInfo.code)
+        );
+        if (preferredEntry) {
+          return [buildComponentKey(capabilityInfo?.id || capabilityCode, resolvedMainPageComponentInfo.code), preferredEntry] as const;
+        }
+        return Array.from(loadedComponents.entries()).find(([key]) => {
+          const [, componentCode] = key.split(':');
+          return mainPageComponents.some((component) => component.code === componentCode);
+        }) || null;
+      })()
+    : null;
 
   // If main page component exists, render it fullscreen without wrapper
-  if (mainPageComponent) {
-    const [key, Component] = mainPageComponent;
+  if (resolvedMainPageEntry && mainPageComponents.length <= 1) {
+    const [key, Component] = resolvedMainPageEntry;
     return (
       <ComponentErrorBoundary componentName={key}>
         <Suspense fallback={
@@ -240,6 +275,70 @@ export default function CapabilityPage() {
           />
         </Suspense>
       </ComponentErrorBoundary>
+    );
+  }
+
+  if (resolvedMainPageEntry && resolvedMainPageComponentInfo) {
+    const [key, Component] = resolvedMainPageEntry;
+    const [, renderedComponentCode] = key.split(':');
+    const defaultComponentCode = mainPageComponents[0]?.code || resolvedMainPageComponentInfo.code;
+
+    return (
+      <div className="flex flex-col h-full overflow-hidden bg-white dark:bg-gray-950">
+        <div className="flex-shrink-0 border-b dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {capabilityInfo?.display_name || capabilityCode}
+              </h1>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Select a workbench for this capability.
+              </p>
+            </div>
+            <button
+              onClick={() => router.back()}
+              className="px-3 py-1.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+            >
+              Back
+            </button>
+          </div>
+          <nav className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {mainPageComponents.map((component) => {
+              const isActive = component.code === renderedComponentCode;
+              return (
+                <button
+                  key={component.code}
+                  type="button"
+                  data-testid={`capability-workbench-${component.code}`}
+                  onClick={() => handleSelectComponent(component.code, defaultComponentCode)}
+                  className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    isActive
+                      ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-900/30 dark:text-blue-200'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-100'
+                  }`}
+                >
+                  {component.description || component.code}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        <div className="flex-1 overflow-auto">
+          <ComponentErrorBoundary componentName={key}>
+            <Suspense fallback={
+              <div className="flex items-center justify-center h-full">
+                <div className="text-sm text-gray-500 dark:text-gray-400">Loading component...</div>
+              </div>
+            }>
+              <Component
+                workspaceId={workspaceId}
+                apiUrl={apiUrl}
+              />
+            </Suspense>
+          </ComponentErrorBoundary>
+        </div>
+      </div>
     );
   }
 
@@ -271,7 +370,7 @@ export default function CapabilityPage() {
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {Array.from(loadedComponents.entries()).map(([key, Component]) => {
           const [, componentCode] = key.split(':');
-          const componentInfo = uiComponents.find(c => c.code === componentCode);
+          const componentInfo = otherComponents.find(c => c.code === componentCode);
 
           return (
             <div

@@ -28,12 +28,6 @@ from app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
 
 logger = logging.getLogger(__name__)
 
-_PD_STORYBOARD_PLAYBOOK_CODES = {
-    "pd_execute_storyboard_preview",
-    "pd_intake_storyboard_preview",
-    "pd_scene_package_preview_handoff",
-}
-
 
 def _utc_now() -> datetime:
     """Return timezone-aware UTC now."""
@@ -276,10 +270,13 @@ class TaskResultLandingService:
             attachment_filenames=attachment_filenames,
             result_data=result_data,
         )
-        pd_storyboard_evidence = self._extract_pd_storyboard_evidence(
+        acceptance_evidence = self._extract_acceptance_evidence(
             result_data=result_data,
             result_json=result_json if isinstance(result_json, dict) else {},
             task=task,
+        )
+        pd_storyboard_evidence = self._extract_pd_storyboard_evidence(
+            acceptance_evidence=acceptance_evidence,
         )
         workflow_failure = self._extract_workflow_failure(
             result_data=result_data,
@@ -322,6 +319,7 @@ class TaskResultLandingService:
                     has_attachments=len(written_attachments) > 0,
                     landing_metadata=landing_metadata,
                     deliverable_identity=deliverable_identity,
+                    acceptance_evidence=acceptance_evidence,
                     pd_storyboard_evidence=pd_storyboard_evidence,
                 )
                 update_kwargs = {
@@ -356,6 +354,7 @@ class TaskResultLandingService:
                         has_attachments=len(written_attachments) > 0,
                         landing_metadata=landing_metadata,
                         deliverable_identity=deliverable_identity,
+                        acceptance_evidence=acceptance_evidence,
                         pd_storyboard_evidence=pd_storyboard_evidence,
                     ),
                 )
@@ -387,6 +386,7 @@ class TaskResultLandingService:
                         artifact_id=artifact_id,
                         landing_metadata=landing_metadata,
                         deliverable_identity=deliverable_identity,
+                        acceptance_evidence=acceptance_evidence,
                         pd_storyboard_evidence=pd_storyboard_evidence,
                     ),
                     completed_at=landed_at,
@@ -946,6 +946,7 @@ class TaskResultLandingService:
         has_attachments: bool,
         landing_metadata: Dict[str, Any],
         deliverable_identity: Dict[str, Any],
+        acceptance_evidence: Dict[str, Any],
         pd_storyboard_evidence: Dict[str, Any],
     ) -> Dict[str, Any]:
         metadata = dict(existing_metadata or {})
@@ -972,6 +973,8 @@ class TaskResultLandingService:
             metadata["deliverable_targets"] = list(deliverable_targets)
         if isinstance(attachment_filenames, list) and attachment_filenames:
             metadata["attachment_filenames"] = list(attachment_filenames)
+        if acceptance_evidence:
+            metadata["acceptance_evidence"] = dict(acceptance_evidence)
         if pd_storyboard_evidence:
             metadata["pd_storyboard_evidence"] = dict(pd_storyboard_evidence)
         return metadata
@@ -987,6 +990,7 @@ class TaskResultLandingService:
         artifact_id: Optional[str],
         landing_metadata: Dict[str, Any],
         deliverable_identity: Dict[str, Any],
+        acceptance_evidence: Dict[str, Any],
         pd_storyboard_evidence: Dict[str, Any],
     ) -> Dict[str, Any]:
         result_payload = dict(existing_result or {})
@@ -1015,6 +1019,8 @@ class TaskResultLandingService:
             result_payload["deliverable_targets"] = list(deliverable_targets)
         if isinstance(attachment_filenames, list) and attachment_filenames:
             result_payload["attachment_filenames"] = list(attachment_filenames)
+        if acceptance_evidence:
+            result_payload["acceptance_evidence"] = dict(acceptance_evidence)
         if pd_storyboard_evidence:
             result_payload["pd_storyboard_evidence"] = dict(pd_storyboard_evidence)
         return result_payload
@@ -1069,7 +1075,7 @@ class TaskResultLandingService:
         }
 
     @staticmethod
-    def _extract_pd_storyboard_evidence(
+    def _extract_acceptance_evidence(
         *,
         result_data: Dict[str, Any],
         result_json: Dict[str, Any],
@@ -1118,10 +1124,9 @@ class TaskResultLandingService:
                 or ""
             ).strip()
         )
-        if playbook_code not in _PD_STORYBOARD_PLAYBOOK_CODES:
-            return {}
-
-        evidence: Dict[str, Any] = {"playbook_code": playbook_code}
+        evidence: Dict[str, Any] = {"evidence_kind": "storyboard_preview"}
+        if playbook_code:
+            evidence["playbook_code"] = playbook_code
         session_id = TaskResultLandingService._first_nested_value(
             roots,
             [
@@ -1188,6 +1193,21 @@ class TaskResultLandingService:
             )
             else {}
         )
+
+    @staticmethod
+    def _extract_pd_storyboard_evidence(
+        *,
+        acceptance_evidence: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if not isinstance(acceptance_evidence, dict) or not acceptance_evidence:
+            return {}
+        if acceptance_evidence.get("evidence_kind") != "storyboard_preview":
+            return {}
+        return {
+            key: value
+            for key, value in acceptance_evidence.items()
+            if key != "evidence_kind"
+        }
 
     @staticmethod
     def _extract_workflow_failure(

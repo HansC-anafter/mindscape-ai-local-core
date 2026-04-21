@@ -64,6 +64,25 @@ class RequestContract(BaseModel):
     constraints: Optional[Dict[str, Any]] = Field(
         default=None, description="Constraints (brand tone, timeline, tools)"
     )
+    playbook_requests: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Deterministic downstream playbook requests carried by the request "
+            "contract. These are generic contract-level directives that let "
+            "upstream layers request a specific pack/playbook handoff without "
+            "teaching MeetingEngine pack-specific routing rules."
+        ),
+    )
+    playbook_input_defaults: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Generic bootstrap defaults for action items selected during "
+            "deliberation. Rules can target a playbook_code and optional "
+            "deliverable_ids, then provide input_params defaults so meeting "
+            "merges pack-specific bootstrap data via the request contract "
+            "instead of host-core hardcoding."
+        ),
+    )
     scale_estimate: ScaleEstimate = Field(
         default=ScaleEstimate.STANDARD, description="Estimated scale"
     )

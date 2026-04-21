@@ -131,6 +131,33 @@ def _reuse_terminal_compile_result(
     return reused_result
 
 
+def _should_supersede_active_session(
+    session: Any,
+    existing_compile_job: Any,
+    *,
+    incoming_handoff_id: Optional[str],
+) -> bool:
+    """Return True when an active session should yield to a newer handoff.
+
+    Compile intake is thread-scoped. If a different handoff arrives on the
+    same workspace/project/thread while an older session is still active,
+    that older session must be aborted before the new compile proceeds;
+    otherwise its re-queued agent turns can keep consuming the single CLI
+    runtime lane and starve the newer handoff indefinitely.
+    """
+    if session is None or not getattr(session, "is_active", False):
+        return False
+    if not incoming_handoff_id:
+        return False
+    if existing_compile_job is None:
+        return True
+
+    existing_handoff_id = getattr(existing_compile_job, "handoff_id", None)
+    if not isinstance(existing_handoff_id, str) or not existing_handoff_id.strip():
+        return False
+    return existing_handoff_id.strip() != incoming_handoff_id
+
+
 def _build_compile_job_recovery_request(
     *,
     handoff_in: HandoffIn,
@@ -392,6 +419,15 @@ class HandoffBundleService:
         compile_job_created = False
         cleanup_compile_job_session_ids = []
         stale_compile_job_cleaned_session_ids = set()
+        superseded_active_sessions: List[Any] = []
+        superseded_active_session_ids = set()
+        try:
+            from backend.app.models.compile_job import CompileJob, CompileJobStatus
+            from backend.app.services.stores.compile_job_store import CompileJobStore
+
+            compile_job_store = CompileJobStore()
+        except Exception as exc:
+            logger.warning("[HandoffBundle] Compile job store unavailable: %s", exc)
         try:
             listed_sessions = session_store.list_by_workspace(
                 workspace_id,
@@ -408,6 +444,25 @@ class HandoffBundleService:
                     continue
                 if getattr(candidate, "is_active", False):
                     if is_active_session_fresh(candidate):
+                        existing_candidate_compile_job = None
+                        if compile_job_store is not None:
+                            try:
+                                existing_candidate_compile_job = (
+                                    compile_job_store.get_latest_for_session(candidate.id)
+                                )
+                            except Exception as exc:
+                                logger.warning(
+                                    "[HandoffBundle] Failed to inspect candidate session %s for supersede check: %s",
+                                    candidate.id,
+                                    exc,
+                                )
+                        if _should_supersede_active_session(
+                            candidate,
+                            existing_candidate_compile_job,
+                            incoming_handoff_id=getattr(handoff_in, "handoff_id", None),
+                        ):
+                            superseded_active_sessions.append(candidate)
+                            superseded_active_session_ids.add(candidate.id)
                         continue
                     cleanup_compile_job_session_ids.append(candidate.id)
                     continue
@@ -420,14 +475,6 @@ class HandoffBundleService:
                 thread_id,
                 exc,
             )
-
-        try:
-            from backend.app.models.compile_job import CompileJob, CompileJobStatus
-            from backend.app.services.stores.compile_job_store import CompileJobStore
-
-            compile_job_store = CompileJobStore()
-        except Exception as exc:
-            logger.warning("[HandoffBundle] Compile job store unavailable: %s", exc)
 
         try:
             session_store.close_stale_active_sessions(
@@ -460,6 +507,41 @@ class HandoffBundleService:
                     )
                 else:
                     stale_compile_job_cleaned_session_ids.add(stale_session_id)
+        if superseded_active_sessions:
+            for superseded_session in superseded_active_sessions:
+                metadata = {
+                    "abort_reason": "superseded_by_new_handoff",
+                    "superseded_by_handoff_id": getattr(handoff_in, "handoff_id", None),
+                }
+                if compile_job_store is not None:
+                    try:
+                        compile_job_store.mark_incomplete_for_session(
+                            superseded_session.id,
+                            error="compile_session_superseded_by_new_handoff",
+                            metadata=metadata,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "[HandoffBundle] Failed to fail superseded compile jobs for session=%s: %s",
+                            superseded_session.id,
+                            exc,
+                        )
+                    else:
+                        stale_compile_job_cleaned_session_ids.add(
+                            superseded_session.id
+                        )
+                try:
+                    superseded_session.abort(reason="superseded_by_new_handoff")
+                    superseded_session.metadata["superseded_by_handoff_id"] = getattr(
+                        handoff_in, "handoff_id", None
+                    )
+                    session_store.update(superseded_session)
+                except Exception as exc:
+                    logger.warning(
+                        "[HandoffBundle] Failed to abort superseded session %s: %s",
+                        superseded_session.id,
+                        exc,
+                    )
         session = session_store.get_active_session(
             workspace_id,
             project_id,
@@ -517,6 +599,16 @@ class HandoffBundleService:
                     session.id,
                     exc,
                 )
+            session = None
+            existing_compile_job = None
+        elif session and session.id in superseded_active_session_ids:
+            logger.info(
+                "[HandoffBundle] Ignoring superseded active session %s for workspace=%s project=%s thread=%s",
+                session.id,
+                workspace_id,
+                project_id,
+                thread_id,
+            )
             session = None
             existing_compile_job = None
 

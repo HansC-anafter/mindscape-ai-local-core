@@ -1030,6 +1030,7 @@ class HostBridgeTaskExecutor:
         ]
         if ctx.model:
             cmd.extend(["--model", ctx.model])
+        cmd.append("--")
         cmd.append(prompt)
         await self._report_progress(
             ctx.execution_id,

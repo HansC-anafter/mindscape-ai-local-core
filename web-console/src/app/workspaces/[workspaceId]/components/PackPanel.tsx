@@ -30,6 +30,10 @@ interface PackPanelProps {
 
 type PackSubTab = 'thinking' | 'capabilities' | 'apps';
 
+function isMainPageComponent(component: NonNullable<InstalledCapability['ui_components']>[number]): boolean {
+  return Boolean(component.code && (component.code.endsWith('Page') || component.code.endsWith('StudioPage')));
+}
+
 export function PackPanel({
   workspaceId,
   apiUrl,
@@ -60,9 +64,16 @@ export function PackPanel({
     }
   };
 
-  const openCapabilityUI = (capabilityCode: string) => {
+  const openCapabilityUI = (capabilityCode: string, componentCode?: string) => {
     // Open capability UI page in new tab
-    const url = `/workspaces/${workspaceId}/capabilities/${capabilityCode}`;
+    const params = new URLSearchParams();
+    if (componentCode) {
+      params.set('component', componentCode);
+    }
+    const query = params.toString();
+    const url = query
+      ? `/workspaces/${workspaceId}/capabilities/${capabilityCode}?${query}`
+      : `/workspaces/${workspaceId}/capabilities/${capabilityCode}`;
     window.open(url, '_blank');
   };
 
@@ -168,6 +179,7 @@ export function PackPanel({
                   {appsWithUI.map((cap, index) => {
                     // Backend API matches by id; prefer id, fall back to code
                     const capabilityIdentifier = cap.id || cap.code;
+                    const mainPageComponents = (cap.ui_components || []).filter(isMainPageComponent);
 
                     return (
                       <div
@@ -193,6 +205,23 @@ export function PackPanel({
                         {cap.description && (
                           <div className="text-[10px] text-secondary dark:text-gray-400 mb-2">
                             {cap.description}
+                          </div>
+                        )}
+                        {mainPageComponents.length > 1 && (
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {mainPageComponents.map((component) => (
+                              <button
+                                key={`${capabilityIdentifier}-${component.code}`}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  capabilityIdentifier && openCapabilityUI(capabilityIdentifier, component.code);
+                                }}
+                                className="px-2 py-1 text-[10px] rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200 dark:hover:border-blue-700"
+                              >
+                                {component.description || component.code}
+                              </button>
+                            ))}
                           </div>
                         )}
                         <div className="flex items-center justify-between mt-2 pt-2 border-t dark:border-gray-700">
@@ -246,6 +275,7 @@ export function PackPanel({
                 {installedCapabilities.map((cap, index) => {
                   const capabilityCode = cap.code || cap.id;
                   const hasUIComponents = cap.ui_components && cap.ui_components.length > 0;
+                  const mainPageComponents = (cap.ui_components || []).filter(isMainPageComponent);
 
                   return (
                     <div
@@ -270,6 +300,20 @@ export function PackPanel({
                       {cap.description && (
                         <div className="text-[10px] text-secondary dark:text-gray-400 mb-2">
                           {cap.description}
+                        </div>
+                      )}
+                      {mainPageComponents.length > 1 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {mainPageComponents.map((component) => (
+                            <button
+                              key={`${capabilityCode}-${component.code}`}
+                              type="button"
+                              onClick={() => capabilityCode && openCapabilityUI(capabilityCode, component.code)}
+                              className="px-2 py-1 text-[10px] rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200 dark:hover:border-blue-700"
+                            >
+                              {component.description || component.code}
+                            </button>
+                          ))}
                         </div>
                       )}
                       {hasUIComponents && (

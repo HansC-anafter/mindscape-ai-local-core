@@ -46,6 +46,7 @@ from backend.app.runner.concurrency import (
 )
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.reaper import (
+    _request_watchdog_abort_for_no_progress_tasks,
     _reap_stale_running_tasks,
     _reap_redis_queues,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "_build_inputs",
     "_is_ig_playbook",
     "_invoke_on_fail_hook",
+    "_request_watchdog_abort_for_no_progress_tasks",
     "_reap_stale_running_tasks",
     "_reap_redis_queues",
     "_child_execute_playbook",
@@ -385,6 +387,10 @@ async def _run_maintenance_cycle(
 ) -> None:
     """Keep the ready frontier warm even when the dequeue loop is idle."""
     _reap_stale_running_tasks(tasks_store, runner_id=runner_id, redis_queue=redis_queue)
+    _request_watchdog_abort_for_no_progress_tasks(
+        tasks_store,
+        watcher_id=f"runner_maintenance:{runner_id}",
+    )
     for shard_name in ready_queues.keys():
         await _reap_redis_queues(
             tasks_store,

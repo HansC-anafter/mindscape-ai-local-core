@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 _APP_STATE_KEY = "capability_api_loader_state"
 _VALID_ACTIVATION_POLICIES = {"startup_eager", "seed_only"}
+_DEFAULT_SEED_ONLY_STARTUP_ACTIVATION_ALLOWLIST = ("character_training",)
 
 
 @dataclass(frozen=True)
@@ -511,6 +512,22 @@ def get_capability_api_activation_policy() -> str:
         )
         return "seed_only"
     return policy
+
+
+def get_capability_api_startup_activation_allowlist() -> List[str]:
+    raw = os.getenv("CAPABILITY_API_STARTUP_ALLOWLIST")
+    if raw is None:
+        return list(_DEFAULT_SEED_ONLY_STARTUP_ACTIVATION_ALLOWLIST)
+
+    allowlist: List[str] = []
+    seen: Set[str] = set()
+    for item in raw.split(","):
+        normalized = str(item or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        allowlist.append(normalized)
+    return allowlist
 
 
 def group_capability_api_descriptors(

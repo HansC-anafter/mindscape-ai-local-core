@@ -2,8 +2,9 @@
 
 import asyncio
 import logging
-from datetime import timedelta
-from typing import Optional
+import os
+from datetime import timedelta, timezone
+from typing import Any, Optional
 
 from sqlalchemy import text
 
@@ -21,11 +22,144 @@ from backend.app.runner.utils import _env_int, _parse_utc_iso, _utc_now
 
 logger = logging.getLogger(__name__)
 
+_NO_PROGRESS_WATCHDOG_DEFAULT_PACKS = {"ig_analyze_following"}
+
 
 def _normalize_task_id(raw_value: object) -> str:
     if isinstance(raw_value, bytes):
         return raw_value.decode()
     return str(raw_value)
+
+
+def _watchdog_pack_allowlist() -> set[str]:
+    raw_value = str(
+        os.getenv(
+            "LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_PACKS",
+            ",".join(sorted(_NO_PROGRESS_WATCHDOG_DEFAULT_PACKS)),
+        )
+        or ""
+    )
+    items = {item.strip() for item in raw_value.split(",") if item.strip()}
+    return items or set(_NO_PROGRESS_WATCHDOG_DEFAULT_PACKS)
+
+
+def _request_watchdog_abort_for_no_progress_tasks(
+    tasks_store: TasksStore,
+    *,
+    watcher_id: str,
+    execution_store: Optional[Any] = None,
+) -> int:
+    watchdog_seconds = _env_int("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_SECONDS", 900)
+    if watchdog_seconds <= 0:
+        return 0
+
+    allowed_packs = _watchdog_pack_allowlist()
+    if not allowed_packs:
+        return 0
+
+    try:
+        running = tasks_store.list_running_playbook_execution_tasks(
+            workspace_id=None, limit=500
+        )
+    except Exception as e:
+        logger.warning("Runner no-progress watchdog scan failed: %s", e)
+        return 0
+
+    if execution_store is None:
+        from backend.app.services.stores.playbook_executions_store import (
+            PlaybookExecutionsStore,
+        )
+
+        execution_store = PlaybookExecutionsStore()
+
+    now = _utc_now()
+    stale_seconds = _env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180)
+    fresh_heartbeat_threshold = now - timedelta(seconds=max(stale_seconds, 60))
+    progress_threshold = now - timedelta(seconds=watchdog_seconds)
+    requested = 0
+
+    for task in running:
+        try:
+            if str(task.pack_id or "").strip() not in allowed_packs:
+                continue
+
+            ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+            if ctx.get("execution_mode") not in (None, "runner"):
+                continue
+            if ctx.get("watchdog_abort_requested_at"):
+                continue
+            if isinstance(ctx.get("watchdog_abort"), dict) and ctx["watchdog_abort"].get("requested_at"):
+                continue
+
+            heartbeat_at = _parse_utc_iso(ctx.get("heartbeat_at"))
+            if not heartbeat_at or heartbeat_at <= fresh_heartbeat_threshold:
+                continue
+
+            try:
+                current_step_index = int(ctx.get("current_step_index") or 0)
+            except (TypeError, ValueError):
+                current_step_index = 0
+            if current_step_index > 0:
+                continue
+
+            execution_id = str(task.execution_id or task.id or "").strip()
+            if not execution_id:
+                continue
+            execution = execution_store.get_execution(execution_id)
+            if execution is None:
+                continue
+
+            phase = str(getattr(execution, "phase", "") or "").strip().lower()
+            if phase not in ("", "queue"):
+                continue
+
+            progress_updated_at = (
+                getattr(execution, "updated_at", None)
+                or getattr(execution, "created_at", None)
+            )
+            if progress_updated_at is None:
+                continue
+            if getattr(progress_updated_at, "tzinfo", None) is None:
+                progress_updated_at = progress_updated_at.replace(tzinfo=timezone.utc)
+            if progress_updated_at > progress_threshold:
+                continue
+
+            reason = (
+                "Runner no-progress watchdog tripped after "
+                f"{watchdog_seconds}s (playbook={task.pack_id}, phase={phase or 'unknown'}, "
+                f"current_step_index={current_step_index}, heartbeat_at={ctx.get('heartbeat_at')}, "
+                f"execution_updated_at={progress_updated_at.isoformat()})"
+            )
+            now_iso = now.isoformat()
+            ctx2 = dict(ctx)
+            ctx2["watchdog_abort_requested_at"] = now_iso
+            ctx2["watchdog_abort_reason"] = reason
+            ctx2["watchdog_abort"] = {
+                "requested_at": now_iso,
+                "reason": reason,
+                "watcher_id": watcher_id,
+                "threshold_seconds": watchdog_seconds,
+                "phase": phase,
+                "current_step_index": current_step_index,
+                "heartbeat_at": ctx.get("heartbeat_at"),
+                "execution_updated_at": progress_updated_at.isoformat(),
+            }
+            tasks_store.update_task(task.id, execution_context=ctx2)
+            requested += 1
+            logger.warning(
+                "Requested watchdog abort for stalled runner task task_id=%s playbook=%s execution_id=%s",
+                task.id,
+                task.pack_id,
+                execution_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "Runner no-progress watchdog failed for task %s: %s",
+                getattr(task, "id", "?"),
+                e,
+            )
+
+    return requested
 
 
 async def _mark_frontier_ready(

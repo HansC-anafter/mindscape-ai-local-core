@@ -51,7 +51,9 @@ from backend.app.services.capability_reload_manager import (
     reload_capability_routes,
 )
 from backend.app.services.capability_api_loader import (
+    activate_capability_api_code,
     get_capability_api_activation_policy,
+    get_capability_api_startup_activation_allowlist,
     group_capability_api_descriptors,
     load_manifest_for_descriptor,
     seed_capability_api_descriptors,
@@ -220,18 +222,34 @@ def register_core_routes(app: FastAPI) -> None:
                         if descriptor.manifest_path.exists()
                         else None,
                     )
+                startup_activation_allowlist = (
+                    get_capability_api_startup_activation_allowlist()
+                )
+                eagerly_activated_count = 0
+                for capability_code in startup_activation_allowlist:
+                    activated_routers = activate_capability_api_code(
+                        app=app,
+                        capability_code=capability_code,
+                        activation_mode="startup_seed_only_allowlist",
+                        activation_service=activation_service,
+                    )
+                    eagerly_activated_count += len(activated_routers)
                 if allowlist:
                     logger.info(
-                        "Seeded %d capability API descriptors without activation (policy=%s, allowlist=%s)",
+                        "Seeded %d capability API descriptors without activation (policy=%s, allowlist=%s, startup_activation_allowlist=%s, eagerly_activated_routers=%d)",
                         len(descriptors),
                         activation_policy,
                         allowlist,
+                        startup_activation_allowlist,
+                        eagerly_activated_count,
                     )
                 else:
                     logger.info(
-                        "Seeded %d capability API descriptors without activation (policy=%s)",
+                        "Seeded %d capability API descriptors without activation (policy=%s, startup_activation_allowlist=%s, eagerly_activated_routers=%d)",
                         len(descriptors),
                         activation_policy,
+                        startup_activation_allowlist,
+                        eagerly_activated_count,
                     )
         except Exception as e:
             logger.error(

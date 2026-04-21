@@ -42,7 +42,7 @@ export class MindscapeAPIClient {
     } else {
       this.baseUrl =
         process.env.NEXT_PUBLIC_API_URL ||
-        'http://localhost:8200';
+        'http://localhost:8220';
     }
   }
 

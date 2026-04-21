@@ -855,3 +855,124 @@ class TestCompileHappyPath:
         mock_compile_job_store.create.assert_not_called()
         mock_compile_job_store.mark_succeeded.assert_not_called()
         mock_engine_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_compile_aborts_superseded_active_session_for_new_handoff(self):
+        import sys
+        import types
+
+        bundle = self._make_bundle()
+
+        superseded_session = MagicMock()
+        superseded_session.id = "sess-old-001"
+        superseded_session.workspace_id = "ws_001"
+        superseded_session.project_id = "p1"
+        superseded_session.thread_id = "t1"
+        superseded_session.started_at = datetime.now(timezone.utc)
+        superseded_session.ended_at = None
+        superseded_session.status = "active"
+        superseded_session.metadata = {
+            "last_round_updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        superseded_session.is_active = True
+
+        old_compile_job = MagicMock()
+        old_compile_job.id = "job-old-001"
+        old_compile_job.handoff_id = "handoff-old-001"
+        old_compile_job.session_id = "sess-old-001"
+        old_compile_job.status = "running"
+
+        new_session = MagicMock()
+        new_session.id = "sess-new-001"
+        new_session.workspace_id = "ws_001"
+        new_session.project_id = "p1"
+        new_session.thread_id = "t1"
+
+        fake_result = _FakeMeetingResult(session_id="sess-new-001")
+
+        mock_session_store = MagicMock()
+        mock_session_store.list_by_workspace.return_value = [superseded_session]
+        mock_session_store.get_active_session.return_value = None
+
+        mock_compile_job_store = MagicMock()
+        mock_compile_job_store.get_latest_for_session.return_value = old_compile_job
+        mock_compile_job_store_cls = MagicMock(return_value=mock_compile_job_store)
+
+        async def _fake_run(*a, **kw):
+            return fake_result
+
+        mock_engine_cls = MagicMock()
+        mock_engine = MagicMock()
+        mock_engine.run = _fake_run
+        mock_engine_cls.return_value = mock_engine
+
+        mock_ms_cls = MagicMock()
+        mock_ms_cls.new.return_value = new_session
+
+        mod_meeting = types.ModuleType("backend.app.services.orchestration.meeting")
+        mod_meeting.MeetingEngine = mock_engine_cls
+
+        mod_session_store = types.ModuleType(
+            "backend.app.services.stores.meeting_session_store"
+        )
+        mod_session_store.MeetingSessionStore = MagicMock(
+            return_value=mock_session_store
+        )
+        mod_session_store.is_active_session_fresh = MagicMock(return_value=True)
+
+        mod_meeting_session = types.ModuleType("backend.app.models.meeting_session")
+        mod_meeting_session.MeetingSession = mock_ms_cls
+
+        mod_compile_job_store = types.ModuleType(
+            "backend.app.services.stores.compile_job_store"
+        )
+        mod_compile_job_store.CompileJobStore = mock_compile_job_store_cls
+
+        mod_mindscape_store = types.ModuleType("backend.app.services.mindscape_store")
+        mod_mindscape_store.MindscapeStore = MagicMock(return_value=MagicMock())
+
+        target_modules = {
+            "backend.app.services.orchestration.meeting": mod_meeting,
+            "backend.app.services.stores.meeting_session_store": mod_session_store,
+            "backend.app.models.meeting_session": mod_meeting_session,
+            "backend.app.services.stores.compile_job_store": mod_compile_job_store,
+            "backend.app.services.mindscape_store": mod_mindscape_store,
+        }
+
+        saved = {k: sys.modules.get(k) for k in target_modules}
+        sys.modules.update(target_modules)
+        try:
+            svc = HandoffBundleService()
+            result = await svc.intake_and_compile(
+                bundle=bundle,
+                workspace=MagicMock(id="ws_001"),
+                runtime_profile=None,
+                profile_id="test-user",
+                thread_id="t1",
+                project_id="p1",
+                secret_key=SIGNING_KEY_FIXTURE,
+            )
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    sys.modules.pop(k, None)
+                else:
+                    sys.modules[k] = v
+
+        assert result["status"] == "compiled"
+        mock_compile_job_store.mark_incomplete_for_session.assert_any_call(
+            "sess-old-001",
+            error="compile_session_superseded_by_new_handoff",
+            metadata={
+                "abort_reason": "superseded_by_new_handoff",
+                "superseded_by_handoff_id": "h_hp_001",
+            },
+        )
+        superseded_session.abort.assert_called_once_with(
+            reason="superseded_by_new_handoff"
+        )
+        assert (
+            superseded_session.metadata["superseded_by_handoff_id"] == "h_hp_001"
+        )
+        mock_session_store.update.assert_called_once_with(superseded_session)
+        mock_session_store.create.assert_called_once_with(new_session)

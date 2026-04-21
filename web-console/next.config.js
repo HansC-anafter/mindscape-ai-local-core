@@ -15,7 +15,7 @@ const nextConfig = {
       process.env.WEB_CONSOLE_BACKEND_URL ||
       process.env.BACKEND_URL ||
       process.env.NEXT_PUBLIC_BACKEND_URL ||
-      'http://localhost:8200';
+      'http://localhost:8220';
     const mediaProxyUrl = process.env.MEDIA_PROXY_URL || 'http://127.0.0.1:8202';
     return [
       {

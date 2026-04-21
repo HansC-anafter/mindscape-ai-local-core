@@ -233,6 +233,14 @@ class PlaybookJson(BaseModel):
         None,
         description="Declarative rerun policy for restoring missing required inputs.",
     )
+    meeting_input_defaults: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Declarative meeting-stage fallback defaults resolved by generic orchestrator resolvers.",
+    )
+    planner_input_defaults: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Declarative planner-stage fallback defaults resolved by generic orchestrator resolvers.",
+    )
 
     @model_validator(mode="before")
     @classmethod

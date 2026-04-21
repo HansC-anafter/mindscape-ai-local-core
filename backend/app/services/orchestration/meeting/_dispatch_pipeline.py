@@ -25,6 +25,22 @@ async def stage_decompose_and_dispatch(
     )
 
     real_signals = SupervisionSignals()
+    session_metadata = getattr(meeting.session, "metadata", None) or {}
+    fallback_meta = (
+        session_metadata.get("policy_gate_fallback")
+        if isinstance(session_metadata, dict)
+        else None
+    )
+    forced_dispatch_intent_ids = set()
+    if isinstance(fallback_meta, dict):
+        for field_name in ("replacement_intent_ids", "preserved_intent_ids"):
+            raw_ids = fallback_meta.get(field_name)
+            if not isinstance(raw_ids, list):
+                continue
+            for raw_intent_id in raw_ids:
+                intent_id = str(raw_intent_id or "").strip()
+                if intent_id:
+                    forced_dispatch_intent_ids.add(intent_id)
     try:
         emitter = SupervisionSignalsEmitter()
         session_attempts = []
@@ -65,23 +81,37 @@ async def stage_decompose_and_dispatch(
     dispatch_gate = DispatchGate(signals=real_signals)
     gate_result = dispatch_gate.evaluate(action_intents)
     dispatch_intent_ids = set(gate_result.dispatch_intents)
+    overridden_gate_intent_ids = forced_dispatch_intent_ids - dispatch_intent_ids
+    if overridden_gate_intent_ids:
+        logger.info(
+            "Bypassing L3 DispatchGate for policy fallback intents in session %s: %s",
+            getattr(meeting.session, "id", "?"),
+            sorted(overridden_gate_intent_ids),
+        )
+        dispatch_intent_ids |= forced_dispatch_intent_ids
     dispatchable_intents = [
         intent for intent in action_intents if intent.intent_id in dispatch_intent_ids
     ]
 
     for decision_item in gate_result.clarify_intents:
+        if decision_item.intent_id in overridden_gate_intent_ids:
+            continue
         logger.info(
             "L3 Gate CLARIFY: intent=%s reason=%s",
             decision_item.intent_id,
             decision_item.reason,
         )
     for decision_item in gate_result.deferred_intents:
+        if decision_item.intent_id in overridden_gate_intent_ids:
+            continue
         logger.info(
             "L3 Gate DEFER: intent=%s reason=%s",
             decision_item.intent_id,
             decision_item.reason,
         )
     for decision_item in gate_result.shrunk_intents:
+        if decision_item.intent_id in overridden_gate_intent_ids:
+            continue
         logger.info(
             "L3 Gate SHRINK_SCOPE: intent=%s reason=%s",
             decision_item.intent_id,
@@ -92,21 +122,34 @@ async def stage_decompose_and_dispatch(
 
     decomposer = None
     decomposed_phases = None
-    session_metadata = getattr(meeting.session, "metadata", None) or {}
-    fallback_meta = (
-        session_metadata.get("policy_gate_fallback")
-        if isinstance(session_metadata, dict)
-        else None
-    )
     skip_decomposition = bool(
         isinstance(fallback_meta, dict) and fallback_meta.get("replacement_intent_ids")
     )
+    protected_playbook_items = [
+        item
+        for item in action_items
+        if bool(item.get("preserve_atomic_playbook"))
+    ]
+    if protected_playbook_items:
+        skip_decomposition = True
     if skip_decomposition:
-        logger.info(
-            "Skipping TaskDecomposer for session %s because policy fallback is active (replacement_intents=%d)",
-            getattr(meeting.session, "id", "?"),
-            len(fallback_meta.get("replacement_intent_ids") or []),
-        )
+        if protected_playbook_items:
+            logger.info(
+                "Skipping TaskDecomposer for session %s because deterministic playbook routes must stay atomic (playbooks=%s)",
+                getattr(meeting.session, "id", "?"),
+                sorted(
+                    {
+                        str(item.get("playbook_code") or "").strip()
+                        for item in protected_playbook_items
+                    }
+                ),
+            )
+        else:
+            logger.info(
+                "Skipping TaskDecomposer for session %s because policy fallback is active (replacement_intents=%d)",
+                getattr(meeting.session, "id", "?"),
+                len(fallback_meta.get("replacement_intent_ids") or []),
+            )
     else:
         try:
             from backend.app.services.orchestration.meeting.meeting_llm_adapter import (

@@ -1,6 +1,6 @@
 # Reel Hook Bank
 
-本文件為 deliverable `整理至少 12 個可直接使用的 reel hooks 與執行注意事項` 的正式定稿，供首週 Instagram Reel 腳本、口播、字幕與審稿直接引用。所有內容承接 [persona_operating_system.md](/Users/shock/Projects_local/workspace/mindscape-ai-local-core/persona_operating_system.md) 與 [instagram_week1_calendar.md](/Users/shock/Projects_local/workspace/mindscape-ai-local-core/instagram_week1_calendar.md)，目的不是製造焦慮，而是在前 `3` 秒讓高壓受眾感到「這在說我」，並自然接到機制翻譯、一個小步驟與低壓 CTA。
+本文件為 deliverable `整理至少 12 個可直接使用的 reel hooks 與執行注意事項` 的正式定稿，供首週 Instagram Reel 腳本、口播、字幕、分鏡與審稿直接引用。內容承接 [persona_operating_system.md](/Users/shock/Projects_local/workspace/mindscape-ai-local-core/persona_operating_system.md) 與 [instagram_week1_calendar.md](/Users/shock/Projects_local/workspace/mindscape-ai-local-core/instagram_week1_calendar.md)，並對齊本輪 seed 的 `brand launch hero frame for first-week Instagram bootstrap` 任務：由創作者本人出鏡，在前 `3` 秒建立 `冷靜、可信、能把複雜感受翻成人話` 的第一印象。
 
 ## 1. 使用原則
 
@@ -10,7 +10,15 @@
 - 所有 hook 都要保留節制感，優先使用 `很多人`、`有時候`、`未必`、`可能` 這類限制詞。
 - CTA 只使用 `追蹤`、`收藏`、`留言`、`分享` 四種低壓互動，不導向私訊成交。
 
-## 2. 首週 Reel 對應
+## 2. 開場設計規則
+
+- 第一秒先命中情境，不先解釋理論。
+- 第一句只講 `1` 個核心張力，例如 `休息了卻沒恢復`、`停不下來卻不知道為什麼`。
+- 若 hook 是判斷句，第二句就補翻譯；若 hook 是問句，第二句就直接給觀點。
+- 開場不能比後文更聳動，避免第一句是爆點、後面卻接不住。
+- 同一支片只選一種語氣任務：`角色進場`、`拆誤解`、`給一步`、`放大共鳴`、`系列收束`。
+
+## 3. 首週 Reel 對應
 
 | Reel 日 | 主題代碼 | 主題 | 主 CTA |
 | --- | --- | --- | --- |
@@ -21,7 +29,17 @@
 
 補充：部分 hook 也可延伸支援 Day 2、Day 4、Day 6 的 carousel 文案或短版口播，只要後段改接對應清單、切換步驟或自我檢查。
 
-## 3. Reel Hook Bank
+## 4. 快速選用表
+
+| 如果這支 Reel 的任務是 | 優先選這組 hook | 原因 |
+| --- | --- | --- |
+| 建立品牌第一印象 | Hook 01-04 | 最能代表品牌的冷靜翻譯角色 |
+| 拆掉受眾自責 | Hook 05-08 | 先解除 `是不是我不夠好` 的防衛 |
+| 引到 `今晚可以做什麼` | Hook 09-11 | 能自然接到低摩擦步驟 |
+| 做可被轉傳的高共鳴內容 | Hook 12-14 | 對比感最強，適合分享 |
+| 收束首週並拉出下週期待 | Hook 15-16 | 適合做週回顧與系列延伸 |
+
+## 5. Reel Hook Bank
 
 ### A. 角色進場型
 
@@ -177,7 +195,7 @@
 - **主 CTA**：`追蹤`
 - **執行提醒**：這條適合週回顧或系列收束，不適合當第一支初見片的開場。
 
-## 4. 依首週排程的建議搭配
+## 6. 依首週排程的建議搭配
 
 | Day | 建議優先 hook | 備選 hook |
 | --- | --- | --- |
@@ -186,7 +204,7 @@
 | Day 5 | Hook 12 | Hook 03、Hook 13、Hook 14 |
 | Day 7 | Hook 15 | Hook 08、Hook 16 |
 
-## 5. 一支 Reel 的安全骨架
+## 7. 一支 Reel 的安全骨架
 
 1. 用 hook 命中情境或拆掉一個自責式誤解。
 2. 用一句話翻譯可能機制，不講成唯一答案。
@@ -202,30 +220,38 @@
 如果你想看我下一支繼續拆，先追蹤。
 ```
 
-## 6. 執行注意事項
+## 8. 執行注意事項
 
-### 6.1 字幕與口播
+### 8.1 字幕與口播
 
 - 前 `3` 秒字幕盡量不超過 `2` 行，每行維持短句。
 - 如果開場已用問句，下一句直接進解釋，不要連續追問。
 - 同一支片只保留 `1` 個主比喻，例如 `退場`、`值班`、`結束訊號`，不要三個一起塞。
 - 口播節奏優先 `冷靜 + 命中`，不要用過快語速硬拉注意力。
 
-### 6.2 畫面與結構
+### 8.2 畫面與結構
 
 - hook 越抽象，畫面越要生活化；hook 越具體，畫面越要乾淨。
 - 同一支 Reel 最多只承載 `1` 個核心結論與 `1` 個行動建議。
 - 若內容主旨是共鳴擴散，優先用對比畫面；若主旨是微步驟，優先用操作畫面。
 - 所有畫面都應回到高壓受眾熟悉的日常，而不是拍成療癒情緒短片。
 
-### 6.3 CTA 控制
+### 8.3 CTA 控制
 
 - Day 1、Day 7 以 `追蹤` 為主。
 - Day 3 以 `留言` 為主。
 - Day 5 以 `分享` 為主。
 - 不可臨場改成雙 CTA，例如同時要觀眾 `留言 + 收藏 + 追蹤`。
 
-## 7. 禁用開場句型
+### 8.4 常見失手點
+
+- hook 太像金句，卻接不到具體翻譯或下一步。
+- 第一秒用力過猛，後面只剩空泛安慰。
+- 把 `退場`、`值班`、`恢復`、`自律` 全塞進同一支片，造成訊息過載。
+- 想同時拿 `追蹤 + 收藏 + 留言`，導致 CTA 失焦。
+- 用 `你一直這樣就是...` 這類判決句，直接破壞品牌信任感。
+
+## 9. 禁用開場句型
 
 - `你一定是自律神經失調。`
 - `再不改，你之後只會更嚴重。`
@@ -234,7 +260,7 @@
 - `你一直停不下來就是不夠自律。`
 - `想知道完整解法就私訊我。`
 
-## 8. 審稿檢核表
+## 10. 審稿檢核表
 
 | 檢核項 | 通過標準 |
 | --- | --- |
@@ -246,7 +272,7 @@
 | 是否只有 `1` 個 CTA | 能 |
 | 是否有明確畫面想像 | 能 |
 
-## 9. 定稿驗證
+## 11. 定稿驗證
 
 | 驗證項 | 結果 |
 | --- | --- |
@@ -258,3 +284,9 @@
 | 每條均含執行提醒 | 通過 |
 | 已對齊角色 OS 與首週週曆 | 通過 |
 
+## 12. Artifact Evidence
+
+- **Artifact**：`reel_hook_bank.md`
+- **對應上游**：[persona_operating_system.md](/Users/shock/Projects_local/workspace/mindscape-ai-local-core/persona_operating_system.md)
+- **對應排程**：[instagram_week1_calendar.md](/Users/shock/Projects_local/workspace/mindscape-ai-local-core/instagram_week1_calendar.md)
+- **artifact 角色**：固化首週 Reel 的開場語料、選用規則與審稿標準，讓腳本、口播、字幕與 preview 審核使用同一口徑

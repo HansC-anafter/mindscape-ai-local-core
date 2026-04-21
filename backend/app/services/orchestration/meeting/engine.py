@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import re
+from copy import deepcopy
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -51,6 +52,10 @@ from backend.app.services.orchestration.meeting._ir_compiler import (
     MeetingIRCompilerMixin,
 )
 from backend.app.services.orchestration.meeting._l2_bridge import MeetingL2BridgeMixin
+from backend.app.services.orchestration.default_input_resolvers import (
+    apply_declarative_input_defaults,
+    load_playbook_meeting_input_defaults,
+)
 from backend.app.services.orchestration.meeting._prompts import MeetingPromptsMixin
 from backend.app.services.orchestration.meeting._session import MeetingSessionMixin
 from backend.app.services.orchestration.meeting._tool_discovery import (
@@ -730,7 +735,7 @@ class MeetingEngine(
         action_intents: Optional[List[Any]] = None,
     ) -> tuple[List[Any], List[Dict[str, Any]]]:
         """S5: Policy gate validation + emit action items via SSE."""
-        action_intents, action_items = self._apply_pd_storyboard_route_selector(
+        action_intents, action_items = self._apply_request_contract_playbook_requests(
             action_items=action_items,
             action_intents=action_intents,
         )
@@ -790,9 +795,22 @@ class MeetingEngine(
         metadata.setdefault("workspace_scope", getattr(self.session, "workspace_id", ""))
 
         if handoff_in is None:
-            seed = self._extract_pd_storyboard_seed(metadata)
-            if seed:
-                metadata["pd_storyboard_seed"] = seed
+            normalized_playbook_requests = (
+                self._extract_request_contract_playbook_requests(metadata)
+            )
+            normalized_playbook_input_defaults = (
+                self._extract_request_contract_playbook_input_defaults(metadata)
+            )
+            if normalized_playbook_requests:
+                metadata["playbook_requests"] = normalized_playbook_requests
+            elif isinstance(metadata.get("playbook_requests"), list):
+                metadata["playbook_requests"] = []
+            if normalized_playbook_input_defaults:
+                metadata["playbook_input_defaults"] = (
+                    normalized_playbook_input_defaults
+                )
+            elif isinstance(metadata.get("playbook_input_defaults"), list):
+                metadata["playbook_input_defaults"] = []
             return metadata
 
         goals = getattr(handoff_in, "goals", None) or []
@@ -852,51 +870,58 @@ class MeetingEngine(
         ):
             metadata["requested_output_type"] = requested_output_type.strip()
 
-        seed = self._extract_pd_storyboard_seed(metadata)
-        if seed:
-            metadata["pd_storyboard_seed"] = seed
+        playbook_requests = getattr(handoff_in, "playbook_requests", None)
+        if isinstance(playbook_requests, list) and not metadata.get("playbook_requests"):
+            metadata["playbook_requests"] = list(playbook_requests)
+
+        playbook_input_defaults = getattr(handoff_in, "playbook_input_defaults", None)
+        if isinstance(playbook_input_defaults, list) and not metadata.get(
+            "playbook_input_defaults"
+        ):
+            metadata["playbook_input_defaults"] = list(playbook_input_defaults)
+
+        normalized_playbook_requests = self._extract_request_contract_playbook_requests(
+            metadata
+        )
+        normalized_playbook_input_defaults = (
+            self._extract_request_contract_playbook_input_defaults(metadata)
+        )
+        if normalized_playbook_requests:
+            metadata["playbook_requests"] = normalized_playbook_requests
+        elif isinstance(metadata.get("playbook_requests"), list):
+            metadata["playbook_requests"] = []
+        if normalized_playbook_input_defaults:
+            metadata["playbook_input_defaults"] = normalized_playbook_input_defaults
+        elif isinstance(metadata.get("playbook_input_defaults"), list):
+            metadata["playbook_input_defaults"] = []
 
         return metadata
 
-    def _apply_pd_storyboard_route_selector(
+    def _apply_request_contract_playbook_requests(
         self,
         *,
         action_items: List[Dict[str, Any]],
         action_intents: Optional[List[Any]],
     ) -> tuple[List[Any], List[Dict[str, Any]]]:
-        """Normalize PD storyboard routing when the request carries an explicit seed."""
+        """Apply deterministic playbook requests carried by the request contract."""
         contract = self._get_request_contract_metadata()
-        seed = self._extract_pd_storyboard_seed(contract)
-        route = self._select_pd_storyboard_route(seed)
-        if not route:
+        requested_items = self._extract_request_contract_playbook_requests(contract)
+        if not requested_items:
             return action_intents or [], action_items
-
-        normalized_item = self._build_pd_storyboard_action_item(
-            route=route,
-            seed=seed,
-            contract=contract,
-        )
-        if not normalized_item:
-            return action_intents or [], action_items
-
-        route_like_codes = {
-            "pd_execute_storyboard_preview",
-            "pd_intake_storyboard_preview",
-            "pd_scene_package_preview_handoff",
-            "pd_storyboard_gen",
+        replace_codes = {
+            code
+            for item in requested_items
+            for code in self._clean_string_list(item.get("replace_existing_playbook_codes"))
         }
         normalized_items: List[Dict[str, Any]] = []
-        replaced = False
+        replaced_count = 0
         for item in action_items:
             playbook_code = str(item.get("playbook_code") or "").strip()
-            if playbook_code in route_like_codes:
-                if not replaced:
-                    normalized_items.append(normalized_item)
-                    replaced = True
+            if playbook_code and playbook_code in replace_codes:
+                replaced_count += 1
                 continue
             normalized_items.append(item)
-        if not replaced:
-            normalized_items.append(normalized_item)
+        normalized_items.extend(requested_items)
 
         from backend.app.models.action_intent import ActionIntent
 
@@ -905,252 +930,368 @@ class MeetingEngine(
         ]
         if self.session.metadata is None:
             self.session.metadata = {}
-        self.session.metadata["pd_storyboard_route"] = {
-            "route": route,
-            "seed": seed,
-            "replacement_mode": "replace_existing" if replaced else "append_missing",
-        }
+        self.session.metadata["request_contract_playbook_requests"] = [
+            {
+                "playbook_code": item.get("playbook_code"),
+                "intent_id": item.get("intent_id"),
+                "source": item.get("request_contract_source", "explicit"),
+                "replace_existing_playbook_codes": self._clean_string_list(
+                    item.get("replace_existing_playbook_codes")
+                ),
+                "handled_deliverable_ids": self._clean_string_list(
+                    item.get("handled_deliverable_ids")
+                ),
+            }
+            for item in requested_items
+        ]
         return normalized_intents, normalized_items
 
-    @staticmethod
-    def _extract_pd_storyboard_seed(
+    def _extract_request_contract_playbook_requests(
+        self,
         contract: Optional[Dict[str, Any]],
-    ) -> Optional[Dict[str, Any]]:
-        """Read a normalized PD storyboard seed from contract metadata."""
+    ) -> List[Dict[str, Any]]:
+        """Read explicit deterministic playbook requests from the request contract."""
         if not isinstance(contract, dict):
-            return None
+            return []
 
-        direct_seed = contract.get("pd_storyboard_seed")
-        if isinstance(direct_seed, dict) and direct_seed:
-            return MeetingEngine._normalize_pd_storyboard_seed(direct_seed)
+        raw_requests: List[Dict[str, Any]] = []
+        explicit_request_markers = False
+
+        direct_requests = contract.get("playbook_requests")
+        if isinstance(direct_requests, list):
+            explicit_request_markers = True
+            raw_requests.extend(
+                request for request in direct_requests if isinstance(request, dict)
+            )
 
         governance_constraints = contract.get("governance_constraints")
         if not isinstance(governance_constraints, dict):
             governance_constraints = contract.get("constraints")
         if isinstance(governance_constraints, dict):
-            seeded = governance_constraints.get("pd_storyboard_seed")
-            if isinstance(seeded, dict) and seeded:
-                return MeetingEngine._normalize_pd_storyboard_seed(seeded)
+            nested_requests = governance_constraints.get("playbook_requests")
+            if isinstance(nested_requests, list):
+                explicit_request_markers = True
+                raw_requests.extend(
+                    request for request in nested_requests if isinstance(request, dict)
+                )
 
         attachments = contract.get("context_attachments")
-        if isinstance(attachments, list):
-            for attachment in attachments:
-                if not isinstance(attachment, dict):
-                    continue
-                typed_marker = str(
-                    attachment.get("type")
-                    or attachment.get("kind")
-                    or attachment.get("name")
-                    or attachment.get("attachment_type")
-                    or ""
-                ).strip()
-                payload = attachment.get("payload")
-                if typed_marker == "pd_storyboard_seed" and isinstance(payload, dict):
-                    return MeetingEngine._normalize_pd_storyboard_seed(payload)
-                nested_seed = attachment.get("pd_storyboard_seed")
-                if isinstance(nested_seed, dict) and nested_seed:
-                    return MeetingEngine._normalize_pd_storyboard_seed(nested_seed)
-        return None
+        attachment_requests, attachment_markers = self._collect_playbook_requests_from_attachments(
+            attachments
+        )
+        explicit_request_markers = explicit_request_markers or attachment_markers
+        raw_requests.extend(attachment_requests)
 
-    @staticmethod
-    def _normalize_pd_storyboard_seed(seed: Dict[str, Any]) -> Dict[str, Any]:
-        """Keep only deterministic selector fields used by the PD route matrix."""
-        normalized: Dict[str, Any] = {}
-        for field_name in (
-            "session_id",
-            "workspace_id",
-            "project_id",
-            "reference_id",
-            "source_type",
-            "character_binding_mode",
-            "performance_mode",
-        ):
-            value = seed.get(field_name)
-            if isinstance(value, str) and value.strip():
-                normalized[field_name] = value.strip()
-        for field_name in (
-            "intent",
-            "scene_package_selector",
-            "spatial_schedule",
-            "render_profile",
-            "global_settings",
-            "workload_execution_intent",
-            "capture_bundle",
-            "provider_payload",
-            "motion_provider_payload",
-        ):
-            value = seed.get(field_name)
-            if isinstance(value, dict) and value:
-                normalized[field_name] = value
-        for field_name in (
-            "cast",
-            "scene_specs",
-            "character_package_refs",
-            "performance_package_refs",
-            "speaker_audio_refs",
-            "driving_clip_refs",
-            "source_reference_ids",
-        ):
-            value = seed.get(field_name)
-            if isinstance(value, list) and value:
-                normalized[field_name] = value
-        for field_name in (
-            "require_retargetable_performance_replay",
-            "auto_advance",
-        ):
-            value = seed.get(field_name)
-            if isinstance(value, bool):
-                normalized[field_name] = value
-        for field_name in ("advance_limit", "motion_seed"):
-            value = seed.get(field_name)
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                normalized[field_name] = value
-        return normalized
+        normalized_requests: List[Dict[str, Any]] = []
+        seen_requests = set()
+        for raw_request in raw_requests:
+            normalized = self._normalize_request_contract_playbook_request(
+                raw_request=raw_request,
+                contract=contract,
+            )
+            if not normalized:
+                continue
+            request_key = (
+                str(normalized.get("playbook_code") or "").strip(),
+                str(normalized.get("intent_id") or "").strip(),
+            )
+            if request_key in seen_requests:
+                continue
+            seen_requests.add(request_key)
+            normalized_requests.append(normalized)
+        return normalized_requests
 
-    @staticmethod
-    def _select_pd_storyboard_route(seed: Optional[Dict[str, Any]]) -> Optional[str]:
-        """Mirror the established preview route matrix for PD storyboard runs."""
-        if not isinstance(seed, dict) or not seed:
-            return None
-        if seed.get("scene_package_selector") and seed.get("session_id"):
-            return "pd_scene_package_preview_handoff"
-        if seed.get("session_id"):
-            return "pd_execute_storyboard_preview"
-        if seed.get("reference_id") and isinstance(seed.get("intent"), dict):
-            return "pd_intake_storyboard_preview"
-        return None
+    def _collect_playbook_requests_from_attachments(
+        self,
+        attachments: Any,
+    ) -> tuple[List[Dict[str, Any]], bool]:
+        if not isinstance(attachments, list):
+            return [], False
+        requests: List[Dict[str, Any]] = []
+        found_marker = False
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            typed_marker = str(
+                attachment.get("type")
+                or attachment.get("kind")
+                or attachment.get("name")
+                or attachment.get("attachment_type")
+                or ""
+            ).strip()
+            payload = attachment.get("payload")
+            nested_request = attachment.get("playbook_request")
+            nested_requests = attachment.get("playbook_requests")
 
-    def _build_pd_storyboard_action_item(
+            if typed_marker in {"playbook_request", "atomic_playbook_request"}:
+                found_marker = True
+                if isinstance(payload, dict):
+                    requests.append(payload)
+                elif isinstance(nested_request, dict):
+                    requests.append(nested_request)
+                continue
+
+            if typed_marker in {"playbook_requests", "atomic_playbook_requests"}:
+                found_marker = True
+                if isinstance(payload, list):
+                    requests.extend(
+                        request for request in payload if isinstance(request, dict)
+                    )
+                elif isinstance(nested_requests, list):
+                    requests.extend(
+                        request
+                        for request in nested_requests
+                        if isinstance(request, dict)
+                    )
+                continue
+
+            if isinstance(nested_request, dict):
+                found_marker = True
+                requests.append(nested_request)
+            if isinstance(nested_requests, list):
+                found_marker = True
+                requests.extend(
+                    request for request in nested_requests if isinstance(request, dict)
+                )
+        return requests, found_marker
+
+    def _normalize_request_contract_playbook_request(
         self,
         *,
-        route: str,
-        seed: Dict[str, Any],
+        raw_request: Dict[str, Any],
         contract: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """Build a deterministic PD storyboard action item from explicit seed data."""
+        if not isinstance(raw_request, dict):
+            return None
+
+        playbook_code = str(raw_request.get("playbook_code") or "").strip()
+        if not playbook_code:
+            return None
+
         workspace_id = (
-            str(seed.get("workspace_id") or getattr(self.session, "workspace_id", "")).strip()
+            str(
+                raw_request.get("target_workspace_id")
+                or raw_request.get("workspace_id")
+                or getattr(self.session, "workspace_id", "")
+            ).strip()
             or None
         )
         project_id = (
-            str(seed.get("project_id") or self.project_id or "").strip() or None
+            str(
+                raw_request.get("project_id")
+                or getattr(self, "project_id", None)
+                or ""
+            ).strip()
+            or None
         )
-        if workspace_id is None:
-            return None
 
-        input_params: Dict[str, Any] = {"workspace_id": workspace_id}
-        if project_id:
+        input_params = (
+            dict(raw_request.get("input_params"))
+            if isinstance(raw_request.get("input_params"), dict)
+            else {}
+        )
+        if workspace_id and "workspace_id" not in input_params:
+            input_params["workspace_id"] = workspace_id
+        if project_id and "project_id" not in input_params:
             input_params["project_id"] = project_id
 
-        for field_name in (
-            "source_type",
-            "scene_specs",
-            "spatial_schedule",
-            "character_binding_mode",
-            "character_package_refs",
-            "performance_mode",
-            "performance_package_refs",
-            "speaker_audio_refs",
-            "driving_clip_refs",
-            "require_retargetable_performance_replay",
-            "render_profile",
-            "global_settings",
-            "workload_execution_intent",
-        ):
-            if seed.get(field_name) not in (None, "", [], {}):
-                input_params[field_name] = seed[field_name]
-
-        if route == "pd_scene_package_preview_handoff":
-            selector = seed.get("scene_package_selector") or {}
-            if seed.get("session_id"):
-                input_params["session_id"] = seed["session_id"]
-            for selector_field, target_field in (
-                ("provider", "provider_code"),
-                ("generation_mode", "generation_mode"),
-                ("scene_scope", "scene_scope"),
-                ("variant_id", "variant_id"),
-            ):
-                selector_value = str(selector.get(selector_field) or "").strip()
-                if selector_value:
-                    input_params[target_field] = selector_value
-            for passthrough_field in (
-                "source_reference_ids",
-                "capture_bundle",
-                "provider_payload",
-                "motion_provider_payload",
-                "motion_seed",
-                "auto_advance",
-                "advance_limit",
-            ):
-                if seed.get(passthrough_field) not in (None, "", [], {}):
-                    input_params[passthrough_field] = seed[passthrough_field]
-            title = "Run scene-package storyboard preview handoff"
-            description = (
-                "Use the provided PD session and scene-package selector to resolve "
-                "a replayable storyboard preview path, then execute the MMS preview "
-                "lane when the selector is ready."
-            )
-        elif route == "pd_execute_storyboard_preview":
-            input_params["session_id"] = seed.get("session_id")
-            if seed.get("scene_package_selector"):
-                input_params["scene_package_selector"] = seed["scene_package_selector"]
-            title = "Execute storyboard preview from PD session"
-            description = (
-                "Use the existing PD session to generate a storyboard manifest and "
-                "execute it through the MMS preview lane."
-            )
-        elif route == "pd_intake_storyboard_preview":
-            input_params["reference_id"] = seed.get("reference_id")
-            input_params["intent"] = seed.get("intent")
-            if seed.get("cast"):
-                input_params["cast"] = seed["cast"]
-            title = "Create PD session and execute storyboard preview"
-            description = (
-                "Create a PD session from the provided reference and intent seed, "
-                "generate a storyboard manifest, and execute it through MMS."
-            )
-        else:
-            return None
+        title = str(raw_request.get("title") or "").strip() or playbook_code
+        description = str(raw_request.get("description") or "").strip() or (
+            f"Execute request-contract playbook '{playbook_code}' with explicit "
+            "inputs from the upstream contract."
+        )
+        replacement_codes = self._clean_string_list(
+            raw_request.get("replace_existing_playbook_codes")
+            or raw_request.get("replace_existing_codes")
+        )
+        if not replacement_codes:
+            replacement_codes = [playbook_code]
 
         item: Dict[str, Any] = {
             "title": title,
             "description": description,
-            "playbook_code": route,
-            "engine": f"playbook:{route}",
-            "priority": "high",
-            "target_workspace_id": workspace_id,
-            "intent_id": f"PD_{route}",
+            "playbook_code": playbook_code,
+            "engine": str(raw_request.get("engine") or "").strip()
+            or f"playbook:{playbook_code}",
+            "priority": str(raw_request.get("priority") or "").strip() or "high",
+            "intent_id": str(raw_request.get("intent_id") or "").strip()
+            or f"PB_{playbook_code}",
             "input_params": input_params,
+            "replace_existing_playbook_codes": replacement_codes,
+            "preserve_atomic_playbook": bool(
+                raw_request.get("preserve_atomic_playbook", True)
+            ),
         }
+        if workspace_id:
+            item["target_workspace_id"] = workspace_id
 
-        if isinstance(contract.get("acceptance_tests"), list) and contract.get(
-            "acceptance_tests"
+        handled_deliverable_ids = self._clean_string_list(
+            raw_request.get("handled_deliverable_ids")
+            or raw_request.get("deliverable_ids")
+        )
+        if handled_deliverable_ids:
+            item["handled_deliverable_ids"] = handled_deliverable_ids
+
+        for field_name in (
+            "acceptance_tests",
+            "governance_constraints",
+            "context_attachments",
+            "human_instructions",
+            "requested_output_type",
+            "capability_profile",
         ):
-            item["acceptance_tests"] = contract["acceptance_tests"]
+            candidate = raw_request.get(field_name)
+            if candidate in (None, "", [], {}):
+                candidate = contract.get(field_name)
+            if candidate not in (None, "", [], {}):
+                item[field_name] = candidate
+
+        source = str(raw_request.get("request_contract_source") or "").strip()
+        if source:
+            item["request_contract_source"] = source
+
+        return item
+
+    def _extract_request_contract_playbook_input_defaults(
+        self,
+        contract: Optional[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Read generic playbook input bootstrap defaults from the contract."""
+        if not isinstance(contract, dict):
+            return []
+
+        raw_defaults: List[Dict[str, Any]] = []
+
+        direct_defaults = contract.get("playbook_input_defaults")
+        if isinstance(direct_defaults, list):
+            raw_defaults.extend(
+                candidate for candidate in direct_defaults if isinstance(candidate, dict)
+            )
+
         governance_constraints = contract.get("governance_constraints")
         if not isinstance(governance_constraints, dict):
             governance_constraints = contract.get("constraints")
-        if isinstance(governance_constraints, dict) and governance_constraints:
-            item["governance_constraints"] = governance_constraints
-        if isinstance(contract.get("context_attachments"), list) and contract.get(
-            "context_attachments"
-        ):
-            item["context_attachments"] = contract["context_attachments"]
-        if isinstance(contract.get("human_instructions"), str) and contract.get(
-            "human_instructions"
-        ).strip():
-            item["human_instructions"] = contract["human_instructions"].strip()
-        if isinstance(contract.get("requested_output_type"), str) and contract.get(
-            "requested_output_type"
-        ).strip():
-            item["requested_output_type"] = contract["requested_output_type"].strip()
-        return item
+        if isinstance(governance_constraints, dict):
+            nested_defaults = governance_constraints.get("playbook_input_defaults")
+            if isinstance(nested_defaults, list):
+                raw_defaults.extend(
+                    candidate
+                    for candidate in nested_defaults
+                    if isinstance(candidate, dict)
+                )
+
+        attachment_defaults = self._collect_playbook_input_defaults_from_attachments(
+            contract.get("context_attachments")
+        )
+        raw_defaults.extend(attachment_defaults)
+
+        normalized_defaults: List[Dict[str, Any]] = []
+        seen_defaults = set()
+        for raw_default in raw_defaults:
+            normalized = self._normalize_request_contract_playbook_input_default(
+                raw_default
+            )
+            if not normalized:
+                continue
+            default_key = (
+                str(normalized.get("playbook_code") or "").strip(),
+                tuple(normalized.get("deliverable_ids") or []),
+                tuple(sorted(normalized.get("input_params", {}).keys())),
+            )
+            if default_key in seen_defaults:
+                continue
+            seen_defaults.add(default_key)
+            normalized_defaults.append(normalized)
+        return normalized_defaults
+
+    def _collect_playbook_input_defaults_from_attachments(
+        self,
+        attachments: Any,
+    ) -> List[Dict[str, Any]]:
+        if not isinstance(attachments, list):
+            return []
+        defaults: List[Dict[str, Any]] = []
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            typed_marker = str(
+                attachment.get("type")
+                or attachment.get("kind")
+                or attachment.get("name")
+                or attachment.get("attachment_type")
+                or ""
+            ).strip()
+            payload = attachment.get("payload")
+            nested_default = attachment.get("playbook_input_default")
+            nested_defaults = attachment.get("playbook_input_defaults")
+
+            if typed_marker == "playbook_input_default":
+                if isinstance(payload, dict):
+                    defaults.append(payload)
+                elif isinstance(nested_default, dict):
+                    defaults.append(nested_default)
+                continue
+
+            if typed_marker == "playbook_input_defaults":
+                if isinstance(payload, list):
+                    defaults.extend(
+                        candidate for candidate in payload if isinstance(candidate, dict)
+                    )
+                elif isinstance(nested_defaults, list):
+                    defaults.extend(
+                        candidate
+                        for candidate in nested_defaults
+                        if isinstance(candidate, dict)
+                    )
+                continue
+
+            if isinstance(nested_default, dict):
+                defaults.append(nested_default)
+            if isinstance(nested_defaults, list):
+                defaults.extend(
+                    candidate for candidate in nested_defaults if isinstance(candidate, dict)
+                )
+        return defaults
+
+    def _normalize_request_contract_playbook_input_default(
+        self,
+        raw_default: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        if not isinstance(raw_default, dict):
+            return None
+        input_params = raw_default.get("input_params")
+        if not isinstance(input_params, dict) or not input_params:
+            return None
+
+        playbook_code = str(raw_default.get("playbook_code") or "").strip()
+        deliverable_ids = self._clean_string_list(
+            raw_default.get("deliverable_ids")
+            or raw_default.get("handled_deliverable_ids")
+        )
+        if not playbook_code and not deliverable_ids:
+            return None
+
+        normalized: Dict[str, Any] = {
+            "input_params": deepcopy(input_params),
+        }
+        if playbook_code:
+            normalized["playbook_code"] = playbook_code
+        if deliverable_ids:
+            normalized["deliverable_ids"] = deliverable_ids
+
+        source = str(raw_default.get("request_contract_source") or "").strip()
+        if source:
+            normalized["request_contract_source"] = source
+        return normalized
 
     def _hydrate_action_items_for_policy_gate(
         self, action_items: List[Dict[str, Any]]
     ) -> None:
         """Fill deterministic bootstrap inputs before policy validation."""
         contract = self._get_request_contract_metadata()
+        playbook_input_defaults = (
+            self._extract_request_contract_playbook_input_defaults(contract)
+        )
         deliverables = {
             d.get("id"): d
             for d in contract.get("deliverables", [])
@@ -1161,6 +1302,20 @@ class MeetingEngine(
         success_criteria = getattr(self.session, "success_criteria", None) or []
         agenda = getattr(self.session, "agenda", None) or []
         lens_id = getattr(self.session, "lens_id", None)
+        if self.session.metadata is None:
+            self.session.metadata = {}
+        if playbook_input_defaults:
+            self.session.metadata["request_contract_playbook_input_defaults"] = [
+                {
+                    "playbook_code": rule.get("playbook_code"),
+                    "deliverable_ids": rule.get("deliverable_ids", []),
+                    "source": rule.get("request_contract_source", "explicit"),
+                    "input_param_keys": sorted(rule.get("input_params", {}).keys()),
+                }
+                for rule in playbook_input_defaults
+            ]
+        elif "request_contract_playbook_input_defaults" in self.session.metadata:
+            self.session.metadata.pop("request_contract_playbook_input_defaults", None)
 
         for item in action_items:
             params = item.get("input_params")
@@ -1189,38 +1344,80 @@ class MeetingEngine(
                     deliverable_name=deliverable_name,
                 )
 
-            playbook_code = item.get("playbook_code")
-            if playbook_code == "week1_feed_factory" and not params.get(
-                "topic_materials"
-            ):
-                params["topic_materials"] = {
-                    "deliverable_id": deliverable_id,
-                    "deliverable_name": deliverable_name,
-                    "source_message": source_message,
-                    "goals": goals,
-                    "agenda": agenda,
-                    "success_criteria": success_criteria,
-                    "reference_notes": item.get("description"),
-                    "lens_id": lens_id,
-                }
+            self._apply_request_contract_playbook_input_defaults_to_item(
+                rules=playbook_input_defaults,
+                item=item,
+                params=params,
+                deliverable_id=deliverable_id,
+            )
+            self._apply_playbook_spec_input_defaults_to_item(
+                item=item,
+                params=params,
+                deliverable_id=deliverable_id,
+                deliverable_name=deliverable_name,
+                source_message=source_message,
+                goals=goals,
+                agenda=agenda,
+                success_criteria=success_criteria,
+                lens_id=lens_id,
+            )
 
-            if playbook_code == "ig_post_generation" and not params.get(
-                "source_content"
-            ):
-                source_lines = []
-                if deliverable_name:
-                    source_lines.append(f"Deliverable: {deliverable_name}")
-                if source_message:
-                    source_lines.append(f"Request: {source_message}")
-                if goals:
-                    source_lines.append("Goals: " + "; ".join(str(g) for g in goals))
-                if agenda:
-                    source_lines.append("Agenda: " + "; ".join(str(a) for a in agenda))
-                if item.get("description"):
-                    source_lines.append(f"Execution brief: {item['description']}")
-                params["source_content"] = "\n".join(
-                    line for line in source_lines if line
-                )
+    def _apply_request_contract_playbook_input_defaults_to_item(
+        self,
+        *,
+        rules: List[Dict[str, Any]],
+        item: Dict[str, Any],
+        params: Dict[str, Any],
+        deliverable_id: Optional[str],
+    ) -> None:
+        playbook_code = str(item.get("playbook_code") or "").strip()
+        for rule in rules:
+            rule_playbook_code = str(rule.get("playbook_code") or "").strip()
+            if rule_playbook_code and rule_playbook_code != playbook_code:
+                continue
+            deliverable_ids = self._clean_string_list(rule.get("deliverable_ids"))
+            if deliverable_ids and deliverable_id not in deliverable_ids:
+                continue
+            input_params = rule.get("input_params")
+            if not isinstance(input_params, dict):
+                continue
+            for key, value in input_params.items():
+                if params.get(key) in (None, "", [], {}):
+                    params[key] = deepcopy(value)
+
+    def _apply_playbook_spec_input_defaults_to_item(
+        self,
+        *,
+        item: Dict[str, Any],
+        params: Dict[str, Any],
+        deliverable_id: Optional[str],
+        deliverable_name: Optional[str],
+        source_message: str,
+        goals: List[Any],
+        agenda: List[Any],
+        success_criteria: List[Any],
+        lens_id: Optional[str],
+    ) -> None:
+        playbook_code = str(item.get("playbook_code") or "").strip()
+        if not playbook_code:
+            return
+        rules = load_playbook_meeting_input_defaults(playbook_code)
+        if not rules:
+            return
+        apply_declarative_input_defaults(
+            params=params,
+            rules=rules,
+            resolver_context={
+                "item": item,
+                "deliverable_id": deliverable_id,
+                "deliverable_name": deliverable_name,
+                "source_message": source_message,
+                "goals": goals,
+                "agenda": agenda,
+                "success_criteria": success_criteria,
+                "lens_id": lens_id,
+            },
+        )
 
     def _apply_request_contract_fallback_if_needed(
         self,
@@ -1250,35 +1447,23 @@ class MeetingEngine(
 
         from backend.app.models.action_intent import ActionIntent
 
-        pd_route_codes = {
-            "pd_execute_storyboard_preview",
-            "pd_intake_storyboard_preview",
-            "pd_scene_package_preview_handoff",
-            "pd_storyboard_gen",
-        }
-        preserved_storyboard_items = [
+        preserved_atomic_items = [
             item
             for item in action_items
             if item.get("landing_status") != "policy_blocked"
-            and str(item.get("playbook_code") or "").strip() in pd_route_codes
+            and bool(item.get("preserve_atomic_playbook"))
         ]
         covered_deliverables = set()
-        for item in preserved_storyboard_items:
+        for item in preserved_atomic_items:
+            handled_ids = item.get("handled_deliverable_ids")
+            if isinstance(handled_ids, list):
+                for raw_deliverable_id in handled_ids:
+                    deliverable_id = str(raw_deliverable_id or "").strip()
+                    if deliverable_id:
+                        covered_deliverables.add(deliverable_id)
             deliverable_id = self._extract_deliverable_id(item)
             if deliverable_id:
                 covered_deliverables.add(deliverable_id)
-
-        if preserved_storyboard_items:
-            for raw_deliverable in deliverables:
-                if not isinstance(raw_deliverable, dict):
-                    continue
-                deliverable_id = str(raw_deliverable.get("id") or "").strip()
-                deliverable_name = str(raw_deliverable.get("name") or "").strip()
-                if self._is_pd_storyboard_deliverable(
-                    deliverable_id=deliverable_id,
-                    deliverable_name=deliverable_name,
-                ):
-                    covered_deliverables.add(deliverable_id)
 
         source_message = contract.get("source_message") or ""
         goals = contract.get("goals") if isinstance(contract.get("goals"), list) else []
@@ -1366,6 +1551,7 @@ class MeetingEngine(
                     "intent_id": f"WS_{deliverable_id}",
                     "source_intent_id": f"WS_{deliverable_id}",
                     "source_phase_id": f"WS_{deliverable_id}",
+                    "priority": "high",
                     "target_workspace_id": getattr(self.session, "workspace_id", None),
                     "engine": fallback_engine,
                     "input_params": {
@@ -1382,12 +1568,12 @@ class MeetingEngine(
             )
 
         if not fallback_items:
-            if preserved_storyboard_items:
+            if preserved_atomic_items:
                 preserved_intents = [
                     ActionIntent.from_action_item_dict(item)
-                    for item in preserved_storyboard_items
+                    for item in preserved_atomic_items
                 ]
-                return preserved_intents, preserved_storyboard_items
+                return preserved_intents, preserved_atomic_items
             return action_intents or [], action_items
 
         if self.session.metadata is None:
@@ -1401,7 +1587,7 @@ class MeetingEngine(
             ],
             "preserved_intent_ids": [
                 item.get("intent_id")
-                for item in preserved_storyboard_items
+                for item in preserved_atomic_items
                 if item.get("intent_id")
             ],
         }
@@ -1412,7 +1598,7 @@ class MeetingEngine(
             sorted(set(blocked_deliverables)),
             sorted(set(blocked_reasons)),
         )
-        merged_items = preserved_storyboard_items + fallback_items
+        merged_items = preserved_atomic_items + fallback_items
         fallback_intents = [
             ActionIntent.from_action_item_dict(item) for item in merged_items
         ]
@@ -1472,7 +1658,7 @@ class MeetingEngine(
         return f"{slug or 'deliverable'}.md"
 
     @staticmethod
-    def _is_pd_storyboard_deliverable(
+    def _is_storyboard_deliverable(
         *,
         deliverable_id: Optional[str],
         deliverable_name: Optional[str],
@@ -1489,6 +1675,41 @@ class MeetingEngine(
         if any(token in name for token in storyboard_tokens):
             return True
         return False
+
+    def _collect_storyboard_deliverable_ids(
+        self,
+        contract: Optional[Dict[str, Any]],
+    ) -> List[str]:
+        if not isinstance(contract, dict):
+            return []
+        deliverables = contract.get("deliverables")
+        if not isinstance(deliverables, list):
+            return []
+        handled_ids: List[str] = []
+        for raw_deliverable in deliverables:
+            if not isinstance(raw_deliverable, dict):
+                continue
+            deliverable_id = str(raw_deliverable.get("id") or "").strip()
+            if not deliverable_id:
+                continue
+            deliverable_name = str(raw_deliverable.get("name") or "").strip()
+            if self._is_storyboard_deliverable(
+                deliverable_id=deliverable_id,
+                deliverable_name=deliverable_name,
+            ):
+                handled_ids.append(deliverable_id)
+        return handled_ids
+
+    @staticmethod
+    def _clean_string_list(values: Any) -> List[str]:
+        if not isinstance(values, list):
+            return []
+        normalized: List[str] = []
+        for value in values:
+            text = str(value or "").strip()
+            if text:
+                normalized.append(text)
+        return normalized
 
     async def _stage_decompose_and_dispatch(
         self,

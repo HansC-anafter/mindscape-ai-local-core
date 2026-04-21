@@ -165,7 +165,7 @@ class GovernanceEngine:
 
         # Build the post-landing provenance sidecar.
         parsed_output = None
-        if self.adapter and playbook_code:
+        if self.adapter:
             try:
                 parsed_output = self.adapter.parse_result(
                     result_data=result_data,

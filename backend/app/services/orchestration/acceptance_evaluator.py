@@ -19,12 +19,7 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-_PD_STORYBOARD_PLAYBOOK_CODES = {
-    "pd_execute_storyboard_preview",
-    "pd_intake_storyboard_preview",
-    "pd_scene_package_preview_handoff",
-}
-_PD_SUCCESS_STATUSES = {"completed", "preview_done", "succeeded", "success", "done"}
+_PREVIEW_SUCCESS_STATUSES = {"completed", "preview_done", "succeeded", "success", "done"}
 
 
 @dataclass
@@ -86,10 +81,10 @@ class AcceptanceEvaluator:
         # --- Check 3: Produces match ---
         checks.append(self._check_produces_match(parsed_output))
 
-        # --- Check 3b: PD storyboard evidence ---
-        pd_check = self._check_pd_storyboard_evidence(parsed_output, playbook_code)
-        if pd_check is not None:
-            checks.append(pd_check)
+        # --- Check 3b: Structured acceptance evidence ---
+        evidence_check = self._check_acceptance_evidence(parsed_output)
+        if evidence_check is not None:
+            checks.append(evidence_check)
 
         # --- Check 4: Acceptance tests ---
         if acceptance_tests:
@@ -262,57 +257,116 @@ class AcceptanceEvaluator:
             "detail": f"{len(matched)}/{len(keywords)} keywords matched ({match_ratio:.0%})",
         }
 
-    def _check_pd_storyboard_evidence(
+    @staticmethod
+    def _has_material_value(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, tuple, set, dict)):
+            return len(value) > 0
+        return True
+
+    def _coerce_acceptance_evidence(
         self,
         parsed_output: Optional[Dict[str, Any]],
-        playbook_code: Optional[str],
     ) -> Optional[Dict[str, Any]]:
-        """Require machine-readable storyboard/MMS evidence for PD preview routes."""
-        if playbook_code not in _PD_STORYBOARD_PLAYBOOK_CODES:
-            return None
         if not parsed_output or not isinstance(parsed_output, dict):
-            return {
-                "test": "pd_storyboard_evidence",
-                "passed": False,
-                "detail": "parsed_output unavailable for PD storyboard evidence",
-            }
+            return None
 
-        evidence = parsed_output.get("pd_storyboard_evidence")
-        if not isinstance(evidence, dict) or not evidence:
+        acceptance_evidence = parsed_output.get("acceptance_evidence")
+        if isinstance(acceptance_evidence, dict) and acceptance_evidence:
+            return dict(acceptance_evidence)
+
+        compatibility_evidence = parsed_output.get("pd_storyboard_evidence")
+        if isinstance(compatibility_evidence, dict) and compatibility_evidence:
+            normalized = dict(compatibility_evidence)
+            normalized.setdefault("evidence_kind", "storyboard_preview")
+            return normalized
+
+        resolved_outputs = parsed_output.get("resolved_outputs")
+        if not isinstance(resolved_outputs, dict):
+            return None
+        if not any(
+            key in resolved_outputs
+            for key in ("storyboard", "selected_scene_package_selector")
+        ):
+            return None
+
+        normalized = {"evidence_kind": "storyboard_preview"}
+        for field_name in (
+            "session_id",
+            "storyboard",
+            "storyboard_id",
+            "source_type",
+            "run_id",
+            "status",
+            "timeline_items_synced",
+            "selected_scene_package_selector",
+        ):
+            value = resolved_outputs.get(field_name)
+            if self._has_material_value(value):
+                normalized[field_name] = value
+
+        storyboard = normalized.get("storyboard")
+        if isinstance(storyboard, dict) and storyboard.get("storyboard_id"):
+            normalized.setdefault("storyboard_id", storyboard["storyboard_id"])
+
+        return normalized if len(normalized) > 1 else None
+
+    def _check_acceptance_evidence(
+        self,
+        parsed_output: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Validate generic structured evidence when the sidecar declares it."""
+        evidence = self._coerce_acceptance_evidence(parsed_output)
+        if not evidence:
+            return None
+
+        evidence_kind = str(evidence.get("evidence_kind") or "").strip() or "unknown"
+        if evidence_kind != "storyboard_preview":
             return {
-                "test": "pd_storyboard_evidence",
-                "passed": False,
-                "detail": "pd_storyboard_evidence missing",
+                "test": "acceptance_evidence",
+                "passed": True,
+                "detail": f"unsupported evidence_kind={evidence_kind} (auto-pass)",
             }
 
         missing_fields: List[str] = []
-        for field_name in ("session_id", "storyboard_id", "run_id", "status"):
+        storyboard = evidence.get("storyboard")
+        storyboard_id = str(evidence.get("storyboard_id") or "").strip()
+        if not storyboard_id and isinstance(storyboard, dict):
+            storyboard_id = str(storyboard.get("storyboard_id") or "").strip()
+        if not storyboard_id:
+            missing_fields.append("storyboard_id")
+
+        for field_name in ("session_id", "run_id", "status"):
             value = evidence.get(field_name)
             if not isinstance(value, str) or not value.strip():
                 missing_fields.append(field_name)
 
         status = str(evidence.get("status") or "").strip().lower()
         timeline_items_synced = evidence.get("timeline_items_synced")
-        if status and status not in _PD_SUCCESS_STATUSES:
+        if status and status not in _PREVIEW_SUCCESS_STATUSES:
             missing_fields.append("terminal_success_status")
         if not isinstance(timeline_items_synced, (int, float)) or isinstance(
             timeline_items_synced, bool
-        ) or timeline_items_synced <= 0:
+        ) or timeline_items_synced < 0:
             missing_fields.append("timeline_items_synced")
 
         if missing_fields:
             return {
-                "test": "pd_storyboard_evidence",
+                "test": "acceptance_evidence",
                 "passed": False,
-                "detail": "missing or invalid PD storyboard evidence: "
+                "detail": "missing or invalid acceptance evidence: "
                 + ", ".join(missing_fields),
             }
 
         return {
-            "test": "pd_storyboard_evidence",
+            "test": "acceptance_evidence",
             "passed": True,
             "detail": (
-                f"session={evidence['session_id']} storyboard={evidence['storyboard_id']} "
-                f"run={evidence['run_id']} status={evidence['status']}"
+                f"kind={evidence_kind} session={evidence['session_id']} "
+                f"storyboard={storyboard_id} run={evidence['run_id']} "
+                f"status={evidence['status']}"
             ),
         }

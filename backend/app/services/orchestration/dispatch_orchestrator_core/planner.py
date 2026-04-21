@@ -5,6 +5,11 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Set
 
+from backend.app.services.orchestration.default_input_resolvers import (
+    apply_declarative_input_defaults,
+    load_playbook_planner_input_defaults,
+    load_tool_planner_input_defaults,
+)
 from backend.app.services.orchestration.playbook_alias_resolution import (
     load_playbook_spec,
     parse_playbook_codes,
@@ -67,54 +72,34 @@ def normalize_phase_inputs(
                     item["tool_name_rerouted_to_playbook"] = True
                     item["preferred_engine"] = phase.preferred_engine
 
-        if phase.tool_name == "frontier_research.process_papers_pipeline":
-            query, max_results = derive_research_context(
-                phase=phase,
-                phase_map=phase_map,
-                session=session,
-            )
-            if not params.get("query") and query:
-                params["query"] = query
-                changed = True
-            if not params.get("max_results") and max_results:
-                params["max_results"] = max_results
-                changed = True
-            if not params.get("sources"):
-                params["sources"] = ["pubmed", "semantic_scholar"]
-                changed = True
-
         playbook_code = extract_playbook_code(getattr(phase, "preferred_engine", None))
-        if playbook_code == "article_draft":
+        planner_rules: List[Dict[str, Any]] = []
+        if phase.tool_name:
+            planner_rules.extend(load_tool_planner_input_defaults(phase.tool_name))
+        if playbook_code:
+            planner_rules.extend(load_playbook_planner_input_defaults(playbook_code))
+        if planner_rules:
             query, max_results = derive_research_context(
                 phase=phase,
                 phase_map=phase_map,
                 session=session,
             )
-            if not params.get("topic") and query:
-                params["topic"] = query
-                changed = True
-            if not params.get("workspace_id"):
-                workspace_id = phase.target_workspace_id or getattr(
-                    session, "workspace_id", None
-                )
-                if workspace_id:
-                    params["workspace_id"] = workspace_id
-                    changed = True
-            if not params.get("max_results") and max_results:
-                params["max_results"] = max_results
-                changed = True
-            if not params.get("sources"):
-                params["sources"] = ["pubmed", "semantic_scholar"]
-                changed = True
-            if not params.get("language"):
-                params["language"] = "zh-TW"
-                changed = True
-
             phase_text = " ".join(
                 filter(None, [phase.name, getattr(phase, "description", "") or ""])
             )
-            if not params.get("target_format") and looks_like_ig_work(phase_text):
-                params["target_format"] = "ig_caption"
+            workspace_id = phase.target_workspace_id or getattr(session, "workspace_id", None)
+            if apply_declarative_input_defaults(
+                params=params,
+                rules=planner_rules,
+                resolver_context={
+                    "phase": phase,
+                    "session": session,
+                    "workspace_id": workspace_id,
+                    "phase_text": phase_text,
+                    "research_query": query,
+                    "research_max_results": max_results,
+                },
+            ):
                 changed = True
 
         if phase.tool_name in WORKSPACE_PICK_TOOL_NAMES:

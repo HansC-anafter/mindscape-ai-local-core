@@ -16,7 +16,7 @@ const getInitialApiUrl = (): string => {
   }
 
   // SSR fallback (port config system default)
-  return 'http://localhost:8200';
+  return 'http://localhost:8220';
 };
 
 // Dynamically resolve API URL from port config service (scope-aware)

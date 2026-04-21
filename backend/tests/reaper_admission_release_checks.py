@@ -45,6 +45,9 @@ class _FakeTasksStore:
         self._tasks = list(tasks)
         self.updated: list[tuple[str, dict]] = []
 
+    def list_running_playbook_execution_tasks(self, *, workspace_id=None, limit=200):
+        return self._tasks[:limit]
+
     def list_due_admission_deferred_tasks(self, *, queue_shard=None, limit=200):
         return self._tasks[:limit]
 
@@ -91,6 +94,48 @@ def _build_deferred_task() -> Task:
             },
         },
     )
+
+
+def _build_running_browser_task(
+    *,
+    pack_id: str = "ig_analyze_following",
+    heartbeat_age_seconds: int = 30,
+    current_step_index: int = 0,
+) -> Task:
+    now = _utc_now()
+    return Task(
+        id="task-watchdog",
+        workspace_id="ws-1",
+        message_id="msg-1",
+        execution_id="exec-watchdog",
+        pack_id=pack_id,
+        task_type="playbook_execution",
+        status=TaskStatus.RUNNING,
+        queue_shard="browser_local",
+        created_at=now - timedelta(hours=1),
+        started_at=now - timedelta(hours=1),
+        execution_context={
+            "runner_id": "runner-1",
+            "heartbeat_at": (now - timedelta(seconds=heartbeat_age_seconds)).isoformat(),
+            "status": "running",
+            "current_step_index": current_step_index,
+        },
+    )
+
+
+class _FakeExecution:
+    def __init__(self, *, updated_at, created_at=None, phase="queue"):
+        self.updated_at = updated_at
+        self.created_at = created_at or updated_at
+        self.phase = phase
+
+
+class _FakeExecutionStore:
+    def __init__(self, executions):
+        self.executions = dict(executions)
+
+    def get_execution(self, execution_id: str):
+        return self.executions.get(execution_id)
 
 
 @pytest.mark.asyncio
@@ -155,3 +200,56 @@ async def test_reextends_deferred_task_when_capacity_still_exceeded(monkeypatch)
     assert store.updated[0][1]["blocked_reason"] == ADMISSION_DEFERRED_REASON
     assert store.updated[0][1]["frontier_state"] == "cold"
     assert store.updated[0][1]["next_eligible_at"] == next_eligible_at
+
+
+def test_requests_watchdog_abort_for_running_following_task_with_no_progress(monkeypatch):
+    task = _build_running_browser_task()
+    store = _FakeTasksStore([task])
+    execution_store = _FakeExecutionStore(
+        {
+            "exec-watchdog": _FakeExecution(
+                updated_at=_utc_now() - timedelta(minutes=20),
+                phase="queue",
+            )
+        }
+    )
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_SECONDS", "600")
+    monkeypatch.delenv("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_PACKS", raising=False)
+
+    requested = reaper._request_watchdog_abort_for_no_progress_tasks(
+        store,
+        watcher_id="test-watchdog",
+        execution_store=execution_store,
+    )
+
+    assert requested == 1
+    assert len(store.updated) == 1
+    updated_ctx = store.updated[0][1]["execution_context"]
+    assert updated_ctx["watchdog_abort_requested_at"]
+    assert "Runner no-progress watchdog tripped" in updated_ctx["watchdog_abort_reason"]
+    assert updated_ctx["watchdog_abort"]["phase"] == "queue"
+    assert updated_ctx["watchdog_abort"]["watcher_id"] == "test-watchdog"
+
+
+def test_skips_watchdog_abort_once_progress_has_started(monkeypatch):
+    task = _build_running_browser_task(current_step_index=1)
+    store = _FakeTasksStore([task])
+    execution_store = _FakeExecutionStore(
+        {
+            "exec-watchdog": _FakeExecution(
+                updated_at=_utc_now() - timedelta(minutes=20),
+                phase="queue",
+            )
+        }
+    )
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_SECONDS", "600")
+    monkeypatch.delenv("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_PACKS", raising=False)
+
+    requested = reaper._request_watchdog_abort_for_no_progress_tasks(
+        store,
+        watcher_id="test-watchdog",
+        execution_store=execution_store,
+    )
+
+    assert requested == 0
+    assert store.updated == []

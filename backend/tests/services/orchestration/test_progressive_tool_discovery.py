@@ -15,8 +15,10 @@ import os
 import asyncio
 import json
 import inspect
+import types
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, call
+from types import SimpleNamespace
 
 # 4 levels up: orchestration/ -> services/ -> tests/ -> backend/ -> repo root
 _REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
@@ -411,8 +413,8 @@ class TestLayerCProduction:
     """Test Layer C by calling the real engine method."""
 
     @pytest.mark.asyncio
-    async def test_enriches_cache_and_retries(self):
-        """Null-actuator items should trigger RAG re-fetch and retry."""
+    async def test_enriches_cache_and_binds_without_retry(self):
+        """Null-actuator items should bind deterministically without executor retry."""
         items = [
             {
                 "title": "Research papers",
@@ -421,28 +423,14 @@ class TestLayerCProduction:
             },
             {"title": "Create posts", "tool_name": None, "playbook_code": None},
         ]
-        # Retry returns improved items
-        retry_items = [
-            {
-                "title": "Research papers",
-                "tool_name": "frontier.fetch",
-                "playbook_code": None,
-            },
-            {
-                "title": "Create posts",
-                "tool_name": "content.gen",
-                "playbook_code": None,
-            },
-        ]
         engine = _make_engine_stub(
             rag_cache=[{"tool_id": "t-existing"}],
             has_bindings=True,
-            retry_items=retry_items,
         )
 
         mock_hits = AsyncMock(
             return_value=[
-                {"tool_id": "t-new1"},
+                {"tool_id": "content.gen"},
                 {"tool_id": "t-existing"},  # duplicate, should be skipped
             ]
         )
@@ -454,11 +442,11 @@ class TestLayerCProduction:
             result = await engine._gap_refetch_for_null_actuators(items)
 
         # Should have enriched cache with 1 new tool (deduped)
-        assert len(engine._rag_tool_cache) == 2  # existing + t-new1
-        # Result should be the improved retry list
+        assert len(engine._rag_tool_cache) == 2  # existing + content.gen
+        # Result should bind the existing item directly
         assert result[1]["tool_name"] == "content.gen"
-        # Current Layer-C retries both tool and playbook gap-fill passes
-        assert engine._build_action_items.await_count == 2
+        assert result[1]["binding_source"] == "layer_c_tool_gap_fill"
+        engine._build_action_items.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_skips_when_no_gaps(self):
@@ -494,24 +482,18 @@ class TestLayerCProduction:
         engine._build_action_items.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_keeps_original_if_retry_not_better(self):
-        """If retry doesn't improve binding, keep original items."""
+    async def test_keeps_original_if_gap_search_finds_no_binding(self):
+        """If gap search finds no actuator, keep original items."""
         items = [
-            {"title": "A", "tool_name": "t1", "playbook_code": None},
-            {"title": "B", "tool_name": None, "playbook_code": None},
-        ]
-        # Retry returns same quality (no improvement)
-        retry_items = [
             {"title": "A", "tool_name": "t1", "playbook_code": None},
             {"title": "B", "tool_name": None, "playbook_code": None},
         ]
         engine = _make_engine_stub(
             rag_cache=[{"tool_id": "t1"}],
             has_bindings=True,
-            retry_items=retry_items,
         )
 
-        mock_hits = AsyncMock(return_value=[{"tool_id": "t-new"}])
+        mock_hits = AsyncMock(return_value=[])
 
         with patch(
             "backend.app.services.tool_rag.retrieve_relevant_tools",
@@ -519,7 +501,7 @@ class TestLayerCProduction:
         ):
             result = await engine._gap_refetch_for_null_actuators(items)
 
-        # Result should be original items since retry didn't improve
+        # Result should be original items since deterministic gap repair found nothing
         assert result is items
 
     @pytest.mark.asyncio
@@ -551,3 +533,47 @@ class TestLayerCProduction:
         assert cache_ids.count("t2") == 1  # not duplicated
         assert "t3" in cache_ids
         assert len(engine._rag_tool_cache) == 3
+
+    @pytest.mark.asyncio
+    async def test_binds_playbook_without_executor_retry(self):
+        items = [
+            {"title": "Storyboard preview", "tool_name": None, "playbook_code": None},
+        ]
+        engine = _make_engine_stub(
+            rag_cache=[{"tool_id": "t-existing"}],
+            has_bindings=True,
+        )
+
+        fake_embedding_service = MagicMock()
+        fake_embedding_service.search_rrf = AsyncMock(
+            return_value=(
+                [
+                    SimpleNamespace(
+                        category="playbook",
+                        tool_id="pd_execute_storyboard_preview",
+                        display_name="Storyboard Preview Run",
+                        description="Run storyboard preview through MMS",
+                    )
+                ],
+                None,
+            )
+        )
+        stub_module = types.ModuleType("app.services.tool_embedding_service")
+        stub_module.ToolEmbeddingService = MagicMock(return_value=fake_embedding_service)
+
+        with (
+            patch(
+                "backend.app.services.tool_rag.retrieve_relevant_tools",
+                AsyncMock(return_value=[]),
+            ),
+            patch.dict(
+                sys.modules,
+                {"app.services.tool_embedding_service": stub_module},
+            ),
+        ):
+            result = await engine._gap_refetch_for_null_actuators(items)
+
+        assert result[0]["playbook_code"] == "pd_execute_storyboard_preview"
+        assert result[0]["engine"] == "playbook:pd_execute_storyboard_preview"
+        assert result[0]["binding_source"] == "layer_c_playbook_gap_fill"
+        engine._build_action_items.assert_not_awaited()
