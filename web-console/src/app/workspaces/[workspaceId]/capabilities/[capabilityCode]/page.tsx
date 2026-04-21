@@ -64,6 +64,18 @@ function buildComponentKey(capabilityId: string, componentCode: string): string 
   return `${capabilityId}:${componentCode}`;
 }
 
+function shouldWrapScrollableMainPage(
+  capabilityCode: string,
+  componentCode: string | null | undefined,
+): boolean {
+  return (
+    capabilityCode === 'blender_bridge' ||
+    capabilityCode === 'performance_direction' ||
+    componentCode === 'BlenderBridgeWorkbenchPage' ||
+    componentCode === 'PerformanceDirectionStoryboardEditorPage'
+  );
+}
+
 export default function CapabilityPage() {
   const params = useParams();
   const pathname = usePathname();
@@ -262,19 +274,28 @@ export default function CapabilityPage() {
   // If main page component exists, render it fullscreen without wrapper
   if (resolvedMainPageEntry && mainPageComponents.length <= 1) {
     const [key, Component] = resolvedMainPageEntry;
+    const shouldUseScrollableShell = shouldWrapScrollableMainPage(
+      capabilityCode,
+      mainPageComponents[0]?.code,
+    );
     return (
-      <ComponentErrorBoundary componentName={key}>
-        <Suspense fallback={
-          <div className="flex items-center justify-center h-full">
-            <div className="text-sm text-gray-500 dark:text-gray-400">Loading component...</div>
-          </div>
-        }>
-          <Component
-            workspaceId={workspaceId}
-            apiUrl={apiUrl}
-          />
-        </Suspense>
-      </ComponentErrorBoundary>
+      <div
+        className={shouldUseScrollableShell ? 'h-full overflow-y-auto overflow-x-hidden bg-white dark:bg-gray-950' : 'h-full'}
+        data-testid={shouldUseScrollableShell ? 'capability-mainpage-scroll-shell' : undefined}
+      >
+        <ComponentErrorBoundary componentName={key}>
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-full">
+              <div className="text-sm text-gray-500 dark:text-gray-400">Loading component...</div>
+            </div>
+          }>
+            <Component
+              workspaceId={workspaceId}
+              apiUrl={apiUrl}
+            />
+          </Suspense>
+        </ComponentErrorBoundary>
+      </div>
     );
   }
 
