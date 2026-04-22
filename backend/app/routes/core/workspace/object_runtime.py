@@ -110,6 +110,18 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _string_list(values: Any, *, limit: int | None = None) -> List[str]:
+    output: List[str] = []
+    for raw_value in list(values or []):
+        normalized = _text(raw_value)
+        if not normalized or normalized in output:
+            continue
+        output.append(normalized)
+        if limit is not None and len(output) >= limit:
+            break
+    return output
+
+
 def _build_object_ref(
     *,
     workspace_id: str,
@@ -174,6 +186,130 @@ def _build_catalog_summary(
         summary_text=f"Addressable object from {ref.owner_pack}.{ref.object_kind}.",
         status="ready",
         labels=sorted({"meeting", ref.owner_pack, ref.object_kind}),
+    )
+
+
+def _first_text(payload: Dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = _text(payload.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _coerce_summary_from_backend_payload(
+    *,
+    payload: Dict[str, Any],
+    ref: ObjectRef,
+    fallback_summary: ObjectSummary,
+) -> ObjectSummary:
+    title = _first_text(payload, "title", "display_label", "label")
+    if not title:
+        title = fallback_summary.title
+
+    subtitle = _first_text(payload, "subtitle")
+    if not subtitle:
+        subtitle_parts: List[str] = []
+        source_handle = _text(payload.get("source_handle"))
+        source_shortcode = _text(payload.get("source_shortcode"))
+        if source_handle:
+            subtitle_parts.append(source_handle)
+        if source_shortcode:
+            subtitle_parts.append(f"#{source_shortcode}")
+        if not subtitle_parts:
+            for key in ("project_id", "run_id", "session_id", "scene_id", "artifact_id"):
+                value = _text(payload.get(key))
+                if value:
+                    subtitle_parts.append(value)
+                if len(subtitle_parts) >= 3:
+                    break
+        subtitle = " / ".join(subtitle_parts) or fallback_summary.subtitle or ""
+
+    summary_text = _first_text(
+        payload,
+        "summary_text",
+        "scene_summary",
+        "summary",
+        "review_summary",
+        "post_caption",
+    )
+    if not summary_text:
+        summary_text = fallback_summary.summary_text or ""
+
+    status = _first_text(
+        payload,
+        "status",
+        "analysis_status",
+        "editorial_status",
+        "approval_state",
+    ) or (fallback_summary.status or "")
+
+    labels = sorted(
+        {
+            *list(fallback_summary.labels or []),
+            *_string_list(payload.get("labels"), limit=8),
+            *_string_list(payload.get("tags"), limit=8),
+            *_string_list(payload.get("auto_tags"), limit=8),
+        }
+    )
+    thumbnail_ref = _first_text(payload, "thumbnail_ref", "thumbnail_url", "image_url")
+    owner_surface_url = _first_text(payload, "owner_surface_url") or (
+        fallback_summary.owner_surface_url or ""
+    )
+    updated_at = _first_text(payload, "updated_at")
+
+    return ObjectSummary(
+        ref=ref,
+        title=title,
+        subtitle=subtitle or None,
+        summary_text=summary_text or None,
+        status=status or None,
+        labels=labels,
+        thumbnail_ref=thumbnail_ref or None,
+        owner_surface_url=owner_surface_url or None,
+        updated_at=updated_at or None,
+    )
+
+
+def _select_summary_backend(entry_payload: Dict[str, Any]) -> str | None:
+    resolver_backends = dict(entry_payload.get("resolver_backends") or {})
+    backend = _text(resolver_backends.get("summary_backend"))
+    return backend or None
+
+
+async def _resolve_runtime_summary(
+    *,
+    entry_payload: Dict[str, Any],
+    workspace_id: str,
+    ref: ObjectRef,
+    fallback_summary: ObjectSummary,
+) -> ObjectSummary:
+    backend = _select_summary_backend(entry_payload)
+    if not backend:
+        return fallback_summary
+
+    try:
+        payload = await _invoke_backend_callable(
+            backend,
+            workspace_id=workspace_id,
+            object_id=ref.object_id,
+        )
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.exception(
+            "Failed to resolve object summary via %s for %s: %s",
+            backend,
+            ref.uri,
+            exc,
+        )
+        return fallback_summary
+
+    if not isinstance(payload, dict):
+        return fallback_summary
+
+    return _coerce_summary_from_backend_payload(
+        payload=payload,
+        ref=ref,
+        fallback_summary=fallback_summary,
     )
 
 
@@ -338,7 +474,7 @@ def _validate_object_ref_identity(ref: ObjectRef, workspace_id: str) -> None:
         )
 
 
-def _resolve_attach_ref(
+async def _resolve_attach_ref(
     *,
     registry: ObjectCatalogRegistry,
     workspace_id: str,
@@ -379,7 +515,15 @@ def _resolve_attach_ref(
             },
         )
 
-    return entry, _build_catalog_summary(entry=entry, ref=ref)
+    fallback_summary = _build_catalog_summary(entry=entry, ref=ref)
+    summary = await _resolve_runtime_summary(
+        entry_payload=entry_payload,
+        workspace_id=workspace_id,
+        ref=ref,
+        fallback_summary=fallback_summary,
+    )
+
+    return entry, summary
 
 
 def _select_materializer_backend(
@@ -769,7 +913,13 @@ async def resolve_workspace_selection(
         selector=request.hints.selector,
         source_surface=request.hints.source_surface or request.surface.surface_id,
     )
-    summary = _build_object_summary(entry=entry, ref=ref, request=request)
+    fallback_summary = _build_object_summary(entry=entry, ref=ref, request=request)
+    summary = await _resolve_runtime_summary(
+        entry_payload=entry_payload,
+        workspace_id=workspace_id,
+        ref=ref,
+        fallback_summary=fallback_summary,
+    )
     actions, warnings = _build_actions(entry=entry, request=request)
 
     return SelectionResolveResponse(
@@ -796,7 +946,7 @@ async def attach_objects_to_meeting(
 
     source_records: List[Tuple[ObjectRef, ObjectSummary, Dict[str, Any] | None]] = []
     for ref in request.objects:
-        entry, summary = _resolve_attach_ref(
+        entry, summary = await _resolve_attach_ref(
             registry=registry,
             workspace_id=workspace_id,
             ref=ref,
@@ -815,7 +965,7 @@ async def attach_objects_to_meeting(
 
     target_pair: Tuple[ObjectRef, ObjectSummary, Dict[str, Any] | None] | None = None
     if request.target_ref:
-        _target_entry, target_summary = _resolve_attach_ref(
+        _target_entry, target_summary = await _resolve_attach_ref(
             registry=registry,
             workspace_id=workspace_id,
             ref=request.target_ref,

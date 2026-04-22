@@ -121,6 +121,11 @@ Used in catalog entries, selection resolve responses, and contextual UI.
 
 Represents a runtime-available contextual action.
 
+Phase 0 keeps this transport intentionally narrow. It carries semantic action
+labels and verbs, but not pack-owned execution targets such as method/path.
+Pack-owned `actions_backend` declarations are cataloged for future widening of
+the runtime surface; Phase 0 action responses remain runtime-defined.
+
 **Schema**
 
 ```json
@@ -565,6 +570,9 @@ Structured errors should use the following shape:
 ## P0 Behavioral Rules
 
 - `selection/resolve` must be safe to call from installed pack UIs without requiring full owner payloads.
+- `selection/resolve` should prefer owner-pack summary resolvers when declared,
+  but Phase 0 contextual action payloads remain runtime-defined rather than
+  pack-owned execution descriptors.
 - The runtime must not scan cloud repo source in order to resolve catalog or selection data.
 - The runtime may return `ambiguous` instead of guessing when multiple candidates are plausible.
 - Pack-specific owner routes may be returned in summaries, but no canonical owner mutation may happen through this API.
