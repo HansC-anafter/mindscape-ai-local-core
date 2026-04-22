@@ -12,6 +12,10 @@ from backend.app.services.tool_policy_engine import (
 logger = logging.getLogger(__name__)
 
 
+def _is_error_status(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"error", "failed"}
+
+
 def is_llm_tool(tool_id: str) -> bool:
     """Return whether a tool id should receive LLM-specific inputs."""
     return tool_id.startswith("core_llm.") or "llm" in tool_id.lower()
@@ -64,7 +68,7 @@ def normalize_tool_result(
     tool_result: Any,
 ) -> Any:
     """Convert tool error payloads into workflow exceptions."""
-    if isinstance(tool_result, dict) and tool_result.get("status") == "error":
+    if isinstance(tool_result, dict) and _is_error_status(tool_result.get("status")):
         error_msg = tool_result.get("error", "Unknown tool error")
         if tool_result.get("recoverable"):
             raise RecoverableStepError(

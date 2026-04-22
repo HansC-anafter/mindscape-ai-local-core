@@ -138,6 +138,20 @@ class _FakeExecutionStore:
         return self.executions.get(execution_id)
 
 
+class _FakeArtifact:
+    def __init__(self, *, metadata=None, content=None):
+        self.metadata = metadata or {}
+        self.content = content or {}
+
+
+class _FakeArtifactsStore:
+    def __init__(self, artifacts):
+        self.artifacts = dict(artifacts)
+
+    def get_by_execution_id(self, execution_id: str):
+        return self.artifacts.get(execution_id)
+
+
 @pytest.mark.asyncio
 async def test_releases_due_deferred_task_when_capacity_available(monkeypatch):
     store = _FakeTasksStore([_build_deferred_task()])
@@ -253,3 +267,75 @@ def test_skips_watchdog_abort_once_progress_has_started(monkeypatch):
 
     assert requested == 0
     assert store.updated == []
+
+
+def test_skips_watchdog_abort_when_following_semantic_progress_is_fresh(monkeypatch):
+    task = _build_running_browser_task()
+    store = _FakeTasksStore([task])
+    execution_store = _FakeExecutionStore(
+        {
+            "exec-watchdog": _FakeExecution(
+                updated_at=_utc_now() - timedelta(minutes=20),
+                phase="queue",
+            )
+        }
+    )
+    artifacts_store = _FakeArtifactsStore(
+        {
+            "exec-watchdog": _FakeArtifact(
+                metadata={"source": "ig_analyze_following_progress"},
+                content={
+                    "progress": {
+                        "stage": "dialog_opened",
+                        "semantic_progress_at": (_utc_now() - timedelta(minutes=2)).isoformat(),
+                    }
+                },
+            )
+        }
+    )
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_SECONDS", "600")
+    monkeypatch.delenv("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_PACKS", raising=False)
+
+    requested = reaper._request_watchdog_abort_for_no_progress_tasks(
+        store,
+        watcher_id="test-watchdog",
+        execution_store=execution_store,
+        artifacts_store=artifacts_store,
+    )
+
+    assert requested == 0
+    assert store.updated == []
+
+
+def test_watchdog_uses_postgres_execution_store_by_default(monkeypatch):
+    task = _build_running_browser_task()
+    store = _FakeTasksStore([task])
+    created = {"count": 0}
+
+    class _PatchedExecutionStore(_FakeExecutionStore):
+        def __init__(self):
+            created["count"] += 1
+            super().__init__(
+                {
+                    "exec-watchdog": _FakeExecution(
+                        updated_at=_utc_now() - timedelta(minutes=20),
+                        phase="queue",
+                    )
+                }
+            )
+
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_SECONDS", "600")
+    monkeypatch.delenv("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_PACKS", raising=False)
+    monkeypatch.setattr(
+        "backend.app.services.stores.postgres.remaining_stores.PostgresPlaybookExecutionsStore",
+        _PatchedExecutionStore,
+    )
+
+    requested = reaper._request_watchdog_abort_for_no_progress_tasks(
+        store,
+        watcher_id="test-watchdog",
+    )
+
+    assert created["count"] == 1
+    assert requested == 1
+    assert len(store.updated) == 1

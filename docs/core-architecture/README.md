@@ -133,6 +133,9 @@ of truth.
 #### [Workspace Execution Operator Toolbar Cleanup Checklist](./workspace-execution-operator-toolbar-cleanup-checklist-2026-03-22.md)
 Executed cleanup checklist for removing the rejected Local-Core launcher/context-menu experiment while preserving the canonical Local-Core execution runtime.
 
+#### [Addressable Object Layer](./addressable-object-layer/README.md)
+Cross-pack object identity, contextual selection, meeting attachment, and projection/runtime boundaries for turning pack-owned entities into stable addressable objects.
+
 #### [Governance Decision & Risk Control Layer](./governance-decision-risk-control-layer.md)
 Multi-layered governance framework for safe and controlled playbook execution, with clear separation between Local-Core universal mechanisms and Cloud-specific extensions.
 

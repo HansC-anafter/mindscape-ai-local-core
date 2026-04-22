@@ -7,8 +7,11 @@ from typing import Any, Dict, Iterable, Optional
 
 from backend.app.models.task_ir import ArtifactReference
 from backend.shared.schemas.spatial_scheduling import (
+    SPATIAL_CONSTRAINT_SECTION_KEYS,
     SPATIAL_SCHEDULING_SCHEMA_VERSION,
     SpatialAnchor,
+    SpatialConstraintSummary,
+    SpatialConsumerPromptSegment,
     SpatialEntityRef,
     SpatialScheduleSegment,
     SpatialSchedulingIR,
@@ -60,11 +63,18 @@ def build_spatial_scheduling_ir(
     items = _normalize_source_items(action_items, action_intents)
     consumer_hints = _extract_consumer_hints(governance)
     world_anchors = _collect_world_anchors(world_context)
-    anchors = _collect_anchors(items, world_anchors)
-    entities = _collect_entities(items)
+    anchors = _collect_anchors(items, world_anchors, governance=governance)
+    entities = _collect_entities(items, governance=governance)
+    consumer_prompt_segments = _collect_consumer_prompt_segments(
+        items=items,
+        governance=governance,
+    )
     segments = _build_segments(
         items,
         anchors,
+        entities=entities,
+        governance=governance,
+        consumer_prompt_segments=consumer_prompt_segments,
         world_anchor_ids=[anchor.anchor_id for anchor in world_anchors],
     )
     timebase, source_conflicts = _resolve_timebase(
@@ -75,6 +85,9 @@ def build_spatial_scheduling_ir(
         items=items,
         governance=governance,
         consumer_hints=consumer_hints,
+        anchors=anchors,
+        entities=entities,
+        consumer_prompt_segments=consumer_prompt_segments,
     )
 
     schedule = SpatialSchedulingIR(
@@ -146,6 +159,13 @@ def build_spatial_schedule_context(
             }
         )
 
+    constraint_summary = schedule.constraint_summary.model_dump(mode="json")
+    summary_metadata = dict(constraint_summary.get("metadata") or {})
+    if summary_metadata.get("consumer_hints"):
+        constraint_summary["consumer_hints"] = list(summary_metadata["consumer_hints"])
+    if summary_metadata.get("intent_summary"):
+        constraint_summary["intent_summary"] = str(summary_metadata["intent_summary"])
+
     return {
         "schedule_id": schedule.schedule_id,
         "schema_version": schedule.schema_version,
@@ -159,7 +179,7 @@ def build_spatial_schedule_context(
         "source_session_id": schedule.metadata.get("source_session_id"),
         "entity_kinds": entity_kinds,
         "active_segments": active_segments,
-        "constraint_summary": dict(schedule.constraint_summary),
+        "constraint_summary": constraint_summary,
         "schedule_revision_refs": [],
         "consumer_receipts": {},
         "updated_at": _utc_now_iso(),
@@ -427,7 +447,11 @@ def _extract_consumer_hints(governance: Optional[Dict[str, Any]]) -> list[str]:
     return hints
 
 
-def _collect_entities(items: Iterable[dict[str, Any]]) -> list[SpatialEntityRef]:
+def _collect_entities(
+    items: Iterable[dict[str, Any]],
+    *,
+    governance: Optional[Dict[str, Any]] = None,
+) -> list[SpatialEntityRef]:
     entities: dict[str, SpatialEntityRef] = {}
     for item in items:
         entity_id = item.get("entity_id")
@@ -455,6 +479,8 @@ def _collect_entities(items: Iterable[dict[str, Any]]) -> list[SpatialEntityRef]
                     tags=list(entity_ref.get("tags") or []),
                     metadata=dict(entity_ref.get("metadata") or {}),
                 )
+    for entity in _collect_bounded_constraint_entities(governance):
+        entities.setdefault(entity.entity_id, entity)
     return list(entities.values())
 
 
@@ -482,6 +508,8 @@ def _collect_world_anchors(world_context: Optional[Dict[str, Any]]) -> list[Spat
 def _collect_anchors(
     items: Iterable[dict[str, Any]],
     world_anchors: list[SpatialAnchor],
+    *,
+    governance: Optional[Dict[str, Any]] = None,
 ) -> list[SpatialAnchor]:
     anchors: dict[str, SpatialAnchor] = {
         anchor.anchor_id: anchor for anchor in list(world_anchors or [])
@@ -506,6 +534,9 @@ def _collect_anchors(
                     metadata=dict(anchor.get("metadata") or {}),
                 )
 
+    for anchor in _collect_bounded_constraint_anchors(governance):
+        anchors.setdefault(anchor.anchor_id, anchor)
+
     return list(anchors.values())
 
 
@@ -513,14 +544,24 @@ def _build_segments(
     items: Iterable[dict[str, Any]],
     anchors: list[SpatialAnchor],
     *,
+    entities: list[SpatialEntityRef],
+    governance: Optional[Dict[str, Any]],
+    consumer_prompt_segments: list[SpatialConsumerPromptSegment],
     world_anchor_ids: list[str],
 ) -> list[SpatialScheduleSegment]:
     default_anchor_ids = [anchor.anchor_id for anchor in anchors]
+    default_entity_refs = [entity.entity_id for entity in entities]
     segments: list[SpatialScheduleSegment] = []
     for item in items:
         entity_refs = list(item.get("entity_refs") or [])
         if not entity_refs and item.get("entity_id"):
             entity_refs = [item["entity_id"]]
+        if not entity_refs:
+            entity_refs = _infer_segment_entity_refs(
+                item=item,
+                default_entity_refs=default_entity_refs,
+                governance=governance,
+            )
 
         anchor_ids = []
         for anchor in list(item.get("anchors") or []):
@@ -532,6 +573,16 @@ def _build_segments(
             anchor_ids = _merge_unique_strings(world_anchor_ids, anchor_ids)
         elif not anchor_ids:
             anchor_ids = list(default_anchor_ids)
+        anchor_ids = _merge_unique_strings(
+            anchor_ids,
+            _infer_segment_anchor_ids(item=item, governance=governance),
+        )
+
+        segment_prompt_segments = _match_consumer_prompt_segments(
+            consumer_prompt_segments=consumer_prompt_segments,
+            segment_id=item["segment_id"],
+            anchor_ids=anchor_ids,
+        )
 
         segments.append(
             SpatialScheduleSegment(
@@ -543,6 +594,7 @@ def _build_segments(
                 entity_refs=entity_refs,
                 intent_tags=list(item.get("intent_tags") or []),
                 anchors=anchor_ids,
+                consumer_prompt_segments=segment_prompt_segments,
                 motion_constraint_objects=list(item.get("motion_constraint_objects") or []),
                 metadata=dict(item.get("metadata") or {}),
             )
@@ -550,12 +602,214 @@ def _build_segments(
     return segments
 
 
+def _collect_bounded_constraint_entities(
+    governance: Optional[Dict[str, Any]],
+) -> list[SpatialEntityRef]:
+    bounded_constraints = _extract_bounded_constraints(governance)
+    entities: dict[str, SpatialEntityRef] = {}
+
+    for raw_object in list(bounded_constraints.get("objects") or []):
+        if not isinstance(raw_object, dict):
+            continue
+        entity_id = str(raw_object.get("entity_id") or "").strip()
+        if not entity_id:
+            continue
+        entities.setdefault(
+            entity_id,
+            SpatialEntityRef(
+                entity_id=entity_id,
+                entity_kind=str(raw_object.get("entity_kind") or "object"),
+                display_name=raw_object.get("label"),
+                role=raw_object.get("role"),
+                metadata={
+                    key: value
+                    for key, value in raw_object.items()
+                    if key
+                    not in {"entity_id", "entity_kind", "label", "role"}
+                    and value not in (None, "", [], {})
+                },
+            ),
+        )
+
+    raw_camera = bounded_constraints.get("camera")
+    if isinstance(raw_camera, dict):
+        camera_ids = _merge_unique_strings(
+            list(raw_camera.get("entity_ids") or []),
+            [raw_camera.get("entity_id")],
+        )
+        for camera_id in camera_ids:
+            entities.setdefault(
+                camera_id,
+                SpatialEntityRef(
+                    entity_id=camera_id,
+                    entity_kind="camera",
+                    role=str(raw_camera.get("role") or "").strip() or None,
+                    metadata={
+                        key: value
+                        for key, value in raw_camera.items()
+                        if key not in {"entity_ids", "entity_id", "role"}
+                        and value not in (None, "", [], {})
+                    },
+                ),
+            )
+
+    return list(entities.values())
+
+
+def _collect_bounded_constraint_anchors(
+    governance: Optional[Dict[str, Any]],
+) -> list[SpatialAnchor]:
+    bounded_constraints = _extract_bounded_constraints(governance)
+    anchors: dict[str, SpatialAnchor] = {}
+
+    for raw_anchor in list(bounded_constraints.get("anchors") or []):
+        if not isinstance(raw_anchor, dict):
+            continue
+        anchor_id = str(raw_anchor.get("anchor_id") or "").strip()
+        if not anchor_id:
+            continue
+        anchors.setdefault(
+            anchor_id,
+            SpatialAnchor(
+                anchor_id=anchor_id,
+                anchor_kind=str(raw_anchor.get("anchor_kind") or "logical"),
+                label=raw_anchor.get("label"),
+                metadata={
+                    key: value
+                    for key, value in raw_anchor.items()
+                    if key not in {"anchor_id", "anchor_kind", "label"}
+                    and value not in (None, "", [], {})
+                },
+            ),
+        )
+
+    for section_key in (
+        "scene",
+        "camera",
+        "objects",
+        "spatial_relations",
+        "occlusion",
+        "displacement",
+        "output_boundaries",
+    ):
+        section_value = bounded_constraints.get(section_key)
+        values = section_value if isinstance(section_value, list) else [section_value]
+        for raw_value in values:
+            if not isinstance(raw_value, dict):
+                continue
+            for anchor_id in _constraint_anchor_ids(raw_value):
+                anchors.setdefault(anchor_id, SpatialAnchor(anchor_id=anchor_id))
+
+    return list(anchors.values())
+
+
+def _infer_segment_entity_refs(
+    *,
+    item: dict[str, Any],
+    default_entity_refs: list[str],
+    governance: Optional[Dict[str, Any]],
+) -> list[str]:
+    inferred = _merge_unique_strings(
+        [],
+        list((dict(item.get("metadata") or {}).get("entity_refs")) or []),
+    )
+    if inferred:
+        return inferred
+
+    title = str(item.get("title") or "").lower()
+    bounded_constraints = _extract_bounded_constraints(governance)
+    if "鏡位" in title or "camera" in title:
+        camera_section = bounded_constraints.get("camera")
+        if isinstance(camera_section, dict):
+            inferred = _merge_unique_strings(
+                list(camera_section.get("entity_ids") or []),
+                [camera_section.get("entity_id")],
+            )
+            if inferred:
+                return inferred
+
+    if any(
+        keyword in title
+        for keyword in (
+            "物件",
+            "object",
+            "空間排程",
+            "constraint",
+            "校核",
+            "proof",
+            "handoff",
+        )
+    ):
+        object_entity_ids = []
+        for raw_object in list(bounded_constraints.get("objects") or []):
+            if isinstance(raw_object, dict):
+                object_entity_ids = _merge_unique_strings(
+                    object_entity_ids,
+                    [raw_object.get("entity_id")],
+                )
+        inferred = _merge_unique_strings(object_entity_ids, default_entity_refs)
+        if inferred:
+            return inferred
+
+    return list(default_entity_refs)
+
+
+def _infer_segment_anchor_ids(
+    *,
+    item: dict[str, Any],
+    governance: Optional[Dict[str, Any]],
+) -> list[str]:
+    metadata = dict(item.get("metadata") or {})
+    inferred = _merge_unique_strings(list(metadata.get("anchor_ids") or []), [])
+    if inferred:
+        return inferred
+
+    title = str(item.get("title") or "").lower()
+    bounded_constraints = _extract_bounded_constraints(governance)
+    if any(
+        keyword in title
+        for keyword in (
+            "錨點",
+            "anchor",
+            "物件",
+            "object",
+            "proof",
+            "handoff",
+            "排程",
+        )
+    ):
+        anchor_ids: list[str] = []
+        for section_key in (
+            "anchors",
+            "scene",
+            "camera",
+            "objects",
+            "spatial_relations",
+            "occlusion",
+            "displacement",
+        ):
+            section_value = bounded_constraints.get(section_key)
+            values = section_value if isinstance(section_value, list) else [section_value]
+            for raw_value in values:
+                if isinstance(raw_value, dict):
+                    anchor_ids = _merge_unique_strings(
+                        anchor_ids,
+                        _constraint_anchor_ids(raw_value),
+                    )
+        return anchor_ids
+
+    return []
+
+
 def _build_constraint_summary(
     *,
     items: Iterable[dict[str, Any]],
     governance: Optional[Dict[str, Any]],
     consumer_hints: list[str],
-) -> dict[str, Any]:
+    anchors: list[SpatialAnchor],
+    entities: list[SpatialEntityRef],
+    consumer_prompt_segments: list[SpatialConsumerPromptSegment],
+) -> SpatialConstraintSummary:
     motion_constraint_types = []
     for item in items:
         for obj in list(item.get("motion_constraint_objects") or []):
@@ -565,13 +819,550 @@ def _build_constraint_summary(
             if obj_type and obj_type not in motion_constraint_types:
                 motion_constraint_types.append(str(obj_type))
 
-    summary = {
+    summary = _derive_bounded_constraint_sections(
+        items=items,
+        governance=governance,
+        anchors=anchors,
+        entities=entities,
+    )
+    summary_metadata = {
         "consumer_hints": list(consumer_hints),
         "motion_constraint_types": motion_constraint_types,
+        "consumer_prompt_count": len(list(consumer_prompt_segments or [])),
     }
     if decision_summary := _derive_schedule_title(decision=None, governance=governance):
-        summary["intent_summary"] = decision_summary
-    return summary
+        summary_metadata["intent_summary"] = decision_summary
+    if summary_metadata:
+        summary["metadata"] = {
+            key: value
+            for key, value in summary_metadata.items()
+            if value not in (None, "", [], {})
+        }
+    return SpatialConstraintSummary.model_validate(summary)
+
+
+def _extract_spatial_schedule_constraints(
+    governance: Optional[Dict[str, Any]],
+) -> dict[str, Any]:
+    constraints = (governance or {}).get("governance_constraints")
+    if not isinstance(constraints, dict):
+        return {}
+    spatial_schedule = constraints.get("spatial_schedule")
+    if not isinstance(spatial_schedule, dict):
+        return {}
+    return dict(spatial_schedule)
+
+
+def _collect_consumer_prompt_segments(
+    *,
+    items: Iterable[dict[str, Any]],
+    governance: Optional[Dict[str, Any]],
+) -> list[SpatialConsumerPromptSegment]:
+    normalized_segments: list[SpatialConsumerPromptSegment] = []
+    seen: set[str] = set()
+
+    def _append_segment(raw_segment: Any, *, fallback_segment_id: Optional[str] = None) -> None:
+        prompt_segment = _normalize_consumer_prompt_segment(
+            raw_segment,
+            fallback_segment_id=fallback_segment_id,
+        )
+        if prompt_segment is None:
+            return
+        marker = str(prompt_segment.model_dump(mode="json"))
+        if marker in seen:
+            return
+        seen.add(marker)
+        normalized_segments.append(prompt_segment)
+
+    spatial_schedule = _extract_spatial_schedule_constraints(governance)
+    for key in ("consumer_prompt_segments", "consumer_prompt_bindings"):
+        for raw_segment in list(spatial_schedule.get(key) or []):
+            _append_segment(raw_segment)
+
+    for item in items:
+        metadata = dict(item.get("metadata") or {})
+        for key in ("consumer_prompt_segments", "consumer_prompt_bindings"):
+            for raw_segment in list(metadata.get(key) or []):
+                _append_segment(raw_segment, fallback_segment_id=item.get("segment_id"))
+
+    return normalized_segments
+
+
+def _normalize_consumer_prompt_segment(
+    raw_binding: Any,
+    *,
+    fallback_segment_id: Optional[str] = None,
+) -> Optional[SpatialConsumerPromptSegment]:
+    if not isinstance(raw_binding, dict):
+        return None
+
+    consumer = str(
+        raw_binding.get("consumer")
+        or raw_binding.get("consumer_code")
+        or raw_binding.get("target_consumer")
+        or ""
+    ).strip()
+    text = str(raw_binding.get("text") or raw_binding.get("prompt") or "").strip()
+    section_keys = _merge_unique_strings(
+        list(raw_binding.get("section_keys") or []),
+        [
+            raw_binding.get("section_key")
+            or raw_binding.get("section")
+            or raw_binding.get("constraint_section")
+        ],
+    )
+    if not (consumer and section_keys and text):
+        return None
+
+    raw_anchor_ids = raw_binding.get("anchor_ids") or raw_binding.get("anchors") or []
+    anchor_ids = _merge_unique_strings(list(raw_anchor_ids), [])
+    segment_ids = _merge_unique_strings(
+        list(raw_binding.get("segment_ids") or []),
+        [
+            raw_binding.get("segment_id")
+            or raw_binding.get("segment_ref")
+            or fallback_segment_id
+        ],
+    )
+    entity_refs = _merge_unique_strings(
+        list(raw_binding.get("entity_refs") or []),
+        [
+            raw_binding.get("entity_id"),
+            raw_binding.get("target_entity_id"),
+            raw_binding.get("subject_entity_id"),
+        ],
+    )
+    metadata = dict(raw_binding.get("metadata") or {})
+    return SpatialConsumerPromptSegment(
+        text=text,
+        consumer=consumer,
+        role=str(raw_binding.get("role") or "instruction").strip() or "instruction",
+        section_keys=section_keys,
+        constraint_item_ids=_merge_unique_strings(
+            list(raw_binding.get("constraint_item_ids") or []),
+            [raw_binding.get("constraint_item_id")],
+        ),
+        segment_ids=segment_ids,
+        anchor_ids=anchor_ids,
+        entity_refs=entity_refs,
+        metadata=metadata,
+    )
+
+
+def _match_consumer_prompt_segments(
+    *,
+    consumer_prompt_segments: list[SpatialConsumerPromptSegment],
+    segment_id: str,
+    anchor_ids: list[str],
+) -> list[SpatialConsumerPromptSegment]:
+    matched: list[SpatialConsumerPromptSegment] = []
+    active_anchor_ids = {str(anchor_id or "").strip() for anchor_id in list(anchor_ids or [])}
+    for prompt_segment in consumer_prompt_segments:
+        active_segment_ids = {
+            str(candidate or "").strip()
+            for candidate in list(prompt_segment.segment_ids or [])
+            if str(candidate or "").strip()
+        }
+        if active_segment_ids and segment_id in active_segment_ids:
+            matched.append(prompt_segment)
+            continue
+        prompt_anchor_ids = {
+            str(anchor_id or "").strip()
+            for anchor_id in list(prompt_segment.anchor_ids or [])
+        }
+        if active_segment_ids:
+            continue
+        if prompt_anchor_ids and active_anchor_ids.intersection(prompt_anchor_ids):
+            matched.append(prompt_segment)
+    return matched
+
+
+def _derive_bounded_constraint_sections(
+    *,
+    items: Iterable[dict[str, Any]],
+    governance: Optional[Dict[str, Any]],
+    anchors: list[SpatialAnchor],
+    entities: list[SpatialEntityRef],
+) -> dict[str, Any]:
+    bounded_constraints = _extract_bounded_constraints(governance)
+    return {
+        "scene": _merge_constraint_section_items(
+            "scene",
+            _derive_scene_constraints(governance=governance, anchors=anchors),
+            bounded_constraints.get("scene"),
+        ),
+        "camera": _merge_constraint_section_items(
+            "camera",
+            _derive_camera_constraints(items=items, entities=entities),
+            bounded_constraints.get("camera"),
+        ),
+        "objects": _merge_constraint_section_items(
+            "objects",
+            _derive_object_constraints(items=items, entities=entities),
+            bounded_constraints.get("objects"),
+        ),
+        "anchors": _merge_constraint_section_items(
+            "anchors",
+            _derive_anchor_constraints(anchors=anchors),
+            bounded_constraints.get("anchors"),
+        ),
+        "spatial_relations": _merge_constraint_section_items(
+            "spatial_relations",
+            _derive_spatial_relations(items=items),
+            bounded_constraints.get("spatial_relations"),
+        ),
+        "occlusion": _merge_constraint_section_items(
+            "occlusion",
+            [],
+            bounded_constraints.get("occlusion"),
+        ),
+        "displacement": _merge_constraint_section_items(
+            "displacement",
+            _derive_displacement_constraints(items=items),
+            bounded_constraints.get("displacement"),
+        ),
+        "output_boundaries": _merge_constraint_section_items(
+            "output_boundaries",
+            _derive_output_boundaries(governance=governance),
+            bounded_constraints.get("output_boundaries"),
+        ),
+    }
+
+
+def _merge_constraint_section_items(
+    section_key: str,
+    derived: Any,
+    bounded: Any,
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source_name, value in (("derived", derived), ("bounded", bounded)):
+        for item in _constraint_items_from_value(
+            section_key,
+            value,
+            source_name=source_name,
+        ):
+            marker = repr(item)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            merged.append(item)
+    return merged
+
+
+def _constraint_items_from_value(
+    section_key: str,
+    value: Any,
+    *,
+    source_name: str,
+) -> list[dict[str, Any]]:
+    normalized_value = _normalize_constraint_value(value)
+    if normalized_value in (None, {}, []):
+        return []
+
+    values = normalized_value if isinstance(normalized_value, list) else [normalized_value]
+    normalized_items: list[dict[str, Any]] = []
+    for index, raw_value in enumerate(values):
+        if isinstance(raw_value, dict):
+            payload = dict(raw_value)
+            item_id = str(
+                payload.get("item_id")
+                or payload.get("anchor_id")
+                or payload.get("entity_id")
+                or payload.get("segment_id")
+                or f"{section_key}.{source_name}.{index + 1}"
+            ).strip()
+            summary = _constraint_item_summary(section_key, payload)
+            if not (item_id and summary):
+                continue
+            normalized_items.append(
+                {
+                    "item_id": item_id,
+                    "label": str(payload.get("label") or "").strip() or None,
+                    "summary": summary,
+                    "anchor_ids": _constraint_anchor_ids(payload),
+                    "entity_refs": _constraint_entity_refs(payload),
+                    "metadata": {
+                        key: nested_value
+                        for key, nested_value in payload.items()
+                        if key not in {
+                            "item_id",
+                            "label",
+                            "summary",
+                            "anchor_ids",
+                            "anchors",
+                            "active_anchor_ids",
+                            "anchor_path",
+                            "anchor_id",
+                            "target_anchor_id",
+                            "from_anchor_id",
+                            "to_anchor_id",
+                            "entity_refs",
+                            "entity_ids",
+                            "entity_id",
+                            "subject_entity_id",
+                            "target_entity_id",
+                            "subject",
+                        }
+                        and nested_value not in (None, "", [], {})
+                    },
+                }
+            )
+            continue
+
+        summary = str(raw_value or "").strip()
+        if not summary:
+            continue
+        normalized_items.append(
+            {
+                "item_id": f"{section_key}.{source_name}.{index + 1}",
+                "label": None,
+                "summary": summary,
+                "anchor_ids": [],
+                "entity_refs": [],
+                "metadata": {},
+            }
+        )
+    return normalized_items
+
+
+def _constraint_item_summary(section_key: str, payload: dict[str, Any]) -> str:
+    for key in (
+        "summary",
+        "scene_scope",
+        "operator_scope",
+        "relation",
+        "policy",
+        "requested_output_type",
+    ):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    if isinstance(payload.get("must_hold"), list) and payload.get("must_hold"):
+        return ", ".join(str(item).strip() for item in payload["must_hold"] if str(item).strip())
+    if isinstance(payload.get("active_anchor_ids"), list) and payload.get("active_anchor_ids"):
+        return ", ".join(str(item).strip() for item in payload["active_anchor_ids"] if str(item).strip())
+    if isinstance(payload.get("anchor_path"), list) and payload.get("anchor_path"):
+        return " -> ".join(str(item).strip() for item in payload["anchor_path"] if str(item).strip())
+    if section_key in SPATIAL_CONSTRAINT_SECTION_KEYS:
+        compact = {
+            key: value
+            for key, value in payload.items()
+            if value not in (None, "", [], {})
+        }
+        return str(compact)
+    return ""
+
+
+def _constraint_anchor_ids(payload: dict[str, Any]) -> list[str]:
+    anchor_ids: list[str] = []
+    for key in ("anchor_ids", "anchors", "active_anchor_ids", "anchor_path"):
+        anchor_ids = _merge_unique_strings(anchor_ids, list(payload.get(key) or []))
+    for key in ("anchor_id", "target_anchor_id", "from_anchor_id", "to_anchor_id"):
+        anchor_ids = _merge_unique_strings(anchor_ids, [payload.get(key)])
+    return anchor_ids
+
+
+def _constraint_entity_refs(payload: dict[str, Any]) -> list[str]:
+    entity_refs: list[str] = []
+    for key in ("entity_refs", "entity_ids"):
+        entity_refs = _merge_unique_strings(entity_refs, list(payload.get(key) or []))
+    for key in ("entity_id", "subject_entity_id", "target_entity_id", "subject"):
+        entity_refs = _merge_unique_strings(entity_refs, [payload.get(key)])
+    return entity_refs
+
+
+def _extract_bounded_constraints(governance: Optional[Dict[str, Any]]) -> dict[str, Any]:
+    spatial_schedule = _extract_spatial_schedule_constraints(governance)
+    for key in ("bounded_constraints", "bounded_constraint_summary", "constraint_summary"):
+        candidate = spatial_schedule.get(key)
+        if isinstance(candidate, dict):
+            return dict(candidate)
+    return {}
+
+
+def _derive_scene_constraints(
+    *,
+    governance: Optional[Dict[str, Any]],
+    anchors: list[SpatialAnchor],
+) -> dict[str, Any]:
+    scene_anchor_ids = [
+        anchor.anchor_id for anchor in anchors if anchor.anchor_kind in {"scene", "zone"}
+    ]
+    scene: dict[str, Any] = {
+        "active_anchor_ids": scene_anchor_ids,
+    }
+    human_summary = _summarize_operator_prompt(governance)
+    if human_summary:
+        scene["operator_scope"] = human_summary
+    return scene
+
+
+def _derive_camera_constraints(
+    *,
+    items: Iterable[dict[str, Any]],
+    entities: list[SpatialEntityRef],
+) -> dict[str, Any]:
+    camera_entity_ids = [
+        entity.entity_id for entity in entities if str(entity.entity_kind or "").strip() == "camera"
+    ]
+    camera_hints: list[dict[str, Any]] = []
+    for item in items:
+        metadata = dict(item.get("metadata") or {})
+        camera_hint = metadata.get("camera_hint")
+        if isinstance(camera_hint, dict):
+            normalized_hint = {
+                key: value
+                for key, value in camera_hint.items()
+                if value not in (None, "", [], {})
+            }
+            if normalized_hint:
+                normalized_hint.setdefault("segment_id", item.get("segment_id"))
+                camera_hints.append(normalized_hint)
+    return {
+        "entity_ids": camera_entity_ids,
+        "hints": camera_hints,
+    }
+
+
+def _derive_object_constraints(
+    *,
+    items: Iterable[dict[str, Any]],
+    entities: list[SpatialEntityRef],
+) -> list[dict[str, Any]]:
+    object_entities = {
+        entity.entity_id: entity for entity in entities if str(entity.entity_kind or "").strip() == "object"
+    }
+    object_segments: dict[str, dict[str, Any]] = {}
+    for item in items:
+        entity_id = str(item.get("entity_id") or "").strip()
+        if not entity_id or entity_id not in object_entities:
+            continue
+        metadata = dict(item.get("metadata") or {})
+        record = object_segments.setdefault(
+            entity_id,
+            {
+                "entity_id": entity_id,
+                "intent_tags": [],
+                "segment_ids": [],
+                "states": [],
+            },
+        )
+        record["intent_tags"] = _merge_unique_strings(
+            list(record.get("intent_tags") or []),
+            list(item.get("intent_tags") or []),
+        )
+        record["segment_ids"] = _merge_unique_strings(
+            list(record.get("segment_ids") or []),
+            [item.get("segment_id")],
+        )
+        object_state = metadata.get("object_state")
+        if isinstance(object_state, dict):
+            normalized_state = {
+                key: value
+                for key, value in object_state.items()
+                if value not in (None, "", [], {})
+            }
+            if normalized_state:
+                normalized_state.setdefault("segment_id", item.get("segment_id"))
+                existing_states = list(record.get("states") or [])
+                existing_states.append(normalized_state)
+                record["states"] = existing_states
+    return list(object_segments.values())
+
+
+def _derive_anchor_constraints(
+    *,
+    anchors: list[SpatialAnchor],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "anchor_id": anchor.anchor_id,
+            "anchor_kind": anchor.anchor_kind,
+            **({"label": anchor.label} if anchor.label else {}),
+        }
+        for anchor in anchors
+    ]
+
+
+def _derive_spatial_relations(
+    *,
+    items: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    relations: list[dict[str, Any]] = []
+    for item in items:
+        metadata = dict(item.get("metadata") or {})
+        zone_transition = metadata.get("zone_transition")
+        if isinstance(zone_transition, dict):
+            relations.append(
+                {
+                    "relation": "zone_transition",
+                    "segment_id": item.get("segment_id"),
+                    "from": zone_transition.get("from"),
+                    "to": zone_transition.get("to"),
+                }
+            )
+        for obj in list(item.get("motion_constraint_objects") or []):
+            if not isinstance(obj, dict):
+                continue
+            relation = {
+                "relation": obj.get("constraint_type") or obj.get("type") or obj.get("kind"),
+                "segment_id": item.get("segment_id"),
+                "target_entity_id": obj.get("target_entity_id"),
+                "target_anchor_id": obj.get("target_anchor_id"),
+            }
+            relation = {
+                key: value
+                for key, value in relation.items()
+                if value not in (None, "", [], {})
+            }
+            if relation:
+                relations.append(relation)
+    return relations
+
+
+def _derive_displacement_constraints(
+    *,
+    items: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    displacement: list[dict[str, Any]] = []
+    for item in items:
+        metadata = dict(item.get("metadata") or {})
+        zone_transition = metadata.get("zone_transition")
+        if isinstance(zone_transition, dict):
+            displacement.append(
+                {
+                    "subject_entity_id": item.get("entity_id"),
+                    "segment_id": item.get("segment_id"),
+                    "from_anchor_id": zone_transition.get("from"),
+                    "to_anchor_id": zone_transition.get("to"),
+                }
+            )
+            continue
+        anchor_ids = []
+        for anchor in list(item.get("anchors") or []):
+            if isinstance(anchor, str):
+                anchor_ids.append(anchor)
+            elif isinstance(anchor, dict) and anchor.get("anchor_id"):
+                anchor_ids.append(anchor.get("anchor_id"))
+        if len(anchor_ids) >= 2:
+            displacement.append(
+                {
+                    "subject_entity_id": item.get("entity_id"),
+                    "segment_id": item.get("segment_id"),
+                    "anchor_path": anchor_ids,
+                }
+            )
+    return displacement
+
+
+def _derive_output_boundaries(governance: Optional[Dict[str, Any]]) -> dict[str, Any]:
+    boundaries: dict[str, Any] = {}
+    requested_output_type = (governance or {}).get("requested_output_type")
+    if requested_output_type:
+        boundaries["requested_output_type"] = requested_output_type
+    boundaries["provider_payloads_forbidden"] = True
+    return boundaries
 
 
 def _derive_schedule_title(
@@ -965,11 +1756,38 @@ def _normalize_constraint_summary(raw_summary: Any) -> Dict[str, Any]:
 
     normalized: Dict[str, Any] = {}
     for key, value in raw_summary.items():
-        if isinstance(value, list):
-            normalized[key] = _merge_unique_strings(list(value), [])
-        elif value not in (None, {}, []):
-            normalized[key] = value
+        normalized_value = _normalize_constraint_value(value)
+        if normalized_value not in (None, {}, []):
+            normalized[key] = normalized_value
     return normalized
+
+
+def _normalize_constraint_value(value: Any) -> Any:
+    if value in (None, "", {}, []):
+        return None
+    if isinstance(value, dict):
+        normalized_dict: Dict[str, Any] = {}
+        for key, nested_value in value.items():
+            normalized_nested_value = _normalize_constraint_value(nested_value)
+            if normalized_nested_value not in (None, {}, []):
+                normalized_dict[str(key)] = normalized_nested_value
+        return normalized_dict or None
+    if isinstance(value, list):
+        if all(not isinstance(item, (dict, list)) for item in value):
+            return _merge_unique_strings(list(value), [])
+        normalized_list = []
+        seen: set[str] = set()
+        for item in value:
+            normalized_item = _normalize_constraint_value(item)
+            if normalized_item in (None, {}, []):
+                continue
+            marker = repr(normalized_item)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            normalized_list.append(normalized_item)
+        return normalized_list or None
+    return value
 
 
 def _normalize_schedule_revision_refs(raw_revisions: Any) -> list[Dict[str, Any]]:
@@ -1042,11 +1860,41 @@ def _merge_constraint_summary(
 ) -> Dict[str, Any]:
     merged = _normalize_constraint_summary(existing)
     for key, value in _normalize_constraint_summary(incoming).items():
-        if isinstance(value, list) and isinstance(merged.get(key), list):
-            merged[key] = _merge_unique_strings(list(merged.get(key) or []), value)
-        else:
-            merged[key] = value
+        merged[key] = _merge_constraint_values(merged.get(key), value)
     return merged
+
+
+def _merge_constraint_values(existing: Any, incoming: Any) -> Any:
+    normalized_existing = _normalize_constraint_value(existing)
+    normalized_incoming = _normalize_constraint_value(incoming)
+    if normalized_existing in (None, {}, []):
+        return normalized_incoming
+    if normalized_incoming in (None, {}, []):
+        return normalized_existing
+
+    if isinstance(normalized_existing, dict) and isinstance(normalized_incoming, dict):
+        merged_dict = dict(normalized_existing)
+        for key, value in normalized_incoming.items():
+            merged_dict[key] = _merge_constraint_values(merged_dict.get(key), value)
+        return merged_dict
+
+    if isinstance(normalized_existing, list) and isinstance(normalized_incoming, list):
+        if all(
+            not isinstance(item, (dict, list))
+            for item in [*normalized_existing, *normalized_incoming]
+        ):
+            return _merge_unique_strings(normalized_existing, normalized_incoming)
+        merged_list = list(normalized_existing)
+        seen = {repr(item) for item in merged_list}
+        for item in normalized_incoming:
+            marker = repr(item)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            merged_list.append(item)
+        return merged_list
+
+    return normalized_incoming
 
 
 def _merge_consumer_receipts(

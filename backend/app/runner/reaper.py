@@ -1,6 +1,7 @@
 """Runner reaper — cleans up stale tasks and orphaned locks."""
 
 import asyncio
+import json
 import logging
 import os
 from datetime import timedelta, timezone
@@ -43,11 +44,78 @@ def _watchdog_pack_allowlist() -> set[str]:
     return items or set(_NO_PROGRESS_WATCHDOG_DEFAULT_PACKS)
 
 
+def _extract_following_semantic_progress_at(artifact: Any) -> Optional[Any]:
+    if artifact is None:
+        return None
+
+    metadata = getattr(artifact, "metadata", None)
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except Exception:
+            metadata = None
+    if isinstance(metadata, dict):
+        source = str(metadata.get("source") or "").strip().lower()
+        if source and source != "ig_analyze_following_progress":
+            return None
+
+    content = getattr(artifact, "content", None)
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except Exception:
+            content = None
+    if not isinstance(content, dict):
+        return None
+
+    progress = content.get("progress") if isinstance(content.get("progress"), dict) else {}
+    content_meta = content.get("metadata") if isinstance(content.get("metadata"), dict) else {}
+    return (
+        _parse_utc_iso(progress.get("semantic_progress_at"))
+        or _parse_utc_iso(content_meta.get("semantic_progress_at"))
+    )
+
+
+def _resolve_watchdog_progress_updated_at(
+    *,
+    task: Any,
+    execution: Any,
+    execution_id: str,
+    artifacts_store: Optional[Any],
+) -> Optional[Any]:
+    progress_updated_at = (
+        getattr(execution, "updated_at", None)
+        or getattr(execution, "created_at", None)
+    )
+    if progress_updated_at is not None and getattr(progress_updated_at, "tzinfo", None) is None:
+        progress_updated_at = progress_updated_at.replace(tzinfo=timezone.utc)
+
+    if str(getattr(task, "pack_id", "") or "").strip() != "ig_analyze_following":
+        return progress_updated_at
+    if artifacts_store is None:
+        return progress_updated_at
+
+    try:
+        artifact = artifacts_store.get_by_execution_id(execution_id)
+    except Exception:
+        return progress_updated_at
+
+    semantic_progress_at = _extract_following_semantic_progress_at(artifact)
+    if semantic_progress_at is None:
+        return progress_updated_at
+    if getattr(semantic_progress_at, "tzinfo", None) is None:
+        semantic_progress_at = semantic_progress_at.replace(tzinfo=timezone.utc)
+    if progress_updated_at is None or semantic_progress_at > progress_updated_at:
+        return semantic_progress_at
+    return progress_updated_at
+
+
 def _request_watchdog_abort_for_no_progress_tasks(
     tasks_store: TasksStore,
     *,
     watcher_id: str,
     execution_store: Optional[Any] = None,
+    artifacts_store: Optional[Any] = None,
 ) -> int:
     watchdog_seconds = _env_int("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_SECONDS", 900)
     if watchdog_seconds <= 0:
@@ -66,11 +134,17 @@ def _request_watchdog_abort_for_no_progress_tasks(
         return 0
 
     if execution_store is None:
-        from backend.app.services.stores.playbook_executions_store import (
-            PlaybookExecutionsStore,
+        from backend.app.services.stores.postgres.remaining_stores import (
+            PostgresPlaybookExecutionsStore,
         )
 
-        execution_store = PlaybookExecutionsStore()
+        execution_store = PostgresPlaybookExecutionsStore()
+    if artifacts_store is None and "ig_analyze_following" in allowed_packs:
+        from backend.app.services.stores.postgres.artifacts_store import (
+            PostgresArtifactsStore,
+        )
+
+        artifacts_store = PostgresArtifactsStore()
 
     now = _utc_now()
     stale_seconds = _env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180)
@@ -113,14 +187,14 @@ def _request_watchdog_abort_for_no_progress_tasks(
             if phase not in ("", "queue"):
                 continue
 
-            progress_updated_at = (
-                getattr(execution, "updated_at", None)
-                or getattr(execution, "created_at", None)
+            progress_updated_at = _resolve_watchdog_progress_updated_at(
+                task=task,
+                execution=execution,
+                execution_id=execution_id,
+                artifacts_store=artifacts_store,
             )
             if progress_updated_at is None:
                 continue
-            if getattr(progress_updated_at, "tzinfo", None) is None:
-                progress_updated_at = progress_updated_at.replace(tzinfo=timezone.utc)
             if progress_updated_at > progress_threshold:
                 continue
 

@@ -42,6 +42,18 @@ from backend.app.services.runtime.simple_runtime import SimpleRuntime
 logger = logging.getLogger(__name__)
 
 
+def _is_terminal_failure_status(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"error", "failed"}
+
+
+def _workflow_outputs_has_errors(outputs: Any) -> bool:
+    if not isinstance(outputs, dict):
+        return False
+    if _is_terminal_failure_status(outputs.get("status")):
+        return True
+    return str(outputs.get("analysis_status") or "").strip().lower() == "failed"
+
+
 def _is_runner_process() -> bool:
     val = (os.getenv("LOCAL_CORE_RUNNER_PROCESS", "") or "").strip().lower()
     return val in {"1", "true", "yes"}
@@ -52,16 +64,23 @@ def _workflow_result_has_errors(result: Dict[str, Any]) -> bool:
     if not isinstance(result, dict):
         return False
 
-    if result.get("status") == "error":
+    if _is_terminal_failure_status(result.get("status")):
+        return True
+
+    if _workflow_outputs_has_errors(result.get("outputs")):
         return True
 
     steps = result.get("steps")
-    if not isinstance(steps, dict):
-        return False
+    if isinstance(steps, dict):
+        for step_result in steps.values():
+            if _workflow_result_has_errors(step_result):
+                return True
 
-    for step_result in steps.values():
-        if isinstance(step_result, dict) and step_result.get("status") == "error":
-            return True
+    context = result.get("context")
+    if isinstance(context, dict):
+        for context_result in context.values():
+            if _workflow_result_has_errors(context_result):
+                return True
     return False
 
 
@@ -94,10 +113,13 @@ def _runtime_result_has_errors(runtime_result: Any, raw_result: Optional[Dict[st
     if not isinstance(metadata, dict):
         return False
 
+    if _workflow_outputs_has_errors(metadata.get("outputs")):
+        return True
+
     steps = metadata.get("steps")
     if isinstance(steps, dict):
         for step_result in steps.values():
-            if isinstance(step_result, dict) and step_result.get("status") == "error":
+            if _workflow_result_has_errors(step_result):
                 return True
 
     workflow_result = metadata.get("workflow_result")

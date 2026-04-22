@@ -11,7 +11,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@mindscape-ai/core": "workspace:*",
+    "@mindscape-ai/core": "file:../packages/core",
+    "@excalidraw/excalidraw": "^0.18.1",
     "@react-sigma/core": "^5.0.6",
     "@react-sigma/layout-forceatlas2": "^5.0.6",
     "@react-three/drei": "^9.92.0",
@@ -23,6 +24,7 @@
     "autoprefixer": "^10.4.16",
     "axios": "^1.6.2",
     "dagre": "^0.8.5",
+    "dockview": "^5.2.0",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",
     "lucide-react": "^0.294.0",

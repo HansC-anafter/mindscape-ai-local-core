@@ -1,5 +1,6 @@
 'use client';
 
+import './page.css';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getApiBaseUrl } from '../lib/api-url';

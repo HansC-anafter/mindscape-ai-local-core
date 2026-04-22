@@ -30,9 +30,8 @@ This is the second public-safe milestone demo for `SpatialSchedulingIR` because 
 The minimum input is still intentionally simple:
 
 - one plain-language meeting request
-- one subject
-- one object: serving tray
-- one camera entity
+- two primary world objects: subject and serving tray
+- one camera entity: main camera only
 - one entry zone, one counter anchor, one window zone
 - bounded governance constraints
 
@@ -40,7 +39,67 @@ The point is not cinematic polish.
 
 The point is that a non-expert operator can understand the spatial intent immediately while the system keeps it bounded and traceable.
 
-## 3. What Comes Out
+## 3. Bounded World-Proof Handoff
+
+The scenario can be handed downstream as one bounded execution plan without expanding into provider-native payloads.
+
+### Space Paragraphs
+
+- one bounded `world_id` for the same cafe interior from start to finish
+- `entry paragraph`: subject enters through the cafe entry while carrying the serving tray
+- `counter paragraph`: subject approaches the service counter and places the tray on the counter anchor
+- `window paragraph`: subject exits toward the window zone after the tray placement is complete
+
+These paragraphs are different active regions inside one world, not separate scenes or world swaps.
+
+### Active Objects And Anchors
+
+- primary object `subject_01`
+- primary object `serving_tray_01`
+- single camera entity `camera_main_01`
+- entry anchor `entry_zone`
+- placement anchor `service_counter_anchor`
+- exit anchor `window_zone`
+
+The bounded handoff treats the subject and tray as the two primary world objects.
+
+The camera stays a single named execution entity that can reframe, but it does not introduce a second camera lane or a second world.
+
+### Constraint Summary
+
+- `single_camera=true`
+- `single_world=true`
+- `dual_primary_objects=true`
+- `replayable_schedule=true`
+- no additional actors, props, or cameras may enter the schedule
+- no scene cuts, world swaps, teleport jumps, or off-screen state rewrites may be introduced
+- tray state changes are bounded to `carried -> placed_on_counter`
+- schedule segments must remain ordered, named, and stable under the same `schedule_id`
+
+### Spatial Scheduling
+
+- `enter_establish`: `subject_01` enters through `entry_zone` while `camera_main_01` holds the wide establish view
+- `approach_counter`: `subject_01` and `serving_tray_01` move together from `entry_zone` toward `service_counter_anchor`
+- `place_tray`: `serving_tray_01` transitions from carried state to placed state on `service_counter_anchor`
+- `camera_reframe`: the same `camera_main_01` reframes from wide entry coverage to over-shoulder counter coverage
+- `exit_window`: `subject_01` leaves toward `window_zone` while `serving_tray_01` remains on `service_counter_anchor`
+
+### Excluded Scope
+
+- no secondary camera activation or multi-camera edit grammar
+- no new prop introduction, tray duplication, or prop substitution
+- no second subject, crowd, staff, or interaction partner
+- no environment change beyond the single cafe interior world
+- no return-to-counter pickup after tray placement
+- no unbounded physics improvisation or consumer-specific animation detail encoded into Local-Core memory
+
+### Bounded Execution Verdict
+
+This handoff remains valid as a downstream world-proof package because it preserves one camera identity, one world identity, two primary world objects, three stable anchors, and one replayable segment order.
+
+It is therefore suitable to hand off as a bounded execution plan through `TaskIR` + `SpatialSchedulingIR` + bounded world summary + downstream receipt references.
+
+## 4. What Comes Out
 
 The intended output package is:
 
@@ -58,7 +117,7 @@ The schedule is understandable at the segment level, for example:
 - `camera reframe`
 - `exit window`
 
-## 4. Why This Demo Matters
+## 5. Why This Demo Matters
 
 This demo closes the missing half of the milestone story:
 
@@ -70,7 +129,7 @@ This demo closes the missing half of the milestone story:
 
 In other words, it proves that `SpatialSchedulingIR` is behaving more like a governed world/runtime planning artifact and less like a thin wrapper around one actor demo.
 
-## 5. Layer 1 Acceptance Gate
+## 6. Layer 1 Acceptance Gate
 
 Layer 1 proves:
 
@@ -101,7 +160,7 @@ Current Layer 1 state:
 
 - `closed`
 
-## 6. Layer 2 Acceptance Gate
+## 7. Layer 2 Acceptance Gate
 
 Layer 2 proves:
 
@@ -127,7 +186,7 @@ Current Layer 2 status:
 
 - `closed`
 
-## 7. Operator Flow
+## 8. Operator Flow
 
 The operator journey is explainable as:
 
@@ -148,7 +207,7 @@ The minimal operator package therefore names:
 - downstream `consumer_receipt_ref`
 - stronger `consumer_receipt_ref`
 
-## 8. Public Evidence Snapshot
+## 9. Public Evidence Snapshot
 
 Current public-safe evidence checked in on `2026-04-19`:
 
@@ -165,14 +224,14 @@ What this capture is not meant to prove:
 - polished final animation quality
 - that every renderer-side artifact landing edge is solved on every workspace or host
 
-## 9. What This Proves
+## 10. What This Proves
 
 - Mindscape can govern non-actor spatial semantics such as object placement, camera reframing, and zone transition
 - `TaskIR` and `SpatialSchedulingIR` remain clearly separated
 - Local-Core acts as a governed planning and continuity host
 - runtime consumers remain swappable while sharing one stable schedule spine
 
-## 10. What This Does Not Prove
+## 11. What This Does Not Prove
 
 - polished final animation quality
 - that every visual-acceptance artifact landing path is already perfect
@@ -182,7 +241,7 @@ Use honest status language:
 
 > this is a closed non-actor milestone scenario for bounded spatial/world planning continuity, not a claim that every runtime-side operational edge has disappeared
 
-## 11. Honest Runtime Note
+## 12. Honest Runtime Note
 
 The current reference-host evidence is strong enough to close Layer 1 and Layer 2, but one operational warning remains:
 
@@ -194,7 +253,7 @@ This warning does **not** break the acceptance gates because:
 - the stronger lane still completes on the same schedule identity
 - the bounded writeback and compare contract remain intact
 
-## 12. Related Docs
+## 13. Related Docs
 
 - [Demo Gallery](../demo-gallery/README.md)
 - [Meeting-Originated Coffee Spatial Demo](./meeting-originated-coffee-spatial-demo.md)

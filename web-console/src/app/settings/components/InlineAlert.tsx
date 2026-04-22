@@ -3,8 +3,11 @@
 import React from 'react';
 
 interface InlineAlertProps {
-  type: 'error' | 'success' | 'warning' | 'info';
-  message: string;
+  type?: 'error' | 'success' | 'warning' | 'info';
+  variant?: 'error' | 'success' | 'warning' | 'info';
+  message?: string;
+  title?: string;
+  description?: string;
   onDismiss?: () => void;
   className?: string;
 }
@@ -16,13 +19,24 @@ const alertStyles = {
   info: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300',
 };
 
-export function InlineAlert({ type, message, onDismiss, className = '' }: InlineAlertProps) {
+export function InlineAlert({
+  type,
+  variant,
+  message,
+  title,
+  description,
+  onDismiss,
+  className = '',
+}: InlineAlertProps) {
   const isCompact = className.includes('mb-0');
   const isInHeader = className.includes('mb-0');
+  const resolvedType = variant ?? type ?? 'info';
+  const resolvedMessage = [title, description].filter(Boolean).join(': ') || message || '';
+
   return (
-    <div className={`${isCompact ? 'mb-0' : 'mb-4'} border ${isCompact ? 'px-3 py-1.5' : 'px-4 py-3'} rounded text-sm ${alertStyles[type]} ${className} ${isInHeader ? 'max-w-full' : ''}`}>
+    <div className={`${isCompact ? 'mb-0' : 'mb-4'} border ${isCompact ? 'px-3 py-1.5' : 'px-4 py-3'} rounded text-sm ${alertStyles[resolvedType]} ${className} ${isInHeader ? 'max-w-full' : ''}`}>
       <div className="flex items-center justify-between gap-2 min-w-0">
-        <span className={isInHeader ? 'truncate' : 'whitespace-nowrap'}>{message}</span>
+        <span className={isInHeader ? 'truncate' : 'whitespace-nowrap'}>{resolvedMessage}</span>
         {onDismiss && (
           <button
             onClick={onDismiss}

@@ -16,7 +16,7 @@ import logging
 import os
 import socket
 import sys
-from typing import Optional
+from typing import Iterable, Optional
 from datetime import datetime, timedelta, timezone
 
 from backend.app.models.workspace import TaskStatus
@@ -98,13 +98,14 @@ __all__ = [
 
 async def _reset_orphaned_running_tasks(
     tasks_store: TasksStore, current_runner_id: str
-) -> None:
+) -> set[str]:
     """Reset running tasks from dead runners back to PENDING on startup.
 
     After a runner restart, old subprocesses are killed but their DB tasks
     may still be marked 'running' with a stale runner_id.  This function
     detects those orphans and resets them so they get cleanly re-queued.
     """
+    reset_task_ids: set[str] = set()
     try:
         running = await asyncio.to_thread(
             tasks_store.list_running_playbook_execution_tasks,
@@ -129,6 +130,7 @@ async def _reset_orphaned_running_tasks(
                     execution_context=ctx2,
                     status=TaskStatus.PENDING,
                 )
+                reset_task_ids.add(str(t.id))
                 reset_count += 1
                 logger.info(
                     f"[Startup] Reset orphaned running task {t.id} "
@@ -138,6 +140,49 @@ async def _reset_orphaned_running_tasks(
             logger.info(f"[Startup] Reset {reset_count} orphaned running task(s)")
     except Exception as e:
         logger.warning(f"[Startup] Failed to reset orphaned tasks: {e}", exc_info=True)
+    return reset_task_ids
+
+
+async def _purge_task_ids_from_transport(
+    task_ids: Iterable[str],
+    queue_stores: Iterable[RedisRunnerQueueStore],
+) -> int:
+    """Remove specific task ids from Redis queue transport lists/zsets.
+
+    On runner restart, orphaned tasks can remain stranded in processing or delayed
+    transport state from the dead runner. Startup backfill treats any transport
+    membership as already queued, so these stale members must be purged before
+    the tasks can be re-enqueued cleanly.
+    """
+    normalized_ids = [str(task_id) for task_id in task_ids if str(task_id).strip()]
+    if not normalized_ids:
+        return 0
+
+    removed = 0
+    try:
+        for queue_store in queue_stores:
+            client = await queue_store._get_client()
+            if not client:
+                continue
+            pipe = client.pipeline()
+            for task_id in normalized_ids:
+                pipe.lrem(queue_store.q_pending, 0, task_id)
+            pipe.zrem(queue_store.q_processing, *normalized_ids)
+            pipe.zrem(queue_store.q_delayed, *normalized_ids)
+            results = await pipe.execute()
+            removed += sum(int(result or 0) for result in results if isinstance(result, int))
+    except Exception as e:
+        logger.warning(f"[Startup] Failed to purge stale transport members: {e}", exc_info=True)
+        return removed
+
+    if removed:
+        logger.info(
+            "[Startup] Purged %s stale Redis transport entr%s for reset task ids=%s",
+            removed,
+            "y" if removed == 1 else "ies",
+            ",".join(normalized_ids),
+        )
+    return removed
 
 
 async def _backfill_pending_to_redis(
@@ -480,7 +525,9 @@ async def run_forever() -> None:
         pass
 
     # ── Startup: reset running tasks from dead runners ──
-    await _reset_orphaned_running_tasks(tasks_store, runner_id)
+    reset_task_ids = await _reset_orphaned_running_tasks(tasks_store, runner_id)
+    if reset_task_ids:
+        await _purge_task_ids_from_transport(reset_task_ids, queue_cycle)
 
     # ── Startup backfill: recover pending tasks lost during restart ──
     await _backfill_pending_to_redis(tasks_store, ready_queues)

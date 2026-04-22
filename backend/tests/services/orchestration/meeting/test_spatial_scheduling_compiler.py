@@ -4,6 +4,8 @@ from backend.app.models.handoff import HandoffIn
 from backend.app.services.orchestration.meeting._ir_compiler import MeetingIRCompilerMixin
 from backend.app.services.orchestration.meeting.spatial_scheduling_compiler import (
     SPATIAL_SCHEDULE_ARTIFACT_MIME,
+    build_spatial_schedule_artifact,
+    build_spatial_schedule_context,
     build_spatial_scheduling_ir,
     persist_spatial_schedule_context_to_session,
 )
@@ -139,8 +141,12 @@ def test_compile_to_task_ir_projects_schedule_via_world_memory_core_and_preserve
     assert "Zone: main_floor" in projection["summary_lines"]
     assert "Active schedule: Enter frame" in projection["summary_lines"]
     assert "Performance mode: audio_driven_talking_head" in projection["summary_lines"]
-    assert "schedule_consumer_hints=performance_direction" in projection["constraints"]
-    assert "schedule_intent_summary=Plan a staged actor movement" in projection["constraints"]
+    assert any(
+        constraint.startswith("schedule_scene=") for constraint in projection["constraints"]
+    )
+    assert any(
+        "Plan a staged actor movement" in constraint for constraint in projection["constraints"]
+    )
     assert "performance_execution_bridge=mms_storyboard_preview" in projection["constraints"]
     assert "Performance run: perf-run-demo" in meeting.session.metadata["world_card_text"]
 
@@ -234,6 +240,62 @@ def test_build_spatial_scheduling_ir_merges_action_item_fallbacks_and_world_cont
                 "spatial_schedule": {
                     "requested": True,
                     "consumer_hints": ["performance_direction"],
+                    "bounded_constraints": {
+                        "scene": {
+                            "scene_scope": "single_stage_scene",
+                        },
+                        "camera": {
+                            "must_hold": ["single_camera_family"],
+                        },
+                        "objects": [
+                            {
+                                "entity_id": "prop.marker",
+                                "role": "target_mark",
+                            }
+                        ],
+                        "anchors": [
+                            {
+                                "anchor_id": "stage_mark",
+                                "anchor_kind": "mark",
+                            }
+                        ],
+                        "spatial_relations": [
+                            {
+                                "relation": "actor_on_mark",
+                                "target_anchor_id": "stage_mark",
+                            }
+                        ],
+                        "occlusion": [
+                            {
+                                "subject": "actor.lead",
+                                "policy": "keep_visible",
+                            }
+                        ],
+                        "displacement": [
+                            {
+                                "subject_entity_id": "actor.lead",
+                                "to_anchor_id": "stage_mark",
+                            }
+                        ],
+                        "output_boundaries": {
+                            "scene_count_max": 1,
+                        },
+                    },
+                    "consumer_prompt_bindings": [
+                        {
+                            "consumer": "performance_direction",
+                            "section_key": "scene",
+                            "text": "Keep the lead bounded to the stage scene.",
+                            "anchor_ids": ["stage_mark"],
+                        },
+                        {
+                            "consumer": "motion_runtime",
+                            "section_key": "camera",
+                            "text": "Retain the stage-mark framing while the lead lands.",
+                            "segment_id": "intent-merge-001",
+                            "anchor_ids": ["stage_mark"],
+                        },
+                    ],
                 }
             },
             "deliverables": [
@@ -261,13 +323,29 @@ def test_build_spatial_scheduling_ir_merges_action_item_fallbacks_and_world_cont
             "segment_id": "intent-merge-001",
         }
     ]
-    assert [entity.entity_id for entity in schedule.entities] == ["actor.lead"]
+    assert [entity.entity_id for entity in schedule.entities] == [
+        "actor.lead",
+        "prop.marker",
+    ]
     assert [anchor.anchor_id for anchor in schedule.anchors] == [
         "scene.demo",
         "main_floor",
         "stage_mark",
     ]
     assert schedule.segments[0].anchors == ["scene.demo", "main_floor", "stage_mark"]
+    summary = schedule.constraint_summary.model_dump(mode="json")
+    assert "single_stage_scene" in [item["summary"] for item in summary["scene"]]
+    assert "single_camera_family" in summary["camera"][0]["summary"]
+    assert summary["objects"][0]["item_id"] == "prop.marker"
+    assert summary["anchors"][-1]["item_id"] == "stage_mark"
+    assert summary["spatial_relations"][0]["summary"] == "actor_on_mark"
+    assert summary["occlusion"][0]["summary"] == "keep_visible"
+    assert summary["displacement"][0]["anchor_ids"] == ["stage_mark"]
+    assert any(
+        "scene_count_max" in item["summary"] for item in summary["output_boundaries"]
+    )
+    assert schedule.segments[0].consumer_prompt_segments[0].consumer == "performance_direction"
+    assert schedule.segments[0].consumer_prompt_segments[1].section_keys == ["camera"]
 
 
 def test_build_spatial_scheduling_ir_uses_action_item_timebase_when_world_context_absent():
@@ -307,6 +385,102 @@ def test_build_spatial_scheduling_ir_uses_action_item_timebase_when_world_contex
     assert schedule.metadata["source_conflicts"] == []
 
 
+def test_build_spatial_scheduling_ir_reflects_governance_object_and_anchor_identity_in_segments():
+    schedule = build_spatial_scheduling_ir(
+        task_id="task-governance-objects-001",
+        workspace_id="ws-001",
+        session_id="session-001",
+        decision="Counter tray proof lane",
+        action_items=[
+            {
+                "intent_id": "seg-001",
+                "title": "切分空間段落並標記作用中物件與錨點",
+                "description": "Mark the bounded object and anchor set for the proof lane.",
+            },
+            {
+                "intent_id": "seg-002",
+                "title": "產出 world proof lane 可消費的空間排程",
+                "description": "Emit the bounded world-proof schedule.",
+            },
+        ],
+        action_intents=None,
+        governance={
+            "governance_constraints": {
+                "spatial_schedule": {
+                    "requested": True,
+                    "consumer_hints": ["video_renderer", "ue5_runtime"],
+                    "bounded_constraints": {
+                        "camera": {
+                            "entity_ids": ["camera.main"],
+                            "must_hold": ["single_viewpoint"],
+                        },
+                        "objects": [
+                            {
+                                "entity_id": "object.counter",
+                                "role": "support_surface",
+                                "label": "Counter",
+                            },
+                            {
+                                "entity_id": "object.tray",
+                                "role": "primary_prop",
+                                "label": "Tray",
+                            },
+                        ],
+                        "anchors": [
+                            {
+                                "anchor_id": "anchor.counter",
+                                "anchor_kind": "surface",
+                                "label": "Counter surface",
+                            },
+                            {
+                                "anchor_id": "anchor.tray_rest",
+                                "anchor_kind": "placement",
+                                "label": "Tray rest",
+                            },
+                        ],
+                        "spatial_relations": [
+                            {
+                                "relation": "tray_on_counter",
+                                "source_entity_id": "object.tray",
+                                "target_anchor_id": "anchor.counter",
+                            }
+                        ],
+                    },
+                }
+            }
+        },
+        world_context=None,
+    )
+
+    assert sorted(entity.entity_id for entity in schedule.entities) == [
+        "camera.main",
+        "object.counter",
+        "object.tray",
+    ]
+    assert sorted(anchor.anchor_id for anchor in schedule.anchors) == [
+        "anchor.counter",
+        "anchor.tray_rest",
+    ]
+    assert sorted(schedule.segments[0].entity_refs) == [
+        "camera.main",
+        "object.counter",
+        "object.tray",
+    ]
+    assert sorted(schedule.segments[0].anchors) == [
+        "anchor.counter",
+        "anchor.tray_rest",
+    ]
+    assert sorted(schedule.segments[1].entity_refs) == [
+        "camera.main",
+        "object.counter",
+        "object.tray",
+    ]
+    assert sorted(schedule.segments[1].anchors) == [
+        "anchor.counter",
+        "anchor.tray_rest",
+    ]
+
+
 def test_persist_spatial_schedule_context_to_session_merges_same_schedule_receipts():
     session = SimpleNamespace(
         metadata={
@@ -322,7 +496,17 @@ def test_persist_spatial_schedule_context_to_session_merges_same_schedule_receip
                         "anchor_ids": ["zone.old"],
                     }
                 ],
-                "constraint_summary": {"consumer_hints": ["performance_direction"]},
+                "constraint_summary": {
+                    "consumer_hints": ["performance_direction"],
+                    "consumer_prompt_bindings": [
+                        {
+                            "consumer": "performance_direction",
+                            "section_key": "scene",
+                            "text": "Preserve the original stage layout.",
+                            "anchor_ids": ["zone.old"],
+                        }
+                    ],
+                },
                 "consumer_receipts": {
                     "motion_runtime": {
                         "status": "completed",
@@ -348,7 +532,17 @@ def test_persist_spatial_schedule_context_to_session_merges_same_schedule_receip
                     "anchor_ids": ["zone.stage"],
                 }
             ],
-            "constraint_summary": {"consumer_hints": ["motion_runtime"]},
+            "constraint_summary": {
+                "consumer_hints": ["motion_runtime"],
+                "consumer_prompt_bindings": [
+                    {
+                        "consumer": "motion_runtime",
+                        "section_key": "camera",
+                        "text": "Follow the new stage window segment.",
+                        "anchor_ids": ["zone.stage"],
+                    }
+                ],
+            },
             "consumer_receipts": {
                 "performance_direction": {
                     "status": "compiled",
@@ -373,4 +567,52 @@ def test_persist_spatial_schedule_context_to_session_merges_same_schedule_receip
         "performance_direction",
         "motion_runtime",
     ]
+    assert len(context["constraint_summary"]["consumer_prompt_bindings"]) == 2
     assert context["updated_at"] == "2026-04-16T12:00:00+00:00"
+
+
+def test_build_spatial_schedule_context_serializes_constraint_summary_items():
+    schedule = build_spatial_scheduling_ir(
+        task_id="task-serialize-001",
+        workspace_id="ws-001",
+        session_id="session-001",
+        decision="Bounded counter tray execution",
+        action_items=[
+            {
+                "title": "切分空間段落並標記作用中物件與錨點",
+                "description": "標記 counter/tray 的 bounded 空間關係。",
+            }
+        ],
+        governance={
+            "governance_constraints": {
+                "spatial_schedule": {
+                    "requested": True,
+                    "consumer_hints": ["ue5_runtime"],
+                    "bounded_constraints": {
+                        "objects": [
+                            {"entity_id": "object.counter", "role": "support_surface"},
+                            {"entity_id": "object.tray", "role": "primary_prop"},
+                        ],
+                        "anchors": [
+                            {"anchor_id": "anchor.counter", "anchor_kind": "surface"},
+                            {"anchor_id": "anchor.tray_rest", "anchor_kind": "placement"},
+                        ],
+                    },
+                }
+            }
+        },
+    )
+
+    artifact = build_spatial_schedule_artifact(
+        task_id="task-serialize-001",
+        schedule=schedule,
+    )
+    context = build_spatial_schedule_context(schedule=schedule, artifact=artifact)
+
+    assert context["constraint_summary"]["consumer_hints"] == ["ue5_runtime"]
+    assert context["constraint_summary"]["objects"][0]["entity_refs"] == [
+        "object.counter"
+    ]
+    assert context["constraint_summary"]["objects"][1]["entity_refs"] == [
+        "object.tray"
+    ]

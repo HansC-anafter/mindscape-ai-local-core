@@ -9,6 +9,10 @@ from backend.app.models.playbook import ErrorHandlingStrategy
 logger = logging.getLogger(__name__)
 
 
+def _is_error_status(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"error", "failed"}
+
+
 def build_dependency_graph(steps: List[Any]) -> Dict[str, Set[str]]:
     """Build a dependency graph for workflow steps."""
     graph: Dict[str, Set[str]] = {}
@@ -334,7 +338,7 @@ def should_stop_workflow_after_error(
     step_result: Dict[str, Any],
 ) -> bool:
     """Return whether an errored step should stop the workflow."""
-    if step_result.get("status") != "error":
+    if not _is_error_status(step_result.get("status")):
         return False
 
     error_handling = step.error_handling

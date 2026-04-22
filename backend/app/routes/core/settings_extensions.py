@@ -21,6 +21,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
+_BUILT_IN_RUNTIME_CODES = {
+    "local-core",
+    "local_core",
+    "mindscape-ai-cloud-3d-mesh",
+    "mindscape_ai_cloud_3d_mesh",
+    "blender_bridge",
+}
+
 
 def _slugify_runtime_code(value: Any) -> Optional[str]:
     text = str(value or "").strip().lower()
@@ -105,7 +113,7 @@ def get_registered_runtime_codes(db: Session) -> List[str]:
     """
     try:
         runtimes = db.query(RuntimeEnvironment).all()
-        codes = set()
+        codes = set(_BUILT_IN_RUNTIME_CODES)
         for runtime in runtimes:
             metadata = runtime.extra_metadata or {}
             for value in (
