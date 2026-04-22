@@ -18,6 +18,11 @@ meeting path:
 - selection resolve API
 - meeting attach API
 
+P0 does not include a generic recommendation execution endpoint.
+`recommend_related_objects` is currently a contextual action hint only. The
+secondary MMS proof path uses `object-meeting-attach` plus owner-pack
+materialization into an existing PD review lane.
+
 This API is runtime-hosted by `mindscape-ai-local-core`.
 
 It does not replace:

@@ -177,6 +177,24 @@ def _build_catalog_summary(
     )
 
 
+def _default_meeting_projection_payload(
+    *,
+    ref: ObjectRef,
+    summary: ObjectSummary,
+    verb: str,
+) -> Dict[str, Any]:
+    return {
+        "verb": _text(verb) or "attach",
+        "uri": ref.uri,
+        "owner_pack": ref.owner_pack,
+        "object_kind": ref.object_kind,
+        "object_id": ref.object_id,
+        "title": summary.title,
+        "summary_text": summary.summary_text,
+        "labels": list(summary.labels or []),
+    }
+
+
 def _attach_action() -> ObjectAction:
     return ObjectAction(
         action_code="attach_to_meeting",
@@ -393,6 +411,25 @@ def _select_materializer_backend(
     return None
 
 
+def _select_meeting_projection_backend(
+    entry_payload: Dict[str, Any],
+    *,
+    verb: str,
+) -> str | None:
+    for projection in list(entry_payload.get("meeting_projection_backends") or []):
+        verbs = list(projection.get("verbs") or [])
+        backend = _text(projection.get("projection_backend"))
+        if backend and verb in verbs:
+            return backend
+
+    for projection in list(entry_payload.get("meeting_projection_backends") or []):
+        backend = _text(projection.get("projection_backend"))
+        if backend:
+            return backend
+
+    return None
+
+
 async def _invoke_backend_callable(backend_path: str, **kwargs: Any) -> Any:
     module_path, attr_name = backend_path.rsplit(":", 1)
     module = importlib.import_module(module_path)
@@ -404,27 +441,66 @@ async def _invoke_backend_callable(backend_path: str, **kwargs: Any) -> Any:
 
 
 def _build_materializer_source_objects(
-    source_pairs: List[Tuple[ObjectRef, ObjectSummary]],
+    source_records: List[Tuple[ObjectRef, ObjectSummary, Dict[str, Any] | None]],
 ) -> List[Dict[str, Any]]:
     payloads: List[Dict[str, Any]] = []
-    for ref, summary in source_pairs:
+    for ref, summary, meeting_projection in source_records:
+        payload = {
+            "owner_pack": ref.owner_pack,
+            "object_kind": ref.object_kind,
+            "object_id": ref.object_id,
+            "object_ref": ref.model_dump(exclude_none=True),
+            "object_summary": {
+                "title": summary.title,
+                "subtitle": summary.subtitle,
+                "summary_text": summary.summary_text,
+                "status": summary.status,
+                "labels": list(summary.labels or []),
+                "owner_surface_url": summary.owner_surface_url,
+            },
+        }
+        if isinstance(meeting_projection, dict) and meeting_projection:
+            payload["meeting_projection"] = dict(meeting_projection)
+
         payloads.append(
             {
-                "owner_pack": ref.owner_pack,
-                "object_kind": ref.object_kind,
-                "object_id": ref.object_id,
-                "object_ref": ref.model_dump(exclude_none=True),
-                "object_summary": {
-                    "title": summary.title,
-                    "subtitle": summary.subtitle,
-                    "summary_text": summary.summary_text,
-                    "status": summary.status,
-                    "labels": list(summary.labels or []),
-                    "owner_surface_url": summary.owner_surface_url,
-                },
+                **payload,
             }
         )
     return payloads
+
+
+async def _resolve_meeting_projection_payload(
+    *,
+    entry_payload: Dict[str, Any],
+    workspace_id: str,
+    ref: ObjectRef,
+    summary: ObjectSummary,
+    verb: str,
+) -> Dict[str, Any]:
+    backend_path = _select_meeting_projection_backend(entry_payload, verb=verb)
+    if not backend_path:
+        return _default_meeting_projection_payload(ref=ref, summary=summary, verb=verb)
+
+    try:
+        result = await _invoke_backend_callable(
+            backend_path,
+            workspace_id=workspace_id,
+            object_id=ref.object_id,
+            verb=verb,
+        )
+    except Exception:
+        logger.exception(
+            "Addressable Object Layer meeting projection failed for %s.%s",
+            ref.owner_pack,
+            ref.object_kind,
+        )
+        return _default_meeting_projection_payload(ref=ref, summary=summary, verb=verb)
+
+    if isinstance(result, dict) and result:
+        return result
+
+    return _default_meeting_projection_payload(ref=ref, summary=summary, verb=verb)
 
 
 def _coerce_materialized_ref_payload(
@@ -468,7 +544,7 @@ async def _materialize_target_outcome(
     request: ObjectMeetingAttachRequest,
     target_ref: ObjectRef,
     target_entry_payload: Dict[str, Any],
-    source_pairs: List[Tuple[ObjectRef, ObjectSummary]],
+    source_records: List[Tuple[ObjectRef, ObjectSummary, Dict[str, Any] | None]],
 ) -> Tuple[str, List[ObjectRef], List[str], List[SelectionResolveError], Dict[str, Any] | None]:
     backend_path = _select_materializer_backend(
         target_entry_payload,
@@ -486,7 +562,7 @@ async def _materialize_target_outcome(
             meeting_id=meeting_id,
             verb="attach",
             write_mode=request.write_mode,
-            source_objects=_build_materializer_source_objects(source_pairs),
+            source_objects=_build_materializer_source_objects(source_records),
             intent_summary=request.intent_summary,
         )
     except Exception as exc:
@@ -718,18 +794,26 @@ async def attach_objects_to_meeting(
     await _ensure_workspace_exists(workspace_id)
     registry = _get_object_catalog_registry()
 
-    source_pairs: List[Tuple[ObjectRef, ObjectSummary]] = []
+    source_records: List[Tuple[ObjectRef, ObjectSummary, Dict[str, Any] | None]] = []
     for ref in request.objects:
-        _entry, summary = _resolve_attach_ref(
+        entry, summary = _resolve_attach_ref(
             registry=registry,
             workspace_id=workspace_id,
             ref=ref,
             require_meeting_projection=True,
             error_code="object_not_found",
         )
-        source_pairs.append((ref, summary))
+        entry_payload = registry.get_entry(ref.owner_pack, ref.object_kind) or {}
+        meeting_projection = await _resolve_meeting_projection_payload(
+            entry_payload=entry_payload,
+            workspace_id=workspace_id,
+            ref=ref,
+            summary=summary,
+            verb="attach",
+        )
+        source_records.append((ref, summary, meeting_projection))
 
-    target_pair: Tuple[ObjectRef, ObjectSummary] | None = None
+    target_pair: Tuple[ObjectRef, ObjectSummary, Dict[str, Any] | None] | None = None
     if request.target_ref:
         _target_entry, target_summary = _resolve_attach_ref(
             registry=registry,
@@ -738,7 +822,18 @@ async def attach_objects_to_meeting(
             require_meeting_projection=False,
             error_code="target_ref_invalid",
         )
-        target_pair = (request.target_ref, target_summary)
+        target_entry_payload = (
+            registry.get_entry(request.target_ref.owner_pack, request.target_ref.object_kind)
+            or {}
+        )
+        target_projection = await _resolve_meeting_projection_payload(
+            entry_payload=target_entry_payload,
+            workspace_id=workspace_id,
+            ref=request.target_ref,
+            summary=target_summary,
+            verb="attach",
+        )
+        target_pair = (request.target_ref, target_summary, target_projection)
 
     session_store = _get_meeting_session_store()
     if request.meeting_id:
@@ -777,7 +872,7 @@ async def attach_objects_to_meeting(
         meeting_type=request.meeting_type,
         intent_summary=request.intent_summary,
         write_mode=request.write_mode,
-        source_objects=source_pairs,
+        source_objects=source_records,
         target_object=target_pair,
     )
     response_status = "attached"
@@ -804,7 +899,7 @@ async def attach_objects_to_meeting(
                 request=request,
                 target_ref=request.target_ref,
                 target_entry_payload=target_entry_payload,
-                source_pairs=source_pairs,
+                source_records=source_records,
             )
 
     _upsert_meeting_session_metadata(
@@ -826,7 +921,7 @@ async def attach_objects_to_meeting(
             ref=ref,
             projection_level="meeting",
         )
-        for ref, _summary in source_pairs
+        for ref, _summary, _projection in source_records
     ]
     if target_pair:
         attachment_summaries.append(

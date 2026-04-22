@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from backend.app.models.handoff import HandoffIn
 from backend.app.models.object_runtime import ObjectRef, ObjectSummary
@@ -29,18 +29,23 @@ class ObjectMeetingAttachmentService:
         meeting_type: str,
         intent_summary: str,
         write_mode: str,
-        source_objects: Sequence[Tuple[ObjectRef, ObjectSummary]],
-        target_object: Optional[Tuple[ObjectRef, ObjectSummary]] = None,
+        source_objects: Sequence[
+            Tuple[ObjectRef, ObjectSummary, Optional[Dict[str, Any]]]
+        ],
+        target_object: Optional[
+            Tuple[ObjectRef, ObjectSummary, Optional[Dict[str, Any]]]
+        ] = None,
     ) -> ObjectMeetingAttachmentBuildResult:
         context_attachments: List[dict] = []
 
-        for ref, summary in source_objects:
+        for ref, summary, meeting_projection in source_objects:
             context_attachments.append(
                 self._build_attachment(
                     role="source",
                     verb="attach",
                     ref=ref,
                     summary=summary,
+                    meeting_projection=meeting_projection,
                     write_mode=write_mode,
                     target_ref=target_object[0] if target_object else None,
                 )
@@ -53,6 +58,7 @@ class ObjectMeetingAttachmentService:
                     verb="attach",
                     ref=target_object[0],
                     summary=target_object[1],
+                    meeting_projection=target_object[2],
                     write_mode=write_mode,
                     target_ref=None,
                 )
@@ -75,7 +81,7 @@ class ObjectMeetingAttachmentService:
                     "meeting_id": meeting_id,
                     "meeting_type": meeting_type,
                     "write_mode": write_mode,
-                    "source_object_uris": [ref.uri for ref, _ in source_objects],
+                    "source_object_uris": [ref.uri for ref, _, _ in source_objects],
                     "target_ref_uri": target_object[0].uri if target_object else None,
                 }
             },
@@ -92,6 +98,7 @@ class ObjectMeetingAttachmentService:
         verb: str,
         ref: ObjectRef,
         summary: ObjectSummary,
+        meeting_projection: Optional[Dict[str, Any]],
         write_mode: str,
         target_ref: Optional[ObjectRef],
     ) -> dict:
@@ -103,6 +110,20 @@ class ObjectMeetingAttachmentService:
                     "to_ref": target_ref.model_dump(exclude_none=True),
                 }
             )
+
+        projection_payload = (
+            dict(meeting_projection)
+            if isinstance(meeting_projection, dict) and meeting_projection
+            else {
+                "uri": ref.uri,
+                "owner_pack": ref.owner_pack,
+                "object_kind": ref.object_kind,
+                "object_id": ref.object_id,
+                "title": summary.title,
+                "summary_text": summary.summary_text,
+                "labels": list(summary.labels or []),
+            }
+        )
 
         return {
             "attachment_id": f"att_{uuid.uuid4().hex[:16]}",
@@ -121,15 +142,7 @@ class ObjectMeetingAttachmentService:
             "owner_pack": ref.owner_pack,
             "meeting_projection": {
                 "projection_type": "addressable_object_meeting_projection",
-                "payload": {
-                    "uri": ref.uri,
-                    "owner_pack": ref.owner_pack,
-                    "object_kind": ref.object_kind,
-                    "object_id": ref.object_id,
-                    "title": summary.title,
-                    "summary_text": summary.summary_text,
-                    "labels": list(summary.labels or []),
-                },
+                "payload": projection_payload,
             },
             "governance_hints": {
                 "write_mode": write_mode,
