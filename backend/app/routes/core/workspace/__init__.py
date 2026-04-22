@@ -13,6 +13,7 @@ from . import (
     tasks,
     workbench,
     health,
+    object_runtime,
     profiles,
     runtime,
     pinned,
@@ -34,6 +35,7 @@ router.include_router(instruction.router)
 router.include_router(tasks.router)
 router.include_router(workbench.router)
 router.include_router(health.router)
+router.include_router(object_runtime.router)
 router.include_router(profiles.router)
 router.include_router(runtime.router)
 router.include_router(pinned.router)

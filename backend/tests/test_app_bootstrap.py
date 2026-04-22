@@ -1,6 +1,16 @@
 """Tests verifying application bootstrap modularity and modern lifecycle."""
+import sys
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+BACKEND_ROOT = REPO_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 @pytest.mark.integration
 def test_app_lifespan_manager():
@@ -35,5 +45,5 @@ def test_routes_baseline():
         
         # Exact match required to detect both dropped routes and duplicate registrations.
         # This will need to be updated as new features are added.
-        expected_route_count = 942  
+        expected_route_count = 945
         assert data["total_routes"] == expected_route_count, f"Route baseline breached. Expected {expected_route_count}, got {data['total_routes']}"

@@ -408,6 +408,12 @@ class InstallPipelineResult:
     validation: Optional[Dict[str, Any]] = None
 
 
+@dataclass
+class InstallRegistrySyncState:
+    contract_lane_changed: bool = False
+    object_catalog_changed: bool = False
+
+
 def _set_validation_followup_result(
     pipeline: InstallPipelineResult,
     *,
@@ -419,6 +425,51 @@ def _set_validation_followup_result(
 
 def _should_run_restart_webhook(pipeline: InstallPipelineResult) -> bool:
     return bool(pipeline.restart_required and pipeline.webhook_result is None)
+
+
+def _sync_install_time_registries(
+    *,
+    local_core_root: Path,
+    capability_code: str,
+    manifest: Dict[str, Any],
+    result: Any,
+) -> InstallRegistrySyncState:
+    state = InstallRegistrySyncState()
+
+    try:
+        from app.services.runtime_contract_registry import RuntimeContractRegistry
+
+        contract_sync = RuntimeContractRegistry(local_core_root).sync_pack_contracts(
+            capability_code,
+            manifest,
+        )
+        state.contract_lane_changed = contract_sync.requires_restart
+        if contract_sync.alias_modules:
+            logger.info(
+                "Synced runtime contract aliases for %s: %s",
+                capability_code,
+                ", ".join(contract_sync.alias_modules),
+            )
+    except Exception as exc:
+        result.add_error(f"Failed to sync runtime contract registry: {exc}")
+
+    try:
+        from app.services.object_catalog_registry import ObjectCatalogRegistry
+
+        object_sync = ObjectCatalogRegistry(local_core_root).sync_pack_objects(
+            capability_code,
+            manifest,
+        )
+        state.object_catalog_changed = object_sync.changed
+        logger.info(
+            "Synced runtime object catalog for %s (%s objects)",
+            capability_code,
+            object_sync.object_count,
+        )
+    except Exception as exc:
+        result.add_error(f"Failed to sync runtime object catalog registry: {exc}")
+
+    return state
 
 
 def _schedule_pack_validation_on_current_loop(
@@ -682,24 +733,14 @@ async def run_install_pipeline(
             result,
         )
 
-        contract_lane_changed = False
-        try:
-            from app.services.runtime_contract_registry import RuntimeContractRegistry
-
-            contract_sync = await run_in_threadpool(
-                RuntimeContractRegistry(local_core_root).sync_pack_contracts,
-                capability_code,
-                manifest,
-            )
-            contract_lane_changed = contract_sync.requires_restart
-            if contract_sync.alias_modules:
-                logger.info(
-                    "Synced runtime contract aliases for %s: %s",
-                    capability_code,
-                    ", ".join(contract_sync.alias_modules),
-                )
-        except Exception as exc:
-            result.add_error(f"Failed to sync runtime contract registry: {exc}")
+        registry_sync_state = await run_in_threadpool(
+            _sync_install_time_registries,
+            local_core_root=local_core_root,
+            capability_code=capability_code,
+            manifest=manifest,
+            result=result,
+        )
+        contract_lane_changed = registry_sync_state.contract_lane_changed
 
         # 4. Reload capability registry
         hot_reload_performed = False
