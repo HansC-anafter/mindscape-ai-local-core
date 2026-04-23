@@ -1950,6 +1950,12 @@ class HostBridgeWSClient:
             for candidate in home_dir.glob(pattern):
                 candidate_paths.append((str(candidate), "home_glob"))
 
+        managed_accounts_dir = self._codex_managed_pool_root / "accounts"
+        if managed_accounts_dir.is_dir():
+            for candidate in managed_accounts_dir.iterdir():
+                if candidate.is_dir():
+                    candidate_paths.append((str(candidate), "managed_account_pool"))
+
         registry_entries = self._load_codex_seed_registry()
         for candidate_path in registry_entries.keys():
             candidate_paths.append((candidate_path, "seed_registry"))

@@ -153,10 +153,14 @@ def get_engine_kwargs() -> dict:
     Returns:
         Dictionary of keyword arguments for create_engine()
     """
-    return {
+    kwargs = {
         "echo": os.getenv("SQLALCHEMY_ECHO", "false").lower() == "true",
         "pool_pre_ping": True,
         "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
         "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "20")),
         "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "1800")),
     }
+    application_name = os.getenv("DB_APPLICATION_NAME", "").strip()
+    if application_name:
+        kwargs["connect_args"] = {"application_name": application_name}
+    return kwargs

@@ -8,6 +8,8 @@ and preferred agent delegation.
 import asyncio
 import inspect
 import logging
+import os
+import tempfile
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -16,11 +18,13 @@ logger = logging.getLogger(__name__)
 _NON_RETRIABLE_RUNTIME_PATTERNS = (
     "terminalquotaerror",
     "exhausted your capacity",
+    "usage limit",
     "quota exceeded",
     "resource_exhausted",
     "resource exhausted",
     "rate limit",
     "too many requests",
+    "not supported when using codex",
 )
 
 
@@ -33,6 +37,54 @@ def _is_non_retriable_runtime_error(exc: Exception) -> bool:
     """
     text = str(exc or "").lower()
     return any(pattern in text for pattern in _NON_RETRIABLE_RUNTIME_PATTERNS)
+
+
+def _looks_like_codex_quota_exhaustion(message: str) -> bool:
+    normalized = str(message or "").lower()
+    if not normalized:
+        return False
+    return any(
+        marker in normalized
+        for marker in (
+            "usage limit",
+            "rate limit",
+            "quota",
+            "too many requests",
+            "resource_exhausted",
+            "429",
+        )
+    )
+
+
+def _looks_like_codex_auth_failure(message: str) -> bool:
+    normalized = str(message or "").lower()
+    if not normalized:
+        return False
+    markers = (
+        "401 unauthorized",
+        "unauthorized",
+        "missing bearer",
+        "missing bearer or basic authentication",
+        "authentication failed",
+        "invalid api key",
+        "incorrect api key",
+        "missing api key",
+    )
+    return (
+        any(marker in normalized for marker in markers)
+        and not _looks_like_codex_quota_exhaustion(normalized)
+    )
+
+
+def _should_retry_direct_codex_runtime_fault(message: str) -> bool:
+    normalized = str(message or "").strip().lower()
+    if not normalized:
+        return False
+    if _looks_like_codex_quota_exhaustion(normalized):
+        return True
+    if _looks_like_codex_auth_failure(normalized):
+        return True
+    return "subprocess stalled after" in normalized
 
 
 class MeetingGenerationMixin:
@@ -259,6 +311,13 @@ class MeetingGenerationMixin:
                 "workspace is required for executor_runtime meeting mode"
             )
 
+        if str(self.executor_runtime).strip().lower() == "codex_cli":
+            direct_output = await self._generate_text_via_direct_codex_cli(
+                messages, model=model
+            )
+            if direct_output:
+                return direct_output
+
         if not self._agent_executor:
             from backend.app.services.workspace_agent_executor import (
                 WorkspaceAgentExecutor,
@@ -369,6 +428,315 @@ class MeetingGenerationMixin:
             logger.warning("Failed to publish executor turn result to Redis: %s", pub_exc)
 
         return output_text
+
+    async def _generate_text_via_direct_codex_cli(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+    ) -> str:
+        """Execute Codex CLI directly on host, bypassing fragile bridge paths."""
+        system_prompt = ""
+        user_prompt = ""
+        for msg in messages:
+            role = str(msg.get("role", "")).lower()
+            if role == "system" and not system_prompt:
+                system_prompt = str(msg.get("content", ""))
+            if role == "user":
+                user_prompt = str(msg.get("content", ""))
+
+        task = (
+            "[Meeting Agent Turn]\n"
+            f"Session: {self.session.id}\n"
+            "Follow the system instructions and produce a direct role response.\n\n"
+            f"[System Prompt]\n{system_prompt}\n\n"
+            f"[Turn Prompt]\n{user_prompt}\n"
+        )
+
+        await self._emit_meeting_stage(
+            "generating", "正在透過 codex_cli 直接執行中..."
+        )
+
+        binary = os.environ.get("CODEX_CLI_PATH", "").strip() or "codex"
+        max_attempts = max(
+            1,
+            int(os.environ.get("MINDSCAPE_CODEX_POOL_MAX_TASK_ATTEMPTS", "3")),
+        )
+        attempted_runtime_ids: set[str] = set()
+        cwd = os.environ.get("HOST_PROJECT_PATH", "").strip() or os.getcwd()
+        last_runtime_error = ""
+        attempt = 1
+
+        while attempt <= max_attempts:
+            auth_bundle = await self._fetch_direct_codex_auth_bundle()
+            if isinstance(auth_bundle, dict):
+                raw_capacity = (
+                    auth_bundle.get("available_quota_scope_count")
+                    or auth_bundle.get("available_runtime_count")
+                    or 0
+                )
+                try:
+                    bundle_capacity = int(raw_capacity)
+                except (TypeError, ValueError):
+                    bundle_capacity = 0
+                if bundle_capacity > max_attempts:
+                    max_attempts = bundle_capacity
+
+            extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
+            selected_runtime_id = (
+                str(auth_bundle.get("selected_runtime_id") or "").strip()
+                if isinstance(auth_bundle, dict)
+                else ""
+            )
+
+            if attempt > 1 and not selected_runtime_id:
+                pool_error = ""
+                if isinstance(auth_bundle, dict):
+                    pool_error = str(
+                        auth_bundle.get("error")
+                        or auth_bundle.get("warning")
+                        or ""
+                    ).strip()
+                detail = (
+                    f"{last_runtime_error} (pool failover unavailable: {pool_error})"
+                    if last_runtime_error and pool_error
+                    else last_runtime_error
+                    or pool_error
+                    or "Codex pool failover did not yield an alternate runtime"
+                )
+                raise RuntimeError(f"Preferred agent 'codex_cli' failed: {detail}")
+
+            if selected_runtime_id and selected_runtime_id in attempted_runtime_ids:
+                detail = (
+                    f"{last_runtime_error} (pool reused exhausted runtime {selected_runtime_id})"
+                    if last_runtime_error
+                    else f"Codex pool reused exhausted runtime {selected_runtime_id}"
+                )
+                raise RuntimeError(f"Preferred agent 'codex_cli' failed: {detail}")
+
+            progress_message = "正在透過 codex_cli 直接執行中..."
+            if attempt > 1:
+                progress_message = (
+                    f"正在透過 codex_cli 直接執行中（pool failover {attempt}/{max_attempts}）..."
+                )
+            await self._emit_meeting_stage("generating", progress_message)
+
+            with tempfile.NamedTemporaryFile(
+                prefix="meeting_codex_last_",
+                suffix=".txt",
+                delete=False,
+            ) as tmp:
+                last_message_path = tmp.name
+
+            cmd = [
+                binary,
+                "-c",
+                'model_reasoning_effort="high"',
+                "exec",
+                "--skip-git-repo-check",
+                "--full-auto",
+                "--output-last-message",
+                last_message_path,
+            ]
+            if model:
+                cmd.extend(["--model", model])
+            cmd.append(task)
+
+            try:
+                returncode, stdout_text, stderr_text, output_text, combined_output = (
+                    await self._run_direct_codex_cli_subprocess(
+                        cmd=cmd,
+                        cwd=cwd,
+                        last_message_path=last_message_path,
+                        extra_env=extra_env if isinstance(extra_env, dict) else None,
+                    )
+                )
+            finally:
+                try:
+                    os.unlink(last_message_path)
+                except OSError:
+                    pass
+
+            if returncode == 0 and output_text:
+                return output_text
+
+            error_text = (
+                stderr_text or combined_output or output_text or "unknown error"
+            ).strip()
+            if selected_runtime_id and _looks_like_codex_quota_exhaustion(error_text):
+                await self._report_direct_codex_runtime_quota_exhausted(
+                    selected_runtime_id
+                )
+            elif selected_runtime_id and _looks_like_codex_auth_failure(error_text):
+                await self._report_direct_codex_runtime_auth_failure(
+                    selected_runtime_id
+                )
+
+            if not _should_retry_direct_codex_runtime_fault(error_text):
+                raise RuntimeError(
+                    f"Preferred agent 'codex_cli' failed: {error_text}"
+                )
+            if not selected_runtime_id:
+                raise RuntimeError(
+                    f"Preferred agent 'codex_cli' failed: {error_text}"
+                )
+
+            last_runtime_error = error_text
+            attempted_runtime_ids.add(selected_runtime_id)
+            if attempt >= max_attempts:
+                raise RuntimeError(
+                    f"Preferred agent 'codex_cli' failed: {error_text}"
+                )
+            logger.warning(
+                "Meeting direct codex runtime %s hit retryable fault; attempting pool failover (%d/%d)",
+                selected_runtime_id,
+                attempt,
+                max_attempts,
+            )
+            attempt += 1
+
+        raise RuntimeError(
+            "Preferred agent 'codex_cli' failed: Codex pool failover exhausted without a successful execution"
+        )
+
+    async def _fetch_direct_codex_auth_bundle(self) -> Dict[str, Any]:
+        def _fallback_bundle() -> Dict[str, Any]:
+            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            env = {"OPENAI_API_KEY": api_key} if api_key else {}
+            return {"auth_mode": "env_fallback", "env": env}
+
+        try:
+            from backend.app.services.codex_pool_service import CodexPoolService
+            from backend.app.services.codex_workspace_resolver import (
+                CodexWorkspaceResolver,
+            )
+
+            selection = None
+            workspace_id = str(getattr(getattr(self, "workspace", None), "id", "") or "")
+            if workspace_id:
+                try:
+                    selection = await asyncio.to_thread(
+                        CodexWorkspaceResolver().resolve,
+                        workspace_id=workspace_id,
+                    )
+                except ValueError:
+                    logger.debug(
+                        "Workspace-scoped Codex pool selection not configured for meeting workspace %s",
+                        workspace_id,
+                    )
+
+            preferred_runtime_id = (
+                selection.selected_runtime_id if selection else None
+            )
+            allow_fallback = not bool(preferred_runtime_id)
+            pool_result = await asyncio.to_thread(
+                CodexPoolService().get_active_auth_bundle,
+                preferred_runtime_id=preferred_runtime_id,
+                allow_fallback=allow_fallback,
+            )
+            if "env" in pool_result and selection:
+                pool_result.update(
+                    {
+                        "requested_workspace_id": selection.requested_workspace_id,
+                        "effective_workspace_id": selection.effective_workspace_id,
+                        "auth_workspace_id": selection.auth_workspace_id,
+                        "source_workspace_id": selection.source_workspace_id,
+                        "selection_reason": selection.selection_reason,
+                        "selection_trace": list(selection.trace),
+                    }
+                )
+            return pool_result
+        except Exception:
+            logger.exception("Meeting direct Codex pool lookup failed")
+            return _fallback_bundle()
+
+    async def _report_direct_codex_runtime_quota_exhausted(
+        self,
+        runtime_id: str,
+    ) -> None:
+        if not runtime_id:
+            return
+        try:
+            from backend.app.services.codex_pool_service import CodexPoolService
+
+            await asyncio.to_thread(
+                CodexPoolService().report_quota_exhausted,
+                runtime_id,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to report direct codex quota exhaustion for runtime %s",
+                runtime_id,
+            )
+
+    async def _report_direct_codex_runtime_auth_failure(
+        self,
+        runtime_id: str,
+        *,
+        error_code: str = "401",
+    ) -> None:
+        if not runtime_id:
+            return
+        try:
+            from backend.app.services.codex_pool_service import CodexPoolService
+
+            await asyncio.to_thread(
+                CodexPoolService().report_auth_failure,
+                runtime_id,
+                error_code=error_code,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to report direct codex auth failure for runtime %s",
+                runtime_id,
+            )
+
+    async def _run_direct_codex_cli_subprocess(
+        self,
+        *,
+        cmd: List[str],
+        cwd: str,
+        last_message_path: str,
+        extra_env: Optional[Dict[str, str]] = None,
+    ) -> tuple[int, str, str, str, str]:
+        env = os.environ.copy()
+        if extra_env:
+            env.update(
+                {
+                    str(key): str(value)
+                    for key, value in extra_env.items()
+                    if value is not None and str(value) != ""
+                }
+            )
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=cwd,
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+        except Exception:
+            proc.kill()
+            await proc.wait()
+            raise
+
+        stdout_text = stdout.decode("utf-8", errors="replace").strip()
+        stderr_text = stderr.decode("utf-8", errors="replace").strip()
+        output_text = ""
+        try:
+            with open(last_message_path, "r", encoding="utf-8") as fh:
+                output_text = fh.read().strip()
+        except Exception:
+            output_text = ""
+
+        if not output_text:
+            output_text = stdout_text
+        combined_output = "\n".join(
+            part for part in (output_text, stdout_text, stderr_text) if part
+        ).strip()
+        return proc.returncode, stdout_text, stderr_text, output_text, combined_output
 
     async def _emit_clarification_event(self, questions: list[str]) -> None:
         """Emit a decision_required event so the UI shows a confirmation card."""
