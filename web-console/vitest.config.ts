@@ -22,9 +22,27 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+    alias: [
+      {
+        find: '@',
+        replacement: path.resolve(__dirname, './src'),
+      },
+      {
+        find: 'roughjs/bin/rough',
+        replacement: path.resolve(__dirname, './node_modules/roughjs/bin/rough.js'),
+      },
+      {
+        find: '@excalidraw/excalidraw',
+        replacement: path.resolve(__dirname, './src/test/mocks/excalidraw.tsx'),
+      },
+      {
+        find: '@excalidraw/excalidraw/index.css',
+        replacement: path.resolve(__dirname, './src/test/mocks/styleMock.ts'),
+      },
+      {
+        find: /DepartmentWorkspaceExcalidrawClient$/,
+        replacement: path.resolve(__dirname, './src/test/mocks/departmentWorkspaceExcalidrawClient.tsx'),
+      },
+    ],
   },
 });
-
