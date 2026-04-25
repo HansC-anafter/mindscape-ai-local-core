@@ -17,11 +17,18 @@ from ....models.object_runtime import (
     ObjectAction,
     ObjectCatalogEntry,
     ObjectCatalogResponse,
+    ObjectGraphProjectRequest,
+    ObjectGraphProjectResponse,
+    ObjectGraphProjection,
     ObjectGraphProjectionCapabilities,
+    ObjectGraphRelation,
     ObjectMeetingAttachRequest,
     ObjectMeetingAttachResponse,
+    ObjectMaterializeRequest,
+    ObjectMaterializeResponse,
     ObjectMaterializerCapabilities,
     ObjectMeetingProjectionCapabilities,
+    ObjectRoleEntry,
     ObjectRef,
     ObjectResolverCapabilities,
     ObjectSummary,
@@ -34,6 +41,7 @@ from ....models.object_runtime import (
 from ....services.mindscape_store import MindscapeStore
 from ....services.object_catalog_registry import ObjectCatalogRegistry
 from ....services.object_meeting_attachment_service import (
+    ObjectMeetingContextRecord,
     ObjectMeetingAttachmentService,
 )
 from ....services.stores.meeting_session_store import MeetingSessionStore
@@ -142,6 +150,20 @@ def _build_object_ref(
         selector=selector,
         source_surface=source_surface,
     )
+
+
+def _parse_mindscape_uri(uri: str) -> Tuple[str | None, str | None, str | None]:
+    normalized_uri = _text(uri)
+    if not normalized_uri.startswith("mindscape://"):
+        return None, None, None
+    remainder = normalized_uri.removeprefix("mindscape://")
+    parts = remainder.split("/", 2)
+    if len(parts) != 3:
+        return None, None, None
+    owner_pack, object_kind, object_id = (_text(part) for part in parts)
+    if not owner_pack or not object_kind or not object_id:
+        return None, None, None
+    return owner_pack, object_kind, object_id
 
 
 def _build_object_summary(
@@ -574,37 +596,60 @@ def _select_meeting_projection_backend(
     return None
 
 
+def _select_graph_projection_backend(entry_payload: Dict[str, Any]) -> str | None:
+    for projection in list(entry_payload.get("graph_projection_backends") or []):
+        backend = _text(projection.get("backend"))
+        if backend:
+            return backend
+    return None
+
+
 async def _invoke_backend_callable(backend_path: str, **kwargs: Any) -> Any:
     module_path, attr_name = backend_path.rsplit(":", 1)
     module = importlib.import_module(module_path)
     target = getattr(module, attr_name)
-    result = target(**kwargs)
+    signature = inspect.signature(target)
+    if any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    ):
+        invocation_kwargs = kwargs
+    else:
+        invocation_kwargs = {
+            key: value for key, value in kwargs.items() if key in signature.parameters
+        }
+    result = target(**invocation_kwargs)
     if inspect.isawaitable(result):
         return await result
     return result
 
 
-def _build_materializer_source_objects(
-    source_records: List[Tuple[ObjectRef, ObjectSummary, Dict[str, Any] | None]],
+def _build_materializer_context_objects(
+    context_records: List[ObjectMeetingContextRecord],
+    *,
+    roles: set[str] | None = None,
 ) -> List[Dict[str, Any]]:
     payloads: List[Dict[str, Any]] = []
-    for ref, summary, meeting_projection in source_records:
+    for record in context_records:
+        if roles is not None and record.role not in roles:
+            continue
         payload = {
-            "owner_pack": ref.owner_pack,
-            "object_kind": ref.object_kind,
-            "object_id": ref.object_id,
-            "object_ref": ref.model_dump(exclude_none=True),
+            "role": record.role,
+            "owner_pack": record.ref.owner_pack,
+            "object_kind": record.ref.object_kind,
+            "object_id": record.ref.object_id,
+            "object_ref": record.ref.model_dump(exclude_none=True),
             "object_summary": {
-                "title": summary.title,
-                "subtitle": summary.subtitle,
-                "summary_text": summary.summary_text,
-                "status": summary.status,
-                "labels": list(summary.labels or []),
-                "owner_surface_url": summary.owner_surface_url,
+                "title": record.summary.title,
+                "subtitle": record.summary.subtitle,
+                "summary_text": record.summary.summary_text,
+                "status": record.summary.status,
+                "labels": list(record.summary.labels or []),
+                "owner_surface_url": record.summary.owner_surface_url,
             },
         }
-        if isinstance(meeting_projection, dict) and meeting_projection:
-            payload["meeting_projection"] = dict(meeting_projection)
+        if isinstance(record.meeting_projection, dict) and record.meeting_projection:
+            payload["meeting_projection"] = dict(record.meeting_projection)
 
         payloads.append(
             {
@@ -681,6 +726,145 @@ def _coerce_materializer_errors(result: Dict[str, Any]) -> List[SelectionResolve
     return errors
 
 
+def _coerce_route_list(
+    result: Dict[str, Any],
+    *,
+    single_key: str,
+    plural_key: str,
+) -> List[str]:
+    routes: List[str] = []
+    single_route = _text(result.get(single_key))
+    if single_route:
+        routes.append(single_route)
+    for raw_route in list(result.get(plural_key) or []):
+        normalized_route = _text(raw_route)
+        if normalized_route and normalized_route not in routes:
+            routes.append(normalized_route)
+    return routes
+
+
+def _coerce_request_plan(result: Dict[str, Any]) -> Dict[str, Any] | None:
+    raw_request_plan = result.get("request_plan")
+    if isinstance(raw_request_plan, dict) and raw_request_plan:
+        return dict(raw_request_plan)
+
+    endpoint = _text(result.get("endpoint") or result.get("path"))
+    request_template = result.get("request_template")
+    if not endpoint and request_template in (None, {}, []):
+        return None
+
+    request_plan: Dict[str, Any] = {}
+    method = _text(result.get("method")) or "POST"
+    if method:
+        request_plan["method"] = method
+    if endpoint:
+        request_plan["path"] = endpoint
+    if request_template is not None:
+        request_plan["body"] = request_template
+    return request_plan or None
+
+
+async def _execute_materializer_backend(
+    *,
+    workspace_id: str,
+    object_ref: ObjectRef,
+    entry_payload: Dict[str, Any],
+    meeting_id: str | None,
+    verb: str,
+    write_mode: str,
+    source_objects: List[Dict[str, Any]],
+    context_objects: List[Dict[str, Any]],
+    intent_summary: str,
+    request_context: Dict[str, Any] | None = None,
+) -> Dict[str, Any] | None:
+    backend_path = _select_materializer_backend(
+        entry_payload,
+        verb=verb,
+        write_mode=write_mode,
+    )
+    if not backend_path:
+        return None
+
+    return await _invoke_backend_callable(
+        backend_path,
+        workspace_id=workspace_id,
+        object_id=object_ref.object_id,
+        meeting_id=meeting_id,
+        verb=verb,
+        write_mode=write_mode,
+        source_objects=source_objects,
+        context_objects=context_objects,
+        intent_summary=intent_summary,
+        request_context=dict(request_context or {}),
+    )
+
+
+def _normalize_materializer_outcome(
+    *,
+    result: Dict[str, Any],
+    workspace_id: str,
+    allowed_statuses: set[str],
+    default_status: str,
+) -> Tuple[
+    str,
+    List[ObjectRef],
+    List[str],
+    List[str],
+    Dict[str, Any] | None,
+    List[SelectionResolveError],
+]:
+    staged_refs: List[ObjectRef] = []
+    raw_staged_ref = result.get("staged_ref")
+    if isinstance(raw_staged_ref, dict):
+        staged_refs.append(
+            _coerce_materialized_ref_payload(raw_staged_ref, workspace_id=workspace_id)
+        )
+    for raw_staged in list(result.get("staged_refs") or []):
+        if isinstance(raw_staged, dict):
+            staged_refs.append(
+                _coerce_materialized_ref_payload(raw_staged, workspace_id=workspace_id)
+            )
+
+    review_routes = _coerce_route_list(
+        result,
+        single_key="review_route",
+        plural_key="review_routes",
+    )
+    canonical_routes = _coerce_route_list(
+        result,
+        single_key="canonical_route",
+        plural_key="canonical_routes",
+    )
+    canonical_storyboard_route = _text(result.get("canonical_storyboard_route"))
+    if canonical_storyboard_route and canonical_storyboard_route not in canonical_routes:
+        canonical_routes.append(canonical_storyboard_route)
+
+    request_plan = _coerce_request_plan(result)
+    errors = _coerce_materializer_errors(result)
+    normalized_status = _text(result.get("status"))
+    if normalized_status not in allowed_statuses:
+        if request_plan or review_routes or canonical_routes:
+            normalized_status = "planned" if "planned" in allowed_statuses else default_status
+        elif staged_refs:
+            normalized_status = "materialized" if "materialized" in allowed_statuses else default_status
+        elif errors:
+            normalized_status = "rejected" if "rejected" in allowed_statuses else default_status
+        else:
+            normalized_status = default_status
+
+    if errors and normalized_status not in {"rejected", "planned"}:
+        normalized_status = "rejected" if "rejected" in allowed_statuses else default_status
+
+    return (
+        normalized_status,
+        staged_refs,
+        review_routes,
+        canonical_routes,
+        request_plan,
+        errors,
+    )
+
+
 async def _materialize_target_outcome(
     *,
     workspace_id: str,
@@ -688,25 +872,21 @@ async def _materialize_target_outcome(
     request: ObjectMeetingAttachRequest,
     target_ref: ObjectRef,
     target_entry_payload: Dict[str, Any],
-    source_records: List[Tuple[ObjectRef, ObjectSummary, Dict[str, Any] | None]],
+    context_records: List[ObjectMeetingContextRecord],
 ) -> Tuple[str, List[ObjectRef], List[str], List[SelectionResolveError], Dict[str, Any] | None]:
-    backend_path = _select_materializer_backend(
-        target_entry_payload,
-        verb="attach",
-        write_mode=request.write_mode,
-    )
-    if not backend_path:
-        return "attached", [], [], [], None
-
     try:
-        result = await _invoke_backend_callable(
-            backend_path,
+        result = await _execute_materializer_backend(
             workspace_id=workspace_id,
-            object_id=target_ref.object_id,
+            object_ref=target_ref,
+            entry_payload=target_entry_payload,
             meeting_id=meeting_id,
             verb="attach",
             write_mode=request.write_mode,
-            source_objects=_build_materializer_source_objects(source_records),
+            source_objects=_build_materializer_context_objects(
+                context_records,
+                roles={"source"},
+            ),
+            context_objects=_build_materializer_context_objects(context_records),
             intent_summary=request.intent_summary,
         )
     except Exception as exc:
@@ -730,6 +910,8 @@ async def _materialize_target_outcome(
             ],
             None,
         )
+    if result is None:
+        return "attached", [], [], [], None
 
     if not isinstance(result, dict):
         return (
@@ -745,35 +927,41 @@ async def _materialize_target_outcome(
             None,
         )
 
-    staged_refs: List[ObjectRef] = []
-    raw_staged_ref = result.get("staged_ref")
-    if isinstance(raw_staged_ref, dict):
-        staged_refs.append(
-            _coerce_materialized_ref_payload(raw_staged_ref, workspace_id=workspace_id)
+    try:
+        (
+            normalized_status,
+            staged_refs,
+            review_routes,
+            _canonical_routes,
+            _request_plan,
+            errors,
+        ) = _normalize_materializer_outcome(
+            result=result,
+            workspace_id=workspace_id,
+            allowed_statuses={"attached", "materialized", "rejected"},
+            default_status="attached",
         )
-    for raw_staged in list(result.get("staged_refs") or []):
-        if isinstance(raw_staged, dict):
-            staged_refs.append(
-                _coerce_materialized_ref_payload(raw_staged, workspace_id=workspace_id)
-            )
-
-    review_routes: List[str] = []
-    single_review_route = _text(result.get("review_route"))
-    if single_review_route:
-        review_routes.append(single_review_route)
-    for raw_route in list(result.get("review_routes") or []):
-        normalized_route = _text(raw_route)
-        if normalized_route and normalized_route not in review_routes:
-            review_routes.append(normalized_route)
-
-    errors = _coerce_materializer_errors(result)
-    normalized_status = _text(result.get("status"))
-    if not normalized_status:
-        normalized_status = "materialized" if staged_refs or review_routes else "attached"
-    if normalized_status not in {"attached", "materialized", "rejected"}:
-        normalized_status = "materialized" if staged_refs or review_routes else "attached"
-    if errors and normalized_status == "attached":
-        normalized_status = "rejected"
+    except Exception as exc:
+        logger.exception(
+            "Addressable Object Layer materializer normalization failed for %s.%s",
+            target_ref.owner_pack,
+            target_ref.object_kind,
+        )
+        return (
+            "rejected",
+            [],
+            [],
+            [
+                SelectionResolveError(
+                    code="materializer_failed",
+                    message=(
+                        "Owner-pack materializer failed while staging the attach outcome: "
+                        f"{exc}"
+                    ),
+                )
+            ],
+            None,
+        )
 
     return normalized_status, staged_refs, review_routes, errors, result
 
@@ -798,6 +986,13 @@ def _build_session_attachment_metadata(
         "intent_summary": request.intent_summary,
         "status": response_status,
         "write_mode": request.write_mode,
+        "context_entries": [
+            {
+                "role": entry.role,
+                "ref": entry.ref.model_dump(exclude_none=True),
+            }
+            for entry in request.entries
+        ],
         "target_ref": (
             request.target_ref.model_dump(exclude_none=True)
             if request.target_ref
@@ -815,6 +1010,162 @@ def _build_session_attachment_metadata(
 def _upsert_meeting_session_metadata(session: MeetingSession, attachment_metadata: dict) -> None:
     session.metadata = dict(session.metadata or {})
     session.metadata["addressable_object_layer"] = attachment_metadata
+
+
+def _coerce_relation_target_ref(
+    raw_relation: Dict[str, Any],
+    *,
+    workspace_id: str,
+) -> ObjectRef | None:
+    nested_target = raw_relation.get("target_ref")
+    if not isinstance(nested_target, dict):
+        nested_target = raw_relation.get("to_ref")
+    nested_target = dict(nested_target) if isinstance(nested_target, dict) else {}
+
+    owner_pack = _text(
+        nested_target.get("owner_pack")
+        or nested_target.get("target_owner_pack")
+        or nested_target.get("target_pack")
+        or raw_relation.get("target_owner_pack")
+        or raw_relation.get("target_pack")
+    )
+    object_kind = _text(
+        nested_target.get("object_kind")
+        or nested_target.get("target_object_kind")
+        or nested_target.get("target_kind")
+        or raw_relation.get("target_object_kind")
+        or raw_relation.get("target_kind")
+    )
+    object_id = _text(
+        nested_target.get("object_id")
+        or nested_target.get("target_object_id")
+        or raw_relation.get("target_object_id")
+    )
+    uri = _text(nested_target.get("uri") or raw_relation.get("target_uri"))
+    parsed_owner_pack, parsed_object_kind, parsed_object_id = _parse_mindscape_uri(uri)
+    owner_pack = owner_pack or (parsed_owner_pack or "")
+    object_kind = object_kind or (parsed_object_kind or "")
+    object_id = object_id or (parsed_object_id or "")
+    if not owner_pack or not object_kind or not object_id:
+        return None
+    return ObjectRef(
+        uri=uri or f"mindscape://{owner_pack}/{object_kind}/{object_id}",
+        owner_pack=owner_pack,
+        object_kind=object_kind,
+        object_id=object_id,
+        workspace_id=workspace_id,
+        version=_text(nested_target.get("version")) or None,
+        selector=nested_target.get("selector"),
+        source_surface=_text(nested_target.get("source_surface")) or None,
+    )
+
+
+def _normalize_graph_relations(
+    raw_relations: Any,
+    *,
+    workspace_id: str,
+) -> List[ObjectGraphRelation]:
+    normalized_relations: List[ObjectGraphRelation] = []
+    relation_items = list(raw_relations or []) if isinstance(raw_relations, list) else []
+    known_keys = {
+        "relation_kind",
+        "kind",
+        "direction",
+        "target_ref",
+        "to_ref",
+        "target_uri",
+        "target_owner_pack",
+        "target_pack",
+        "target_object_kind",
+        "target_kind",
+        "target_object_id",
+    }
+    for raw_relation in relation_items:
+        if not isinstance(raw_relation, dict):
+            continue
+        relation_kind = _text(raw_relation.get("relation_kind") or raw_relation.get("kind"))
+        target_ref = _coerce_relation_target_ref(raw_relation, workspace_id=workspace_id)
+        if not relation_kind or target_ref is None:
+            continue
+        direction = _text(raw_relation.get("direction")) or "outbound"
+        if direction not in {"outbound", "inbound", "bidirectional"}:
+            direction = "outbound"
+        metadata = {
+            key: value
+            for key, value in raw_relation.items()
+            if key not in known_keys and value is not None
+        }
+        normalized_relations.append(
+            ObjectGraphRelation(
+                relation_kind=relation_kind,
+                direction=direction,
+                target_ref=target_ref,
+                metadata=metadata,
+            )
+        )
+    return normalized_relations
+
+
+async def _resolve_graph_projection(
+    *,
+    entry_payload: Dict[str, Any],
+    workspace_id: str,
+    ref: ObjectRef,
+) -> Dict[str, Any]:
+    backend_path = _select_graph_projection_backend(entry_payload)
+    if not backend_path:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "projection_unavailable",
+                "message": "Graph projection is unavailable for this object kind.",
+                "details": {
+                    "owner_pack": ref.owner_pack,
+                    "object_kind": ref.object_kind,
+                },
+            },
+        )
+
+    try:
+        result = await _invoke_backend_callable(
+            backend_path,
+            workspace_id=workspace_id,
+            object_id=ref.object_id,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Addressable Object Layer graph projection failed for %s.%s",
+            ref.owner_pack,
+            ref.object_kind,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "graph_projection_failed",
+                "message": (
+                    "Owner-pack graph projection failed while building the runtime graph."
+                ),
+                "details": {
+                    "owner_pack": ref.owner_pack,
+                    "object_kind": ref.object_kind,
+                    "error": str(exc),
+                },
+            },
+        ) from exc
+
+    if not isinstance(result, dict):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_graph_projection",
+                "message": "Owner-pack graph projection returned a non-object payload.",
+                "details": {
+                    "owner_pack": ref.owner_pack,
+                    "object_kind": ref.object_kind,
+                },
+            },
+        )
+    return result
 
 
 @router.get(
@@ -944,46 +1295,59 @@ async def attach_objects_to_meeting(
     await _ensure_workspace_exists(workspace_id)
     registry = _get_object_catalog_registry()
 
-    source_records: List[Tuple[ObjectRef, ObjectSummary, Dict[str, Any] | None]] = []
-    for ref in request.objects:
-        entry, summary = await _resolve_attach_ref(
+    target_entries = [entry for entry in request.entries if entry.role == "target"]
+    if len(target_entries) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "multiple_targets_not_supported",
+                "message": "Attach requests currently support at most one target object.",
+            },
+        )
+    if len(request.entries) == len(target_entries):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "source_required",
+                "message": "Attach requests require at least one non-target context object.",
+            },
+        )
+
+    context_records: List[ObjectMeetingContextRecord] = []
+    for request_entry in request.entries:
+        ref = request_entry.ref
+        require_meeting_projection = request_entry.role != "target"
+        catalog_entry, summary = await _resolve_attach_ref(
             registry=registry,
             workspace_id=workspace_id,
             ref=ref,
-            require_meeting_projection=True,
-            error_code="object_not_found",
+            require_meeting_projection=require_meeting_projection,
+            error_code=(
+                "target_ref_invalid"
+                if request_entry.role == "target"
+                else "object_not_found"
+            ),
         )
         entry_payload = registry.get_entry(ref.owner_pack, ref.object_kind) or {}
-        meeting_projection = await _resolve_meeting_projection_payload(
-            entry_payload=entry_payload,
-            workspace_id=workspace_id,
-            ref=ref,
-            summary=summary,
-            verb="attach",
+        meeting_projection = None
+        if catalog_entry.meeting_projection_capabilities.available:
+            meeting_projection = await _resolve_meeting_projection_payload(
+                entry_payload=entry_payload,
+                workspace_id=workspace_id,
+                ref=ref,
+                summary=summary,
+                verb="attach",
+            )
+        context_records.append(
+            ObjectMeetingContextRecord(
+                role=request_entry.role,
+                ref=ref,
+                summary=summary,
+                meeting_projection=meeting_projection,
+            )
         )
-        source_records.append((ref, summary, meeting_projection))
 
-    target_pair: Tuple[ObjectRef, ObjectSummary, Dict[str, Any] | None] | None = None
-    if request.target_ref:
-        _target_entry, target_summary = await _resolve_attach_ref(
-            registry=registry,
-            workspace_id=workspace_id,
-            ref=request.target_ref,
-            require_meeting_projection=False,
-            error_code="target_ref_invalid",
-        )
-        target_entry_payload = (
-            registry.get_entry(request.target_ref.owner_pack, request.target_ref.object_kind)
-            or {}
-        )
-        target_projection = await _resolve_meeting_projection_payload(
-            entry_payload=target_entry_payload,
-            workspace_id=workspace_id,
-            ref=request.target_ref,
-            summary=target_summary,
-            verb="attach",
-        )
-        target_pair = (request.target_ref, target_summary, target_projection)
+    target_ref = target_entries[0].ref if target_entries else None
 
     session_store = _get_meeting_session_store()
     if request.meeting_id:
@@ -1022,8 +1386,7 @@ async def attach_objects_to_meeting(
         meeting_type=request.meeting_type,
         intent_summary=request.intent_summary,
         write_mode=request.write_mode,
-        source_objects=source_records,
-        target_object=target_pair,
+        context_objects=context_records,
     )
     response_status = "attached"
     staged_refs: List[ObjectRef] = []
@@ -1031,10 +1394,10 @@ async def attach_objects_to_meeting(
     response_errors: List[SelectionResolveError] = []
     materialization_result: Dict[str, Any] | None = None
 
-    if target_pair:
+    if target_ref:
         target_entry_payload = registry.get_entry(
-            request.target_ref.owner_pack,
-            request.target_ref.object_kind,
+            target_ref.owner_pack,
+            target_ref.object_kind,
         )
         if target_entry_payload:
             (
@@ -1047,9 +1410,9 @@ async def attach_objects_to_meeting(
                 workspace_id=workspace_id,
                 meeting_id=session.id,
                 request=request,
-                target_ref=request.target_ref,
+                target_ref=target_ref,
                 target_entry_payload=target_entry_payload,
-                source_records=source_records,
+                context_records=context_records,
             )
 
     _upsert_meeting_session_metadata(
@@ -1067,28 +1430,228 @@ async def attach_objects_to_meeting(
 
     attachment_summaries = [
         MeetingAttachmentSummary(
-            role="source",
-            ref=ref,
+            role=record.role,
+            ref=record.ref,
             projection_level="meeting",
         )
-        for ref, _summary, _projection in source_records
+        for record in context_records
     ]
-    if target_pair:
-        attachment_summaries.append(
-            MeetingAttachmentSummary(
-                role="target",
-                ref=target_pair[0],
-                projection_level="meeting",
-            )
-        )
 
     return ObjectMeetingAttachResponse(
         workspace_id=workspace_id,
         meeting_id=session.id,
         status=response_status,
         attachments=attachment_summaries,
-        target_ref=request.target_ref,
+        target_ref=target_ref,
         staged_refs=staged_refs,
         review_routes=review_routes,
         errors=response_errors,
+    )
+
+
+@router.post(
+    "/{workspace_id}/object-materialize",
+    response_model=ObjectMaterializeResponse,
+)
+async def materialize_object_outcome(
+    request: ObjectMaterializeRequest,
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+) -> ObjectMaterializeResponse:
+    await _ensure_workspace_exists(workspace_id)
+    registry = _get_object_catalog_registry()
+    entry, _summary = await _resolve_attach_ref(
+        registry=registry,
+        workspace_id=workspace_id,
+        ref=request.object_ref,
+        require_meeting_projection=False,
+        error_code="object_not_found",
+    )
+    entry_payload = registry.get_entry(
+        request.object_ref.owner_pack,
+        request.object_ref.object_kind,
+    ) or {}
+    if not _select_materializer_backend(
+        entry_payload,
+        verb=request.verb,
+        write_mode=request.write_mode,
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "materializer_unavailable",
+                "message": "Materialization is unavailable for this object kind and verb.",
+                "details": {
+                    "owner_pack": request.object_ref.owner_pack,
+                    "object_kind": request.object_ref.object_kind,
+                    "verb": request.verb,
+                    "write_mode": request.write_mode,
+                },
+            },
+        )
+
+    context_records: List[ObjectMeetingContextRecord] = []
+    for context_entry in request.context_entries:
+        context_ref = context_entry.ref
+        _context_entry, context_summary = await _resolve_attach_ref(
+            registry=registry,
+            workspace_id=workspace_id,
+            ref=context_ref,
+            require_meeting_projection=False,
+            error_code="object_not_found",
+        )
+        context_entry_payload = registry.get_entry(
+            context_ref.owner_pack,
+            context_ref.object_kind,
+        ) or {}
+        meeting_projection = None
+        if _context_entry.meeting_projection_capabilities.available:
+            meeting_projection = await _resolve_meeting_projection_payload(
+                entry_payload=context_entry_payload,
+                workspace_id=workspace_id,
+                ref=context_ref,
+                summary=context_summary,
+                verb=request.verb,
+            )
+        context_records.append(
+            ObjectMeetingContextRecord(
+                role=context_entry.role,
+                ref=context_ref,
+                summary=context_summary,
+                meeting_projection=meeting_projection,
+            )
+        )
+
+    try:
+        result = await _execute_materializer_backend(
+            workspace_id=workspace_id,
+            object_ref=request.object_ref,
+            entry_payload=entry_payload,
+            meeting_id=request.meeting_id,
+            verb=request.verb,
+            write_mode=request.write_mode,
+            source_objects=_build_materializer_context_objects(
+                context_records,
+                roles={"source"},
+            ),
+            context_objects=_build_materializer_context_objects(context_records),
+            intent_summary=request.intent_summary,
+            request_context=request.request_context,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Addressable Object Layer materializer failed for %s.%s",
+            request.object_ref.owner_pack,
+            request.object_ref.object_kind,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "materializer_failed",
+                "message": "Owner-pack materializer failed while planning the requested outcome.",
+                "details": {
+                    "owner_pack": request.object_ref.owner_pack,
+                    "object_kind": request.object_ref.object_kind,
+                    "verb": request.verb,
+                    "error": str(exc),
+                },
+            },
+        ) from exc
+
+    if not isinstance(result, dict):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_materializer_result",
+                "message": "Owner-pack materializer returned a non-object payload.",
+                "details": {
+                    "owner_pack": request.object_ref.owner_pack,
+                    "object_kind": request.object_ref.object_kind,
+                    "verb": request.verb,
+                },
+            },
+        )
+
+    (
+        response_status,
+        staged_refs,
+        review_routes,
+        canonical_routes,
+        request_plan,
+        response_errors,
+    ) = _normalize_materializer_outcome(
+        result=result,
+        workspace_id=workspace_id,
+        allowed_statuses={"planned", "materialized", "rejected"},
+        default_status="planned",
+    )
+
+    return ObjectMaterializeResponse(
+        workspace_id=workspace_id,
+        status=response_status,
+        verb=request.verb,
+        object_ref=request.object_ref,
+        staged_refs=staged_refs,
+        review_routes=review_routes,
+        canonical_routes=canonical_routes,
+        request_plan=request_plan,
+        errors=response_errors,
+    )
+
+
+@router.post(
+    "/{workspace_id}/object-graph/project",
+    response_model=ObjectGraphProjectResponse,
+)
+async def project_object_graph(
+    request: ObjectGraphProjectRequest,
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+) -> ObjectGraphProjectResponse:
+    await _ensure_workspace_exists(workspace_id)
+    registry = _get_object_catalog_registry()
+    projections: List[ObjectGraphProjection] = []
+
+    for ref in request.objects:
+        entry, fallback_summary = await _resolve_attach_ref(
+            registry=registry,
+            workspace_id=workspace_id,
+            ref=ref,
+            require_meeting_projection=False,
+            error_code="object_not_found",
+        )
+        entry_payload = registry.get_entry(ref.owner_pack, ref.object_kind) or {}
+        raw_projection = await _resolve_graph_projection(
+            entry_payload=entry_payload,
+            workspace_id=workspace_id,
+            ref=ref,
+        )
+        metadata = {
+            "projection_source": "owner_pack_graph_projection",
+            **{
+                key: value
+                for key, value in raw_projection.items()
+                if key not in {"node_kind", "relations", "display_label", "summary_text"}
+                and value is not None
+            },
+        }
+        projection_summary = fallback_summary if request.include_summaries else None
+        projections.append(
+            ObjectGraphProjection(
+                ref=ref,
+                summary=projection_summary,
+                node_kind=_text(raw_projection.get("node_kind")) or entry.object_kind,
+                relations=(
+                    _normalize_graph_relations(
+                        raw_projection.get("relations"),
+                        workspace_id=workspace_id,
+                    )
+                    if request.include_relations
+                    else []
+                ),
+                metadata=metadata,
+            )
+        )
+
+    return ObjectGraphProjectResponse(
+        workspace_id=workspace_id,
+        projections=projections,
     )

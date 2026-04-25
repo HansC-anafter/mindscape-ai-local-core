@@ -557,7 +557,7 @@ class MindscapeStore:
         """
         Get events for one meeting session.
 
-        Reads meeting_session_id from event metadata.
+        Reads meeting_session_id from event metadata or payload.
         """
         return self.events.get_events_by_meeting_session(
             meeting_session_id=meeting_session_id,

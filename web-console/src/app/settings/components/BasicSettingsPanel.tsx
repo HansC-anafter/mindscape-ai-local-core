@@ -14,6 +14,7 @@ import { EmbeddingSettings } from './panels/EmbeddingSettings';
 import { LLMChatSettings } from './panels/LLMChatSettings';
 import { BackendStatusSection } from './panels/BackendStatusSection';
 import { LanguagePreferencesSettings } from './panels/LanguagePreferencesSettings';
+import { ModelRouteRegistryPanel } from './panels/ModelRouteRegistryPanel';
 import { ThemePresetSettings } from './panels/ThemePresetSettings';
 import { CloudExtensionSettings } from './panels/CloudExtensionSettings';
 import { UnsplashFingerprintsSettings } from './panels/UnsplashFingerprintsSettings';
@@ -147,6 +148,13 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
           </div>
         );
 
+      case 'model-routing-registry':
+        return (
+          <div className="space-y-6">
+            <ModelRouteRegistryPanel />
+          </div>
+        );
+
       case 'unsplash-fingerprints':
         if (mode !== 'local') {
           return (
@@ -173,9 +181,12 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
     }
   };
 
-  const isStandalone = activeSection && ['models-and-quota', 'api-quota', 'embedding', 'llm-chat'].includes(activeSection);
+  const isStandalone = activeSection && ['models-and-quota', 'api-quota', 'embedding', 'llm-chat', 'model-routing-registry'].includes(activeSection);
 
   if (isStandalone) {
+    if (activeSection === 'model-routing-registry') {
+      return <ModelRouteRegistryPanel />;
+    }
     return (
       <Card className="h-full min-h-0 flex flex-col">
         <ModelsAndQuotaPanel />

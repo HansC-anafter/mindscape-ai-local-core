@@ -2,7 +2,7 @@
 
 > **Document Date**: 2026-04-23
 > **Status**: Draft
-> **Version**: v0.2
+> **Version**: v0.3
 
 ---
 
@@ -10,13 +10,16 @@
 
 This document defines the first runtime API surface for the Addressable Object Layer.
 
-P0 scope is intentionally narrow but complete enough to prove one cross-pack
-meeting path:
+The runtime API now has two layers of scope:
 
-- `ObjectRef`
-- object catalog listing
-- selection resolve API
-- meeting attach API
+- P0 proof scope:
+  - `ObjectRef`
+  - object catalog listing
+  - selection resolve API
+  - meeting attach API
+- Wave 1 interoperability deepening:
+  - generic object materialization API for review and promote verbs
+  - runtime graph projection API with normalized relation payloads
 
 P0 does not include a generic recommendation execution endpoint.
 `recommend_related_objects` is currently a contextual action hint only. The
@@ -447,22 +450,48 @@ promotion paths.
 {
   "meeting_type": "direction",
   "meeting_id": null,
-  "objects": [
+  "entries": [
     {
-      "uri": "mindscape://ig/reference/ref_abc123",
-      "owner_pack": "ig",
-      "object_kind": "reference",
-      "object_id": "ref_abc123",
-      "workspace_id": "ws_demo",
-      "source_surface": "ig.references_grid"
+      "role": "source",
+      "ref": {
+        "uri": "mindscape://ig/reference/ref_abc123",
+        "owner_pack": "ig",
+        "object_kind": "reference",
+        "object_id": "ref_abc123",
+        "workspace_id": "ws_demo",
+        "source_surface": "ig.references_grid"
+      }
+    },
+    {
+      "role": "baseline",
+      "ref": {
+        "uri": "mindscape://public_persona_studio/foundation_snapshot/fs_001",
+        "owner_pack": "public_persona_studio",
+        "object_kind": "foundation_snapshot",
+        "object_id": "fs_001",
+        "workspace_id": "ws_demo"
+      }
+    },
+    {
+      "role": "constraint",
+      "ref": {
+        "uri": "mindscape://public_persona_studio/pd_workflow_handoff/handoff_001",
+        "owner_pack": "public_persona_studio",
+        "object_kind": "pd_workflow_handoff",
+        "object_id": "handoff_001",
+        "workspace_id": "ws_demo"
+      }
+    },
+    {
+      "role": "target",
+      "ref": {
+        "uri": "mindscape://performance_direction/storyboard_scene/scene_opening_01",
+        "owner_pack": "performance_direction",
+        "object_kind": "storyboard_scene",
+        "object_id": "scene_opening_01",
+        "workspace_id": "ws_demo"
+      }
     }
-  ],
-  "target_ref": {
-    "uri": "mindscape://performance_direction/storyboard_scene/scene_opening_01",
-    "owner_pack": "performance_direction",
-    "object_kind": "storyboard_scene",
-    "object_id": "scene_opening_01",
-    "workspace_id": "ws_demo"
   },
   "intent_summary": "Expand this ref into a 5-10s opening beat and stage it for PD review.",
   "write_mode": "proposal_only"
@@ -475,8 +504,7 @@ promotion paths.
 |---|---|---:|---|
 | `meeting_type` | string | yes | Meeting family such as `direction`, `review`, or `ideation` |
 | `meeting_id` | string or null | no | Existing meeting/session identity when attaching into an open meeting |
-| `objects` | array | yes | One or more resolved `ObjectRef` payloads to attach |
-| `target_ref` | object or null | no | Optional target `ObjectRef` for attach verbs that need a destination |
+| `entries` | array | yes | Role-bearing entries. Each entry contains `role` plus a resolved `ref` payload. Current runtime roles are `source`, `target`, `baseline`, `constraint`, and `evidence`. |
 | `intent_summary` | string | yes | Bounded operator intent for the attach request |
 | `write_mode` | string | no | `proposal_only`, `staged`, or `recommendation_only` |
 
@@ -497,6 +525,16 @@ promotion paths.
         "object_id": "ref_abc123"
       },
       "projection_level": "meeting"
+    },
+    {
+      "role": "baseline",
+      "ref": {
+        "uri": "mindscape://public_persona_studio/foundation_snapshot/fs_001",
+        "owner_pack": "public_persona_studio",
+        "object_kind": "foundation_snapshot",
+        "object_id": "fs_001"
+      },
+      "projection_level": "meeting"
     }
   ],
   "target_ref": {
@@ -507,9 +545,9 @@ promotion paths.
   },
   "staged_refs": [
     {
-      "uri": "mindscape://performance_direction/proposal_artifact/art_987",
+      "uri": "mindscape://performance_direction/storyboard_proposal_artifact/art_987",
       "owner_pack": "performance_direction",
-      "object_kind": "proposal_artifact",
+      "object_kind": "storyboard_proposal_artifact",
       "object_id": "art_987"
     }
   ],
@@ -526,8 +564,13 @@ promotion paths.
 - P0 success may return only `meeting_id` plus attachment metadata, or it may
   also return `staged_refs` when the selected path invokes an owner-pack
   materializer that produces a proposal-only result.
+- Role-bearing attach entries are preserved through meeting attachment metadata
+  and, when the owner materializer supports it, forwarded as bounded
+  `context_objects` for explainable proposal staging.
 - Canonical owner-pack promotion must still happen through the owner-pack review
   path returned in `review_routes`.
+- For backward compatibility, legacy `objects + target_ref` payloads are still
+  accepted and normalized into `entries` server-side during the transition.
 
 #### Status Codes
 
@@ -537,6 +580,213 @@ promotion paths.
 - `404 Not Found` — workspace or target object not found
 - `409 Conflict` — target pack or verb combination rejects the attach request
 - `422 Unprocessable Entity` — valid payload but unsupported object kind, verb, or write mode
+
+---
+
+### 4. Materialize Object Outcome
+
+**POST** `/api/v1/workspaces/{workspace_id}/object-materialize`
+
+Routes a generic runtime verb such as `review` or `promote` through an
+owner-pack-declared materializer without bypassing the owner pack's review or
+promotion semantics.
+
+This endpoint is a follow-on Wave 1 interoperability API. It widens the shared
+runtime lane beyond meeting entry, but it still does not introduce direct
+generic canonical writes.
+
+#### Request Body
+
+```json
+{
+  "object_ref": {
+    "uri": "mindscape://performance_direction/storyboard_proposal_artifact/art_987",
+    "owner_pack": "performance_direction",
+    "object_kind": "storyboard_proposal_artifact",
+    "object_id": "art_987",
+    "workspace_id": "ws_demo"
+  },
+  "verb": "promote",
+  "meeting_id": "mtg_review_001",
+  "intent_summary": "Promote the reviewed storyboard proposal into the owner review lane.",
+  "write_mode": "canonical_with_review",
+  "context_entries": [
+    {
+      "role": "baseline",
+      "ref": {
+        "uri": "mindscape://public_persona_studio/foundation_snapshot/fs_001",
+        "owner_pack": "public_persona_studio",
+        "object_kind": "foundation_snapshot",
+        "object_id": "fs_001",
+        "workspace_id": "ws_demo"
+      }
+    },
+    {
+      "role": "constraint",
+      "ref": {
+        "uri": "mindscape://public_persona_studio/pd_workflow_handoff/handoff_001",
+        "owner_pack": "public_persona_studio",
+        "object_kind": "pd_workflow_handoff",
+        "object_id": "handoff_001",
+        "workspace_id": "ws_demo"
+      }
+    }
+  ],
+  "request_context": {
+    "approval_state": "approved"
+  }
+}
+```
+
+#### Request Fields
+
+| Field | Type | Required | Description |
+|---|---|---:|---|
+| `object_ref` | object | yes | Resolved source `ObjectRef` for the requested materialization |
+| `verb` | string | yes | Runtime verb such as `review`, `promote`, `stage`, or `preview` |
+| `intent_summary` | string | yes | Bounded operator intent for the requested materialization |
+| `meeting_id` | string or null | no | Existing meeting/session identity when the owner pack wants meeting-aware review context |
+| `write_mode` | string | no | `proposal_only`, `staged`, `canonical_with_review`, or `recommendation_only` |
+| `context_entries` | array | no | Additional role-bearing context entries. Each entry contains `role` plus a resolved `ref` payload. |
+| `request_context` | object | no | Extra bounded execution context forwarded to the owner materializer |
+
+#### Example Response
+
+```json
+{
+  "workspace_id": "ws_demo",
+  "status": "planned",
+  "verb": "promote",
+  "object_ref": {
+    "uri": "mindscape://performance_direction/storyboard_proposal_artifact/art_987",
+    "owner_pack": "performance_direction",
+    "object_kind": "storyboard_proposal_artifact",
+    "object_id": "art_987"
+  },
+  "staged_refs": [],
+  "review_routes": [
+    "/api/v1/capabilities/performance_direction/sessions/pd_sess_001/storyboard/proposals/art_987/review"
+  ],
+  "canonical_routes": [
+    "/api/v1/capabilities/performance_direction/sessions/pd_sess_001/storyboard"
+  ],
+  "request_plan": {
+    "method": "POST",
+    "path": "/api/v1/capabilities/performance_direction/sessions/pd_sess_001/storyboard/proposals/art_987/promote",
+    "body": {
+      "approval_state": "approved"
+    }
+  },
+  "errors": []
+}
+```
+
+#### Response Notes
+
+- `status` may be `planned`, `materialized`, or `rejected`.
+- Runtime success means the owner-pack materializer accepted the request and
+  returned a bounded execution or review plan. It does not imply the canonical
+  owner write has already happened.
+- When declared by the owner materializer, `context_entries` are forwarded as
+  role-bearing `context_objects` so proposal staging can preserve
+  `baseline / constraint / evidence` lineage without widening generic canonical
+  write semantics.
+- `canonical_routes` are informational owner routes for downstream review or
+  navigation; they are not runtime-owned mutation endpoints.
+- For backward compatibility, legacy `context_objects` payloads are still
+  accepted and normalized into `context_entries` server-side during the
+  transition.
+
+#### Status Codes
+
+- `200 OK` — materialization request accepted
+- `400 Bad Request` — malformed materialization payload
+- `401 Unauthorized` — authentication failed
+- `404 Not Found` — workspace or object not found
+- `409 Conflict` — owner pack rejects the requested verb or write mode
+- `422 Unprocessable Entity` — valid payload but unsupported object kind, verb, or materializer
+
+---
+
+### 5. Project Object Graph
+
+**POST** `/api/v1/workspaces/{workspace_id}/object-graph/project`
+
+Returns a normalized runtime graph projection for one or more resolved objects.
+Owner packs may shape their own graph payloads internally, but the runtime must
+normalize them before returning them to graph-aware surfaces.
+
+#### Request Body
+
+```json
+{
+  "objects": [
+    {
+      "uri": "mindscape://performance_direction/storyboard_proposal_artifact/art_987",
+      "owner_pack": "performance_direction",
+      "object_kind": "storyboard_proposal_artifact",
+      "object_id": "art_987",
+      "workspace_id": "ws_demo"
+    }
+  ],
+  "include_relations": true,
+  "include_summaries": true
+}
+```
+
+#### Example Response
+
+```json
+{
+  "workspace_id": "ws_demo",
+  "projections": [
+    {
+      "ref": {
+        "uri": "mindscape://performance_direction/storyboard_proposal_artifact/art_987",
+        "owner_pack": "performance_direction",
+        "object_kind": "storyboard_proposal_artifact",
+        "object_id": "art_987"
+      },
+      "summary": {
+        "title": "Proposal art_987",
+        "summary_text": "Pending storyboard proposal derived from a selected source object."
+      },
+      "relations": [
+        {
+          "relation_kind": "patches_storyboard_scene",
+          "direction": "outbound",
+          "target_ref": {
+            "uri": "mindscape://performance_direction/storyboard_scene/scene_opening_01",
+            "owner_pack": "performance_direction",
+            "object_kind": "storyboard_scene",
+            "object_id": "scene_opening_01"
+          },
+          "metadata": {}
+        }
+      ],
+      "metadata": {
+        "projection_source": "owner_pack_graph_projection"
+      }
+    }
+  ],
+  "errors": []
+}
+```
+
+#### Response Notes
+
+- Runtime graph projections are bounded and additive; they do not become the
+  source of canonical object truth.
+- Relation payloads must use normalized runtime keys even if the owner pack
+  emits a different internal key set.
+
+#### Status Codes
+
+- `200 OK` — graph projections returned
+- `400 Bad Request` — malformed graph projection payload
+- `401 Unauthorized` — authentication failed
+- `404 Not Found` — workspace or object not found
+- `422 Unprocessable Entity` — projection requested for object kinds without a declared graph projection
 
 ---
 
@@ -576,11 +826,16 @@ Structured errors should use the following shape:
 - The runtime must not scan cloud repo source in order to resolve catalog or selection data.
 - The runtime may return `ambiguous` instead of guessing when multiple candidates are plausible.
 - Pack-specific owner routes may be returned in summaries, but no canonical owner mutation may happen through this API.
-- `object-meeting-attach` is part of P0. Generic `object-materialize` remains
-  follow-on work until the API/spec is explicitly widened.
+- `object-meeting-attach` is part of P0.
 - P0 meeting success is satisfied by bounded attachments plus an owner-pack
   reviewable output path; it does not require a generic cross-pack canonical
   writeback route.
+- `object-materialize` is part of the Wave 1 interoperability-deepening
+  milestone. It must remain bounded to owner-pack materializers and must not
+  introduce runtime-owned canonical mutation semantics.
+- `object-graph/project` is part of the Wave 1 interoperability-deepening
+  milestone. It must return normalized relation payloads without turning the
+  runtime graph into canonical object storage.
 
 ---
 
@@ -594,8 +849,8 @@ Structured errors should use the following shape:
 
 ## Follow-On APIs
 
-Not part of this document's P0 scope, but expected next:
+Expected next after this document's Wave 1 scope:
 
 - object resolve by `ObjectRef`
-- object materialization API
-- richer graph projection API
+- recommendation execution route
+- graph expansion and traversal heuristics

@@ -4,11 +4,29 @@ from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel, Field
 
 from capabilities.comfyui_runtime.services.workbench_summary import (
+    build_regional_adapter_runtime_plan_payload,
+    build_talking_head_runtime_plan_payload,
     build_workbench_summary,
     build_workbench_profiles,
     build_runtime_health,
     get_workbench_binding,
     list_workbench_runs,
+)
+from capabilities.comfyui_runtime.services.regional_adapter_runtime_install import (
+    install_regional_adapter_runtime,
+    sync_regional_adapter_runtime,
+)
+from capabilities.comfyui_runtime.services.talking_head_runtime_install import (
+    install_talking_head_runtime,
+    sync_talking_head_runtime,
+)
+from capabilities.comfyui_runtime.services.regional_adapter_backend_catalog import (
+    DEFAULT_REGIONAL_ADAPTER_BACKEND_PRESET,
+    list_regional_adapter_backend_presets,
+)
+from capabilities.comfyui_runtime.services.talking_head_backend_catalog import (
+    DEFAULT_TALKING_HEAD_BACKEND_PRESET,
+    list_talking_head_backend_presets,
 )
 from capabilities.comfyui_runtime.services.runtime_config import (
     ComfyUIPreviewRuntimeConfigService,
@@ -73,11 +91,72 @@ class ComfyUIPreviewRuntimeUpdate(BaseModel):
     port: Optional[int] = Field(default=None, ge=1, le=65535)
     health_host: Optional[str] = Field(default=None)
     listen: Optional[str] = Field(default=None)
+    talking_head_backend_repo: Optional[str] = Field(
+        default=None,
+        description="Optional source install repository for the talking-head backend custom node",
+    )
+    talking_head_backend_preset: Optional[str] = Field(
+        default=None,
+        description="Preset catalog entry for the talking-head runtime backend",
+    )
+    talking_head_backend_family: Optional[str] = Field(
+        default=None,
+        description="Selected backend family for the talking-head runtime lane",
+    )
+    talking_head_backend_ref: Optional[str] = Field(
+        default=None,
+        description="Optional git ref for the talking-head backend custom node",
+    )
+    talking_head_backend_dir: Optional[str] = Field(
+        default=None,
+        description="Optional custom node directory override for the talking-head backend",
+    )
+    regional_adapter_backend_repo: Optional[str] = Field(
+        default=None,
+        description="Optional source install repository for the regional adapter backend custom node",
+    )
+    regional_adapter_backend_preset: Optional[str] = Field(
+        default=None,
+        description="Preset catalog entry for the regional adapter runtime backend",
+    )
+    regional_adapter_backend_family: Optional[str] = Field(
+        default=None,
+        description="Selected backend family for the regional multi-subject runtime lane",
+    )
+    regional_adapter_backend_ref: Optional[str] = Field(
+        default=None,
+        description="Optional git ref for the regional adapter backend custom node",
+    )
+    regional_adapter_backend_dir: Optional[str] = Field(
+        default=None,
+        description="Optional custom node directory override for the regional adapter backend",
+    )
+    talking_head_viseme_bridge_repo: Optional[str] = Field(
+        default=None,
+        description="Optional source install repository for the viseme bridge custom node",
+    )
+    talking_head_viseme_bridge_ref: Optional[str] = Field(
+        default=None,
+        description="Optional git ref for the viseme bridge custom node",
+    )
+    talking_head_viseme_bridge_dir: Optional[str] = Field(
+        default=None,
+        description="Optional custom node directory override for the viseme bridge",
+    )
     clear: bool = Field(default=False, description="Clear all stored overrides")
 
 
 class ComfyUIRuntimeValidateRequest(BaseModel):
     install_path: str = Field(..., description="Host ComfyUI install path to validate")
+
+
+class TalkingHeadRuntimeInstallRequest(BaseModel):
+    dry_run: bool = Field(default=True)
+    upgrade: bool = Field(default=False)
+
+
+class TalkingHeadRuntimeSyncRequest(BaseModel):
+    pass
 
 
 def _build_candidate_groups(install_path: str) -> Dict[str, List[str]]:
@@ -140,6 +219,21 @@ async def get_runtime_config() -> Dict[str, Any]:
 @router.get("/runtime-config/effective")
 async def get_runtime_config_effective() -> Dict[str, Any]:
     return _get_runtime_config_service().get_effective_config()
+
+
+@router.get("/runtime-config/candidate-host-paths")
+async def get_runtime_config_candidate_host_paths() -> Dict[str, Any]:
+    service = _get_runtime_config_service()
+    effective = service.get_effective_config()
+    return {
+        "candidates": service.list_install_path_candidates(),
+        "install_path_configured": effective["install_path_configured"],
+        "current_install_path": effective.get("install_path") or "",
+        "validation_endpoint": (
+            "/api/v1/capabilities/comfyui_runtime/runtime-config/validate-host-path"
+        ),
+        "update_endpoint": "/api/v1/capabilities/comfyui_runtime/runtime-config",
+    }
 
 
 @router.post("/runtime-config/validate-host-path")
@@ -336,3 +430,221 @@ async def get_workbench_runtime_health(
         tenant_id=x_tenant_id,
         comfyui_url=comfyui_url,
     )
+
+
+@router.get("/talking-head/runtime-plan")
+async def get_talking_head_runtime_plan(
+    comfyui_url: Optional[str] = Query(default=None),
+    x_tenant_id: str = Header(default="default", alias="X-Tenant-Id"),
+):
+    return await build_talking_head_runtime_plan_payload(
+        tenant_id=x_tenant_id,
+        comfyui_url=comfyui_url,
+    )
+
+
+@router.get("/talking-head/backend-presets")
+async def get_talking_head_backend_presets() -> Dict[str, Any]:
+    return {
+        "default_preset_id": DEFAULT_TALKING_HEAD_BACKEND_PRESET,
+        "presets": list_talking_head_backend_presets(),
+    }
+
+
+@router.get("/regional-adapter/runtime-plan")
+async def get_regional_adapter_runtime_plan(
+    comfyui_url: Optional[str] = Query(default=None),
+    x_tenant_id: str = Header(default="default", alias="X-Tenant-Id"),
+):
+    return await build_regional_adapter_runtime_plan_payload(
+        tenant_id=x_tenant_id,
+        comfyui_url=comfyui_url,
+    )
+
+
+@router.get("/regional-adapter/backend-presets")
+async def get_regional_adapter_backend_presets() -> Dict[str, Any]:
+    return {
+        "default_preset_id": DEFAULT_REGIONAL_ADAPTER_BACKEND_PRESET,
+        "presets": list_regional_adapter_backend_presets(),
+    }
+
+
+@router.post("/talking-head/runtime/install")
+async def install_talking_head_runtime_endpoint(
+    request: TalkingHeadRuntimeInstallRequest,
+    comfyui_url: Optional[str] = Query(default=None),
+    x_tenant_id: str = Header(default="default", alias="X-Tenant-Id"),
+):
+    current_payload = await build_talking_head_runtime_plan_payload(
+        tenant_id=x_tenant_id,
+        comfyui_url=comfyui_url,
+    )
+    current_plan = dict(current_payload.get("talking_head_runtime") or {})
+    missing_specs = list(current_plan.get("missing_runtime_install_specs") or [])
+    source_specs = list(current_plan.get("source_install_specs") or [])
+    manual_specs = list(current_plan.get("manual_only_specs") or [])
+    install_blockers = list(current_plan.get("install_blockers") or [])
+    source_install_actionable = bool(
+        current_plan.get("source_install_actionable")
+    )
+
+    if not missing_specs and not manual_specs:
+        return {
+            "status": "already_ready",
+            "dry_run": request.dry_run,
+            "restart_recommended": False,
+            "plan": current_plan,
+            "command": [],
+            "stdout": "",
+            "stderr": "",
+            "returncode": 0,
+        }
+    if not source_specs and manual_specs:
+        return {
+            "status": "manual_only",
+            "dry_run": request.dry_run,
+            "restart_recommended": False,
+            "plan": current_plan,
+            "command": [],
+            "stdout": "",
+            "stderr": "Current backend family requires manual custom-node provisioning; no automated source-install step is available.",
+            "returncode": 2,
+        }
+    if source_specs and not source_install_actionable:
+        blockers_text = ", ".join(install_blockers) if install_blockers else "unknown"
+        return {
+            "status": "configuration_incomplete",
+            "dry_run": request.dry_run,
+            "restart_recommended": False,
+            "plan": current_plan,
+            "command": [],
+            "stdout": "",
+            "stderr": (
+                "Talking-head runtime source install is currently blocked by configuration: "
+                f"{blockers_text}."
+            ),
+            "returncode": 3,
+        }
+
+    result = install_talking_head_runtime(
+        dry_run=request.dry_run,
+        upgrade=request.upgrade,
+    )
+    refreshed_payload = await build_talking_head_runtime_plan_payload(
+        tenant_id=x_tenant_id,
+        comfyui_url=comfyui_url,
+    )
+    result["plan"] = refreshed_payload.get("talking_head_runtime") or current_plan
+    return result
+
+
+@router.post("/talking-head/runtime/sync")
+async def sync_talking_head_runtime_endpoint(
+    request: TalkingHeadRuntimeSyncRequest,
+    comfyui_url: Optional[str] = Query(default=None),
+    x_tenant_id: str = Header(default="default", alias="X-Tenant-Id"),
+):
+    current_payload = await build_talking_head_runtime_plan_payload(
+        tenant_id=x_tenant_id,
+        comfyui_url=comfyui_url,
+    )
+    result = sync_talking_head_runtime()
+    refreshed_payload = await build_talking_head_runtime_plan_payload(
+        tenant_id=x_tenant_id,
+        comfyui_url=comfyui_url,
+    )
+    result["plan"] = refreshed_payload.get("talking_head_runtime") or current_payload.get(
+        "talking_head_runtime"
+    ) or {}
+    return result
+
+
+@router.post("/regional-adapter/runtime/install")
+async def install_regional_adapter_runtime_endpoint(
+    request: TalkingHeadRuntimeInstallRequest,
+    comfyui_url: Optional[str] = Query(default=None),
+    x_tenant_id: str = Header(default="default", alias="X-Tenant-Id"),
+):
+    current_payload = await build_regional_adapter_runtime_plan_payload(
+        tenant_id=x_tenant_id,
+        comfyui_url=comfyui_url,
+    )
+    current_plan = dict(current_payload.get("regional_adapter_runtime") or {})
+    missing_specs = list(current_plan.get("missing_runtime_install_specs") or [])
+    source_specs = list(current_plan.get("source_install_specs") or [])
+    manual_specs = list(current_plan.get("manual_only_specs") or [])
+    install_blockers = list(current_plan.get("install_blockers") or [])
+    source_install_actionable = bool(
+        current_plan.get("source_install_actionable")
+    )
+
+    if not missing_specs and not manual_specs:
+        return {
+            "status": "already_ready",
+            "dry_run": request.dry_run,
+            "restart_recommended": False,
+            "plan": current_plan,
+            "command": [],
+            "stdout": "",
+            "stderr": "",
+            "returncode": 0,
+        }
+    if not source_specs and manual_specs:
+        return {
+            "status": "manual_only",
+            "dry_run": request.dry_run,
+            "restart_recommended": False,
+            "plan": current_plan,
+            "command": [],
+            "stdout": "",
+            "stderr": "Current backend family requires manual custom-node provisioning; no automated source-install step is available.",
+            "returncode": 2,
+        }
+    if source_specs and not source_install_actionable:
+        blockers_text = ", ".join(install_blockers) if install_blockers else "unknown"
+        return {
+            "status": "configuration_incomplete",
+            "dry_run": request.dry_run,
+            "restart_recommended": False,
+            "plan": current_plan,
+            "command": [],
+            "stdout": "",
+            "stderr": (
+                "Regional adapter runtime source install is currently blocked by configuration: "
+                f"{blockers_text}."
+            ),
+            "returncode": 3,
+        }
+
+    result = install_regional_adapter_runtime(
+        dry_run=request.dry_run,
+        upgrade=request.upgrade,
+    )
+    refreshed_payload = await build_regional_adapter_runtime_plan_payload(
+        tenant_id=x_tenant_id,
+        comfyui_url=comfyui_url,
+    )
+    result["plan"] = refreshed_payload.get("regional_adapter_runtime") or current_plan
+    return result
+
+
+@router.post("/regional-adapter/runtime/sync")
+async def sync_regional_adapter_runtime_endpoint(
+    request: TalkingHeadRuntimeSyncRequest,
+    comfyui_url: Optional[str] = Query(default=None),
+    x_tenant_id: str = Header(default="default", alias="X-Tenant-Id"),
+):
+    current_payload = await build_regional_adapter_runtime_plan_payload(
+        tenant_id=x_tenant_id,
+        comfyui_url=comfyui_url,
+    )
+    result = sync_regional_adapter_runtime()
+    refreshed_payload = await build_regional_adapter_runtime_plan_payload(
+        tenant_id=x_tenant_id,
+        comfyui_url=comfyui_url,
+    )
+    result["plan"] = refreshed_payload.get("regional_adapter_runtime") or current_payload.get(
+        "regional_adapter_runtime"
+    ) or {}
+    return result

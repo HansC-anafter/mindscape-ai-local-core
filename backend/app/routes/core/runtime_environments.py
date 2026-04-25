@@ -13,6 +13,12 @@ from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy.orm import Session
 
 from ...models.runtime_environment import RuntimeEnvironment
+from ...services.runtime_route_registration import (
+    attach_runtime_registration_metadata,
+    get_built_in_runtime_environment,
+    list_built_in_runtime_environments,
+    sync_runtime_registration_metadata,
+)
 from ...services.runtime_auth_service import RuntimeAuthService
 
 # Import database session
@@ -44,52 +50,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/runtime-environments", tags=["runtime-environments"])
 
 auth_service = RuntimeAuthService()
-
-
-BUILT_IN_RUNTIME_ENVIRONMENTS = [
-    {
-        "id": "local-core",
-        "name": "Local-Core Runtime",
-        "description": "Local execution environment, enabled by default",
-        "icon": "desktop",
-        "status": "active",
-        "is_default": True,
-        "isDefault": True,
-        "config_url": None,
-        "auth_type": "none",
-        "supports_dispatch": True,
-        "supports_cell": True,
-        "metadata": {
-            "runtime_type": "local_core",
-            "capability_code": "local_core",
-        },
-    },
-    {
-        "id": "mindscape-ai-cloud-3d-mesh",
-        "name": "Mindscape AI Cloud 3D Mesh",
-        "description": "Configure modeled scene/person mesh runtime lanes for Blender Bridge without editing .env",
-        "icon": "🧊",
-        "status": "not_configured",
-        "is_default": False,
-        "isDefault": False,
-        "config_url": None,
-        "auth_type": "none",
-        "supports_dispatch": True,
-        "supports_cell": True,
-        "metadata": {
-            "runtime_type": "mindscape_ai_cloud_3d_mesh",
-            "capability_code": "blender_bridge",
-            "scope": "system",
-        },
-    },
-]
-
-
-def _get_built_in_runtime(runtime_id: str) -> Optional[Dict[str, Any]]:
-    for runtime in BUILT_IN_RUNTIME_ENVIRONMENTS:
-        if runtime["id"] == runtime_id:
-            return dict(runtime)
-    return None
 
 
 # Pydantic models for request/response
@@ -156,11 +116,15 @@ async def list_runtime_environments(
         )
 
         # Build response with system runtimes first.
-        runtimes = [dict(runtime) for runtime in BUILT_IN_RUNTIME_ENVIRONMENTS]
+        runtimes = list_built_in_runtime_environments()
 
         # Add user's runtime environments (without sensitive data)
         for runtime in user_runtimes:
-            runtimes.append(runtime.to_dict(include_sensitive=False))
+            runtimes.append(
+                attach_runtime_registration_metadata(
+                    runtime.to_dict(include_sensitive=False)
+                )
+            )
 
         return {"runtimes": runtimes}
 
@@ -223,12 +187,15 @@ async def create_runtime_environment(
             supports_cell=request.supports_cell,
             recommended_for_dispatch=request.recommended_for_dispatch,
         )
+        sync_runtime_registration_metadata(runtime)
 
         db.add(runtime)
         db.commit()
         db.refresh(runtime)
 
-        return runtime.to_dict(include_sensitive=False)
+        return attach_runtime_registration_metadata(
+            runtime.to_dict(include_sensitive=False)
+        )
 
     except HTTPException:
         raise
@@ -259,7 +226,7 @@ async def get_runtime_environment(
     """
     try:
         # Handle Local-Core special case
-        built_in_runtime = _get_built_in_runtime(runtime_id)
+        built_in_runtime = get_built_in_runtime_environment(runtime_id)
         if built_in_runtime:
             return built_in_runtime
 
@@ -278,7 +245,9 @@ async def get_runtime_environment(
                 status_code=404, detail=f"Runtime environment '{runtime_id}' not found"
             )
 
-        return runtime.to_dict(include_sensitive=False)
+        return attach_runtime_registration_metadata(
+            runtime.to_dict(include_sensitive=False)
+        )
 
     except HTTPException:
         raise
@@ -308,7 +277,7 @@ async def update_runtime_environment(
     """
     try:
         # Local-Core cannot be updated
-        if _get_built_in_runtime(runtime_id):
+        if get_built_in_runtime_environment(runtime_id):
             raise HTTPException(
                 status_code=400,
                 detail="Cannot update built-in runtime via runtime-environments route",
@@ -369,10 +338,13 @@ async def update_runtime_environment(
                     request.auth_config
                 )
 
+        sync_runtime_registration_metadata(runtime)
         db.commit()
         db.refresh(runtime)
 
-        return runtime.to_dict(include_sensitive=False)
+        return attach_runtime_registration_metadata(
+            runtime.to_dict(include_sensitive=False)
+        )
 
     except HTTPException:
         raise
@@ -403,7 +375,7 @@ async def delete_runtime_environment(
     """
     try:
         # Local-Core cannot be deleted
-        if _get_built_in_runtime(runtime_id):
+        if get_built_in_runtime_environment(runtime_id):
             raise HTTPException(
                 status_code=400,
                 detail="Cannot delete built-in runtime",

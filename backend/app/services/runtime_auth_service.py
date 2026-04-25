@@ -10,8 +10,22 @@ from typing import Optional, Dict, Any
 from cryptography.fernet import Fernet
 import os
 from app.models.runtime_environment import RuntimeEnvironment
+from app.services.runtime_route_registration import sync_runtime_registration_metadata
 
 logger = logging.getLogger(__name__)
+
+
+def _commit_runtime_registration(db, runtime: RuntimeEnvironment) -> None:
+    """Persist runtime auth changes through the canonical registration contract."""
+    if db is None:
+        return
+    try:
+        sync_runtime_registration_metadata(runtime)
+        db.add(runtime)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 class RuntimeAuthService:
@@ -228,13 +242,15 @@ class RuntimeAuthService:
                                 runtime.auth_status = "connected"
                                 if db:
                                     try:
-                                        db.add(runtime)
-                                        db.commit()
+                                        _commit_runtime_registration(db, runtime)
                                         logger.info(
                                             f"Restored auth_status to 'connected' for runtime {runtime.id}"
                                         )
                                     except Exception:
-                                        db.rollback()
+                                        logger.exception(
+                                            "Failed to persist connected auth_status for runtime %s",
+                                            runtime.id,
+                                        )
                         else:
                             # Refresh failed — mark runtime as expired
                             logger.warning(
@@ -245,10 +261,12 @@ class RuntimeAuthService:
                             runtime.auth_status = "expired"
                             if db:
                                 try:
-                                    db.add(runtime)
-                                    db.commit()
+                                    _commit_runtime_registration(db, runtime)
                                 except Exception:
-                                    db.rollback()
+                                    logger.exception(
+                                        "Failed to persist expired auth_status for runtime %s",
+                                        runtime.id,
+                                    )
                     else:
                         # Expired but no refresh_token — cannot recover
                         logger.warning(
@@ -259,10 +277,12 @@ class RuntimeAuthService:
                         runtime.auth_status = "expired"
                         if db:
                             try:
-                                db.add(runtime)
-                                db.commit()
+                                _commit_runtime_registration(db, runtime)
                             except Exception:
-                                db.rollback()
+                                logger.exception(
+                                    "Failed to persist expired auth_status for runtime %s",
+                                    runtime.id,
+                                )
 
                 if access_token:
                     headers["Authorization"] = f"Bearer {access_token}"
@@ -417,8 +437,7 @@ class RuntimeAuthService:
 
                 if db:
                     try:
-                        db.add(runtime)
-                        db.commit()
+                        _commit_runtime_registration(db, runtime)
                         logger.info(
                             f"OIDC token refreshed and persisted for runtime {runtime.id}"
                         )
@@ -473,8 +492,7 @@ class RuntimeAuthService:
             # Persist to database if session available
             if db:
                 try:
-                    db.add(runtime)
-                    db.commit()
+                    _commit_runtime_registration(db, runtime)
                     logger.info(
                         f"OAuth token refreshed and persisted for runtime {runtime.id}"
                     )

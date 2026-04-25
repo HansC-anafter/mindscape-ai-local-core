@@ -134,106 +134,11 @@ class ToolSlotInfoCollector:
                 from backend.app.services.playbook.intent_analyzer import (
                     get_tool_slot_intent_analyzer,
                 )
-                from backend.app.services.config_store import ConfigStore
-                from backend.app.services.playbook.llm_provider_manager import (
-                    PlaybookLLMProviderManager,
-                )
-                from backend.app.services.conversation.capability_profile import (
-                    CapabilityProfile,
-                    CapabilityProfileRegistry,
-                )
-                from backend.app.services.system_settings_store import (
-                    SystemSettingsStore,
-                )
-                from backend.app.shared.llm_provider_helper import (
-                    get_model_name_from_chat_model,
-                )
-
-                # Priority: stage_router > capability_profile > SystemSettings > chat_model
-                selected_model_name = None
                 profile_id = None  # Can be passed from context if available
-
-                # Use stage_router if provided
-                if stage_router:
-                    try:
-                        profile = stage_router.get_profile_for_stage("intent_analysis")
-                        registry = CapabilityProfileRegistry()
-                        # Get LLMProviderManager from PlaybookLLMProviderManager
-                        if not llm_provider_manager:
-                            config_store = ConfigStore()
-                            llm_provider_manager = PlaybookLLMProviderManager(
-                                config_store
-                            )
-                        llm_manager = llm_provider_manager.get_llm_manager(
-                            profile_id or "default-user"
-                        )
-                        selected_model_name = registry.select_model(
-                            profile, llm_manager, profile_id=profile_id
-                        )
-                    except Exception as e:
-                        logger.debug(
-                            f"Failed to use stage_router: {e}, trying next option"
-                        )
-
-                # Use capability_profile if provided (and stage_router didn't work)
-                if not selected_model_name and capability_profile:
-                    try:
-                        profile = CapabilityProfile(capability_profile)
-                        registry = CapabilityProfileRegistry()
-                        if not llm_provider_manager:
-                            config_store = ConfigStore()
-                            llm_provider_manager = PlaybookLLMProviderManager(
-                                config_store
-                            )
-                        llm_manager = llm_provider_manager.get_llm_manager(
-                            profile_id or "default-user"
-                        )
-                        selected_model_name = registry.select_model(
-                            profile, llm_manager, profile_id=profile_id
-                        )
-                    except Exception as e:
-                        logger.debug(
-                            f"Failed to use capability_profile: {e}, trying next option"
-                        )
-
-                # Use SystemSettings if available (and previous options didn't work)
-                if not selected_model_name:
-                    try:
-                        settings_store = SystemSettingsStore()
-                        mapping = settings_store.get_capability_profile_mapping()
-                        profile_name = mapping.get("intent_analysis", "fast")
-                        profile = CapabilityProfile(profile_name)
-                        registry = CapabilityProfileRegistry()
-                        if not llm_provider_manager:
-                            config_store = ConfigStore()
-                            llm_provider_manager = PlaybookLLMProviderManager(
-                                config_store
-                            )
-                        llm_manager = llm_provider_manager.get_llm_manager(
-                            profile_id or "default-user"
-                        )
-                        selected_model_name = registry.select_model(
-                            profile, llm_manager, profile_id=profile_id
-                        )
-                    except Exception as e:
-                        logger.debug(
-                            f"Failed to use SystemSettings: {e}, trying next option"
-                        )
-
-                # 4. Fallback to chat_model
-                if not selected_model_name:
-                    selected_model_name = get_model_name_from_chat_model()
-                    logger.debug(f"Using chat_model fallback: {selected_model_name}")
-
-                # Initialize LLM provider manager for intent analysis (if not provided)
-                if not llm_provider_manager:
-                    config_store = ConfigStore()
-                    llm_provider_manager = PlaybookLLMProviderManager(config_store)
 
                 analyzer = get_tool_slot_intent_analyzer(
                     llm_provider_manager=llm_provider_manager,
                     profile_id=profile_id,
-                    model_name=selected_model_name,
                 )
                 tool_list = list(slot_info_map.values())
 
@@ -242,6 +147,7 @@ class ToolSlotInfoCollector:
                     available_tools=tool_list,
                     conversation_history=conversation_history,
                     playbook_code=playbook_code,
+                    workspace_id=workspace_id,
                     max_tools=10,
                     min_relevance=0.3,
                 )

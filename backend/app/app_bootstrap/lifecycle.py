@@ -23,6 +23,7 @@ _PLAYBOOK_REGISTRY_POST_READY_TASK_ATTR = "_playbook_registry_post_ready_task"
 _TOOL_RAG_POST_READY_TASK_ATTR = "_tool_rag_post_ready_task"
 _PACK_VALIDATION_RESUME_TASK_ATTR = "_pack_validation_resume_task"
 _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR = "_runtime_migrations_post_ready_task"
+_CODEX_POOL_SWEEPER_SERVICE_ATTR = "_codex_pool_sweeper_service"
 
 
 async def _sync_tool_rag_pack_embedding_state(
@@ -642,6 +643,24 @@ async def run_startup(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to schedule pending pack validations resume task: {e}")
 
+    try:
+        from backend.app.services.codex_pool_sweeper_service import (
+            get_codex_pool_sweeper_service,
+        )
+
+        codex_pool_sweeper = get_codex_pool_sweeper_service()
+        setattr(app.state, _CODEX_POOL_SWEEPER_SERVICE_ATTR, codex_pool_sweeper)
+        started = codex_pool_sweeper.start_background_services()
+        logger.info(
+            "Codex pool sweeper background service %s",
+            "started" if started else "skipped",
+        )
+    except Exception as e:
+        logger.warning(
+            f"Failed to start Codex pool sweeper background service: {e}",
+            exc_info=True,
+        )
+
     capture_phase_duration("startup.total", startup_started, logger)
 
 async def run_shutdown(app: FastAPI):
@@ -701,6 +720,22 @@ async def run_shutdown(app: FastAPI):
         except Exception as exc:
             logger.warning(
                 "Post-ready runtime migrations task shutdown wait failed: %s",
+                exc,
+            )
+
+    codex_pool_sweeper = getattr(
+        app.state,
+        _CODEX_POOL_SWEEPER_SERVICE_ATTR,
+        None,
+    )
+    if codex_pool_sweeper is not None:
+        codex_pool_sweeper.stop_background_services()
+        try:
+            await codex_pool_sweeper.wait_closed()
+            logger.info("Codex pool sweeper background service stopped")
+        except Exception as exc:
+            logger.warning(
+                "Codex pool sweeper shutdown wait failed: %s",
                 exc,
             )
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from backend.app.models.handoff import HandoffIn
 from backend.app.models.object_runtime import ObjectRef, ObjectSummary
@@ -18,6 +18,16 @@ class ObjectMeetingAttachmentBuildResult:
     handoff_in: HandoffIn
 
 
+@dataclass
+class ObjectMeetingContextRecord:
+    """Resolved role-bearing context object used during handoff generation."""
+
+    role: str
+    ref: ObjectRef
+    summary: ObjectSummary
+    meeting_projection: Optional[Dict[str, Any]]
+
+
 class ObjectMeetingAttachmentService:
     """Convert resolved runtime objects into generic handoff attachments."""
 
@@ -29,40 +39,33 @@ class ObjectMeetingAttachmentService:
         meeting_type: str,
         intent_summary: str,
         write_mode: str,
-        source_objects: Sequence[
-            Tuple[ObjectRef, ObjectSummary, Optional[Dict[str, Any]]]
-        ],
-        target_object: Optional[
-            Tuple[ObjectRef, ObjectSummary, Optional[Dict[str, Any]]]
-        ] = None,
+        context_objects: Sequence[ObjectMeetingContextRecord],
     ) -> ObjectMeetingAttachmentBuildResult:
         context_attachments: List[dict] = []
+        target_refs = [record.ref for record in context_objects if record.role == "target"]
 
-        for ref, summary, meeting_projection in source_objects:
+        for record in context_objects:
             context_attachments.append(
                 self._build_attachment(
-                    role="source",
+                    role=record.role,
                     verb="attach",
-                    ref=ref,
-                    summary=summary,
-                    meeting_projection=meeting_projection,
+                    ref=record.ref,
+                    summary=record.summary,
+                    meeting_projection=record.meeting_projection,
                     write_mode=write_mode,
-                    target_ref=target_object[0] if target_object else None,
+                    target_refs=(
+                        [target_ref for target_ref in target_refs if target_ref.uri != record.ref.uri]
+                        if record.role != "target"
+                        else []
+                    ),
                 )
             )
 
-        if target_object:
-            context_attachments.append(
-                self._build_attachment(
-                    role="target",
-                    verb="attach",
-                    ref=target_object[0],
-                    summary=target_object[1],
-                    meeting_projection=target_object[2],
-                    write_mode=write_mode,
-                    target_ref=None,
-                )
-            )
+        role_object_uris: Dict[str, List[str]] = {}
+        for record in context_objects:
+            role_object_uris.setdefault(record.role, [])
+            if record.ref.uri not in role_object_uris[record.role]:
+                role_object_uris[record.role].append(record.ref.uri)
 
         handoff_in = HandoffIn(
             handoff_id=f"obj_attach_{uuid.uuid4().hex}",
@@ -73,6 +76,7 @@ class ObjectMeetingAttachmentService:
                     "meeting_id": meeting_id,
                     "meeting_type": meeting_type,
                     "write_mode": write_mode,
+                    "role_object_uris": role_object_uris,
                 }
             },
             context_attachments=context_attachments,
@@ -81,8 +85,10 @@ class ObjectMeetingAttachmentService:
                     "meeting_id": meeting_id,
                     "meeting_type": meeting_type,
                     "write_mode": write_mode,
-                    "source_object_uris": [ref.uri for ref, _, _ in source_objects],
-                    "target_ref_uri": target_object[0].uri if target_object else None,
+                    "role_object_uris": role_object_uris,
+                    "source_object_uris": role_object_uris.get("source", []),
+                    "target_ref_uri": target_refs[0].uri if len(target_refs) == 1 else None,
+                    "target_ref_uris": [target_ref.uri for target_ref in target_refs],
                 }
             },
         )
@@ -100,10 +106,10 @@ class ObjectMeetingAttachmentService:
         summary: ObjectSummary,
         meeting_projection: Optional[Dict[str, Any]],
         write_mode: str,
-        target_ref: Optional[ObjectRef],
+        target_refs: Sequence[ObjectRef],
     ) -> dict:
         selected_relations = []
-        if target_ref:
+        for target_ref in target_refs:
             selected_relations.append(
                 {
                     "relation_kind": "targets",

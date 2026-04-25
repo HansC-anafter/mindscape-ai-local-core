@@ -21,6 +21,11 @@ import json
 import re
 
 from backend.app.core.trace import get_trace_recorder, TraceNodeType, TraceStatus
+from backend.app.services.llm.core_llm import core_llm_call
+from backend.app.services.llm.governed_stage_router import (
+    resolve_stage_capability_profile,
+    resolve_stage_model_name,
+)
 from .intent_analyzer_core import (
     ToolRelevanceResult,
     ToolSlotAnalysisResult,
@@ -57,6 +62,7 @@ class ToolSlotIntentAnalyzer:
         available_tools: List[Any],  # List[ToolSlotInfo]
         conversation_history: Optional[List[Dict]] = None,
         playbook_code: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         max_tools: int = 10,
         min_relevance: float = 0.3,
         risk_level: str = "read"
@@ -93,6 +99,7 @@ class ToolSlotIntentAnalyzer:
                 available_tools=available_tools,
                 conversation_history=conversation_history,
                 playbook_code=playbook_code,
+                workspace_id=workspace_id,
                 top_k=25
             )
 
@@ -100,7 +107,8 @@ class ToolSlotIntentAnalyzer:
             escalation_required = self._should_escalate(
                 recall_result=recall_result,
                 risk_level=risk_level,
-                user_message=user_message
+                user_message=user_message,
+                workspace_id=workspace_id,
             )
 
             if escalation_required:
@@ -112,6 +120,7 @@ class ToolSlotIntentAnalyzer:
                     candidate_tools=recall_result.relevant_tools,
                     conversation_history=conversation_history,
                     playbook_code=playbook_code,
+                    workspace_id=workspace_id,
                     risk_level=risk_level,
                     top_k=10,
                     original_tools=available_tools  # Pass original tools for reconstruction
@@ -159,7 +168,6 @@ class ToolSlotIntentAnalyzer:
             try:
                 from backend.app.core.utility.utility_evaluator import UtilityEvaluator
                 from backend.app.core.utility.scoring_dimensions import RiskLevel as UtilityRiskLevel
-                from backend.app.services.conversation.capability_profile import CapabilityProfile, CapabilityProfileRegistry
                 from backend.app.services.playbook.llm_provider_manager import PlaybookLLMProviderManager
                 from backend.app.services.config_store import ConfigStore
 
@@ -172,12 +180,24 @@ class ToolSlotIntentAnalyzer:
                     self.llm_provider_manager = PlaybookLLMProviderManager(config_store)
 
                 profile_id = self.profile_id or "default-user"
-                llm_manager = self.llm_provider_manager.get_llm_manager(profile_id)
-                registry = CapabilityProfileRegistry()
-
-                # Get fast and strong models
-                fast_model = registry.select_model(CapabilityProfile.FAST, llm_manager, profile_id=profile_id) or "gpt-3.5-turbo"
-                strong_model = registry.select_model(CapabilityProfile.PRECISE, llm_manager, profile_id=profile_id) or "gpt-4o"
+                fast_model = resolve_stage_model_name(
+                    requested_model=None,
+                    capability_profile=resolve_stage_capability_profile(
+                        "intent_analysis",
+                        risk_level,
+                    ),
+                    llm_provider_manager=self.llm_provider_manager,
+                    profile_id=profile_id,
+                ) or "gpt-3.5-turbo"
+                strong_model = resolve_stage_model_name(
+                    requested_model=None,
+                    capability_profile=resolve_stage_capability_profile(
+                        "plan_generation",
+                        risk_level,
+                    ),
+                    llm_provider_manager=self.llm_provider_manager,
+                    profile_id=profile_id,
+                ) or "gpt-4o"
 
                 # Map risk level
                 utility_risk_level = None
@@ -274,6 +294,7 @@ class ToolSlotIntentAnalyzer:
         available_tools: List[Any],
         conversation_history: Optional[List[Dict]] = None,
         playbook_code: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         top_k: int = 25
     ) -> ToolSlotAnalysisResult:
         """
@@ -298,8 +319,6 @@ class ToolSlotIntentAnalyzer:
         # In future, can use embedding-based matching for even faster recall
 
         try:
-            # Get fast model using capability profile system
-            from backend.app.services.conversation.capability_profile import CapabilityProfile, CapabilityProfileRegistry
             from backend.app.services.config_store import ConfigStore
             from backend.app.services.playbook.llm_provider_manager import PlaybookLLMProviderManager
 
@@ -308,18 +327,16 @@ class ToolSlotIntentAnalyzer:
                 config_store = ConfigStore()
                 self.llm_provider_manager = PlaybookLLMProviderManager(config_store)
 
-            # Select fast model
-            registry = CapabilityProfileRegistry()
             profile_id = self.profile_id or "default-user"
-            llm_manager = self.llm_provider_manager.get_llm_manager(profile_id)
-            fast_profile = CapabilityProfile.FAST
-            model_name = registry.select_model(fast_profile, llm_manager, profile_id=profile_id)
-
-            # Fallback to chat_model if capability profile selection fails
-            if not model_name:
-                from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
-                model_name = get_model_name_from_chat_model() or "gpt-3.5-turbo"
-                logger.debug(f"Using chat_model fallback for fast recall: {model_name}")
+            model_name = resolve_stage_model_name(
+                requested_model=None,
+                capability_profile=resolve_stage_capability_profile(
+                    "intent_analysis",
+                    risk_level,
+                ),
+                llm_provider_manager=self.llm_provider_manager,
+                profile_id=profile_id,
+            )
 
             # Use existing LLM analysis but with relaxed criteria (return more tools)
             # Modify prompt to emphasize recall over precision
@@ -328,6 +345,7 @@ class ToolSlotIntentAnalyzer:
                 available_tools=available_tools,
                 conversation_history=conversation_history,
                 playbook_code=playbook_code,
+                workspace_id=workspace_id,
                 model_name=model_name,
                 emphasis="recall",  # Emphasize recall over precision
                 max_tools=top_k
@@ -366,6 +384,7 @@ class ToolSlotIntentAnalyzer:
         candidate_tools: List[ToolRelevanceResult],
         conversation_history: Optional[List[Dict]] = None,
         playbook_code: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         risk_level: str = "read",
         top_k: int = 10,
         original_tools: Optional[List[Any]] = None
@@ -390,8 +409,6 @@ class ToolSlotIntentAnalyzer:
             ToolSlotAnalysisResult with top_k precise tools
         """
         try:
-            # Get strong model using capability profile system
-            from backend.app.services.conversation.capability_profile import CapabilityProfile, CapabilityProfileRegistry
             from backend.app.services.config_store import ConfigStore
             from backend.app.services.playbook.llm_provider_manager import PlaybookLLMProviderManager
 
@@ -400,24 +417,17 @@ class ToolSlotIntentAnalyzer:
                 config_store = ConfigStore()
                 self.llm_provider_manager = PlaybookLLMProviderManager(config_store)
 
-            # Select precise model (adjust based on risk level)
-            registry = CapabilityProfileRegistry()
             profile_id = self.profile_id or "default-user"
-            llm_manager = self.llm_provider_manager.get_llm_manager(profile_id)
-
-            # Use PRECISE profile for high-risk, SAFE_WRITE for write/publish
-            if risk_level in ["write", "publish"]:
-                precision_profile = CapabilityProfile.SAFE_WRITE
-            else:
-                precision_profile = CapabilityProfile.PRECISE
-
-            model_name = registry.select_model(precision_profile, llm_manager, profile_id=profile_id)
-
-            # Fallback to chat_model if capability profile selection fails
-            if not model_name:
-                from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
-                model_name = get_model_name_from_chat_model() or "gpt-4"
-                logger.debug(f"Using chat_model fallback for strong precision: {model_name}")
+            precision_stage = "scope_decision" if risk_level in ["write", "publish"] else "plan_generation"
+            model_name = resolve_stage_model_name(
+                requested_model=None,
+                capability_profile=resolve_stage_capability_profile(
+                    precision_stage,
+                    risk_level,
+                ),
+                llm_provider_manager=self.llm_provider_manager,
+                profile_id=profile_id,
+            )
 
             # Use candidate tools directly in a precision-focused analysis
             result = await self._llm_analyze_relevance_with_model(
@@ -425,6 +435,7 @@ class ToolSlotIntentAnalyzer:
                 available_tools=original_tools or [],  # Pass original tools if available
                 conversation_history=conversation_history,
                 playbook_code=playbook_code,
+                workspace_id=workspace_id,
                 model_name=model_name,
                 emphasis="precision",  # Emphasize precision over recall
                 max_tools=top_k,
@@ -513,6 +524,7 @@ class ToolSlotIntentAnalyzer:
         available_tools: List[Any],
         conversation_history: Optional[List[Dict]] = None,
         playbook_code: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         model_name: Optional[str] = None,
         emphasis: str = "balanced",  # "recall", "precision", or "balanced"
         max_tools: int = 10,
@@ -643,37 +655,7 @@ Return JSON format:
 **Important**: Return only JSON, no other text."""
 
         try:
-            # Get LLM provider
-            if not self.llm_provider_manager:
-                from backend.app.services.config_store import ConfigStore
-                from backend.app.services.playbook.llm_provider_manager import PlaybookLLMProviderManager
-                config_store = ConfigStore()
-                self.llm_provider_manager = PlaybookLLMProviderManager(config_store)
-
-            try:
-                profile_id = self.profile_id or "default-user"
-                llm_manager = self.llm_provider_manager.get_llm_manager(profile_id)
-
-                # Use specified model_name or get from provider
-                if model_name:
-                    # Get provider for specified model
-                    from backend.app.services.conversation.capability_profile import CapabilityProfileRegistry
-                    registry = CapabilityProfileRegistry()
-                    provider_name = registry._resolve_provider_for_model(model_name, profile_id, self.llm_provider_manager)
-                    if provider_name:
-                        try:
-                            provider = llm_manager.get_provider(provider_name)
-                        except Exception as e:
-                            logger.debug(f"Failed to get provider {provider_name}: {e}, using default")
-                            provider = self.llm_provider_manager.get_llm_provider(llm_manager)
-                    else:
-                        provider = self.llm_provider_manager.get_llm_provider(llm_manager)
-                else:
-                    provider = self.llm_provider_manager.get_llm_provider(llm_manager)
-                    model_name = self.llm_provider_manager.get_model_name() or "gpt-4o-mini"
-            except Exception as e:
-                logger.warning(f"Failed to get LLM provider: {e}, skipping intent analysis")
-                return ToolSlotAnalysisResult(relevant_tools=[])
+            profile_id = self.profile_id or "default-user"
 
             # Start trace node for LLM call
             trace_node_id = None
@@ -684,7 +666,7 @@ Return JSON format:
                 # For now, create a new trace if needed
                 # In the future, this should be passed from the caller
                 trace_id = trace_recorder.create_trace(
-                    workspace_id="",  # Will be updated if available
+                    workspace_id=workspace_id or "",
                     execution_id=f"intent_{profile_id}_{int(_utc_now().timestamp())}",
                     user_id=profile_id,
                 )
@@ -699,6 +681,7 @@ Return JSON format:
                         "available_tools_count": len(tool_list_for_analysis),
                     },
                     metadata={
+                        "workspace_id": workspace_id or "",
                         "model_name": model_name,
                         "emphasis": emphasis,
                     },
@@ -708,24 +691,26 @@ Return JSON format:
 
             llm_start_time = _utc_now()
             try:
-                # Call LLM
-                messages = [
-                    {"role": "system", "content": "You are a tool selection assistant specialized in analyzing tool relevance to user intent."},
-                    {"role": "user", "content": prompt}
-                ]
-
-                # Call with model parameter if provider supports it
-                try:
-                    response = await provider.chat_completion(messages, max_tokens=2000, model=model_name)
-                except TypeError:
-                    # Provider might not support model parameter, try without it
-                    response = await provider.chat_completion(messages, max_tokens=2000)
+                response = await core_llm_call(
+                    user_message=prompt,
+                    system_prompt=(
+                        "You are a tool selection assistant specialized in analyzing "
+                        "tool relevance to user intent."
+                    ),
+                    response_format="json",
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    model=model_name,
+                    stage_name="intent_analysis",
+                    purpose="intent_analysis.tool_relevance",
+                    risk_level=risk_level if 'risk_level' in locals() else "read",
+                )
 
                 llm_end_time = _utc_now()
                 latency_ms = int((llm_end_time - llm_start_time).total_seconds() * 1000)
 
                 # Parse JSON response
-                result = self._parse_llm_response(response)
+                result = self._parse_llm_payload(response)
 
                 # End trace node for successful LLM call
                 if trace_node_id and trace_id:
@@ -786,7 +771,8 @@ Return JSON format:
         user_message: str,
         available_tools: List[Any],
         conversation_history: Optional[List[Dict]] = None,
-        playbook_code: Optional[str] = None
+        playbook_code: Optional[str] = None,
+        workspace_id: Optional[str] = None,
     ) -> ToolSlotAnalysisResult:
         """
         Use LLM to analyze tool relevance (legacy method, uses default model)
@@ -806,6 +792,7 @@ Return JSON format:
             available_tools=available_tools,
             conversation_history=conversation_history,
             playbook_code=playbook_code,
+            workspace_id=workspace_id,
             model_name=None,  # Will use default
             emphasis="balanced"
         )
@@ -815,6 +802,11 @@ Return JSON format:
 
     def _parse_llm_response(self, response: str) -> ToolSlotAnalysisResult:
         return parse_llm_response(response)
+
+    def _parse_llm_payload(self, response: Any) -> ToolSlotAnalysisResult:
+        if isinstance(response, dict):
+            return parse_llm_response(json.dumps(response))
+        return self._parse_llm_response(str(response))
 
 
 # Global instance

@@ -12,7 +12,7 @@ Lifecycle:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -242,16 +242,15 @@ class RequestContract(BaseModel):
         agenda: List[str],
         workspace_id: str = "",
         model_name: Optional[str] = None,
+        llm_generate_fn: Optional[Callable[..., Awaitable[str]]] = None,
     ) -> "RequestContract":
         """LLM-assisted contract compilation.
 
-        Calls LLM to extract deliverables with name, quantity, and production
-        dependencies from the user's natural language request.  Captures
-        semantic items (e.g. '配圖') that regex-based parsing misses.
-
-        Falls back to ``compile_from_agenda`` on any LLM error.
+        Uses the supplied meeting-scoped generation callback to extract
+        deliverables with name, quantity, and production dependencies from the
+        user's natural language request. Falls back to ``compile_from_agenda``
+        on any error. Direct provider routing has been removed.
         """
-        import inspect as _inspect
         import json as _json
         import logging
 
@@ -260,32 +259,9 @@ class RequestContract(BaseModel):
         combined = " | ".join(agenda) if agenda else user_message
 
         try:
-            from backend.features.workspace.chat.utils.llm_provider import (
-                get_llm_provider,
-                get_llm_provider_manager,
-            )
-
-            if not model_name:
-                from backend.app.services.system_settings_store import (
-                    SystemSettingsStore,
-                )
-
-                try:
-                    setting = SystemSettingsStore().get_setting("chat_model")
-                    if setting and setting.value:
-                        model_name = str(setting.value)
-                except Exception:
-                    pass
-
-            if not model_name:
+            if not model_name or llm_generate_fn is None:
                 _log.debug("compile_with_llm: no model_name, falling back to regex")
                 return cls.compile_from_agenda(user_message, agenda, workspace_id)
-
-            manager = get_llm_provider_manager()
-            provider, _ = get_llm_provider(
-                model_name=model_name,
-                llm_provider_manager=manager,
-            )
 
             messages = [
                 {
@@ -304,21 +280,7 @@ class RequestContract(BaseModel):
                 },
                 {"role": "user", "content": combined[:800]},
             ]
-
-            call_kwargs = {
-                "messages": messages,
-                "model": model_name,
-                "temperature": 0.2,
-                "max_tokens": 4096,
-                "max_completion_tokens": 4096,
-            }
-            sig = _inspect.signature(provider.chat_completion)
-            allowed = set(sig.parameters.keys())
-            kwargs = {k: v for k, v in call_kwargs.items() if k in allowed}
-            if "messages" not in kwargs:
-                kwargs["messages"] = messages
-
-            raw = await provider.chat_completion(**kwargs)
+            raw = await llm_generate_fn(messages, model=model_name)
             text = raw.strip()
             if text.startswith("```"):
                 text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()

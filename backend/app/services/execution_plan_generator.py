@@ -15,6 +15,7 @@ See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
 
 import json
 import logging
+import os
 import sys
 import uuid
 from typing import Dict, Any, Optional, List, Callable
@@ -27,8 +28,39 @@ def _utc_now():
 
 
 from backend.app.models.workspace import ExecutionPlan, ExecutionStep, TaskPlan
+from backend.app.services.llm.workspace_routed_chat import (
+    chat_completion_with_workspace_route,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_chat_text(response: Any) -> str:
+    if isinstance(response, str):
+        return response
+    if isinstance(response, dict):
+        return str(response.get("content") or response.get("text") or "")
+    return str(response or "")
+
+
+def _resolve_governed_chat_inputs(llm_provider: Any) -> tuple[Any, Any]:
+    provider = llm_provider if hasattr(llm_provider, "chat_completion") else None
+    llm_provider_manager = (
+        llm_provider
+        if hasattr(llm_provider, "get_llm_manager")
+        and hasattr(llm_provider, "get_llm_provider")
+        else None
+    )
+
+    if provider is None and llm_provider_manager is None:
+        from backend.app.services.config_store import ConfigStore
+        from backend.app.services.playbook.llm_provider_manager import (
+            PlaybookLLMProviderManager,
+        )
+
+        llm_provider_manager = PlaybookLLMProviderManager(ConfigStore())
+
+    return provider, llm_provider_manager
 
 # Prompt template for generating execution plan
 EXECUTION_PLAN_PROMPT = """You are an Execution Planning Agent. Your task is to analyze the user's request
@@ -152,6 +184,8 @@ async def generate_execution_plan(
     playbooks_to_use = (
         effective_playbooks if effective_playbooks is not None else available_playbooks
     )
+
+    profile_id = user_id or "default-user"
 
     # DEBUG: Log available playbooks to a file we can read
     try:
@@ -316,40 +350,21 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
         except Exception:
             pass
 
-        provider_name = None
-        if "gemini" in model_name.lower():
-            provider_name = "vertex-ai"
-        elif (
-            "gpt" in model_name.lower()
-            or "o1" in model_name.lower()
-            or "o3" in model_name.lower()
-        ):
-            provider_name = "openai"
-        elif "claude" in model_name.lower():
-            provider_name = "anthropic"
-
-        if not provider_name:
-            error_msg = f"Cannot determine provider for model '{model_name}'. Supported models: gemini-*, gpt-*, o1-*, o3-*, claude-*"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        provider = llm_provider.get_provider(provider_name)
-        if not provider:
-            error_msg = f"Provider '{provider_name}' not available for model '{model_name}'. Please check your API configuration."
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        if not hasattr(provider, "chat_completion"):
-            error_msg = f"Provider '{provider_name}' does not support chat_completion"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        response = await provider.chat_completion(
+        provider, llm_provider_manager = _resolve_governed_chat_inputs(llm_provider)
+        response = await chat_completion_with_workspace_route(
             messages=messages,
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            provider=provider,
+            llm_provider_manager=llm_provider_manager,
             model=model_name,
+            purpose="execution_plan_generation",
+            stage_name="plan_generation",
+            risk_level="read",
             temperature=0.3,  # Lower temperature for more consistent plans
             max_tokens=4000,  # Increased to handle complex execution plans
         )
+        response_text = _coerce_chat_text(response)
 
         # Evidence Logging
         try:
@@ -358,19 +373,19 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
             log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(f"\n==== PLAN RESPONSE {_utc_now()} ====\n")
-                f.write(f"Response:\n{response}\n")
+                f.write(f"Response:\n{response_text}\n")
                 f.write("==========================================\n")
         except Exception:
             pass
 
         logger.info(
-            f"[ExecutionPlanGenerator] Received LLM response, length: {len(response)} chars"
+            f"[ExecutionPlanGenerator] Received LLM response, length: {len(response_text)} chars"
         )
         logger.debug(
-            f"[ExecutionPlanGenerator] Response preview (first 500 chars): {response[:500]}"
+            f"[ExecutionPlanGenerator] Response preview (first 500 chars): {response_text[:500]}"
         )
 
-        plan_data = _parse_plan_json(response)
+        plan_data = _parse_plan_json(response_text)
         if not plan_data:
             error_msg = "Failed to parse execution plan from LLM response"
             logger.error(error_msg)
@@ -384,6 +399,8 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
             expected_artifacts=expected_artifacts,
             llm_provider=llm_provider,
             model_name=model_name,
+            workspace_id=workspace_id,
+            profile_id=profile_id,
             progress_callback=progress_callback,
         )
 
@@ -476,6 +493,8 @@ async def _validate_and_reevaluate_plan(
     expected_artifacts: Optional[List[str]],
     llm_provider: Any,
     model_name: str,
+    workspace_id: Optional[str] = None,
+    profile_id: Optional[str] = None,
     progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """
@@ -594,54 +613,46 @@ Return the CORRECTED execution plan as JSON with the same structure. Only fix th
             user_prompt=reevaluation_prompt,
         )
 
-        provider_name = None
-        if "gemini" in model_name.lower():
-            provider_name = "vertex-ai"
-        elif (
-            "gpt" in model_name.lower()
-            or "o1" in model_name.lower()
-            or "o3" in model_name.lower()
-        ):
-            provider_name = "openai"
-        elif "claude" in model_name.lower():
-            provider_name = "anthropic"
+        provider, llm_provider_manager = _resolve_governed_chat_inputs(llm_provider)
+        response = await chat_completion_with_workspace_route(
+            messages=messages,
+            workspace_id=workspace_id,
+            profile_id=profile_id or "default-user",
+            provider=provider,
+            llm_provider_manager=llm_provider_manager,
+            model=model_name,
+            purpose="execution_plan_reevaluation",
+            stage_name="plan_generation",
+            risk_level="read",
+            temperature=0.2,  # Lower temperature for corrections
+            max_tokens=4000,
+        )
+        corrected_plan_data = _parse_plan_json(_coerce_chat_text(response))
+        if corrected_plan_data:
+            logger.info(
+                f"[ExecutionPlanGenerator] Successfully re-evaluated plan, corrected {len(invalid_steps)} invalid playbook codes"
+            )
+            print(
+                f"[ExecutionPlanGenerator] Successfully corrected {len(invalid_steps)} invalid playbook codes",
+                file=sys.stderr,
+            )
 
-        if provider_name:
-            provider = llm_provider.get_provider(provider_name)
-            if provider and hasattr(provider, "chat_completion"):
-                response = await provider.chat_completion(
-                    messages=messages,
-                    model=model_name,
-                    temperature=0.2,  # Lower temperature for corrections
-                    max_tokens=4000,
+            # Notify user about successful correction
+            if progress_callback:
+                progress_callback(
+                    "reevaluation_completed",
+                    {
+                        "message_key": "execution_plan.reevaluation_completed",
+                        "message_params": {"count": len(invalid_steps)},
+                        "corrected_count": len(invalid_steps),
+                    },
                 )
 
-                corrected_plan_data = _parse_plan_json(response)
-                if corrected_plan_data:
-                    logger.info(
-                        f"[ExecutionPlanGenerator] Successfully re-evaluated plan, corrected {len(invalid_steps)} invalid playbook codes"
-                    )
-                    print(
-                        f"[ExecutionPlanGenerator] Successfully corrected {len(invalid_steps)} invalid playbook codes",
-                        file=sys.stderr,
-                    )
+            return corrected_plan_data
 
-                    # Notify user about successful correction
-                    if progress_callback:
-                        progress_callback(
-                            "reevaluation_completed",
-                            {
-                                "message_key": "execution_plan.reevaluation_completed",
-                                "message_params": {"count": len(invalid_steps)},
-                                "corrected_count": len(invalid_steps),
-                            },
-                        )
-
-                    return corrected_plan_data
-                else:
-                    logger.warning(
-                        f"[ExecutionPlanGenerator] Failed to parse re-evaluation response, using original plan with filtered steps"
-                    )
+        logger.warning(
+            f"[ExecutionPlanGenerator] Failed to parse re-evaluation response, using original plan with filtered steps"
+        )
     except Exception as e:
         logger.warning(
             f"[ExecutionPlanGenerator] Re-evaluation failed: {e}, using original plan with filtered steps",

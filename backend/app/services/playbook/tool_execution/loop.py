@@ -6,6 +6,12 @@ import logging
 import re
 from typing import Dict, List, Optional, Any, Callable, Awaitable, Tuple
 
+from backend.app.services.llm.workspace_routed_chat import (
+    chat_completion_with_workspace_route,
+)
+from backend.app.services.playbook.tool_execution.pending_approval import (
+    ToolApprovalRequiredError,
+)
 from backend.app.services.stores.workspace_runtime_profile_store import WorkspaceRuntimeProfileStore
 
 logger = logging.getLogger(__name__)
@@ -141,6 +147,19 @@ class ToolExecutionLoop:
 
 Please retry the tool call."""
 
+    @staticmethod
+    def _build_pending_approval_message(approval_request: dict[str, Any]) -> str:
+        command_id = approval_request.get("command_id", "unknown")
+        tool_fqn = approval_request.get("tool_fqn", "unknown")
+        reason = approval_request.get("reason") or "Tool execution requires approval."
+        return (
+            "**Approval Required**\n\n"
+            f"- Tool: `{tool_fqn}`\n"
+            f"- Pending command: `{command_id}`\n"
+            f"- Reason: {reason}\n\n"
+            "Execution was paused before the tool ran. Approve the pending command to continue."
+        )
+
     async def execute_tool_loop(
         self,
         conv_manager: Any,
@@ -195,6 +214,7 @@ Please retry the tool call."""
         current_response = assistant_response
         format_retry_count = 0
         max_format_retries = 2
+        pending_approval_request = None
 
         _parent_ctx_token = None
         if execution_id:
@@ -219,7 +239,18 @@ Please retry the tool call."""
                         correction_msg = self._build_format_correction_message(format_error)
                         conv_manager.add_tool_call_results([{"tool_name": "system", "result": correction_msg, "success": False, "error": "Format error"}])
                         messages = await conv_manager.get_messages_for_llm()
-                        current_response = await provider.chat_completion(messages, model=model_name if model_name else None)
+                        current_response = await chat_completion_with_workspace_route(
+                            messages=messages,
+                            workspace_id=getattr(conv_manager, "workspace_id", None),
+                            profile_id=profile_id,
+                            model=model_name,
+                            provider=provider,
+                            route_context=self.execution_context.get("executor_route_context"),
+                            purpose="playbook_tool_loop.format_retry",
+                            decision_log=self.execution_context.setdefault(
+                                "stage_route_decisions", []
+                            ),
+                        )
                         conv_manager.add_assistant_message(current_response)
                         continue
 
@@ -235,7 +266,18 @@ Please retry the tool call."""
                         )
                         conv_manager.conversation_history.append({"role": "system", "content": continue_prompt})
                         messages = await conv_manager.get_messages_for_llm()
-                        current_response = await provider.chat_completion(messages, model=model_name if model_name else None)
+                        current_response = await chat_completion_with_workspace_route(
+                            messages=messages,
+                            workspace_id=getattr(conv_manager, "workspace_id", None),
+                            profile_id=profile_id,
+                            model=model_name,
+                            provider=provider,
+                            route_context=self.execution_context.get("executor_route_context"),
+                            purpose="playbook_tool_loop.auto_execute_continue",
+                            decision_log=self.execution_context.setdefault(
+                                "stage_route_decisions", []
+                            ),
+                        )
                         conv_manager.add_assistant_message(current_response)
                         tool_iteration += 1
                         continue
@@ -306,6 +348,19 @@ Please retry the tool call."""
                             logger.warning(f"LoopBudget: Tool call limit reached. Stopping tool execution loop.")
                             break
 
+                    except ToolApprovalRequiredError as e:
+                        display_name = tool_slot if tool_slot else tool_name
+                        pending_approval_request = e.approval_request
+                        tool_results.append({
+                            "tool_name": display_name,
+                            "tool_slot": tool_slot if tool_slot else None,
+                            "result": None,
+                            "success": False,
+                            "pending_approval": True,
+                            "approval_request": pending_approval_request,
+                            "error": str(e),
+                        })
+                        break
                     except Exception as e:
                         error_msg = str(e)[:500]
                         display_name = tool_slot if tool_slot else tool_name
@@ -348,8 +403,26 @@ Please retry the tool call."""
                 if tool_results:
                     conv_manager.add_tool_call_results(tool_results)
 
+                if pending_approval_request:
+                    current_response = self._build_pending_approval_message(
+                        pending_approval_request
+                    )
+                    conv_manager.add_assistant_message(current_response)
+                    break
+
                 messages = await conv_manager.get_messages_for_llm()
-                current_response = await provider.chat_completion(messages, model=model_name if model_name else None)
+                current_response = await chat_completion_with_workspace_route(
+                    messages=messages,
+                    workspace_id=getattr(conv_manager, "workspace_id", None),
+                    profile_id=profile_id,
+                    model=model_name,
+                    provider=provider,
+                    route_context=self.execution_context.get("executor_route_context"),
+                    purpose="playbook_tool_loop.post_tool_results",
+                    decision_log=self.execution_context.setdefault(
+                        "stage_route_decisions", []
+                    ),
+                )
                 conv_manager.add_assistant_message(current_response)
                 tool_iteration += 1
 

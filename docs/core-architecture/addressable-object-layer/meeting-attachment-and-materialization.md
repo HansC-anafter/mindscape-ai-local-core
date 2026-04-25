@@ -221,6 +221,17 @@ Verb semantics:
 - `review`: send result into a review lane
 - `promote`: advance an already-reviewed result toward canonical state
 
+Wave 1 interoperability deepening should add a runtime-owned
+`POST /api/v1/workspaces/{workspace_id}/object-materialize` surface for verbs
+such as `review` and `promote`.
+
+That runtime route must:
+
+- stay generic at the transport layer
+- delegate owner-specific logic to declared materializers
+- return bounded review plans, staged refs, or owner routes
+- avoid direct canonical mutation in runtime-owned code
+
 ## Targeting Model
 
 Meetings often need more than one object.

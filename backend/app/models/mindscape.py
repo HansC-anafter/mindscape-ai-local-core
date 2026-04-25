@@ -211,6 +211,31 @@ class IntentCard(BaseModel):
     model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
+class IntentCluster(BaseModel):
+    """Semantic cluster for related intent cards."""
+
+    id: str = Field(..., description="Unique cluster identifier")
+    label: str = Field(..., description="Human-readable cluster label")
+    embedding: Optional[List[float]] = Field(
+        default=None,
+        description="Representative embedding for the cluster",
+    )
+    workspace_id: str = Field(..., description="Associated workspace ID")
+    profile_id: str = Field(..., description="Associated profile ID")
+    intent_card_ids: List[str] = Field(
+        default_factory=list,
+        description="Intent cards belonging to this cluster",
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional cluster metadata",
+    )
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+
+
 class AgentExecution(BaseModel):
     """Record of agent execution"""
 

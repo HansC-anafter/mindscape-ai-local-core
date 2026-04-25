@@ -10,7 +10,7 @@ Note: TaskIR dispatch has moved to DispatchOrchestrator.
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -31,49 +31,35 @@ async def _decompose_agenda(
     user_message: str,
     model_name: str | None = None,
     executor_runtime: str | None = None,
+    llm_generate_fn: Optional[
+        Callable[..., Awaitable[str]]
+    ] = None,
 ) -> list[str]:
     """Use LLM to decompose a user message into 2-5 agenda items.
 
-    Falls back to [user_message] on any error.  Respects existing
-    _AGENDA_MAX_ITEMS cap and _sanitize_agenda_item rules.
+    Falls back to [user_message] on any error. Respects existing
+    _AGENDA_MAX_ITEMS cap and _sanitize_agenda_item rules. Direct provider
+    routing has been removed; agenda decomposition only uses the supplied
+    meeting-scoped generation callback.
 
     Args:
         user_message: Raw user message to decompose.
         model_name: Optional model override.  Falls back to system
             setting ``chat_model`` if not provided.
-        executor_runtime: Skip direct LLM agenda decomposition when an
-            executor runtime is driving the meeting.
+        executor_runtime: Retained for compatibility with existing callers.
+        llm_generate_fn: Optional meeting-scoped generator callback. When
+            provided, agenda decomposition uses the same bound route as the
+            meeting deliberation turns.
     """
     if not user_message or len(user_message.strip()) < 10:
         return [_sanitize_agenda_item(user_message)]
-    # executor_runtime no longer blocks decomposition — Layer-0c
-    # agenda split must happen regardless of runtime driver.
+    if llm_generate_fn is None:
+        return [_sanitize_agenda_item(user_message)]
 
     try:
-        import inspect as _inspect
         import json as _json
-        from backend.features.workspace.chat.utils.llm_provider import (
-            get_llm_provider,
-            get_llm_provider_manager,
-        )
-
-        if not model_name:
-            from backend.app.services.system_settings_store import SystemSettingsStore
-
-            try:
-                setting = SystemSettingsStore().get_setting("chat_model")
-                if setting and setting.value:
-                    model_name = str(setting.value)
-            except Exception:
-                pass
         if not model_name:
             return [_sanitize_agenda_item(user_message)]
-
-        manager = get_llm_provider_manager()
-        provider, _ = get_llm_provider(
-            model_name=model_name,
-            llm_provider_manager=manager,
-        )
 
         messages = [
             {
@@ -86,22 +72,7 @@ async def _decompose_agenda(
             },
             {"role": "user", "content": user_message[:500]},
         ]
-        # Provider-safe kwargs: filter by signature (Anthropic only
-        # accepts messages+model, Vertex accepts temperature etc.)
-        call_kwargs = {
-            "messages": messages,
-            "model": model_name,
-            "temperature": 0.3,
-            "max_tokens": 1024,
-            "max_completion_tokens": 1024,
-        }
-        sig = _inspect.signature(provider.chat_completion)
-        allowed = set(sig.parameters.keys())
-        kwargs = {k: v for k, v in call_kwargs.items() if k in allowed}
-        if "messages" not in kwargs:
-            kwargs["messages"] = messages
-
-        raw = await provider.chat_completion(**kwargs)
+        raw = await llm_generate_fn(messages, model=model_name)
         # Parse JSON array from response
         text = raw.strip()
         if text.startswith("```"):
@@ -208,6 +179,9 @@ async def ensure_meeting_session(
     user_message: Optional[str] = None,
     model_name: Optional[str] = None,
     executor_runtime: Optional[str] = None,
+    llm_generate_fn: Optional[
+        Callable[..., Awaitable[str]]
+    ] = None,
 ) -> Optional[Any]:
     """Get or create the active MeetingSession for this workspace/thread.
 
@@ -221,8 +195,8 @@ async def ensure_meeting_session(
         project_id: Optional project ID.
         user_message: Optional user message to include in agenda.
         model_name: Optional LLM model name for agenda decomposition.
-        executor_runtime: Active executor runtime. When present, skip
-            direct LLM agenda decomposition and use the raw user message.
+        executor_runtime: Active executor runtime.
+        llm_generate_fn: Optional meeting-scoped runtime generation callback.
 
     Returns:
         MeetingSession or None on error.
@@ -245,6 +219,7 @@ async def ensure_meeting_session(
                     user_message,
                     model_name=model_name,
                     executor_runtime=executor_runtime,
+                    llm_generate_fn=llm_generate_fn,
                 )
                 current = list(session.agenda or [])
                 for item in decomposed:
@@ -295,6 +270,7 @@ async def ensure_meeting_session(
                 user_message,
                 model_name=model_name,
                 executor_runtime=executor_runtime,
+                llm_generate_fn=llm_generate_fn,
             )
         new_session = MeetingSession.new(
             workspace_id=workspace_id,

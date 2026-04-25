@@ -6,6 +6,10 @@ Low-level utility functions for LLM API calls
 import logging
 from typing import Dict, List, Optional, Any
 
+from backend.app.services.llm.workspace_routed_chat import (
+    chat_completion_with_workspace_route,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -88,11 +92,20 @@ def _format_dict(d: Dict[str, Any], indent: int = 0) -> str:
 
 
 async def call_llm(
-    messages: List[Dict[str, str]],
-    llm_provider: Any,
+    messages: Optional[List[Dict[str, str]]] = None,
+    llm_provider: Any = None,
     model: Optional[str] = None,
     temperature: float = 0.7,
-    max_tokens: Optional[int] = None
+    max_tokens: Optional[int] = None,
+    *,
+    prompt: Optional[List[Dict[str, str]]] = None,
+    model_name: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    profile_id: Optional[str] = None,
+    route_context: Optional[Dict[str, Any]] = None,
+    stage_name: Optional[str] = None,
+    purpose: str = "llm_utils.call_llm",
+    risk_level: str = "read",
 ) -> Dict[str, Any]:
     """
     Call LLM API
@@ -110,83 +123,105 @@ async def call_llm(
             - usage: Token usage information (if available)
     """
     try:
-        # If llm_provider is LLMProviderManager, get the actual provider based on model
-        if hasattr(llm_provider, 'get_provider'):
-            # Get provider from user settings (no fallback)
-            from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
+        normalized_messages = messages if messages is not None else prompt
+        if normalized_messages is None:
+            raise Exception("No messages provided")
+        if llm_provider is None:
+            raise Exception("No LLM provider available")
+
+        resolved_model_name = model_name or model
+        provider = None
+        llm_provider_manager = None
+
+        from backend.app.shared.llm_provider_helper import (
+            get_llm_provider_from_settings,
+            resolve_llm_selection,
+        )
+
+        if hasattr(llm_provider, "get_llm_manager") and hasattr(
+            llm_provider, "get_llm_provider"
+        ):
+            llm_provider_manager = llm_provider
+        elif hasattr(llm_provider, "get_provider"):
             try:
+                selection = resolve_llm_selection(
+                    model_name=resolved_model_name,
+                    default_model="gpt-4o-mini",
+                    purpose=purpose,
+                )
+                resolved_model_name = selection.model_name
                 provider = get_llm_provider_from_settings(
                     llm_provider,
-                    model_name=model,
+                    model_name=resolved_model_name,
                     default_model="gpt-4o-mini",
-                    purpose="llm_utils.call_llm",
+                    purpose=purpose,
                 )
             except ValueError as e:
-                logger.warning(f"LLM provider not available for model {model}: {e}")
+                logger.warning(
+                    "LLM provider not available for model %s: %s",
+                    resolved_model_name,
+                    e,
+                )
                 raise Exception(f"No LLM provider available: {e}")
         else:
             provider = llm_provider
+            if not resolved_model_name:
+                resolved_model_name = resolve_llm_selection(
+                    model_name=None,
+                    default_model="gpt-4o-mini",
+                    purpose=purpose,
+                ).model_name
 
-        if not provider:
+        if provider is None and llm_provider_manager is None:
             raise Exception("No LLM provider available")
 
-        # Debug: log provider type
-        logger.info(f"LLM provider type: {type(provider)}, has chat_completion: {hasattr(provider, 'chat_completion')}")
-
-        # Call provider's chat_completion
-        # Note: This assumes the provider has a chat_completion method
-        # May need to adjust based on different providers
-        if hasattr(provider, 'chat_completion'):
-            # Check if provider supports additional parameters
-            import inspect
-            sig = inspect.signature(provider.chat_completion)
-            params = {}
-            if 'temperature' in sig.parameters:
-                params['temperature'] = temperature
-
-            if not model:
-                import os
-                from backend.app.services.conversation.model_context_presets import get_model_name_from_env
-                model = get_model_name_from_env() or "gpt-4o-mini"
-
-            model_name = model
-            from backend.app.shared.inference_config import InferenceConfig
-            resolved_max = InferenceConfig.get_max_tokens(
-                model_name, caller_default=max_tokens
+        if provider is not None:
+            logger.info(
+                "LLM provider type: %s, has chat_completion: %s",
+                type(provider),
+                hasattr(provider, "chat_completion"),
             )
+            if not hasattr(provider, "chat_completion"):
+                error_msg = (
+                    f"Provider {type(provider)} does not have chat_completion method. "
+                    f"Provider: {provider}"
+                )
+                logger.error(error_msg)
+                raise Exception(error_msg)
 
-            is_newer_model = model_name and ("gpt-5" in model_name or "o1" in model_name.lower() or "o3" in model_name.lower())
-            is_gemini_model = model_name and "gemini" in model_name.lower()
+        response = await chat_completion_with_workspace_route(
+            messages=normalized_messages,
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            model=resolved_model_name,
+            max_tokens=max_tokens,
+            provider=provider,
+            llm_provider_manager=llm_provider_manager,
+            route_context=route_context,
+            purpose=purpose,
+            stage_name=stage_name,
+            risk_level=risk_level,
+            temperature=temperature,
+        )
 
-            if is_newer_model or is_gemini_model:
-                if 'max_completion_tokens' in sig.parameters:
-                    params['max_completion_tokens'] = resolved_max
-                elif 'max_tokens' in sig.parameters:
-                    params['max_tokens'] = resolved_max
-            else:
-                if 'max_tokens' in sig.parameters:
-                    params['max_tokens'] = resolved_max
+        response_text = (
+            response.get("content", "")
+            if isinstance(response, dict)
+            else str(response or "")
+        )
 
-            response_text = await provider.chat_completion(
-                messages=messages,
-                model=model_name,
-                **params
-            )
+        usage = {}
+        if provider is not None and hasattr(provider, "last_usage"):
+            usage = provider.last_usage
 
-            # Try to get usage information (if provider provides it)
-            usage = {}
-            if hasattr(provider, 'last_usage'):
-                usage = provider.last_usage
-
-            return {
-                "text": response_text,
-                "usage": usage
-            }
-        else:
-            error_msg = f"Provider {type(provider)} does not have chat_completion method. Provider: {provider}"
-            logger.error(error_msg)
-            raise Exception(error_msg)
-
+        provider_class = provider.__class__.__name__ if provider is not None else None
+        return {
+            "text": response_text,
+            "content": response_text,
+            "usage": usage,
+            "model_name": resolved_model_name,
+            "provider_class": provider_class,
+        }
     except Exception as e:
         logger.error(f"LLM call failed: {e}")
         raise

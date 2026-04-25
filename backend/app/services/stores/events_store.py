@@ -390,15 +390,18 @@ class EventsStore(StoreBase):
         """
         Get all events for a specific meeting session.
 
-        Uses metadata JSON field convention: metadata.meeting_session_id.
+        Accepts either metadata.meeting_session_id or payload.meeting_session_id.
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             query = (
                 "SELECT * FROM mind_events "
-                "WHERE json_extract(metadata, '$.meeting_session_id') = ?"
+                "WHERE ("
+                "json_extract(metadata, '$.meeting_session_id') = ? "
+                "OR json_extract(payload, '$.meeting_session_id') = ?"
+                ")"
             )
-            params = [meeting_session_id]
+            params = [meeting_session_id, meeting_session_id]
 
             if workspace_id:
                 query += " AND workspace_id = ?"

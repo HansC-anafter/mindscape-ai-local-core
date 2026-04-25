@@ -63,8 +63,17 @@ def build_spatial_scheduling_ir(
     items = _normalize_source_items(action_items, action_intents)
     consumer_hints = _extract_consumer_hints(governance)
     world_anchors = _collect_world_anchors(world_context)
-    anchors = _collect_anchors(items, world_anchors, governance=governance)
-    entities = _collect_entities(items, governance=governance)
+    anchors = _collect_anchors(
+        items,
+        world_anchors,
+        governance=governance,
+        decision=decision,
+    )
+    entities = _collect_entities(
+        items,
+        governance=governance,
+        decision=decision,
+    )
     consumer_prompt_segments = _collect_consumer_prompt_segments(
         items=items,
         governance=governance,
@@ -77,6 +86,18 @@ def build_spatial_scheduling_ir(
         consumer_prompt_segments=consumer_prompt_segments,
         world_anchor_ids=[anchor.anchor_id for anchor in world_anchors],
     )
+    native_execution_plan = _build_native_execution_plan(
+        decision=decision,
+        governance=governance,
+        items=items,
+        entities=entities,
+        anchors=anchors,
+        segments=segments,
+    )
+    _apply_native_segment_bindings(
+        segments=segments,
+        native_execution_plan=native_execution_plan,
+    )
     timebase, source_conflicts = _resolve_timebase(
         world_context=world_context,
         items=items,
@@ -88,6 +109,7 @@ def build_spatial_scheduling_ir(
         anchors=anchors,
         entities=entities,
         consumer_prompt_segments=consumer_prompt_segments,
+        native_execution_plan=native_execution_plan,
     )
 
     schedule = SpatialSchedulingIR(
@@ -165,6 +187,10 @@ def build_spatial_schedule_context(
         constraint_summary["consumer_hints"] = list(summary_metadata["consumer_hints"])
     if summary_metadata.get("intent_summary"):
         constraint_summary["intent_summary"] = str(summary_metadata["intent_summary"])
+    if summary_metadata.get("native_execution_plan"):
+        constraint_summary["native_execution_plan"] = dict(
+            summary_metadata["native_execution_plan"]
+        )
 
     return {
         "schedule_id": schedule.schedule_id,
@@ -451,6 +477,7 @@ def _collect_entities(
     items: Iterable[dict[str, Any]],
     *,
     governance: Optional[Dict[str, Any]] = None,
+    decision: Optional[str] = None,
 ) -> list[SpatialEntityRef]:
     entities: dict[str, SpatialEntityRef] = {}
     for item in items:
@@ -481,6 +508,12 @@ def _collect_entities(
                 )
     for entity in _collect_bounded_constraint_entities(governance):
         entities.setdefault(entity.entity_id, entity)
+    for entity in _collect_native_story_entities(
+        decision=decision,
+        governance=governance,
+        items=items,
+    ):
+        entities.setdefault(entity.entity_id, entity)
     return list(entities.values())
 
 
@@ -510,6 +543,7 @@ def _collect_anchors(
     world_anchors: list[SpatialAnchor],
     *,
     governance: Optional[Dict[str, Any]] = None,
+    decision: Optional[str] = None,
 ) -> list[SpatialAnchor]:
     anchors: dict[str, SpatialAnchor] = {
         anchor.anchor_id: anchor for anchor in list(world_anchors or [])
@@ -535,6 +569,12 @@ def _collect_anchors(
                 )
 
     for anchor in _collect_bounded_constraint_anchors(governance):
+        anchors.setdefault(anchor.anchor_id, anchor)
+    for anchor in _collect_native_story_anchors(
+        decision=decision,
+        governance=governance,
+        items=items,
+    ):
         anchors.setdefault(anchor.anchor_id, anchor)
 
     return list(anchors.values())
@@ -809,6 +849,7 @@ def _build_constraint_summary(
     anchors: list[SpatialAnchor],
     entities: list[SpatialEntityRef],
     consumer_prompt_segments: list[SpatialConsumerPromptSegment],
+    native_execution_plan: Optional[dict[str, Any]] = None,
 ) -> SpatialConstraintSummary:
     motion_constraint_types = []
     for item in items:
@@ -832,6 +873,8 @@ def _build_constraint_summary(
     }
     if decision_summary := _derive_schedule_title(decision=None, governance=governance):
         summary_metadata["intent_summary"] = decision_summary
+    if native_execution_plan:
+        summary_metadata["native_execution_plan"] = dict(native_execution_plan)
     if summary_metadata:
         summary["metadata"] = {
             key: value
@@ -839,6 +882,434 @@ def _build_constraint_summary(
             if value not in (None, "", [], {})
         }
     return SpatialConstraintSummary.model_validate(summary)
+
+
+def _build_native_execution_plan(
+    *,
+    decision: Optional[str],
+    governance: Optional[Dict[str, Any]],
+    items: Iterable[dict[str, Any]],
+    entities: list[SpatialEntityRef],
+    anchors: list[SpatialAnchor],
+    segments: list[SpatialScheduleSegment],
+) -> dict[str, Any]:
+    blueprint = _derive_native_story_blueprint(
+        decision=decision,
+        governance=governance,
+        items=items,
+    )
+    if not blueprint:
+        return {}
+
+    entity_ids = {entity.entity_id for entity in list(entities or [])}
+    anchor_ids = {anchor.anchor_id for anchor in list(anchors or [])}
+
+    camera_id = _prefer_existing_identifier(entity_ids, "camera.main", contains=("camera",))
+    counter_id = _prefer_existing_identifier(
+        entity_ids,
+        "object.counter",
+        contains=("counter", "support"),
+    )
+    tray_id = _prefer_existing_identifier(entity_ids, "object.tray", contains=("tray",))
+    actor_id = _prefer_existing_identifier(entity_ids, "actor.handoff", contains=("actor", "handoff"))
+
+    counter_anchor_id = _prefer_existing_identifier(
+        anchor_ids,
+        "anchor.counter",
+        contains=("counter",),
+    )
+    tray_rest_anchor_id = _prefer_existing_identifier(
+        anchor_ids,
+        "anchor.tray_rest",
+        contains=("tray_rest", "rest"),
+    )
+    entry_handoff_anchor_id = _prefer_existing_identifier(
+        anchor_ids,
+        "anchor.entry_handoff",
+        contains=("entry", "handoff"),
+    )
+
+    camera_segment = _match_segment_for_keywords(
+        segments,
+        ("鏡位", "camera", "shot", "viewpoint"),
+    )
+    layout_segment = _match_segment_for_keywords(
+        segments,
+        ("物件", "錨點", "anchor", "object", "標記"),
+    )
+    proof_segment = _match_segment_for_keywords(
+        segments,
+        ("排程", "proof", "handoff", "world"),
+    )
+
+    actors = []
+    if blueprint.get("handoff") and actor_id:
+        actors.append(
+            {
+                "entity_id": actor_id,
+                "role": "handoff_subject",
+                "path_id": "path.tray_handoff",
+                "source": "native_pd_inference",
+            }
+        )
+
+    blocking_paths = []
+    if blueprint.get("handoff") and actor_id and tray_id and entry_handoff_anchor_id and tray_rest_anchor_id:
+        blocking_paths.append(
+            {
+                "path_id": "path.tray_handoff",
+                "segment_id": getattr(layout_segment, "segment_id", None),
+                "segment_title": getattr(layout_segment, "title", None),
+                "subject_entity_id": actor_id,
+                "object_entity_id": tray_id,
+                "from_anchor_id": entry_handoff_anchor_id,
+                "to_anchor_id": tray_rest_anchor_id,
+                "policy": "single_bounded_transfer",
+            }
+        )
+
+    camera_blocking = []
+    if blueprint.get("camera") and camera_id:
+        camera_blocking.append(
+            {
+                "camera_entity_id": camera_id,
+                "segment_id": getattr(camera_segment, "segment_id", None),
+                "segment_title": getattr(camera_segment, "title", None),
+                "mode": "hold_then_minor_reframe" if blueprint.get("handoff") else "single_locked_view",
+                "anchor_ids": [
+                    anchor_id
+                    for anchor_id in (counter_anchor_id, tray_rest_anchor_id)
+                    if anchor_id
+                ],
+                "must_hold": [
+                    "counter remains primary focal plane",
+                    "tray landing remains readable",
+                ],
+            }
+        )
+
+    performance_beats = []
+    if blueprint.get("handoff") and actor_id and tray_id and entry_handoff_anchor_id and tray_rest_anchor_id:
+        performance_beats.append(
+            {
+                "beat_id": "beat.tray_transfer",
+                "segment_id": getattr(layout_segment, "segment_id", None),
+                "segment_title": getattr(layout_segment, "title", None),
+                "subject_entity_id": actor_id,
+                "action": "transfer_tray_to_rest",
+                "object_entity_id": tray_id,
+                "from_anchor_id": entry_handoff_anchor_id,
+                "to_anchor_id": tray_rest_anchor_id,
+            }
+        )
+
+    interaction_beats = []
+    if blueprint.get("handoff") and actor_id and tray_id and counter_id:
+        interaction_beats.append(
+            {
+                "beat_id": "beat.tray_counter_settle",
+                "segment_id": getattr(proof_segment, "segment_id", None),
+                "segment_title": getattr(proof_segment, "title", None),
+                "subject_entity_id": actor_id,
+                "target_entity_id": counter_id,
+                "object_entity_id": tray_id,
+                "interaction": "tray_settles_on_counter_surface",
+            }
+        )
+
+    return {
+        "source": "native_pd_inference",
+        "actors": actors,
+        "blocking_paths": blocking_paths,
+        "camera_blocking": camera_blocking,
+        "performance_beats": performance_beats,
+        "interaction_beats": interaction_beats,
+    }
+
+
+def _apply_native_segment_bindings(
+    *,
+    segments: list[SpatialScheduleSegment],
+    native_execution_plan: Optional[dict[str, Any]],
+) -> None:
+    if not native_execution_plan:
+        return
+
+    actor_ids = _merge_unique_strings(
+        [actor.get("entity_id") for actor in list(native_execution_plan.get("actors") or [])],
+        [],
+    )
+    blocking_paths = list(native_execution_plan.get("blocking_paths") or [])
+    camera_blocking = list(native_execution_plan.get("camera_blocking") or [])
+    performance_beats = list(native_execution_plan.get("performance_beats") or [])
+    interaction_beats = list(native_execution_plan.get("interaction_beats") or [])
+
+    camera_ids = _merge_unique_strings(
+        [item.get("camera_entity_id") for item in camera_blocking],
+        [],
+    )
+    object_ids = _merge_unique_strings(
+        [
+            path.get("object_entity_id")
+            for path in blocking_paths
+        ],
+        [
+            beat.get("object_entity_id")
+            for beat in [*performance_beats, *interaction_beats]
+        ],
+    )
+    target_ids = _merge_unique_strings(
+        [beat.get("target_entity_id") for beat in interaction_beats],
+        [],
+    )
+    path_anchor_ids = _merge_unique_strings(
+        [path.get("from_anchor_id") for path in blocking_paths],
+        [path.get("to_anchor_id") for path in blocking_paths],
+    )
+    camera_anchor_ids = _merge_unique_strings(
+        [],
+        [
+            anchor_id
+            for item in camera_blocking
+            for anchor_id in list(item.get("anchor_ids") or [])
+        ],
+    )
+
+    for segment in list(segments or []):
+        title = str(segment.title or "").lower()
+        metadata = dict(segment.metadata or {})
+
+        if any(keyword in title for keyword in ("鏡位", "camera", "shot", "viewpoint")):
+            segment.entity_refs = _merge_unique_strings(list(segment.entity_refs or []), camera_ids)
+            segment.anchors = _merge_unique_strings(list(segment.anchors or []), camera_anchor_ids)
+            if camera_blocking:
+                metadata["camera_hint"] = dict(camera_blocking[0])
+
+        if any(keyword in title for keyword in ("物件", "object", "錨點", "anchor", "標記")):
+            segment.entity_refs = _merge_unique_strings(
+                list(segment.entity_refs or []),
+                [*actor_ids, *object_ids, *target_ids],
+            )
+            segment.anchors = _merge_unique_strings(
+                list(segment.anchors or []),
+                [*path_anchor_ids, *camera_anchor_ids],
+            )
+            if blocking_paths:
+                metadata["blocking_paths"] = list(blocking_paths)
+            if native_execution_plan.get("actors"):
+                metadata["actors"] = list(native_execution_plan.get("actors") or [])
+
+        if any(keyword in title for keyword in ("排程", "proof", "handoff", "world", "校核")):
+            segment.entity_refs = _merge_unique_strings(
+                list(segment.entity_refs or []),
+                [*actor_ids, *object_ids, *target_ids, *camera_ids],
+            )
+            segment.anchors = _merge_unique_strings(
+                list(segment.anchors or []),
+                [*path_anchor_ids, *camera_anchor_ids],
+            )
+            if performance_beats:
+                metadata["performance_beats"] = list(performance_beats)
+            if interaction_beats:
+                metadata["interaction_beats"] = list(interaction_beats)
+
+        segment.metadata = metadata
+
+
+def _collect_native_story_entities(
+    *,
+    decision: Optional[str],
+    governance: Optional[Dict[str, Any]],
+    items: Iterable[dict[str, Any]],
+) -> list[SpatialEntityRef]:
+    blueprint = _derive_native_story_blueprint(
+        decision=decision,
+        governance=governance,
+        items=items,
+    )
+    if not blueprint:
+        return []
+
+    entities: list[SpatialEntityRef] = []
+    if blueprint.get("counter"):
+        entities.append(
+            SpatialEntityRef(
+                entity_id="object.counter",
+                entity_kind="object",
+                display_name="Counter",
+                role="support_surface",
+                metadata={"source": "native_pd_inference"},
+            )
+        )
+    if blueprint.get("tray"):
+        entities.append(
+            SpatialEntityRef(
+                entity_id="object.tray",
+                entity_kind="object",
+                display_name="Tray",
+                role="primary_prop",
+                metadata={"source": "native_pd_inference"},
+            )
+        )
+    if blueprint.get("camera"):
+        entities.append(
+            SpatialEntityRef(
+                entity_id="camera.main",
+                entity_kind="camera",
+                display_name="Main Camera",
+                role="primary_camera",
+                metadata={
+                    "source": "native_pd_inference",
+                    "shot_family": "single_bounded_shot",
+                },
+            )
+        )
+    if blueprint.get("handoff"):
+        entities.append(
+            SpatialEntityRef(
+                entity_id="actor.handoff",
+                entity_kind="actor",
+                display_name="Handoff Subject",
+                role="handoff_subject",
+                metadata={"source": "native_pd_inference"},
+            )
+        )
+    return entities
+
+
+def _collect_native_story_anchors(
+    *,
+    decision: Optional[str],
+    governance: Optional[Dict[str, Any]],
+    items: Iterable[dict[str, Any]],
+) -> list[SpatialAnchor]:
+    blueprint = _derive_native_story_blueprint(
+        decision=decision,
+        governance=governance,
+        items=items,
+    )
+    if not blueprint:
+        return []
+
+    anchors: list[SpatialAnchor] = []
+    if blueprint.get("counter"):
+        anchors.append(
+            SpatialAnchor(
+                anchor_id="anchor.counter",
+                anchor_kind="surface",
+                label="Counter Surface",
+                metadata={"source": "native_pd_inference"},
+            )
+        )
+    if blueprint.get("tray"):
+        anchors.append(
+            SpatialAnchor(
+                anchor_id="anchor.tray_rest",
+                anchor_kind="placement",
+                label="Tray Rest Area",
+                metadata={"source": "native_pd_inference"},
+            )
+        )
+    if blueprint.get("handoff"):
+        anchors.append(
+            SpatialAnchor(
+                anchor_id="anchor.entry_handoff",
+                anchor_kind="entry",
+                label="Entry Handoff Lane",
+                metadata={"source": "native_pd_inference"},
+            )
+        )
+    return anchors
+
+
+def _derive_native_story_blueprint(
+    *,
+    decision: Optional[str],
+    governance: Optional[Dict[str, Any]],
+    items: Iterable[dict[str, Any]],
+) -> dict[str, Any]:
+    text = _build_native_story_text(decision=decision, governance=governance, items=items)
+    if not text:
+        return {}
+
+    normalized = text.lower()
+    tray = _text_has_any(normalized, ("tray", "托盤"))
+    counter = _text_has_any(
+        normalized,
+        ("counter", "countertop", "櫃台", "台面", "台面前景"),
+    ) or tray
+    handoff = _text_has_any(
+        normalized,
+        ("handoff", "transfer", "tray lands", "settle", "交接", "遞交", "轉交", "放到"),
+    )
+    camera = _text_has_any(
+        normalized,
+        ("camera", "shot", "viewpoint", "reframe", "鏡位", "構圖", "單一鏡位"),
+    ) or handoff
+
+    if not any((tray, counter, handoff, camera)):
+        return {}
+    return {
+        "counter": bool(counter),
+        "tray": bool(tray),
+        "handoff": bool(handoff),
+        "camera": bool(camera),
+    }
+
+
+def _build_native_story_text(
+    *,
+    decision: Optional[str],
+    governance: Optional[Dict[str, Any]],
+    items: Iterable[dict[str, Any]],
+) -> str:
+    parts: list[str] = []
+    for value in (
+        decision,
+        (governance or {}).get("intent_summary"),
+        (governance or {}).get("human_instructions"),
+        _summarize_operator_prompt(governance),
+    ):
+        text = str(value or "").strip()
+        if text:
+            parts.append(text)
+    for item in list(items or []):
+        for value in (item.get("title"), item.get("description")):
+            text = str(value or "").strip()
+            if text:
+                parts.append(text)
+    return "\n".join(parts)
+
+
+def _text_has_any(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword in text for keyword in keywords)
+
+
+def _prefer_existing_identifier(
+    existing_ids: set[str],
+    fallback_id: str,
+    *,
+    contains: tuple[str, ...],
+) -> str:
+    lowered = {value.lower(): value for value in existing_ids}
+    if fallback_id.lower() in lowered:
+        return lowered[fallback_id.lower()]
+    for existing_id in existing_ids:
+        candidate = existing_id.lower()
+        if any(token in candidate for token in contains):
+            return existing_id
+    return fallback_id
+
+
+def _match_segment_for_keywords(
+    segments: list[SpatialScheduleSegment],
+    keywords: tuple[str, ...],
+) -> Optional[SpatialScheduleSegment]:
+    for segment in list(segments or []):
+        title = str(segment.title or "").lower()
+        if any(keyword in title for keyword in keywords):
+            return segment
+    return segments[0] if segments else None
 
 
 def _extract_spatial_schedule_constraints(

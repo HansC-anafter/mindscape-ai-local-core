@@ -8,6 +8,10 @@ import logging
 import os
 from typing import List, Any, Tuple, Optional
 
+from backend.app.services.llm.workspace_routed_chat import (
+    chat_completion_with_workspace_route,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -304,41 +308,12 @@ class SummaryPolicy:
             summary_type: Type of summary (HISTORY_SUMMARY or EPISODE_SUMMARY)
         """
         try:
-            from backend.app.services.agent_runner import LLMProviderManager
             from backend.app.models.mindscape import MindEvent, EventType, EventActor
             from datetime import datetime
             import uuid
 
             # Combine messages into a single text
             conversation_text = "\n".join(messages_to_summarize)
-
-            # Generate summary using LLM
-            from backend.app.services.config_store import ConfigStore
-            from backend.app.shared.llm_provider_helper import (
-                get_llm_provider_from_settings,
-                create_llm_provider_manager,
-            )
-
-            config_store = ConfigStore()
-            config = config_store.get_or_create_config(profile_id or "default-user")
-
-            # Get API key from config (same as main LLM calls) or fallback to env
-            openai_key = None
-            if hasattr(config, "agent_backend") and hasattr(
-                config.agent_backend, "openai_api_key"
-            ):
-                openai_key = config.agent_backend.openai_api_key
-            elif isinstance(config, dict):
-                openai_key = config.get("openai_api_key")
-
-            if not openai_key:
-                openai_key = os.getenv("OPENAI_API_KEY")
-
-            llm_manager = create_llm_provider_manager(openai_key=openai_key)
-            provider = get_llm_provider_from_settings(llm_manager)
-
-            if not provider:
-                raise ValueError("OpenAI API key is not configured or is invalid")
 
             summary_prompt = f"""Please generate a concise summary of the following conversation history, focusing on:
 1. User's main goals and needs
@@ -365,14 +340,21 @@ Please generate the summary in English, keep it within 300 words."""
                     "LLM model not configured. Please select a model in the system settings panel."
                 )
 
-            summary_text = await provider.chat_completion(
+            summary_response = await chat_completion_with_workspace_route(
                 messages=messages,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                purpose="conversation_summary_generation",
+                stage_name="response_formatting",
+                risk_level="read",
                 model=self.model_name,
                 max_tokens=500,
                 temperature=0.3,
             )
-
-            summary_text = summary_text.strip() if summary_text else ""
+            if isinstance(summary_response, dict):
+                summary_text = str(summary_response.get("content") or "").strip()
+            else:
+                summary_text = str(summary_response or "").strip()
 
             if not summary_text or len(summary_text) < 50:
                 logger.warning("Generated summary is too short, skipping storage")

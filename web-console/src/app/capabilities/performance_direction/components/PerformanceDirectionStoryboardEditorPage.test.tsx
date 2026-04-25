@@ -15,36 +15,6 @@ vi.mock('next/navigation', () => ({
   }),
 }));
 
-vi.mock('./storyboardEditor/DepartmentWorkspaceDockShell', () => ({
-  DepartmentWorkspaceDockShell: ({
-    storageKey,
-    panels,
-  }: {
-    storageKey: string;
-    panels: Array<{ panelId: string; title: string; content: React.ReactNode }>;
-  }) => (
-    <div
-      className="space-y-4"
-      data-department-dock-shell="true"
-      data-layout-storage-key={storageKey}
-      data-testid="mock-department-dock-shell"
-    >
-      {panels.map((panel) => (
-        <section
-          key={panel.panelId}
-          className="rounded-2xl border border-stone-200 bg-white"
-          data-dock-panel-id={panel.panelId}
-        >
-          <header className="border-b border-stone-200 px-4 py-3 text-sm font-semibold text-slate-700">
-            {panel.title}
-          </header>
-          <div className="p-4">{panel.content}</div>
-        </section>
-      ))}
-    </div>
-  ),
-}));
-
 function okJson(payload: unknown) {
   return Promise.resolve({
     ok: true,
@@ -377,23 +347,6 @@ function renderWithSession(
   return fetchMock;
 }
 
-function openPanel(heading: string): HTMLElement {
-  const section = screen.getByText(heading).closest('section');
-  if (!section) {
-    throw new Error(`Unable to locate section for heading: ${heading}`);
-  }
-  return section as HTMLElement;
-}
-
-function getSlotCard(panel: HTMLElement, slotId: string): HTMLElement {
-  const slotInput = within(panel).getByDisplayValue(slotId);
-  const card = slotInput.closest('article');
-  if (!card) {
-    throw new Error(`Unable to locate slot card for ${slotId}`);
-  }
-  return card as HTMLElement;
-}
-
 async function waitForInitialStoryboardLoad(fetchMock: ReturnType<typeof installFetchMock>) {
   await waitFor(() => {
     expect(fetchMock).toHaveBeenCalledWith(
@@ -406,20 +359,17 @@ async function waitForInitialStoryboardLoad(fetchMock: ReturnType<typeof install
 
 async function openCastPerformanceTab() {
   fireEvent.click(screen.getByRole('button', { name: /Cast \/ Performance/i }));
-  const heading = await screen.findByText('Material anchors and person mapping');
-  return heading.closest('section') as HTMLElement;
+  await screen.findByText('Material anchors and person mapping');
 }
 
 async function openContinuityEditorialTab() {
   fireEvent.click(screen.getByRole('button', { name: /Continuity \/ Editorial/i }));
-  const heading = await screen.findByText('Coverage and continuity guardrail');
-  return heading.closest('section') as HTMLElement;
+  await screen.findByText('Coverage and continuity guardrail');
 }
 
 async function openAiRuntimeTab() {
   fireEvent.click(screen.getByRole('button', { name: /AI \/ Runtime/i }));
-  const heading = await screen.findByText('Face / body / style binding lanes');
-  return heading.closest('section') as HTMLElement;
+  await screen.findByText('Face / body / style binding lanes');
 }
 
 describe('PerformanceDirectionStoryboardEditorPage', () => {
@@ -677,15 +627,15 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
     expect(screen.getAllByText('Department Workspace').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /Run preview for this scene/i })).toBeInTheDocument();
 
-    const castPanel = await openCastPerformanceTab();
-    expect(within(castPanel).getByLabelText('subject_id')).toHaveValue('subj_a');
-    expect(within(castPanel).getByLabelText('role_id')).toHaveValue('lead_model');
+    await openCastPerformanceTab();
+    expect(screen.getByDisplayValue('subj_a')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('lead_model')).toBeInTheDocument();
 
-    const aiPanel = await openAiRuntimeTab();
-    expect(within(aiPanel).getByLabelText('slot_id')).toHaveValue('subj_a_face');
-    expect(within(aiPanel).getByLabelText('slot_role')).toHaveValue('identity_face');
+    await openAiRuntimeTab();
+    expect(screen.getByDisplayValue('subj_a_face')).toBeInTheDocument();
+    expect(screen.getByLabelText('slot_role')).toHaveValue('identity_face');
     expect(
-      (within(aiPanel).getByLabelText('package_refs') as HTMLTextAreaElement).value.includes(
+      (screen.getByLabelText('package_refs') as HTMLTextAreaElement).value.includes(
         'char.face_anchor.v1',
       ),
     ).toBe(true);
@@ -1095,25 +1045,25 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
     ]);
 
     await waitForInitialStoryboardLoad(fetchMock);
-    const castPanel = await openCastPerformanceTab();
+    await openCastPerformanceTab();
 
-    expect(within(castPanel).getByLabelText('role_id')).toHaveValue('lead_model');
+    expect(screen.getByDisplayValue('lead_model')).toBeInTheDocument();
 
-    fireEvent.change(within(castPanel).getByLabelText('role_id'), {
+    fireEvent.change(screen.getByDisplayValue('lead_model'), {
       target: { value: 'lead_model_updated' },
     });
 
     fireEvent.click(screen.getAllByRole('button', { name: /Closer detail/i })[0]);
 
     await waitFor(() => {
-      expect(within(openPanel('Material anchors and person mapping')).getByLabelText('subject_id')).toHaveValue('subj_b');
-      expect(within(openPanel('Material anchors and person mapping')).getByLabelText('role_id')).toHaveValue('detail_model');
+      expect(screen.getByDisplayValue('subj_b')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('detail_model')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getAllByRole('button', { name: /Hero intro/i })[0]);
 
     await waitFor(() => {
-      expect(within(openPanel('Material anchors and person mapping')).getByLabelText('role_id')).toHaveValue('lead_model_updated');
+      expect(screen.getByDisplayValue('lead_model_updated')).toBeInTheDocument();
       expect(screen.getAllByText('Draft').length).toBeGreaterThan(0);
     });
   });
@@ -1130,16 +1080,16 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
     ]);
 
     await waitForInitialStoryboardLoad(fetchMock);
-    const castPanel = await openCastPerformanceTab();
+    await openCastPerformanceTab();
 
-    fireEvent.change(within(castPanel).getByLabelText('role_id'), {
+    fireEvent.change(screen.getByDisplayValue('lead_model'), {
       target: { value: 'lead_model_updated' },
     });
 
     fireEvent.click(screen.getByRole('button', { name: /Reset scene draft/i }));
 
     await waitFor(() => {
-      expect(within(openPanel('Material anchors and person mapping')).getByLabelText('role_id')).toHaveValue('lead_model');
+      expect(screen.getByDisplayValue('lead_model')).toBeInTheDocument();
     });
     expect(screen.queryByDisplayValue('lead_model_updated')).not.toBeInTheDocument();
   });
@@ -1171,15 +1121,16 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
     );
 
     await waitForInitialStoryboardLoad(fetchMock);
-    const castPanel = await openCastPerformanceTab();
-    fireEvent.click(within(castPanel).getAllByRole('button', { name: 'Focus subject' })[1]);
+    await openAiRuntimeTab();
 
-    const aiPanel = await openAiRuntimeTab();
+    expect(screen.getByRole('button', { name: /subj_b · support_model/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Assign to subj_a_face' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /subj_b · support_model/i }));
 
     await waitFor(() => {
-      expect(within(aiPanel).getAllByText('focused subject').length).toBeGreaterThan(0);
-      expect(within(aiPanel).getAllByDisplayValue('subj_b_face')[0]).toBeInTheDocument();
-      expect(within(aiPanel).getAllByDisplayValue('subj_b')[0]).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Assign to subj_b_face' })).toBeInTheDocument();
+      expect(screen.getAllByText(/focused subject: subj_b/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -1196,16 +1147,16 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
     ]);
 
     await waitForInitialStoryboardLoad(fetchMock);
-    const castPanel = await openCastPerformanceTab();
+    await openCastPerformanceTab();
 
-    fireEvent.click(within(castPanel).getByRole('button', { name: /Add body slot/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add body slot/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Body ready · subj_a_body_2/i })).toBeInTheDocument();
     });
 
-    const aiPanel = await openAiRuntimeTab();
-    expect(within(aiPanel).getByDisplayValue('subj_a_body_2')).toBeInTheDocument();
+    await openAiRuntimeTab();
+    expect(screen.getByDisplayValue('subj_a_body_2')).toBeInTheDocument();
   });
 
   it('adds a missing scene style slot from the scene header', async () => {
@@ -1227,9 +1178,9 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
       expect(screen.getByText(/ready · style_1/i)).toBeInTheDocument();
     });
 
-    const aiPanel = await openAiRuntimeTab();
-    expect(within(aiPanel).getByLabelText('slot_id')).toHaveValue('style_1');
-    expect(within(aiPanel).getByLabelText('scope_kind')).toHaveValue('scene');
+    await openAiRuntimeTab();
+    expect(screen.getByDisplayValue('style_1')).toBeInTheDocument();
+    expect(screen.getByLabelText('scope_kind')).toHaveValue('scene');
   });
 
   it('quick-browses to a subject body slot from the coverage badge', async () => {
@@ -1256,14 +1207,13 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
     );
 
     await waitForInitialStoryboardLoad(fetchMock);
-    const castPanel = await openCastPerformanceTab();
+    await openCastPerformanceTab();
 
-    fireEvent.click(within(castPanel).getByRole('button', { name: /Body ready · subj_a_body/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Body ready · subj_a_body/i }));
 
-    const aiPanel = await openAiRuntimeTab();
+    await openAiRuntimeTab();
     await waitFor(() => {
-      const slotCard = getSlotCard(aiPanel, 'subj_a_body');
-      expect(within(slotCard).getByRole('button', { name: 'Browsing active slot' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Assign to subj_a_body' })).toBeInTheDocument();
     });
   });
 
@@ -1326,9 +1276,9 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
     ]);
 
     await waitForInitialStoryboardLoad(fetchMock);
-    const aiPanel = await openAiRuntimeTab();
+    await openAiRuntimeTab();
 
-    fireEvent.change(within(aiPanel).getByLabelText('subject_id'), {
+    fireEvent.change(screen.getByLabelText('subject_id'), {
       target: { value: 'subj_missing' },
     });
 
@@ -1365,19 +1315,18 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
     ]);
 
     await waitForInitialStoryboardLoad(fetchMock);
-    const aiPanel = await openAiRuntimeTab();
+    await openAiRuntimeTab();
 
-    expect(within(aiPanel).getByLabelText('slot_role')).toHaveValue('identity_face');
-    expect(within(aiPanel).getByLabelText('scope_kind')).toHaveValue('subject');
+    expect(screen.getByLabelText('slot_role')).toHaveValue('identity_face');
+    expect(screen.getByLabelText('scope_kind')).toHaveValue('subject');
 
-    fireEvent.change(within(aiPanel).getByLabelText('slot_role'), {
+    fireEvent.change(screen.getByLabelText('slot_role'), {
       target: { value: 'style' },
     });
 
     await waitFor(() => {
-      const nextAiPanel = openPanel('Face / body / style binding lanes');
-      expect(within(nextAiPanel).getByLabelText('scope_kind')).toHaveValue('scene');
-      expect(within(nextAiPanel).getByLabelText('subject_id')).toHaveValue('');
+      expect(screen.getByLabelText('scope_kind')).toHaveValue('scene');
+      expect(screen.getByLabelText('subject_id')).toHaveValue('');
     });
   });
 
@@ -1418,17 +1367,16 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
       ).toBeGreaterThan(0);
     });
 
-    const continuityPanel = await openContinuityEditorialTab();
+    await openContinuityEditorialTab();
 
-    fireEvent.change(within(continuityPanel).getByLabelText('continuity-editorial-approval-state'), {
+    fireEvent.change(screen.getByLabelText('continuity-editorial-approval-state'), {
       target: { value: 'needs_review' },
     });
 
     await waitFor(() => {
-      const reviewGate = screen.getByLabelText('director-desk-review-gate');
-      expect(within(reviewGate).queryByText(/Current approval state is contradictory/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Current approval state is contradictory/i)).not.toBeInTheDocument();
       expect(
-        within(reviewGate).getByText(/Director desk can keep moving. Approval is not in a contradictory state./i),
+        screen.getByText(/Director desk can keep moving. Approval is not in a contradictory state./i),
       ).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Run preview for this scene/i })).not.toBeDisabled();
       expect(screen.getByRole('button', { name: /Execute preview/i })).not.toBeDisabled();
@@ -1453,9 +1401,9 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
     ]);
 
     await waitForInitialStoryboardLoad(fetchMock);
-    const continuityPanel = await openContinuityEditorialTab();
+    await openContinuityEditorialTab();
 
-    fireEvent.change(within(continuityPanel).getByLabelText('continuity-editorial-variant-request-policy'), {
+    fireEvent.change(screen.getByLabelText('continuity-editorial-variant-request-policy'), {
       target: { value: 'requires_pd_review' },
     });
 
@@ -1491,20 +1439,19 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
 
     await waitForInitialStoryboardLoad(fetchMock);
 
-    const decisionLedger = openPanel('Meeting decisions + review chain');
-    expect(within(decisionLedger).getByText(/Decision Ledger/i)).toBeInTheDocument();
+    expect(screen.getByText(/Decision Ledger/i)).toBeInTheDocument();
 
-    fireEvent.click(within(decisionLedger).getByRole('button', { name: 'Compare' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Compare' }));
 
-    const compareCandidateLabels = await within(decisionLedger).findAllByLabelText(/compare-candidate-label-/i);
+    const compareCandidateLabels = await screen.findAllByLabelText(/compare-candidate-label-/i);
     fireEvent.change(compareCandidateLabels[0], {
       target: { value: 'Hero alt candidate' },
     });
 
-    fireEvent.click(within(decisionLedger).getByRole('button', { name: 'Decision items' }));
-    fireEvent.click((await within(decisionLedger).findAllByRole('button', { name: /Add comment/i }))[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Decision items' }));
+    fireEvent.click((await screen.findAllByRole('button', { name: /Add comment/i }))[0]);
 
-    const decisionComments = await within(decisionLedger).findAllByLabelText(/decision-comment-/i);
+    const decisionComments = await screen.findAllByLabelText(/decision-comment-/i);
     const decisionCommentBody = decisionComments.find(
       (element) => element.tagName.toLowerCase() === 'textarea',
     ) as HTMLTextAreaElement;
@@ -1512,7 +1459,7 @@ describe('PerformanceDirectionStoryboardEditorPage', () => {
       target: { value: 'Need compare on expression before sign-off.' },
     });
 
-    const resolutionFields = within(decisionLedger).getAllByLabelText(/decision-resolution-/i);
+    const resolutionFields = screen.getAllByLabelText(/decision-resolution-/i);
     fireEvent.change(resolutionFields[0], {
       target: { value: 'Resolve after comparing hero alt candidate.' },
     });

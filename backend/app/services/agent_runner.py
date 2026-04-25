@@ -26,7 +26,7 @@ from backend.app.models.mindscape import (
     EventActor,
 )
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
+from backend.app.shared.llm_utils import build_prompt, call_llm
 
 # Import LLM providers from refactored package
 from backend.app.services.llm_providers import (
@@ -693,15 +693,20 @@ Respond in JSON format:
         )
 
         try:
-            # Get LLM provider from user settings
-            provider = get_llm_provider_from_settings(self.llm_manager)
-
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
-
-            response_text = await provider.chat_completion(messages)
+            messages = build_prompt(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+            response_dict = await call_llm(
+                messages=messages,
+                llm_provider=self.llm_manager,
+                temperature=0.3,
+                max_tokens=400,
+                purpose="agent_runner_work_scene_suggestion",
+                stage_name="scope_decision",
+                risk_level="read",
+            )
+            response_text = response_dict.get("text", "")
 
             # Try to parse JSON response
             import json

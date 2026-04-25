@@ -10,6 +10,10 @@ import uuid
 from typing import Dict, List, Optional, Any
 
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
+from backend.app.services.executor_route_context import load_executor_route_context
+from backend.app.services.llm.workspace_routed_chat import (
+    chat_completion_with_workspace_route,
+)
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.playbook_service import PlaybookService
 from backend.app.services.stores.tool_calls_store import ToolCallsStore
@@ -329,6 +333,18 @@ class PlaybookRunner:
                         inputs = variant["execution_params"]
 
             self.active_conversations[execution_id] = conv_manager
+            route_context = (
+                await load_executor_route_context(workspace_id) if workspace_id else None
+            )
+            setattr(conv_manager, "executor_route_context", route_context)
+            if route_context:
+                self.tool_executor.execution_context["executor_route_context"] = (
+                    route_context
+                )
+            else:
+                self.tool_executor.execution_context.pop(
+                    "executor_route_context", None
+                )
 
             # Get LLM provider with profile-specific keys
             llm_manager = self.llm_provider_manager.get_llm_manager(profile_id)
@@ -356,15 +372,19 @@ class PlaybookRunner:
 
             messages = await conv_manager.get_messages_for_llm()
             # Get model name from system settings
-            model_name = self.llm_provider_manager.get_model_name()
             logger.info(
-                f"PlaybookRunner: Calling LLM for playbook {playbook_code}, model={model_name}, messages_count={len(messages)}"
+                f"PlaybookRunner: Calling LLM for playbook {playbook_code}, messages_count={len(messages)}"
             )
             # Use max_tokens=8192 to prevent response truncation (especially for auto_execute mode)
-            assistant_response = await provider.chat_completion(
-                messages,
-                model=model_name if model_name else None,
+            assistant_response = await chat_completion_with_workspace_route(
+                messages=messages,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
                 max_tokens=8192,  # Ensure sufficient output for tool calls + explanations
+                provider=provider,
+                llm_provider_manager=self.llm_provider_manager,
+                route_context=route_context,
+                purpose="playbook_runner.start",
             )
             logger.info(
                 f"PlaybookRunner: LLM response received for playbook {playbook_code}, response_length={len(assistant_response) if assistant_response else 0}"
@@ -398,7 +418,6 @@ class PlaybookRunner:
             logger.info(
                 f"PlaybookRunner: Starting tool execution loop for {execution_id}"
             )
-            model_name = self.llm_provider_manager.get_model_name()
             context = inputs or {}
             sandbox_id_from_context = context.get("sandbox_id")
             # Increase max_iterations for auto_execute mode to allow more tool calls
@@ -411,7 +430,7 @@ class PlaybookRunner:
                         execution_id=execution_id,
                         profile_id=profile_id,
                         provider=provider,
-                        model_name=model_name,
+                        model_name=None,
                         workspace_id=workspace_id,
                         sandbox_id=sandbox_id_from_context,
                         max_iterations=max_iterations,
@@ -643,20 +662,42 @@ class PlaybookRunner:
             # Get LLM provider with profile-specific keys
             llm_manager = self.llm_provider_manager.get_llm_manager(profile_id)
             provider = self.llm_provider_manager.get_llm_provider(llm_manager)
+            route_context = (
+                getattr(conv_manager, "executor_route_context", None)
+                or (
+                    await load_executor_route_context(conv_manager.workspace_id)
+                    if conv_manager.workspace_id
+                    else None
+                )
+            )
+            setattr(conv_manager, "executor_route_context", route_context)
+            if route_context:
+                self.tool_executor.execution_context["executor_route_context"] = (
+                    route_context
+                )
+            else:
+                self.tool_executor.execution_context.pop(
+                    "executor_route_context", None
+                )
 
             messages = await conv_manager.get_messages_for_llm()
             # Get model name from system settings
-            model_name = self.llm_provider_manager.get_model_name()
             # Use max_tokens=8192 to prevent response truncation
-            assistant_response = await provider.chat_completion(
-                messages, model=model_name if model_name else None, max_tokens=8192
+            assistant_response = await chat_completion_with_workspace_route(
+                messages=messages,
+                workspace_id=conv_manager.workspace_id,
+                profile_id=profile_id,
+                max_tokens=8192,
+                provider=provider,
+                llm_provider_manager=self.llm_provider_manager,
+                route_context=route_context,
+                purpose="playbook_runner.continue",
             )
 
             conv_manager.add_assistant_message(assistant_response)
 
             # Parse and execute tool calls (with loop support for multiple iterations)
             # Use tool executor for tool execution loop
-            model_name = self.llm_provider_manager.get_model_name()
             workspace_id = conv_manager.workspace_id
             # Get sandbox_id from conv_manager's execution context if available
             sandbox_id_from_context = getattr(conv_manager, "sandbox_id", None)
@@ -668,7 +709,7 @@ class PlaybookRunner:
                 execution_id=execution_id,
                 profile_id=profile_id,
                 provider=provider,
-                model_name=model_name,
+                model_name=None,
                 workspace_id=workspace_id,
                 sandbox_id=sandbox_id_from_context,
                 max_iterations=max_iterations,

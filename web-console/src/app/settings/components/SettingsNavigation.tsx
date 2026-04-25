@@ -65,6 +65,12 @@ const navigationItems: NavigationItem[] = [
         section: 'models-and-quota',
       },
       {
+        id: 'model-routing-registry',
+        label: 'modelRoutingRegistry',
+        tab: 'basic',
+        section: 'model-routing-registry',
+      },
+      {
         id: 'theme-preset',
         label: 'themePreset',
         tab: 'basic',

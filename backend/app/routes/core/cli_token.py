@@ -30,6 +30,16 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
+from ...services.codex_pool_health import (
+    seed_identity_changed,
+    stamp_runtime_requalified,
+    stamp_runtime_seen,
+)
+from ...services.runtime_route_registration import (
+    attach_runtime_registration_metadata,
+    sync_runtime_registration_metadata,
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -92,6 +102,30 @@ def _coerce_json_dict(value: Any) -> dict[str, Any]:
         if isinstance(parsed, dict):
             return parsed
     return {}
+
+
+def _prepare_host_session_runtime_metadata(
+    *,
+    existing_metadata: Any,
+    incoming_metadata: dict[str, Any],
+) -> tuple[dict[str, Any], bool]:
+    previous_metadata = _coerce_json_dict(existing_metadata)
+    merged_metadata = dict(previous_metadata)
+    merged_metadata.update(incoming_metadata)
+
+    reset_runtime_health = seed_identity_changed(previous_metadata, merged_metadata)
+    if reset_runtime_health:
+        merged_metadata = stamp_runtime_requalified(
+            merged_metadata,
+            auth_type="host_session",
+            reason="account_identity_changed",
+        )
+
+    merged_metadata = stamp_runtime_seen(
+        merged_metadata,
+        auth_type="host_session",
+    )
+    return merged_metadata, reset_runtime_health
 
 
 def _load_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
@@ -194,6 +228,10 @@ def _upsert_host_session_runtime(
             config_url = f"/settings/runtime-environments/{runtime_id}"
 
             if runtime is None:
+                runtime_metadata, _ = _prepare_host_session_runtime_metadata(
+                    existing_metadata={},
+                    incoming_metadata=metadata,
+                )
                 runtime = RuntimeEnvironment(
                     id=runtime_id,
                     user_id=owner_user_id,
@@ -203,7 +241,7 @@ def _upsert_host_session_runtime(
                     config_url=config_url,
                     auth_type="host_session",
                     auth_config={},
-                    extra_metadata=metadata,
+                    extra_metadata=runtime_metadata,
                     status="active",
                     auth_status="connected",
                     is_default=False,
@@ -213,7 +251,6 @@ def _upsert_host_session_runtime(
                     pool_group=pool_group,
                     pool_enabled=request.pool_enabled,
                     pool_priority=request.pool_priority,
-                    last_error_code=None,
                 )
                 db.add(runtime)
             else:
@@ -231,15 +268,20 @@ def _upsert_host_session_runtime(
                 runtime.config_url = config_url
                 runtime.auth_type = "host_session"
                 runtime.auth_config = {}
-                existing_meta = dict(runtime.extra_metadata or {})
-                existing_meta.update(metadata)
-                runtime.extra_metadata = existing_meta
+                runtime.extra_metadata, reset_runtime_health = (
+                    _prepare_host_session_runtime_metadata(
+                        existing_metadata=runtime.extra_metadata,
+                        incoming_metadata=metadata,
+                    )
+                )
+                if reset_runtime_health:
+                    runtime.cooldown_until = None
+                    runtime.last_error_code = None
                 runtime.status = "active"
                 runtime.auth_status = "connected"
                 runtime.pool_group = pool_group
                 runtime.pool_enabled = request.pool_enabled
                 runtime.pool_priority = request.pool_priority
-                runtime.last_error_code = None
 
             home_value = str(metadata.get("HOME") or "").strip()
             codex_home_value = str(metadata.get("CODEX_HOME") or "").strip()
@@ -270,10 +312,14 @@ def _upsert_host_session_runtime(
                     candidate.pool_enabled = False
                     candidate_meta["shadowed_by_runtime_id"] = runtime.id
                     candidate.extra_metadata = candidate_meta
+                    sync_runtime_registration_metadata(candidate)
 
+            sync_runtime_registration_metadata(runtime)
             db.commit()
             db.refresh(runtime)
-            payload = runtime.to_dict(include_sensitive=False)
+            payload = attach_runtime_registration_metadata(
+                runtime.to_dict(include_sensitive=False)
+            )
             payload["runtime_id"] = runtime.id
             payload["owner_user_id"] = owner_user_id
             return payload
@@ -350,10 +396,23 @@ def _upsert_host_session_runtime_sql(
             ),
         )
 
-    merged_metadata = _coerce_json_dict(existing.get("extra_metadata") if existing else {})
-    merged_metadata.update(metadata)
+    merged_metadata, reset_runtime_health = _prepare_host_session_runtime_metadata(
+        existing_metadata=existing.get("extra_metadata") if existing else {},
+        incoming_metadata=metadata,
+    )
+    registration_payload = attach_runtime_registration_metadata(
+        {
+            "id": runtime_id,
+            "name": runtime_name,
+            "status": "active",
+            "auth_type": "host_session",
+            "metadata": merged_metadata,
+            "pool_group": pool_group,
+            "pool_enabled": request.pool_enabled,
+        }
+    )
     auth_config_json = json.dumps({})
-    metadata_json = json.dumps(merged_metadata)
+    metadata_json = json.dumps(registration_payload["metadata"])
 
     payload = (
         db.execute(
@@ -421,7 +480,14 @@ def _upsert_host_session_runtime_sql(
                     pool_group = EXCLUDED.pool_group,
                     pool_enabled = EXCLUDED.pool_enabled,
                     pool_priority = EXCLUDED.pool_priority,
-                    last_error_code = NULL,
+                    cooldown_until = CASE
+                        WHEN :reset_runtime_health THEN NULL
+                        ELSE runtime_environments.cooldown_until
+                    END,
+                    last_error_code = CASE
+                        WHEN :reset_runtime_health THEN NULL
+                        ELSE runtime_environments.last_error_code
+                    END,
                     updated_at = NOW()
                 RETURNING
                     id,
@@ -459,6 +525,7 @@ def _upsert_host_session_runtime_sql(
                 "pool_group": pool_group,
                 "pool_enabled": request.pool_enabled,
                 "pool_priority": request.pool_priority,
+                "reset_runtime_health": reset_runtime_health,
             },
         )
         .mappings()
@@ -470,7 +537,8 @@ def _upsert_host_session_runtime_sql(
             status_code=500,
             detail=f"Failed to upsert host-session runtime {runtime_id}",
         )
-    return {
+    return attach_runtime_registration_metadata(
+        {
         "id": payload["id"],
         "runtime_id": payload["id"],
         "name": payload["name"],
@@ -502,7 +570,8 @@ def _upsert_host_session_runtime_sql(
         "created_at": payload["created_at"].isoformat() if payload.get("created_at") else None,
         "updated_at": payload["updated_at"].isoformat() if payload.get("updated_at") else None,
         "owner_user_id": owner_user_id,
-    }
+        }
+    )
 
 def _get_codex_pool_bundle(
     workspace_id: str | None = None,
@@ -511,12 +580,15 @@ def _get_codex_pool_bundle(
 ) -> dict:
     try:
         from ...services.codex_pool_service import CodexPoolService
-        from ...services.codex_workspace_resolver import CodexWorkspaceResolver
+        from ...services.executor_binding_service import ExecutorBindingService
+        from ...services.executor_route_resolver import ExecutorRouteResolver
 
         selection = None
+        binding_service = ExecutorBindingService()
         if workspace_id:
             try:
-                selection = CodexWorkspaceResolver().resolve(
+                selection = ExecutorRouteResolver().resolve(
+                    surface="codex_cli",
                     workspace_id=workspace_id,
                     auth_workspace_id=auth_workspace_id,
                     source_workspace_id=source_workspace_id,
@@ -527,15 +599,41 @@ def _get_codex_pool_bundle(
                     workspace_id,
                 )
 
-        preferred_runtime_id = selection.selected_runtime_id if selection else None
-        allow_fallback = not bool(preferred_runtime_id)
-        pool_result = CodexPoolService().get_active_auth_bundle(
+        preference = (
+            binding_service.resolve_pool_preference(selection=selection)
+            if selection
+            else {
+                "preferred_runtime_id": None,
+                "allow_fallback": True,
+                "preference_source": "pool_rotation",
+                "binding_runtime_id": None,
+                "binding_state": None,
+            }
+        )
+        preferred_runtime_id = preference.get("preferred_runtime_id")
+        allow_fallback = bool(preference.get("allow_fallback", True))
+        preference_source = str(preference.get("preference_source") or "pool_rotation")
+
+        pool_service = CodexPoolService()
+        pool_result = pool_service.get_active_auth_bundle(
             preferred_runtime_id=preferred_runtime_id,
             allow_fallback=allow_fallback,
         )
+        if selection and "env" not in pool_result and preference_source == "binding_snapshot":
+            pool_result = pool_service.get_active_auth_bundle(
+                preferred_runtime_id=None,
+                allow_fallback=True,
+            )
+            if "env" in pool_result:
+                preference_source = "binding_rebind"
         if "env" in pool_result and selection:
             pool_result.update(
                 {
+                    "preferred_runtime_id": selection.preferred_runtime_id,
+                    "binding_runtime_id": preference.get("binding_runtime_id"),
+                    "binding_state": preference.get("binding_state"),
+                    "preference_source": preference_source,
+                    "policy_mode": selection.policy_mode,
                     "requested_workspace_id": selection.requested_workspace_id,
                     "effective_workspace_id": selection.effective_workspace_id,
                     "auth_workspace_id": selection.auth_workspace_id,
@@ -544,12 +642,56 @@ def _get_codex_pool_bundle(
                     "selection_trace": list(selection.trace),
                 }
             )
+            try:
+                binding_service.record_route_resolution(
+                    selection=selection,
+                    resolved_runtime_id=pool_result.get("selected_runtime_id"),
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to persist Codex executor binding for workspace %s",
+                    selection.effective_workspace_id,
+                    exc_info=True,
+                )
         return pool_result
     except Exception:
         logger.exception("Codex pool token lookup failed")
         return {
             "error": "Codex pool token lookup failed",
         }
+
+
+def _record_runtime_fault_binding(
+    *,
+    surface: str,
+    runtime_id: str,
+    workspace_id: str | None = None,
+    effective_workspace_id: str | None = None,
+    error_code: str | None = None,
+) -> str | None:
+    target_workspace_id = str(effective_workspace_id or workspace_id or "").strip()
+    if not target_workspace_id:
+        return None
+
+    try:
+        from ...services.executor_binding_service import ExecutorBindingService
+
+        ExecutorBindingService().record_runtime_fault(
+            workspace_id=target_workspace_id,
+            surface=surface,
+            runtime_id=runtime_id,
+            error_code=error_code,
+        )
+        return target_workspace_id
+    except Exception:
+        logger.warning(
+            "Failed to persist runtime fault binding for workspace %s surface=%s runtime=%s",
+            target_workspace_id,
+            surface,
+            runtime_id,
+            exc_info=True,
+        )
+        return None
 
 
 def _get_gca_token(
@@ -568,28 +710,53 @@ def _get_gca_token(
     """
     try:
         from ...services.gca_pool_service import GCAPoolService
-        from ...services.gca_workspace_resolver import GCAWorkspaceResolver
+        from ...services.executor_binding_service import ExecutorBindingService
+        from ...services.executor_route_resolver import ExecutorRouteResolver
 
         selection = None
+        binding_service = ExecutorBindingService()
         if workspace_id:
-            selection = GCAWorkspaceResolver().resolve(
+            selection = ExecutorRouteResolver().resolve(
+                surface="gemini_cli",
                 workspace_id=workspace_id,
                 auth_workspace_id=auth_workspace_id,
                 source_workspace_id=source_workspace_id,
             )
-            if selection.selected_runtime_id:
-                pool_result = GCAPoolService().get_active_token(
-                    preferred_runtime_id=selection.selected_runtime_id,
-                    allow_fallback=False,
-                )
-            else:
-                pool_result = GCAPoolService().get_active_token()
-        else:
-            pool_result = GCAPoolService().get_active_token()
+        preference = (
+            binding_service.resolve_pool_preference(selection=selection)
+            if selection
+            else {
+                "preferred_runtime_id": None,
+                "allow_fallback": True,
+                "preference_source": "pool_rotation",
+                "binding_runtime_id": None,
+                "binding_state": None,
+            }
+        )
+        preferred_runtime_id = preference.get("preferred_runtime_id")
+        allow_fallback = bool(preference.get("allow_fallback", True))
+        preference_source = str(preference.get("preference_source") or "pool_rotation")
+        pool_service = GCAPoolService()
+        pool_result = pool_service.get_active_token(
+            preferred_runtime_id=preferred_runtime_id,
+            allow_fallback=allow_fallback,
+        )
+        if selection and "env" not in pool_result and preference_source == "binding_snapshot":
+            pool_result = pool_service.get_active_token(
+                preferred_runtime_id=None,
+                allow_fallback=True,
+            )
+            if "env" in pool_result:
+                preference_source = "binding_rebind"
         if "env" in pool_result:
             if selection:
                 pool_result.update(
                     {
+                        "preferred_runtime_id": selection.preferred_runtime_id,
+                        "binding_runtime_id": preference.get("binding_runtime_id"),
+                        "binding_state": preference.get("binding_state"),
+                        "preference_source": preference_source,
+                        "policy_mode": selection.policy_mode,
                         "requested_workspace_id": selection.requested_workspace_id,
                         "effective_workspace_id": selection.effective_workspace_id,
                         "auth_workspace_id": selection.auth_workspace_id,
@@ -598,10 +765,26 @@ def _get_gca_token(
                         "selection_trace": list(selection.trace),
                     }
                 )
+                try:
+                    binding_service.record_route_resolution(
+                        selection=selection,
+                        resolved_runtime_id=pool_result.get("selected_runtime_id"),
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to persist GCA executor binding for workspace %s",
+                        selection.effective_workspace_id,
+                        exc_info=True,
+                    )
             return pool_result
         if selection:
             return {
                 "error": pool_result.get("error", "workspace-scoped GCA selection failed"),
+                "preferred_runtime_id": selection.preferred_runtime_id,
+                "binding_runtime_id": preference.get("binding_runtime_id"),
+                "binding_state": preference.get("binding_state"),
+                "preference_source": preference_source,
+                "policy_mode": selection.policy_mode,
                 "requested_workspace_id": selection.requested_workspace_id,
                 "effective_workspace_id": selection.effective_workspace_id,
                 "auth_workspace_id": selection.auth_workspace_id,
@@ -684,6 +867,7 @@ def _get_gca_token(
 
             if runtime.auth_status != "connected":
                 runtime.auth_status = "connected"
+                sync_runtime_registration_metadata(runtime)
                 db.commit()
 
             # Resolve GCP project ID (required by cloudcode-pa)
@@ -777,6 +961,7 @@ def _refresh_google_token(refresh_token, runtime, auth_service, token_data, db):
 
         runtime.auth_config = encrypted
         runtime.auth_status = "connected"
+        sync_runtime_registration_metadata(runtime)
         db.commit()
 
         logger.info("IDP token refreshed successfully, expires_in=%s", expires_in)
@@ -820,6 +1005,8 @@ async def get_cli_token(
                     "auth_mode": pool_result.get("auth_mode", "host_session"),
                     "env": pool_result.get("env", {}),
                     "selected_runtime_id": pool_result.get("selected_runtime_id"),
+                    "preferred_runtime_id": pool_result.get("preferred_runtime_id"),
+                    "policy_mode": pool_result.get("policy_mode"),
                     "available_runtime_count": pool_result.get(
                         "available_runtime_count"
                     ),
@@ -841,12 +1028,28 @@ async def get_cli_token(
                 return {
                     "auth_mode": "openai_api_key",
                     "env": {"OPENAI_API_KEY": api_key},
+                    "preferred_runtime_id": pool_result.get("preferred_runtime_id"),
+                    "policy_mode": pool_result.get("policy_mode"),
+                    "requested_workspace_id": pool_result.get("requested_workspace_id"),
+                    "effective_workspace_id": pool_result.get("effective_workspace_id"),
+                    "auth_workspace_id": pool_result.get("auth_workspace_id"),
+                    "source_workspace_id": pool_result.get("source_workspace_id"),
+                    "selection_reason": pool_result.get("selection_reason"),
+                    "selection_trace": pool_result.get("selection_trace", []),
                 }
             return {
                 "auth_mode": "host_session",
                 "env": {},
                 "warning": pool_result.get("error"),
                 "note": "Codex CLI will use any credentials already stored on the host.",
+                "preferred_runtime_id": pool_result.get("preferred_runtime_id"),
+                "policy_mode": pool_result.get("policy_mode"),
+                "requested_workspace_id": pool_result.get("requested_workspace_id"),
+                "effective_workspace_id": pool_result.get("effective_workspace_id"),
+                "auth_workspace_id": pool_result.get("auth_workspace_id"),
+                "source_workspace_id": pool_result.get("source_workspace_id"),
+                "selection_reason": pool_result.get("selection_reason"),
+                "selection_trace": pool_result.get("selection_trace", []),
             }
 
         if surface_name == "claude_code_cli":
@@ -881,6 +1084,8 @@ async def get_cli_token(
                     "env": {},
                     "error": result["error"],
                     "model": agent_model,
+                    "preferred_runtime_id": result.get("preferred_runtime_id"),
+                    "policy_mode": result.get("policy_mode"),
                     "requested_workspace_id": result.get("requested_workspace_id"),
                     "effective_workspace_id": result.get("effective_workspace_id"),
                     "auth_workspace_id": result.get("auth_workspace_id"),
@@ -893,6 +1098,8 @@ async def get_cli_token(
                 "env": result["env"],
                 "model": agent_model,
                 "selected_runtime_id": result.get("selected_runtime_id"),
+                "preferred_runtime_id": result.get("preferred_runtime_id"),
+                "policy_mode": result.get("policy_mode"),
                 "requested_workspace_id": result.get("requested_workspace_id"),
                 "effective_workspace_id": result.get("effective_workspace_id"),
                 "auth_workspace_id": result.get("auth_workspace_id"),
@@ -1019,6 +1226,8 @@ async def register_host_session_runtime(
 async def report_runtime_quota_exhausted(
     runtime_id: str = Query(...),
     surface: str = Query(...),
+    workspace_id: str | None = Query(None),
+    effective_workspace_id: str | None = Query(None),
 ):
     surface_name = (surface or "").strip().lower()
     if not runtime_id.strip():
@@ -1030,11 +1239,19 @@ async def report_runtime_quota_exhausted(
         result = CodexPoolService().report_quota_exhausted(runtime_id.strip())
         if result is None:
             return {"reported": False, "error": f"Unknown Codex runtime: {runtime_id}"}
+        binding_workspace_id = _record_runtime_fault_binding(
+            surface=surface_name,
+            runtime_id=runtime_id.strip(),
+            workspace_id=workspace_id,
+            effective_workspace_id=effective_workspace_id,
+            error_code="429",
+        )
         return {
             "reported": True,
             "surface": surface_name,
             "runtime_id": runtime_id.strip(),
             "cooldown_until": result.get("cooldown_until"),
+            "binding_workspace_id": binding_workspace_id,
         }
 
     if surface_name == "gemini_cli":
@@ -1043,11 +1260,19 @@ async def report_runtime_quota_exhausted(
         result = GCAPoolService().report_quota_exhausted(runtime_id.strip())
         if result is None:
             return {"reported": False, "error": f"Unknown GCA runtime: {runtime_id}"}
+        binding_workspace_id = _record_runtime_fault_binding(
+            surface=surface_name,
+            runtime_id=runtime_id.strip(),
+            workspace_id=workspace_id,
+            effective_workspace_id=effective_workspace_id,
+            error_code="429",
+        )
         return {
             "reported": True,
             "surface": surface_name,
             "runtime_id": runtime_id.strip(),
             "cooldown_until": result.get("cooldown_until"),
+            "binding_workspace_id": binding_workspace_id,
         }
 
     return {
@@ -1061,6 +1286,8 @@ async def report_runtime_auth_failure(
     runtime_id: str = Query(...),
     surface: str = Query(...),
     error_code: str = Query("401"),
+    workspace_id: str | None = Query(None),
+    effective_workspace_id: str | None = Query(None),
 ):
     surface_name = (surface or "").strip().lower()
     if not runtime_id.strip():
@@ -1075,17 +1302,99 @@ async def report_runtime_auth_failure(
         )
         if result is None:
             return {"reported": False, "error": f"Unknown Codex runtime: {runtime_id}"}
+        binding_workspace_id = _record_runtime_fault_binding(
+            surface=surface_name,
+            runtime_id=runtime_id.strip(),
+            workspace_id=workspace_id,
+            effective_workspace_id=effective_workspace_id,
+            error_code=error_code.strip() or "401",
+        )
         return {
             "reported": True,
             "surface": surface_name,
             "runtime_id": runtime_id.strip(),
             "cooldown_until": result.get("cooldown_until"),
             "error_code": result.get("last_error_code"),
+            "binding_workspace_id": binding_workspace_id,
         }
 
     return {
         "reported": False,
         "error": f"Auth failure reporting is not implemented for surface '{surface_name}'",
+    }
+
+
+@router.post("/runtime-success")
+async def report_runtime_success(
+    runtime_id: str = Query(...),
+    surface: str = Query(...),
+):
+    surface_name = (surface or "").strip().lower()
+    if not runtime_id.strip():
+        return {"reported": False, "error": "runtime_id is required"}
+
+    if surface_name == "codex_cli":
+        from ...services.codex_pool_service import CodexPoolService
+
+        result = CodexPoolService().report_runtime_success(runtime_id.strip())
+        if result is None:
+            return {"reported": False, "error": f"Unknown Codex runtime: {runtime_id}"}
+        return {
+            "reported": True,
+            "surface": surface_name,
+            "runtime_id": runtime_id.strip(),
+            "cooldown_until": result.get("cooldown_until"),
+        }
+
+    return {
+        "reported": False,
+        "error": f"Success reporting is not implemented for surface '{surface_name}'",
+    }
+
+
+@router.post("/runtime-requalify")
+async def requalify_runtime_pool(
+    surface: str = Query(...),
+    runtime_id: str | None = Query(None),
+    reason: str = Query("manual_override"),
+    limit: int | None = Query(None),
+):
+    surface_name = (surface or "").strip().lower()
+    if surface_name != "codex_cli":
+        return {
+            "requalified": False,
+            "error": f"Runtime requalification is not implemented for surface '{surface_name}'",
+        }
+
+    from ...services.codex_pool_requalification_service import (
+        CodexPoolRequalificationService,
+    )
+
+    service = CodexPoolRequalificationService()
+    normalized_runtime_id = str(runtime_id or "").strip()
+    if normalized_runtime_id:
+        result = service.requalify_runtime(
+            normalized_runtime_id,
+            reason=str(reason or "").strip() or "manual_override",
+        )
+        if result is None:
+            return {
+                "requalified": False,
+                "error": f"Unknown Codex runtime: {normalized_runtime_id}",
+            }
+        return {
+            "requalified": True,
+            "surface": surface_name,
+            "runtime_id": normalized_runtime_id,
+            "result": result,
+        }
+
+    summary = service.sweep_due_runtimes(limit=limit)
+    return {
+        "requalified": True,
+        "surface": surface_name,
+        "mode": "sweep_due",
+        "summary": summary.to_payload(),
     }
 
 

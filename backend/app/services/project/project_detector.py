@@ -7,16 +7,21 @@ Uses LLM to analyze user intent and determine if a project should be created.
 
 import json
 import logging
+import os
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from backend.app.models.project import ProjectSuggestion
 from backend.app.models.workspace import Workspace
-
-from backend.app.shared.llm_provider_helper import (
-    ManagedLLMDisabledForRuntime,
-    build_managed_llm_provider,
+from backend.app.services.llm.workspace_routed_chat import (
+    chat_completion_with_workspace_route,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now():
+    """Return timezone-aware UTC now."""
+    return datetime.now(timezone.utc)
 
 
 class ProjectDetector:
@@ -32,7 +37,7 @@ class ProjectDetector:
         Initialize Project Detector
 
         Args:
-            llm_provider: Optional LLM provider (will be created from settings if None)
+            llm_provider: Deprecated direct provider override. Governed routing is always used.
         """
         self.llm_provider = llm_provider
 
@@ -55,10 +60,6 @@ class ProjectDetector:
             ProjectSuggestion if project should be created, None otherwise
         """
         try:
-            provider, model_name = self._resolve_generation_backend(workspace)
-            if provider is None:
-                return None
-
             # Format conversation context
             context_str = self._format_conversation_context(conversation_context)
 
@@ -138,18 +139,27 @@ Respond in JSON format:
             ]
 
             # Evidence Logging
+            decision_log: list[dict[str, Any]] = []
             try:
                 from datetime import datetime, timezone
 
                 log_path = os.path.join(os.getcwd(), "data/mindscape_evidence.log")
                 with open(log_path, "a", encoding="utf-8") as f:
                     f.write(f"\n==== DETECT LLM CALL START {_utc_now()} ====\n")
-                    f.write(f"Model: {model_name}\n")
+                    f.write(f"Route Decisions: {json.dumps(decision_log, ensure_ascii=False)}\n")
                     f.write("==========================================\n")
             except Exception:
                 pass
 
-            response = await provider.chat_completion(messages, model=model_name)
+            response = await chat_completion_with_workspace_route(
+                messages=messages,
+                workspace_id=getattr(workspace, "id", None),
+                purpose="project_detector_detect",
+                stage_name="scope_decision",
+                decision_log=decision_log,
+                risk_level="read",
+            )
+            result_text = self._coerce_response_text(response)
 
             # Evidence Logging
             try:
@@ -164,12 +174,10 @@ Respond in JSON format:
             except Exception:
                 pass
 
-            result_text = (
-                response.content if hasattr(response, "content") else str(response)
-            )
-
             # Parse response
-            suggestion = self._parse_response(result_text)
+            suggestion = self._parse_response_data(
+                self._extract_json_payload(result_text)
+            )
 
             # Evidence Logging
             try:
@@ -241,10 +249,6 @@ Respond in JSON format:
             return None
 
         try:
-            provider, model_name = self._resolve_generation_backend(workspace)
-            if provider is None:
-                return None
-
             # Format existing projects for LLM
             existing_projects_str = "\n".join(
                 [
@@ -286,23 +290,14 @@ Respond in JSON format:
                 {"role": "user", "content": prompt},
             ]
 
-            response = await provider.chat_completion(messages, model=model_name)
-            result_text = (
-                response.content if hasattr(response, "content") else str(response)
+            response = await chat_completion_with_workspace_route(
+                messages=messages,
+                workspace_id=getattr(workspace, "id", None),
+                purpose="project_detector_duplicate_check",
+                stage_name="scope_decision",
+                risk_level="read",
             )
-
-            # Parse response
-            text = result_text.strip()
-            if "```json" in text:
-                start = text.find("```json") + 7
-                end = text.find("```", start)
-                text = text[start:end].strip()
-            elif "```" in text:
-                start = text.find("```") + 3
-                end = text.find("```", start)
-                text = text[start:end].strip()
-
-            data = json.loads(text)
+            data = self._extract_json_payload(self._coerce_response_text(response)) or {}
 
             if data.get("is_duplicate") and data.get("duplicate_project_id"):
                 project_id = data.get("duplicate_project_id")
@@ -323,31 +318,17 @@ Respond in JSON format:
             logger.warning(f"Failed to check duplicate using LLM: {e}")
             return None
 
-    def _resolve_generation_backend(
-        self,
-        workspace: Workspace,
-    ) -> tuple[Optional[Any], Optional[str]]:
-        """Resolve managed LLM provider/model, respecting executor runtime bindings."""
-        try:
-            provider, selection = build_managed_llm_provider(
-                workspace=workspace,
-                purpose="project_detector",
-                default_model="gpt-4o-mini",
-            )
-        except ManagedLLMDisabledForRuntime as exc:
-            logger.info("ProjectDetector bypassing managed LLM: %s", exc)
-            return None, None
-        except ValueError as exc:
-            logger.warning("ProjectDetector failed to resolve LLM selection: %s", exc)
-            return None, None
+    @staticmethod
+    def _coerce_response_text(response: Any) -> str:
+        if isinstance(response, dict):
+            if "content" in response:
+                return str(response.get("content") or "")
+            return json.dumps(response, ensure_ascii=False)
+        return response.content if hasattr(response, "content") else str(response)
 
-        self.llm_provider = provider
-        return provider, selection.model_name
-
-    def _parse_response(self, response_text: str) -> Optional[ProjectSuggestion]:
-        """Parse LLM response into ProjectSuggestion"""
+    @staticmethod
+    def _extract_json_payload(response_text: str) -> Optional[Dict[str, Any]]:
         try:
-            # Extract JSON from response (may contain markdown code blocks)
             text = response_text.strip()
             if "```json" in text:
                 start = text.find("```json") + 7
@@ -357,32 +338,27 @@ Respond in JSON format:
                 start = text.find("```") + 3
                 end = text.find("```", start)
                 text = text[start:end].strip()
-
             data = json.loads(text)
-
-            if data.get("mode") != "project":
-                return None
-
-            # Use LLM-provided values directly, no hardcoded defaults
-            project_type = data.get("project_type")
-            # Note: flow_id should be generated by ProjectManager, not here
-            # LLM can suggest flow configuration (playbook_sequence) but not flow_id
-            # This ensures each project has a unique flow_id
-
-            # Get playbook_sequence from LLM response
-            playbook_sequence = data.get("playbook_sequence", [])
-            if not isinstance(playbook_sequence, list):
-                playbook_sequence = []
-
-            return ProjectSuggestion(
-                mode=data.get("mode", "quick_task"),
-                project_type=project_type,
-                project_title=data.get("project_title"),
-                playbook_sequence=playbook_sequence,
-                initial_spec_md=data.get("initial_spec_md"),
-                confidence=data.get("confidence", 0.0),
-            )
-
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            logger.warning(f"Failed to parse project detection response: {e}")
+            return data if isinstance(data, dict) else None
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("Failed to parse project detection response: %s", exc)
             return None
+
+    @staticmethod
+    def _parse_response_data(data: Optional[Dict[str, Any]]) -> Optional[ProjectSuggestion]:
+        """Parse governed JSON payload into ProjectSuggestion."""
+        if not data or data.get("mode") != "project":
+            return None
+
+        playbook_sequence = data.get("playbook_sequence", [])
+        if not isinstance(playbook_sequence, list):
+            playbook_sequence = []
+
+        return ProjectSuggestion(
+            mode=data.get("mode", "quick_task"),
+            project_type=data.get("project_type"),
+            project_title=data.get("project_title"),
+            playbook_sequence=playbook_sequence,
+            initial_spec_md=data.get("initial_spec_md"),
+            confidence=data.get("confidence", 0.0),
+        )

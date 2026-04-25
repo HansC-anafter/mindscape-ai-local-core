@@ -78,7 +78,7 @@ tools:
       properties:
         profile_id:
           type: string
-          enum: [vr_minimal, vr_preview_local, vr_generative, vr_wan22_14b_kj]
+          enum: [vr_minimal, vr_preview_local, vr_face_bootstrap_local, vr_face_aux_facecard_local, vr_generative, vr_wan22_14b_kj, vr_liveportrait_hybrid_talking_head_preview, vr_liveportrait_hybrid_talking_head_quality, vr_regional_multi_subject_preview]
         models_dir:
           type: string
           description: "Target models directory"
@@ -262,6 +262,19 @@ models:
     license:
       spdx_id: "Apache-2.0"
 
+  - model_id: controlnet_openpose_sdxl
+    display_name: "ControlNet OpenPose (SDXL / OpenPoseXL2)"
+    role: controlnet
+    provider: huggingface
+    repo_id: "thibaud/controlnet-openpose-sdxl-1.0"
+    revision: "main"
+    files:
+      - filename: "OpenPoseXL2.safetensors"
+        expected_hash: "sha256:5a4b928cb1e93748217900cb66d4135bf70d932d2924232f925910fad9e43a92"
+        size_bytes: 5004167829
+    license:
+      spdx_id: "other"
+
   # ControlNet v1.1 Depth
   - model_id: controlnet_depth_v11f1p
     display_name: "ControlNet v1.1 Depth"
@@ -290,6 +303,45 @@ models:
     license:
       spdx_id: "Apache-2.0"
 
+  - model_id: sam_vit_l_segment_anything
+    display_name: "SAM ViT-L"
+    role: segmentation_model
+    provider: meta
+    repo_id: "facebookresearch/segment-anything"
+    revision: "main"
+    files:
+      - filename: "sam_vit_l_0b3195.pth"
+        expected_hash: "sha256:placeholder_sam_vit_l_0b3195"
+        size_bytes: 1250000000
+    license:
+      spdx_id: "Apache-2.0"
+
+  - model_id: groundingdino_swint_ogc
+    display_name: "GroundingDINO SwinT OGC"
+    role: detection_model
+    provider: huggingface
+    repo_id: "ShilongLiu/GroundingDINO"
+    revision: "main"
+    files:
+      - filename: "groundingdino_swint_ogc.pth"
+        expected_hash: "sha256:placeholder_groundingdino_swint_ogc"
+        size_bytes: 694000000
+    license:
+      spdx_id: "Apache-2.0"
+
+  - model_id: groundingdino_swint_ogc_cfg
+    display_name: "GroundingDINO SwinT OGC Config"
+    role: detection_config
+    provider: huggingface
+    repo_id: "ShilongLiu/GroundingDINO"
+    revision: "main"
+    files:
+      - filename: "GroundingDINO_SwinT_OGC.cfg.py"
+        expected_hash: "sha256:placeholder_groundingdino_swint_cfg"
+        size_bytes: 12000
+    license:
+      spdx_id: "Apache-2.0"
+
   # Wan2.2 14B (Video Generation)
   - model_id: wan22_14b_kj
     display_name: "Wan2.2 14B (FP8, Kijai)"
@@ -306,6 +358,86 @@ models:
     hardware_requirements:
       min_vram_gb: 16
       supports_cpu_fallback: false
+
+  - model_id: wan21_i2v_14b_480p_fp8
+    display_name: "Wan2.1 I2V 14B 480P (FP8)"
+    role: diffusion_checkpoint
+    provider: huggingface
+    repo_id: "Kijai/WanVideo_comfy"
+    revision: "main"
+    files:
+      - filename: "Wan2_1-I2V-14B-480P_fp8_e4m3fn.safetensors"
+        expected_hash: "sha256:placeholder_wan21_i2v_14b_480p_fp8"
+        size_bytes: 14700000000
+    license:
+      spdx_id: "Apache-2.0"
+    hardware_requirements:
+      min_vram_gb: 16
+      supports_cpu_fallback: false
+
+  - model_id: wan21_vae
+    display_name: "Wan2.1 VAE"
+    role: vae
+    provider: huggingface
+    repo_id: "Comfy-Org/Wan_2.1_ComfyUI_repackaged"
+    revision: "main"
+    files:
+      - filename: "wan_2.1_vae.safetensors"
+        expected_hash: "sha256:placeholder_wan21_vae"
+        size_bytes: 336000000
+    license:
+      spdx_id: "Apache-2.0"
+
+  - model_id: wan21_clip_vision_h
+    display_name: "Wan2.1 CLIP Vision H"
+    role: clip_vision
+    provider: huggingface
+    repo_id: "Comfy-Org/Wan_2.1_ComfyUI_repackaged"
+    revision: "main"
+    files:
+      - filename: "clip_vision_h.safetensors"
+        expected_hash: "sha256:placeholder_wan21_clip_vision_h"
+        size_bytes: 2530000000
+    license:
+      spdx_id: "Apache-2.0"
+
+  - model_id: ipadapter_plus_sdxl_vit_h
+    display_name: "IP-Adapter Plus SDXL ViT-H"
+    role: ipadapter
+    provider: huggingface
+    repo_id: "h94/IP-Adapter"
+    revision: "main"
+    files:
+      - filename: "plus.sdxl.vit.h.safetensors"
+        expected_hash: "sha256:placeholder_ipadapter_plus_sdxl_vit_h"
+    license:
+      spdx_id: "Apache-2.0"
+
+  - model_id: wan21_umt5_xxl_fp8
+    display_name: "Wan2.1 UMT5 XXL FP8"
+    role: text_encoder
+    provider: huggingface
+    repo_id: "Comfy-Org/Wan_2.1_ComfyUI_repackaged"
+    revision: "main"
+    files:
+      - filename: "umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+        expected_hash: "sha256:placeholder_wan21_umt5_xxl_fp8"
+        size_bytes: 6670000000
+    license:
+      spdx_id: "Apache-2.0"
+
+  - model_id: wan21_360_lora
+    display_name: "Wan2.1 360 Rotation LoRA"
+    role: lora
+    provider: huggingface
+    repo_id: "DeepBeepMeep/Wan2.1"
+    revision: "main"
+    files:
+      - filename: "Wan2.1-360_epoch20.safetensors"
+        expected_hash: "sha256:placeholder_wan21_360_lora"
+        size_bytes: 250000000
+    license:
+      spdx_id: "Apache-2.0"
 
 profiles:
   - profile_id: vr_minimal
@@ -324,6 +456,21 @@ profiles:
       - controlnet_openpose_v11p
       - sdxl_vae
 
+  - profile_id: vr_face_bootstrap_local
+    display_name: "Local Face Bootstrap (SDXL)"
+    description: "Dedicated SDXL face-bootstrap legacy lane with base SDXL img2img plus SDXL OpenPose ControlNet."
+    model_ids:
+      - sdxl_base_1_0
+      - controlnet_openpose_sdxl
+
+  - profile_id: vr_face_aux_facecard_local
+    display_name: "Local Face-Card Preprocess"
+    description: "Workflow-owned local face-card preprocess stage for face-bootstrap: segmentation, crop-by-mask, and clean white background rebuild without Wan or Qwen runtime dependencies."
+    model_ids:
+      - sam_vit_l_segment_anything
+      - groundingdino_swint_ogc
+      - groundingdino_swint_ogc_cfg
+
   - profile_id: vr_generative
     display_name: "Generative Production"
     description: "SDXL Base + ControlNet OpenPose + ControlNet Depth + VAE. Standard quality."
@@ -338,3 +485,29 @@ profiles:
     description: "Wan2.2 14B FP8 for text-to-video generation. Requires 16GB+ VRAM."
     model_ids:
       - wan22_14b_kj
+
+  - profile_id: vr_liveportrait_hybrid_talking_head_preview
+    display_name: "Hybrid Talking-Head Preview"
+    description: "Preview profile for locked-scene subject swap with audio-driven talking-head playback."
+    model_ids:
+      - sdxl_lightning_4step
+      - sdxl_clip_l
+      - sdxl_clip_g
+      - sdxl_vae
+
+  - profile_id: vr_liveportrait_hybrid_talking_head_quality
+    display_name: "Hybrid Talking-Head Quality"
+    description: "Higher-quality profile for locked-scene subject swap with audio-driven talking-head playback."
+    model_ids:
+      - sdxl_base_1_0
+
+  - profile_id: vr_regional_multi_subject_preview
+    display_name: "Regional Multi-Subject Preview"
+    description: "SDXL Lightning regional multi-subject preview lane with CLIP Vision and IP-Adapter Plus SDXL backend weights."
+    model_ids:
+      - sdxl_lightning_4step
+      - sdxl_clip_l
+      - sdxl_clip_g
+      - sdxl_vae
+      - wan21_clip_vision_h
+      - ipadapter_plus_sdxl_vit_h

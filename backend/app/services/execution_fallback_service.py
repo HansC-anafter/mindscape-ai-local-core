@@ -17,7 +17,9 @@ def _utc_now():
     return datetime.now(timezone.utc)
 from typing import Dict, Any, Optional
 
-from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
+from backend.app.services.llm.workspace_routed_chat import (
+    chat_completion_with_workspace_route,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,7 @@ async def generate_fallback_artifact(
         workspace_id: Workspace ID
         profile_id: User profile ID
         expected_artifacts: Expected artifact types for guidance
-        llm_provider: LLM provider instance
+        llm_provider: Deprecated direct provider override. Governed routing is always used.
         model_name: Model to use for generation
 
     Returns:
@@ -77,23 +79,32 @@ IMPORTANT: This is a generic drafting flow. The output may need refinement with 
 """
 
     try:
-        if llm_provider:
-            from backend.app.shared.llm_utils import build_prompt
-            messages = build_prompt(system_prompt=system_prompt, user_prompt=user_request)
+        from backend.app.shared.llm_utils import build_prompt
 
-            provider = get_llm_provider_from_settings(llm_provider)
-            if provider and hasattr(provider, 'chat_completion'):
-                content = await provider.chat_completion(
-                    messages=messages,
-                    model=model_name,
-                    temperature=0.7,
-                    max_tokens=4000
-                )
+        messages = build_prompt(system_prompt=system_prompt, user_prompt=user_request)
+        try:
+            response = await chat_completion_with_workspace_route(
+                messages=messages,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                model=model_name,
+                purpose="execution_fallback_artifact",
+                stage_name="response_formatting",
+                risk_level="soft_write",
+                temperature=0.7,
+                max_tokens=4000,
+            )
+            if isinstance(response, dict):
+                content = str(response.get("content") or "").strip()
             else:
-                # Fallback: return a template
-                content = _generate_template_content(user_request, target_format)
-        else:
-            # No LLM provider - generate template
+                content = str(response or "").strip()
+        except Exception as route_exc:
+            logger.warning(
+                "[FallbackArtifact] Governed fallback route failed, using template: %s",
+                route_exc,
+            )
+            content = _generate_template_content(user_request, target_format)
+        if not content:
             content = _generate_template_content(user_request, target_format)
 
         # Create artifact record
@@ -188,4 +199,3 @@ async def _store_artifact_as_event(
         logger.info(f"[FallbackArtifact] Stored artifact as MindEvent: {artifact['id']}")
     except Exception as e:
         logger.warning(f"[FallbackArtifact] Failed to store artifact as event: {e}")
-

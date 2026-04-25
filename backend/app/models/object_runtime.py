@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ObjectRef(BaseModel):
@@ -187,6 +187,15 @@ ObjectMeetingAttachWriteMode = Literal[
     "recommendation_only",
 ]
 
+ObjectMaterializeWriteMode = Literal[
+    "proposal_only",
+    "staged",
+    "recommendation_only",
+    "canonical_with_review",
+]
+
+ObjectRuntimeRole = Literal["source", "target", "baseline", "constraint", "evidence"]
+
 
 class SelectionResolveRequest(BaseModel):
     """Selection resolution request payload."""
@@ -241,6 +250,15 @@ class SelectionResolveResponse(BaseModel):
     errors: List[SelectionResolveError] = Field(default_factory=list)
 
 
+class ObjectRoleEntry(BaseModel):
+    """Role-bearing object context entry for attach and materialize transport."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: ObjectRuntimeRole
+    ref: ObjectRef
+
+
 class ObjectMeetingAttachRequest(BaseModel):
     """Request payload for turning object refs into bounded meeting attachments."""
 
@@ -248,10 +266,45 @@ class ObjectMeetingAttachRequest(BaseModel):
 
     meeting_type: str
     meeting_id: Optional[str] = None
-    objects: List[ObjectRef] = Field(min_length=1)
-    target_ref: Optional[ObjectRef] = None
+    entries: List[ObjectRoleEntry] = Field(min_length=1)
     intent_summary: str
     write_mode: ObjectMeetingAttachWriteMode = "proposal_only"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_payload(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+
+        payload = dict(value)
+        raw_entries = payload.get("entries")
+        legacy_objects = payload.pop("objects", None)
+        legacy_target_ref = payload.pop("target_ref", None)
+
+        normalized_entries: List[Any] = []
+        if isinstance(raw_entries, list):
+            normalized_entries.extend(raw_entries)
+        if isinstance(legacy_objects, list):
+            normalized_entries.extend(
+                {"role": "source", "ref": raw_object} for raw_object in legacy_objects
+            )
+        if legacy_target_ref is not None:
+            normalized_entries.append({"role": "target", "ref": legacy_target_ref})
+
+        if normalized_entries:
+            payload["entries"] = normalized_entries
+        return payload
+
+    @property
+    def target_ref(self) -> Optional[ObjectRef]:
+        for entry in self.entries:
+            if entry.role == "target":
+                return entry.ref
+        return None
+
+    @property
+    def source_objects(self) -> List[ObjectRef]:
+        return [entry.ref for entry in self.entries if entry.role == "source"]
 
 
 class MeetingAttachmentSummary(BaseModel):
@@ -259,7 +312,7 @@ class MeetingAttachmentSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    role: Literal["source", "target", "baseline", "constraint", "evidence"]
+    role: ObjectRuntimeRole
     ref: ObjectRef
     projection_level: Literal["summary", "meeting"] = "meeting"
 
@@ -276,4 +329,99 @@ class ObjectMeetingAttachResponse(BaseModel):
     target_ref: Optional[ObjectRef] = None
     staged_refs: List[ObjectRef] = Field(default_factory=list)
     review_routes: List[str] = Field(default_factory=list)
+    errors: List[SelectionResolveError] = Field(default_factory=list)
+
+
+class ObjectMaterializeRequest(BaseModel):
+    """Request payload for generic runtime review/promote materialization."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    object_ref: ObjectRef
+    verb: str
+    intent_summary: str
+    meeting_id: Optional[str] = None
+    write_mode: ObjectMaterializeWriteMode = "staged"
+    context_entries: List[ObjectRoleEntry] = Field(default_factory=list)
+    request_context: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_context_objects(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+
+        payload = dict(value)
+        raw_entries = payload.get("context_entries")
+        legacy_objects = payload.pop("context_objects", None)
+
+        normalized_entries: List[Any] = []
+        if isinstance(raw_entries, list):
+            normalized_entries.extend(raw_entries)
+        if isinstance(legacy_objects, list):
+            normalized_entries.extend(
+                {"role": "source", "ref": raw_object} for raw_object in legacy_objects
+            )
+
+        if normalized_entries:
+            payload["context_entries"] = normalized_entries
+        return payload
+
+
+class ObjectMaterializeResponse(BaseModel):
+    """Runtime response for generic object materialization requests."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    status: Literal["planned", "materialized", "rejected"]
+    verb: str
+    object_ref: ObjectRef
+    staged_refs: List[ObjectRef] = Field(default_factory=list)
+    review_routes: List[str] = Field(default_factory=list)
+    canonical_routes: List[str] = Field(default_factory=list)
+    request_plan: Optional[Dict[str, Any]] = None
+    errors: List[SelectionResolveError] = Field(default_factory=list)
+
+
+class ObjectGraphRelation(BaseModel):
+    """Normalized runtime graph relation between addressable objects."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    relation_kind: str
+    direction: Literal["outbound", "inbound", "bidirectional"] = "outbound"
+    target_ref: ObjectRef
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ObjectGraphProjection(BaseModel):
+    """Normalized runtime graph projection for one resolved object."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ref: ObjectRef
+    summary: Optional[ObjectSummary] = None
+    node_kind: Optional[str] = None
+    relations: List[ObjectGraphRelation] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ObjectGraphProjectRequest(BaseModel):
+    """Request payload for bounded runtime graph projection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    objects: List[ObjectRef] = Field(min_length=1)
+    include_relations: bool = True
+    include_summaries: bool = True
+
+
+class ObjectGraphProjectResponse(BaseModel):
+    """Runtime response for bounded object graph projection requests."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    projections: List[ObjectGraphProjection] = Field(default_factory=list)
     errors: List[SelectionResolveError] = Field(default_factory=list)

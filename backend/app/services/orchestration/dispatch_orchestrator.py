@@ -713,8 +713,12 @@ class DispatchOrchestrator:
         import uuid
 
         from app.models.workspace import Task, TaskStatus
+        from backend.app.services.executor_route_context import (
+            load_executor_route_context,
+        )
 
         attempt.mark_started()
+        route_context = await load_executor_route_context(target_workspace_id)
         task = Task(
             id=str(uuid.uuid4()),
             workspace_id=target_workspace_id,
@@ -739,6 +743,7 @@ class DispatchOrchestrator:
                 "tool_name": phase.tool_name,
                 # v3.1 F3: capability_profile for model routing in runner
                 "capability_profile": phase.capability_profile,
+                "executor_route_context": route_context,
                 # Feature 1: IR provenance snapshot
                 **ir_provenance,
             },
@@ -820,6 +825,20 @@ class DispatchOrchestrator:
             "inputs": inputs,
             "file_hint": inputs.get("deliverable_path") or "",
         }
+        try:
+            from backend.app.services.executor_route_context import (
+                build_executor_route_context,
+            )
+
+            route_context = build_executor_route_context(workspace)
+            if route_context:
+                context_overrides["executor_route_context"] = route_context
+        except Exception:
+            logger.warning(
+                "Failed to build executor route context for workspace %s",
+                target_workspace_id,
+                exc_info=True,
+            )
         if model_override:
             context_overrides["model"] = model_override
 
@@ -861,6 +880,14 @@ class DispatchOrchestrator:
                 import uuid
 
                 from app.models.workspace import Task, TaskStatus
+                from backend.app.services.executor_route_context import (
+                    build_executor_route_context,
+                )
+
+                workspace = self._workspace_cache.get(target_workspace_id)
+                route_context = (
+                    build_executor_route_context(workspace) if workspace is not None else None
+                )
 
                 task = Task(
                     id=str(uuid.uuid4()),
@@ -877,6 +904,7 @@ class DispatchOrchestrator:
                     execution_context={
                         "profile_id": self.profile_id,
                         "project_id": self.project_id,
+                        "executor_route_context": route_context,
                         "ir_provenance": ir_provenance,
                     },
                     project_id=self.project_id,

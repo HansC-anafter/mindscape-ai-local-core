@@ -4,7 +4,7 @@ Handles LLM provider initialization and management
 """
 
 import logging
-from typing import Optional, Any
+from typing import Any
 
 from backend.app.services.agent_runner import LLMProviderManager, LLMProvider
 
@@ -55,9 +55,3 @@ class PlaybookLLMProviderManager:
         """
         from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
         return get_llm_provider_from_settings(llm_manager)
-
-    def get_model_name(self) -> Optional[str]:
-        """Get model name from system settings"""
-        from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
-        return get_model_name_from_chat_model()
-

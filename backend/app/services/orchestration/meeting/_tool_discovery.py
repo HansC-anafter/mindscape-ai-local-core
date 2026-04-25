@@ -37,6 +37,7 @@ class MeetingToolDiscoveryMixin:
                 user_message,
                 model_name=self.model_name,
                 executor_runtime=self.executor_runtime,
+                llm_generate_fn=self._generate_text,
             )
             if len(decomposed) > 1:
                 self.session.agenda = decomposed

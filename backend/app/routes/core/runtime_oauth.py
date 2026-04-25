@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from ...models.runtime_environment import RuntimeEnvironment
 from ...services.runtime_auth_service import RuntimeAuthService
+from ...services.runtime_route_registration import sync_runtime_registration_metadata
 
 # Import database session
 try:
@@ -49,6 +50,22 @@ auth_service = RuntimeAuthService()
 
 # In-memory state store for CSRF protection (keyed by state token)
 _pending_states: dict = {}
+
+
+def _commit_runtime_registration(
+    db: Session,
+    *runtimes: Optional[RuntimeEnvironment],
+) -> None:
+    seen: set[int] = set()
+    for runtime in runtimes:
+        if runtime is None:
+            continue
+        marker = id(runtime)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        sync_runtime_registration_metadata(runtime)
+    db.commit()
 
 
 def _get_oauth_credentials(
@@ -196,7 +213,7 @@ async def authorize(
         }
         runtime.extra_metadata = meta
         runtime.auth_status = "pending"
-        db.commit()
+        _commit_runtime_registration(db, runtime)
         logger.info("GCA authorize: state stored in DB for runtime %s", runtime_id)
 
         auth_url = (
@@ -261,7 +278,7 @@ async def authorize(
         }
         runtime.extra_metadata = meta
         runtime.auth_status = "pending"
-        db.commit()
+        _commit_runtime_registration(db, runtime)
 
         from urllib.parse import urlencode
 
@@ -294,7 +311,7 @@ async def authorize(
     }
     runtime.extra_metadata = meta
     runtime.auth_status = "pending"
-    db.commit()
+    _commit_runtime_registration(db, runtime)
 
     from .gca_constants import GCA_OAUTH_SCOPES_STRING
 
@@ -351,7 +368,7 @@ async def callback(
             if time.time() - oauth_state.get("created_at", 0) > 600:
                 logger.warning("OAuth state expired for runtime %s", rt.id)
                 rt.auth_status = "disconnected"
-                db.commit()
+                _commit_runtime_registration(db, rt)
                 return _popup_close_response(
                     success=False, error="State expired, please try again"
                 )
@@ -369,7 +386,10 @@ async def callback(
             if created and created < cutoff:
                 rt.auth_status = "disconnected"
                 logger.info("Reset stale pending runtime %s", rt.id)
-        db.commit()
+        _commit_runtime_registration(
+            db,
+            *(rt for rt in all_pending if (rt.extra_metadata or {}).get("oauth_state", {}).get("created_at", 0) and (rt.extra_metadata or {}).get("oauth_state", {}).get("created_at", 0) < cutoff),
+        )
         return _popup_close_response(success=False, error="Invalid or expired state")
 
     runtime_id = runtime.id
@@ -386,7 +406,7 @@ async def callback(
     meta = dict(runtime.extra_metadata or {})
     meta.pop("oauth_state", None)
     runtime.extra_metadata = meta
-    db.commit()
+    _commit_runtime_registration(db, runtime)
 
     if is_gca_flow:
         return await _handle_gca_callback(code, runtime_id, runtime, db)
@@ -442,7 +462,7 @@ async def _handle_gca_callback(code, runtime_id, runtime, db):
                     token_resp.text,
                 )
                 runtime.auth_status = "error"
-                db.commit()
+                _commit_runtime_registration(db, runtime)
                 return _popup_close_response(
                     success=False, error="Google token exchange failed"
                 )
@@ -469,7 +489,7 @@ async def _handle_gca_callback(code, runtime_id, runtime, db):
     except Exception as e:
         logger.error("GCA OAuth exchange error: %s", e, exc_info=True)
         runtime.auth_status = "error"
-        db.commit()
+        _commit_runtime_registration(db, runtime)
         return _popup_close_response(success=False, error="GCA token exchange failed")
 
     # Store tokens and update runtime status
@@ -504,7 +524,7 @@ async def _handle_gca_callback(code, runtime_id, runtime, db):
             runtime.auth_status,
         )
 
-        db.commit()
+        _commit_runtime_registration(db, runtime)
         logger.info("GCA callback: DB commit successful")
 
         # Verify the commit persisted
@@ -519,7 +539,7 @@ async def _handle_gca_callback(code, runtime_id, runtime, db):
         logger.error("GCA callback: failed to store tokens: %s", e, exc_info=True)
         try:
             runtime.auth_status = "error"
-            db.commit()
+            _commit_runtime_registration(db, runtime)
         except Exception:
             pass
         return _popup_close_response(
@@ -561,7 +581,7 @@ async def _handle_provider_callback(code, runtime_id, runtime, db):
     if not provider_base:
         logger.error("No cloud provider base URL available for token exchange")
         runtime.auth_status = "error"
-        db.commit()
+        _commit_runtime_registration(db, runtime)
         return _popup_close_response(
             success=False, error="Cloud provider URL not configured"
         )
@@ -585,7 +605,7 @@ async def _handle_provider_callback(code, runtime_id, runtime, db):
                     f"body={resp.text}"
                 )
                 runtime.auth_status = "error"
-                db.commit()
+                _commit_runtime_registration(db, runtime)
                 return _popup_close_response(
                     success=False, error="Provider token exchange failed"
                 )
@@ -594,7 +614,7 @@ async def _handle_provider_callback(code, runtime_id, runtime, db):
     except Exception as e:
         logger.error(f"Token exchange failed: {e}")
         runtime.auth_status = "error"
-        db.commit()
+        _commit_runtime_registration(db, runtime)
         return _popup_close_response(success=False, error="Token exchange failed")
 
     identity = tokens.get("identity")
@@ -615,7 +635,7 @@ async def _handle_provider_callback(code, runtime_id, runtime, db):
     runtime.auth_type = "oauth2"
     runtime.auth_config = encrypted
     runtime.auth_status = "connected"
-    db.commit()
+    _commit_runtime_registration(db, runtime)
 
     logger.info(f"OAuth flow completed for runtime {runtime_id}, identity: {identity}")
     return _popup_close_response(success=True)
@@ -687,7 +707,7 @@ async def disconnect(
 
     runtime.auth_config = preserved or None
     runtime.auth_status = "disconnected"
-    db.commit()
+    _commit_runtime_registration(db, runtime)
 
     logger.info(f"OAuth disconnected for runtime {runtime_id}")
     return {"runtime_id": runtime_id, "auth_status": "disconnected"}
@@ -780,7 +800,7 @@ async def store_token(
     runtime.auth_config = encrypted
     runtime.auth_type = "oauth2"
     runtime.auth_status = "connected"
-    db.commit()
+    _commit_runtime_registration(db, runtime)
 
     print(
         f"[STORE-TOKEN-DEBUG] SAVED: auth_type={runtime.auth_type}, auth_status={runtime.auth_status}, auth_config_keys={list(runtime.auth_config.keys()) if isinstance(runtime.auth_config, dict) else 'not-dict'}"
@@ -890,7 +910,7 @@ async def provider_jwt_landing(
         runtime.auth_config = encrypted
         runtime.auth_type = "oauth2"
         runtime.auth_status = "connected"
-        db.commit()
+        _commit_runtime_registration(db, runtime)
 
         print(
             f"[JWT-LANDING-DEBUG] STORED: runtime={runtime_id}, auth_type=oauth2, auth_status=connected"

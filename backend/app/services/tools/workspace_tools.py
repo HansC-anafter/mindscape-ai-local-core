@@ -565,6 +565,8 @@ Select the best matching execution_id and explain why.
             response_format="json",
             workspace_id=workspace_id,
             executor_runtime=executor_runtime,
+            stage_name="execution_selection",
+            purpose="workspace_tool_execution_selection",
         )
         return {"execution_id": result["execution_id"]}
 

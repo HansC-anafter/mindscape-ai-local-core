@@ -35,6 +35,18 @@ SCRIPT_FILE_EXCLUDES = {".DS_Store"}
 SCRIPT_SUFFIX_EXCLUDES = {".pyc", ".pyo"}
 
 
+def _clear_directory_contents(target_dir: Path) -> None:
+    """Remove all children from an existing directory without deleting the root."""
+    if not target_dir.exists():
+        return
+
+    for child in target_dir.iterdir():
+        if child.is_symlink() or child.is_file():
+            child.unlink()
+        else:
+            shutil.rmtree(child)
+
+
 class RuntimeAssetsInstaller:
     """Install runtime assets (tools, services, API, schema, models, migrations, UI, manifest, root files, bundles)"""
 
@@ -913,8 +925,9 @@ class RuntimeAssetsInstaller:
 
         target_docs_dir = self.capabilities_dir / capability_code / "docs"
         if target_docs_dir.exists():
-            shutil.rmtree(target_docs_dir)
-        target_docs_dir.mkdir(parents=True, exist_ok=True)
+            _clear_directory_contents(target_docs_dir)
+        else:
+            target_docs_dir.mkdir(parents=True, exist_ok=True)
 
         for doc_file in docs_dir.rglob("*"):
             if doc_file.is_file():
@@ -933,8 +946,9 @@ class RuntimeAssetsInstaller:
 
         target_evals_dir = self.capabilities_dir / capability_code / "evals"
         if target_evals_dir.exists():
-            shutil.rmtree(target_evals_dir)
-        target_evals_dir.mkdir(parents=True, exist_ok=True)
+            _clear_directory_contents(target_evals_dir)
+        else:
+            target_evals_dir.mkdir(parents=True, exist_ok=True)
 
         for eval_file in evals_dir.rglob("*"):
             if eval_file.is_file():

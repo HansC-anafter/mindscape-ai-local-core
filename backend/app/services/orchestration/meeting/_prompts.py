@@ -45,9 +45,153 @@ _ROLE_TURN_DIRECTIVES: dict[str, str] = {
     ),
 }
 
+_NATIVE_SPATIAL_PD_PLANNER_DIRECTIVE = (
+    "You are the sole PD decision-maker for this turn. "
+    "Do NOT ask another facilitator, planner, critic, or user to continue later. "
+    "You MUST finish the decision in this one response. "
+    "Output ONE final JSON object that can drive downstream spatial execution. "
+    'Schema: {"decision_summary":"...",'
+    '"actors":[{"id":"actor.handoff","role":"...","intent":"..."}],'
+    '"objects":[{"id":"object.counter","role":"support_surface"},{"id":"object.tray","role":"handoff_object"}],'
+    '"anchors":[{"id":"anchor.counter","object_ref":"object.counter","purpose":"support_surface"},'
+    '{"id":"anchor.entry_handoff","purpose":"entry_handoff"},'
+    '{"id":"anchor.tray_rest","object_ref":"object.counter","purpose":"tray_rest"}],'
+    '"blocking_paths":[{"id":"path.tray_handoff","actor_ref":"actor.handoff","from_anchor":"anchor.entry_handoff","to_anchor":"anchor.tray_rest","carried_object_ref":"object.tray"}],'
+    '"camera_blocking":{"camera_id":"camera.main","pattern":"hold_then_minor_reframe","keyframes":[{"frame":1,"anchor_id":"anchor.entry_handoff"},{"frame":36,"anchor_id":"anchor.counter"},{"frame":72,"anchor_id":"anchor.tray_rest"}]},'
+    '"performance_beats":[{"id":"beat.tray_transfer","actor_ref":"actor.handoff","object_ref":"object.tray","anchor_id":"anchor.entry_handoff","intent":"handoff"},'
+    '{"id":"beat.tray_counter_settle","object_ref":"object.tray","anchor_id":"anchor.tray_rest","intent":"settle"}],'
+    '"interaction_beats":[{"id":"interaction.tray_on_counter","primary_object_ref":"object.tray","secondary_object_ref":"object.counter","interaction":"rest_on"}],'
+    '"active_segments":[{"segment_id":"seg_setup","title":"...","entity_refs":["camera.main","object.counter","object.tray","actor.handoff"],"anchor_ids":["anchor.counter","anchor.entry_handoff","anchor.tray_rest"]}]'
+    "} "
+    "Use the smallest bounded world that satisfies the request. "
+    "Prefer one actor, one camera, one support-surface object, one handoff object, and one handoff path. "
+    "All IDs must be stable and reusable by downstream execution."
+)
+
+_FULL_REVIEW_NATIVE_SPATIAL_PD_FACILITATOR_DIRECTIVE = (
+    "As facilitator, summarize spatial PD progress, unresolved decisions, and whether another round is needed. "
+    "Do NOT converge until the current round includes both a planner spatial proposal and a critic review. "
+    "If converged, include the marker [CONVERGED]. Keep concise."
+)
+
+_FULL_REVIEW_NATIVE_SPATIAL_PD_PLANNER_DIRECTIVE = (
+    "As planner, output ONE JSON object describing a bounded spatial PD proposal for this scene. "
+    "Required top-level keys: decision_summary, actors, objects, anchors, blocking_paths, camera_blocking, "
+    "performance_beats, interaction_beats, active_segments. "
+    "Choose the actor, object, anchor, path, camera, and beat IDs yourself from the user's intent; do not rely on preset example IDs. "
+    "Keep the world minimal, replayable, and internally consistent. "
+    "Every blocking path must reference defined actors and anchors. "
+    "Every camera keyframe must reference defined anchors. "
+    "Every performance or interaction beat must reference defined actors or objects. "
+    "Do not ask another role or the user to finish the proposal later."
+)
+
+_FULL_REVIEW_NATIVE_SPATIAL_PD_CRITIC_DIRECTIVE = (
+    "As critic, review the planner's spatial PD JSON for gaps, contradictions, and missing execution details. "
+    "Check actor/object/anchor continuity, path endpoints, camera coverage, beat completeness, and whether the world stays bounded. "
+    "Respond with concise findings and concrete change requests. Do not rewrite the full plan."
+)
+
+_FULL_REVIEW_NATIVE_SPATIAL_PD_ROLE_OVERRIDES: dict[str, dict[str, object]] = {
+    "facilitator": {
+        "system_prompt": (
+            "You facilitate a spatial PD review meeting and manage convergence."
+        ),
+        "critical_rules": [
+            "NEVER declare convergence before the critic has responded in the current round.",
+            "NEVER skip planner proposals — every round must include a planner turn.",
+            "NEVER take sides — summarize scene decisions neutrally.",
+            "NEVER converge before both a planner spatial proposal and critic review exist.",
+        ],
+        "communication_style": (
+            "Spatial review moderator. Summarize progress, unresolved scene gaps, and the next turn."
+        ),
+        "success_metrics": [
+            "The meeting advances toward a bounded spatial PD proposal.",
+            "Convergence happens only after planner and critic contributions exist in the current round.",
+        ],
+    },
+    "planner": {
+        "system_prompt": (
+            "You design bounded spatial PD proposals for downstream replay and staging."
+        ),
+        "critical_rules": [
+            "NEVER reuse canned IDs or fixed example assets unless the user's intent requires them.",
+            "NEVER omit anchors, paths, camera blocking, or performance beats from the proposal.",
+            "NEVER leave references dangling — every actor, object, anchor, path, and beat must resolve consistently.",
+            "NEVER ignore critic feedback in later rounds.",
+        ],
+        "communication_style": (
+            "Spatial scene planner. Produce compact machine-readable JSON for spatial execution."
+        ),
+        "success_metrics": [
+            "The proposal is bounded, internally consistent, and replayable downstream.",
+            "Every referenced entity or anchor is defined exactly once and reused consistently.",
+        ],
+    },
+    "critic": {
+        "system_prompt": (
+            "You audit spatial PD proposals for continuity, completeness, and replayability."
+        ),
+        "critical_rules": [
+            "NEVER approve a spatial proposal without raising at least one concrete finding or validation point.",
+            "NEVER rewrite the full plan — stay in review mode.",
+            "NEVER ignore missing anchors, camera coverage gaps, or beat omissions.",
+            "NEVER focus on generic project planning when the issue is spatial execution fidelity.",
+        ],
+        "communication_style": (
+            "Spatial reviewer. Format findings as Finding → Impact → Required Change."
+        ),
+        "success_metrics": [
+            "At least one concrete spatial continuity or execution risk is identified per proposal.",
+            "Each finding includes a direct change request the planner can address next round.",
+        ],
+    },
+}
+
 
 class MeetingPromptsMixin:
     """Mixin providing prompt construction methods for MeetingEngine."""
+
+    def _matches_native_spatial_pd_topic(self, user_message: str) -> bool:
+        text = " ".join(
+            [
+                str(user_message or ""),
+                " ".join(str(item or "") for item in (self.session.agenda or [])),
+                str(getattr(self.session, "title", "") or ""),
+            ]
+        ).lower()
+        keywords = (
+            "spatial",
+            "schedule",
+            "scene",
+            "world",
+            "handoff",
+            "counter",
+            "tray",
+            "camera",
+            "anchor",
+            "blender",
+            "downstream",
+            "blocking",
+            "performance",
+        )
+        return any(word in text for word in keywords)
+
+    def _is_full_review_native_spatial_pd_meeting(self, user_message: str) -> bool:
+        runtime_id = str(getattr(self, "executor_runtime", "") or "").strip().lower()
+        if runtime_id != "codex_cli":
+            return False
+        requires_full_review = False
+        review_gate = getattr(self, "_requires_full_deliberation_review", None)
+        if callable(review_gate):
+            try:
+                requires_full_review = bool(review_gate())
+            except Exception:
+                requires_full_review = False
+        if not requires_full_review:
+            return False
+        return self._matches_native_spatial_pd_topic(user_message)
 
     def _build_workspace_instruction_block(self) -> str:
         """Build workspace instruction block for meeting agent turns.
@@ -75,6 +219,18 @@ class MeetingPromptsMixin:
             raw_body=True,
         )
         return block
+
+    def _use_native_spatial_pd_planner_mode(
+        self, role_id: str, user_message: str
+    ) -> bool:
+        if role_id != "planner":
+            return False
+        if self._is_full_review_native_spatial_pd_meeting(user_message):
+            return False
+        runtime_id = str(getattr(self, "executor_runtime", "") or "").strip().lower()
+        if runtime_id != "codex_cli":
+            return False
+        return self._matches_native_spatial_pd_topic(user_message)
 
     def _build_tool_inventory_block(self) -> str:
         """Build tool inventory for prompt injection.
@@ -386,6 +542,9 @@ class MeetingPromptsMixin:
         project_id = getattr(self, "project_id", None) or getattr(
             self.session, "project_id", None
         )
+        minimal_native_pd_context = self._is_full_review_native_spatial_pd_meeting(
+            user_message
+        )
 
         project_block = ""
         if self._project_context:
@@ -401,7 +560,7 @@ class MeetingPromptsMixin:
         # Inject workspace asset map for cross-workspace dispatch routing
         asset_map_block = ""
         asset_map_ctx = getattr(self, "_asset_map_context", "")
-        if asset_map_ctx:
+        if asset_map_ctx and not minimal_native_pd_context:
             asset_map_block = (
                 f"=== Workspace Asset Map ===\n"
                 f"{asset_map_ctx}\n"
@@ -414,7 +573,7 @@ class MeetingPromptsMixin:
         common = locale_directive + project_block + asset_map_block
 
         # Inject available tools block
-        tool_ctx = self._build_tool_inventory_block()
+        tool_ctx = "" if minimal_native_pd_context else self._build_tool_inventory_block()
         if tool_ctx:
             common += (
                 f"=== Available Tools ===\n" f"{tool_ctx}\n" f"=== End Tools ===\n\n"
@@ -431,7 +590,7 @@ class MeetingPromptsMixin:
 
         # Inject uploaded files block
         uploaded = getattr(self, "_uploaded_files", [])
-        if uploaded:
+        if uploaded and not minimal_native_pd_context:
             file_lines = []
             for f in uploaded[:10]:
                 name = f.get("file_name") or f.get("file_id", "unknown")
@@ -457,7 +616,7 @@ class MeetingPromptsMixin:
         )
 
         # A1: Inject lens context (AgentSpec Agent Core requirement)
-        lens_ctx = self._build_lens_context()
+        lens_ctx = "" if minimal_native_pd_context else self._build_lens_context()
         if lens_ctx:
             common += (
                 f"=== Active Lens ===\n"
@@ -468,7 +627,7 @@ class MeetingPromptsMixin:
 
         # A1: Inject active intents (AgentSpec Agent Core requirement)
         intent_ids = getattr(self, "_active_intent_ids", [])
-        if intent_ids:
+        if intent_ids and not minimal_native_pd_context:
             try:
                 intents = self.store.list_intents(
                     self.profile_id,
@@ -496,7 +655,9 @@ class MeetingPromptsMixin:
                 logger.warning("Failed to inject intents into prompt: %s", exc)
 
         # A1: Inject previous meeting decisions (Agent Core project memory)
-        prev_ctx = self._build_previous_decisions_context()
+        prev_ctx = (
+            "" if minimal_native_pd_context else self._build_previous_decisions_context()
+        )
         if prev_ctx:
             common += (
                 f"=== Previous Meeting Decisions ===\n"
@@ -504,7 +665,11 @@ class MeetingPromptsMixin:
                 f"=== End Previous Decisions ===\n\n"
             )
 
-        workflow_evidence_ctx = getattr(self, "_workflow_evidence_context", "")
+        workflow_evidence_ctx = (
+            ""
+            if minimal_native_pd_context
+            else getattr(self, "_workflow_evidence_context", "")
+        )
         if workflow_evidence_ctx:
             common += (
                 f"=== Workflow Evidence ===\n"
@@ -513,7 +678,7 @@ class MeetingPromptsMixin:
             )
 
         # Workspace context as reference (not system-level instruction)
-        ws_ctx = self._build_workspace_instruction_block()
+        ws_ctx = "" if minimal_native_pd_context else self._build_workspace_instruction_block()
         if ws_ctx:
             common += (
                 "=== Workspace Context (Reference) ===\n"
@@ -524,6 +689,8 @@ class MeetingPromptsMixin:
             )
 
         if role_id == "facilitator":
+            if minimal_native_pd_context:
+                return common + _FULL_REVIEW_NATIVE_SPATIAL_PD_FACILITATOR_DIRECTIVE
             return common + _ROLE_TURN_DIRECTIVES["facilitator"]
         if role_id == "planner":
             file_directive = ""
@@ -536,7 +703,12 @@ class MeetingPromptsMixin:
             # P2-B: Inject RequestContract deliverables so planner can reference them
             contract_block = ""
             contract = getattr(self, "_request_contract", None)
-            if contract and hasattr(contract, "deliverables") and contract.deliverables:
+            if (
+                not minimal_native_pd_context
+                and contract
+                and hasattr(contract, "deliverables")
+                and contract.deliverables
+            ):
                 d_lines = []
                 for d in contract.deliverables:
                     d_lines.append(f"  - {d.id}: {d.name} (qty={d.quantity})")
@@ -547,13 +719,19 @@ class MeetingPromptsMixin:
                     "Your workstreams MUST reference these deliverable IDs "
                     "in produces_deliverables / reviews_deliverables fields.\n\n"
                 )
-            return (
-                common
-                + file_directive
-                + contract_block
-                + _ROLE_TURN_DIRECTIVES["planner"]
+            planner_directive = (
+                _NATIVE_SPATIAL_PD_PLANNER_DIRECTIVE
+                if self._use_native_spatial_pd_planner_mode(role_id, user_message)
+                else (
+                    _FULL_REVIEW_NATIVE_SPATIAL_PD_PLANNER_DIRECTIVE
+                    if minimal_native_pd_context
+                    else _ROLE_TURN_DIRECTIVES["planner"]
+                )
             )
+            return common + file_directive + contract_block + planner_directive
         if role_id == "critic":
+            if minimal_native_pd_context:
+                return common + _FULL_REVIEW_NATIVE_SPATIAL_PD_CRITIC_DIRECTIVE
             file_check = ""
             if getattr(self, "_uploaded_files", None):
                 file_check = (
@@ -732,15 +910,46 @@ class MeetingPromptsMixin:
             f"{action_lines}\n"
         )
 
-    def _assemble_system_message(self, role_def) -> str:
+    def _assemble_system_message(
+        self,
+        role_def,
+        *,
+        role_id: Optional[str] = None,
+        user_message: str = "",
+    ) -> str:
         """Assemble full system message from role definition fields.
 
         Combines system_prompt + responsibility_boundary + critical_rules
         + communication_style + success_metrics into a structured block.
         """
+        override = None
+        if role_id and self._is_full_review_native_spatial_pd_meeting(user_message):
+            override = _FULL_REVIEW_NATIVE_SPATIAL_PD_ROLE_OVERRIDES.get(role_id)
+
+        system_prompt = (
+            str(override.get("system_prompt"))
+            if isinstance(override, dict) and override.get("system_prompt")
+            else role_def.system_prompt
+        )
+        critical_rules = (
+            list(override.get("critical_rules") or [])
+            if isinstance(override, dict) and override.get("critical_rules")
+            else role_def.critical_rules
+        )
+        communication_style = (
+            str(override.get("communication_style"))
+            if isinstance(override, dict) and override.get("communication_style")
+            else role_def.communication_style
+        )
+        success_metrics = (
+            list(override.get("success_metrics") or [])
+            if isinstance(override, dict) and override.get("success_metrics")
+            else role_def.success_metrics
+        )
+
         parts = []
-        if role_def.system_prompt:
-            parts.append(role_def.system_prompt)
+        if system_prompt:
+            parts.append(system_prompt)
 
         if role_def.responsibility_boundary:
             parts.append(
@@ -748,15 +957,15 @@ class MeetingPromptsMixin:
                 "Stay strictly within this boundary."
             )
 
-        if role_def.critical_rules:
-            rules_text = "\n".join(f"- {r}" for r in role_def.critical_rules)
+        if critical_rules:
+            rules_text = "\n".join(f"- {r}" for r in critical_rules)
             parts.append(f"\nCritical rules you MUST follow:\n{rules_text}")
 
-        if role_def.communication_style:
-            parts.append(f"\nCommunication style: {role_def.communication_style}")
+        if communication_style:
+            parts.append(f"\nCommunication style: {communication_style}")
 
-        if role_def.success_metrics:
-            metrics_text = "\n".join(f"- {m}" for m in role_def.success_metrics)
+        if success_metrics:
+            metrics_text = "\n".join(f"- {m}" for m in success_metrics)
             parts.append(f"\nYour output is successful when:\n{metrics_text}")
 
         return "\n".join(parts)

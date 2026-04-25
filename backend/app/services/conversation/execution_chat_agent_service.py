@@ -27,6 +27,10 @@ from backend.app.services.conversation.execution_chat_tool_catalog import (
     ExecutionChatToolCatalog,
 )
 from backend.app.services.conversation.workflow_tracker import WorkflowTracker
+from backend.app.services.executor_route_context import load_executor_route_context
+from backend.app.services.llm.workspace_routed_chat import (
+    chat_completion_with_workspace_route,
+)
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.playbook import PlaybookLLMProviderManager, PlaybookToolExecutor
 from backend.app.services.stores.tasks_store import TasksStore
@@ -79,13 +83,21 @@ async def handle_execution_chat_agent_turn(
     llm_provider_manager = PlaybookLLMProviderManager(ConfigStore())
     llm_manager = llm_provider_manager.get_llm_manager(profile_id)
     provider = llm_provider_manager.get_llm_provider(llm_manager)
-    model_name = llm_provider_manager.get_model_name()
+    route_context = await load_executor_route_context(ctx.workspace_id)
+    setattr(conv_manager, "executor_route_context", route_context)
+    stage_route_decisions: list[dict[str, object]] = []
 
     messages = await conv_manager.get_messages_for_llm()
-    assistant_response = await provider.chat_completion(
-        messages,
-        model=model_name if model_name else None,
+    assistant_response = await chat_completion_with_workspace_route(
+        messages=messages,
+        workspace_id=ctx.workspace_id,
+        profile_id=profile_id,
         max_tokens=8192,
+        provider=provider,
+        llm_provider_manager=llm_provider_manager,
+        route_context=route_context,
+        purpose="execution_chat_agent.initial",
+        decision_log=stage_route_decisions,
     )
     conv_manager.add_assistant_message(assistant_response)
 
@@ -96,8 +108,14 @@ async def handle_execution_chat_agent_turn(
             "execution_id": execution_id,
             "trace_id": execution_id,
             "message_id": user_message_id,
+            "profile_id": profile_id,
+            "source_surface": "execution_chat_agent",
+            "approval_mode": "return_pending",
+            "stage_route_decisions": stage_route_decisions,
         }
     )
+    if route_context:
+        tool_executor.execution_context["executor_route_context"] = route_context
     if task and getattr(task, "project_id", None):
         tool_executor.execution_context["project_id"] = task.project_id
 
@@ -107,7 +125,7 @@ async def handle_execution_chat_agent_turn(
         execution_id=execution_id,
         profile_id=profile_id,
         provider=provider,
-        model_name=model_name,
+        model_name=None,
         workspace_id=ctx.workspace_id,
         max_iterations=chat_config.max_tool_iterations,
     )
@@ -123,5 +141,11 @@ async def handle_execution_chat_agent_turn(
             "user_message_id": user_message_id,
             "used_tools": used_tools,
             "tool_groups": list(chat_config.tool_groups),
+            "pending_tool_approval": tool_executor.execution_context.get(
+                "pending_tool_approval"
+            ),
+            "stage_route_decisions": tool_executor.execution_context.get(
+                "stage_route_decisions", []
+            ),
         },
     )

@@ -11,10 +11,21 @@ from __future__ import annotations
 import logging
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from sqlalchemy import or_, text
 from sqlalchemy.sql import func
+
+from .codex_pool_health import (
+    auth_failure_scope_key,
+    coerce_datetime,
+    health_state_rank,
+    read_health_metadata,
+    seed_kind_rank,
+    stamp_runtime_failure,
+    stamp_runtime_selected,
+    stamp_runtime_success,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +45,11 @@ _HOST_SESSION_ENV_KEYS = (
 
 class CodexPoolService:
     """Select and cool down Codex runtimes from the shared pool."""
+
+    def __init__(self, requalification_runner: Optional[Callable[[], Any]] = None) -> None:
+        self._requalification_runner = (
+            requalification_runner or self._run_due_requalification
+        )
 
     def _get_db(self):
         try:
@@ -57,6 +73,10 @@ class CodexPoolService:
         allow_fallback: bool = True,
     ) -> Dict[str, Any]:
         """Return env/auth metadata for the best available Codex runtime."""
+        try:
+            self._requalification_runner()
+        except Exception:
+            logger.warning("Codex pool requalification sweep failed before selection", exc_info=True)
         db = self._get_db()
         RuntimeEnvironment = self._get_model()
         try:
@@ -75,12 +95,9 @@ class CodexPoolService:
                             RuntimeEnvironment.cooldown_until < now,
                         ),
                     )
-                    .order_by(
-                        RuntimeEnvironment.pool_priority.asc(),
-                        RuntimeEnvironment.last_used_at.asc().nullsfirst(),
-                    )
                     .all()
                 )
+                runtimes = self._sort_candidate_runtimes(runtimes)
 
                 if preferred_runtime_id:
                     preferred = next(
@@ -112,11 +129,20 @@ class CodexPoolService:
                     if not bundle:
                         continue
                     runtime.last_used_at = func.now()
-                    runtime.last_error_code = None
+                    runtime.extra_metadata = stamp_runtime_selected(
+                        dict(getattr(runtime, "extra_metadata", None) or {}),
+                        auth_type=str(getattr(runtime, "auth_type", "") or ""),
+                    )
                     db.commit()
                     bundle["selected_runtime_id"] = runtime.id
                     bundle["available_runtime_count"] = available_runtime_count
                     bundle["available_quota_scope_count"] = available_quota_scope_count
+                    bundle.update(
+                        self._bundle_health_payload(
+                            runtime.extra_metadata,
+                            auth_type=str(getattr(runtime, "auth_type", "") or ""),
+                        )
+                    )
                     return bundle
 
                 if preferred_runtime_id and not allow_fallback:
@@ -192,6 +218,14 @@ class CodexPoolService:
                 for candidate in affected_runtimes:
                     candidate.cooldown_until = cooldown_until
                     candidate.last_error_code = "429"
+                    candidate.extra_metadata = stamp_runtime_failure(
+                        dict(getattr(candidate, "extra_metadata", None) or {}),
+                        error_code="429",
+                        auth_type=str(getattr(candidate, "auth_type", "") or ""),
+                        failure_scope_key=(
+                            f"quota:{quota_scope_key}" if quota_scope_key else f"runtime:{candidate.id}"
+                        ),
+                    )
                 db.commit()
                 db.refresh(runtime)
                 logger.info(
@@ -240,17 +274,55 @@ class CodexPoolService:
                 if not runtime:
                     return None
 
-                runtime.cooldown_until = datetime.now(timezone.utc) + timedelta(
-                    seconds=max(60, int(cooldown_seconds))
+                normalized_error_code = str(error_code or "401").strip() or "401"
+                cooldown_value = self._auth_failure_cooldown_seconds(
+                    normalized_error_code,
+                    cooldown_seconds=cooldown_seconds,
                 )
-                runtime.last_error_code = str(error_code or "401")
+                cooldown_until = datetime.now(timezone.utc) + timedelta(
+                    seconds=max(60, int(cooldown_value))
+                )
+                runtime_metadata = dict(getattr(runtime, "extra_metadata", None) or {})
+                failure_scope_key = auth_failure_scope_key(
+                    runtime_metadata,
+                    error_code=normalized_error_code,
+                    runtime_id=str(runtime_id or "").strip(),
+                )
+                affected_runtimes = [runtime]
+                if failure_scope_key:
+                    sibling_runtimes = (
+                        db.query(RuntimeEnvironment)
+                        .filter(
+                            RuntimeEnvironment.pool_group == CODEX_POOL_GROUP,
+                            RuntimeEnvironment.user_id == runtime.user_id,
+                        )
+                        .all()
+                    )
+                    affected_runtimes = [
+                        candidate
+                        for candidate in sibling_runtimes
+                        if self._failure_scope_key(candidate, normalized_error_code)
+                        == failure_scope_key
+                    ] or [runtime]
+
+                for candidate in affected_runtimes:
+                    candidate.cooldown_until = cooldown_until
+                    candidate.last_error_code = normalized_error_code
+                    candidate.extra_metadata = stamp_runtime_failure(
+                        dict(getattr(candidate, "extra_metadata", None) or {}),
+                        error_code=normalized_error_code,
+                        auth_type=str(getattr(candidate, "auth_type", "") or ""),
+                        failure_scope_key=failure_scope_key,
+                    )
                 db.commit()
                 db.refresh(runtime)
                 logger.warning(
-                    "Codex runtime %s auth failed, cooldown %ss (error=%s)",
+                    "Codex runtime %s auth failed, cooldown %ss (error=%s affected=%s scope=%s)",
                     runtime_id,
-                    max(60, int(cooldown_seconds)),
-                    runtime.last_error_code,
+                    max(60, int(cooldown_value)),
+                    normalized_error_code,
+                    len(affected_runtimes),
+                    failure_scope_key or "runtime_only",
                 )
                 return runtime.to_dict(include_sensitive=False)
             except Exception:
@@ -269,6 +341,46 @@ class CodexPoolService:
                     error_code=str(error_code or "401"),
                     cooldown_seconds=max(60, int(cooldown_seconds)),
                 )
+        finally:
+            db.close()
+
+    def report_runtime_success(self, runtime_id: str) -> Optional[Dict[str, Any]]:
+        """Promote a runtime back to healthy state after a verified execution success."""
+        db = self._get_db()
+        RuntimeEnvironment = self._get_model()
+        try:
+            try:
+                runtime = (
+                    db.query(RuntimeEnvironment)
+                    .filter(
+                        RuntimeEnvironment.id == runtime_id,
+                        RuntimeEnvironment.pool_group == CODEX_POOL_GROUP,
+                    )
+                    .first()
+                )
+                if not runtime:
+                    return None
+
+                runtime.cooldown_until = None
+                runtime.last_error_code = None
+                runtime.extra_metadata = stamp_runtime_success(
+                    dict(getattr(runtime, "extra_metadata", None) or {}),
+                    auth_type=str(getattr(runtime, "auth_type", "") or ""),
+                )
+                db.commit()
+                db.refresh(runtime)
+                return runtime.to_dict(include_sensitive=False)
+            except Exception:
+                if not hasattr(db, "execute"):
+                    raise
+                if hasattr(db, "rollback"):
+                    db.rollback()
+                logger.warning(
+                    "Codex runtime success ORM path failed for runtime %s; falling back to raw SQL",
+                    runtime_id,
+                    exc_info=True,
+                )
+                return self._report_runtime_success_sql(db, runtime_id)
         finally:
             db.close()
 
@@ -335,12 +447,28 @@ class CodexPoolService:
             ] or [runtime_id]
 
         for candidate_id in affected_ids:
+            candidate_metadata = next(
+                (
+                    self._coerce_json_dict(candidate.get("extra_metadata"))
+                    for candidate in sibling_rows
+                    if str(candidate.get("id")) == candidate_id
+                ),
+                self._coerce_json_dict(runtime.get("extra_metadata")),
+            ) if quota_scope_key else self._coerce_json_dict(runtime.get("extra_metadata"))
+            updated_metadata = stamp_runtime_failure(
+                candidate_metadata,
+                error_code="429",
+                failure_scope_key=(
+                    f"quota:{quota_scope_key}" if quota_scope_key else f"runtime:{candidate_id}"
+                ),
+            )
             db.execute(
                 text(
                     """
                     UPDATE runtime_environments
                     SET cooldown_until = :cooldown_until,
                         last_error_code = '429',
+                        extra_metadata = CAST(:extra_metadata AS JSONB),
                         updated_at = NOW()
                     WHERE id = :runtime_id
                     """
@@ -348,6 +476,7 @@ class CodexPoolService:
                 {
                     "runtime_id": candidate_id,
                     "cooldown_until": cooldown_until,
+                    "extra_metadata": json.dumps(updated_metadata),
                 },
             )
         db.commit()
@@ -403,6 +532,7 @@ class CodexPoolService:
             .mappings()
             .all()
         )
+        runtimes = self._sort_candidate_runtime_rows(runtimes)
 
         if preferred_runtime_id:
             preferred = next(
@@ -435,22 +565,35 @@ class CodexPoolService:
             if not bundle:
                 continue
             runtime_id = str(runtime.get("id"))
+            updated_metadata = stamp_runtime_selected(
+                self._coerce_json_dict(runtime.get("extra_metadata")),
+                auth_type=str(runtime.get("auth_type") or ""),
+            )
             db.execute(
                 text(
                     """
                     UPDATE runtime_environments
                     SET last_used_at = NOW(),
-                        last_error_code = NULL,
+                        extra_metadata = CAST(:extra_metadata AS JSONB),
                         updated_at = NOW()
                     WHERE id = :runtime_id
                     """
                 ),
-                {"runtime_id": runtime_id},
+                {
+                    "runtime_id": runtime_id,
+                    "extra_metadata": json.dumps(updated_metadata),
+                },
             )
             db.commit()
             bundle["selected_runtime_id"] = runtime_id
             bundle["available_runtime_count"] = available_runtime_count
             bundle["available_quota_scope_count"] = available_quota_scope_count
+            bundle.update(
+                self._bundle_health_payload(
+                    updated_metadata,
+                    auth_type=str(runtime.get("auth_type") or ""),
+                )
+            )
             return bundle
 
         if preferred_runtime_id and not allow_fallback:
@@ -477,7 +620,7 @@ class CodexPoolService:
             db.execute(
                 text(
                     """
-                    SELECT id
+                    SELECT id, user_id, auth_type, extra_metadata
                     FROM runtime_environments
                     WHERE id = :runtime_id
                       AND pool_group = :pool_group
@@ -492,34 +635,139 @@ class CodexPoolService:
         if not runtime:
             return None
 
-        cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
+        normalized_error_code = str(error_code or "401").strip() or "401"
+        cooldown_value = self._auth_failure_cooldown_seconds(
+            normalized_error_code,
+            cooldown_seconds=cooldown_seconds,
+        )
+        cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=cooldown_value)
+        runtime_metadata = self._coerce_json_dict(runtime.get("extra_metadata"))
+        failure_scope_key = auth_failure_scope_key(
+            runtime_metadata,
+            error_code=normalized_error_code,
+            runtime_id=str(runtime_id or "").strip(),
+        )
+
+        affected_rows = [runtime]
+        if failure_scope_key:
+            sibling_rows = (
+                db.execute(
+                    text(
+                        """
+                        SELECT id, auth_type, extra_metadata
+                        FROM runtime_environments
+                        WHERE pool_group = :pool_group
+                          AND user_id = :user_id
+                        """
+                    ),
+                    {
+                        "pool_group": CODEX_POOL_GROUP,
+                        "user_id": runtime.get("user_id"),
+                    },
+                )
+                .mappings()
+                .all()
+            )
+            affected_rows = [
+                candidate
+                for candidate in sibling_rows
+                if self._failure_scope_key_from_metadata(
+                    candidate.get("extra_metadata"),
+                    error_code=normalized_error_code,
+                    runtime_id=str(candidate.get("id") or ""),
+                )
+                == failure_scope_key
+            ] or [runtime]
+
+        for candidate in affected_rows:
+            updated_metadata = stamp_runtime_failure(
+                self._coerce_json_dict(candidate.get("extra_metadata")),
+                error_code=normalized_error_code,
+                auth_type=str(candidate.get("auth_type") or ""),
+                failure_scope_key=failure_scope_key,
+            )
+            db.execute(
+                text(
+                    """
+                    UPDATE runtime_environments
+                    SET cooldown_until = :cooldown_until,
+                        last_error_code = :error_code,
+                        extra_metadata = CAST(:extra_metadata AS JSONB),
+                        updated_at = NOW()
+                    WHERE id = :runtime_id
+                    """
+                ),
+                {
+                    "runtime_id": str(candidate.get("id") or ""),
+                    "cooldown_until": cooldown_until,
+                    "error_code": normalized_error_code,
+                    "extra_metadata": json.dumps(updated_metadata),
+                },
+            )
+        db.commit()
+        logger.warning(
+            "Codex runtime %s auth failed via raw SQL, cooldown %ss (error=%s affected=%s scope=%s)",
+            runtime_id,
+            cooldown_value,
+            normalized_error_code,
+            len(affected_rows),
+            failure_scope_key or "runtime_only",
+        )
+        return {
+            "id": runtime_id,
+            "cooldown_until": cooldown_until.isoformat(),
+            "last_error_code": normalized_error_code,
+        }
+
+    def _report_runtime_success_sql(
+        self,
+        db: Any,
+        runtime_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        runtime = (
+            db.execute(
+                text(
+                    """
+                    SELECT id, auth_type, extra_metadata
+                    FROM runtime_environments
+                    WHERE id = :runtime_id
+                      AND pool_group = :pool_group
+                    LIMIT 1
+                    """
+                ),
+                {"runtime_id": runtime_id, "pool_group": CODEX_POOL_GROUP},
+            )
+            .mappings()
+            .first()
+        )
+        if not runtime:
+            return None
+
+        updated_metadata = stamp_runtime_success(
+            self._coerce_json_dict(runtime.get("extra_metadata")),
+            auth_type=str(runtime.get("auth_type") or ""),
+        )
         db.execute(
             text(
                 """
                 UPDATE runtime_environments
-                SET cooldown_until = :cooldown_until,
-                    last_error_code = :error_code,
+                SET cooldown_until = NULL,
+                    last_error_code = NULL,
+                    extra_metadata = CAST(:extra_metadata AS JSONB),
                     updated_at = NOW()
                 WHERE id = :runtime_id
                 """
             ),
             {
                 "runtime_id": runtime_id,
-                "cooldown_until": cooldown_until,
-                "error_code": str(error_code or "401"),
+                "extra_metadata": json.dumps(updated_metadata),
             },
         )
         db.commit()
-        logger.warning(
-            "Codex runtime %s auth failed via raw SQL, cooldown %ss (error=%s)",
-            runtime_id,
-            cooldown_seconds,
-            error_code,
-        )
         return {
             "id": runtime_id,
-            "cooldown_until": cooldown_until.isoformat(),
-            "last_error_code": str(error_code or "401"),
+            "cooldown_until": None,
+            "last_error_code": None,
         }
 
     @classmethod
@@ -681,6 +929,99 @@ class CodexPoolService:
         }
         return len(scopes)
 
+    @classmethod
+    def _sort_candidate_runtimes(cls, runtimes: list[Any]) -> list[Any]:
+        return sorted(
+            runtimes,
+            key=lambda runtime: cls._candidate_sort_key_from_values(
+                auth_type=str(getattr(runtime, "auth_type", "") or ""),
+                metadata=dict(getattr(runtime, "extra_metadata", None) or {}),
+                pool_priority=getattr(runtime, "pool_priority", 0),
+                last_used_at=getattr(runtime, "last_used_at", None),
+                last_error_code=getattr(runtime, "last_error_code", None),
+            ),
+        )
+
+    @classmethod
+    def _sort_candidate_runtime_rows(cls, runtimes: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        return sorted(
+            runtimes,
+            key=lambda runtime: cls._candidate_sort_key_from_values(
+                auth_type=str(runtime.get("auth_type") or ""),
+                metadata=cls._coerce_json_dict(runtime.get("extra_metadata")),
+                pool_priority=runtime.get("pool_priority"),
+                last_used_at=runtime.get("last_used_at"),
+                last_error_code=runtime.get("last_error_code"),
+            ),
+        )
+
+    @classmethod
+    def _candidate_sort_key_from_values(
+        cls,
+        *,
+        auth_type: str,
+        metadata: Dict[str, Any],
+        pool_priority: Any,
+        last_used_at: Any,
+        last_error_code: Any,
+    ) -> tuple[Any, ...]:
+        health = read_health_metadata(metadata, auth_type=auth_type)
+        last_success_at = coerce_datetime(health.get("last_success_at"))
+        last_used_dt = coerce_datetime(last_used_at)
+        return (
+            health_state_rank(str(health.get("health_state") or "")),
+            seed_kind_rank(str(health.get("seed_kind") or "")),
+            0 if last_success_at else 1,
+            -(last_success_at.timestamp()) if last_success_at else 0.0,
+            int(pool_priority or 0),
+            0 if last_used_dt is None else 1,
+            last_used_dt or datetime.min.replace(tzinfo=timezone.utc),
+            0 if not str(last_error_code or "").strip() else 1,
+        )
+
+    @classmethod
+    def _bundle_health_payload(
+        cls,
+        metadata: Dict[str, Any],
+        *,
+        auth_type: str,
+    ) -> Dict[str, Any]:
+        health = read_health_metadata(metadata, auth_type=auth_type)
+        return {
+            "runtime_seed_kind": health.get("seed_kind"),
+            "runtime_health_state": health.get("health_state"),
+            "runtime_failure_scope_key": health.get("failure_scope_key"),
+        }
+
+    @classmethod
+    def _failure_scope_key(cls, runtime: Any, error_code: str) -> Optional[str]:
+        return auth_failure_scope_key(
+            dict(getattr(runtime, "extra_metadata", None) or {}),
+            error_code=error_code,
+            runtime_id=str(getattr(runtime, "id", "") or ""),
+        )
+
+    @classmethod
+    def _failure_scope_key_from_metadata(
+        cls,
+        metadata: Any,
+        *,
+        error_code: str,
+        runtime_id: str,
+    ) -> Optional[str]:
+        return auth_failure_scope_key(
+            cls._coerce_json_dict(metadata),
+            error_code=error_code,
+            runtime_id=runtime_id,
+        )
+
+    @staticmethod
+    def _auth_failure_cooldown_seconds(error_code: str, *, cooldown_seconds: int) -> int:
+        normalized = str(error_code or "").strip().lower()
+        if normalized in {"timeout", "stall"}:
+            return BASE_COOLDOWN_SECONDS
+        return max(60, int(cooldown_seconds))
+
     @staticmethod
     def _coerce_json_dict(value: Any) -> Dict[str, Any]:
         if isinstance(value, dict):
@@ -693,3 +1034,11 @@ class CodexPoolService:
             if isinstance(parsed, dict):
                 return parsed
         return {}
+
+    @staticmethod
+    def _run_due_requalification() -> None:
+        from backend.app.services.codex_pool_requalification_service import (
+            CodexPoolRequalificationService,
+        )
+
+        CodexPoolRequalificationService().sweep_due_runtimes()

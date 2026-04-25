@@ -24,7 +24,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import shlex
 import shutil
 import socket
@@ -37,6 +36,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
+from backend.app.services.external_agents.bridge.codex_cli_runner import (
+    DEFAULT_CLI_STALL_TIMEOUT_SECONDS,
+    MAX_CLI_OUTPUT_SIZE,
+    cli_activity_signature,
+    extract_codex_cli_error,
+    looks_like_codex_auth_failure,
+    looks_like_codex_quota_exhaustion,
+    resolve_codex_cli_output,
+    should_retry_codex_runtime_fault,
+    wait_for_cli_subprocess_activity,
+)
+
 logger = logging.getLogger("task_executor")
 
 
@@ -47,7 +58,6 @@ logger = logging.getLogger("task_executor")
 DEFAULT_TASK_TIMEOUT = 600  # 10 minutes
 MAX_OUTPUT_SIZE = 100_000  # characters
 CODEX_POOL_MAX_TASK_ATTEMPTS = 3
-DEFAULT_CLI_STALL_TIMEOUT_SECONDS = 180.0
 DEFAULT_AUTH_BUNDLE_TIMEOUT_SECONDS = 20.0
 DEFAULT_AUTH_BUNDLE_MAX_ATTEMPTS = 3
 DEFAULT_AUTH_BUNDLE_RETRY_DELAY_SECONDS = 0.5
@@ -438,11 +448,19 @@ class HostBridgeTaskExecutor:
         self,
         runtime_name: str,
         runtime_id: str,
+        *,
+        workspace_id: str = "",
+        effective_workspace_id: str = "",
     ) -> None:
         backend_urls = self._resolve_backend_api_urls()
         if not backend_urls:
             return
-        query = urllib.parse.urlencode({"surface": runtime_name, "runtime_id": runtime_id})
+        params = {"surface": runtime_name, "runtime_id": runtime_id}
+        if workspace_id:
+            params["workspace_id"] = workspace_id
+        if effective_workspace_id:
+            params["effective_workspace_id"] = effective_workspace_id
+        query = urllib.parse.urlencode(params)
         timeout_seconds = self._parse_env_float(
             "MINDSCAPE_CLI_RUNTIME_QUOTA_REPORT_TIMEOUT_SECONDS",
             DEFAULT_QUOTA_REPORT_TIMEOUT_SECONDS,
@@ -482,13 +500,22 @@ class HostBridgeTaskExecutor:
         runtime_id: str,
         *,
         error_code: str = "401",
+        workspace_id: str = "",
+        effective_workspace_id: str = "",
     ) -> None:
         backend_urls = self._resolve_backend_api_urls()
         if not backend_urls:
             return
-        query = urllib.parse.urlencode(
-            {"surface": runtime_name, "runtime_id": runtime_id, "error_code": error_code}
-        )
+        params = {
+            "surface": runtime_name,
+            "runtime_id": runtime_id,
+            "error_code": error_code,
+        }
+        if workspace_id:
+            params["workspace_id"] = workspace_id
+        if effective_workspace_id:
+            params["effective_workspace_id"] = effective_workspace_id
+        query = urllib.parse.urlencode(params)
         timeout_seconds = self._parse_env_float(
             "MINDSCAPE_CLI_RUNTIME_QUOTA_REPORT_TIMEOUT_SECONDS",
             DEFAULT_QUOTA_REPORT_TIMEOUT_SECONDS,
@@ -518,6 +545,50 @@ class HostBridgeTaskExecutor:
             break
         logger.warning(
             "[TaskExecutor] Failed to report auth failure for %s runtime %s: %s",
+            runtime_name,
+            runtime_id,
+            last_exc,
+        )
+
+    def _report_runtime_success_sync(
+        self,
+        runtime_name: str,
+        runtime_id: str,
+    ) -> None:
+        backend_urls = self._resolve_backend_api_urls()
+        if not backend_urls:
+            return
+        params = {"surface": runtime_name, "runtime_id": runtime_id}
+        query = urllib.parse.urlencode(params)
+        timeout_seconds = self._parse_env_float(
+            "MINDSCAPE_CLI_RUNTIME_QUOTA_REPORT_TIMEOUT_SECONDS",
+            DEFAULT_QUOTA_REPORT_TIMEOUT_SECONDS,
+            minimum=1.0,
+        )
+        max_attempts = self._parse_env_int(
+            "MINDSCAPE_CLI_RUNTIME_QUOTA_REPORT_MAX_ATTEMPTS",
+            DEFAULT_QUOTA_REPORT_MAX_ATTEMPTS,
+            minimum=1,
+        )
+        last_exc: Optional[BaseException] = None
+        for attempt in range(1, max_attempts + 1):
+            for backend_url in backend_urls:
+                try:
+                    req = urllib.request.Request(
+                        f"{backend_url}/api/v1/auth/runtime-success?{query}",
+                        method="POST",
+                    )
+                    req.add_header("Accept", "application/json")
+                    with urllib.request.urlopen(req, timeout=timeout_seconds):
+                        return
+                except (urllib.error.URLError, OSError) as exc:
+                    last_exc = exc
+                    continue
+            if attempt < max_attempts and last_exc and self._is_retryable_http_error(last_exc):
+                continue
+            break
+        logger.warning(
+            "[TaskExecutor] Failed to report runtime success for %s runtime %s: %s",
             runtime_name,
             runtime_id,
             last_exc,
@@ -574,6 +645,9 @@ class HostBridgeTaskExecutor:
         self,
         runtime_name: str,
         runtime_id: str,
+        *,
+        workspace_id: str = "",
+        effective_workspace_id: str = "",
     ) -> None:
         if not runtime_id:
             return
@@ -581,6 +655,8 @@ class HostBridgeTaskExecutor:
             self._report_runtime_quota_exhausted_sync,
             runtime_name,
             runtime_id,
+            workspace_id=workspace_id,
+            effective_workspace_id=effective_workspace_id,
         )
 
     async def _report_runtime_auth_failure(
@@ -589,6 +665,8 @@ class HostBridgeTaskExecutor:
         runtime_id: str,
         *,
         error_code: str = "401",
+        workspace_id: str = "",
+        effective_workspace_id: str = "",
     ) -> None:
         if not runtime_id:
             return
@@ -597,6 +675,21 @@ class HostBridgeTaskExecutor:
             runtime_name,
             runtime_id,
             error_code=error_code,
+            workspace_id=workspace_id,
+            effective_workspace_id=effective_workspace_id,
+        )
+
+    async def _report_runtime_success(
+        self,
+        runtime_name: str,
+        runtime_id: str,
+    ) -> None:
+        if not runtime_id:
+            return
+        await asyncio.to_thread(
+            self._report_runtime_success_sync,
+            runtime_name,
+            runtime_id,
         )
 
     @staticmethod
@@ -899,6 +992,11 @@ class HostBridgeTaskExecutor:
                     if bundle_attempt_capacity > max_attempts:
                         max_attempts = bundle_attempt_capacity
                 extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
+                effective_workspace_id = (
+                    str(auth_bundle.get("effective_workspace_id") or "").strip()
+                    if isinstance(auth_bundle, dict)
+                    else ""
+                )
                 selected_runtime_id = (
                     str(auth_bundle.get("selected_runtime_id") or "").strip()
                     if isinstance(auth_bundle, dict)
@@ -959,6 +1057,8 @@ class HostBridgeTaskExecutor:
                         snapshot_paths=snapshot_paths,
                         extra_env=extra_env if isinstance(extra_env, dict) else None,
                         selected_runtime_id=selected_runtime_id,
+                        workspace_id=ctx.workspace_id,
+                        effective_workspace_id=effective_workspace_id,
                         stall_timeout=stall_timeout,
                     ),
                     timeout=timeout,
@@ -974,11 +1074,6 @@ class HostBridgeTaskExecutor:
 
                 last_quota_error = str((result.error or "") or (result.output or "")).strip()
                 attempted_runtime_ids.add(selected_runtime_id)
-                if self._looks_like_auth_failure(last_quota_error):
-                    await self._report_runtime_auth_failure(
-                        "codex_cli",
-                        selected_runtime_id,
-                    )
                 if attempt >= max_attempts:
                     return result
 
@@ -1144,6 +1239,8 @@ class HostBridgeTaskExecutor:
         snapshot_paths: Optional[List[str]] = None,
         extra_env: Optional[Dict[str, str]] = None,
         selected_runtime_id: Optional[str] = None,
+        workspace_id: str = "",
+        effective_workspace_id: str = "",
         stall_timeout: Optional[float] = None,
     ) -> ExecutionResult:
         resolved_snapshot_root = (snapshot_root or "").strip()
@@ -1206,6 +1303,8 @@ class HostBridgeTaskExecutor:
                 metadata={
                     "effective_sandbox_path": resolved_snapshot_root or cwd,
                     "selected_runtime_id": selected_runtime_id or None,
+                    "workspace_id": workspace_id or None,
+                    "effective_workspace_id": effective_workspace_id or None,
                 },
             )
 
@@ -1251,6 +1350,11 @@ class HostBridgeTaskExecutor:
                 output = stderr
 
         if proc.returncode == 0 and not synthesized_error:
+            if runtime_name == "codex_cli" and selected_runtime_id:
+                await self._report_runtime_success(
+                    runtime_name,
+                    selected_runtime_id,
+                )
             logger.info(
                 "[TaskExecutor] %s subprocess pid=%s finished with code 0 for %s",
                 runtime_name,
@@ -1266,6 +1370,8 @@ class HostBridgeTaskExecutor:
                 metadata={
                     "effective_sandbox_path": resolved_snapshot_root or cwd,
                     "selected_runtime_id": selected_runtime_id or None,
+                    "workspace_id": workspace_id or None,
+                    "effective_workspace_id": effective_workspace_id or None,
                 },
             )
         if synthesized_error:
@@ -1273,11 +1379,15 @@ class HostBridgeTaskExecutor:
                 await self._report_runtime_quota_exhausted(
                     runtime_name,
                     selected_runtime_id,
+                    workspace_id=workspace_id,
+                    effective_workspace_id=effective_workspace_id,
                 )
             elif selected_runtime_id and self._looks_like_auth_failure(synthesized_error):
                 await self._report_runtime_auth_failure(
                     runtime_name,
                     selected_runtime_id,
+                    workspace_id=workspace_id,
+                    effective_workspace_id=effective_workspace_id,
                 )
             logger.warning(
                 "[TaskExecutor] %s subprocess pid=%s produced no usable agent message "
@@ -1297,17 +1407,23 @@ class HostBridgeTaskExecutor:
                 metadata={
                     "effective_sandbox_path": resolved_snapshot_root or cwd,
                     "selected_runtime_id": selected_runtime_id or None,
+                    "workspace_id": workspace_id or None,
+                    "effective_workspace_id": effective_workspace_id or None,
                 },
             )
         if selected_runtime_id and self._looks_like_quota_exhaustion(stderr or stdout):
             await self._report_runtime_quota_exhausted(
                 runtime_name,
                 selected_runtime_id,
+                workspace_id=workspace_id,
+                effective_workspace_id=effective_workspace_id,
             )
         elif selected_runtime_id and self._looks_like_auth_failure(stderr or stdout):
             await self._report_runtime_auth_failure(
                 runtime_name,
                 selected_runtime_id,
+                workspace_id=workspace_id,
+                effective_workspace_id=effective_workspace_id,
             )
         logger.warning(
             "[TaskExecutor] %s subprocess pid=%s finished with code %s for %s",
@@ -1326,6 +1442,8 @@ class HostBridgeTaskExecutor:
             metadata={
                 "effective_sandbox_path": resolved_snapshot_root or cwd,
                 "selected_runtime_id": selected_runtime_id or None,
+                "workspace_id": workspace_id or None,
+                "effective_workspace_id": effective_workspace_id or None,
             },
         )
 
@@ -1340,48 +1458,15 @@ class HostBridgeTaskExecutor:
         snapshot_paths: Optional[List[str]],
         stall_timeout: Optional[float],
     ) -> tuple[bytes, bytes]:
-        communicate_task = asyncio.create_task(proc.communicate())
-        if not stall_timeout or stall_timeout <= 0:
-            return await communicate_task
-
-        poll_interval = min(5.0, max(0.5, stall_timeout / 6.0))
-        last_activity_at = time.monotonic()
-        last_activity_signature = self._cli_activity_signature(
+        return await wait_for_cli_subprocess_activity(
+            proc=proc,
+            runtime_name=runtime_name,
+            execution_id=execution_id,
             last_message_path=last_message_path,
             snapshot_root=snapshot_root,
             snapshot_paths=snapshot_paths,
+            stall_timeout=stall_timeout,
         )
-
-        while True:
-            done, _ = await asyncio.wait({communicate_task}, timeout=poll_interval)
-            if communicate_task in done:
-                return await communicate_task
-
-            current_signature = self._cli_activity_signature(
-                last_message_path=last_message_path,
-                snapshot_root=snapshot_root,
-                snapshot_paths=snapshot_paths,
-            )
-            if current_signature != last_activity_signature:
-                last_activity_signature = current_signature
-                last_activity_at = time.monotonic()
-                continue
-
-            if time.monotonic() - last_activity_at < stall_timeout:
-                continue
-
-            logger.warning(
-                "[TaskExecutor] %s subprocess pid=%s stalled for %ss without message/file activity (%s)",
-                runtime_name,
-                proc.pid,
-                int(stall_timeout),
-                execution_id,
-            )
-            proc.kill()
-            await communicate_task
-            raise asyncio.TimeoutError(
-                f"{runtime_name} subprocess stalled after {int(stall_timeout)}s without file or message activity"
-            )
 
     @staticmethod
     def _cli_activity_signature(
@@ -1390,41 +1475,11 @@ class HostBridgeTaskExecutor:
         snapshot_root: str,
         snapshot_paths: Optional[List[str]],
     ) -> tuple[tuple[str, int, int], ...]:
-        observed: List[tuple[str, int, int]] = []
-
-        def _record(path: Path) -> None:
-            try:
-                stat = path.stat()
-            except OSError:
-                return
-            observed.append((str(path), int(stat.st_size), int(stat.st_mtime_ns)))
-
-        if last_message_path:
-            candidate = Path(last_message_path)
-            if candidate.is_file():
-                _record(candidate)
-
-        root_path = Path(snapshot_root) if snapshot_root else None
-        if root_path and root_path.is_dir() and isinstance(snapshot_paths, list):
-            seen_paths: set[str] = set()
-            for raw_path in snapshot_paths:
-                if not isinstance(raw_path, str):
-                    continue
-                normalized = raw_path.replace("\\", "/").lstrip("./")
-                filename = os.path.basename(normalized)
-                for probe in (normalized, filename):
-                    if not probe:
-                        continue
-                    candidate = root_path / probe
-                    candidate_str = str(candidate)
-                    if candidate_str in seen_paths or not candidate.is_file():
-                        continue
-                    _record(candidate)
-                    seen_paths.add(candidate_str)
-                    break
-
-        observed.sort()
-        return tuple(observed)
+        return cli_activity_signature(
+            last_message_path=last_message_path,
+            snapshot_root=snapshot_root,
+            snapshot_paths=snapshot_paths,
+        )
 
     @staticmethod
     def _collect_targeted_attachments(
@@ -1495,91 +1550,30 @@ class HostBridgeTaskExecutor:
         stderr: str,
         last_message_path: Optional[str],
     ) -> tuple[str, Optional[str]]:
-        """Prefer Codex's final agent message; reject transcript-only fallbacks."""
-        last_message = ""
-        if last_message_path and os.path.isfile(last_message_path):
-            try:
-                last_message = Path(last_message_path).read_text(
-                    encoding="utf-8"
-                ).strip()
-            except OSError:
-                last_message = ""
-        if last_message:
-            return last_message, None
-
-        transcript_only = "OpenAI Codex v" in stdout and "User instructions:" in stdout
-        no_last_message = "no last agent message" in stderr.lower()
-        codex_error = cls._extract_codex_cli_error(stdout=stdout, stderr=stderr)
-
-        if codex_error:
-            return "", codex_error
-        if no_last_message or transcript_only:
-            detail = "Codex CLI completed without producing a final agent message"
-            if stderr:
-                detail = f"{detail}; {stderr[:400]}"
-            return "", detail
-
-        output = stdout or stderr
-        return output, None
+        return resolve_codex_cli_output(
+            stdout=stdout,
+            stderr=stderr,
+            last_message_path=last_message_path,
+        )
 
     @staticmethod
     def _extract_codex_cli_error(*, stdout: str, stderr: str) -> Optional[str]:
-        """Pull the most relevant Codex CLI error line from stderr/stdout."""
-        for source in (stderr, stdout):
-            if not source:
-                continue
-            matches = re.findall(
-                r"(?:^|\n)(?:\[[^\n]*\]\s*)?ERROR:\s*(.+)",
-                source,
-                flags=re.MULTILINE,
-            )
-            if matches:
-                return matches[-1].strip()
-        return None
+        return extract_codex_cli_error(stdout=stdout, stderr=stderr)
 
     @staticmethod
     def _looks_like_quota_exhaustion(message: str) -> bool:
-        normalized = str(message or "").lower()
-        if not normalized:
-            return False
-        markers = (
-            "usage limit",
-            "rate limit",
-            "quota",
-            "too many requests",
-            "resource_exhausted",
-            "429",
-        )
-        return any(marker in normalized for marker in markers)
+        return looks_like_codex_quota_exhaustion(message)
 
     @classmethod
     def _looks_like_auth_failure(cls, message: str) -> bool:
-        normalized = str(message or "").lower()
-        if not normalized:
-            return False
-        markers = (
-            "401 unauthorized",
-            "unauthorized",
-            "missing bearer",
-            "missing bearer or basic authentication",
-            "authentication failed",
-            "invalid api key",
-            "incorrect api key",
-            "missing api key",
-        )
-        return any(marker in normalized for marker in markers) and not cls._looks_like_quota_exhaustion(normalized)
+        return looks_like_codex_auth_failure(message)
 
     @classmethod
     def _should_retry_codex_runtime_fault(cls, result: ExecutionResult) -> bool:
         message = str((result.error or "") or (result.output or "")).strip()
-        if cls._looks_like_quota_exhaustion(message):
-            return True
-        if cls._looks_like_auth_failure(message):
-            return True
         if result.status == "timeout":
             return True
-        normalized = message.lower()
-        return "subprocess stalled after" in normalized
+        return should_retry_codex_runtime_fault(message)
 
     @staticmethod
     def _snapshot_files(

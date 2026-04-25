@@ -14,6 +14,10 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import or_
 from sqlalchemy.sql import func
 
+from backend.app.services.runtime_route_registration import (
+    sync_runtime_registration_metadata,
+)
+
 logger = logging.getLogger(__name__)
 
 # Cooldown backoff: 5min -> 15min -> 30min (capped)
@@ -24,6 +28,19 @@ BACKOFF_MULTIPLIER = 3
 
 class GCAPoolService:
     """Service for managing GCA multi-account pool."""
+
+    @staticmethod
+    def _commit_runtime_updates(db, *runtimes) -> None:
+        seen: set[int] = set()
+        for runtime in runtimes:
+            if runtime is None:
+                continue
+            marker = id(runtime)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            sync_runtime_registration_metadata(runtime)
+        db.commit()
 
     def _get_db(self):
         try:
@@ -88,7 +105,7 @@ class GCAPoolService:
                 pool_priority=existing_count,
             )
             db.add(runtime)
-            db.commit()
+            self._commit_runtime_updates(db, runtime)
             db.refresh(runtime)
             logger.info("Created pool runtime %s for user %s", runtime_id, user_id)
             return self._to_pool_dict(runtime)
@@ -141,7 +158,7 @@ class GCAPoolService:
                 runtime.pool_enabled = enabled
             if priority is not None:
                 runtime.pool_priority = priority
-            db.commit()
+            self._commit_runtime_updates(db, runtime)
             db.refresh(runtime)
             return self._to_pool_dict(runtime)
         finally:
@@ -172,7 +189,7 @@ class GCAPoolService:
 
             runtime.cooldown_until = now + timedelta(seconds=cooldown_secs)
             runtime.last_error_code = "429"
-            db.commit()
+            self._commit_runtime_updates(db, runtime)
             db.refresh(runtime)
 
             logger.info(
@@ -260,7 +277,7 @@ class GCAPoolService:
                     runtime.auth_status = "connected"
                 runtime.last_used_at = func.now()
                 runtime.last_error_code = None
-                db.commit()
+                self._commit_runtime_updates(db, runtime)
 
                 import os
 
@@ -434,7 +451,7 @@ class GCAPoolService:
 
             runtime.auth_config = auth_service.encrypt_token_blob(token_data)
             runtime.auth_status = "connected"
-            db.commit()
+            self._commit_runtime_updates(db, runtime)
             return new_token
         except Exception as e:
             logger.error("Token refresh failed for %s: %s", runtime.id, e)

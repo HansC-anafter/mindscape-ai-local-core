@@ -308,7 +308,7 @@ class TaskDecomposer:
         available_tools: str,
     ) -> List[PhaseIR]:
         """Use LLM to decompose into detailed phases."""
-        import inspect
+        from backend.app.shared.llm_utils import call_llm
 
         system_prompt = _DECOMPOSE_SYSTEM_PROMPT.format(
             max_phases=self._max_phases,
@@ -344,23 +344,17 @@ class TaskDecomposer:
         ]
 
         try:
-            call_kwargs: Dict[str, Any] = {
-                "messages": messages,
-                "temperature": 0.2,
-                "max_tokens": 4096,
-            }
-            if self._model_name:
-                call_kwargs["model"] = self._model_name
-
-            # Adapt to provider signature (same pattern as _generation.py)
-            sig = inspect.signature(self._llm.chat_completion)
-            allowed = set(sig.parameters.keys())
-            kwargs = {k: v for k, v in call_kwargs.items() if k in allowed}
-            if "messages" not in kwargs:
-                kwargs["messages"] = messages
-
-            raw_output = await self._llm.chat_completion(**kwargs)
-            raw_output = str(raw_output).strip()
+            response = await call_llm(
+                messages=messages,
+                llm_provider=self._llm,
+                model=self._model_name or None,
+                temperature=0.2,
+                max_tokens=4096,
+                purpose="task_decomposer_decompose",
+                stage_name="plan_generation",
+                risk_level="read",
+            )
+            raw_output = str(response.get("text", "") or "").strip()
 
             phases_data = self._extract_json_array(raw_output)
             if not phases_data:
@@ -393,7 +387,7 @@ class TaskDecomposer:
         available_playbooks: str,
     ) -> Optional[List[PhaseIR]]:
         """Use LLM to determine if wave results require additional phases."""
-        import inspect
+        from backend.app.shared.llm_utils import call_llm
 
         # Summarize wave results for the prompt
         results_summary = json.dumps(
@@ -430,22 +424,17 @@ class TaskDecomposer:
         ]
 
         try:
-            call_kwargs: Dict[str, Any] = {
-                "messages": messages,
-                "temperature": 0.2,
-                "max_tokens": 2048,
-            }
-            if self._model_name:
-                call_kwargs["model"] = self._model_name
-
-            sig = inspect.signature(self._llm.chat_completion)
-            allowed = set(sig.parameters.keys())
-            kwargs = {k: v for k, v in call_kwargs.items() if k in allowed}
-            if "messages" not in kwargs:
-                kwargs["messages"] = messages
-
-            raw_output = await self._llm.chat_completion(**kwargs)
-            raw_output = str(raw_output).strip()
+            response = await call_llm(
+                messages=messages,
+                llm_provider=self._llm,
+                model=self._model_name or None,
+                temperature=0.2,
+                max_tokens=2048,
+                purpose="task_decomposer_extend",
+                stage_name="plan_generation",
+                risk_level="read",
+            )
+            raw_output = str(response.get("text", "") or "").strip()
 
             phases_data = self._extract_json_array(raw_output)
             if not phases_data:

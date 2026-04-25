@@ -328,6 +328,7 @@ Cluster label (2-4 words, in English, no quotes):"""
             # Call LLM to generate label
             from ...services.system_settings_store import SystemSettingsStore
             from ...shared.llm_utils import call_llm, build_prompt
+            from ...shared.llm_provider_helper import create_llm_provider_manager
 
             settings_store = SystemSettingsStore()
             chat_setting = settings_store.get_setting("chat_model")
@@ -340,13 +341,17 @@ Cluster label (2-4 words, in English, no quotes):"""
 
             try:
                 response = await call_llm(
-                    prompt=build_prompt(prompt),
-                    model_name=model_name,
+                    messages=build_prompt(user_prompt=prompt),
+                    llm_provider=create_llm_provider_manager(),
+                    model=model_name,
                     temperature=0.3,
-                    max_tokens=20
+                    max_tokens=20,
+                    purpose="intent_cluster_label_generation",
+                    stage_name="scope_decision",
+                    risk_level="read",
                 )
 
-                label = response.strip().strip('"').strip("'")
+                label = response.get("text", "").strip().strip('"').strip("'")
                 if len(label) > 50:
                     label = label[:50]
 
@@ -419,4 +424,3 @@ Cluster label (2-4 words, in English, no quotes):"""
                 return existing
 
         return None
-

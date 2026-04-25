@@ -120,42 +120,31 @@ class TestDecomposeAgenda:
 
     @pytest.mark.asyncio
     async def test_basic_decomposition(self):
-        provider = _build_provider(
-            '["research autonomic nerve", "create IG posts", "find images"]',
-            ["messages", "model", "temperature", "max_tokens", "max_completion_tokens"],
+        from backend.app.services.conversation.pipeline_meeting import (
+            _decompose_agenda,
         )
-        with _patch_provider(provider):
-            from backend.app.services.conversation.pipeline_meeting import (
-                _decompose_agenda,
-            )
 
-            result = await _decompose_agenda(
-                "Research autonomic nerve studies and create IG posts with images",
-                model_name="gemini-2.5-pro",
-            )
-            assert len(result) == 3
+        async def _fake_generate(messages, model=None):
+            return '["research autonomic nerve", "create IG posts", "find images"]'
+
+        result = await _decompose_agenda(
+            "Research autonomic nerve studies and create IG posts with images",
+            model_name="gemini-2.5-pro",
+            llm_generate_fn=_fake_generate,
+        )
+        assert len(result) == 3
 
     @pytest.mark.asyncio
-    async def test_provider_safe_kwargs_anthropic(self):
-        """Anthropic provider should NOT receive temperature/max_tokens kwargs."""
-        provider = _build_provider(
-            '["step A", "step B", "step C"]',
-            ["messages", "model"],
+    async def test_without_generation_callback_returns_raw_message(self):
+        from backend.app.services.conversation.pipeline_meeting import (
+            _decompose_agenda,
         )
-        with _patch_provider(provider):
-            from backend.app.services.conversation.pipeline_meeting import (
-                _decompose_agenda,
-            )
 
-            result = await _decompose_agenda(
-                "Do three different tasks for me please now",
-                model_name="claude-3",
-            )
-            assert len(result) >= 2
-            call_args = provider.chat_completion.call_args
-            passed_keys = set(call_args.kwargs.keys()) if call_args.kwargs else set()
-            assert "temperature" not in passed_keys
-            assert "max_tokens" not in passed_keys
+        result = await _decompose_agenda(
+            "Do three different tasks for me please now",
+            model_name="claude-3",
+        )
+        assert result == ["Do three different tasks for me please now"]
 
     @pytest.mark.asyncio
     async def test_fallback_on_short_input(self):
@@ -166,46 +155,38 @@ class TestDecomposeAgenda:
 
     @pytest.mark.asyncio
     async def test_fallback_on_provider_error(self):
-        provider = _build_provider("unused", ["messages", "model"])
-        provider.chat_completion = AsyncMock(side_effect=RuntimeError("boom"))
-        provider.chat_completion.__signature__ = inspect.Signature(
-            [
-                inspect.Parameter(
-                    p, inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None
-                )
-                for p in ["messages", "model"]
-            ]
+        from backend.app.services.conversation.pipeline_meeting import (
+            _decompose_agenda,
         )
-        with _patch_provider(provider):
-            from backend.app.services.conversation.pipeline_meeting import (
-                _decompose_agenda,
-            )
 
-            result = await _decompose_agenda(
-                "Some complex task that should fallback gracefully",
-                model_name="test-model",
-            )
-            assert len(result) == 1
+        async def _boom(messages, model=None):
+            raise RuntimeError("boom")
+
+        result = await _decompose_agenda(
+            "Some complex task that should fallback gracefully",
+            model_name="test-model",
+            llm_generate_fn=_boom,
+        )
+        assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_json_code_block_stripping(self):
-        provider = _build_provider(
-            '```json\n["task A", "task B"]\n```',
-            ["messages", "model", "temperature", "max_tokens", "max_completion_tokens"],
+        from backend.app.services.conversation.pipeline_meeting import (
+            _decompose_agenda,
         )
-        with _patch_provider(provider):
-            from backend.app.services.conversation.pipeline_meeting import (
-                _decompose_agenda,
-            )
 
-            result = await _decompose_agenda(
-                "Plan two different things for my project",
-                model_name="gemini-pro",
-            )
-            assert len(result) == 2
+        async def _fake_generate(messages, model=None):
+            return '```json\n["task A", "task B"]\n```'
+
+        result = await _decompose_agenda(
+            "Plan two different things for my project",
+            model_name="gemini-pro",
+            llm_generate_fn=_fake_generate,
+        )
+        assert len(result) == 2
 
     @pytest.mark.asyncio
-    async def test_executor_runtime_skips_provider_initialization(self):
+    async def test_executor_runtime_without_generation_callback_returns_raw_message(self):
         from backend.app.services.conversation.pipeline_meeting import _decompose_agenda
 
         result = await _decompose_agenda(
@@ -385,6 +366,28 @@ class TestLayer0cProduction:
 
         _, kwargs = mock_decompose.call_args
         assert kwargs["executor_runtime"] == "gemini_cli"
+
+    @pytest.mark.asyncio
+    async def test_passes_meeting_generate_fn(self):
+        """Meeting-side decomposition should use the same generation route."""
+        engine = _make_engine_stub(
+            agenda=["single"],
+            model_name="gpt-5.4",
+            executor_runtime="codex_cli",
+        )
+        engine._generate_text = AsyncMock(return_value='["x", "y"]')
+
+        with patch(
+            "backend.app.services.conversation.pipeline_meeting._decompose_agenda",
+            new_callable=AsyncMock,
+            return_value=["x", "y"],
+        ) as mock_decompose:
+            await engine._ensure_agenda_decomposed(
+                "A sufficiently long message for decomposition"
+            )
+
+        _, kwargs = mock_decompose.call_args
+        assert kwargs["llm_generate_fn"] is engine._generate_text
 
     @pytest.mark.asyncio
     async def test_fallback_single_item_returns_false(self):

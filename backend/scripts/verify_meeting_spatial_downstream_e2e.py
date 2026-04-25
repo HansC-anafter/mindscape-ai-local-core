@@ -46,6 +46,16 @@ def parse_args() -> argparse.Namespace:
         "--executor-runtime",
         help="Force meeting generation through an executor runtime (e.g. codex_cli)",
     )
+    parser.add_argument(
+        "--require-motion-evidence",
+        action="store_true",
+        help="Fail unless motion asset / clip / keyframe / visual acceptance evidence is materialized",
+    )
+    parser.add_argument(
+        "--emit-visual-acceptance-bundle",
+        action="store_true",
+        help="Build visual acceptance bundle evidence for this run",
+    )
     parser.add_argument("--max-events", type=int, default=500)
     return parser.parse_args()
 
@@ -64,6 +74,8 @@ def main() -> int:
                 project_id=args.project_id,
                 model_name=args.model_name,
                 executor_runtime=args.executor_runtime,
+                require_motion_evidence=args.require_motion_evidence,
+                emit_visual_acceptance_bundle=args.emit_visual_acceptance_bundle,
                 max_events=args.max_events,
             )
         )

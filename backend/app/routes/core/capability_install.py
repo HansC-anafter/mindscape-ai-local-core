@@ -540,6 +540,9 @@ async def run_install_pipeline(
     from app.services.runtime_assets_installer import RuntimeAssetsInstaller
     from app.services.post_install import PostInstallHandler
     from app.services.install_result import InstallResult
+    from backend.app.services.model_route_slot_registry import (
+        ModelRouteSlotRegistry,
+    )
 
     local_core_root = _resolve_local_core_root()
     capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
@@ -831,6 +834,28 @@ async def run_install_pipeline(
                 )
             except Exception:
                 pass
+
+        try:
+            route_slots = ModelRouteSlotRegistry().extract_pack_slots_from_manifest(
+                pack_id=capability_code,
+                pack_meta=manifest,
+                manifest_path=(
+                    str(installed_manifest_path)
+                    if installed_manifest_path.exists()
+                    else str(manifest_path)
+                ),
+                installed=True,
+                enabled=True,
+            )
+            pack_metadata["model_route_slots"] = route_slots
+            pack_metadata["model_route_slot_count"] = len(route_slots)
+        except Exception as exc:
+            logger.warning(
+                "Failed to register model route slots for %s: %s",
+                capability_code,
+                exc,
+            )
+            result.add_warning(f"Failed to register model route slots: {exc}")
 
         validation_state = None
         if manifest.get("playbooks"):

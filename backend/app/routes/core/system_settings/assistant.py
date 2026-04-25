@@ -324,9 +324,21 @@ async def chat_with_assistant(request: AssistantChatRequest) -> AssistantChatRes
             {"role": "user", "content": request.message},
         ]
 
-        # Call LLM
-        response = await llm_provider.chat_completion(
-            messages=messages, model=model, temperature=0.7, max_tokens=2000
+        # Call governed chat entrypoint so settings surfaces do not bypass the
+        # canonical managed routing helper.
+        from backend.app.services.llm.workspace_routed_chat import (
+            chat_completion_with_workspace_route,
+        )
+
+        response = await chat_completion_with_workspace_route(
+            messages=messages,
+            provider=llm_provider,
+            model=model,
+            purpose="system_settings_assistant_chat",
+            stage_name="response_formatting",
+            risk_level="read",
+            temperature=0.7,
+            max_tokens=2000,
         )
 
         # Extract response text

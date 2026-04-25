@@ -104,9 +104,11 @@ class PostgresTaskIRStore(PostgresStoreBase):
         params = {
             "current_phase": task_ir.current_phase,
             "status": task_ir.status,
-            "phases": self.serialize_json([p.model_dump() for p in task_ir.phases]),
+            "phases": self.serialize_json(
+                [p.model_dump(mode="json") for p in task_ir.phases]
+            ),
             "artifacts": self.serialize_json(
-                [a.model_dump() for a in task_ir.artifacts]
+                [a.model_dump(mode="json") for a in task_ir.artifacts]
             ),
             "updated_at": task_ir.updated_at,
             "last_checkpoint_at": task_ir.last_checkpoint_at,
@@ -300,11 +302,13 @@ class PostgresTaskIRStore(PostgresStoreBase):
             "actor_id": task_ir.actor_id,
             "current_phase": task_ir.current_phase,
             "status": task_ir.status,
-            "phases": self.serialize_json([p.model_dump() for p in task_ir.phases]),
-            "artifacts": self.serialize_json(
-                [a.model_dump() for a in task_ir.artifacts]
+            "phases": self.serialize_json(
+                [p.model_dump(mode="json") for p in task_ir.phases]
             ),
-            "metadata": self.serialize_json(task_ir.metadata.model_dump()),
+            "artifacts": self.serialize_json(
+                [a.model_dump(mode="json") for a in task_ir.artifacts]
+            ),
+            "metadata": self.serialize_json(task_ir.metadata.model_dump(mode="json")),
             "created_at": task_ir.created_at,
             "updated_at": task_ir.updated_at,
             "last_checkpoint_at": task_ir.last_checkpoint_at,

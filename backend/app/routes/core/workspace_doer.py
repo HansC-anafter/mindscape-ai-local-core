@@ -30,6 +30,7 @@ from backend.app.models.doer_workspace_config import (
 )
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.external_agents.core.registry import get_runtime_registry
+from backend.app.services.executor_binding_service import ExecutorBindingService
 from backend.app.models.executor_spec import (
     ExecutorSpec,
     validate_executor_specs,
@@ -207,6 +208,7 @@ async def configure_agent(
         workspace.executor_runtime = request.executor_runtime
         # Dual-write: sync executor_specs
         _sync_executor_specs_from_runtime(workspace, request.executor_runtime)
+        ExecutorBindingService().sync_workspace_state(workspace)
         workspace.sandbox_config = (
             sandbox_config.model_dump() if sandbox_config else None
         )
@@ -295,6 +297,8 @@ async def clear_agent_config(
 
         # Clear config (fix: pass Workspace object, not dict)
         workspace.executor_runtime = None
+        _sync_executor_specs_from_runtime(workspace, None)
+        ExecutorBindingService().sync_workspace_state(workspace)
         workspace.sandbox_config = None
         workspace.updated_at = _utc_now()
         await store.update_workspace(workspace)
@@ -422,6 +426,7 @@ async def set_executor_runtime(
         _sync_executor_specs_from_runtime(
             workspace, update_data.get("executor_runtime")
         )
+        ExecutorBindingService().sync_workspace_state(workspace)
         workspace.updated_at = update_data.get("updated_at")
         if "sandbox_config" in update_data:
             workspace.sandbox_config = update_data.get("sandbox_config")
@@ -555,6 +560,7 @@ async def add_executor_spec(
 
     workspace.executor_specs = [s.to_dict() for s in specs]
     workspace.executor_runtime = workspace.resolved_executor_runtime
+    ExecutorBindingService().sync_workspace_state(workspace)
     workspace.updated_at = _utc_now()
     await store.update_workspace(workspace)
 
@@ -593,6 +599,7 @@ async def remove_executor_spec(
 
     workspace.executor_specs = [s.to_dict() for s in specs]
     workspace.executor_runtime = workspace.resolved_executor_runtime
+    ExecutorBindingService().sync_workspace_state(workspace)
     workspace.updated_at = _utc_now()
     await store.update_workspace(workspace)
 
@@ -633,6 +640,7 @@ async def set_primary_executor_spec(
 
     workspace.executor_specs = [s.to_dict() for s in specs]
     workspace.executor_runtime = workspace.resolved_executor_runtime
+    ExecutorBindingService().sync_workspace_state(workspace)
     workspace.updated_at = _utc_now()
     await store.update_workspace(workspace)
 
@@ -681,6 +689,7 @@ async def update_executor_spec_config(
 
     workspace.executor_specs = [spec.to_dict() for spec in specs]
     workspace.executor_runtime = workspace.resolved_executor_runtime
+    ExecutorBindingService().sync_workspace_state(workspace)
     workspace.updated_at = _utc_now()
     await store.update_workspace(workspace)
 

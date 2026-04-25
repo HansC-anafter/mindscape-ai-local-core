@@ -55,14 +55,16 @@ class LocalLLMBackend(AgentBackend):
             {"role": "user", "content": task},
         ]
 
-        # Get LLM provider and execute
-        # Get LLMProviderManager type for hint but import at runtime
-        from backend.app.shared.llm_provider_helper import (
-            get_llm_provider_from_settings,
-        )
+        from backend.app.shared.llm_utils import call_llm
 
-        provider = get_llm_provider_from_settings(self.llm_manager)
-        response_text = await provider.chat_completion(messages)
+        result = await call_llm(
+            messages=messages,
+            llm_provider=self.llm_manager,
+            purpose="local_llm_backend.run_agent",
+            stage_name="generic_generation",
+            risk_level="read",
+        )
+        response_text = result.get("text", "")
 
         # Build response
         return AgentResponse(
@@ -74,7 +76,8 @@ class LocalLLMBackend(AgentBackend):
             metadata={
                 "agent_type": agent_type,
                 "backend": "local_llm",
-                "provider": provider.__class__.__name__,
+                "provider": result.get("provider_class"),
+                "model_name": result.get("model_name"),
                 **(metadata or {}),
             },
         )

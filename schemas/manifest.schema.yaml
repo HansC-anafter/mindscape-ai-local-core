@@ -518,6 +518,39 @@ properties:
           description: "組件 props schema"
 
   # ============================================================================
+  # 模型路由註冊
+  # ============================================================================
+
+  model_routing:
+    type: object
+    description: "顯式宣告模型/執行時路由 slot，供 Settings 總表統一註冊"
+    properties:
+      slots:
+        type: array
+        items:
+          type: object
+          required:
+            - kind
+            - title
+            - summary
+          properties:
+            slot_id:
+              type: string
+            kind:
+              type: string
+            title:
+              type: string
+            summary:
+              type: string
+            route_family:
+              type: string
+            settings_anchor:
+              type: string
+            value: {}
+            metadata:
+              type: object
+
+  # ============================================================================
   # 數據邊界
   # ============================================================================
 

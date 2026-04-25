@@ -5,6 +5,10 @@ Handles Runtime Profile PolicyGuard checks and Orchestrator loop budgeting.
 import logging
 from typing import Dict, Any, Optional
 
+from backend.app.services.playbook.tool_execution.pending_approval import (
+    ToolApprovalRequiredError,
+)
+
 logger = logging.getLogger(__name__)
 
 class ToolPolicyEnforcer:
@@ -20,6 +24,7 @@ class ToolPolicyEnforcer:
     ):
         execution_context = execution_context or {}
         effective_workspace_id = workspace_id or execution_context.get("workspace_id")
+        approval_mode = str(execution_context.get("approval_mode") or "log").strip().lower()
 
         if effective_workspace_id:
             try:
@@ -100,8 +105,38 @@ class ToolPolicyEnforcer:
 
                 if policy_result.requires_approval:
                     logger.info(f"Tool '{tool_fqn}' requires approval: {policy_result.reason}")
+                    if approval_mode == "return_pending":
+                        from backend.app.services.playbook.tool_execution.pending_approval import (
+                            PendingToolApprovalService,
+                            ToolApprovalRequiredError,
+                        )
 
-            except ValueError:
+                        approval_request = (
+                            PendingToolApprovalService().create_pending_tool_approval(
+                                workspace_id=effective_workspace_id,
+                                tool_fqn=tool_fqn,
+                                parameters=kwargs,
+                                reason=policy_result.reason or "tool_requires_approval",
+                                user_message=policy_result.user_message,
+                                execution_id=execution_id,
+                                thread_id=execution_context.get("thread_id"),
+                                actor_id=execution_context.get("profile_id")
+                                or getattr(runtime_profile, "profile_id", None),
+                                source_surface=execution_context.get("source_surface")
+                                or "tool_execution",
+                                correlation_id=execution_context.get("trace_id")
+                                or execution_id,
+                                metadata={
+                                    "message_id": execution_context.get("message_id"),
+                                    "workspace_id": effective_workspace_id,
+                                    "proposed_action": policy_result.proposed_action,
+                                },
+                            )
+                        )
+                        execution_context["pending_tool_approval"] = approval_request
+                        raise ToolApprovalRequiredError(approval_request)
+
+            except (ValueError, ToolApprovalRequiredError):
                 raise
             except Exception as e:
                 logger.warning(f"Failed to check Runtime Profile policy: {e}", exc_info=True)

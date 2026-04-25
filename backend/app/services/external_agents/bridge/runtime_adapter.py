@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -239,9 +240,21 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
             return False
         try:
             from backend.app.services.codex_pool_service import CodexPoolService
+            from backend.app.services.external_agents.bridge.codex_cli_runner import (
+                resolve_codex_cli_binary,
+            )
 
             bundle = CodexPoolService().get_active_auth_bundle()
-            return "env" in bundle and not bundle.get("error")
+            if "env" not in bundle or bundle.get("error"):
+                return False
+            env = dict(bundle.get("env") or {})
+            codex_home = str(env.get("CODEX_HOME") or "").strip()
+            if not codex_home or not os.path.isdir(codex_home):
+                return False
+            binary = resolve_codex_cli_binary(os.environ.get("CODEX_CLI_PATH"))
+            if not binary or binary == "codex":
+                return False
+            return True
         except Exception as exc:
             logger.debug(
                 "Failed to resolve registered runtime polling fallback for %s: %s",

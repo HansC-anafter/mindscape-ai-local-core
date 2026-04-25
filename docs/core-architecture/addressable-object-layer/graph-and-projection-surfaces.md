@@ -47,6 +47,9 @@ That means:
 - more node kinds can exist
 - lineage can include refs, storyboard scenes, proposals, handoffs, and previews
 - graph expansion still consumes runtime projections rather than raw owner data
+- runtime graph-aware surfaces should converge on
+  `POST /api/v1/workspaces/{workspace_id}/object-graph/project` as the shared
+  normalization lane for owner-pack graph projections
 
 ## Asset Map Evolution
 
@@ -63,3 +66,4 @@ This architecture should evolve it toward:
 - object-aware node taxonomy
 - projection caching rules
 - graph expansion heuristics
+- graph traversal and subgraph request contracts beyond bounded projection

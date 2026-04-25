@@ -14,6 +14,10 @@ import logging
 from typing import Any, Optional
 
 from ...shared.llm_utils import extract_json_from_text
+from .governed_stage_router import (
+    append_stage_route_decision,
+    resolve_governed_stage_route,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -131,16 +135,37 @@ async def core_llm_call(
     profile_id: Optional[str] = None,
     executor_runtime: Optional[str] = None,
     model: Optional[str] = None,
+    route_context: Optional[dict[str, Any]] = None,
+    stage_name: Optional[str] = None,
+    purpose: str = "core_llm_call",
+    decision_log: Optional[list[dict[str, Any]]] = None,
+    risk_level: str = "read",
     **kwargs: Any,
 ) -> Any:
     """Compatibility entry point for capability-pack LLM calls."""
     workspace = await _load_workspace(workspace_id)
-    resolved_runtime = executor_runtime or _resolve_workspace_runtime(workspace)
+    resolved_route_context = route_context
+    if resolved_route_context is None and workspace is not None:
+        from backend.app.services.executor_route_context import build_executor_route_context
 
-    if resolved_runtime and workspace is not None:
+        resolved_route_context = build_executor_route_context(workspace)
+
+    decision = await resolve_governed_stage_route(
+        workspace_id=workspace_id,
+        route_context=resolved_route_context,
+        stage_name=stage_name,
+        purpose=purpose,
+        response_format=response_format,
+        risk_level=risk_level,
+        requested_model=model,
+        explicit_executor_runtime=executor_runtime or _resolve_workspace_runtime(workspace),
+    )
+    append_stage_route_decision(decision_log, decision)
+
+    if decision.route_mode == "workspace_runtime" and workspace is not None:
         return await _call_via_runtime(
             workspace=workspace,
-            executor_runtime=resolved_runtime,
+            executor_runtime=decision.executor_runtime or executor_runtime,
             system_prompt=system_prompt,
             user_message=user_message,
             response_format=response_format,
@@ -148,9 +173,12 @@ async def core_llm_call(
         )
 
     logger.info(
-        "core_llm_call falling back to managed provider path (workspace_id=%s, runtime=%s)",
+        "core_llm_call using managed provider path "
+        "(workspace_id=%s, stage=%s, runtime=%s, reason=%s)",
         workspace_id,
-        resolved_runtime,
+        decision.stage_name,
+        decision.executor_runtime,
+        decision.decision_reason,
     )
     return await _call_via_managed_llm(
         workspace_id=workspace_id,

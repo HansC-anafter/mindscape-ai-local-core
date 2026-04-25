@@ -22,6 +22,9 @@ from backend.app.routes.core.artifacts import router as artifacts_router
 from backend.app.routes.core.resources import router as resources_router
 from backend.app.routes.core.system_settings import router as system_settings_router
 from backend.app.routes.core.settings_extensions import router as settings_extensions_router
+from backend.app.routes.core.model_route_registry import (
+    router as model_route_registry_router,
+)
 from backend.app.routes.core.workspace_runtime_config import (
     router as workspace_runtime_config_router,
 )
@@ -89,6 +92,7 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(config.router, tags=["config"])
     app.include_router(system_settings_router, tags=["system"])
     app.include_router(settings_extensions_router)
+    app.include_router(model_route_registry_router)
     app.include_router(runtime_environments_router, tags=["runtime-environments"])
     app.include_router(
         workspace_runtime_config_router, tags=["workspace-runtime-config"]

@@ -10,9 +10,8 @@ import logging
 from typing import Optional, Dict, Any, List
 from backend.app.models.project import Project, ProjectAssignmentOutput
 from backend.app.models.workspace import Workspace
-from backend.app.shared.llm_provider_helper import (
-    ManagedLLMDisabledForRuntime,
-    build_managed_llm_provider,
+from backend.app.services.llm.workspace_routed_chat import (
+    chat_completion_with_workspace_route,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,7 +30,7 @@ class ProjectAssignmentAgent:
         Initialize Project Assignment Agent
 
         Args:
-            llm_provider: Optional LLM provider (will be created from settings if None)
+            llm_provider: Deprecated direct provider override. Governed routing is always used.
         """
         self.llm_provider = llm_provider
 
@@ -51,17 +50,6 @@ class ProjectAssignmentAgent:
             ProjectAssignmentOutput with suggested assignments
         """
         try:
-            provider, model_name = self._resolve_generation_backend(workspace)
-            if provider is None or model_name is None:
-                return ProjectAssignmentOutput(
-                    suggested_human_owner=None,
-                    suggested_ai_pm_id=None,
-                    reasoning=(
-                        "Managed LLM skipped because workspace is bound to an "
-                        "external executor runtime."
-                    ),
-                )
-
             # Get workspace members (simplified - would need member service)
             workspace_members = []  # TODO: Get from workspace/member service
 
@@ -116,12 +104,13 @@ Respond in JSON format:
                 }
             ]
 
-            response = await provider.chat_completion(messages, model=model_name)
-            result_text = response.content if hasattr(response, 'content') else str(response)
-
-            # Parse response
-            assignment = self._parse_response(result_text)
-            return assignment
+            data = await self._run_governed_json_request(
+                workspace_id=getattr(workspace, "id", None),
+                messages=messages,
+                purpose="project_assignment_suggest",
+                stage_name="scope_decision",
+            )
+            return self._parse_response_data(data)
 
         except Exception as e:
             logger.error(f"Project assignment failed: {e}", exc_info=True)
@@ -130,27 +119,6 @@ Respond in JSON format:
                 suggested_ai_pm_id=None,
                 reasoning=f"Assignment unavailable: {e}",
             )
-
-    def _resolve_generation_backend(
-        self,
-        workspace: Workspace,
-    ) -> tuple[Optional[Any], Optional[str]]:
-        """Resolve managed LLM provider/model, respecting executor runtime bindings."""
-        try:
-            provider, selection = build_managed_llm_provider(
-                workspace=workspace,
-                purpose="project_assignment",
-                default_model="gpt-4o-mini",
-            )
-        except ManagedLLMDisabledForRuntime as exc:
-            logger.info("ProjectAssignmentAgent bypassing managed LLM: %s", exc)
-            return None, None
-        except ValueError as exc:
-            logger.warning("ProjectAssignmentAgent failed to resolve LLM selection: %s", exc)
-            return None, None
-
-        self.llm_provider = provider
-        return provider, selection.model_name
 
     def _format_members(self, members: list) -> str:
         """Format workspace members for prompt"""
@@ -164,10 +132,17 @@ Respond in JSON format:
         # TODO: Query past projects from database
         return "No past projects data available"
 
-    def _parse_response(self, response_text: str) -> ProjectAssignmentOutput:
-        """Parse LLM response into ProjectAssignmentOutput"""
+    @staticmethod
+    def _coerce_response_text(response: Any) -> str:
+        if isinstance(response, dict):
+            if "content" in response:
+                return str(response.get("content") or "")
+            return json.dumps(response, ensure_ascii=False)
+        return response.content if hasattr(response, "content") else str(response)
+
+    @classmethod
+    def _extract_json_payload(cls, response_text: str) -> Dict[str, Any]:
         try:
-            # Extract JSON from response
             text = response_text.strip()
             if "```json" in text:
                 start = text.find("```json") + 7
@@ -177,22 +152,36 @@ Respond in JSON format:
                 start = text.find("```") + 3
                 end = text.find("```", start)
                 text = text[start:end].strip()
-
             data = json.loads(text)
-
-            return ProjectAssignmentOutput(
-                suggested_human_owner=data.get("suggested_human_owner"),
-                suggested_ai_pm_id=data.get("suggested_ai_pm_id"),
-                reasoning=data.get("reasoning", "No reasoning provided")
-            )
-
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
             logger.warning(f"Failed to parse assignment response: {e}")
-            return ProjectAssignmentOutput(
-                suggested_human_owner=None,
-                suggested_ai_pm_id=None,
-                reasoning=f"Parse error: {e}"
-            )
+            return {}
+
+    @classmethod
+    def _parse_response_data(cls, data: Dict[str, Any]) -> ProjectAssignmentOutput:
+        return ProjectAssignmentOutput(
+            suggested_human_owner=data.get("suggested_human_owner"),
+            suggested_ai_pm_id=data.get("suggested_ai_pm_id"),
+            reasoning=data.get("reasoning", "No reasoning provided"),
+        )
+
+    async def _run_governed_json_request(
+        self,
+        *,
+        workspace_id: Optional[str],
+        messages: List[Dict[str, str]],
+        purpose: str,
+        stage_name: str,
+    ) -> Dict[str, Any]:
+        response = await chat_completion_with_workspace_route(
+            messages=messages,
+            workspace_id=workspace_id,
+            purpose=purpose,
+            stage_name=stage_name,
+            risk_level="read",
+        )
+        return self._extract_json_payload(self._coerce_response_text(response))
 
     async def assign_project_for_message(
         self,
@@ -291,12 +280,14 @@ Respond in JSON format:
                 }
             ]
 
-            model_name = get_model_name_from_chat_model() or "gemini-pro"
-            response = await self.llm_provider.chat_completion(messages, model=model_name)
-            result_text = response.content if hasattr(response, 'content') else str(response)
-
-            # Parse response
-            decision = self._parse_assignment_response(result_text)
+            decision = self._parse_assignment_response(
+                await self._run_governed_json_request(
+                    workspace_id=workspace_id,
+                    messages=messages,
+                    purpose="project_assignment_message",
+                    stage_name="execution_selection",
+                )
+            )
             # Add candidates to decision
             decision["candidates"] = project_candidates
             return decision
@@ -351,22 +342,9 @@ Respond in JSON format:
 
         return "\n".join(lines)
 
-    def _parse_assignment_response(self, response_text: str) -> Dict[str, Any]:
+    def _parse_assignment_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Parse LLM response into assignment decision"""
         try:
-            # Extract JSON from response
-            text = response_text.strip()
-            if "```json" in text:
-                start = text.find("```json") + 7
-                end = text.find("```", start)
-                text = text[start:end].strip()
-            elif "```" in text:
-                start = text.find("```") + 3
-                end = text.find("```", start)
-                text = text[start:end].strip()
-
-            data = json.loads(text)
-
             return {
                 "relation": data.get("relation", "ambiguous"),
                 "project_id": data.get("project_id"),
@@ -375,7 +353,7 @@ Respond in JSON format:
                 "selected_candidate": data.get("selected_candidate", {})
             }
 
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
+        except (KeyError, ValueError, TypeError) as e:
             logger.warning(f"Failed to parse assignment response: {e}")
             return {
                 "relation": "ambiguous",

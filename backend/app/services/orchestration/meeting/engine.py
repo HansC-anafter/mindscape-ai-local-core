@@ -457,6 +457,7 @@ class MeetingEngine(
                 agenda=agenda,
                 workspace_id=getattr(self.session, "workspace_id", ""),
                 model_name=self.model_name,
+                llm_generate_fn=self._generate_text,
             )
             if self.session.metadata is None:
                 self.session.metadata = {}
@@ -514,6 +515,8 @@ class MeetingEngine(
             has_tool_ambiguity=len(self._rag_tool_cache) > 15,
             budget_headroom_pct=self.ctx.budget_headroom_pct,
         )
+        if self._requires_full_deliberation_review() and depth == DeliberationDepth.SHALLOW:
+            depth = DeliberationDepth.STANDARD
         self._deliberation_depth = depth
         max_rounds = min(
             base_max_rounds, DEPTH_ROUND_CAPS.get(depth.value, base_max_rounds)
@@ -530,32 +533,17 @@ class MeetingEngine(
         critic_notes: List[str] = []
         converged = False
         run_error: Optional[Exception] = None
+        require_full_review = self._requires_full_deliberation_review()
+        single_turn_native_pd = self._should_use_single_turn_native_pd(user_message)
 
         try:
-            for round_num in range(1, max_rounds + 1):
-                if self.orchestrator.should_stop():
-                    self._emit_round_event(round_num, status="budget_exhausted")
-                    break
-
+            if single_turn_native_pd:
+                round_num = 1
                 self.orchestrator.record_iteration()
                 self._emit_round_event(round_num, status="started")
-
                 await self._emit_meeting_stage(
                     "deliberation",
-                    f"Round {round_num}/{max_rounds} - Facilitator turn in progress...",
-                )
-                facilitator_turn = await self._role_turn(
-                    "facilitator",
-                    round_num,
-                    user_message,
-                    planner_proposals=planner_proposals,
-                    critic_notes=critic_notes,
-                )
-                self._emit_turn(facilitator_turn)
-
-                await self._emit_meeting_stage(
-                    "deliberation",
-                    f"Round {round_num}/{max_rounds} - Planner turn in progress...",
+                    "Round 1/1 - Native spatial PD planner closure in progress...",
                 )
                 planner_turn = await self._role_turn(
                     "planner",
@@ -567,33 +555,87 @@ class MeetingEngine(
                 planner_proposals.append(planner_turn.content)
                 self._emit_turn(planner_turn)
                 self._emit_decision_proposal(planner_turn)
-
-                # G2: Run CoverageAuditor after planner turn
+                native_pd_payload = self._extract_native_spatial_pd_payload(
+                    planner_turn.content
+                )
+                if native_pd_payload:
+                    if self.session.metadata is None:
+                        self.session.metadata = {}
+                    self.session.metadata["native_spatial_pd_decision"] = (
+                        native_pd_payload
+                    )
+                    self.session.metadata["native_spatial_pd_source"] = (
+                        "planner_single_turn"
+                    )
                 await self._try_coverage_audit(planner_turn.content, round_num)
+                self.session.round_count = round_num
+                converged = True
+                self._emit_round_event(round_num, status="converged")
+            else:
+                for round_num in range(1, max_rounds + 1):
+                    if self.orchestrator.should_stop():
+                        self._emit_round_event(round_num, status="budget_exhausted")
+                        break
 
-                # Skip critic in SHALLOW depth to reduce latency
-                if depth != DeliberationDepth.SHALLOW:
+                    self.orchestrator.record_iteration()
+                    self._emit_round_event(round_num, status="started")
+
                     await self._emit_meeting_stage(
                         "deliberation",
-                        f"Round {round_num}/{max_rounds} - Critic review in progress...",
+                        f"Round {round_num}/{max_rounds} - Facilitator turn in progress...",
                     )
-                    critic_turn = await self._role_turn(
-                        "critic",
+                    facilitator_turn = await self._role_turn(
+                        "facilitator",
                         round_num,
                         user_message,
                         planner_proposals=planner_proposals,
                         critic_notes=critic_notes,
                     )
-                    critic_notes.append(critic_turn.content)
-                    self._emit_turn(critic_turn)
+                    self._emit_turn(facilitator_turn)
 
-                self.session.round_count = round_num
-                if self._is_converged(round_num, max_rounds, facilitator_turn.content):
-                    converged = True
-                    self._emit_round_event(round_num, status="converged")
-                    break
+                    await self._emit_meeting_stage(
+                        "deliberation",
+                        f"Round {round_num}/{max_rounds} - Planner turn in progress...",
+                    )
+                    planner_turn = await self._role_turn(
+                        "planner",
+                        round_num,
+                        user_message,
+                        planner_proposals=planner_proposals,
+                        critic_notes=critic_notes,
+                    )
+                    planner_proposals.append(planner_turn.content)
+                    self._emit_turn(planner_turn)
+                    self._emit_decision_proposal(planner_turn)
 
-                self._emit_round_event(round_num, status="completed")
+                    # G2: Run CoverageAuditor after planner turn
+                    await self._try_coverage_audit(planner_turn.content, round_num)
+
+                    # Skip critic in SHALLOW depth to reduce latency
+                    if depth != DeliberationDepth.SHALLOW:
+                        await self._emit_meeting_stage(
+                            "deliberation",
+                            f"Round {round_num}/{max_rounds} - Critic review in progress...",
+                        )
+                        critic_turn = await self._role_turn(
+                            "critic",
+                            round_num,
+                            user_message,
+                            planner_proposals=planner_proposals,
+                            critic_notes=critic_notes,
+                        )
+                        critic_notes.append(critic_turn.content)
+                        self._emit_turn(critic_turn)
+
+                    self.session.round_count = round_num
+                    if self._is_converged(
+                        round_num, max_rounds, facilitator_turn.content
+                    ):
+                        converged = True
+                        self._emit_round_event(round_num, status="converged")
+                        break
+
+                    self._emit_round_event(round_num, status="completed")
         except Exception as exc:
             run_error = exc
             logger.error(
@@ -641,6 +683,11 @@ class MeetingEngine(
                 f"Meeting failed at round {self.session.round_count}: {run_error}"
             ) from run_error
 
+        if require_full_review and not critic_notes:
+            raise RuntimeError(
+                "Full deliberation review required but no critic turn completed"
+            )
+
         decision = (
             planner_proposals[-1] if planner_proposals else "No decision proposed."
         )
@@ -648,6 +695,61 @@ class MeetingEngine(
             decision=decision, round_number=self.session.round_count
         )
         return decision, planner_proposals, critic_notes, converged
+
+    def _requires_full_deliberation_review(self) -> bool:
+        contract = self._get_request_contract_metadata()
+        governance_constraints = contract.get("governance_constraints")
+        if not isinstance(governance_constraints, dict):
+            governance_constraints = contract.get("constraints")
+        if not isinstance(governance_constraints, dict):
+            return False
+
+        for key in (
+            "meeting_review",
+            "meeting",
+            "spatial_schedule",
+        ):
+            candidate = governance_constraints.get(key)
+            if not isinstance(candidate, dict):
+                continue
+            for flag_name in (
+                "require_full_deliberation_review",
+                "require_critic_turn",
+                "disable_single_turn_native_pd",
+            ):
+                if bool(candidate.get(flag_name)):
+                    return True
+        return False
+
+    def _should_use_single_turn_native_pd(self, user_message: str) -> bool:
+        if self._requires_full_deliberation_review():
+            return False
+        runtime_id = str(getattr(self, "executor_runtime", "") or "").strip().lower()
+        if runtime_id != "codex_cli":
+            return False
+        text = " ".join(
+            [
+                str(user_message or ""),
+                " ".join(str(item or "") for item in (self.session.agenda or [])),
+                str(getattr(self.session, "title", "") or ""),
+            ]
+        ).lower()
+        keywords = (
+            "spatial",
+            "schedule",
+            "scene",
+            "world",
+            "handoff",
+            "counter",
+            "tray",
+            "camera",
+            "anchor",
+            "blender",
+            "downstream",
+            "blocking",
+            "performance",
+        )
+        return any(word in text for word in keywords)
 
     async def _stage_extract_actions(
         self,
@@ -662,6 +764,18 @@ class MeetingEngine(
             (action_intents, action_items) where action_items are legacy dicts.
         """
         await self._emit_meeting_stage("action_items", "Expanding action items...")
+        if self._should_use_single_turn_native_pd(
+            user_message
+        ) or self._is_full_review_native_spatial_pd_meeting(user_message):
+            native_action_intents = self._build_native_spatial_pd_action_intents(
+                decision=decision,
+                user_message=user_message,
+            )
+            if native_action_intents:
+                action_items = [
+                    intent.to_action_item_dict() for intent in native_action_intents
+                ]
+                return native_action_intents, action_items
         action_intents = await self._build_action_items(
             decision=decision,
             user_message=user_message,
@@ -1776,7 +1890,11 @@ class MeetingEngine(
             planner_proposals=planner_proposals or [],
             critic_notes=critic_notes or [],
         )
-        system_content = self._assemble_system_message(role_def)
+        system_content = self._assemble_system_message(
+            role_def,
+            role_id=role_id,
+            user_message=user_message,
+        )
         messages = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},

@@ -417,7 +417,11 @@ class MessagingHandler:
                     reply_text += dispatch_text
 
             # Generate concise summary for LINE rich card
-            summary = await self._generate_reply_summary(reply_text)
+            summary = await self._generate_reply_summary(
+                reply_text,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+            )
 
             if page_id:
                 # ── Phase 3: Meeting path — update the pre-created page ──
@@ -623,11 +627,17 @@ class MessagingHandler:
                 exc_info=True,
             )
 
-    async def _generate_reply_summary(self, reply_text: str) -> str:
+    async def _generate_reply_summary(
+        self,
+        reply_text: str,
+        *,
+        workspace_id: Optional[str] = None,
+        profile_id: Optional[str] = None,
+    ) -> str:
         """
         Generate a concise summary (<=100 chars) for LINE Flex card display.
 
-        Uses LLM (Gemini Flash) for quality summarization.
+        Uses governed route selection for quality summarization.
         Falls back to smart truncation at sentence boundary on failure.
 
         Args:
@@ -642,37 +652,46 @@ class MessagingHandler:
 
         # Try LLM-based summary
         try:
-            from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+            from backend.app.services.config_store import ConfigStore
+            from backend.app.services.llm.workspace_routed_chat import (
+                chat_completion_with_workspace_route,
+            )
+            from backend.app.services.playbook.llm_provider_manager import (
+                PlaybookLLMProviderManager,
+            )
+            from backend.app.shared.llm_utils import build_prompt
 
-            manager = create_llm_provider_manager(provider_name="vertex-ai")
-            provider = manager.get_provider("vertex-ai")
-
-            if provider:
-                result = await provider.chat_completion(
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": (
-                                "Summarize the following AI response in one sentence, "
-                                "max 80 characters. Use the same language as the "
-                                "original text. Output ONLY the summary, nothing else."
-                                f"\n\n{reply_text[:2000]}"
-                            ),
-                        }
-                    ],
-                    model="gemini-2.0-flash",
-                    temperature=0.3,
-                    max_tokens=60,
+            messages = build_prompt(
+                user_prompt=(
+                    "Summarize the following AI response in one sentence, "
+                    "max 80 characters. Use the same language as the "
+                    "original text. Output ONLY the summary, nothing else."
+                    f"\n\n{reply_text[:2000]}"
                 )
+            )
+            result = await chat_completion_with_workspace_route(
+                messages=messages,
+                workspace_id=workspace_id,
+                profile_id=profile_id or "default-user",
+                llm_provider_manager=PlaybookLLMProviderManager(ConfigStore()),
+                purpose="cloud_connector_reply_summary",
+                stage_name="response_formatting",
+                risk_level="read",
+                max_tokens=60,
+                temperature=0.3,
+            )
+            summary = ""
+            if isinstance(result, str):
+                summary = result.strip()
+            elif isinstance(result, dict):
+                summary = str(result.get("content") or result.get("text") or "").strip()
 
-                if result and result.get("content"):
-                    summary = result["content"].strip()
-                    if len(summary) <= 100:
-                        logger.info(
-                            f"[MessagingHandler] LLM summary generated: "
-                            f"{len(summary)} chars"
-                        )
-                        return summary
+            if summary and len(summary) <= 100:
+                logger.info(
+                    f"[MessagingHandler] Governed summary generated: "
+                    f"{len(summary)} chars"
+                )
+                return summary
 
         except Exception as llm_err:
             logger.warning(

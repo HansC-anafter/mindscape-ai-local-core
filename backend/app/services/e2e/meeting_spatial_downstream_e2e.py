@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from sqlalchemy import text
 
@@ -35,6 +35,9 @@ from backend.app.services.stores.meeting_session_store import MeetingSessionStor
 from backend.app.services.stores.workspace_runtime_profile_store import (
     WorkspaceRuntimeProfileStore,
 )
+from backend.app.services.visual_acceptance_bundle import (
+    build_visual_acceptance_bundle,
+)
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[5]
 LOCAL_CORE_REPO = WORKSPACE_ROOT / "mindscape-ai-local-core"
@@ -47,6 +50,26 @@ _PATH_TOKEN_MAP = {
     "${LOCAL_CORE_REPO}": LOCAL_CORE_REPO,
     "${CLOUD_REPO}": CLOUD_REPO,
 }
+_MOTION_ASSET_LIST_KEYS = (
+    "motion_assets",
+    "animation_assets",
+    "actor_motion_assets",
+    "camera_motion_assets",
+    "pose_tracks",
+    "animation_clips",
+)
+_MOTION_REF_KEYS = (
+    "motion_asset_ref",
+    "animation_ref",
+    "animation_clip_ref",
+    "pose_track_ref",
+    "camera_motion_ref",
+    "clip_ref",
+    "asset_ref",
+)
+_KEYFRAME_LIST_KEYS = ("keyframe_evidence", "keyframes", "keyframe_evidence_refs")
+_KEYFRAME_REF_KEYS = ("still_ref", "image_ref", "frame_ref", "keyframe_ref", "ref")
+_FRAME_MAP_KEYS = ("frame_beat_map", "beat_frame_map")
 
 
 @dataclass
@@ -70,6 +93,24 @@ def _json_default(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
     raise TypeError(f"Unsupported JSON value: {value!r}")
+
+
+def _jsonable(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(item) for item in value]
+    if hasattr(value, "model_dump"):
+        return _jsonable(value.model_dump())
+    if hasattr(value, "dict"):
+        return _jsonable(value.dict())
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -143,6 +184,438 @@ def _resolve_bool_config(
     if text in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _normalize_reference_payload(value: Any) -> Dict[str, Any]:
+    payload = _jsonable(value)
+    if isinstance(payload, str):
+        normalized = payload.strip()
+        return {"path": normalized} if normalized else {}
+    if not isinstance(payload, dict):
+        return {}
+    direct_keys = (
+        "storage_key",
+        "url",
+        "local_path",
+        "identifier",
+        "uri",
+        "format",
+        "storage_type",
+        "content_type",
+        "path",
+    )
+    direct_ref = {key: payload.get(key) for key in direct_keys if payload.get(key)}
+    if direct_ref:
+        return direct_ref
+    for key in (
+        "ref",
+        "asset_ref",
+        "motion_asset_ref",
+        "animation_ref",
+        "animation_clip_ref",
+        "pose_track_ref",
+        "camera_motion_ref",
+        "clip_ref",
+        "still_ref",
+        "image_ref",
+        "frame_ref",
+        "keyframe_ref",
+        "preview_ref",
+    ):
+        nested = _normalize_reference_payload(payload.get(key))
+        if nested:
+            return nested
+    return {}
+
+
+def _collect_required_motion_targets(
+    execution_artifacts: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    targets: List[Dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _append(target_kind: str, target_id: Any, segment_id: Any = None) -> None:
+        normalized_id = str(target_id or "").strip()
+        if not normalized_id:
+            return
+        key = (target_kind, normalized_id)
+        if key in seen:
+            return
+        seen.add(key)
+        payload: Dict[str, Any] = {
+            "target_kind": target_kind,
+            "target_id": normalized_id,
+        }
+        normalized_segment = str(segment_id or "").strip()
+        if normalized_segment:
+            payload["segment_id"] = normalized_segment
+        targets.append(payload)
+
+    blocking_plan = dict(execution_artifacts.get("blocking_plan_excerpt") or {})
+    performance_beats = dict(execution_artifacts.get("performance_beats_excerpt") or {})
+    for item in list(blocking_plan.get("blocking_paths") or []):
+        if isinstance(item, dict):
+            _append("blocking_path", item.get("path_id"), item.get("segment_id"))
+    for item in list(performance_beats.get("performance_beats") or []):
+        if isinstance(item, dict):
+            _append("beat", item.get("beat_id"), item.get("segment_id"))
+    for item in list(performance_beats.get("interaction_beats") or []):
+        if isinstance(item, dict):
+            _append("beat", item.get("beat_id"), item.get("segment_id"))
+    return targets
+
+
+def _normalize_motion_asset_entry(item: Any, *, source_key: str) -> Optional[Dict[str, Any]]:
+    payload = _jsonable(item)
+    if not isinstance(payload, dict):
+        return None
+    asset_ref: Dict[str, Any] = {}
+    for ref_key in _MOTION_REF_KEYS:
+        asset_ref = _normalize_reference_payload(payload.get(ref_key))
+        if asset_ref:
+            break
+    if not asset_ref:
+        asset_ref = _normalize_reference_payload(payload)
+    if not asset_ref:
+        return None
+    return {
+        "source_key": source_key,
+        "target_id": str(
+            payload.get("target_id")
+            or payload.get("actor_id")
+            or payload.get("object_id")
+            or payload.get("entity_id")
+            or payload.get("camera_id")
+            or ""
+        ).strip(),
+        "segment_id": str(payload.get("segment_id") or "").strip(),
+        "asset_ref": asset_ref,
+        "metadata": dict(payload.get("metadata") or {}),
+    }
+
+
+def _collect_motion_asset_entries(scene_manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    for key in _MOTION_ASSET_LIST_KEYS:
+        for item in list(scene_manifest.get(key) or []):
+            entry = _normalize_motion_asset_entry(item, source_key=key)
+            if entry:
+                entries.append(entry)
+    for item in list(scene_manifest.get("actors") or []):
+        entry = _normalize_motion_asset_entry(item, source_key="actors")
+        if entry:
+            entries.append(entry)
+    return entries
+
+
+def _normalize_motion_target(
+    payload: Dict[str, Any],
+    *,
+    default_kind: str,
+) -> Optional[Dict[str, Any]]:
+    normalized = _jsonable(payload)
+    if not isinstance(normalized, dict):
+        return None
+    target_kind = str(normalized.get("target_kind") or "").strip()
+    target_id = str(normalized.get("target_id") or "").strip()
+    if not target_id:
+        if normalized.get("beat_id"):
+            target_kind = target_kind or (
+                "beat"
+                if default_kind in {"performance_beat", "interaction_beat"}
+                else default_kind
+            )
+            target_id = str(normalized.get("beat_id") or "").strip()
+        elif normalized.get("path_id"):
+            target_kind = target_kind or "blocking_path"
+            target_id = str(normalized.get("path_id") or "").strip()
+    target_kind = target_kind or default_kind
+    if not target_id:
+        return None
+    return {
+        "target_kind": target_kind,
+        "target_id": target_id,
+        "segment_id": str(normalized.get("segment_id") or "").strip(),
+    }
+
+
+def _normalize_keyframe_evidence_entry(item: Any) -> Optional[Dict[str, Any]]:
+    payload = _jsonable(item)
+    if not isinstance(payload, dict):
+        return None
+    ref_payload: Dict[str, Any] = {}
+    for ref_key in _KEYFRAME_REF_KEYS:
+        ref_payload = _normalize_reference_payload(payload.get(ref_key))
+        if ref_payload:
+            break
+    if not ref_payload:
+        return None
+    target = _normalize_motion_target(payload, default_kind="performance_beat")
+    if not target:
+        return None
+    return {
+        **target,
+        "frame_index": payload.get("frame_index"),
+        "timecode": payload.get("timecode"),
+        "evidence_ref": ref_payload,
+        "metadata": dict(payload.get("metadata") or {}),
+    }
+
+
+def _collect_keyframe_evidence_entries(scene_manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    for key in _KEYFRAME_LIST_KEYS:
+        for item in list(scene_manifest.get(key) or []):
+            entry = _normalize_keyframe_evidence_entry(item)
+            if entry:
+                entries.append(entry)
+    return entries
+
+
+def _collect_clip_refs_from_downstream_result(
+    downstream_result: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    proof_result = dict(downstream_result.get("proof_result") or {})
+    clip_refs = list(proof_result.get("clip_refs") or [])
+    if not clip_refs:
+        clip_refs = list((proof_result.get("proof_bundle") or {}).get("clip_refs") or [])
+    normalized: List[Dict[str, Any]] = []
+    for ref in clip_refs:
+        payload = _normalize_reference_payload(ref)
+        if payload:
+            normalized.append(payload)
+    return normalized
+
+
+def _collect_frame_beat_mappings(
+    scene_manifest: Dict[str, Any],
+    keyframe_entries: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    mappings: List[Dict[str, Any]] = []
+    for key in _FRAME_MAP_KEYS:
+        for item in list(scene_manifest.get(key) or []):
+            payload = _jsonable(item)
+            if not isinstance(payload, dict):
+                continue
+            target = _normalize_motion_target(payload, default_kind="performance_beat")
+            if not target:
+                continue
+            mappings.append(
+                {
+                    **target,
+                    "frame_index": payload.get("frame_index"),
+                    "timecode": payload.get("timecode"),
+                    "clip_index": payload.get("clip_index"),
+                    "evidence_ref": _normalize_reference_payload(
+                        payload.get("evidence_ref") or payload.get("ref")
+                    ),
+                }
+            )
+    if mappings:
+        return mappings
+    for entry in keyframe_entries:
+        mappings.append(
+            {
+                "target_kind": entry.get("target_kind"),
+                "target_id": entry.get("target_id"),
+                "segment_id": entry.get("segment_id"),
+                "frame_index": entry.get("frame_index"),
+                "timecode": entry.get("timecode"),
+                "clip_index": None,
+                "evidence_ref": dict(entry.get("evidence_ref") or {}),
+            }
+        )
+    return mappings
+
+
+def _missing_required_targets(
+    required_targets: Sequence[Dict[str, Any]],
+    present_targets: Iterable[tuple[str, str]],
+) -> List[Dict[str, Any]]:
+    present = set(present_targets)
+    return [
+        dict(target)
+        for target in required_targets
+        if (str(target.get("target_kind") or ""), str(target.get("target_id") or ""))
+        not in present
+    ]
+
+
+def build_motion_evidence_artifacts(
+    *,
+    scenario: ScenarioDefinition,
+    downstream_input_manifest: Dict[str, Any],
+    execution_artifacts: Dict[str, Dict[str, Any]],
+    downstream_result: Dict[str, Any],
+    emit_visual_acceptance_bundle: bool = False,
+) -> Dict[str, Dict[str, Any]]:
+    scene_manifest = dict(downstream_input_manifest.get("scene_manifest") or {})
+    required_targets = _collect_required_motion_targets(execution_artifacts)
+    motion_asset_entries = _collect_motion_asset_entries(scene_manifest)
+    clip_refs = _collect_clip_refs_from_downstream_result(downstream_result)
+    keyframe_entries = _collect_keyframe_evidence_entries(scene_manifest)
+    frame_beat_mappings = _collect_frame_beat_mappings(scene_manifest, keyframe_entries)
+
+    keyframe_targets = {
+        (str(entry.get("target_kind") or ""), str(entry.get("target_id") or ""))
+        for entry in keyframe_entries
+    }
+    frame_map_targets = {
+        (str(entry.get("target_kind") or ""), str(entry.get("target_id") or ""))
+        for entry in frame_beat_mappings
+    }
+    missing_keyframe_targets = _missing_required_targets(required_targets, keyframe_targets)
+    missing_frame_targets = _missing_required_targets(required_targets, frame_map_targets)
+
+    motion_asset_manifest: Dict[str, Any] = {
+        "status": "materialized" if motion_asset_entries else "missing",
+        "scenario_id": scenario.scenario_id,
+        "required_targets": required_targets,
+        "motion_asset_refs": motion_asset_entries,
+        "generated_at": _now_utc(),
+    }
+    render_clip_manifest: Dict[str, Any] = {
+        "status": "materialized" if clip_refs else "missing",
+        "scenario_id": scenario.scenario_id,
+        "clip_refs": clip_refs,
+        "clip_count": len(clip_refs),
+        "renderer": "video_renderer",
+        "generated_at": _now_utc(),
+    }
+    keyframe_evidence_manifest: Dict[str, Any] = {
+        "status": (
+            "materialized"
+            if keyframe_entries and not missing_keyframe_targets
+            else "missing"
+        ),
+        "scenario_id": scenario.scenario_id,
+        "required_targets": required_targets,
+        "keyframe_evidence": keyframe_entries,
+        "missing_required_targets": missing_keyframe_targets,
+        "generated_at": _now_utc(),
+    }
+    frame_beat_map: Dict[str, Any] = {
+        "status": (
+            "materialized"
+            if frame_beat_mappings and not missing_frame_targets
+            else "missing"
+        ),
+        "scenario_id": scenario.scenario_id,
+        "required_targets": required_targets,
+        "mappings": frame_beat_mappings,
+        "missing_required_targets": missing_frame_targets,
+        "generated_at": _now_utc(),
+    }
+
+    visual_acceptance_bundle_excerpt: Dict[str, Any] = {
+        "status": "not_requested",
+        "scenario_id": scenario.scenario_id,
+        "required_targets": required_targets,
+        "render_slots": [],
+        "keyframe_evidence": keyframe_entries,
+        "generated_at": _now_utc(),
+    }
+    visual_acceptance_review_receipt: Dict[str, Any] = {
+        "status": "not_requested",
+        "scenario_id": scenario.scenario_id,
+        "required_targets": required_targets,
+        "generated_at": _now_utc(),
+    }
+    should_emit_visual_acceptance = emit_visual_acceptance_bundle or bool(clip_refs)
+    if should_emit_visual_acceptance:
+        review_scene = {
+            "scene_id": str(downstream_input_manifest.get("scene_id") or scenario.scenario_id),
+            "object_assets": [
+                {
+                    "object_target_id": asset.get("object_target_id"),
+                    "asset_ref": dict(
+                        asset.get("asset_ref")
+                        or asset.get("object_model_ref")
+                        or asset.get("object_mesh_ref")
+                        or {}
+                    ),
+                    "metadata": dict(asset.get("metadata") or {}),
+                }
+                for asset in list(scene_manifest.get("object_assets") or [])
+                if isinstance(asset, dict)
+            ],
+            "scene_manifest": scene_manifest,
+            "object_workload_snapshot": {
+                "required_targets": required_targets,
+                "motion_asset_refs": motion_asset_entries,
+                "keyframe_evidence": keyframe_entries,
+            },
+        }
+        bundle = build_visual_acceptance_bundle(
+            tenant_id=str(downstream_input_manifest.get("tenant_id") or "tenant_object_mesh_template"),
+            project_id=str(
+                downstream_input_manifest.get("scene_id")
+                or downstream_input_manifest.get("workspace_id")
+                or scenario.scenario_id
+            ),
+            run_id=scenario.scenario_id,
+            workspace_id=str(downstream_input_manifest.get("workspace_id") or ""),
+            scene=review_scene,
+            source_kind="meeting_spatial_downstream_e2e",
+            render_status="rendered" if clip_refs else "missing",
+            renderer="video_renderer",
+            clip_refs=clip_refs,
+            context_metadata={
+                "workspace_id": downstream_input_manifest.get("workspace_id"),
+                "scene_id": downstream_input_manifest.get("scene_id"),
+                "schedule_id": (
+                    (scene_manifest.get("schedule_context_ref") or {}).get("schedule_id")
+                ),
+                "scenario_id": scenario.scenario_id,
+                "artifact_ids": [
+                    ((scene_manifest.get("schedule_context_ref") or {}).get("artifact_ref") or {}).get("artifact_id")
+                ],
+            },
+        )
+        render_slots = [
+            slot for slot in list(bundle.get("slots") or []) if slot.get("slot") == "final_render"
+        ]
+        status = "materialized"
+        if not render_slots:
+            status = "missing_render_clips"
+        elif not keyframe_entries or missing_keyframe_targets:
+            status = "missing_keyframe_evidence"
+        visual_acceptance_bundle_excerpt = {
+            "status": status,
+            "review_bundle_id": bundle.get("review_bundle_id"),
+            "workspace_id": bundle.get("workspace_id"),
+            "scene_id": bundle.get("scene_id"),
+            "run_id": bundle.get("run_id"),
+            "renderer": bundle.get("renderer"),
+            "render_status": bundle.get("render_status"),
+            "source_kind": bundle.get("source_kind"),
+            "checklist_template": bundle.get("checklist_template"),
+            "render_slots": render_slots,
+            "keyframe_evidence": keyframe_entries,
+            "required_targets": required_targets,
+            "source_metadata": bundle.get("source_metadata"),
+            "generated_at": bundle.get("created_at") or _now_utc(),
+        }
+        visual_acceptance_review_receipt = {
+            "status": "pending_review" if status == "materialized" else "not_ready",
+            "review_bundle_id": bundle.get("review_bundle_id"),
+            "workspace_id": bundle.get("workspace_id"),
+            "scene_id": bundle.get("scene_id"),
+            "required_targets": required_targets,
+            "missing_required_targets": missing_frame_targets,
+            "clip_count": len(clip_refs),
+            "keyframe_count": len(keyframe_entries),
+            "generated_at": _now_utc(),
+        }
+
+    return {
+        "motion_asset_manifest": motion_asset_manifest,
+        "render_clip_manifest": render_clip_manifest,
+        "keyframe_evidence_manifest": keyframe_evidence_manifest,
+        "frame_beat_map": frame_beat_map,
+        "visual_acceptance_bundle_excerpt": visual_acceptance_bundle_excerpt,
+        "visual_acceptance_review_receipt": visual_acceptance_review_receipt,
+    }
 
 
 def _expand_path_tokens(value: str) -> str:
@@ -221,6 +694,28 @@ def _ensure_thread(store: MindscapeStore, workspace_id: str, thread_id: Optional
         message_count=0,
         metadata={"source": "meeting_spatial_downstream_e2e"},
         is_default=True,
+    )
+    store.conversation_threads.create_thread(new_thread)
+    return new_thread.id
+
+
+def _create_ephemeral_thread(
+    store: MindscapeStore,
+    *,
+    workspace_id: str,
+    title: str,
+) -> str:
+    new_thread = ConversationThread(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace_id,
+        title=title,
+        project_id=None,
+        created_at=_now_utc(),
+        updated_at=_now_utc(),
+        last_message_at=_now_utc(),
+        message_count=0,
+        metadata={"source": "meeting_spatial_downstream_e2e", "ephemeral": True},
+        is_default=False,
     )
     store.conversation_threads.create_thread(new_thread)
     return new_thread.id
@@ -359,6 +854,24 @@ def _patch_runtime_adapter_for_direct_host_execution(
     return _restore
 
 
+def _apply_direct_host_runtime_env_overrides(
+    runtime_binding: Optional[Dict[str, Any]],
+) -> Callable[[], None]:
+    if not _should_use_direct_host_runtime_bridge(runtime_binding):
+        return lambda: None
+
+    original_redis_enabled = os.environ.get("REDIS_ENABLED")
+    os.environ["REDIS_ENABLED"] = "false"
+
+    def _restore() -> None:
+        if original_redis_enabled is None:
+            os.environ.pop("REDIS_ENABLED", None)
+            return
+        os.environ["REDIS_ENABLED"] = original_redis_enabled
+
+    return _restore
+
+
 def _patch_dispatch_orchestrator_for_continuity_only() -> Callable[[], None]:
     from backend.app.services.orchestration.dispatch_orchestrator import (
         DispatchOrchestrator,
@@ -400,6 +913,16 @@ def build_handoff_request(
     governance_constraints = dict(handoff_payload.get("governance_constraints") or {})
     spatial_schedule = dict(governance_constraints.get("spatial_schedule") or {})
     spatial_schedule.setdefault("requested", True)
+    if _resolve_bool_config(
+        scenario,
+        "require_full_deliberation_review",
+        default=False,
+    ):
+        meeting_review = dict(governance_constraints.get("meeting_review") or {})
+        meeting_review.setdefault("require_full_deliberation_review", True)
+        meeting_review.setdefault("require_critic_turn", True)
+        meeting_review.setdefault("disable_single_turn_native_pd", True)
+        governance_constraints["meeting_review"] = meeting_review
     governance_constraints["spatial_schedule"] = spatial_schedule
     handoff_payload["governance_constraints"] = governance_constraints
     return HandoffIn(**handoff_payload)
@@ -424,6 +947,10 @@ def extract_schedule_artifact_excerpt(
 ) -> Dict[str, Any]:
     normalized = normalize_spatial_schedule_context(schedule_context)
     artifact_ref = dict(normalized.get("artifact_ref") or {})
+    constraint_summary = dict(normalized.get("constraint_summary") or {})
+    execution_plan = dict(
+        (constraint_summary.get("native_execution_plan") or {})
+    )
     return {
         "task_ir_id": task_ir_id,
         "schedule_id": normalized.get("schedule_id"),
@@ -434,7 +961,8 @@ def extract_schedule_artifact_excerpt(
         "source_session_id": normalized.get("source_session_id"),
         "entity_kinds": list(normalized.get("entity_kinds") or []),
         "active_segments": list(normalized.get("active_segments") or []),
-        "constraint_summary": dict(normalized.get("constraint_summary") or {}),
+        "constraint_summary": constraint_summary,
+        "execution_plan": execution_plan,
         "consumer_receipts": dict(normalized.get("consumer_receipts") or {}),
         "schedule_revision_refs": list(normalized.get("schedule_revision_refs") or []),
         "updated_at": normalized.get("updated_at"),
@@ -497,12 +1025,98 @@ def build_recompiled_schedule_bundle(
     }
 
 
+def schedule_has_native_execution_plan(schedule_context: Dict[str, Any]) -> bool:
+    normalized = normalize_spatial_schedule_context(schedule_context)
+    if not normalized:
+        return False
+    constraint_summary = dict(normalized.get("constraint_summary") or {})
+    native_execution_plan = dict(constraint_summary.get("native_execution_plan") or {})
+    if not native_execution_plan:
+        return False
+    return any(
+        native_execution_plan.get(key)
+        for key in (
+            "actors",
+            "blocking_paths",
+            "camera_blocking",
+            "performance_beats",
+            "interaction_beats",
+        )
+    )
+
+
+def select_downstream_schedule_bundle(
+    *,
+    scenario: ScenarioDefinition,
+    session_context: Dict[str, Any],
+    schedule_artifact_excerpt: Dict[str, Any],
+    recompiled_schedule_bundle: Dict[str, Any],
+) -> Dict[str, Any]:
+    allow_schedule_recompile_fallback = bool(
+        scenario.config.get("allow_schedule_recompile_fallback", True)
+    )
+    require_persisted_schedule_for_downstream = bool(
+        scenario.config.get("require_persisted_schedule_for_downstream", False)
+    )
+    require_native_execution_plan = bool(
+        scenario.config.get("require_native_execution_plan", False)
+    )
+
+    persisted_has_addressable_refs = schedule_context_has_addressable_refs(session_context)
+    persisted_has_native_execution_plan = schedule_has_native_execution_plan(session_context)
+
+    if require_native_execution_plan:
+        _must(
+            persisted_has_native_execution_plan,
+            "Persisted session spatial_schedule_context missing native_execution_plan",
+        )
+    if require_persisted_schedule_for_downstream:
+        _must(
+            persisted_has_addressable_refs,
+            "Persisted session spatial_schedule_context missing addressable refs",
+        )
+        return {
+            "schedule_context": dict(session_context),
+            "schedule_artifact_excerpt": dict(schedule_artifact_excerpt),
+            "source": "persisted_session_context",
+        }
+
+    if persisted_has_addressable_refs:
+        return {
+            "schedule_context": dict(session_context),
+            "schedule_artifact_excerpt": dict(schedule_artifact_excerpt),
+            "source": "persisted_session_context",
+        }
+
+    recompiled_context = dict(recompiled_schedule_bundle.get("context") or {})
+    recompiled_excerpt = dict(recompiled_schedule_bundle.get("excerpt") or {})
+    if allow_schedule_recompile_fallback and schedule_context_has_addressable_refs(
+        recompiled_context
+    ):
+        return {
+            "schedule_context": recompiled_context,
+            "schedule_artifact_excerpt": recompiled_excerpt,
+            "source": "recompiled_from_session",
+        }
+
+    return {
+        "schedule_context": dict(session_context),
+        "schedule_artifact_excerpt": dict(schedule_artifact_excerpt),
+        "source": "persisted_session_context",
+    }
+
+
 def build_execution_plan_artifacts(
     *,
     scenario: ScenarioDefinition,
     schedule_context: Dict[str, Any],
     schedule_artifact_excerpt: Dict[str, Any],
 ) -> Dict[str, Dict[str, Any]]:
+    native_execution_plan = dict(
+        schedule_artifact_excerpt.get("execution_plan")
+        or (dict(schedule_artifact_excerpt.get("constraint_summary") or {}).get("native_execution_plan") or {})
+        or (dict(schedule_context.get("constraint_summary") or {}).get("native_execution_plan") or {})
+    )
     bounded_constraints = (
         dict(
             (((scenario.config.get("handoff_in") or {}).get("governance_constraints") or {})
@@ -511,6 +1125,9 @@ def build_execution_plan_artifacts(
         )
         .get("bounded_constraints")
         or {}
+    )
+    allow_scenario_fallback = bool(
+        scenario.config.get("allow_scenario_execution_fallback", True)
     )
     schedule_id = str(
         schedule_artifact_excerpt.get("schedule_id")
@@ -532,29 +1149,71 @@ def build_execution_plan_artifacts(
         }
         for segment in list(schedule_artifact_excerpt.get("active_segments") or [])
     ]
+    execution_source = "native_execution_plan" if native_execution_plan else "missing"
+    actors = list(native_execution_plan.get("actors") or [])
+    blocking_paths = list(native_execution_plan.get("blocking_paths") or [])
+    camera_blocking = list(native_execution_plan.get("camera_blocking") or [])
+    performance_beats = list(native_execution_plan.get("performance_beats") or [])
+    interaction_beats = list(native_execution_plan.get("interaction_beats") or [])
+    if not native_execution_plan and allow_scenario_fallback:
+        execution_source = "scenario_bounded_constraints"
+        actors = list(bounded_constraints.get("actors") or [])
+        blocking_paths = list(bounded_constraints.get("blocking_paths") or [])
+        camera_blocking = list(bounded_constraints.get("camera_blocking") or [])
+        performance_beats = list(bounded_constraints.get("performance_beats") or [])
+        interaction_beats = list(bounded_constraints.get("interaction_beats") or [])
     shared = {
         "schedule_id": schedule_id,
         "source_session_id": source_session_id,
         "source_task_id": source_task_id,
         "artifact_ref": dict(schedule_artifact_excerpt.get("artifact_ref") or {}),
         "active_segments": active_segments,
+        "execution_source": execution_source,
     }
     return {
         "blocking_plan_excerpt": {
             **shared,
-            "actors": list(bounded_constraints.get("actors") or []),
-            "blocking_paths": list(bounded_constraints.get("blocking_paths") or []),
+            "actors": actors,
+            "blocking_paths": blocking_paths,
         },
         "camera_blocking_manifest": {
             **shared,
-            "camera_blocking": list(bounded_constraints.get("camera_blocking") or []),
+            "camera_blocking": camera_blocking,
         },
         "performance_beats_excerpt": {
             **shared,
-            "performance_beats": list(bounded_constraints.get("performance_beats") or []),
-            "interaction_beats": list(bounded_constraints.get("interaction_beats") or []),
+            "performance_beats": performance_beats,
+            "interaction_beats": interaction_beats,
         },
     }
+
+
+def count_meeting_role_turns(
+    events: Sequence[Any],
+    *,
+    role_name: str,
+) -> int:
+    target_role = str(role_name or "").strip().lower()
+    if not target_role:
+        return 0
+    total = 0
+    for event in events:
+        event_type_value = getattr(event, "event_type", None) or getattr(
+            event, "type", None
+        )
+        if hasattr(event_type_value, "value"):
+            event_type = str(getattr(event_type_value, "value") or "").strip().lower()
+        else:
+            event_type = str(event_type_value or "").strip().lower()
+        if event_type != "agent_turn":
+            continue
+        payload = getattr(event, "payload", None) or {}
+        if not isinstance(payload, dict):
+            continue
+        candidate_role = str(payload.get("role_name") or payload.get("role_id") or "").strip().lower()
+        if candidate_role == target_role:
+            total += 1
+    return total
 
 
 def schedule_context_has_addressable_refs(schedule_context: Dict[str, Any]) -> bool:
@@ -788,6 +1447,7 @@ def build_truth_matrix(
     world_memory_packet: Dict[str, Any],
     execution_artifacts: Dict[str, Dict[str, Any]],
     downstream_result: Dict[str, Any],
+    motion_evidence: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     blender_result = dict(downstream_result.get("blender_result") or {})
     proof_result = dict(downstream_result.get("proof_result") or {})
@@ -795,6 +1455,55 @@ def build_truth_matrix(
     blocking_plan = dict(execution_artifacts.get("blocking_plan_excerpt") or {})
     camera_blocking = dict(execution_artifacts.get("camera_blocking_manifest") or {})
     performance_beats = dict(execution_artifacts.get("performance_beats_excerpt") or {})
+    motion_evidence = motion_evidence or {}
+    motion_asset_manifest = dict(motion_evidence.get("motion_asset_manifest") or {})
+    render_clip_manifest = dict(motion_evidence.get("render_clip_manifest") or {})
+    keyframe_evidence_manifest = dict(
+        motion_evidence.get("keyframe_evidence_manifest") or {}
+    )
+    frame_beat_map = dict(motion_evidence.get("frame_beat_map") or {})
+    visual_acceptance_bundle_excerpt = dict(
+        motion_evidence.get("visual_acceptance_bundle_excerpt") or {}
+    )
+    visual_acceptance_review_receipt = dict(
+        motion_evidence.get("visual_acceptance_review_receipt") or {}
+    )
+    execution_source = str(blocking_plan.get("execution_source") or "").strip()
+    blender_preflight_continuity = bool(blender_result.get("bundle_dir")) and bool(
+        blocking_plan.get("schedule_id")
+    ) and bool(camera_blocking.get("schedule_id")) and bool(
+        performance_beats.get("schedule_id")
+    )
+    stage_handoff_continuity = bool(
+        proof_result.get("proof_bundle", {}).get("bundle_dir")
+        or proof_result.get("resolved_output_dir")
+    ) and bool(handoff_result.get("bundle_dir"))
+    motion_asset_bundle_materialized = (
+        motion_asset_manifest.get("status") == "materialized"
+        and bool(list(motion_asset_manifest.get("motion_asset_refs") or []))
+    )
+    render_clip_materialized = (
+        render_clip_manifest.get("status") == "materialized"
+        and bool(list(render_clip_manifest.get("clip_refs") or []))
+    )
+    keyframe_evidence_materialized = (
+        keyframe_evidence_manifest.get("status") == "materialized"
+        and not list(keyframe_evidence_manifest.get("missing_required_targets") or [])
+        and bool(list(keyframe_evidence_manifest.get("keyframe_evidence") or []))
+    )
+    visual_acceptance_bundle_materialized = (
+        visual_acceptance_bundle_excerpt.get("status") == "materialized"
+        and visual_acceptance_review_receipt.get("status") == "pending_review"
+        and bool(list(visual_acceptance_bundle_excerpt.get("render_slots") or []))
+    )
+    script_to_motion_asset_continuity = (
+        motion_asset_bundle_materialized
+        and render_clip_materialized
+        and keyframe_evidence_materialized
+        and frame_beat_map.get("status") == "materialized"
+        and not list(frame_beat_map.get("missing_required_targets") or [])
+        and visual_acceptance_bundle_materialized
+    )
     return {
         "scripted_meeting_session_closed": bool(
             getattr(getattr(session, "status", None), "value", None) == "closed"
@@ -809,6 +1518,19 @@ def build_truth_matrix(
             world_memory_packet.get("active_schedule")
             and world_memory_packet["active_schedule"].get("schedule_id")
         ),
+        "native_execution_plan_materialized": bool(
+            execution_source == "native_execution_plan"
+            and bool(blocking_plan.get("schedule_id"))
+            and (
+                list(blocking_plan.get("actors") or [])
+                or list(blocking_plan.get("blocking_paths") or [])
+                or list(camera_blocking.get("camera_blocking") or [])
+                or list(performance_beats.get("performance_beats") or [])
+                or list(performance_beats.get("interaction_beats") or [])
+            )
+        ),
+        "scenario_execution_fallback_used": execution_source
+        == "scenario_bounded_constraints",
         "blocking_plan_materialized": bool(
             blocking_plan.get("schedule_id")
             and list(blocking_plan.get("blocking_paths") or [])
@@ -825,10 +1547,8 @@ def build_truth_matrix(
             )
         ),
         "blender_preflight_bundle_materialized": bool(blender_result.get("bundle_dir")),
-        "blender_execution_continuity": bool(blender_result.get("bundle_dir"))
-        and bool(blocking_plan.get("schedule_id"))
-        and bool(camera_blocking.get("schedule_id"))
-        and bool(performance_beats.get("schedule_id")),
+        "blender_preflight_continuity": blender_preflight_continuity,
+        "blender_execution_continuity": blender_preflight_continuity,
         "downstream_stage_proof_bundle_materialized": bool(
             proof_result.get("proof_bundle", {}).get("bundle_dir")
             or proof_result.get("resolved_output_dir")
@@ -836,11 +1556,16 @@ def build_truth_matrix(
         "world_import_handoff_bundle_materialized": bool(
             handoff_result.get("bundle_dir")
         ),
-        "contract_continuity": bool(
-            proof_result.get("proof_bundle", {}).get("bundle_dir")
-            or proof_result.get("resolved_output_dir")
-        )
-        and bool(handoff_result.get("bundle_dir")),
+        "motion_asset_bundle_materialized": motion_asset_bundle_materialized,
+        "render_clip_materialized": render_clip_materialized,
+        "keyframe_evidence_materialized": keyframe_evidence_materialized,
+        "visual_acceptance_bundle_materialized": visual_acceptance_bundle_materialized,
+        "downstream_schedule_used_recompiled_fallback": bool(
+            handoff_result.get("meeting_schedule_source") == "recompiled_from_session"
+        ),
+        "stage_handoff_continuity": stage_handoff_continuity,
+        "contract_continuity": stage_handoff_continuity,
+        "script_to_motion_asset_continuity": script_to_motion_asset_continuity,
         "ue_importer_execution": False,
     }
 
@@ -853,6 +1578,7 @@ def render_operator_report_html(
     schedule_artifact_excerpt: Dict[str, Any],
     execution_artifacts: Dict[str, Dict[str, Any]],
     downstream_result: Dict[str, Any],
+    motion_evidence_artifacts: Dict[str, Dict[str, Any]],
     truth_matrix: Dict[str, Any],
 ) -> str:
     blender_result = dict(downstream_result.get("blender_result") or {})
@@ -861,6 +1587,19 @@ def render_operator_report_html(
     blocking_plan = dict(execution_artifacts.get("blocking_plan_excerpt") or {})
     camera_blocking = dict(execution_artifacts.get("camera_blocking_manifest") or {})
     performance_beats = dict(execution_artifacts.get("performance_beats_excerpt") or {})
+    motion_asset_manifest = dict(
+        motion_evidence_artifacts.get("motion_asset_manifest") or {}
+    )
+    render_clip_manifest = dict(
+        motion_evidence_artifacts.get("render_clip_manifest") or {}
+    )
+    keyframe_evidence_manifest = dict(
+        motion_evidence_artifacts.get("keyframe_evidence_manifest") or {}
+    )
+    visual_acceptance_bundle_excerpt = dict(
+        motion_evidence_artifacts.get("visual_acceptance_bundle_excerpt") or {}
+    )
+    execution_source = str(blocking_plan.get("execution_source") or "").strip() or "missing"
     return f"""<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -889,6 +1628,10 @@ def render_operator_report_html(
         <section class="card">
           <div class="label">Schedule ID</div>
           <div class="metric">{schedule_artifact_excerpt.get("schedule_id") or "n/a"}</div>
+        </section>
+        <section class="card">
+          <div class="label">Execution Source</div>
+          <div class="metric">{execution_source}</div>
         </section>
         <section class="card">
           <div class="label">Blender Preflight</div>
@@ -923,10 +1666,128 @@ def render_operator_report_html(
         <h2>Blender Preflight</h2>
         <pre>{json.dumps(blender_result, indent=2, ensure_ascii=False)}</pre>
       </section>
+      <section class="card">
+        <h2>Motion Asset Manifest</h2>
+        <pre>{json.dumps(motion_asset_manifest, indent=2, ensure_ascii=False, default=_json_default)}</pre>
+      </section>
+      <section class="card">
+        <h2>Render Clip Manifest</h2>
+        <pre>{json.dumps(render_clip_manifest, indent=2, ensure_ascii=False, default=_json_default)}</pre>
+      </section>
+      <section class="card">
+        <h2>Keyframe Evidence Manifest</h2>
+        <pre>{json.dumps(keyframe_evidence_manifest, indent=2, ensure_ascii=False, default=_json_default)}</pre>
+      </section>
+      <section class="card">
+        <h2>Visual Acceptance Bundle</h2>
+        <pre>{json.dumps(visual_acceptance_bundle_excerpt, indent=2, ensure_ascii=False, default=_json_default)}</pre>
+      </section>
     </div>
   </body>
 </html>
 """
+
+
+def _derive_runtime_blocker_code(error_text: str) -> str:
+    normalized = str(error_text or "").lower()
+    if "usage limit" in normalized or "capacity" in normalized:
+        return "codex_cli_usage_limit"
+    if "not supported when using codex" in normalized:
+        return "codex_cli_model_unsupported"
+    if "executor runtime" in normalized and "unavailable" in normalized:
+        return "codex_cli_unavailable"
+    return "meeting_pipeline_failed"
+
+
+def _write_runtime_blocker_bundle(
+    *,
+    scenario: ScenarioDefinition,
+    output_dir: Path,
+    workspace_id: str,
+    profile_id: Optional[str],
+    thread_id: Optional[str],
+    runtime_binding: Optional[Dict[str, Any]],
+    error_text: str,
+    meeting_session_id: Optional[str] = None,
+    session: Optional[Any] = None,
+) -> Dict[str, Any]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _write_text(output_dir / "meeting_input.md", scenario.message)
+    _write_json(output_dir / "meeting_runtime_binding.json", runtime_binding or {})
+
+    blocker_payload = {
+        "scenario_id": scenario.scenario_id,
+        "workspace_id": workspace_id,
+        "profile_id": profile_id,
+        "thread_id": thread_id,
+        "meeting_session_id": meeting_session_id,
+        "runtime_id": str((runtime_binding or {}).get("runtime_id") or "codex_cli"),
+        "transport": (runtime_binding or {}).get("transport"),
+        "delivery_mode": (runtime_binding or {}).get("delivery_mode"),
+        "blocker_code": _derive_runtime_blocker_code(error_text),
+        "error": error_text,
+        "session_status": (
+            getattr(getattr(session, "status", None), "value", None) if session else None
+        ),
+        "round_count": getattr(session, "round_count", None) if session else None,
+        "ended_at": getattr(session, "ended_at", None) if session else None,
+        "pipeline_stage": (
+            dict(getattr(session, "metadata", {}) or {}).get("pipeline_stage")
+            if session
+            else None
+        ),
+        "generated_at": _now_utc(),
+    }
+    _write_json(output_dir / "runtime_blocker.json", blocker_payload)
+
+    report_html = f"""<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Meeting Native E2E Runtime Blocker</title>
+    <style>
+      body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f4efe6; color: #20170f; }}
+      .page {{ max-width: 1080px; margin: 0 auto; padding: 40px 32px 64px; }}
+      .card {{ background: #fff9f0; border: 1px solid #decfb8; border-radius: 16px; padding: 20px; margin-bottom: 20px; }}
+      .label {{ font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #7a6851; }}
+      .metric {{ font-size: 28px; font-weight: 700; margin-top: 6px; }}
+      pre {{ white-space: pre-wrap; overflow-wrap: anywhere; background: #f7f1e4; border-radius: 12px; padding: 14px; }}
+      h1, h2 {{ margin: 0 0 12px; }}
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>Meeting Native E2E Runtime Blocker</h1>
+      <div class="card">
+        <div class="label">Scenario</div>
+        <div class="metric">{scenario.scenario_id}</div>
+      </div>
+      <div class="card">
+        <div class="label">Blocker Code</div>
+        <div class="metric">{blocker_payload["blocker_code"]}</div>
+      </div>
+      <div class="card">
+        <div class="label">Workspace</div>
+        <div class="metric">{workspace_id}</div>
+      </div>
+      <div class="card">
+        <div class="label">Meeting Session</div>
+        <div class="metric">{meeting_session_id or "n/a"}</div>
+      </div>
+      <div class="card">
+        <h2>Runtime Binding</h2>
+        <pre>{json.dumps(runtime_binding or {{}}, indent=2, ensure_ascii=False, default=_json_default)}</pre>
+      </div>
+      <div class="card">
+        <h2>Error</h2>
+        <pre>{error_text}</pre>
+      </div>
+    </div>
+  </body>
+</html>
+"""
+    _write_text(output_dir / "operator_report.html", report_html)
+    return blocker_payload
 
 
 async def run_meeting_spatial_downstream_e2e(
@@ -940,6 +1801,8 @@ async def run_meeting_spatial_downstream_e2e(
     project_id: Optional[str] = None,
     model_name: Optional[str] = None,
     executor_runtime: Optional[str] = None,
+    require_motion_evidence: bool = False,
+    emit_visual_acceptance_bundle: bool = False,
     skip_phase_dispatch: Optional[bool] = None,
     max_events: int = 500,
     proof_runner: Optional[Callable[..., Dict[str, Any]]] = None,
@@ -949,6 +1812,7 @@ async def run_meeting_spatial_downstream_e2e(
     store = MindscapeStore()
     session_store = MeetingSessionStore()
     runtime_binding: Optional[Dict[str, Any]] = None
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     if meeting_session_id:
         session = session_store.get_by_id(meeting_session_id)
@@ -976,7 +1840,25 @@ async def run_meeting_spatial_downstream_e2e(
         profile_id = await _resolve_profile_id(
             store, _resolve_str_config(scenario, "profile_id", profile_id)
         )
-        thread_id = _ensure_thread(store, workspace_id, thread_id)
+        force_fresh_thread = _resolve_bool_config(
+            scenario,
+            "force_fresh_thread",
+            default=bool(
+                _resolve_bool_config(
+                    scenario,
+                    "require_native_execution_plan",
+                    default=False,
+                )
+            ),
+        )
+        if not thread_id and force_fresh_thread:
+            thread_id = _create_ephemeral_thread(
+                store,
+                workspace_id=workspace_id,
+                title=f"Meeting Spatial Downstream E2E · {scenario.scenario_id}",
+            )
+        elif not thread_id:
+            thread_id = _ensure_thread(store, workspace_id, thread_id)
 
         workspace = await store.get_workspace(workspace_id)
         _must(workspace is not None, f"Workspace not found: {workspace_id}")
@@ -1021,8 +1903,12 @@ async def run_meeting_spatial_downstream_e2e(
 
         restore_runtime_adapter: Optional[Callable[[], None]] = None
         restore_dispatch_orchestrator: Optional[Callable[[], None]] = None
+        restore_runtime_env: Optional[Callable[[], None]] = None
         if _should_use_direct_host_runtime_bridge(runtime_binding):
             runtime_binding["delivery_mode"] = "direct_host_runtime_bridge"
+            restore_runtime_env = _apply_direct_host_runtime_env_overrides(
+                runtime_binding
+            )
             restore_runtime_adapter = _patch_runtime_adapter_for_direct_host_execution(
                 runtime_binding=runtime_binding
             )
@@ -1061,17 +1947,53 @@ async def run_meeting_spatial_downstream_e2e(
                 restore_dispatch_orchestrator()
             if restore_runtime_adapter is not None:
                 restore_runtime_adapter()
-        _must(result.success, f"PipelineCore failed: {result.error}")
-        _must(
-            bool(result.meeting_session_id), "meeting_session_id missing in PipelineResult"
-        )
+            if restore_runtime_env is not None:
+                restore_runtime_env()
+        if not result.success or not result.meeting_session_id:
+            blocker_session_id = getattr(result, "meeting_session_id", None)
+            blocker_session = (
+                session_store.get_by_id(blocker_session_id)
+                if blocker_session_id
+                else None
+            )
+            _write_runtime_blocker_bundle(
+                scenario=scenario,
+                output_dir=output_dir,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                thread_id=thread_id,
+                runtime_binding=runtime_binding,
+                error_text=str(
+                    result.error
+                    or "meeting_session_id missing in PipelineResult"
+                ),
+                meeting_session_id=blocker_session_id,
+                session=blocker_session,
+            )
+            _must(result.success, f"PipelineCore failed: {result.error}")
+            _must(
+                bool(result.meeting_session_id),
+                "meeting_session_id missing in PipelineResult",
+            )
 
         session = session_store.get_by_id(result.meeting_session_id)
-        _must(session is not None, "MeetingSession not found after run")
-        _must(
-            getattr(session.status, "value", None) == "closed",
-            "Meeting session not closed",
-        )
+        if session is None or getattr(session.status, "value", None) != "closed":
+            _write_runtime_blocker_bundle(
+                scenario=scenario,
+                output_dir=output_dir,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                thread_id=thread_id,
+                runtime_binding=runtime_binding,
+                error_text="Meeting session not closed",
+                meeting_session_id=result.meeting_session_id,
+                session=session,
+            )
+            _must(session is not None, "MeetingSession not found after run")
+            _must(
+                getattr(session.status, "value", None) == "closed",
+                "Meeting session not closed",
+            )
         meeting_session_id = result.meeting_session_id
         task_ir_id = result.task_ir_id
 
@@ -1080,6 +2002,14 @@ async def run_meeting_spatial_downstream_e2e(
         workspace_id=workspace_id,
         limit=max_events,
     )
+    critic_turn_count = count_meeting_role_turns(events, role_name="critic")
+    require_full_deliberation_review = _resolve_bool_config(
+        scenario,
+        "require_full_deliberation_review",
+        default=False,
+    )
+    if require_full_deliberation_review:
+        _must(critic_turn_count > 0, "Meeting session missing critic turn")
     session_context = normalize_spatial_schedule_context(
         dict(getattr(session, "metadata", {}) or {}).get("spatial_schedule_context")
     )
@@ -1121,13 +2051,21 @@ async def run_meeting_spatial_downstream_e2e(
         session=session,
         task_ir_id=task_ir_id,
     )
-    downstream_schedule_context = session_context
-    downstream_schedule_artifact_excerpt = schedule_artifact_excerpt
-    if schedule_context_has_addressable_refs(
-        recompiled_schedule_bundle.get("context") or {}
-    ):
-        downstream_schedule_context = dict(recompiled_schedule_bundle["context"])
-        downstream_schedule_artifact_excerpt = dict(recompiled_schedule_bundle["excerpt"])
+    downstream_schedule_bundle = select_downstream_schedule_bundle(
+        scenario=scenario,
+        session_context=session_context,
+        schedule_artifact_excerpt=schedule_artifact_excerpt,
+        recompiled_schedule_bundle=recompiled_schedule_bundle,
+    )
+    downstream_schedule_context = dict(
+        downstream_schedule_bundle["schedule_context"]
+    )
+    downstream_schedule_artifact_excerpt = dict(
+        downstream_schedule_bundle["schedule_artifact_excerpt"]
+    )
+    downstream_schedule_source = str(
+        downstream_schedule_bundle.get("source") or "persisted_session_context"
+    )
     execution_artifacts = build_execution_plan_artifacts(
         scenario=scenario,
         schedule_context=downstream_schedule_context,
@@ -1146,6 +2084,14 @@ async def run_meeting_spatial_downstream_e2e(
         proof_runner=proof_runner,
         handoff_runner=handoff_runner,
     )
+    downstream_result["meeting_schedule_source"] = downstream_schedule_source
+    motion_evidence_artifacts = build_motion_evidence_artifacts(
+        scenario=scenario,
+        downstream_input_manifest=downstream_input_manifest,
+        execution_artifacts=execution_artifacts,
+        downstream_result=downstream_result,
+        emit_visual_acceptance_bundle=emit_visual_acceptance_bundle,
+    )
 
     meeting_session_receipt = {
         "workspace_id": workspace_id,
@@ -1157,11 +2103,9 @@ async def run_meeting_spatial_downstream_e2e(
         "status": getattr(getattr(session, "status", None), "value", None),
         "action_item_count": len(getattr(session, "action_items", []) or []),
         "event_count": len(events),
-        "downstream_schedule_source": (
-            "recompiled_from_session"
-            if downstream_schedule_context is not session_context
-            else "persisted_session_context"
-        ),
+        "critic_turn_count": critic_turn_count,
+        "require_full_deliberation_review": require_full_deliberation_review,
+        "downstream_schedule_source": downstream_schedule_source,
     }
     meeting_script_outline = [
         {
@@ -1181,6 +2125,7 @@ async def run_meeting_spatial_downstream_e2e(
         world_memory_packet=world_memory_packet,
         execution_artifacts=execution_artifacts,
         downstream_result=downstream_result,
+        motion_evidence=motion_evidence_artifacts,
     )
 
     _write_text(output_dir / "meeting_input.md", scenario.message)
@@ -1234,6 +2179,30 @@ async def run_meeting_spatial_downstream_e2e(
         output_dir / "world_import_handoff_receipt.json",
         downstream_result.get("handoff_result") or {},
     )
+    _write_json(
+        output_dir / "motion_asset_manifest.json",
+        motion_evidence_artifacts.get("motion_asset_manifest") or {},
+    )
+    _write_json(
+        output_dir / "render_clip_manifest.json",
+        motion_evidence_artifacts.get("render_clip_manifest") or {},
+    )
+    _write_json(
+        output_dir / "keyframe_evidence_manifest.json",
+        motion_evidence_artifacts.get("keyframe_evidence_manifest") or {},
+    )
+    _write_json(
+        output_dir / "frame_beat_map.json",
+        motion_evidence_artifacts.get("frame_beat_map") or {},
+    )
+    _write_json(
+        output_dir / "visual_acceptance_bundle_excerpt.json",
+        motion_evidence_artifacts.get("visual_acceptance_bundle_excerpt") or {},
+    )
+    _write_json(
+        output_dir / "visual_acceptance_review_receipt.json",
+        motion_evidence_artifacts.get("visual_acceptance_review_receipt") or {},
+    )
     _write_json(output_dir / "e2e_truth_matrix.json", truth_matrix)
     report_html = render_operator_report_html(
         scenario=scenario,
@@ -1242,9 +2211,15 @@ async def run_meeting_spatial_downstream_e2e(
         schedule_artifact_excerpt=schedule_artifact_excerpt,
         execution_artifacts=execution_artifacts,
         downstream_result=downstream_result,
+        motion_evidence_artifacts=motion_evidence_artifacts,
         truth_matrix=truth_matrix,
     )
     _write_text(output_dir / "operator_report.html", report_html)
+    if require_motion_evidence:
+        _must(
+            bool(truth_matrix.get("script_to_motion_asset_continuity")),
+            "Motion evidence gate failed",
+        )
 
     return {
         "scenario_id": scenario.scenario_id,
