@@ -1592,13 +1592,12 @@ class MeetingEngine(
         resolved_runtime = None
         for candidate in (
             getattr(workspace, "resolved_executor_runtime", None),
-            getattr(workspace, "executor_runtime", None),
             getattr(self, "executor_runtime", None),
         ):
             if isinstance(candidate, str) and candidate.strip():
                 resolved_runtime = candidate.strip()
                 break
-        fallback_engine = (
+        default_agent_engine = (
             f"agent:{resolved_runtime}"
             if isinstance(resolved_runtime, str) and resolved_runtime.strip()
             else "agent:auto"
@@ -1667,7 +1666,7 @@ class MeetingEngine(
                     "source_phase_id": f"WS_{deliverable_id}",
                     "priority": "high",
                     "target_workspace_id": getattr(self.session, "workspace_id", None),
-                    "engine": fallback_engine,
+                    "engine": default_agent_engine,
                     "input_params": {
                         "workspace_id": getattr(self.session, "workspace_id", None),
                         "deliverable_id": deliverable_id,

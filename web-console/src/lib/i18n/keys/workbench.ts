@@ -75,5 +75,8 @@ export const workbenchKeys = {
   rateLimitExceeded: true,
   tryDifferentSearch: true,
   createPlan: true,
+  meetingObjectActionCompleted: true,
+  meetingObjectActionNoClosure: true,
+  meetingObjectActionInvoked: true,
+  meetingExecutionId: true,
 } as const;
-

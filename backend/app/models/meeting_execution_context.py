@@ -2,7 +2,7 @@
 MeetingExecutionContext — resolved snapshot of runtime inputs for meeting.
 
 Aggregates from existing models:
-- workspace.core: executor_specs, fallback_model, resolved_executor_runtime
+- workspace.core: resolved_executor_runtime
 - workspace_runtime_profile: loop_budget, recovery_policy
 - runtime_environment: auth_type, auth_status
 - route_decision: route_kind, execution_profile
@@ -14,7 +14,7 @@ Not persisted — assembled fresh at each meeting start by PipelineCore.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, PrivateAttr
 
@@ -26,18 +26,10 @@ class MeetingExecutionContext(BaseModel):
     runtime, and routing models.  Read-only within MeetingEngine.
     """
 
-    # From Workspace.executor_specs + fallback_model
+    # From model-route-registry workspace executor route
     executor_runtime_id: Optional[str] = Field(
         default=None,
         description="Resolved executor runtime ID",
-    )
-    executor_specs: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="Executor spec entries from workspace",
-    )
-    fallback_model: Optional[str] = Field(
-        default=None,
-        description="Fallback model for generation",
     )
 
     # From RuntimeEnvironment
@@ -133,8 +125,6 @@ class MeetingExecutionContext(BaseModel):
             ctx.executor_runtime_id = getattr(
                 workspace, "resolved_executor_runtime", None
             )
-            ctx.executor_specs = getattr(workspace, "executor_specs", []) or []
-            ctx.fallback_model = getattr(workspace, "fallback_model", None)
 
         # RuntimeEnvironment
         if runtime_env:

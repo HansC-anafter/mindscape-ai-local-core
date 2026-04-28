@@ -1,9 +1,9 @@
 # Manifest Schema for Capability Packs
 #
-# 此 schema 定義 capability pack manifest.yaml 的結構要求。
-# 包含 portability 字段（必需）、環境適配宣告
+# Defines the structure requirements for capability pack manifest.yaml files.
+# Includes required portability and environment compatibility declarations.
 #
-# 驗證方式：
+# Validation:
 #   python scripts/ci/validate_manifest.py capabilities/
 
 $schema: "http://json-schema.org/draft-07/schema#"
@@ -15,17 +15,17 @@ type: object
 required:
   - code
   - version
-  - portability # 必需
+  - portability # Required
 
 properties:
   # ============================================================================
-  # 基本資訊
+  # Basic information
   # ============================================================================
 
   code:
     type: string
     pattern: "^[a-z0-9_]+$"
-    description: "Capability 唯一識別碼 (lowercase, underscores allowed)"
+    description: "Unique capability identifier (lowercase, underscores allowed)"
     examples:
       - example_capability
       - data_processor
@@ -34,21 +34,21 @@ properties:
   version:
     type: string
     pattern: "^\\d+\\.\\d+\\.\\d+$"
-    description: "語意化版本號 (semver)"
+    description: "Semantic version number (semver)"
     examples:
       - "1.0.0"
       - "2.1.3"
 
   display_name:
     type: string
-    description: "顯示名稱"
+    description: "Display name"
     examples:
       - "Example Capability"
       - "Data Processor"
 
   description:
     type: string
-    description: "能力描述"
+    description: "Capability description"
 
   type:
     type: string
@@ -65,18 +65,23 @@ properties:
       ]
     default: feature
     description: |
-      能力類型：
-      - feature: 功能型能力包
-      - core: 核心能力（系統必需）
-      - extension: 擴展能力
-      - connector: 外部服務連接器
-      - system: 系統級能力
-      - agent: AI Agent 能力
-      - infrastructure: 基礎設施能力
-      - system_runtime: 系統運行時能力
+      Capability type:
+      - feature: feature capability pack
+      - core: core capability required by the system
+      - extension: extension capability
+      - connector: external service connector
+      - system: system-level capability
+      - agent: AI agent capability
+      - infrastructure: infrastructure capability
+      - system_runtime: system runtime capability
+
+  aol_maturity:
+    type: string
+    enum: [AOL-0, AOL-1, AOL-2, AOL-3, AOL-4, AOL-5]
+    description: "Addressable Object Layer maturity claim for this pack"
 
   # ============================================================================
-  # 可移植性宣告（必需）
+  # Portability declaration (required)
   # ============================================================================
 
   portability:
@@ -84,12 +89,12 @@ properties:
     required:
       - min_local_core_version
       - environments
-    description: "可移植性宣告，定義跨環境部署支援"
+    description: "Portability declaration defining cross-environment deployment support"
     properties:
       min_local_core_version:
         type: string
         pattern: "^\\d+\\.\\d+\\.\\d+$"
-        description: "最低支援的 Local-Core 版本"
+        description: "Minimum supported Local-Core version"
         examples:
           - "0.9.0"
           - "1.0.0"
@@ -101,8 +106,8 @@ properties:
           enum: [cloud, local-core]
         minItems: 1
         description: |
-          支援的環境列表。
-          ⚠️ 必須包含 "local-core" 才能通過驗證。
+          Supported environment list.
+          Must include "local-core" to pass validation.
         examples:
           - [cloud, local-core]
           - [local-core]
@@ -112,24 +117,24 @@ properties:
         enum: [fail-fast, graceful]
         default: graceful
         description: |
-          當依賴不可用時的策略：
-          - fail-fast: 立即失敗
-          - graceful: 降級運行
+          Strategy when dependencies are unavailable:
+          - fail-fast: fail immediately
+          - graceful: run with degraded functionality
 
   # ============================================================================
-  # 依賴宣告
+  # Dependency declaration
   # ============================================================================
 
   dependencies:
     oneOf:
       - type: object
-        description: "依賴宣告（推薦格式）"
+        description: "Dependency declaration (recommended format)"
         properties:
           required:
             type: array
             items:
               type: string
-            description: "必要依賴 - 缺少時 capability 無法啟動"
+            description: "Required dependencies; capability cannot start when missing"
             examples:
               - [core_llm]
               - [core_llm, database]
@@ -146,21 +151,22 @@ properties:
                   properties:
                     name:
                       type: string
-                      description: "依賴名稱"
+                      description: "Dependency name"
                     code:
                       type: string
-                      description: "依賴名稱（兼容別名）"
+                      description: "Dependency name (compatible alias)"
                     fallback:
                       type: [string, "null"]
-                      description: "替代模組路徑，null 表示無替代"
+                      description: "Fallback module path; null means no fallback"
                     degraded_features:
                       type: array
                       items:
                         type: string
-                      description: "缺少此依賴時降級的功能列表"
+                      description: "Features degraded when this dependency is missing"
             description: |
-              可選依賴 - 缺少時 capability 可以啟動但部分功能不可用。
-              建議使用物件格式宣告 fallback 和 degraded_features。
+              Optional dependencies. Capability can start when these are missing,
+              but some features may be unavailable. Use object format to declare
+              fallback and degraded_features.
             examples:
               - name: contracts.execution_context
                 fallback: mindscape.shims.execution_context
@@ -176,16 +182,16 @@ properties:
               properties:
                 name:
                   type: string
-                  description: "外部服務名稱"
+                  description: "External service name"
                 env_var:
                   type: string
-                  description: "配置此服務所需的環境變量"
+                  description: "Environment variable required to configure this service"
                 degraded_features:
                   type: array
                   items:
                     type: string
-                  description: "缺少此服務時降級的功能列表"
-            description: "外部服務依賴（需要配置 API keys 等）"
+                  description: "Features degraded when this service is missing"
+            description: "External service dependencies requiring API keys or equivalent configuration"
             examples:
               - name: gcs_storage
                 env_var: GCS_CREDENTIALS
@@ -193,17 +199,17 @@ properties:
                   - video_upload
                   - asset_storage
       - type: array
-        description: "依賴宣告（舊格式，接受但建議遷移至 object 格式）"
+        description: "Dependency declaration (legacy format; accepted but object format is recommended)"
         items:
           type: string
 
   # ============================================================================
-  # Playbook 定義
+  # Playbook definitions
   # ============================================================================
 
   playbooks:
     type: array
-    description: "Playbook 列表"
+    description: "Playbook list"
     items:
       type: object
       required:
@@ -215,29 +221,29 @@ properties:
         code:
           type: string
           pattern: "^[a-z0-9_]+$"
-          description: "Playbook 代碼"
+          description: "Playbook code"
         display_name:
           type: string
-          description: "顯示名稱"
+          description: "Display name"
         display_name_zh:
           type: string
-          description: "中文顯示名稱"
+          description: "Chinese display name"
         locales:
           type: array
           items:
             type: string
           minItems: 1
-          description: "支援的語言"
+          description: "Supported locales"
           examples:
             - [zh-TW, en]
         path:
           type: string
           pattern: "^playbooks/\\{locale\\}/.*\\.md$"
-          description: "Playbook markdown 文件路徑模板"
+          description: "Playbook markdown file path template"
         spec_path:
           type: string
           pattern: "^playbooks/specs/.*\\.(json|yaml)$"
-          description: "Playbook spec 文件路徑"
+          description: "Playbook spec file path"
         description:
           type: string
         description_zh:
@@ -246,15 +252,15 @@ properties:
           type: array
           items:
             type: string
-          description: "此 playbook 依賴的 tool 列表"
+          description: "Tools required by this playbook"
         service_dependencies:
           type: array
           items:
             type: string
-          description: "此 playbook 依賴的 service 列表"
+          description: "Services required by this playbook"
         variants:
           type: array
-          description: "Playbook 變體定義（跳步、自訂檢查清單、執行參數覆寫）"
+          description: "Playbook variant definitions for skipped steps, custom checklists, and execution parameter overrides"
           items:
             type: object
             required:
@@ -264,22 +270,22 @@ properties:
               variant_id:
                 type: string
                 pattern: "^[a-z0-9_]+$"
-                description: "變體唯一識別碼"
+                description: "Unique variant identifier"
               name:
                 type: string
-                description: "變體顯示名稱"
+                description: "Variant display name"
               description:
                 type: string
               skip_steps:
                 type: array
                 items:
                   type: integer
-                description: "要跳過的步驟索引"
+                description: "Step indexes to skip"
               custom_checklist:
                 type: array
                 items:
                   type: string
-                description: "自訂檢查清單項目"
+                description: "Custom checklist items"
               execution_params:
                 type: object
                 description: "Execution parameter overrides"
@@ -323,12 +329,270 @@ properties:
                 description: "Storage backend"
 
   # ============================================================================
-  # Tool 定義
+  # Addressable Object Layer declaration
+  # ============================================================================
+
+  object_exports:
+    type: array
+    description: "Addressable object kinds owned by this capability pack"
+    items:
+      type: object
+      required:
+        - kind
+        - display_name
+        - id_field
+      properties:
+        kind:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        display_name:
+          type: string
+        canonical_schema:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+\\.schema(?:\\.[A-Za-z0-9_]+)+$"
+        id_field:
+          type: string
+          pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
+        summary_fields:
+          type: array
+          items:
+            type: string
+            pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
+        supports:
+          type: array
+          items:
+            type: string
+            enum:
+              - summary
+              - detail
+              - relations
+              - actions
+              - meeting_projection
+              - materialize
+              - graph_projection
+        granularity:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        selector_families:
+          type: array
+          items:
+            type: string
+            enum:
+              - object_root
+              - dom_anchor
+              - image_region
+              - media_time_range
+              - storyboard_scene
+              - storyboard_slot
+              - timeline_clip
+              - pack_local_path
+              - graph_node
+        indexer_backend:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+        mention_fields:
+          type: array
+          items:
+            type: string
+            pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
+        owner_surface_patterns:
+          type: array
+          items:
+            type: string
+
+  object_resolvers:
+    type: array
+    description: "Resolver hooks for declared addressable object kinds"
+    items:
+      type: object
+      required:
+        - kind
+        - summary_backend
+      properties:
+        kind:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        summary_backend:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+        detail_backend:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+        relations_backend:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+        actions_backend:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+        availability:
+          oneOf:
+            - type: string
+            - type: object
+
+  meeting_projections:
+    type: array
+    description: "Meeting-safe projection hooks for addressable objects"
+    items:
+      type: object
+      required:
+        - kind
+        - projection_backend
+        - verbs
+      properties:
+        kind:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        projection_backend:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+        projection_schema:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+\\.schema(?:\\.[A-Za-z0-9_]+)+$"
+        verbs:
+          type: array
+          items:
+            type: string
+            enum:
+              - attach
+              - recommend
+              - expand
+              - preview
+              - stage
+              - review
+              - promote
+
+  materializers:
+    type: array
+    description: "Pack-owned materialization hooks for meeting outcomes"
+    items:
+      type: object
+      required:
+        - kind
+        - verbs
+        - backend
+        - output_types
+        - write_mode
+      properties:
+        kind:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        verbs:
+          type: array
+          items:
+            type: string
+            enum:
+              - attach
+              - recommend
+              - expand
+              - preview
+              - stage
+              - review
+              - promote
+        backend:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+        output_types:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-z0-9_]+$"
+        write_mode:
+          type: string
+          enum:
+            - proposal_only
+            - staged
+            - canonical_with_review
+            - owner_canonical_lane
+            - recommendation_only
+
+  graph_projections:
+    type: array
+    description: "Optional graph projection hooks for addressable objects"
+    items:
+      type: object
+      required:
+        - kind
+        - backend
+      properties:
+        kind:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        backend:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+        node_kind:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        relation_kinds:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-z0-9_]+$"
+
+  affordances:
+    type: array
+    description: "Schema-backed callable object affordances"
+    items:
+      type: object
+      required:
+        - verb
+        - input_schema
+        - output_schema
+        - required_roles
+        - write_modes
+        - planner_backend
+      properties:
+        verb:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        description:
+          type: string
+        object_kinds:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-z0-9_]+$"
+        input_schema:
+          type: object
+        output_schema:
+          type: object
+        required_roles:
+          type: array
+          items:
+            type: string
+            enum:
+              - source
+              - target
+              - character
+              - constraint
+              - output
+              - meeting
+              - session
+              - node
+        write_modes:
+          type: array
+          items:
+            type: string
+            enum:
+              - proposal_only
+              - staged
+              - canonical_with_review
+              - owner_canonical_lane
+              - recommendation_only
+        planner_backend:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+        executor_backend:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+
+  # ============================================================================
+  # Tool definitions
   # ============================================================================
 
   tools:
     type: array
-    description: "Tool 列表"
+    description: "Tool list"
     items:
       type: object
       required:
@@ -338,18 +602,18 @@ properties:
         name:
           type: string
           pattern: "^[a-z0-9_]+$"
-          description: "Tool 名稱"
+          description: "Tool name"
         code:
           type: string
-          description: "Tool 代碼（可選，默認使用 name）"
+          description: "Tool code (optional; defaults to name)"
         backend:
           type: string
-          # 要求：必須使用 capabilities.* 格式（mindscape.capabilities.* 已棄用）
+          # Requirement: use capabilities.* format; mindscape.capabilities.* is deprecated.
           pattern: "^capabilities\\.[a-z0-9_]+\\.[a-z0-9_.]+:[a-z0-9_]+$"
           description: |
-            Backend import 路徑。
-            ⚠️ 必須使用 capabilities.* 格式（mindscape.capabilities.* 已棄用）
-            格式: capabilities.{capability}.{module}:{function}
+            Backend import path.
+            Must use capabilities.* format; mindscape.capabilities.* is deprecated.
+            Format: capabilities.{capability}.{module}:{function}
           examples:
             - "capabilities.example_capability.tools.data_processor:process_data"
         description:
@@ -364,20 +628,20 @@ properties:
             input_schema (schema_path takes lower priority).
         input_schema:
           type: object
-          description: "Tool 輸入 schema (JSON Schema)"
+          description: "Tool input schema (JSON Schema)"
         used_by_playbooks:
           type: array
           items:
             type: string
-          description: "使用此 tool 的 playbook 列表"
+          description: "Playbooks that use this tool"
 
   # ============================================================================
-  # Service 定義
+  # Service definitions
   # ============================================================================
 
   services:
     type: array
-    description: "Service 列表"
+    description: "Service list"
     items:
       type: object
       required:
@@ -386,24 +650,24 @@ properties:
       properties:
         name:
           type: string
-          description: "Service 名稱"
+          description: "Service name"
         path:
           type: string
-          description: "Service 文件路徑"
+          description: "Service file path"
         backend:
           type: string
           pattern: "^(mindscape\\.)?capabilities\\.[a-z0-9_]+\\.[a-z0-9_.]+:[A-Z][a-zA-Z0-9_]*$"
-          description: "Backend import 路徑"
+          description: "Backend import path"
         description:
           type: string
 
   # ============================================================================
-  # API 定義
+  # API definitions
   # ============================================================================
 
   apis:
     type: array
-    description: "API endpoint 定義"
+    description: "API endpoint definitions"
     items:
       type: object
       required:
@@ -415,17 +679,17 @@ properties:
       properties:
         code:
           type: string
-          description: "API 代碼"
+          description: "API code"
         name:
           type: string
-          description: "API 代碼（兼容別名）"
+          description: "API code (compatible alias)"
         path:
           type: string
-          # 要求：必須在 api/ 目錄下
+          # Requirement: path must be under the api/ directory.
           pattern: "^api/.*\\.py$"
           description: |
-            API 入口文件路徑。
-            ⚠️ 必須使用 api/ 目錄
+            API entry file path.
+            Must use the api/ directory.
           examples:
             - "api/__init__.py"
             - "api/main.py"
@@ -434,22 +698,22 @@ properties:
           enum: [router, get_router]
           default: router
           description: |
-            Router 導出方式：
-            - router: 直接導出 router 變量
-            - get_router: 導出 get_router() 函數
+            Router export mode:
+            - router: export the router variable directly
+            - get_router: export a get_router() function
         prefix:
           type: string
           pattern: "^/[a-z0-9_/-]+$"
-          description: "API 路由前綴"
+          description: "API route prefix"
         enabled_by_default:
           type: boolean
           default: true
-          description: "是否默認啟用"
+          description: "Whether this API is enabled by default"
 
-  # 向後兼容：capabilities 字段（Deprecated）
+  # Backward compatibility: capabilities field (deprecated)
   capabilities:
     type: array
-    description: "API endpoint 定義（舊字段名，建議使用 apis）"
+    description: "API endpoint definitions (legacy field name; apis is recommended)"
     items:
       type: object
       required:
@@ -461,16 +725,16 @@ properties:
       properties:
         code:
           type: string
-          description: "API 代碼"
+          description: "API code"
         name:
           type: string
-          description: "API 代碼（兼容別名）"
+          description: "API code (compatible alias)"
         path:
           type: string
           pattern: "^api/.*\\.py$"
           description: |
-            API 入口文件路徑。
-            ⚠️ 必須使用 api/ 目錄
+            API entry file path.
+            Must use the api/ directory.
           examples:
             - "api/__init__.py"
             - "api/main.py"
@@ -479,25 +743,25 @@ properties:
           enum: [router, get_router]
           default: router
           description: |
-            Router 導出方式：
-            - router: 直接導出 router 變量
-            - get_router: 導出 get_router() 函數
+            Router export mode:
+            - router: export the router variable directly
+            - get_router: export a get_router() function
         prefix:
           type: string
           pattern: "^/[a-z0-9_/-]+$"
-          description: "API 路由前綴"
+          description: "API route prefix"
         enabled_by_default:
           type: boolean
           default: true
-          description: "是否默認啟用"
+          description: "Whether this API is enabled by default"
 
   # ============================================================================
-  # UI 組件
+  # UI components
   # ============================================================================
 
   ui_components:
     type: array
-    description: "前端 UI 組件列表"
+    description: "Frontend UI component list"
     items:
       type: object
       required:
@@ -506,24 +770,80 @@ properties:
       properties:
         code:
           type: string
-          description: "組件代碼"
+          description: "Component code"
+          pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
         path:
           type: string
-          pattern: "^ui/.*\\.(tsx|jsx)$"
-          description: "組件文件路徑"
+          pattern: "^ui(?:/[A-Za-z0-9_.-]+)+\\.(tsx|ts|jsx|js)$"
+          description: "Component file path"
+        name:
+          type: string
         display_name:
           type: string
+        export:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [capability_page, full_page, settings_panel]
+        route:
+          type: string
+          pattern: "^/[A-Za-z0-9_./{}-]*$"
+        artifact_types:
+          type: array
+          items:
+            type: string
+        playbook_codes:
+          type: array
+          items:
+            type: string
         props_schema:
           type: object
-          description: "組件 props schema"
+          description: "Component props schema"
+        settings:
+          type: object
+          required: [section]
+          properties:
+            section:
+              type: string
+              minLength: 1
+            title:
+              type: string
+            description:
+              type: string
+            order:
+              type: integer
+            requires_workspace_id:
+              type: boolean
+            display_mode:
+              type: string
+            show_when:
+              type: object
+              properties:
+                always:
+                  type: boolean
+                runtime_codes:
+                  type: array
+                  items:
+                    type: string
+                service_codes:
+                  type: array
+                  items:
+                    type: string
+              additionalProperties: false
+            props_schema:
+              type: object
+          additionalProperties: false
+      additionalProperties: false
 
   # ============================================================================
-  # 模型路由註冊
+  # Model routing registration
   # ============================================================================
 
   model_routing:
     type: object
-    description: "顯式宣告模型/執行時路由 slot，供 Settings 總表統一註冊"
+    description: "Explicitly declares model/runtime routing slots for centralized Settings registration"
     properties:
       slots:
         type: array
@@ -551,18 +871,18 @@ properties:
               type: object
 
   # ============================================================================
-  # 數據邊界
+  # Data boundary
   # ============================================================================
 
   data_locality_default:
     type: object
-    description: "默認數據邊界宣告"
+    description: "Default data boundary declaration"
     properties:
       local_only:
         type: array
         items:
           type: string
-        description: "只能在本地處理的數據類型"
+        description: "Data types that can only be processed locally"
         examples:
           - raw_data_files
           - user_private_data
@@ -570,13 +890,13 @@ properties:
         type: array
         items:
           type: string
-        description: "可以發送到 Cloud 處理的數據類型"
+        description: "Data types that can be sent to Cloud for processing"
         examples:
           - processed_data
           - analysis_results
 
   # ============================================================================
-  # 運行時配置
+  # Runtime configuration
   # ============================================================================
 
   runtime_affinity:
@@ -584,28 +904,28 @@ properties:
     enum: [local, semantic, hybrid]
     default: semantic
     description: |
-      運行時親和性：
-      - local: 僅本地執行
-      - semantic: 僅 Cloud 執行
-      - hybrid: 混合執行
+      Runtime affinity:
+      - local: local execution only
+      - semantic: Cloud execution only
+      - hybrid: hybrid execution
 
   max_expected_runtime_sec:
     type: number
     minimum: 0
-    description: "預期最大運行時間（秒）"
+    description: "Expected maximum runtime in seconds"
 
   token_estimate:
     type: number
     minimum: 0
-    description: "預估 token 使用量"
+    description: "Estimated token usage"
 
   # ============================================================================
-  # Bootstrap 腳本
+  # Bootstrap scripts
   # ============================================================================
 
   bootstrap:
     type: array
-    description: "安裝後執行的 bootstrap 腳本"
+    description: "Bootstrap scripts executed after installation"
     items:
       type: object
       required:
@@ -616,13 +936,13 @@ properties:
           enum: [python_script, content_vault_init, shell_script]
         path:
           type: string
-          description: "腳本路徑"
+          description: "Script path"
         vault_path:
           type: string
-          description: "Content Vault 路徑（僅 content_vault_init）"
+          description: "Content Vault path (content_vault_init only)"
 
 # ============================================================================
-# 範例
+# Examples
 # ============================================================================
 
 examples:

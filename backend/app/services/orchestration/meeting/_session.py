@@ -441,7 +441,6 @@ class MeetingSessionMixin:
                 "executor_runtime_id": ctx.executor_runtime_id,
                 "auth_type": ctx.auth_type,
                 "auth_status": ctx.auth_status,
-                "fallback_model": ctx.fallback_model,
                 "max_iterations": ctx.max_iterations,
                 "route_kind": ctx.route_kind,
                 "execution_profile": ctx.execution_profile,

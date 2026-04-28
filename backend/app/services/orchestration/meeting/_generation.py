@@ -477,11 +477,6 @@ class MeetingGenerationMixin:
         )
 
     async def _fetch_direct_codex_auth_bundle(self) -> Dict[str, Any]:
-        def _fallback_bundle() -> Dict[str, Any]:
-            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-            env = {"OPENAI_API_KEY": api_key} if api_key else {}
-            return {"auth_mode": "env_fallback", "env": env}
-
         try:
             from backend.app.services.codex_pool_service import CodexPoolService
             from backend.app.services.codex_pool_admission_service import (
@@ -542,8 +537,8 @@ class MeetingGenerationMixin:
                 if selection
                 else {
                     "preferred_runtime_id": None,
-                    "allow_fallback": True,
-                    "preference_source": "pool_rotation",
+                    "allow_runtime_substitution": False,
+                    "preference_source": "no_bound_runtime",
                     "binding_runtime_id": None,
                     "binding_state": None,
                     "lease_runtime_id": None,
@@ -551,13 +546,15 @@ class MeetingGenerationMixin:
                 }
             )
             preferred_runtime_id = preference.get("preferred_runtime_id")
-            allow_fallback = bool(preference.get("allow_fallback", True))
-            preference_source = str(preference.get("preference_source") or "pool_rotation")
+            allow_runtime_substitution = bool(
+                preference.get("allow_runtime_substitution", False)
+            )
+            preference_source = str(preference.get("preference_source") or "no_bound_runtime")
             pool_service = CodexPoolService()
             admission = await asyncio.to_thread(
                 CodexPoolAdmissionService().evaluate_execution_admission,
                 preferred_runtime_id=preferred_runtime_id,
-                allow_fallback=allow_fallback,
+                allow_runtime_substitution=allow_runtime_substitution,
             )
             if not admission.admissible:
                 if (
@@ -594,7 +591,7 @@ class MeetingGenerationMixin:
             pool_result = await asyncio.to_thread(
                 pool_service.get_active_auth_bundle,
                 preferred_runtime_id=preferred_runtime_id,
-                allow_fallback=allow_fallback,
+                allow_runtime_substitution=allow_runtime_substitution,
             )
             if "env" in pool_result and preference_source == "session_lease":
                 selected_runtime_id = str(
@@ -605,44 +602,12 @@ class MeetingGenerationMixin:
                     and preferred_runtime_id
                     and selected_runtime_id != preferred_runtime_id
                 ):
-                    preference_source = "lease_rebind"
-            if selection and "env" not in pool_result and preference_source in {
-                "binding_snapshot",
-                "session_lease",
-            }:
-                if (
-                    preference_source == "session_lease"
-                    and workspace_id
-                    and lease_owner_type
-                    and lease_owner_id
-                ):
-                    try:
-                        await asyncio.to_thread(
-                            binding_service.clear_runtime_lease,
-                            workspace_id=workspace_id,
-                            surface=selection.surface,
-                            lease_owner_type=lease_owner_type,
-                            lease_owner_id=lease_owner_id,
-                            runtime_id=preferred_runtime_id,
-                            reason="runtime_unavailable",
+                    pool_result = {
+                        "error": (
+                            "Preferred Codex runtime mismatch under fail-closed policy; "
+                            "pool rebinding is disabled."
                         )
-                    except Exception:
-                        logger.warning(
-                            "Failed to clear unavailable meeting runtime lease for workspace %s",
-                            workspace_id,
-                            exc_info=True,
-                        )
-                pool_result = await asyncio.to_thread(
-                    pool_service.get_active_auth_bundle,
-                    preferred_runtime_id=None,
-                    allow_fallback=True,
-                )
-                if "env" in pool_result:
-                    preference_source = (
-                        "lease_rebind"
-                        if preference_source == "session_lease"
-                        else "binding_rebind"
-                    )
+                    }
             if "env" in pool_result and selection:
                 selected_runtime_id = str(
                     pool_result.get("selected_runtime_id") or ""
@@ -707,14 +672,9 @@ class MeetingGenerationMixin:
             return pool_result
         except Exception:
             logger.exception("Meeting direct Codex pool lookup failed")
-            if (
-                str(getattr(self, "executor_runtime", "") or "").strip().lower()
-                == "codex_cli"
-            ):
-                return {
-                    "error": "Meeting codex route resolution failed before a runtime could be bound"
-                }
-            return _fallback_bundle()
+            return {
+                "error": "Meeting codex route resolution failed before a runtime could be bound"
+            }
 
     async def _report_direct_codex_runtime_quota_exhausted(
         self,

@@ -211,6 +211,10 @@ export const workbenchZhTW = {
   'suggestion.create_intent_card_title': '建立意圖卡',
   'suggestion.create_intent_card_titl': '建立意圖卡', // typo fallback
   'suggestion.create_intent_card_description': '開始追蹤你的長期目標和任務',
+  meetingObjectActionCompleted: '物件操作已完成，並已連結到 meeting graph。',
+  meetingObjectActionNoClosure: '物件操作已結束，但沒有完成 closure。',
+  meetingObjectActionInvoked: '物件操作已送出。',
+  meetingExecutionId: '執行 ID：{executionId}',
   viewOriginalResponse: '查看原始回應',
 
 } as const satisfies Partial<Record<MessageKey, string>>;

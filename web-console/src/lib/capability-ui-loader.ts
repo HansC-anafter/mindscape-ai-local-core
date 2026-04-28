@@ -21,33 +21,60 @@ interface UIComponentInfo {
   import_path: string;
 }
 
+type CapabilityComponentModule = Record<string, any>;
+
+interface CapabilityComponentsContext {
+  (key: string): CapabilityComponentModule;
+  keys: () => string[];
+  resolve?: (request: string) => string;
+  id?: string;
+}
+
+declare global {
+  // Test-only override so Vitest can short-circuit the webpack-only require.context branch.
+  // eslint-disable-next-line no-var
+  var __MINDSCAPE_CAPABILITY_UI_TEST_CONTEXT__: CapabilityComponentsContext | undefined;
+}
+
+function normalizeCapabilityComponentKeys(
+  rawContext: CapabilityComponentsContext,
+): Set<string> {
+  const rawKeys = typeof rawContext.keys === 'function' ? rawContext.keys() : [];
+  return new Set<string>(
+    rawKeys.map((key: string) => {
+      if (key.startsWith('pp/src/app/capabilities/')) {
+        return key.replace('pp/src/app/capabilities/', './');
+      } else if (key.startsWith('pp/src/')) {
+        return key.replace('pp/src/', './');
+      } else if (!key.startsWith('./')) {
+        return key.startsWith('/') ? `.${key}` : `./${key}`;
+      }
+      return key;
+    })
+  );
+}
+
+export function resetCapabilityUIComponentLoaderCaches(): void {
+  componentMetadataCache.clear();
+  loadedComponentsCache.clear();
+}
+
 /**
  * Pre-register all capability components using require.context
  * Webpack processes this at build time and creates a context function
  */
-// @ts-ignore - require.context is a webpack feature, not standard TypeScript
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const rawCapabilityComponentsContext = require.context(
-  '../app/capabilities',
-  true,
-  /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._)).*\.tsx$/,
-  'sync'
+const rawCapabilityComponentsContext = (
+  globalThis.__MINDSCAPE_CAPABILITY_UI_TEST_CONTEXT__
+  // @ts-ignore - require.context is a webpack feature, not standard TypeScript
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  ?? (require.context(
+    '../app/capabilities',
+    true,
+    /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._)).*\.tsx$/,
+    'sync'
+  ) as CapabilityComponentsContext)
 );
-const rawKeys = typeof rawCapabilityComponentsContext.keys === 'function'
-  ? rawCapabilityComponentsContext.keys()
-  : [];
-const capabilityComponentKeys = new Set<string>(
-  rawKeys.map((key: string) => {
-    if (key.startsWith('pp/src/app/capabilities/')) {
-      return key.replace('pp/src/app/capabilities/', './');
-    } else if (key.startsWith('pp/src/')) {
-      return key.replace('pp/src/', './');
-    } else if (!key.startsWith('./')) {
-      return key.startsWith('/') ? `.${key}` : `./${key}`;
-    }
-    return key;
-  })
-);
+const capabilityComponentKeys = normalizeCapabilityComponentKeys(rawCapabilityComponentsContext);
 if (process.env.NODE_ENV === 'development') {
   const suspectKeys = Array.from(capabilityComponentKeys).filter((key) => {
     return (

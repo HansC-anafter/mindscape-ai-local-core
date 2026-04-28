@@ -5,6 +5,15 @@ export type AddressableObjectRole =
   | 'constraint'
   | 'evidence';
 
+export type AddressableObjectHostMode =
+  | 'idle'
+  | 'selecting'
+  | 'resolving'
+  | 'selected'
+  | 'attaching'
+  | 'meeting_opened'
+  | 'error';
+
 export interface AddressableSelectionTarget {
   ownerPack: string;
   objectKind: string;
@@ -18,7 +27,14 @@ export interface AddressableSelectionTarget {
 }
 
 export interface AddressableObjectHostBridge {
+  mode: AddressableObjectHostMode;
+  selection: AddressableSelectionTarget | null;
+  currentMeetingId: string | null;
+  requestObjectTargeting: () => void;
+  cancelObjectTargeting: () => void;
   onSelectObject: (selection: AddressableSelectionTarget) => void | Promise<void>;
+  clearCurrentObject: () => void;
+  openCurrentMeeting: () => void;
 }
 
 export interface AddressableObjectRef {
@@ -211,4 +227,9 @@ export async function attachAddressableObjectToMeeting({
   );
 
   return parseJsonOrThrow<ObjectMeetingAttachResponse>(response);
+}
+
+export function buildCanonicalMeetingRoute(workspaceId: string, meetingId: string): string {
+  const params = new URLSearchParams({ session_id: meetingId });
+  return `/workspaces/${encodeURIComponent(workspaceId)}/meetings?${params.toString()}`;
 }

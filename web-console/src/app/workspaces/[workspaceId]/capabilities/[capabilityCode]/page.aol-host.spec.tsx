@@ -1,11 +1,12 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import CapabilityPage from './page';
 
 const mockBack = vi.fn();
 const mockReplace = vi.fn();
+const mockPush = vi.fn();
 const mockLoadCapabilityUIComponent = vi.fn();
 
 let mockSearchParams = new URLSearchParams();
@@ -19,6 +20,7 @@ vi.mock('next/navigation', () => ({
   usePathname: () => `/workspaces/ws-test/capabilities/${mockCapabilityCode}`,
   useRouter: () => ({
     back: mockBack,
+    push: mockPush,
     replace: mockReplace,
   }),
   useSearchParams: () => mockSearchParams,
@@ -28,6 +30,22 @@ vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
 }));
 
+vi.mock('@/components/WorkspaceChat', () => ({
+  default: function MockWorkspaceChat({
+    threadId,
+    layoutVariant,
+  }: {
+    threadId?: string | null;
+    layoutVariant?: string;
+  }) {
+    return (
+      <div data-testid="aol-meeting-chat">
+        Meeting chat thread: {threadId || 'none'} | layout: {layoutVariant || 'default'}
+      </div>
+    );
+  },
+}));
+
 vi.mock('@/lib/capability-ui-loader', () => ({
   loadCapabilityUIComponent: (...args: any[]) => mockLoadCapabilityUIComponent(...args),
 }));
@@ -35,6 +53,7 @@ vi.mock('@/lib/capability-ui-loader', () => ({
 describe('CapabilityPage AOL host shell', () => {
   beforeEach(() => {
     mockBack.mockReset();
+    mockPush.mockReset();
     mockReplace.mockReset();
     mockLoadCapabilityUIComponent.mockReset();
     mockSearchParams = new URLSearchParams();
@@ -211,15 +230,27 @@ describe('CapabilityPage AOL host shell', () => {
   it('resolves an addressable selection and attaches it to a meeting from the host shell', async () => {
     render(<CapabilityPage />);
 
+    expect(await screen.findByTestId('aol-global-anchor')).not.toBeNull();
+
+    fireEvent.click(screen.getByTestId('aol-global-anchor'));
+    expect(await screen.findByText('Select an object on this page')).not.toBeNull();
+
     fireEvent.click(await screen.findByRole('button', { name: 'open-object' }));
 
-    expect(await screen.findByTestId('aol-host-panel')).not.toBeNull();
-    expect(await screen.findByText('Demo Reference')).not.toBeNull();
+    const panel = await screen.findByTestId('aol-host-panel');
+    expect(panel).not.toBeNull();
+    expect(within(panel).getByText('Demo Reference')).not.toBeNull();
+    expect(within(panel).getByRole('button', { name: 'Select Another Object' })).not.toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Bring Into Meeting' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Meeting' }));
 
-    expect(await screen.findByText(/Meeting ID:/)).not.toBeNull();
-    expect(screen.getByText('mtg_123')).not.toBeNull();
-    expect(screen.getByText('Review route: /review/demo')).not.toBeNull();
+    expect(await screen.findByTestId('aol-meeting-pane')).not.toBeNull();
+    expect(await screen.findByTestId('aol-meeting-bottom-shell')).not.toBeNull();
+    expect(screen.queryByTestId('aol-host-panel')).toBeNull();
+    fireEvent.click(screen.getByTestId('meeting-object-context-toggle'));
+    const objectContextPanel = await screen.findByTestId('meeting-object-context-panel');
+    expect(within(objectContextPanel).getByText('Demo Reference')).not.toBeNull();
+    expect(within(objectContextPanel).getByText('mtg_123')).not.toBeNull();
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });

@@ -142,6 +142,7 @@ class ObjectCatalogRegistry:
         graph_projections_by_kind = self._index_many_by_kind(
             manifest.get("graph_projections", []) or []
         )
+        affordances = manifest.get("affordances", []) or []
 
         normalized: List[Dict[str, Any]] = []
         for index, export in enumerate(exports):
@@ -179,6 +180,17 @@ class ObjectCatalogRegistry:
                     "id_field": id_field,
                     "summary_fields": self._clean_str_list(export.get("summary_fields")),
                     "supports": self._clean_str_list(export.get("supports")),
+                    "granularity": self._clean_optional_str(export.get("granularity")),
+                    "selector_families": self._clean_str_list(
+                        export.get("selector_families")
+                    ),
+                    "indexer_backend": self._clean_optional_str(
+                        export.get("indexer_backend")
+                    ),
+                    "mention_fields": self._clean_str_list(export.get("mention_fields")),
+                    "owner_surface_patterns": self._clean_str_list(
+                        export.get("owner_surface_patterns")
+                    ),
                     "resolver_capabilities": {
                         "summary": bool(self._clean_optional_str(resolver.get("summary_backend"))),
                         "detail": bool(self._clean_optional_str(resolver.get("detail_backend"))),
@@ -299,6 +311,10 @@ class ObjectCatalogRegistry:
                         }
                         for graph_projection in graph_projections
                     ],
+                    "affordances": self._normalize_affordances_for_kind(
+                        kind,
+                        affordances,
+                    ),
                 }
             )
 
@@ -326,6 +342,54 @@ class ObjectCatalogRegistry:
                 continue
             indexed.setdefault(kind, []).append(entry)
         return indexed
+
+    def _normalize_affordances_for_kind(
+        self,
+        kind: str,
+        affordances: List[Any],
+    ) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for affordance in affordances:
+            if not isinstance(affordance, dict):
+                continue
+            object_kinds = self._clean_str_list(affordance.get("object_kinds"))
+            if object_kinds and kind not in object_kinds:
+                continue
+            verb = self._clean_optional_str(affordance.get("verb"))
+            planner_backend = self._clean_optional_str(affordance.get("planner_backend"))
+            if not verb or not planner_backend:
+                continue
+            input_schema = affordance.get("input_schema")
+            output_schema = affordance.get("output_schema")
+            normalized.append(
+                {
+                    "verb": verb,
+                    "label": self._clean_optional_str(affordance.get("label")),
+                    "description": self._clean_optional_str(
+                        affordance.get("description")
+                    ),
+                    "object_kinds": object_kinds,
+                    "input_schema": input_schema if isinstance(input_schema, dict) else {},
+                    "output_schema": output_schema
+                    if isinstance(output_schema, dict)
+                    else {},
+                    "required_roles": self._clean_str_list(
+                        affordance.get("required_roles")
+                    ),
+                    "write_modes": self._clean_str_list(affordance.get("write_modes")),
+                    "planner_backend": planner_backend,
+                    "executor_backend": self._clean_optional_str(
+                        affordance.get("executor_backend")
+                    ),
+                }
+            )
+        return sorted(
+            normalized,
+            key=lambda entry: (
+                entry.get("verb", ""),
+                ",".join(entry.get("object_kinds") or []),
+            ),
+        )
 
     @staticmethod
     def _clean_optional_str(value: Any) -> str | None:

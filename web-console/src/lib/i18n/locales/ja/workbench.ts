@@ -178,5 +178,8 @@ export const workbenchJa = {
   'suggestion.create_intent_card_title': '意図カードを作成',
   'suggestion.create_intent_card_titl': '意図カードを作成', // typo fallback
   'suggestion.create_intent_card_description': '長期目標やタスクの追跡を開始',
+  meetingObjectActionCompleted: 'オブジェクト操作が完了し、meeting graph にリンクされました。',
+  meetingObjectActionNoClosure: 'オブジェクト操作は終了しましたが、closure は完了していません。',
+  meetingObjectActionInvoked: 'オブジェクト操作を送信しました。',
+  meetingExecutionId: '実行 ID: {executionId}',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

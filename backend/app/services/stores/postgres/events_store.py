@@ -250,12 +250,18 @@ class PostgresEventsStore(PostgresStoreBase):
         workspace_id: Optional[str] = None,
         limit: int = 500,
     ) -> List[MindEvent]:
-        """Get events belonging to one meeting session via metadata or payload."""
+        """Get events belonging to one meeting session.
+
+        Current meeting graph turns use the meeting session id as the
+        conversation thread id. Older turns did not stamp meeting_session_id
+        into payload/metadata, so thread_id is part of the contract here.
+        """
         base_query = """
             SELECT * FROM mind_events
             WHERE (
                 (metadata::jsonb)->>'meeting_session_id' = :meeting_session_id
                 OR (payload::jsonb)->>'meeting_session_id' = :meeting_session_id
+                OR thread_id = :meeting_session_id
             )
         """
         params: Dict[str, Any] = {"meeting_session_id": meeting_session_id}

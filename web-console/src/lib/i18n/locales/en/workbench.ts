@@ -211,6 +211,10 @@ export const workbenchEn = {
   'suggestion.create_intent_card_title': 'Create Intent Card',
   'suggestion.create_intent_card_titl': 'Create Intent Card', // typo fallback
   'suggestion.create_intent_card_description': 'Start tracking your long-term goals and tasks',
+  meetingObjectActionCompleted: 'Object action completed and linked into the meeting graph.',
+  meetingObjectActionNoClosure: 'Object action finished without a completed closure.',
+  meetingObjectActionInvoked: 'Object action invoked.',
+  meetingExecutionId: 'Execution ID: {executionId}',
   viewOriginalResponse: 'View Original Response',
 
 } as const satisfies Partial<Record<MessageKey, string>>;
