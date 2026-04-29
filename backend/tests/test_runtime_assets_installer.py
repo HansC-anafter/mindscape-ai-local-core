@@ -66,6 +66,69 @@ def test_install_scripts_copies_runtime_assets(tmp_path):
     }
 
 
+def test_install_tools_replaces_existing_runtime_tree(tmp_path):
+    local_core_root = tmp_path / "local-core"
+    capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
+    capabilities_dir.mkdir(parents=True)
+
+    cap_dir = tmp_path / "extracted" / "content_variant_strategy"
+    tools_dir = cap_dir / "tools"
+    tools_dir.mkdir(parents=True)
+    (tools_dir / "__init__.py").write_text("# tools\n", encoding="utf-8")
+    (tools_dir / "variant_projection_targets.py").write_text("TARGETS = True\n", encoding="utf-8")
+
+    stale_target_dir = capabilities_dir / "content_variant_strategy" / "tools"
+    stale_target_dir.mkdir(parents=True)
+    (stale_target_dir / "cross_pack_projection.py").write_text("STALE = True\n", encoding="utf-8")
+
+    installer = RuntimeAssetsInstaller(
+        local_core_root=local_core_root,
+        capabilities_dir=capabilities_dir,
+    )
+    result = InstallResult(capability_code="content_variant_strategy")
+
+    installer.install_tools(cap_dir, "content_variant_strategy", result)
+
+    target_tools_dir = capabilities_dir / "content_variant_strategy" / "tools"
+    assert (target_tools_dir / "__init__.py").exists()
+    assert (target_tools_dir / "variant_projection_targets.py").read_text(encoding="utf-8") == "TARGETS = True\n"
+    assert not (target_tools_dir / "cross_pack_projection.py").exists()
+
+
+def test_install_services_replaces_existing_runtime_tree(tmp_path):
+    local_core_root = tmp_path / "local-core"
+    capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
+    capabilities_dir.mkdir(parents=True)
+
+    cap_dir = tmp_path / "extracted" / "content_variant_strategy"
+    services_dir = cap_dir / "services"
+    object_layer_dir = services_dir / "object_layer"
+    object_layer_dir.mkdir(parents=True)
+    (services_dir / "__init__.py").write_text("# services\n", encoding="utf-8")
+    (services_dir / "projection_envelope_service.py").write_text("ENVELOPE = True\n", encoding="utf-8")
+    (object_layer_dir / "__init__.py").write_text("# package\n", encoding="utf-8")
+
+    stale_target_dir = capabilities_dir / "content_variant_strategy" / "services"
+    stale_target_dir.mkdir(parents=True)
+    (stale_target_dir / "cross_pack_projection_service.py").write_text("STALE = True\n", encoding="utf-8")
+    (stale_target_dir / "variant_projection_service.py").write_text("STALE = True\n", encoding="utf-8")
+
+    installer = RuntimeAssetsInstaller(
+        local_core_root=local_core_root,
+        capabilities_dir=capabilities_dir,
+    )
+    result = InstallResult(capability_code="content_variant_strategy")
+
+    installer.install_services(cap_dir, "content_variant_strategy", result)
+
+    target_services_dir = capabilities_dir / "content_variant_strategy" / "services"
+    assert (target_services_dir / "__init__.py").exists()
+    assert (target_services_dir / "projection_envelope_service.py").read_text(encoding="utf-8") == "ENVELOPE = True\n"
+    assert (target_services_dir / "object_layer" / "__init__.py").exists()
+    assert not (target_services_dir / "cross_pack_projection_service.py").exists()
+    assert not (target_services_dir / "variant_projection_service.py").exists()
+
+
 def test_install_capability_models_copies_runtime_assets(tmp_path):
     local_core_root = tmp_path / "local-core"
     capabilities_dir = local_core_root / "backend" / "app" / "capabilities"

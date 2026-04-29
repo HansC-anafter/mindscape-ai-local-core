@@ -200,12 +200,13 @@ class RuntimeAssetsInstaller:
         return script_file.suffix in SCRIPT_SUFFIX_EXCLUDES
 
     def install_tools(self, cap_dir: Path, capability_code: str, result: InstallResult):
-        """Install capability tools"""
+        """Install capability tools as a fully replaced runtime tree."""
         tools_dir = cap_dir / "tools"
         if not tools_dir.exists():
             return
 
         target_tools_dir = self.capabilities_dir / capability_code / "tools"
+        _clear_directory_contents(target_tools_dir)
         target_tools_dir.mkdir(parents=True, exist_ok=True)
 
         for tool_file in tools_dir.glob("*.py"):
@@ -237,12 +238,13 @@ class RuntimeAssetsInstaller:
     def install_services(
         self, cap_dir: Path, capability_code: str, result: InstallResult
     ):
-        """Install capability services"""
+        """Install capability services as a fully replaced runtime tree."""
         services_dir = cap_dir / "services"
         if not services_dir.exists():
             return
 
         target_services_dir = self.capabilities_dir / capability_code / "services"
+        _clear_directory_contents(target_services_dir)
         target_services_dir.mkdir(parents=True, exist_ok=True)
 
         for service_file in services_dir.glob("*.py"):

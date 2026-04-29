@@ -20,6 +20,7 @@ def _utc_now():
 from pathlib import Path
 import importlib
 import inspect
+import sys
 
 from backend.app.models.playbook import ToolDependency
 from backend.app.services.tools.base import MindscapeTool
@@ -326,6 +327,9 @@ class UnifiedToolExecutor:
 
             # Resolve `backend/app` directory from this file: backend/app/services/unified_tool_executor.py
             app_dir = Path(__file__).resolve().parents[1]  # .../backend/app
+            app_dir_str = str(app_dir)
+            if app_dir_str not in sys.path:
+                sys.path.insert(0, app_dir_str)
             capabilities_dir = app_dir / "capabilities"
             manifest_path = capabilities_dir / cap_code / "manifest.yaml"
             if not manifest_path.exists():
