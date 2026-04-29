@@ -101,6 +101,7 @@ def _build_running_browser_task(
     pack_id: str = "ig_analyze_following",
     heartbeat_age_seconds: int = 30,
     current_step_index: int = 0,
+    started_age_seconds: int = 3600,
 ) -> Task:
     now = _utc_now()
     return Task(
@@ -112,8 +113,8 @@ def _build_running_browser_task(
         task_type="playbook_execution",
         status=TaskStatus.RUNNING,
         queue_shard="browser_local",
-        created_at=now - timedelta(hours=1),
-        started_at=now - timedelta(hours=1),
+        created_at=now - timedelta(seconds=started_age_seconds),
+        started_at=now - timedelta(seconds=started_age_seconds),
         execution_context={
             "runner_id": "runner-1",
             "heartbeat_at": (now - timedelta(seconds=heartbeat_age_seconds)).isoformat(),
@@ -243,6 +244,32 @@ def test_requests_watchdog_abort_for_running_following_task_with_no_progress(mon
     assert "Runner no-progress watchdog tripped" in updated_ctx["watchdog_abort_reason"]
     assert updated_ctx["watchdog_abort"]["phase"] == "queue"
     assert updated_ctx["watchdog_abort"]["watcher_id"] == "test-watchdog"
+
+
+def test_skips_watchdog_abort_for_fresh_resume_with_stale_execution(monkeypatch):
+    task = _build_running_browser_task(started_age_seconds=30)
+    task.execution_context["auto_resume_count"] = 1
+    task.execution_context["auto_resume_from_task_id"] = "old-task"
+    store = _FakeTasksStore([task])
+    execution_store = _FakeExecutionStore(
+        {
+            "exec-watchdog": _FakeExecution(
+                updated_at=_utc_now() - timedelta(minutes=20),
+                phase="queue",
+            )
+        }
+    )
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_SECONDS", "600")
+    monkeypatch.delenv("LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_PACKS", raising=False)
+
+    requested = reaper._request_watchdog_abort_for_no_progress_tasks(
+        store,
+        watcher_id="test-watchdog",
+        execution_store=execution_store,
+    )
+
+    assert requested == 0
+    assert store.updated == []
 
 
 def test_skips_watchdog_abort_once_progress_has_started(monkeypatch):

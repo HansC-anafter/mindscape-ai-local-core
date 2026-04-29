@@ -76,6 +76,25 @@ def _extract_following_semantic_progress_at(artifact: Any) -> Optional[Any]:
     )
 
 
+def _normalize_watchdog_timestamp(value: Any) -> Optional[Any]:
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _latest_watchdog_timestamp(*values: Any) -> Optional[Any]:
+    latest = None
+    for value in values:
+        normalized = _normalize_watchdog_timestamp(value)
+        if normalized is None:
+            continue
+        if latest is None or normalized > latest:
+            latest = normalized
+    return latest
+
+
 def _resolve_watchdog_progress_updated_at(
     *,
     task: Any,
@@ -83,12 +102,12 @@ def _resolve_watchdog_progress_updated_at(
     execution_id: str,
     artifacts_store: Optional[Any],
 ) -> Optional[Any]:
-    progress_updated_at = (
-        getattr(execution, "updated_at", None)
-        or getattr(execution, "created_at", None)
+    progress_updated_at = _latest_watchdog_timestamp(
+        getattr(execution, "updated_at", None),
+        getattr(execution, "created_at", None),
+        getattr(task, "started_at", None),
+        getattr(task, "created_at", None),
     )
-    if progress_updated_at is not None and getattr(progress_updated_at, "tzinfo", None) is None:
-        progress_updated_at = progress_updated_at.replace(tzinfo=timezone.utc)
 
     if str(getattr(task, "pack_id", "") or "").strip() != "ig_analyze_following":
         return progress_updated_at
@@ -103,11 +122,7 @@ def _resolve_watchdog_progress_updated_at(
     semantic_progress_at = _extract_following_semantic_progress_at(artifact)
     if semantic_progress_at is None:
         return progress_updated_at
-    if getattr(semantic_progress_at, "tzinfo", None) is None:
-        semantic_progress_at = semantic_progress_at.replace(tzinfo=timezone.utc)
-    if progress_updated_at is None or semantic_progress_at > progress_updated_at:
-        return semantic_progress_at
-    return progress_updated_at
+    return _latest_watchdog_timestamp(progress_updated_at, semantic_progress_at)
 
 
 def _request_watchdog_abort_for_no_progress_tasks(
