@@ -70,9 +70,20 @@ class CodexPoolService:
         self,
         *,
         preferred_runtime_id: Optional[str] = None,
-        allow_fallback: bool = True,
+        allow_runtime_substitution: Optional[bool] = None,
+        allow_fallback: Optional[bool] = None,
+        excluded_runtime_ids: Optional[set[str]] = None,
     ) -> Dict[str, Any]:
         """Return env/auth metadata for the best available Codex runtime."""
+        if allow_runtime_substitution is None:
+            allow_runtime_substitution = True if allow_fallback is None else bool(allow_fallback)
+        else:
+            allow_runtime_substitution = bool(allow_runtime_substitution)
+        excluded_runtime_ids = {
+            str(runtime_id).strip()
+            for runtime_id in (excluded_runtime_ids or set())
+            if str(runtime_id).strip()
+        }
         try:
             self._requalification_runner()
         except Exception:
@@ -97,14 +108,27 @@ class CodexPoolService:
                     )
                     .all()
                 )
+                if excluded_runtime_ids:
+                    runtimes = [
+                        runtime
+                        for runtime in runtimes
+                        if str(getattr(runtime, "id", "") or "") not in excluded_runtime_ids
+                    ]
                 runtimes = self._sort_candidate_runtimes(runtimes)
+
+                if not preferred_runtime_id and not allow_runtime_substitution:
+                    return {
+                        "error": "No preferred Codex runtime configured; runtime substitution is disabled.",
+                        "available_runtime_count": len(runtimes),
+                        "available_quota_scope_count": self._count_distinct_quota_scopes(runtimes),
+                    }
 
                 if preferred_runtime_id:
                     preferred = next(
                         (runtime for runtime in runtimes if runtime.id == preferred_runtime_id),
                         None,
                     )
-                    if not preferred and not allow_fallback:
+                    if not preferred and not allow_runtime_substitution:
                         return {
                             "error": f"Preferred Codex runtime unavailable: {preferred_runtime_id}",
                         }
@@ -115,9 +139,9 @@ class CodexPoolService:
                                 runtime for runtime in runtimes if runtime.id != preferred_runtime_id
                             ],
                         ]
-                    elif allow_fallback:
+                    elif allow_runtime_substitution:
                         logger.warning(
-                            "Preferred Codex runtime %s unavailable, falling back to pool ordering",
+                            "Preferred Codex runtime %s unavailable, using ordered pool candidates",
                             preferred_runtime_id,
                         )
 
@@ -145,7 +169,7 @@ class CodexPoolService:
                     )
                     return bundle
 
-                if preferred_runtime_id and not allow_fallback:
+                if preferred_runtime_id and not allow_runtime_substitution:
                     return {
                         "error": f"Preferred Codex runtime unavailable: {preferred_runtime_id}",
                         "available_runtime_count": available_runtime_count,
@@ -168,8 +192,9 @@ class CodexPoolService:
                 return self._get_active_auth_bundle_sql(
                     db,
                     preferred_runtime_id=preferred_runtime_id,
-                    allow_fallback=allow_fallback,
+                    allow_runtime_substitution=allow_runtime_substitution,
                     auth_service=RuntimeAuthService(),
+                    excluded_runtime_ids=excluded_runtime_ids,
                 )
         finally:
             db.close()
@@ -499,10 +524,16 @@ class CodexPoolService:
         db: Any,
         *,
         preferred_runtime_id: Optional[str],
-        allow_fallback: bool,
+        allow_runtime_substitution: bool,
         auth_service: Any,
+        excluded_runtime_ids: Optional[set[str]] = None,
     ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
+        excluded_runtime_ids = {
+            str(runtime_id).strip()
+            for runtime_id in (excluded_runtime_ids or set())
+            if str(runtime_id).strip()
+        }
         runtimes = (
             db.execute(
                 text(
@@ -532,14 +563,27 @@ class CodexPoolService:
             .mappings()
             .all()
         )
+        if excluded_runtime_ids:
+            runtimes = [
+                runtime
+                for runtime in runtimes
+                if str(runtime.get("id") or "") not in excluded_runtime_ids
+            ]
         runtimes = self._sort_candidate_runtime_rows(runtimes)
+
+        if not preferred_runtime_id and not allow_runtime_substitution:
+            return {
+                "error": "No preferred Codex runtime configured; runtime substitution is disabled.",
+                "available_runtime_count": len(runtimes),
+                "available_quota_scope_count": self._count_distinct_quota_scopes_from_rows(runtimes),
+            }
 
         if preferred_runtime_id:
             preferred = next(
                 (runtime for runtime in runtimes if str(runtime.get("id")) == preferred_runtime_id),
                 None,
             )
-            if not preferred and not allow_fallback:
+            if not preferred and not allow_runtime_substitution:
                 return {
                     "error": f"Preferred Codex runtime unavailable: {preferred_runtime_id}",
                 }
@@ -552,9 +596,9 @@ class CodexPoolService:
                         if str(runtime.get("id")) != preferred_runtime_id
                     ],
                 ]
-            elif allow_fallback:
+            elif allow_runtime_substitution:
                 logger.warning(
-                    "Preferred Codex runtime %s unavailable in raw SQL pool selection; falling back",
+                    "Preferred Codex runtime %s unavailable in raw SQL pool selection; using ordered candidates",
                     preferred_runtime_id,
                 )
 
@@ -596,7 +640,7 @@ class CodexPoolService:
             )
             return bundle
 
-        if preferred_runtime_id and not allow_fallback:
+        if preferred_runtime_id and not allow_runtime_substitution:
             return {
                 "error": f"Preferred Codex runtime unavailable: {preferred_runtime_id}",
                 "available_runtime_count": available_runtime_count,

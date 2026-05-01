@@ -70,7 +70,7 @@ class RegisterHostSessionRuntimeRequest(BaseModel):
     )
     pool_enabled: bool = Field(
         default=True,
-        description="Whether this runtime participates in pool rotation",
+        description="Whether this runtime participates in managed runtime selection",
     )
     pool_priority: int = Field(
         default=0,
@@ -577,6 +577,7 @@ def _get_codex_pool_bundle(
     workspace_id: str | None = None,
     auth_workspace_id: str | None = None,
     source_workspace_id: str | None = None,
+    exclude_runtime_ids: str | None = None,
 ) -> dict:
     try:
         from ...services.codex_pool_service import CodexPoolService
@@ -604,35 +605,53 @@ def _get_codex_pool_bundle(
             if selection
             else {
                 "preferred_runtime_id": None,
-                "allow_fallback": True,
-                "preference_source": "pool_rotation",
+                "allow_runtime_substitution": False,
+                "preference_source": "no_bound_runtime",
                 "binding_runtime_id": None,
                 "binding_state": None,
             }
         )
         preferred_runtime_id = preference.get("preferred_runtime_id")
-        allow_fallback = bool(preference.get("allow_fallback", True))
-        preference_source = str(preference.get("preference_source") or "pool_rotation")
+        allow_runtime_substitution = bool(
+            preference.get("allow_runtime_substitution", preference.get("allow_fallback", False))
+        )
+        preference_source = str(preference.get("preference_source") or "no_bound_runtime")
+        excluded_runtime_ids = {
+            value.strip()
+            for value in str(exclude_runtime_ids or "").split(",")
+            if value.strip()
+        }
 
         pool_service = CodexPoolService()
-        pool_result = pool_service.get_active_auth_bundle(
-            preferred_runtime_id=preferred_runtime_id,
-            allow_fallback=allow_fallback,
-        )
-        if selection and "env" not in pool_result and preference_source == "binding_snapshot":
-            pool_result = pool_service.get_active_auth_bundle(
-                preferred_runtime_id=None,
-                allow_fallback=True,
-            )
-            if "env" in pool_result:
-                preference_source = "binding_rebind"
+        pool_kwargs = {
+            "preferred_runtime_id": preferred_runtime_id,
+            "allow_fallback": allow_runtime_substitution,
+        }
+        if excluded_runtime_ids:
+            pool_kwargs["excluded_runtime_ids"] = excluded_runtime_ids
+        pool_result = pool_service.get_active_auth_bundle(**pool_kwargs)
+        rebinding_from_sticky_runtime = False
+        if (
+            preferred_runtime_id
+            and not allow_runtime_substitution
+            and "env" not in pool_result
+            and str(pool_result.get("error") or "").startswith("Preferred Codex runtime unavailable")
+        ):
+            pool_kwargs["preferred_runtime_id"] = None
+            pool_kwargs["allow_fallback"] = True
+            pool_result = pool_service.get_active_auth_bundle(**pool_kwargs)
+            rebinding_from_sticky_runtime = True
         if "env" in pool_result and selection:
             pool_result.update(
                 {
                     "preferred_runtime_id": selection.preferred_runtime_id,
                     "binding_runtime_id": preference.get("binding_runtime_id"),
                     "binding_state": preference.get("binding_state"),
-                    "preference_source": preference_source,
+                    "preference_source": (
+                        "binding_rebind"
+                        if rebinding_from_sticky_runtime
+                        else preference_source
+                    ),
                     "policy_mode": selection.policy_mode,
                     "requested_workspace_id": selection.requested_workspace_id,
                     "effective_workspace_id": selection.effective_workspace_id,
@@ -727,27 +746,34 @@ def _get_gca_token(
             if selection
             else {
                 "preferred_runtime_id": None,
-                "allow_fallback": True,
-                "preference_source": "pool_rotation",
+                "allow_runtime_substitution": False,
+                "preference_source": "no_bound_runtime",
                 "binding_runtime_id": None,
                 "binding_state": None,
             }
         )
         preferred_runtime_id = preference.get("preferred_runtime_id")
-        allow_fallback = bool(preference.get("allow_fallback", True))
-        preference_source = str(preference.get("preference_source") or "pool_rotation")
+        allow_runtime_substitution = bool(
+            preference.get("allow_runtime_substitution", preference.get("allow_fallback", False))
+        )
+        preference_source = str(preference.get("preference_source") or "no_bound_runtime")
         pool_service = GCAPoolService()
         pool_result = pool_service.get_active_token(
             preferred_runtime_id=preferred_runtime_id,
-            allow_fallback=allow_fallback,
+            allow_fallback=allow_runtime_substitution,
         )
-        if selection and "env" not in pool_result and preference_source == "binding_snapshot":
+        rebinding_from_sticky_runtime = False
+        if (
+            preferred_runtime_id
+            and not allow_runtime_substitution
+            and "env" not in pool_result
+            and str(pool_result.get("error") or "").startswith("Preferred GCA runtime unavailable")
+        ):
             pool_result = pool_service.get_active_token(
                 preferred_runtime_id=None,
                 allow_fallback=True,
             )
-            if "env" in pool_result:
-                preference_source = "binding_rebind"
+            rebinding_from_sticky_runtime = True
         if "env" in pool_result:
             if selection:
                 pool_result.update(
@@ -755,7 +781,11 @@ def _get_gca_token(
                         "preferred_runtime_id": selection.preferred_runtime_id,
                         "binding_runtime_id": preference.get("binding_runtime_id"),
                         "binding_state": preference.get("binding_state"),
-                        "preference_source": preference_source,
+                        "preference_source": (
+                            "binding_rebind"
+                            if rebinding_from_sticky_runtime
+                            else preference_source
+                        ),
                         "policy_mode": selection.policy_mode,
                         "requested_workspace_id": selection.requested_workspace_id,
                         "effective_workspace_id": selection.effective_workspace_id,
@@ -798,178 +828,10 @@ def _get_gca_token(
             return {
                 "error": f"Workspace-scoped GCA token lookup failed for workspace {workspace_id}",
             }
-        logger.exception("GCA pool token lookup failed, falling back to legacy selector")
-
-    try:
-        from ...database.session import get_db_postgres as get_db
-    except ImportError:
-        try:
-            from ...database import get_db_postgres as get_db
-        except ImportError:
-            from mindscape.di.providers import get_db_session as get_db
-
-    from ...models.runtime_environment import RuntimeEnvironment
-    from ...services.runtime_auth_service import RuntimeAuthService
-
-    db = next(get_db())
-    try:
-        # Query all connected GCA runtimes, prefer gca-local first
-        runtimes = (
-            db.query(RuntimeEnvironment)
-            .filter(
-                RuntimeEnvironment.id.like("gca-%"),
-                RuntimeEnvironment.auth_status.in_(("connected", "expired")),
-            )
-            .all()
-        )
-        # Sort: gca-local first, then alphabetical
-        runtimes.sort(key=lambda r: (0 if r.id == "gca-local" else 1, r.id))
-
-        if not runtimes:
-            return {
-                "error": "GCA not connected. "
-                "Connect via Web Console > Settings > CLI Agent Keys > "
-                "Google Account tab."
-            }
-
-        auth_service = RuntimeAuthService()
-        errors = []
-
-        for runtime in runtimes:
-            token_data = auth_service.decrypt_token_blob(runtime.auth_config or {})
-            if not token_data:
-                errors.append(f"{runtime.id}: decrypt failed")
-                continue
-
-            idp_access_token = token_data.get("idp_access_token")
-            idp_refresh_token = token_data.get("idp_refresh_token")
-            idp_expiry = token_data.get("idp_token_expiry", 0)
-
-            if not idp_access_token:
-                errors.append(f"{runtime.id}: no IDP access token")
-                continue
-
-            # Refresh if expired (with 60s buffer)
-            if idp_expiry and time.time() > (idp_expiry - 60):
-                logger.info("IDP token expired for runtime %s, refreshing", runtime.id)
-                refreshed = _refresh_google_token(
-                    idp_refresh_token, runtime, auth_service, token_data, db
-                )
-                if refreshed:
-                    idp_access_token = refreshed
-                else:
-                    logger.warning(
-                        "Token refresh failed for runtime %s, trying next",
-                        runtime.id,
-                    )
-                    errors.append(f"{runtime.id}: refresh failed")
-                    continue
-
-            if runtime.auth_status != "connected":
-                runtime.auth_status = "connected"
-                sync_runtime_registration_metadata(runtime)
-                db.commit()
-
-            # Resolve GCP project ID (required by cloudcode-pa)
-            gcp_project = token_data.get("gcp_project") or ""
-            if not gcp_project:
-                try:
-                    from ...services.system_settings_store import SystemSettingsStore
-
-                    s = SystemSettingsStore()
-                    gcp_project = s.get("google_cloud_project", "")
-                except Exception:
-                    pass
-            if not gcp_project:
-                gcp_project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
-
-            env = {
-                "GOOGLE_GENAI_USE_GCA": "true",
-                "GOOGLE_CLOUD_ACCESS_TOKEN": idp_access_token,
-            }
-            if gcp_project:
-                env["GOOGLE_CLOUD_PROJECT"] = gcp_project
-
-            logger.info("GCA token resolved from runtime %s", runtime.id)
-            return {"env": env, "selected_runtime_id": runtime.id}
-
-        # All runtimes failed
-        return {"error": f"All GCA runtimes failed: {'; '.join(errors)}"}
-    finally:
-        db.close()
-
-
-def _refresh_google_token(refresh_token, runtime, auth_service, token_data, db):
-    """Refresh Google IDP token using Gemini CLI's public OAuth credentials.
-
-    Uses the CLI's installed-application Client ID/Secret (public by
-    design) to refresh the access token via Google's OAuth2 endpoint.
-
-    Returns new access_token string on success, None on failure.
-    """
-    if not refresh_token:
-        logger.warning("No IDP refresh token available")
-        return None
-
-    # Use Gemini CLI's public OAuth credentials (installed app type).
-    # These are intentionally public and safe to embed in client code.
-    from .gca_constants import get_gca_client_id, get_gca_client_secret
-
-    client_id = get_gca_client_id()
-    client_secret = get_gca_client_secret()
-
-    import urllib.request
-    import urllib.parse
-    import json
-
-    try:
-        data = urllib.parse.urlencode(
-            {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-            }
-        ).encode()
-
-        req = urllib.request.Request(
-            "https://oauth2.googleapis.com/token",
-            data=data,
-            method="POST",
-        )
-        req.add_header("Content-Type", "application/x-www-form-urlencoded")
-
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            result = json.loads(resp.read().decode())
-
-        new_access_token = result.get("access_token")
-        expires_in = result.get("expires_in", 3600)
-
-        if not new_access_token:
-            logger.error("Google token refresh returned no access_token")
-            return None
-
-        # Update stored token data
-        token_data["idp_access_token"] = new_access_token
-        token_data["idp_token_expiry"] = time.time() + expires_in
-
-        # Remove any leaked site-hub credentials from stored data
-        token_data.pop("google_client_id", None)
-        token_data.pop("google_client_secret", None)
-
-        encrypted = auth_service.encrypt_token_blob(token_data)
-
-        runtime.auth_config = encrypted
-        runtime.auth_status = "connected"
-        sync_runtime_registration_metadata(runtime)
-        db.commit()
-
-        logger.info("IDP token refreshed successfully, expires_in=%s", expires_in)
-        return new_access_token
-
-    except Exception as e:
-        logger.error("Google IDP token refresh failed: %s", e)
-        return None
+        logger.exception("GCA pool token lookup failed under fail-closed policy")
+        return {
+            "error": "GCA pool token lookup failed under fail-closed policy",
+        }
 
 
 @router.get("/cli-token")
@@ -978,6 +840,7 @@ async def get_cli_token(
     auth_workspace_id: str | None = Query(None),
     source_workspace_id: str | None = Query(None),
     surface: str | None = Query(None),
+    exclude_runtime_ids: str | None = Query(None),
 ):
     """Return auth env vars for CLI bridge processes.
 
@@ -999,6 +862,7 @@ async def get_cli_token(
                 workspace_id=workspace_id,
                 auth_workspace_id=auth_workspace_id,
                 source_workspace_id=source_workspace_id,
+                exclude_runtime_ids=exclude_runtime_ids,
             )
             if "env" in pool_result:
                 return {

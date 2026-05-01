@@ -678,7 +678,9 @@ class SystemSettingsStore(PostgresStoreBase):
         return {}
 
     @staticmethod
-    def _normalize_profile_model_map(mapping: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    def _normalize_profile_bindings_entry(
+        mapping: Optional[Dict[str, Any]],
+    ) -> Dict[str, str]:
         normalized: Dict[str, str] = {}
         if not isinstance(mapping, dict):
             return normalized
@@ -690,40 +692,6 @@ class SystemSettingsStore(PostgresStoreBase):
             normalized[key.strip()] = value.strip()
         return normalized
 
-    def _load_legacy_profile_model_map(self) -> Dict[str, str]:
-        setting = self.get_setting("profile_model_map")
-        if setting:
-            if isinstance(setting.value, dict):
-                return self._normalize_profile_model_map(setting.value)
-            if isinstance(setting.value, str):
-                try:
-                    parsed = json.loads(setting.value)
-                except json.JSONDecodeError:
-                    parsed = None
-                if isinstance(parsed, dict):
-                    return self._normalize_profile_model_map(parsed)
-
-        old = self.get_setting("profile_model_mapping")
-        if old and isinstance(old.value, dict):
-            logger.info("Migrating profile_model_mapping → profile_model_map")
-            migrated = {
-                k: v[0] if isinstance(v, list) and v else v
-                for k, v in old.value.items()
-                if v
-            }
-            normalized = self._normalize_profile_model_map(migrated)
-            self.set_setting(
-                key="profile_model_map",
-                value=normalized,
-                value_type=SettingType.JSON,
-                category="llm",
-                description="Capability profile to model mapping (single model per profile)",
-            )
-            self.delete_setting("profile_model_mapping")
-            return normalized
-        return {}
-
-    @staticmethod
     def _normalize_profile_model_bindings(
         bindings: Optional[Dict[str, Any]]
     ) -> Dict[str, Dict[str, str]]:
@@ -733,7 +701,7 @@ class SystemSettingsStore(PostgresStoreBase):
         for scope, mapping in bindings.items():
             if not isinstance(scope, str) or not scope.strip():
                 continue
-            normalized[scope.strip()] = SystemSettingsStore._normalize_profile_model_map(
+            normalized[scope.strip()] = SystemSettingsStore._normalize_profile_bindings_entry(
                 mapping
             )
         return normalized
@@ -752,48 +720,30 @@ class SystemSettingsStore(PostgresStoreBase):
                     return self._normalize_profile_model_bindings(parsed)
         return {}
 
-    def set_profile_model_map(self, mapping: Dict[str, str]) -> None:
-        normalized = self._normalize_profile_model_map(mapping)
+    def set_local_profile_model_bindings(self, bindings: Dict[str, str]) -> None:
+        normalized_entry = self._normalize_profile_bindings_entry(bindings)
+        normalized_bindings = self._load_profile_model_bindings_setting()
+        normalized_bindings["local"] = normalized_entry
+        normalized_bindings.setdefault("cloud", {})
         self.set_setting(
-            key="profile_model_map",
-            value=normalized,
+            key="profile_model_bindings",
+            value=normalized_bindings,
             value_type=SettingType.JSON,
             category="llm",
-            description="Capability profile to model mapping (single model per profile)",
+            description="Deployment-scoped capability profile to model bindings",
         )
-        bindings = self._load_profile_model_bindings_setting()
-        if bindings.get("local") != normalized:
-            bindings["local"] = normalized
-            self.set_setting(
-                key="profile_model_bindings",
-                value=bindings,
-                value_type=SettingType.JSON,
-                category="llm",
-                description="Deployment-scoped capability profile to model bindings",
-            )
 
-    def get_profile_model_map(self) -> Dict[str, str]:
+    def get_local_profile_model_bindings(self) -> Dict[str, str]:
         bindings = self._load_profile_model_bindings_setting()
         local_binding = bindings.get("local")
         if isinstance(local_binding, dict):
             return local_binding
-
-        legacy = self._load_legacy_profile_model_map()
-        if legacy:
-            self.set_setting(
-                key="profile_model_bindings",
-                value={"local": legacy, "cloud": {}},
-                value_type=SettingType.JSON,
-                category="llm",
-                description="Deployment-scoped capability profile to model bindings",
-            )
-            return legacy
         return {}
 
     def set_profile_model_bindings(self, bindings: Dict[str, Dict[str, str]]) -> None:
         normalized = self._normalize_profile_model_bindings(bindings)
         if "local" not in normalized:
-            normalized["local"] = self._load_legacy_profile_model_map()
+            normalized["local"] = {}
         if "cloud" not in normalized:
             normalized["cloud"] = {}
 
@@ -804,41 +754,19 @@ class SystemSettingsStore(PostgresStoreBase):
             category="llm",
             description="Deployment-scoped capability profile to model bindings",
         )
-        self.set_setting(
-            key="profile_model_map",
-            value=normalized.get("local", {}),
-            value_type=SettingType.JSON,
-            category="llm",
-            description="Capability profile to model mapping (single model per profile)",
-        )
-
     def get_profile_model_bindings(self) -> Dict[str, Dict[str, str]]:
         bindings = self._load_profile_model_bindings_setting()
         if bindings:
             bindings.setdefault("local", {})
             bindings.setdefault("cloud", {})
             return bindings
-
-        legacy = self._load_legacy_profile_model_map()
-        if legacy:
-            migrated = {"local": legacy, "cloud": {}}
-            self.set_setting(
-                key="profile_model_bindings",
-                value=migrated,
-                value_type=SettingType.JSON,
-                category="llm",
-                description="Deployment-scoped capability profile to model bindings",
-            )
-            return migrated
         return {"local": {}, "cloud": {}}
 
-    def get_profile_model_map_for_scope(self, scope: str = "local") -> Dict[str, str]:
+    def get_profile_model_bindings_for_scope(self, scope: str = "local") -> Dict[str, str]:
         bindings = self.get_profile_model_bindings()
         mapping = bindings.get(scope)
         if isinstance(mapping, dict):
             return mapping
-        if scope == "local":
-            return self.get_profile_model_map()
         return {}
 
     def set_custom_model_provider_mapping(self, mapping: Dict[str, str]) -> None:

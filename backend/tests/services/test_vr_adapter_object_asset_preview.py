@@ -16,7 +16,7 @@ from backend.app.capabilities.multi_media_studio.services.adapters.vr_adapter im
     VRAdapter,
     _should_forward_comfy_address,
 )
-from shared.schemas.storyboard import (
+from backend.app.capabilities.creative_pipeline_contracts.schema.storyboard import (
     DirectionIR,
     ObjectAssetRef,
     ObjectUsageBinding,

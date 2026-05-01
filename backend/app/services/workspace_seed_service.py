@@ -187,8 +187,12 @@ class WorkspaceSeedService:
             logger.warning(f"LLM provider not available: {e}, using fallback")
             return self._generate_fallback_digest(text_content, seed_type)
 
-        chat_setting = settings_store.get_setting("chat_model")
-        if not chat_setting or not chat_setting.value:
+        from backend.app.shared.llm_provider_helper import (
+            get_model_name_from_chat_model,
+        )
+
+        model_name = get_model_name_from_chat_model()
+        if not model_name:
             logger.warning("Chat model not configured, using fallback")
             return self._generate_fallback_digest(text_content, seed_type)
 

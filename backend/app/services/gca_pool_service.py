@@ -205,13 +205,18 @@ class GCAPoolService:
     def get_active_token(
         self,
         preferred_runtime_id: Optional[str] = None,
-        allow_fallback: bool = True,
+        allow_runtime_substitution: Optional[bool] = None,
+        allow_fallback: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Select the best available token from the pool.
 
         Uses priority ordering with cooldown awareness.
         Returns dict with 'env' and 'selected_runtime_id', or 'error'.
         """
+        if allow_runtime_substitution is None:
+            allow_runtime_substitution = True if allow_fallback is None else bool(allow_fallback)
+        else:
+            allow_runtime_substitution = bool(allow_runtime_substitution)
         db = self._get_db()
         RuntimeEnvironment = self._get_model()
         try:
@@ -239,12 +244,16 @@ class GCAPoolService:
             )
 
             auth_service = RuntimeAuthService()
+            if not preferred_runtime_id and not allow_runtime_substitution:
+                return {
+                    "error": "No preferred GCA runtime configured; runtime substitution is disabled.",
+                }
             if preferred_runtime_id:
                 preferred = next(
                     (runtime for runtime in runtimes if runtime.id == preferred_runtime_id),
                     None,
                 )
-                if not preferred and not allow_fallback:
+                if not preferred and not allow_runtime_substitution:
                     return {
                         "error": f"Preferred GCA runtime unavailable: {preferred_runtime_id}",
                     }
@@ -253,9 +262,9 @@ class GCAPoolService:
                         [preferred]
                         + [runtime for runtime in runtimes if runtime.id != preferred_runtime_id]
                     )
-                elif not preferred and allow_fallback:
+                elif not preferred and allow_runtime_substitution:
                     logger.warning(
-                        "Preferred GCA runtime %s unavailable, falling back to pool ordering",
+                        "Preferred GCA runtime %s unavailable, using ordered pool candidates",
                         preferred_runtime_id,
                     )
 
@@ -297,7 +306,7 @@ class GCAPoolService:
                     "selected_runtime_id": runtime.id,
                 }
 
-            if preferred_runtime_id and not allow_fallback:
+            if preferred_runtime_id and not allow_runtime_substitution:
                 return {
                     "error": f"Preferred GCA runtime unavailable: {preferred_runtime_id}",
                 }
@@ -308,7 +317,7 @@ class GCAPoolService:
     def preview_active_runtime(
         self,
         preferred_runtime_id: Optional[str] = None,
-        allow_fallback: bool = True,
+        allow_runtime_substitution: bool = False,
     ) -> Dict[str, Any]:
         """Return a safe, non-secret preview of current pool selection.
 
@@ -329,6 +338,17 @@ class GCAPoolService:
         )
 
         preferred_account = None
+        if not preferred_runtime_id and not allow_runtime_substitution:
+            return {
+                "error": "No preferred GCA runtime configured; runtime substitution is disabled.",
+                "selected_runtime_id": None,
+                "account": None,
+                "status": "unavailable",
+                "available_count": len(available_accounts),
+                "cooling_count": len(cooling_accounts),
+                "pool_count": len(accounts),
+                "next_reset_at": cooling_accounts[0]["cooldown_until"] if cooling_accounts else None,
+            }
         if preferred_runtime_id:
             preferred_account = next(
                 (account for account in accounts if account["id"] == preferred_runtime_id),
@@ -346,7 +366,7 @@ class GCAPoolService:
                         cooling_accounts[0]["cooldown_until"] if cooling_accounts else None
                     ),
                 }
-            if preferred_runtime_id and not allow_fallback:
+            if preferred_runtime_id and not allow_runtime_substitution:
                 cooldown_until = (
                     preferred_account.get("cooldown_until") if preferred_account else None
                 )

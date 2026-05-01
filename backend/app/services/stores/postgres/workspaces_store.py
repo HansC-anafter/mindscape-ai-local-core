@@ -44,7 +44,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     execution_mode, meeting_enabled,
                     expected_artifacts, execution_priority,
                     project_assignment_mode, metadata, workspace_blueprint, launch_status, starter_kit_type,
-                    executor_runtime, executor_specs, sandbox_config, fallback_model,
+                    sandbox_config,
                     ttl_hours, expires_at, parent_workspace_id, visibility,
                     created_at, updated_at
                 ) VALUES (
@@ -58,7 +58,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     :execution_mode, :meeting_enabled,
                     :expected_artifacts, :execution_priority,
                     :project_assignment_mode, :metadata, :workspace_blueprint, :launch_status, :starter_kit_type,
-                    :executor_runtime, :executor_specs, :sandbox_config, :fallback_model,
+                    :sandbox_config,
                     :ttl_hours, :expires_at, :parent_workspace_id, :visibility,
                     :created_at, :updated_at
                 )
@@ -144,18 +144,11 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     else LaunchStatus.PENDING.value
                 ),
                 "starter_kit_type": workspace.starter_kit_type,
-                "executor_runtime": workspace.resolved_executor_runtime,
-                "executor_specs": (
-                    self.serialize_json(workspace.executor_specs)
-                    if workspace.executor_specs
-                    else "[]"
-                ),
                 "sandbox_config": (
                     self.serialize_json(workspace.sandbox_config)
                     if workspace.sandbox_config
                     else None
                 ),
-                "fallback_model": getattr(workspace, "fallback_model", None),
                 "ttl_hours": getattr(workspace, "ttl_hours", None),
                 "expires_at": getattr(workspace, "expires_at", None),
                 "parent_workspace_id": getattr(workspace, "parent_workspace_id", None),
@@ -241,10 +234,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     workspace_blueprint = :workspace_blueprint,
                     launch_status = :launch_status,
                     starter_kit_type = :starter_kit_type,
-                    executor_runtime = :executor_runtime,
-                    executor_specs = :executor_specs,
                     sandbox_config = :sandbox_config,
-                    fallback_model = :fallback_model,
                     ttl_hours = :ttl_hours,
                     expires_at = :expires_at,
                     parent_workspace_id = :parent_workspace_id,
@@ -331,18 +321,11 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     else LaunchStatus.PENDING.value
                 ),
                 "starter_kit_type": workspace.starter_kit_type,
-                "executor_runtime": workspace.resolved_executor_runtime,
-                "executor_specs": (
-                    self.serialize_json(workspace.executor_specs)
-                    if workspace.executor_specs
-                    else "[]"
-                ),
                 "sandbox_config": (
                     self.serialize_json(workspace.sandbox_config)
                     if workspace.sandbox_config
                     else None
                 ),
-                "fallback_model": getattr(workspace, "fallback_model", None),
                 "ttl_hours": getattr(workspace, "ttl_hours", None),
                 "expires_at": getattr(workspace, "expires_at", None),
                 "parent_workspace_id": getattr(workspace, "parent_workspace_id", None),
@@ -458,12 +441,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             workspace_blueprint=workspace_blueprint,
             launch_status=launch_status,
             starter_kit_type=row.starter_kit_type,
-            executor_runtime=getattr(row, "executor_runtime", None),
-            executor_specs=self.deserialize_json(
-                getattr(row, "executor_specs", None), default=[]
-            ),
             sandbox_config=self.deserialize_json(getattr(row, "sandbox_config", None)),
-            fallback_model=getattr(row, "fallback_model", None),
             ttl_hours=getattr(row, "ttl_hours", None),
             expires_at=getattr(row, "expires_at", None),
             parent_workspace_id=getattr(row, "parent_workspace_id", None),

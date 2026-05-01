@@ -26,6 +26,7 @@ async def get_workspace_artifacts(
     workspace_id: str = Path(..., description="Workspace ID"),
     limit: int = Query(50, ge=1, le=200, description="Maximum number of artifacts"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
+    thread_id: Optional[str] = Query(None, description="Optional conversation thread ID filter"),
     workspace: Workspace = Depends(get_workspace),
     artifacts_store: ArtifactsStore = Depends(get_artifacts_store),
 ):
@@ -37,11 +38,20 @@ async def get_workspace_artifacts(
     """
     try:
         logger.info(
-            f"Getting artifacts for workspace {workspace_id} (limit={limit}, offset={offset})"
+            "Getting artifacts for workspace %s (limit=%s, offset=%s, thread_id=%s)",
+            workspace_id,
+            limit,
+            offset,
+            thread_id,
         )
-        artifacts = artifacts_store.list_artifacts_by_workspace(
-            workspace_id=workspace_id, limit=limit, offset=offset
-        )
+        if thread_id:
+            artifacts = artifacts_store.get_by_thread(
+                workspace_id=workspace_id, thread_id=thread_id, limit=limit
+            )
+        else:
+            artifacts = artifacts_store.list_artifacts_by_workspace(
+                workspace_id=workspace_id, limit=limit, offset=offset
+            )
 
         artifact_list = []
         for artifact in artifacts:
@@ -51,6 +61,7 @@ async def get_workspace_artifacts(
                 "intent_id": artifact.intent_id,
                 "task_id": artifact.task_id,
                 "execution_id": artifact.execution_id,
+                "thread_id": artifact.thread_id,
                 "playbook_code": artifact.playbook_code,
                 "artifact_type": artifact.artifact_type.value,
                 "title": artifact.title,
@@ -136,6 +147,7 @@ async def get_artifact(
             intent_id=artifact.intent_id,
             task_id=artifact.task_id,
             execution_id=artifact.execution_id,
+            thread_id=artifact.thread_id,
             playbook_code=artifact.playbook_code,
             artifact_type=artifact.artifact_type.value,
             title=artifact.title,
@@ -169,4 +181,3 @@ async def get_artifact(
     except Exception as e:
         logger.error(f"Failed to get artifact: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get artifact: {str(e)}")
-

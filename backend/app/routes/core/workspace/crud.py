@@ -42,7 +42,6 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 store = MindscapeStore()
 
-
 @router.get("/", response_model=List[Workspace])
 async def list_workspaces(
     owner_user_id: str = Query(..., description="Owner user ID"),
@@ -239,9 +238,7 @@ async def create_workspace(
             execution_mode=request.execution_mode,
             expected_artifacts=request.expected_artifacts,
             execution_priority=request.execution_priority,
-            executor_runtime=request.executor_runtime,
             sandbox_config=request.sandbox_config,
-            fallback_model=request.fallback_model,
             workspace_blueprint=request.workspace_blueprint,
             starter_kit_type=request.starter_kit_type,
             storage_config={
@@ -496,6 +493,7 @@ async def update_workspace(
             workspace.default_playbook_id = request.default_playbook_id
         if request.default_locale is not None:
             workspace.default_locale = request.default_locale
+        provided_fields = request.model_dump(exclude_unset=True)
         request_dict = request.model_dump(exclude_unset=False)
         if "mode" in request_dict:
             workspace.mode = request.mode

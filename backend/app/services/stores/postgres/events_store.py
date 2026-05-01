@@ -256,25 +256,42 @@ class PostgresEventsStore(PostgresStoreBase):
         conversation thread id. Older turns did not stamp meeting_session_id
         into payload/metadata, so thread_id is part of the contract here.
         """
-        base_query = """
-            SELECT * FROM mind_events
-            WHERE (
-                (metadata::jsonb)->>'meeting_session_id' = :meeting_session_id
-                OR (payload::jsonb)->>'meeting_session_id' = :meeting_session_id
-                OR thread_id = :meeting_session_id
-            )
-        """
-        params: Dict[str, Any] = {"meeting_session_id": meeting_session_id}
-
-        if workspace_id:
-            base_query += " AND workspace_id = :workspace_id"
-            params["workspace_id"] = workspace_id
-
-        base_query += " ORDER BY timestamp ASC, id ASC LIMIT :limit"
-        params["limit"] = limit
-
         with self.get_connection() as conn:
-            result = conn.execute(text(base_query), params)
+            thread_query = """
+                SELECT * FROM mind_events
+                WHERE thread_id = :meeting_session_id
+            """
+            thread_params: Dict[str, Any] = {
+                "meeting_session_id": meeting_session_id,
+                "limit": limit,
+            }
+            if workspace_id:
+                thread_query += " AND workspace_id = :workspace_id"
+                thread_params["workspace_id"] = workspace_id
+            thread_query += " ORDER BY timestamp ASC, id ASC LIMIT :limit"
+
+            result = conn.execute(text(thread_query), thread_params)
+            rows = result.fetchall()
+            if rows:
+                return [self._row_to_event(row) for row in rows]
+
+            legacy_query = """
+                SELECT * FROM mind_events
+                WHERE (
+                    (metadata::jsonb)->>'meeting_session_id' = :meeting_session_id
+                    OR (payload::jsonb)->>'meeting_session_id' = :meeting_session_id
+                )
+            """
+            legacy_params: Dict[str, Any] = {
+                "meeting_session_id": meeting_session_id,
+                "limit": limit,
+            }
+            if workspace_id:
+                legacy_query += " AND workspace_id = :workspace_id"
+                legacy_params["workspace_id"] = workspace_id
+            legacy_query += " ORDER BY timestamp ASC, id ASC LIMIT :limit"
+
+            result = conn.execute(text(legacy_query), legacy_params)
             rows = result.fetchall()
             return [self._row_to_event(row) for row in rows]
 

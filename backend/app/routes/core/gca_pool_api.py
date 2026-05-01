@@ -66,7 +66,7 @@ async def workspace_status(
     is_pinned = bool(selection.selected_runtime_id)
     preview = service.preview_active_runtime(
         preferred_runtime_id=selection.selected_runtime_id,
-        allow_fallback=not is_pinned,
+        allow_runtime_substitution=False,
     )
     account = preview.get("account") or {}
 
@@ -77,7 +77,7 @@ async def workspace_status(
         "source_workspace_id": selection.source_workspace_id,
         "selection_reason": selection.selection_reason,
         "selection_trace": list(selection.trace),
-        "policy_mode": "pinned_runtime" if is_pinned else "pool_rotation",
+        "policy_mode": "pinned_runtime" if is_pinned else "unbound_runtime",
         "preferred_runtime_id": selection.selected_runtime_id,
         "resolved_runtime_id": preview.get("selected_runtime_id"),
         "resolved_email": account.get("email"),

@@ -23,7 +23,7 @@ from backend.app.services.artifact_review_decision import (
     build_review_checklist_template,
 )
 from backend.app.services import visual_acceptance_bundle
-from shared.schemas.storyboard import ObjectAssetRef, ObjectWorkloadSnapshot, Scene
+from backend.app.capabilities.creative_pipeline_contracts.schema.storyboard import ObjectAssetRef, ObjectWorkloadSnapshot, Scene
 
 
 class _FakeArtifactsStore:

@@ -220,8 +220,8 @@ class WorkspaceWelcomeService:
                     from backend.app.capabilities.core_llm.services.generate import (
                         run as generate_text,
                     )
-                    from backend.app.services.system_settings_store import (
-                        SystemSettingsStore,
+                    from backend.app.shared.llm_provider_helper import (
+                        get_model_name_from_chat_model,
                     )
 
                     timeline_items_store = PostgresTimelineItemsStore()
@@ -231,19 +231,11 @@ class WorkspaceWelcomeService:
                         default_locale=locale,
                     )
 
-                    from backend.app.services.system_settings_store import (
-                        SystemSettingsStore,
-                    )
-
-                    settings_store = SystemSettingsStore()
-                    chat_setting = settings_store.get_setting("chat_model")
-
-                    if not chat_setting or not chat_setting.value:
+                    model_name = get_model_name_from_chat_model()
+                    if not model_name:
                         raise ValueError(
                             "LLM model not configured. Please select a model in the system settings panel."
                         )
-
-                    model_name = str(chat_setting.value)
                     if not model_name or model_name.strip() == "":
                         raise ValueError(
                             "LLM model is empty. Please select a valid model in the system settings panel."
@@ -354,15 +346,11 @@ Context:
 
 Generate a personalized welcome message for this workspace. Remember to respond in {target_language} ({locale}) as specified in the system prompt."""
 
-                    settings_store = SystemSettingsStore()
-                    chat_setting = settings_store.get_setting("chat_model")
-
-                    if not chat_setting or not chat_setting.value:
+                    model_name = get_model_name_from_chat_model()
+                    if not model_name:
                         raise ValueError(
                             "LLM model not configured. Please select a model in the system settings panel."
                         )
-
-                    model_name = str(chat_setting.value)
                     if not model_name or model_name.strip() == "":
                         raise ValueError(
                             "LLM model is empty. Please select a valid model in the system settings panel."
@@ -518,14 +506,12 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                 )
                 # For returning users, also generate personalized suggestions
                 try:
-                    from backend.app.services.system_settings_store import (
-                        SystemSettingsStore,
+                    from backend.app.shared.llm_provider_helper import (
+                        get_model_name_from_chat_model,
                     )
 
-                    settings_store = SystemSettingsStore()
-                    chat_setting = settings_store.get_setting("chat_model")
-                    if chat_setting and chat_setting.value:
-                        model_name = str(chat_setting.value)
+                    model_name = get_model_name_from_chat_model()
+                    if model_name:
                         active_intents = []
                         try:
                             from backend.app.models.mindscape import IntentStatus

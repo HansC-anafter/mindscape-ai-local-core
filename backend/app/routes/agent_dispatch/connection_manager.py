@@ -282,7 +282,7 @@ class ConnectionMixin:
                     execution_id=eid,
                     workspace_id=ws_id,
                     payload=task.payload,
-                    attempts=1,  # count disconnect as one attempt
+                    attempts=1,
                 )
                 self._enqueue_pending(pending)
                 logger.warning(

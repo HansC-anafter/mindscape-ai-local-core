@@ -90,12 +90,12 @@ class WorkspaceAgentExecutor:
         Check if the specified agent runtime is currently connected.
 
         Args:
-            agent_id: Agent to check (default: workspace.executor_runtime)
+            agent_id: Agent to check (default: model-route-registry workspace executor route)
 
         Returns:
             True if the agent runtime is connected and available
         """
-        agent_id = agent_id or getattr(self.workspace, "executor_runtime", None)
+        agent_id = agent_id or getattr(self.workspace, "resolved_executor_runtime", None)
         if not agent_id:
             return False
 
@@ -124,7 +124,7 @@ class WorkspaceAgentExecutor:
 
         Args:
             task: Task description
-            agent_id: Override agent ID (default: workspace.executor_runtime)
+            agent_id: Override agent ID (default: model-route-registry workspace executor route)
             skip_preflight: Skip preflight checks (for pre-approved tasks)
             context_overrides: Override context values
 
@@ -132,13 +132,13 @@ class WorkspaceAgentExecutor:
             AgentExecutionResponse with results
         """
         start_time = _utc_now()
-        agent_id = agent_id or self.workspace.executor_runtime
+        agent_id = agent_id or getattr(self.workspace, "resolved_executor_runtime", None)
 
         if not agent_id:
             return AgentExecutionResponse(
                 success=False,
                 output="",
-                error="No agent specified and workspace has no executor_runtime",
+                error="No agent specified and model-route-registry has no workspace executor route",
             )
 
         # 1. Preflight check (unless skipped)
@@ -357,7 +357,9 @@ class WorkspaceAgentExecutor:
         sandbox_config = getattr(self.workspace, "sandbox_config", None) or {}
         workspace_timeout = sandbox_config.get("max_execution_time_seconds", 300)
         runtime_timeout = None
-        resolved_agent_id = agent_id or getattr(self.workspace, "executor_runtime", None)
+        resolved_agent_id = agent_id or getattr(
+            self.workspace, "resolved_executor_runtime", None
+        )
         if resolved_agent_id:
             try:
                 manifest = self.registry.get_manifest(resolved_agent_id)

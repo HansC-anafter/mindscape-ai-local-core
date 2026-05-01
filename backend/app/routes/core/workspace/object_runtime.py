@@ -2408,14 +2408,7 @@ async def attach_objects_to_meeting(
                 "message": "Attach requests currently support at most one target object.",
             },
         )
-    if len(request.entries) == len(target_entries):
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "source_required",
-                "message": "Attach requests require at least one non-target context object.",
-            },
-        )
+    has_non_target_context = any(entry.role != "target" for entry in request.entries)
 
     context_records: List[ObjectMeetingContextRecord] = []
     for request_entry in request.entries:
@@ -2498,7 +2491,7 @@ async def attach_objects_to_meeting(
     response_errors: List[SelectionResolveError] = []
     materialization_result: Dict[str, Any] | None = None
 
-    if target_ref:
+    if target_ref and has_non_target_context:
         target_entry_payload = registry.get_entry(
             target_ref.owner_pack,
             target_ref.object_kind,

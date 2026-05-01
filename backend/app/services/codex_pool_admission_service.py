@@ -24,7 +24,7 @@ class CodexPoolAdmissionDecision:
     admissible: bool
     reason: str
     preferred_runtime_id: Optional[str]
-    allow_fallback: bool
+    allow_runtime_substitution: bool
     pool_enabled_runtime_count: int
     runnable_runtime_count: int
     healthy_runtime_count: int
@@ -50,7 +50,7 @@ class CodexPoolAdmissionDecision:
             "admissible": self.admissible,
             "reason": self.reason,
             "preferred_runtime_id": self.preferred_runtime_id,
-            "allow_fallback": self.allow_fallback,
+            "allow_runtime_substitution": self.allow_runtime_substitution,
             "pool_enabled_runtime_count": self.pool_enabled_runtime_count,
             "runnable_runtime_count": self.runnable_runtime_count,
             "healthy_runtime_count": self.healthy_runtime_count,
@@ -80,7 +80,7 @@ class CodexPoolAdmissionService:
         self,
         *,
         preferred_runtime_id: Optional[str] = None,
-        allow_fallback: bool = True,
+        allow_runtime_substitution: bool = False,
     ) -> CodexPoolAdmissionDecision:
         try:
             self._requalification_runner()
@@ -127,7 +127,7 @@ class CodexPoolAdmissionService:
                         else "preferred_runtime_runnable"
                     ),
                     preferred_runtime_id=normalized_preferred_runtime_id,
-                    allow_fallback=allow_fallback,
+                    allow_runtime_substitution=allow_runtime_substitution,
                     pool_enabled_runtime_count=pool_enabled_runtime_count,
                     runnable_runtime_count=len(runnable_candidates),
                     healthy_runtime_count=len(healthy_candidates),
@@ -137,12 +137,12 @@ class CodexPoolAdmissionService:
                     failure_counts=dict(failure_counts),
                     candidate_runtime_ids=(normalized_preferred_runtime_id,),
                 )
-            if not allow_fallback:
+            if not allow_runtime_substitution:
                 return CodexPoolAdmissionDecision(
                     admissible=False,
                     reason="preferred_runtime_not_runnable",
                     preferred_runtime_id=normalized_preferred_runtime_id,
-                    allow_fallback=allow_fallback,
+                    allow_runtime_substitution=allow_runtime_substitution,
                     pool_enabled_runtime_count=pool_enabled_runtime_count,
                     runnable_runtime_count=len(runnable_candidates),
                     healthy_runtime_count=len(healthy_candidates),
@@ -160,7 +160,7 @@ class CodexPoolAdmissionService:
                 admissible=True,
                 reason="healthy_runtime_available",
                 preferred_runtime_id=normalized_preferred_runtime_id,
-                allow_fallback=allow_fallback,
+                allow_runtime_substitution=allow_runtime_substitution,
                 pool_enabled_runtime_count=pool_enabled_runtime_count,
                 runnable_runtime_count=len(runnable_candidates),
                 healthy_runtime_count=len(healthy_candidates),
@@ -177,7 +177,7 @@ class CodexPoolAdmissionService:
                 admissible=True,
                 reason="runnable_runtime_available",
                 preferred_runtime_id=normalized_preferred_runtime_id,
-                allow_fallback=allow_fallback,
+                allow_runtime_substitution=allow_runtime_substitution,
                 pool_enabled_runtime_count=pool_enabled_runtime_count,
                 runnable_runtime_count=len(runnable_candidates),
                 healthy_runtime_count=0,
@@ -194,7 +194,7 @@ class CodexPoolAdmissionService:
             admissible=False,
             reason="no_runnable_runtimes",
             preferred_runtime_id=normalized_preferred_runtime_id,
-            allow_fallback=allow_fallback,
+            allow_runtime_substitution=allow_runtime_substitution,
             pool_enabled_runtime_count=pool_enabled_runtime_count,
             runnable_runtime_count=0,
             healthy_runtime_count=0,

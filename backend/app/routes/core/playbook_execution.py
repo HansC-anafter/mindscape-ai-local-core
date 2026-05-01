@@ -59,6 +59,27 @@ def _safe_screenshot_basename(value: str) -> str:
     return name
 
 
+def _load_landed_workflow_result(execution_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        from backend.app.services.task_result_landing import TaskResultLandingService
+
+        landed = TaskResultLandingService().get_landed_result(execution_id)
+    except Exception:
+        logger.warning(
+            "get_playbook_result: failed to load landed result for %s",
+            execution_id,
+            exc_info=True,
+        )
+        return None
+
+    if not isinstance(landed, dict):
+        return None
+    result_json = landed.get("result_json")
+    if isinstance(result_json, dict):
+        return result_json
+    return None
+
+
 
 
 @router.get("/execute/{execution_id}/debug/screenshot")
@@ -528,6 +549,13 @@ async def get_playbook_result(execution_id: str):
                 # Check for workflow result in execution_context
                 workflow_result = task.execution_context.get("workflow_result")
                 if workflow_result:
+                    if (
+                        isinstance(workflow_result, dict)
+                        and workflow_result.get("_compacted")
+                    ):
+                        landed_result = _load_landed_workflow_result(execution_id)
+                        if landed_result is not None:
+                            return landed_result
                     logger.info(
                         f"get_playbook_result: Found workflow_result for execution_id={execution_id}, keys={list(workflow_result.keys()) if isinstance(workflow_result, dict) else type(workflow_result)}"
                     )
@@ -553,6 +581,13 @@ async def get_playbook_result(execution_id: str):
                         "step_outputs": step_outputs,
                         "outputs": outputs,
                     }
+
+                landed_result = _load_landed_workflow_result(execution_id)
+                if landed_result is not None:
+                    return landed_result
+
+                if isinstance(getattr(task, "result", None), dict) and task.result:
+                    return task.result
 
                 # Task is completed but no result in context - this shouldn't happen for workflow mode
                 logger.error(

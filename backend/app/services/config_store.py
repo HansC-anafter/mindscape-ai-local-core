@@ -96,8 +96,8 @@ class ConfigStore(PostgresStoreBase):
             "use_llm": config.intent_config.use_llm,
             "rule_priority": config.intent_config.rule_priority,
         }
-        if "profile_model_mapping" in config.metadata:
-            metadata["profile_model_mapping"] = config.metadata["profile_model_mapping"]
+        if "profile_model_bindings" in config.metadata:
+            metadata["profile_model_bindings"] = config.metadata["profile_model_bindings"]
         if "custom_model_provider_mapping" in config.metadata:
             metadata["custom_model_provider_mapping"] = config.metadata[
                 "custom_model_provider_mapping"

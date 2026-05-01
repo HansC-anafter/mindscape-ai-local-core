@@ -77,14 +77,33 @@ def get_workspace_events(
 @router.get("/{workspace_id}/timeline")
 def get_workspace_timeline(
     workspace_id: str = PathParam(...),
+    event_types: Optional[str] = Query(None),
     limit: int = Query(50),
+    _t: Optional[str] = Query(None),
+    thread_id: Optional[str] = Query(None),
 ):
     try:
-        events = store.events.get_timeline(
-            profile_id="default-user",
-            workspace_id=workspace_id,
-            limit=limit,
-        )
+        query_str = "SELECT * FROM mind_events WHERE workspace_id = :ws"
+        params: dict = {"ws": workspace_id, "lim": limit}
+
+        if thread_id:
+            query_str += " AND thread_id = :tid"
+            params["tid"] = thread_id
+
+        if event_types:
+            type_list = [t.strip() for t in event_types.split(",") if t.strip()]
+            if type_list:
+                placeholders = ", ".join(f":et{i}" for i in range(len(type_list)))
+                query_str += f" AND event_type IN ({placeholders})"
+                for i, event_type in enumerate(type_list):
+                    params[f"et{i}"] = event_type
+
+        query_str += " ORDER BY timestamp DESC, id DESC LIMIT :lim"
+
+        with store.events.get_connection() as conn:
+            rows = conn.execute(text(query_str), params).fetchall()
+
+        events = [store.events._row_to_event(r) for r in rows]
         return {"items": [e.model_dump() for e in events], "total": len(events)}
     except Exception as exc:
         logger.warning(f"Failed to load timeline for workspace {workspace_id}: {exc}")
@@ -183,7 +202,6 @@ def list_workspace_threads(
     except Exception as exc:
         logger.warning(f"Failed to list threads for workspace {workspace_id}: {exc}")
         return []
-
 
 
 

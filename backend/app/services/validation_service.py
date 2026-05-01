@@ -515,8 +515,23 @@ class ValidationService:
             if conflict_code in installed_packs:
                 errors.append(f"Conflicts with installed capability: {conflict_code}")
 
+        dependency_codes = []
         dependencies = manifest.get("dependencies", [])
-        for dep_code in dependencies:
+        if isinstance(dependencies, list):
+            dependency_codes.extend(dependencies)
+
+        pack_dependencies = manifest.get("pack_dependencies", {})
+        if isinstance(pack_dependencies, dict):
+            dependency_codes.extend(pack_dependencies.get("required", []) or [])
+            dependency_codes.extend(pack_dependencies.get("optional", []) or [])
+        elif isinstance(pack_dependencies, list):
+            dependency_codes.extend(pack_dependencies)
+
+        for dep_code in dependency_codes:
+            if isinstance(dep_code, dict):
+                dep_code = dep_code.get("code") or dep_code.get("name")
+            if not dep_code:
+                continue
             if dep_code not in installed_packs:
                 warnings.append(f"Missing dependency: {dep_code}")
 

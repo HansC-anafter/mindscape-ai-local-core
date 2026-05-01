@@ -138,13 +138,18 @@ class SystemHealthChecker:
             try:
                 import os
                 from backend.app.services.system_settings_store import SystemSettingsStore
+                from backend.app.services.model_routing_policy_service import (
+                    ModelRoutingPolicyService,
+                )
 
                 settings_store = SystemSettingsStore()
-                chat_setting = settings_store.get_setting("chat_model")
+                resolved_route = ModelRoutingPolicyService(
+                    settings_store=settings_store
+                ).resolve_chat_default()
 
-                if chat_setting:
-                    model_name = str(chat_setting.value)
-                    provider = chat_setting.metadata.get("provider", "openai") if hasattr(chat_setting, 'metadata') else "openai"
+                if resolved_route.model_name:
+                    model_name = str(resolved_route.model_name)
+                    provider = resolved_route.provider or "openai"
 
                     # Get API key or Vertex AI configuration
                     if provider == "openai":

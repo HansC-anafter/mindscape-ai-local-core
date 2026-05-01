@@ -70,6 +70,7 @@ class ArtifactResponse(BaseModel):
     created_at: str
     updated_at: str
     execution_id: Optional[str] = None  # Add execution_id
+    thread_id: Optional[str] = None
     playbook_code: Optional[str] = None
     artifact_type: Optional[str] = None
     content: Optional[Dict[str, Any]] = None
@@ -220,6 +221,7 @@ def artifact_to_response(
             else _utc_now().isoformat()
         ),
         execution_id=artifact.execution_id,
+        thread_id=artifact.thread_id,
         playbook_code=artifact.playbook_code,
         artifact_type=artifact_type_value,
         content=content,
@@ -365,6 +367,9 @@ async def list_artifacts(
     playbook_code: Optional[str] = Query(
         None, description="Filter by playbook (e.g., 'ig_post_generation')"
     ),
+    thread_id: Optional[str] = Query(
+        None, description="Filter by conversation thread / meeting session ID"
+    ),
     include_content: bool = Query(
         False,
         description="Include full content in response (default: false for performance)",
@@ -435,8 +440,44 @@ async def list_artifacts(
 
         needs_content_load = include_content or include_preview
 
+        if thread_id and hasattr(store.artifacts, "get_by_thread"):
+            thread_artifacts = await asyncio.to_thread(
+                store.artifacts.get_by_thread,
+                workspace_id,
+                thread_id,
+                None,
+            )
+            filtered_artifacts = thread_artifacts
+            if playbook_code:
+                filtered_artifacts = [
+                    a for a in filtered_artifacts if a.playbook_code == playbook_code
+                ]
+            if artifact_type_filters is not None:
+                allowed = set(artifact_type_filters)
+                filtered_artifacts = [
+                    a for a in filtered_artifacts if a.artifact_type.value in allowed
+                ]
+            if intent_id:
+                filtered_artifacts = [
+                    a for a in filtered_artifacts if a.intent_id == intent_id
+                ]
+            if kind:
+                filtered_artifacts = [
+                    a
+                    for a in filtered_artifacts
+                    if a.metadata and a.metadata.get("kind") == kind
+                ]
+            if platform:
+                filtered_artifacts = [
+                    a
+                    for a in filtered_artifacts
+                    if a.metadata and a.metadata.get("platform") == platform
+                ]
+
+            total_count = len(filtered_artifacts)
+            paginated_artifacts = filtered_artifacts[offset : offset + limit]
         # Prefer DB-side filtering/pagination to avoid full-table materialization.
-        if hasattr(store.artifacts, "list_artifacts_page") and hasattr(
+        elif hasattr(store.artifacts, "list_artifacts_page") and hasattr(
             store.artifacts, "count_artifacts"
         ):
             total_count = await asyncio.to_thread(

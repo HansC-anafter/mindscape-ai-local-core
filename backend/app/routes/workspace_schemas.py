@@ -31,6 +31,7 @@ class ArtifactResponse(BaseModel):
     intent_id: Optional[str]
     task_id: Optional[str]
     execution_id: Optional[str]
+    thread_id: Optional[str]
     playbook_code: str
     artifact_type: str
     title: str
@@ -49,4 +50,3 @@ class ArtifactsListResponse(BaseModel):
     workspace_id: str
     total: int
     artifacts: List[ArtifactResponse]
-

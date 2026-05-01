@@ -55,10 +55,14 @@ async def _invoke_backend_callable(backend_path: str, **kwargs: Any) -> Any:
         invocation_kwargs = {
             key: value for key, value in kwargs.items() if key in signature.parameters
         }
-    result = target(**invocation_kwargs)
-    if inspect.isawaitable(result):
-        return await result
-    return result
+
+    def _call_in_worker() -> Any:
+        result = target(**invocation_kwargs)
+        if inspect.isawaitable(result):
+            return asyncio.run(result)
+        return result
+
+    return await asyncio.to_thread(_call_in_worker)
 
 
 def _validate_object_ref_identity(ref: ObjectRef, workspace_id: str) -> None:

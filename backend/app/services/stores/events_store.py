@@ -395,15 +395,8 @@ class EventsStore(StoreBase):
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            query = (
-                "SELECT * FROM mind_events "
-                "WHERE ("
-                "json_extract(metadata, '$.meeting_session_id') = ? "
-                "OR json_extract(payload, '$.meeting_session_id') = ? "
-                "OR thread_id = ?"
-                ")"
-            )
-            params = [meeting_session_id, meeting_session_id, meeting_session_id]
+            query = "SELECT * FROM mind_events WHERE thread_id = ?"
+            params = [meeting_session_id]
 
             if workspace_id:
                 query += " AND workspace_id = ?"
@@ -414,6 +407,26 @@ class EventsStore(StoreBase):
 
             cursor.execute(query, params)
             rows = cursor.fetchall()
+            if not rows:
+                query = (
+                    "SELECT * FROM mind_events "
+                    "WHERE ("
+                    "json_extract(metadata, '$.meeting_session_id') = ? "
+                    "OR json_extract(payload, '$.meeting_session_id') = ?"
+                    ")"
+                )
+                params = [meeting_session_id, meeting_session_id]
+
+                if workspace_id:
+                    query += " AND workspace_id = ?"
+                    params.append(workspace_id)
+
+                query += " ORDER BY timestamp ASC, id ASC LIMIT ?"
+                params.append(limit)
+
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+
             events = []
             for i, row in enumerate(rows):
                 try:

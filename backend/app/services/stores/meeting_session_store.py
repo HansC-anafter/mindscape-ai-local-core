@@ -233,6 +233,8 @@ class MeetingSessionStore(PostgresStoreBase):
                     """
                     UPDATE meeting_sessions SET
                         project_id = :project_id,
+                        thread_id = :thread_id,
+                        lens_id = :lens_id,
                         ended_at = :ended_at,
                         status = :status,
                         meeting_type = :meeting_type,
@@ -253,6 +255,8 @@ class MeetingSessionStore(PostgresStoreBase):
                 {
                     "id": session.id,
                     "project_id": session.project_id,
+                    "thread_id": session.thread_id,
+                    "lens_id": session.lens_id,
                     "ended_at": session.ended_at,
                     "status": (
                         session.status.value
