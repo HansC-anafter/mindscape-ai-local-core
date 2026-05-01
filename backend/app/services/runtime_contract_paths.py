@@ -28,10 +28,10 @@ def resolve_capability_runtime_import_roots(capability_dir: Path) -> list[Path]:
     )
     local_core_root = backend_root.parent
     return [
+        resolve_runtime_contracts_root(local_core_root),
         backend_root,
         app_root,
         capabilities_root,
-        resolve_runtime_contracts_root(local_core_root),
     ]
 
 
@@ -49,8 +49,8 @@ def build_validation_pythonpath(local_core_root: Path, capabilities_dir: Path) -
     local_core_root = Path(local_core_root)
     parts = [
         local_core_root,
-        *resolve_capability_import_roots(capabilities_dir),
         resolve_runtime_contracts_root(local_core_root),
+        *resolve_capability_import_roots(capabilities_dir),
     ]
     ordered_unique: list[str] = []
     for part in parts:

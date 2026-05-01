@@ -251,8 +251,6 @@ class PlaybookRegistry:
                         try:
                             from io import StringIO
 
-                            # Create a temporary file-like object for PlaybookFileLoader
-                            # PlaybookFileLoader expects a Path, so we need to write to temp file
                             import tempfile
 
                             with tempfile.NamedTemporaryFile(
@@ -274,7 +272,6 @@ class PlaybookRegistry:
                                         f"Loaded playbook from NPM package: {playbook_code} ({locale})"
                                     )
 
-                            # Clean up temp file
                             tmp_path.unlink()
                         except Exception as e:
                             logger.warning(

@@ -67,6 +67,8 @@ tmp/
 
 # Capability pack files (build artifacts)
 *.mindpack
+/.runtime-bundles/
+/backend/.runtime-bundles/
 
 # Test files
 test_data/
@@ -79,6 +81,18 @@ tests/
 test_*.py
 test_*.json
 test_*.yaml
+!backend/tests/aol_manifest_schema_validation_test.py
+!backend/tests/object_index_sync_service_test.py
+!backend/tests/test_gitignore_pack_neutrality.py
+!backend/tests/test_aol_target_only_attach.py
+!backend/tests/test_capability_runtime_contract_paths.py
+!backend/tests/test_post_install_playbook_validator_pythonpath.py
+!backend/tests/test_retired_shared_schema_import_guard.py
+!backend/tests/test_runtime_contract_registry_data_root.py
+!backend/tests/object_action_planning_runtime_test.py
+!backend/tests/object_catalog_registry_aol_contracts_test.py
+!backend/tests/object_instance_registry_runtime_test.py
+!backend/tests/object_runtime_selectors_test.py
 
 # Allow selected committed tests for normalization work.
 !backend/tests/
@@ -140,7 +154,7 @@ docker-compose.monitoring.yml
 
 # Root-level debug/test scripts (should be in scripts/ or tests/)
 diagnose_ws.py
-hello_antigravity.txt
+/hello_*.txt
 verify_integration.py
 verify_playbook_execution.py
 
@@ -178,11 +192,6 @@ backups/
 *.dump
 docs-internal/
 
-# Capability Pack Migrations (Do not track in local-core)
-backend/alembic_migrations/postgres/versions/*yogacoach*
-backend/alembic_migrations/postgres/versions/*sonic_space*
-backend/alembic_migrations/postgres/versions/*ig_*
-backend/alembic_migrations/postgres/versions/*grid_posts*
-backend/alembic_migrations/postgres/versions/*course_production*
-backend/alembic_migrations/postgres/versions/*motion_segments*
-backend/alembic_migrations/postgres/versions/*mesh_assets*
+# Legacy capability-installed migration mirrors.
+# Active pack migrations stay capability-local under backend/app/capabilities/*/migrations/.
+backend/alembic_migrations/postgres/capability-installed-legacy/

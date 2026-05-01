@@ -5,7 +5,6 @@ Install runtime assets and execute capability-specific migrations.
 """
 
 import logging
-import os
 import shutil
 import subprocess
 import sys
@@ -60,8 +59,6 @@ class RuntimeAssetsInstaller:
         """
         self.local_core_root = local_core_root
         self.capabilities_dir = capabilities_dir
-        self._cloud_web_console_path = None
-
     def install_all(
         self,
         cap_dir: Path,
@@ -128,10 +125,8 @@ class RuntimeAssetsInstaller:
         # 13. Install docs directory (agent_guide, etc.)
         self.install_docs(cap_dir, capability_code, result)
 
-        # 14. Install evals directory (evaluation scenarios and validators)
         self.install_evals(cap_dir, capability_code, result)
 
-        # 15. Install workflows directory (ComfyUI templates + .meta.json)
         self.install_workflows(cap_dir, capability_code, result)
 
     def install_workflows(
@@ -524,79 +519,11 @@ class RuntimeAssetsInstaller:
             result=result,
         )
 
-    def _detect_cloud_environment(self) -> bool:
-        """
-        Detect if running in Cloud environment.
-
-        Returns:
-            True if Cloud environment detected, False otherwise
-        """
-        # Method 1: Check environment variable (highest priority)
-        if os.getenv("MINDSCAPE_ENV") == "cloud":
-            return True
-        if os.getenv("MINDSCAPE_ENV") == "local-core":
-            return False
-
-        # Method 2: Check if local_core_root has backend/ directory (Local-Core marker)
-        # This works in both local and Docker environments
-        local_core_backend = self.local_core_root / "backend"
-        if local_core_backend.exists() and local_core_backend.is_dir():
-            # We have backend/ directory, so we're in Local-Core
-            return False
-
-        # Method 3: Check if local_core_root points to Local-Core directory by path name
-        local_core_path_str = str(self.local_core_root)
-        if "mindscape-ai-local-core" in local_core_path_str:
-            return False
-
-        # Method 4: Check if local_core_root points to Cloud directory by path name
-        if "mindscape-ai-cloud" in local_core_path_str:
-            return True
-
-        # Method 5: Fallback - check for Cloud marker (mindscape-ai-cloud directory)
-        # Only if we can't determine from local_core_root path
-        cloud_marker = self.local_core_root.parent / "mindscape-ai-cloud"
-        if cloud_marker.exists() and cloud_marker.is_dir():
-            # Double-check: if we have backend/, we're in Local-Core
-            if local_core_backend.exists() and local_core_backend.is_dir():
-                return False
-            return True
-
-        return False
-
-    def _get_cloud_web_console_path(self) -> Optional[Path]:
-        """
-        Get Cloud web-console path.
-
-        Returns:
-            Path to Cloud web-console, or None if not found
-        """
-        if self._cloud_web_console_path is not None:
-            return self._cloud_web_console_path
-
-        # Method 1: Check environment variable
-        cloud_path = os.getenv("CLOUD_WEB_CONSOLE_PATH")
-        if cloud_path:
-            path = Path(cloud_path)
-            if path.exists():
-                self._cloud_web_console_path = path
-                return path
-
-        # Method 2: Infer from local_core_root (assume same parent level)
-        cloud_root = self.local_core_root.parent / "mindscape-ai-cloud"
-        web_console_path = cloud_root / "web-console"
-        if web_console_path.exists():
-            self._cloud_web_console_path = web_console_path
-            return web_console_path
-
-        return None
-
     def install_ui_components(
         self, cap_dir: Path, capability_code: str, manifest: Dict, result: InstallResult
     ):
         """
-        Install UI components from capability pack to frontend.
-        Supports both Local-Core and Cloud environments.
+        Install UI components from capability pack to the Local-Core frontend.
         Unified path: app/capabilities/{capability_code}/components/
 
         Args:
@@ -605,59 +532,13 @@ class RuntimeAssetsInstaller:
             manifest: Parsed manifest dict
             result: InstallResult to update
         """
-        # Detect environment and get frontend directory
-        is_cloud = self._detect_cloud_environment()
-
-        # Determine frontend directory with fallback logic
-        frontend_dir = None
-        if is_cloud:
-            # Cloud environment: use Cloud web-console path
-            cloud_web_console = self._get_cloud_web_console_path()
-            if cloud_web_console is None:
-                logger.warning(
-                    f"Cloud environment detected but web-console path not found. "
-                    f"Falling back to Local-Core path. Set CLOUD_WEB_CONSOLE_PATH env var if needed."
-                )
-                frontend_dir = (
-                    self.local_core_root
-                    / "web-console"
-                    / "src"
-                    / "app"
-                    / "capabilities"
-                )
-            else:
-                frontend_dir = cloud_web_console / "src" / "app" / "capabilities"
-        else:
-            # Local-Core environment: use local_core_root
-            frontend_dir = (
-                self.local_core_root / "web-console" / "src" / "app" / "capabilities"
-            )
+        frontend_dir = (
+            self.local_core_root / "web-console" / "src" / "app" / "capabilities"
+        )
 
         # Unified target directory: app/capabilities/{capability_code}/components/
         target_cap_dir = frontend_dir / capability_code / "components"
-
-        # Try to create directory, with fallback to Local-Core if Cloud path fails
-        try:
-            target_cap_dir.mkdir(parents=True, exist_ok=True)
-        except (PermissionError, OSError) as e:
-            # If Cloud path fails, fallback to Local-Core path
-            if is_cloud:
-                logger.warning(
-                    f"Failed to write to Cloud path {target_cap_dir}: {e}. "
-                    f"Falling back to Local-Core path."
-                )
-                frontend_dir = (
-                    self.local_core_root
-                    / "web-console"
-                    / "src"
-                    / "app"
-                    / "capabilities"
-                )
-                target_cap_dir = frontend_dir / capability_code / "components"
-                target_cap_dir.mkdir(parents=True, exist_ok=True)
-            else:
-                # Re-raise if we're already in Local-Core
-                raise
+        target_cap_dir.mkdir(parents=True, exist_ok=True)
 
         installed_components = []
 
@@ -707,59 +588,13 @@ class RuntimeAssetsInstaller:
                         )
                         result.add_installed("ui_components", str(relative_path))
                     except (PermissionError, OSError) as e:
-                        # If Cloud path fails, fallback to Local-Core path
-                        if is_cloud:
-                            logger.warning(
-                                f"Failed to write to Cloud path {target_path}: {e}. "
-                                f"Falling back to Local-Core path."
-                            )
-                            frontend_dir = (
-                                self.local_core_root
-                                / "web-console"
-                                / "src"
-                                / "app"
-                                / "capabilities"
-                            )
-                            # Recalculate target_path with fallback logic
-                            relative_path_str = str(relative_path)
-                            if relative_path_str.startswith("components/"):
-                                relative_path = Path(
-                                    relative_path_str[len("components/") :]
-                                )
-                                target_path = (
-                                    frontend_dir
-                                    / capability_code
-                                    / "components"
-                                    / relative_path
-                                )
-                            elif relative_path_str.startswith(
-                                ("lib/", "contexts/", "hooks/", "utils/", "types/")
-                            ):
-                                target_path = (
-                                    frontend_dir / capability_code / relative_path
-                                )
-                            else:
-                                target_path = (
-                                    frontend_dir
-                                    / capability_code
-                                    / "components"
-                                    / relative_path
-                                )
-                            target_path.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(file_path, target_path)
-                            logger.debug(
-                                f"Installed UI file (fallback): {relative_path}"
-                            )
-                            result.add_installed("ui_components", str(relative_path))
-                        else:
-                            # Re-raise if we're already in Local-Core
-                            logger.error(
-                                f"Failed to install UI file {relative_path}: {e}"
-                            )
-                            result.add_warning(
-                                f"Failed to install UI file {relative_path}: {e}"
-                            )
-                            raise
+                        logger.error(
+                            f"Failed to install UI file {relative_path}: {e}"
+                        )
+                        result.add_warning(
+                            f"Failed to install UI file {relative_path}: {e}"
+                        )
+                        raise
 
         # Also install individual components specified in manifest
         ui_components = manifest.get("ui_components", [])

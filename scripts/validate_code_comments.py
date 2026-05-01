@@ -17,8 +17,87 @@ import subprocess
 # Patterns to check
 CHINESE_PATTERN = re.compile(r'[\u4e00-\u9fff]')
 STEP_PATTERN = re.compile(r'(Step\s+\d+|步驟|TODO|FIXME|XXX|HACK|NOTE:|FIXED|Fixed|Added|Removed|Changed|Updated|記錄|紀錄)')
-NON_FUNCTIONAL_PATTERN = re.compile(r'(important|重要|don.t forget|別忘記|temporary|臨時|temp|暫時|This is|這是)')
+NON_FUNCTIONAL_PATTERN = re.compile(
+    r'(\bimportant\b|重要|don.t forget|別忘記|\btemporary\b|臨時|\btemp\b|暫時|\bThis is\b|這是)'
+)
 EMOJI_PATTERN = re.compile(r'[✅❌⚠️🚀💡🔧📝🎯🔥💯⭐️🌟]')
+
+def _extract_python_comment(line: str, multiline_quote: str | None) -> tuple[str | None, str]:
+    """Return Python line comment content outside string literals."""
+    i = 0
+    quote: str | None = None
+    escaped = False
+
+    while i < len(line):
+        if multiline_quote:
+            end = line.find(multiline_quote, i)
+            if end == -1:
+                return multiline_quote, ""
+            i = end + 3
+            multiline_quote = None
+            continue
+
+        char = line[i]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            i += 1
+            continue
+
+        if line.startswith('"""', i) or line.startswith("'''", i):
+            marker = line[i : i + 3]
+            end = line.find(marker, i + 3)
+            if end == -1:
+                multiline_quote = marker
+                return multiline_quote, ""
+            i = end + 3
+            continue
+
+        if char in {"'", '"'}:
+            quote = char
+            i += 1
+            continue
+
+        if char == "#":
+            return multiline_quote, line[i + 1 :].strip()
+
+        i += 1
+
+    return multiline_quote, ""
+
+def _extract_slash_comment(line: str) -> str:
+    """Return JavaScript/TypeScript line comment content outside string literals."""
+    quote: str | None = None
+    escaped = False
+    i = 0
+
+    while i < len(line) - 1:
+        char = line[i]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            i += 1
+            continue
+
+        if char in {"'", '"', "`"}:
+            quote = char
+            i += 1
+            continue
+
+        if char == "/" and line[i + 1] == "/":
+            return line[i + 2 :].strip()
+
+        i += 1
+
+    return ""
 
 def check_file(file_path: Path) -> list:
     """Check a single file for comment violations."""
@@ -30,24 +109,23 @@ def check_file(file_path: Path) -> list:
     except Exception as e:
         return [f"Error reading {file_path}: {e}"]
 
+    python_multiline_quote = None
+    is_python = file_path.suffix == '.py'
+    is_slash_comment_file = file_path.suffix in {'.ts', '.tsx', '.js', '.jsx'}
+
     for line_num, line in enumerate(lines, 1):
         stripped = line.strip()
 
-        # Check for comment lines (Python: #, TypeScript/JavaScript: //)
-        is_comment = False
         comment_content = ""
+        if is_python:
+            python_multiline_quote, comment_content = _extract_python_comment(
+                line,
+                python_multiline_quote,
+            )
+        elif is_slash_comment_file:
+            comment_content = _extract_slash_comment(line)
 
-        if stripped.startswith('#'):
-            is_comment = True
-            comment_content = stripped[1:].strip()
-        elif '//' in line:
-            # Extract content after //
-            parts = line.split('//', 1)
-            if len(parts) > 1:
-                is_comment = True
-                comment_content = parts[1].strip()
-
-        if is_comment and comment_content:
+        if comment_content:
             # Check Chinese
             if CHINESE_PATTERN.search(comment_content):
                 violations.append(f"{file_path}:{line_num} - Chinese comment found: {stripped}")
@@ -138,8 +216,6 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
 
 
 

@@ -1,12 +1,12 @@
 """
 Capability API Loader
-Automatically loads and registers API routers from cloud capability packs
+Automatically loads and registers API routers from installed capability packs
 
 Supports:
 - Router export contract (router_export: 'router' or 'get_router')
 - enabled_by_default flag
 - allowlist control
-- Dev/Deploy mode path resolution
+- installed-runtime path resolution
 - Route conflict detection via (method, path) tuples
 """
 
@@ -42,7 +42,7 @@ class CapabilityAPIDescriptor:
 
 
 class CapabilityAPILoader:
-    """Loads and registers API routers from cloud capability manifests"""
+    """Loads and registers API routers from installed capability manifests"""
 
     def __init__(
         self,
@@ -55,12 +55,14 @@ class CapabilityAPILoader:
         Initialize the API loader
 
         Args:
-            remote_capabilities_dir: Path to remote capabilities directory
-                If None, will try to resolve from environment or default path
+            remote_capabilities_dir: Explicit capabilities directory override.
+                This is retained for compatibility and tests; runtime discovery
+                only scans local installed capability directories.
             allowlist: Optional list of capability codes to load
                 If None and enable_all=False, only enabled_by_default=True are loaded
             enable_all: If True, load all capabilities regardless of allowlist/enabled_by_default
         """
+        self.capabilities_dir_override = remote_capabilities_dir
         self.remote_capabilities_dir = remote_capabilities_dir
         self.allowlist = set(allowlist) if allowlist else None
         self.enable_all = enable_all or os.getenv("ENABLE_ALL_CAPABILITIES") == "1"
@@ -69,36 +71,30 @@ class CapabilityAPILoader:
         self.registered_routes: Set[Tuple[str, str]] = set()
         self._installed_pack_enablement: Optional[Dict[str, bool]] = None
 
-    def find_remote_capabilities_dir(self) -> Optional[Path]:
-        """
-        Find remote capabilities directory with fallback strategies
+    def _capabilities_dir_candidates(self) -> List[Tuple[str, Path]]:
+        """Return installed-runtime capability directories in search order."""
+        repo_local_capabilities_dir = Path(__file__).resolve().parent.parent / "capabilities"
+        container_capabilities_dir = Path("/app/backend/app/capabilities")
 
-        Deploy mode: Must be set via MINDSCAPE_REMOTE_CAPABILITIES_DIR env var
-        """
-        deployment_mode = os.getenv("DEPLOYMENT_MODE", "dev")
-        is_production = deployment_mode.lower() in ("production", "prod", "deploy")
+        candidates: List[Tuple[str, Path]] = []
+        if self.capabilities_dir_override is not None:
+            candidates.append(("explicit override", self.capabilities_dir_override))
+        candidates.extend(
+            [
+                ("repo-local installed", repo_local_capabilities_dir),
+                ("container installed", container_capabilities_dir),
+            ]
+        )
 
-        env_dir = os.getenv("MINDSCAPE_REMOTE_CAPABILITIES_DIR")
-        if env_dir:
-            path = Path(env_dir)
-            if path.exists():
-                return path
-            else:
-                logger.warning(
-                    f"Env MINDSCAPE_REMOTE_CAPABILITIES_DIR points to non-existent path: {env_dir}"
-                )
-
-        if is_production:
-            raise ValueError(
-                "DEPLOYMENT_MODE is set to production/deploy, but "
-                "MINDSCAPE_REMOTE_CAPABILITIES_DIR is not set. "
-                "Please set MINDSCAPE_REMOTE_CAPABILITIES_DIR environment variable."
-            )
-
-        if self.remote_capabilities_dir and self.remote_capabilities_dir.exists():
-            return self.remote_capabilities_dir
-
-        return None
+        deduped: List[Tuple[str, Path]] = []
+        seen: Set[str] = set()
+        for label, path in candidates:
+            path_key = str(path)
+            if path_key in seen:
+                continue
+            seen.add(path_key)
+            deduped.append((label, path))
+        return deduped
 
     def load_manifest_capabilities(self, manifest_path: Path) -> List[Dict]:
         """
@@ -125,26 +121,20 @@ class CapabilityAPILoader:
         Resolve the capabilities directory to scan.
 
         Priority:
-        1. local installed capabilities
-        2. explicitly configured remote capabilities directory
+        1. explicit compatibility/test override
+        2. local installed capabilities
         """
-        local_capabilities_dir = Path("/app/backend/app/capabilities")
-        remote_capabilities_dir = self.find_remote_capabilities_dir()
+        for label, capabilities_dir in self._capabilities_dir_candidates():
+            if capabilities_dir.exists():
+                logger.info("Using %s capabilities directory: %s", label, capabilities_dir)
+                return capabilities_dir
+            if label == "explicit override":
+                logger.warning(
+                    "Capability API discovery override does not exist: %s",
+                    capabilities_dir,
+                )
 
-        if local_capabilities_dir.exists():
-            logger.info(
-                f"Using local installed capabilities directory: {local_capabilities_dir}"
-            )
-            return local_capabilities_dir
-
-        if remote_capabilities_dir and remote_capabilities_dir.exists():
-            logger.info(f"Using remote capabilities directory: {remote_capabilities_dir}")
-            return remote_capabilities_dir
-
-        logger.warning(
-            "Neither local nor remote capabilities directory found. "
-            "Skipping capability API loading."
-        )
+        logger.warning("No installed capabilities directory found. Skipping capability API loading.")
         return None
 
     def should_load_capability(self, capability_code: str, cap_def: Dict) -> bool:
@@ -472,7 +462,7 @@ class CapabilityAPILoader:
 
     def load_all_capability_apis(self) -> List[APIRouter]:
         """
-        Load all API routers from cloud capabilities
+        Load all API routers from installed capabilities
 
         Returns:
             List of APIRouter instances
@@ -487,7 +477,9 @@ class CapabilityAPILoader:
             if router:
                 loaded_routers.append(router)
 
-        logger.info(f"Loaded {len(loaded_routers)} API routers from cloud capabilities")
+        logger.info(
+            "Loaded %d API routers from installed capabilities", len(loaded_routers)
+        )
         return loaded_routers
 
 
@@ -886,7 +878,9 @@ def load_capability_apis(
     Load and return all capability API routers
 
     Args:
-        remote_capabilities_dir: Path to remote capabilities directory
+        remote_capabilities_dir: Explicit capabilities directory override for
+            compatibility and tests. Runtime discovery does not read environment-
+            configured source trees.
         allowlist: Optional list of capability codes to load
         enable_all: If True, load all capabilities
 

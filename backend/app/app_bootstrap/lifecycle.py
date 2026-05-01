@@ -23,7 +23,25 @@ _PLAYBOOK_REGISTRY_POST_READY_TASK_ATTR = "_playbook_registry_post_ready_task"
 _TOOL_RAG_POST_READY_TASK_ATTR = "_tool_rag_post_ready_task"
 _PACK_VALIDATION_RESUME_TASK_ATTR = "_pack_validation_resume_task"
 _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR = "_runtime_migrations_post_ready_task"
+_OBJECT_INDEX_SYNC_TASK_ATTR = "_object_index_sync_task"
 _CODEX_POOL_SWEEPER_SERVICE_ATTR = "_codex_pool_sweeper_service"
+
+
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value == "":
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError:
+        logger.warning("Invalid %s=%r; using default %d", name, raw_value, default)
+        return default
+    return max(minimum, min(value, maximum))
+
+
+def should_run_object_index_sync() -> bool:
+    disabled = os.getenv("AOL_OBJECT_INDEX_SYNC_DISABLED", "").strip().lower()
+    return disabled not in {"1", "true", "yes", "on"}
 
 
 async def _sync_tool_rag_pack_embedding_state(
@@ -234,6 +252,81 @@ async def _run_post_ready_runtime_migrations(app: FastAPI) -> None:
             exc,
             exc_info=True,
         )
+
+
+async def _run_object_index_sync_loop(app: FastAPI) -> None:
+    """Run AOL concrete object index discovery after readiness, then periodically."""
+    from backend.app.services.object_index_sync_service import (
+        get_object_index_sync_service,
+        get_object_index_sync_status,
+    )
+
+    startup_delay = _env_int(
+        "AOL_OBJECT_INDEX_SYNC_STARTUP_DELAY_SECONDS",
+        3,
+        minimum=0,
+        maximum=300,
+    )
+    interval_seconds = _env_int(
+        "AOL_OBJECT_INDEX_SYNC_INTERVAL_SECONDS",
+        300,
+        minimum=0,
+        maximum=86400,
+    )
+    workspace_limit = _env_int(
+        "AOL_OBJECT_INDEX_SYNC_WORKSPACE_LIMIT",
+        50,
+        minimum=1,
+        maximum=250,
+    )
+    per_workspace_limit = _env_int(
+        "AOL_OBJECT_INDEX_SYNC_PER_WORKSPACE_LIMIT",
+        100,
+        minimum=1,
+        maximum=500,
+    )
+    service = get_object_index_sync_service()
+    tracker = get_object_index_sync_status()
+
+    if startup_delay:
+        await asyncio.sleep(startup_delay)
+    iteration = 0
+    while True:
+        reason = "post_ready_object_index_sync" if iteration == 0 else "scheduled_object_index_sync"
+        try:
+            app.state.object_index_sync_status = "running"
+            app.state.object_index_sync_error = None
+            summary = await service.sync_recent_workspaces(
+                workspace_limit=workspace_limit,
+                per_workspace_limit=per_workspace_limit,
+                reason=reason,
+            )
+            app.state.object_index_sync_status = tracker.state
+            app.state.object_index_sync_error = tracker.last_error
+            app.state.object_index_sync_last_summary = summary
+            logger.info(
+                "AOL object index sync completed: reason=%s workspaces=%d indexed=%d",
+                reason,
+                summary.get("workspace_count", 0),
+                summary.get("indexed_count", 0),
+            )
+        except asyncio.CancelledError:
+            app.state.object_index_sync_status = "cancelled"
+            logger.info("AOL object index sync task cancelled")
+            raise
+        except Exception as exc:
+            app.state.object_index_sync_status = "failed"
+            app.state.object_index_sync_error = str(exc)
+            logger.warning(
+                "AOL object index sync failed: %s",
+                exc,
+                exc_info=True,
+            )
+
+        iteration += 1
+        if interval_seconds <= 0:
+            break
+        await asyncio.sleep(interval_seconds)
 
 
 async def _run_compile_job_startup_recovery() -> None:
@@ -723,6 +816,23 @@ async def run_shutdown(app: FastAPI):
                 exc,
             )
 
+    object_index_sync_task = getattr(
+        app.state,
+        _OBJECT_INDEX_SYNC_TASK_ATTR,
+        None,
+    )
+    if object_index_sync_task is not None and not object_index_sync_task.done():
+        object_index_sync_task.cancel()
+        try:
+            await object_index_sync_task
+        except asyncio.CancelledError:
+            logger.info("AOL object index sync task cancelled during shutdown")
+        except Exception as exc:
+            logger.warning(
+                "AOL object index sync task shutdown wait failed: %s",
+                exc,
+            )
+
     codex_pool_sweeper = getattr(
         app.state,
         _CODEX_POOL_SWEEPER_SERVICE_ATTR,
@@ -852,6 +962,28 @@ async def lifespan(app: FastAPI):
         setattr(app.state, _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR, None)
         app.state.runtime_migrations_post_ready_status = "disabled_by_runtime_policy"
         logger.info("Post-ready runtime migrations disabled by runtime policy")
+    if should_run_object_index_sync():
+        object_index_sync_task = asyncio.create_task(
+            _run_object_index_sync_loop(app),
+            name="aol-object-index-sync",
+        )
+        setattr(app.state, _OBJECT_INDEX_SYNC_TASK_ATTR, object_index_sync_task)
+        app.state.object_index_sync_status = "scheduled"
+        app.state.object_index_sync_error = None
+        logger.info("AOL object index sync task scheduled")
+    else:
+        setattr(app.state, _OBJECT_INDEX_SYNC_TASK_ATTR, None)
+        app.state.object_index_sync_status = "disabled_by_runtime_policy"
+        app.state.object_index_sync_error = None
+        try:
+            from backend.app.services.object_index_sync_service import (
+                get_object_index_sync_status,
+            )
+
+            get_object_index_sync_status().mark_disabled("disabled_by_runtime_policy")
+        except Exception:
+            logger.debug("Failed to mark AOL object index sync disabled", exc_info=True)
+        logger.info("AOL object index sync disabled by runtime policy")
     try:
         yield
     finally:

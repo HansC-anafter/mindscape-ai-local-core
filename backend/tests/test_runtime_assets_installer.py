@@ -13,6 +13,20 @@ from app.services.install_result import InstallResult
 from app.services.runtime_assets_installer import RuntimeAssetsInstaller
 
 
+def test_meeting_core_does_not_reintroduce_spatial_specific_bridge_or_compiler():
+    meeting_dir = BACKEND_ROOT / "app" / "services" / "orchestration" / "meeting"
+
+    assert not (meeting_dir / "spatial_schedule_pack_bridge.py").exists()
+    assert not (meeting_dir / "spatial_scheduling_compiler.py").exists()
+
+    emitter_source = (meeting_dir / "capability_artifact_emitter.py").read_text(
+        encoding="utf-8"
+    )
+    assert "SpatialSchedulingIR" not in emitter_source
+    assert "creative_pipeline_contracts" not in emitter_source
+    assert "application/vnd.mindscape.spatial-scheduling" not in emitter_source
+
+
 def test_install_scripts_copies_runtime_assets(tmp_path):
     local_core_root = tmp_path / "local-core"
     capabilities_dir = local_core_root / "backend" / "app" / "capabilities"

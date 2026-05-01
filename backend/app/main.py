@@ -176,6 +176,25 @@ async def health_check():
         "tool_rag_post_ready_error",
         None,
     )
+    object_index_sync_status = getattr(
+        app.state,
+        "object_index_sync_status",
+        "unknown",
+    )
+    object_index_sync_error = getattr(
+        app.state,
+        "object_index_sync_error",
+        None,
+    )
+    try:
+        from backend.app.services.object_index_sync_service import (
+            get_object_index_sync_status,
+        )
+
+        object_index_sync_snapshot = get_object_index_sync_status().snapshot()
+        object_index_sync_snapshot.pop("workspaces", None)
+    except Exception as exc:
+        object_index_sync_snapshot = {"state": "unavailable", "error": str(exc)}
 
     return {
         "status": overall_status,
@@ -192,6 +211,7 @@ async def health_check():
             "post_ready_playbook_registry": playbook_registry_post_ready_status,
             "post_ready_runtime_migrations": runtime_migrations_post_ready_status,
             "tool_rag_post_ready": tool_rag_post_ready_status,
+            "object_index_sync": object_index_sync_status,
         },
         "llm_configured": llm_status.get("configured", False),
         "llm_available": llm_status.get("available", False),
@@ -209,6 +229,11 @@ async def health_check():
         "tool_rag_post_ready": {
             "status": tool_rag_post_ready_status,
             "error": tool_rag_post_ready_error,
+        },
+        "object_index_sync": {
+            "status": object_index_sync_status,
+            "error": object_index_sync_error,
+            "snapshot": object_index_sync_snapshot,
         },
         "issues": [issue.to_dict() for issue in issues] if issues else [],
     }

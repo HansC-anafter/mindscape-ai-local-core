@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Callable
 
+from backend.app.services.runtime_contract_paths import build_validation_pythonpath
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +39,18 @@ class PlaybookValidator:
         self.local_core_root = local_core_root
         self.capabilities_dir = capabilities_dir
         self._validate_tools_direct_call = validate_tools_direct_call_func
+
+    def _build_subprocess_env(self) -> Dict[str, str]:
+        return {
+            **dict(os.environ),
+            "LLM_MOCK": "false",
+            "BASE_URL": "http://localhost:8200",
+            "PYTHONPATH": build_validation_pythonpath(
+                self.local_core_root,
+                self.capabilities_dir,
+            ),
+            "CAPABILITIES_PATH": str(self.capabilities_dir),
+        }
 
     def validate_installed_playbooks(
         self,
@@ -147,13 +161,7 @@ class PlaybookValidator:
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
-                env={
-                    **dict(os.environ),
-                    "LLM_MOCK": "false",
-                    "BASE_URL": "http://localhost:8200",
-                    "PYTHONPATH": f"{self.local_core_root}:{self.local_core_root / 'backend'}",
-                    "CAPABILITIES_PATH": str(self.capabilities_dir),
-                },
+                env=self._build_subprocess_env(),
             )
         except subprocess.TimeoutExpired:
             logger.warning(
@@ -230,13 +238,7 @@ class PlaybookValidator:
                 capture_output=True,
                 text=True,
                 timeout=5,  # Structure validation should complete in 1 second, 5 second buffer
-                env={
-                    **dict(os.environ),
-                    "LLM_MOCK": "false",  # Skip execution test, no mock needed
-                    "BASE_URL": "http://localhost:8200",
-                    "PYTHONPATH": f"{self.local_core_root}:{self.local_core_root / 'backend'}",
-                    "CAPABILITIES_PATH": str(self.capabilities_dir)
-                }
+                env=self._build_subprocess_env()
             )
 
             if process.returncode == 0:

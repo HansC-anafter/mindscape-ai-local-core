@@ -80,6 +80,76 @@ properties:
     enum: [AOL-0, AOL-1, AOL-2, AOL-3, AOL-4, AOL-5]
     description: "Addressable Object Layer maturity claim for this pack"
 
+  contract_exports:
+    type: array
+    description: "Contracts exported by this capability pack"
+    items:
+      type: object
+      required:
+        - contract_id
+        - module
+        - version
+      properties:
+        contract_id:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        module:
+          type: string
+          pattern: "^(app\\.)?capabilities\\.[a-z0-9_]+\\.schema(?:\\.[A-Za-z0-9_]+)+$"
+        version:
+          type: string
+          pattern: "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?(?:[-+][A-Za-z0-9_.-]+)?$"
+        legacy_aliases:
+          type: array
+          items:
+            type: string
+            pattern: "^(shared|backend\\.shared)\\.schemas\\.[A-Za-z0-9_]+$"
+
+  contract_imports:
+    type: array
+    description: "Contracts this capability expects another pack to provide"
+    items:
+      type: object
+      required:
+        - contract_id
+        - provider_pack
+        - version_range
+      properties:
+        contract_id:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        provider_pack:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        version_range:
+          type: string
+          pattern: "^[\\^~<>=!, 0-9A-Za-z_.-]+$"
+
+  meeting_artifact_producers:
+    type: array
+    description: "Meeting TaskIR artifact producers exposed by this capability pack"
+    items:
+      type: object
+      required:
+        - mime_type
+        - backend
+        - input_contract
+      properties:
+        mime_type:
+          type: string
+          pattern: "^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+(?:\\+[A-Za-z0-9!#$&^_.+-]+)?$"
+        backend:
+          type: string
+          pattern: "^capabilities\\.[a-z0-9_]+\\.[A-Za-z0-9_\\.]+:[A-Za-z_][A-Za-z0-9_]*$"
+        governance_request_key:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        input_contract:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        description:
+          type: string
+
   # ============================================================================
   # Portability declaration (required)
   # ============================================================================

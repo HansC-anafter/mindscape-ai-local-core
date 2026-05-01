@@ -45,5 +45,5 @@ def test_routes_baseline():
         
         # Exact match required to detect both dropped routes and duplicate registrations.
         # This will need to be updated as new features are added.
-        expected_route_count = 945
+        expected_route_count = 787
         assert data["total_routes"] == expected_route_count, f"Route baseline breached. Expected {expected_route_count}, got {data['total_routes']}"

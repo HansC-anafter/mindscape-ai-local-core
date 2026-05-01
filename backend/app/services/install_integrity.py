@@ -11,6 +11,7 @@ hashes to detect local modifications.
 import hashlib
 import json
 import logging
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -190,3 +191,86 @@ def check_dirty_state(cap_dir: Path) -> DirtyCheckResult:
 
     result.is_dirty = bool(result.modified or result.added or result.deleted)
     return result
+
+
+def _load_installed_file_manifest(cap_dir: Path) -> Dict[str, str]:
+    """Load the managed file list from ``.install_manifest.json``."""
+    manifest_path = cap_dir / MANIFEST_FILENAME
+    if not manifest_path.exists():
+        return {}
+
+    try:
+        with manifest_path.open("r", encoding="utf-8") as f:
+            saved = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Cannot load install manifest for stale-file pruning: %s", exc)
+        return {}
+
+    files = saved.get("files", {})
+    return files if isinstance(files, dict) else {}
+
+
+def _remove_empty_parents(path: Path, stop_at: Path) -> None:
+    """Remove empty parent directories up to, but not including, ``stop_at``."""
+    parent = path.parent
+    stop_at = stop_at.resolve()
+    while parent.exists() and parent.resolve() != stop_at:
+        try:
+            parent.rmdir()
+        except OSError:
+            break
+        parent = parent.parent
+
+
+def prune_stale_installed_files(
+    installed_cap_dir: Path, incoming_cap_dir: Path
+) -> List[str]:
+    """
+    Remove previously managed files that are absent from the incoming mindpack.
+
+    Dirty-state detection protects local modifications before install starts. This
+    pruning step handles the complementary case: a file was installed by an older
+    pack version, then removed from cloud source, and should not remain in the
+    local-core mirror after reinstall.
+    """
+    if not installed_cap_dir.exists() or not incoming_cap_dir.exists():
+        return []
+
+    installed_files = _load_installed_file_manifest(installed_cap_dir)
+    if not installed_files:
+        return []
+
+    incoming_files = set(compute_dir_hashes(incoming_cap_dir).keys())
+    pruned: List[str] = []
+
+    for rel_path in sorted(installed_files):
+        if rel_path in incoming_files:
+            continue
+
+        target = installed_cap_dir / rel_path
+        try:
+            resolved_target = target.resolve()
+            resolved_root = installed_cap_dir.resolve()
+        except OSError:
+            continue
+        if resolved_root not in resolved_target.parents:
+            logger.warning("Skipping stale-file prune outside capability root: %s", target)
+            continue
+        if not target.exists() and not target.is_symlink():
+            continue
+
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+        _remove_empty_parents(target, installed_cap_dir)
+        pruned.append(rel_path)
+
+    if pruned:
+        logger.info(
+            "Pruned %d stale managed file(s) from %s: %s",
+            len(pruned),
+            installed_cap_dir,
+            ", ".join(pruned),
+        )
+    return pruned

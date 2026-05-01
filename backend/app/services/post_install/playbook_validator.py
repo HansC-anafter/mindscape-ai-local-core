@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Callable
 
+from backend.app.services.runtime_contract_paths import build_validation_pythonpath
+
 logger = logging.getLogger(__name__)
 
 
@@ -131,7 +133,10 @@ class PlaybookValidator:
                     **dict(os.environ),
                     "LLM_MOCK": "false",  # Skip execution test, no mock needed
                     "BASE_URL": "http://localhost:8200",
-                    "PYTHONPATH": f"{self.local_core_root}:{self.local_core_root / 'backend'}",
+                    "PYTHONPATH": build_validation_pythonpath(
+                        self.local_core_root,
+                        self.capabilities_dir,
+                    ),
                     "CAPABILITIES_PATH": str(self.capabilities_dir)
                 }
             )
@@ -415,4 +420,3 @@ class PlaybookValidator:
             result.add_warning(
                 f"Playbook validation skipped for: {validation_results['skipped']}"
             )
-

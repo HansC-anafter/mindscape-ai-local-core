@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from backend.app.core.runtime_port import RuntimePort
+from backend.app.services.runtime_contract_paths import (
+    prepend_import_paths,
+    resolve_capability_runtime_import_roots,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -128,10 +132,11 @@ class CapabilityRuntimeLoader:
             # Parse class path (e.g., "langgraph_runtime.LangGraphRuntime")
             module_name, class_name = class_path.rsplit(".", 1)
 
-            # Add pack directory to Python path temporarily
-            pack_dir_str = str(pack_path)
-            if pack_dir_str not in sys.path:
-                sys.path.insert(0, pack_dir_str)
+            original_sys_path = list(sys.path)
+            prepend_import_paths(
+                sys.path,
+                [pack_path, *resolve_capability_runtime_import_roots(pack_path)],
+            )
 
             try:
                 # Import module
@@ -151,9 +156,7 @@ class CapabilityRuntimeLoader:
                 return runtime
 
             finally:
-                # Remove from path
-                if pack_dir_str in sys.path:
-                    sys.path.remove(pack_dir_str)
+                sys.path[:] = original_sys_path
 
         except Exception as e:
             logger.error(

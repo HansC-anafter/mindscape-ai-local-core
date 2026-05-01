@@ -7,6 +7,7 @@ from backend.app.services.install_integrity import (
     MANIFEST_FILENAME,
     check_dirty_state,
     compute_dir_hashes,
+    prune_stale_installed_files,
     save_install_manifest,
 )
 
@@ -136,3 +137,37 @@ def test_check_dirty_state_fail_closed_when_manifest_path_is_directory(tmp_path:
     result = check_dirty_state(tmp_path)
     assert result.is_dirty is True
     assert result.modified == ["<manifest unreadable — cannot determine changes>"]
+
+
+def test_prune_stale_installed_files_removes_managed_files_absent_from_incoming(
+    tmp_path: Path,
+):
+    installed = tmp_path / "installed"
+    incoming = tmp_path / "incoming"
+    _write(installed / "manifest.yaml", "version: 1\n")
+    _write(installed / "playbooks" / "specs" / "legacy.json", "{}")
+    _write(installed / "playbooks" / "specs" / "current.json", "{}")
+    save_install_manifest(installed, "1.0.0", compute_dir_hashes(installed))
+
+    _write(incoming / "manifest.yaml", "version: 1\n")
+    _write(incoming / "playbooks" / "specs" / "current.json", "{}")
+
+    pruned = prune_stale_installed_files(installed, incoming)
+
+    assert pruned == ["playbooks/specs/legacy.json"]
+    assert not (installed / "playbooks" / "specs" / "legacy.json").exists()
+    assert (installed / "playbooks" / "specs" / "current.json").exists()
+
+
+def test_prune_stale_installed_files_keeps_unmanaged_local_files(tmp_path: Path):
+    installed = tmp_path / "installed"
+    incoming = tmp_path / "incoming"
+    _write(installed / "manifest.yaml", "version: 1\n")
+    save_install_manifest(installed, "1.0.0", compute_dir_hashes(installed))
+    _write(installed / "local_note.txt", "keep")
+    _write(incoming / "manifest.yaml", "version: 1\n")
+
+    pruned = prune_stale_installed_files(installed, incoming)
+
+    assert pruned == []
+    assert (installed / "local_note.txt").exists()

@@ -5,9 +5,11 @@ Checks if dependencies are available (Python modules, environment variables, sys
 """
 
 import importlib
+import json
 import logging
 import os
 import subprocess
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -15,6 +17,14 @@ logger = logging.getLogger(__name__)
 
 class DependencyChecker:
     """Checks dependency availability"""
+
+    def __init__(
+        self,
+        local_core_root: Path | None = None,
+        capabilities_dir: Path | None = None,
+    ):
+        self.local_core_root = Path(local_core_root) if local_core_root else None
+        self.capabilities_dir = Path(capabilities_dir) if capabilities_dir else None
 
     def check_dependencies(
         self,
@@ -36,16 +46,16 @@ class DependencyChecker:
             # Legacy format or no dependencies declared
             return [], [], [], [], {}
 
-        # Check required dependencies
+        # Check required Python dependencies
         required_deps = dependencies.get('required', [])
-        missing_required = []
+        missing_python_required = []
         for dep in required_deps:
             if not self.is_dependency_available(dep):
-                missing_required.append(dep)
+                missing_python_required.append(dep)
 
-        # Check optional dependencies
+        # Check optional Python dependencies
         optional_deps = dependencies.get('optional', [])
-        missing_optional = []
+        missing_python_optional = []
         degraded_features_map = {}
         for opt_dep in optional_deps:
             dep_name = opt_dep if isinstance(opt_dep, str) else opt_dep.get('name', '')
@@ -53,7 +63,7 @@ class DependencyChecker:
                 continue
 
             if not self.is_dependency_available(dep_name):
-                missing_optional.append(dep_name)
+                missing_python_optional.append(dep_name)
                 # Build degraded features map
                 if isinstance(opt_dep, dict):
                     degraded_features = opt_dep.get('degraded_features', [])
@@ -105,6 +115,22 @@ class DependencyChecker:
                             f"Install with: apt-get install {tool_name} (Linux) or brew install {tool_name} (macOS)"
                         )
 
+        missing_pack_required, missing_pack_optional = self._check_pack_dependencies(
+            manifest.get("pack_dependencies", {})
+        )
+        missing_contract_imports = self._check_contract_imports(
+            manifest.get("contract_imports", [])
+        )
+        missing_required = [
+            *missing_python_required,
+            *missing_pack_required,
+            *missing_contract_imports,
+        ]
+        missing_optional = [
+            *missing_python_optional,
+            *missing_pack_optional,
+        ]
+
         # Add to result for reporting
         if missing_required:
             if not result.missing_dependencies:
@@ -122,8 +148,82 @@ class DependencyChecker:
             if not result.missing_dependencies:
                 result.missing_dependencies = {}
             result.missing_dependencies["system_tools"] = missing_system_tools
+        if missing_python_required:
+            result.missing_dependencies["python_required"] = missing_python_required
+        if missing_pack_required:
+            result.missing_dependencies["pack_dependencies_required"] = missing_pack_required
+        if missing_pack_optional:
+            result.missing_dependencies["pack_dependencies_optional"] = missing_pack_optional
+        if missing_contract_imports:
+            result.missing_dependencies["contract_imports"] = missing_contract_imports
 
         return missing_required, missing_optional, missing_external, missing_system_tools, degraded_features_map
+
+    def _check_pack_dependencies(self, pack_dependencies: Dict) -> Tuple[List[str], List[str]]:
+        if not self.capabilities_dir or not isinstance(pack_dependencies, dict):
+            return [], []
+
+        missing_required = [
+            dep
+            for dep in self._dependency_codes(pack_dependencies.get("required", []))
+            if not (self.capabilities_dir / dep).exists()
+        ]
+        missing_optional = [
+            dep
+            for dep in self._dependency_codes(pack_dependencies.get("optional", []))
+            if not (self.capabilities_dir / dep).exists()
+        ]
+        return missing_required, missing_optional
+
+    def _check_contract_imports(self, contract_imports: List[Dict]) -> List[str]:
+        if not self.local_core_root or not isinstance(contract_imports, list):
+            return []
+
+        contracts = self._load_contract_registry()
+        missing = []
+        for contract_import in contract_imports:
+            if not isinstance(contract_import, dict):
+                continue
+            contract_id = str(contract_import.get("contract_id") or "").strip()
+            provider_pack = str(contract_import.get("provider_pack") or "").strip()
+            version_range = str(contract_import.get("version_range") or "").strip()
+            if not contract_id or not provider_pack:
+                continue
+            if any(
+                contract.get("contract_id") == contract_id
+                and contract.get("provider_pack") == provider_pack
+                for contract in contracts
+            ):
+                continue
+            label = f"{contract_id}@{provider_pack}"
+            if version_range:
+                label = f"{label} ({version_range})"
+            missing.append(label)
+        return missing
+
+    def _load_contract_registry(self) -> List[Dict]:
+        if not self.local_core_root:
+            return []
+        registry_path = self.local_core_root / "data" / "runtime_contracts" / "registry.json"
+        if not registry_path.exists():
+            return []
+        try:
+            payload = json.loads(registry_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+        contracts = payload.get("contracts", [])
+        return contracts if isinstance(contracts, list) else []
+
+    def _dependency_codes(self, dependencies: List) -> List[str]:
+        codes = []
+        for dep in dependencies or []:
+            if isinstance(dep, str):
+                codes.append(dep)
+            elif isinstance(dep, dict):
+                code = dep.get("code") or dep.get("name")
+                if code:
+                    codes.append(str(code))
+        return codes
 
     def is_dependency_available(self, dep_name: str) -> bool:
         """
@@ -185,4 +285,3 @@ class DependencyChecker:
                 return result.returncode == 0
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 return False
-

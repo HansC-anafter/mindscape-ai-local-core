@@ -16,6 +16,10 @@ from app.services.install_result import InstallResult
 from app.services.pack_activation_service import PackActivationService
 from app.services.playbook_installer import PlaybookInstaller
 from app.services.post_install_modules.playbook_validator import PlaybookValidator
+from app.services.restart_safety import (
+    format_restart_blocker_detail,
+    inspect_restart_blockers,
+)
 from app.services.restart_webhook import get_restart_webhook_service
 from app.services.stores.installed_packs_store import InstalledPacksStore
 
@@ -168,6 +172,14 @@ async def _run_validation_task(
         )
 
         if restart_required:
+            blockers = inspect_restart_blockers()
+            if blockers.get("blocked"):
+                logger.info(
+                    "Deferred background restart webhook for %s because restart blockers are present: %s",
+                    pack_id,
+                    format_restart_blocker_detail(blockers),
+                )
+                return
             webhook_service = get_restart_webhook_service()
             if webhook_service.is_configured():
                 cap_validator = CapabilityValidator([Path("/app/backend/app/capabilities")])

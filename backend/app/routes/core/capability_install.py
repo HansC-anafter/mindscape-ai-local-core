@@ -26,7 +26,6 @@ from fastapi import (
     UploadFile,
 )
 from pydantic import BaseModel, Field
-from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 
 from backend.app.core.backend_runtime_mode import (
@@ -35,6 +34,10 @@ from backend.app.core.backend_runtime_mode import (
 )
 from app.services.pack_activation_service import PackActivationService
 from app.services.stores.installed_packs_store import InstalledPacksStore
+from app.services.restart_safety import (
+    format_restart_blocker_detail,
+    inspect_restart_blockers,
+)
 from app.services.restart_webhook import get_restart_webhook_service
 from app.services.tool_rag_refresh import refresh_tool_rag_corpus
 
@@ -141,77 +144,7 @@ def _supports_file_touch_reload() -> bool:
 
 def _inspect_auto_reload_blockers() -> Dict[str, Any]:
     """Return whether auto reload should be deferred to avoid killing active work."""
-    try:
-        from app.services.stores.compile_job_store import CompileJobStore
-
-        store = CompileJobStore()
-        with store.get_connection() as conn:
-            active_compile_jobs = int(
-                conn.execute(
-                    text(
-                        """
-                        SELECT COUNT(*)
-                        FROM compile_jobs
-                        WHERE status IN ('accepted', 'running')
-                        """
-                    )
-                ).scalar()
-                or 0
-            )
-            active_meeting_sessions = int(
-                conn.execute(
-                    text(
-                        """
-                        SELECT COUNT(*)
-                        FROM meeting_sessions
-                        WHERE ended_at IS NULL
-                          AND status IN ('planned', 'active', 'closing')
-                        """
-                    )
-                ).scalar()
-                or 0
-            )
-            active_pending_dispatch = int(
-                conn.execute(
-                    text(
-                        """
-                        SELECT COUNT(*)
-                        FROM pending_dispatch
-                        WHERE status IN ('pending', 'no_client', 'picked')
-                          AND completed_at IS NULL
-                        """
-                    )
-                ).scalar()
-                or 0
-            )
-        if (
-            active_compile_jobs > 0
-            or active_meeting_sessions > 0
-            or active_pending_dispatch > 0
-        ):
-            return {
-                "blocked": True,
-                "reason": "active_workloads",
-                "active_compile_jobs": active_compile_jobs,
-                "active_meeting_sessions": active_meeting_sessions,
-                "active_pending_dispatch": active_pending_dispatch,
-            }
-        return {
-            "blocked": False,
-            "active_compile_jobs": 0,
-            "active_meeting_sessions": 0,
-            "active_pending_dispatch": 0,
-        }
-    except Exception as exc:
-        logger.warning("Failed to inspect auto reload blockers: %s", exc)
-        return {
-            "blocked": True,
-            "reason": "blocker_inspection_failed",
-            "error": str(exc),
-            "active_compile_jobs": None,
-            "active_meeting_sessions": None,
-            "active_pending_dispatch": None,
-        }
+    return inspect_restart_blockers()
 
 
 def _handle_dev_mode_reload_trigger(
@@ -425,6 +358,38 @@ def _set_validation_followup_result(
 
 def _should_run_restart_webhook(pipeline: InstallPipelineResult) -> bool:
     return bool(pipeline.restart_required and pipeline.webhook_result is None)
+
+
+def _defer_restart_webhook_if_blocked(
+    *,
+    pipeline: InstallPipelineResult,
+    result: Any,
+    capability_code: str,
+) -> bool:
+    """Prevent restart webhooks from killing active meeting/runtime work."""
+    if not pipeline.restart_required or pipeline.webhook_result is not None:
+        return False
+
+    blockers = inspect_restart_blockers()
+    if not blockers.get("blocked"):
+        return False
+
+    detail = format_restart_blocker_detail(blockers)
+    reason = blockers.get("reason") or "restart_blocked"
+    result.add_warning(
+        f"Deferred backend restart webhook for {capability_code}: active or unknown workloads are present ({detail})."
+    )
+    pipeline.webhook_result = {
+        "sent": False,
+        "reason": reason,
+        "detail": detail,
+    }
+    logger.info(
+        "Deferred restart webhook for %s because restart blockers are present: %s",
+        capability_code,
+        detail,
+    )
+    return True
 
 
 def _sync_install_time_registries(
@@ -702,6 +667,26 @@ async def run_install_pipeline(
             temp_dir,
         )
 
+        try:
+            from app.services.install_integrity import prune_stale_installed_files
+
+            pruned_files = await run_in_threadpool(
+                prune_stale_installed_files,
+                capabilities_dir / capability_code,
+                cap_dir,
+            )
+            if pruned_files:
+                result.add_warning(
+                    f"Pruned {len(pruned_files)} stale managed file(s) from {capability_code}."
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to prune stale installed files for %s: %s",
+                capability_code,
+                exc,
+            )
+            result.add_warning(f"Failed to prune stale installed files: {exc}")
+
         # Migrations
         await run_in_threadpool(
             runtime_installer.execute_migrations,
@@ -805,6 +790,11 @@ async def run_install_pipeline(
                 capability_code=capability_code,
                 env=env,
             )
+        _defer_restart_webhook_if_blocked(
+            pipeline=pipeline,
+            result=result,
+            capability_code=capability_code,
+        )
 
         # Check for errors
         if result.has_errors():
@@ -979,7 +969,10 @@ async def run_install_pipeline(
                     manifest_path=installed_manifest_path
                     if installed_manifest_path.exists()
                     else None,
-                    restart_required=pipeline.restart_required,
+                    restart_required=bool(
+                        pipeline.restart_required
+                        and pipeline.webhook_result is None
+                    ),
                     version=pack_metadata.get("version", "1.0.0"),
                     extra_metadata=extra_metadata,
                 )
@@ -1094,7 +1087,6 @@ async def run_install_pipeline(
         return pipeline
 
     finally:
-        # Clean up temp extraction directory
         if temp_dir and temp_dir.exists():
             import shutil
 
@@ -1137,7 +1129,6 @@ async def install_from_file(
         overwrite_confirmation=overwrite_confirmation,
     )
 
-    # Save upload to a known-writable temp file instead of relying on /tmp.
     temp_dir = _resolve_runtime_temp_dir()
     with tempfile.NamedTemporaryFile(
         delete=False, suffix=".mindpack", dir=temp_dir
