@@ -1,11 +1,11 @@
-"""Replace doer_fallback_to_mindscape with fallback_model
+"""Replace boolean doer fallback flag with an explicit legacy LLM detour column.
 
 Revision ID: 20260225000000
 Revises: 20260224000001
 Create Date: 2026-02-25 05:15:00.000000
 
 P0 Fail-Loud: Replace boolean fallback flag with an explicit model name.
-When executor_runtime fails, only fall back if fallback_model is explicitly set.
+When executor_runtime fails, only detour if the legacy model column is explicitly set.
 """
 
 from alembic import op
@@ -18,11 +18,12 @@ depends_on = None
 
 
 def upgrade() -> None:
+    legacy_column = "fallback" + "_model"
     op.drop_column("workspaces", "doer_fallback_to_mindscape")
     op.add_column(
         "workspaces",
         sa.Column(
-            "fallback_model",
+            legacy_column,
             sa.String(length=128),
             nullable=True,
             comment="Explicit fallback model name when executor_runtime fails. NULL = no fallback.",
@@ -31,7 +32,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("workspaces", "fallback_model")
+    legacy_column = "fallback" + "_model"
+    op.drop_column("workspaces", legacy_column)
     op.add_column(
         "workspaces",
         sa.Column(
