@@ -48,9 +48,7 @@ async def _load_workspace(workspace_id: Optional[str]) -> Optional[Any]:
 def _resolve_workspace_runtime(workspace: Optional[Any]) -> Optional[str]:
     if workspace is None:
         return None
-    return getattr(workspace, "resolved_executor_runtime", None) or getattr(
-        workspace, "executor_runtime", None
-    )
+    return getattr(workspace, "resolved_executor_runtime", None)
 
 
 async def _call_via_runtime(

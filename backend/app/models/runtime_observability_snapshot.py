@@ -28,7 +28,7 @@ class RuntimeObservabilitySnapshot(BaseModel):
     )
     selection_reason: str = Field(
         default="default",
-        description="Why this runtime was selected (primary | pool_rotation | fallback | default)",
+        description="Reason code explaining why this runtime was selected.",
     )
     runtime_name: Optional[str] = Field(
         default=None,

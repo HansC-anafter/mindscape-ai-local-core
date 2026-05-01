@@ -18,6 +18,7 @@ from backend.app.services.executor_route_resolver import ExecutorRouteSelection
 _BINDINGS_KEY = "executor_route_bindings"
 _SUPPORTED_SURFACES = frozenset({"codex_cli", "gemini_cli"})
 _VALID_BINDING_STATES = frozenset({"configured", "resolved", "faulted"})
+_VALID_POLICY_MODES = frozenset({"pinned_runtime", "unbound_runtime", "pool_rotation"})
 _VALID_LEASE_STATES = frozenset({"active"})
 
 
@@ -123,7 +124,7 @@ class ExecutorBindingService:
         Explicit route bindings win. Otherwise, a previously resolved concrete
         runtime is reused until it is marked faulted. Session-scoped leases win
         over the generic binding snapshot for the matching owner, which gives
-        governed callers sticky ownership without re-entering global rotation.
+        governed callers sticky ownership without enabling runtime substitution.
         """
 
         workspace_id = selection.effective_workspace_id or selection.requested_workspace_id
@@ -164,11 +165,15 @@ class ExecutorBindingService:
             if binding_snapshot
             else None
         )
+        allow_pool_rotation = (
+            self._clean_string(selection.selection_reason) == "workspace_pool"
+        )
 
         explicit_runtime_id = self._clean_string(selection.preferred_runtime_id)
         if explicit_runtime_id:
             return {
                 "preferred_runtime_id": explicit_runtime_id,
+                "allow_runtime_substitution": False,
                 "allow_fallback": False,
                 "preference_source": "executor_route",
                 "binding_runtime_id": binding_runtime_id,
@@ -191,7 +196,8 @@ class ExecutorBindingService:
         ):
             return {
                 "preferred_runtime_id": binding_lease_runtime_id,
-                "allow_fallback": True,
+                "allow_runtime_substitution": allow_pool_rotation,
+                "allow_fallback": allow_pool_rotation,
                 "preference_source": "session_lease",
                 "binding_runtime_id": binding_runtime_id,
                 "binding_state": binding_state,
@@ -205,6 +211,7 @@ class ExecutorBindingService:
         if binding_runtime_id and binding_state != "faulted":
             return {
                 "preferred_runtime_id": binding_runtime_id,
+                "allow_runtime_substitution": False,
                 "allow_fallback": False,
                 "preference_source": "binding_snapshot",
                 "binding_runtime_id": binding_runtime_id,
@@ -218,8 +225,11 @@ class ExecutorBindingService:
 
         return {
             "preferred_runtime_id": None,
-            "allow_fallback": True,
-            "preference_source": "pool_rotation",
+            "allow_runtime_substitution": allow_pool_rotation,
+            "allow_fallback": allow_pool_rotation,
+            "preference_source": (
+                "pool_rotation" if allow_pool_rotation else "no_bound_runtime"
+            ),
             "binding_runtime_id": binding_runtime_id,
             "binding_state": binding_state,
             "binding_snapshot": binding_snapshot,
@@ -557,7 +567,7 @@ class ExecutorBindingService:
             "binding_revision": next_revision,
             "binding_state": "configured",
             "selection_reason": None,
-            "policy_mode": "pool_rotation",
+            "policy_mode": "unbound_runtime",
             "configured_at": now,
             "updated_at": now,
             "last_requested_workspace_id": None,
@@ -609,8 +619,8 @@ class ExecutorBindingService:
             else None
         ) or lease_acquired_at
         policy_mode = self._clean_string(entry.get("policy_mode"))
-        if policy_mode not in {"pinned_runtime", "pool_rotation"}:
-            policy_mode = "pinned_runtime" if preferred_runtime_id else "pool_rotation"
+        if policy_mode not in _VALID_POLICY_MODES:
+            policy_mode = "pinned_runtime" if preferred_runtime_id else "unbound_runtime"
 
         return {
             "executor_runtime": surface,

@@ -140,7 +140,6 @@ class MindscapeProfile(BaseModel):
         description="External references (e.g., tenant_uuid, site_uuid) - optional, used by external extensions",
     )
 
-    # Tags for categorization and template export
     tags: List[str] = Field(
         default_factory=list,
         description="Tags for profile categorization (e.g., 'wordpress-site-owner', 'agency')",
@@ -548,9 +547,7 @@ class TagCategory(str, Enum):
     THEME = "theme"  # Topic themes (e.g., "AI", "entrepreneurship", "product design")
     PHASE = "phase"  # Project phases (e.g., "planning", "execution", "review")
     MOOD = "mood"  # Emotional states (e.g., "excited", "stressed", "focused")
-    PRIORITY = (
-        "priority"  # Priority levels (e.g., "urgent", "important", "nice-to-have")
-    )
+    PRIORITY = "priority"
     RISK = "risk"  # Risk indicators (e.g., "high-risk", "blocked", "uncertain")
 
 

@@ -31,8 +31,10 @@ class ExecutorRouteSelection:
 
     @property
     def policy_mode(self) -> str:
-        """Pinned when a concrete runtime is pre-selected, else pool rotation."""
-        return "pinned_runtime" if self.preferred_runtime_id else "pool_rotation"
+        """Pinned when a concrete runtime is pre-selected, else no concrete runtime is bound yet."""
+        if self.selection_reason == "workspace_pool" and not self.preferred_runtime_id:
+            return "pool_rotation"
+        return "pinned_runtime" if self.preferred_runtime_id else "unbound_runtime"
 
 
 class ExecutorRouteResolver:
@@ -103,4 +105,3 @@ class ExecutorRouteResolver:
         from backend.app.services.gca_workspace_resolver import GCAWorkspaceResolver
 
         return GCAWorkspaceResolver()
-

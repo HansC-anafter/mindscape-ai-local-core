@@ -34,6 +34,11 @@ def determine_provider_from_model(model_name: str) -> Optional[str]:
         return "openai"
     elif "claude" in model_lower:
         return "anthropic"
+    elif any(
+        token in model_lower
+        for token in ("llama", "mistral", "gemma", "deepseek", "qwen", "phi")
+    ):
+        return "ollama"
     return None
 
 
@@ -274,7 +279,8 @@ def get_llm_provider(
     if not provider_name:
         raise ValueError(
             f"Cannot determine provider for model '{model_name}'. "
-            f"Supported models: gemini-*, gpt-*, o1-*, o3-*, claude-*"
+            f"Supported models: gemini-*, gpt-*, o1-*, o3-*, claude-*, "
+            f"and local Ollama model names such as llama*, gemma*, qwen*"
         )
 
     # Get or create provider manager

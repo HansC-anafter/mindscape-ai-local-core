@@ -1,7 +1,7 @@
 """
 Capability Profile Endpoints
 
-Handles capability profile configuration and workspace overrides.
+Handles capability profile configuration and deployment-scoped model bindings.
 """
 
 from fastapi import APIRouter, HTTPException, Body
@@ -18,12 +18,15 @@ async def get_capability_profiles():
     """Get capability profile configuration"""
     try:
         from backend.app.services.system_settings_store import SystemSettingsStore
+        from backend.app.services.model_routing_policy_service import (
+            ModelRoutingPolicyService,
+        )
 
         settings_store = SystemSettingsStore()
+        routing_service = ModelRoutingPolicyService(settings_store=settings_store)
 
         return {
             "capability_profile_mapping": settings_store.get_capability_profile_mapping(),
-            "profile_model_map": settings_store.get_profile_model_map(),
             "profile_model_bindings": settings_store.get_profile_model_bindings(),
             "custom_model_provider_mapping": settings_store.get_custom_model_provider_mapping(),
         }
@@ -39,9 +42,6 @@ async def update_capability_profiles(
     capability_profile_mapping: Optional[Dict[str, str]] = Body(
         None, description="Stage to capability profile mapping"
     ),
-    profile_model_map: Optional[Dict[str, str]] = Body(
-        None, description="Profile to model mapping (single model per profile)"
-    ),
     profile_model_bindings: Optional[Dict[str, Dict[str, str]]] = Body(
         None,
         description="Deployment-scoped profile to model mapping "
@@ -54,15 +54,15 @@ async def update_capability_profiles(
     """Update capability profile configuration"""
     try:
         from backend.app.services.system_settings_store import SystemSettingsStore
+        from backend.app.services.model_routing_policy_service import (
+            ModelRoutingPolicyService,
+        )
 
         settings_store = SystemSettingsStore()
-
         if capability_profile_mapping is not None:
             settings_store.set_capability_profile_mapping(capability_profile_mapping)
         if profile_model_bindings is not None:
             settings_store.set_profile_model_bindings(profile_model_bindings)
-        if profile_model_map is not None:
-            settings_store.set_profile_model_map(profile_model_map)
         if custom_model_provider_mapping is not None:
             settings_store.set_custom_model_provider_mapping(
                 custom_model_provider_mapping
@@ -71,7 +71,6 @@ async def update_capability_profiles(
         return {
             "status": "success",
             "capability_profile_mapping": settings_store.get_capability_profile_mapping(),
-            "profile_model_map": settings_store.get_profile_model_map(),
             "profile_model_bindings": settings_store.get_profile_model_bindings(),
             "custom_model_provider_mapping": settings_store.get_custom_model_provider_mapping(),
         }

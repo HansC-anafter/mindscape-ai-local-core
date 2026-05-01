@@ -24,6 +24,7 @@ from backend.app.models.system_settings import (
     ModelType,
     SettingType,
 )
+from backend.app.services.model_routing_policy_service import ModelRoutingPolicyService
 
 logger = logging.getLogger(__name__)
 
@@ -38,18 +39,11 @@ async def get_llm_model_settings(
 ):
     """Get LLM model configurations (chat and embedding models)"""
     try:
-        chat_setting = settings_store.get_setting("chat_model")
+        routing_service = ModelRoutingPolicyService(settings_store=settings_store)
+        chat_payload = routing_service.build_workspace_chat_payload()
         embedding_setting = settings_store.get_setting("embedding_model")
 
-        chat_model = None
-        if chat_setting:
-            chat_model = LLMModelConfig(
-                model_name=str(chat_setting.value),
-                provider=chat_setting.metadata.get("provider", "openai"),
-                model_type=ModelType.CHAT,
-                api_key_setting_key=chat_setting.metadata.get("api_key_setting_key"),
-                metadata=chat_setting.metadata,
-            )
+        chat_model = chat_payload.get("chat_model")
 
         embedding_model = None
         if embedding_setting:
@@ -70,15 +64,8 @@ async def get_llm_model_settings(
         _store = ModelConfigStore()
         _enabled_chat = _store.get_all_models(model_type=MT.CHAT, enabled=True)
         available_chat_models = (
-            [
-                {
-                    "model_name": m.model_name,
-                    "provider": m.provider_name,
-                    "description": m.description or "",
-                }
-                for m in _enabled_chat
-            ]
-            if _enabled_chat
+            chat_payload.get("available_chat_models")
+            if _enabled_chat or chat_payload.get("available_chat_models")
             else DEFAULT_CHAT_MODELS
         )
         available_embedding_models = DEFAULT_EMBEDDING_MODELS
@@ -161,30 +148,12 @@ async def update_chat_model(
 ):
     """Update chat/conversation model configuration"""
     try:
-        metadata = {"provider": provider, "model_type": "chat"}
-        if api_key_setting_key:
-            metadata["api_key_setting_key"] = api_key_setting_key
-
-        setting = SystemSetting(
-            key="chat_model",
-            value=model_name,
-            value_type=SettingType.STRING,
-            category="llm",
-            description="Model for chat/conversation inference",
-            is_sensitive=False,
-            is_user_editable=True,
-            metadata=metadata,
+        payload = ModelRoutingPolicyService(settings_store=settings_store).update_chat_default(
+            model_name=model_name,
+            provider=provider,
+            api_key_setting_key=api_key_setting_key,
         )
-
-        updated = settings_store.save_setting(setting)
-
-        return LLMModelConfig(
-            model_name=str(updated.value),
-            provider=updated.metadata.get("provider", "openai"),
-            model_type=ModelType.CHAT,
-            api_key_setting_key=updated.metadata.get("api_key_setting_key"),
-            metadata=updated.metadata,
-        )
+        return payload["chat_model"]
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to update chat model: {str(e)}"
@@ -293,13 +262,18 @@ async def test_chat_model_connection(
     try:
         import os
         from backend.app.services.config_store import ConfigStore
+        from backend.app.services.model_routing_policy_service import (
+            ModelRoutingPolicyService,
+        )
 
         if not model_name:
-            chat_setting = settings_store.get_setting("chat_model")
-            if not chat_setting:
+            resolved_route = ModelRoutingPolicyService(
+                settings_store=settings_store
+            ).resolve_chat_default()
+            if not resolved_route.model_name:
                 raise HTTPException(status_code=400, detail="No chat model configured")
-            model_name = str(chat_setting.value)
-            provider = chat_setting.metadata.get("provider", "openai")
+            model_name = str(resolved_route.model_name)
+            provider = resolved_route.provider or "openai"
         else:
             if model_name.startswith("gpt") or model_name.startswith("text-"):
                 provider = "openai"

@@ -24,7 +24,7 @@ def migrate_chat_model_to_capability_profile():
     Migration logic:
     1. Read existing chat_model
     2. Derive default capability profile mapping based on model name
-    3. Set capability_profile_mapping and profile_model_mapping
+    3. Set capability_profile_mapping and profile_model_bindings
     """
     settings_store = SystemSettingsStore()
     chat_setting = settings_store.get_setting("chat_model")
@@ -62,7 +62,7 @@ def migrate_chat_model_to_capability_profile():
     logger.info(f"Set capability_profile_mapping: {default_mapping}")
 
     # Set profile to model mapping (single model per profile, new format)
-    profile_model_map = {
+    local_profile_bindings = {
         "fast": model_name,
         "standard": model_name,
         "precise": model_name,
@@ -70,8 +70,13 @@ def migrate_chat_model_to_capability_profile():
         "safe_write": model_name,
     }
 
-    settings_store.set_profile_model_map(profile_model_map)
-    logger.info(f"Set profile_model_map for {len(profile_model_map)} profiles")
+    settings_store.set_profile_model_bindings(
+        {"local": local_profile_bindings, "cloud": {}}
+    )
+    logger.info(
+        "Set profile_model_bindings.local for %d profiles",
+        len(local_profile_bindings),
+    )
 
     logger.info("Migration completed successfully")
 
@@ -79,7 +84,6 @@ def migrate_chat_model_to_capability_profile():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     migrate_chat_model_to_capability_profile()
-
 
 
 

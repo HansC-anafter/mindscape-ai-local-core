@@ -31,7 +31,6 @@ def build_executor_route_context(
 
     executor_runtime = _normalize_runtime(
         getattr(workspace, "resolved_executor_runtime", None)
-        or getattr(workspace, "executor_runtime", None)
     )
     context: dict[str, Any] = {
         "workspace_id": workspace_id,

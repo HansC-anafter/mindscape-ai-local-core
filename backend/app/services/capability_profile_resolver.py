@@ -87,11 +87,11 @@ class CapabilityProfileResolver:
         Returns None if not configured or on any error.
         """
         try:
-            from backend.app.services.system_settings_store import (
-                SystemSettingsStore,
+            from backend.app.services.model_routing_policy_service import (
+                ModelRoutingPolicyService,
             )
 
-            return SystemSettingsStore().get_profile_model_map_for_scope(
+            return ModelRoutingPolicyService().get_profile_bindings_for_scope(
                 deployment_scope
             )
         except Exception:

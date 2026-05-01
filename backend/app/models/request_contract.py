@@ -129,7 +129,7 @@ class RequestContract(BaseModel):
             # Try direct single char
             if len(s) == 1 and s in _CN_NUM:
                 return _CN_NUM[s]
-            # Handle patterns like 三十, 二十五, 十五
+            # Handle compound CJK numerals.
             total = 0
             cur = 0
             for ch in s:

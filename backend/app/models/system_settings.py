@@ -126,11 +126,6 @@ class LLMModelSettingsResponse(BaseModel):
     available_embedding_models: List[Dict[str, Any]] = Field(
         default_factory=list, description="List of available embedding models"
     )
-    profile_model_map: Dict[str, str] = Field(
-        default_factory=dict,
-        description="Capability profile → model name mapping. "
-        "e.g. {'fast': 'gemini-2.0-flash', 'precise': 'gemini-2.5-pro'}",
-    )
     profile_model_bindings: Dict[str, Dict[str, str]] = Field(
         default_factory=dict,
         description="Deployment-scoped capability profile → model mappings. "

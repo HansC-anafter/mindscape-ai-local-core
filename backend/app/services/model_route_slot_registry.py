@@ -579,23 +579,32 @@ class ModelRouteSlotRegistry:
                 ).to_dict()
             )
 
-        profile_model_map = self._system_settings_store.get_profile_model_map()
-        if profile_model_map:
+        from backend.app.services.model_routing_policy_service import (
+            ModelRoutingPolicyService,
+        )
+        from backend.app.services.executor_routing_policy_service import (
+            ExecutorRoutingPolicyService,
+        )
+
+        local_profile_bindings = ModelRoutingPolicyService(
+            settings_store=self._system_settings_store
+        ).get_profile_bindings_for_scope("local")
+        if local_profile_bindings:
             slots.append(
                 self._build_slot(
                     pack_id="local-core",
                     owner_name="Local-Core",
-                    slot_kind="profile_model_map",
-                    title="Profile Model Map",
-                    summary=self._summarize_value(profile_model_map),
+                    slot_kind="profile_model_bindings_local",
+                    title="Local Scoped Profile Bindings",
+                    summary=self._summarize_value(local_profile_bindings),
                     route_family="profile_model_binding",
-                    source="system_settings.profile_model_map",
+                    source="system_settings.profile_model_bindings.local",
                     evidence_path=None,
                     installed=True,
                     enabled=True,
                     owner_kind="local_core",
                     settings_anchor="basic:models-and-quota",
-                    raw={"mapping": profile_model_map},
+                    raw={"bindings": local_profile_bindings},
                 ).to_dict()
             )
 
@@ -618,6 +627,44 @@ class ModelRouteSlotRegistry:
                     raw={"bindings": profile_model_bindings},
                 ).to_dict()
             )
+
+        executor_policy = ExecutorRoutingPolicyService.build_registry_summary()
+        slots.append(
+            self._build_slot(
+                pack_id="local-core",
+                owner_name="Local-Core",
+                slot_kind="executor_route_policy",
+                title="Workspace Executor Runtime Policy",
+                summary="authority=model-routing-registry; surfaces=codex_cli, gemini_cli",
+                route_family="executor_runtime_policy",
+                source="model_routing_registry.executor_route_policy",
+                evidence_path=None,
+                installed=True,
+                enabled=True,
+                owner_kind="local_core",
+                settings_anchor="basic:model-routing-registry",
+                raw=executor_policy,
+            ).to_dict()
+        )
+        slots.append(
+            self._build_slot(
+                pack_id="local-core",
+                owner_name="Local-Core",
+                slot_kind="runtime_substitution_policy",
+                title="Runtime Substitution Policy",
+                summary=self._summarize_value(
+                    executor_policy.get("fallback_policy", {})
+                ),
+                route_family="executor_runtime_policy",
+                source="model_routing_registry.executor_route_policy.fallback_policy",
+                evidence_path=None,
+                installed=True,
+                enabled=True,
+                owner_kind="local_core",
+                settings_anchor="basic:model-routing-registry",
+                raw=executor_policy.get("fallback_policy", {}),
+            ).to_dict()
+        )
 
         return slots
 

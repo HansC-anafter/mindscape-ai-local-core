@@ -134,48 +134,27 @@ class Workspace(BaseModel):
         "Overrides system default for this workspace.",
     )
 
-    # External Runtime configuration (unified for all workspaces)
-    # Users explicitly choose which runtime to use; governance applies automatically
-    executor_runtime: Optional[str] = Field(
-        None,
-        description="Legacy: single executor runtime string. "
-        "Kept for backward compatibility (dual-write). "
-        "Use executor_specs for new code.",
-    )
-    executor_specs: Optional[List[Dict[str, Any]]] = Field(
-        default_factory=list,
-        description="Bound executor specifications (P2 ExecutorSpec). "
-        "Each entry: {runtime_id, display_name, is_primary, config, priority}. "
-        "Stored as JSONB. Supersedes executor_runtime.",
-    )
     sandbox_config: Optional[Dict[str, Any]] = Field(
         None,
         description="Sandbox configuration for external runtime execution: "
         "{filesystem_scope: [...], network_allowlist: [...], tool_policies: {...}, max_execution_time_seconds: int}. "
         "Applied automatically when using external runtimes.",
     )
-    fallback_model: Optional[str] = Field(
-        default=None,
-        description="Explicit fallback model name when executor_runtime fails. "
-        "None = no fallback, report error to user.",
-    )
-
     @property
     def resolved_executor_runtime(self) -> Optional[str]:
-        """Primary executor runtime_id, derived from executor_specs with legacy fallback."""
-        if self.executor_specs:
-            for spec in self.executor_specs:
-                if isinstance(spec, dict) and spec.get("is_primary"):
-                    return spec["runtime_id"]
-            # No primary marked — return first by priority
-            sorted_specs = sorted(
-                self.executor_specs,
-                key=lambda s: s.get("priority", 999) if isinstance(s, dict) else 999,
-            )
-            if sorted_specs:
-                s = sorted_specs[0]
-                return s["runtime_id"] if isinstance(s, dict) else None
-        return self.executor_runtime
+        """Compatibility accessor backed only by model-routing-registry policy."""
+        metadata = self.metadata if isinstance(self.metadata, dict) else {}
+        registry_root = metadata.get("model_routing_registry")
+        if not isinstance(registry_root, dict):
+            return None
+        policy = registry_root.get("executor_route_policy")
+        if not isinstance(policy, dict):
+            return None
+        primary_runtime = policy.get("primary_executor_runtime")
+        if not isinstance(primary_runtime, str):
+            return None
+        cleaned = primary_runtime.strip()
+        return cleaned or None
 
     # Extensible metadata for features (core_memory, preferences, etc.)
     metadata: Optional[Dict[str, Any]] = Field(
@@ -264,17 +243,8 @@ class CreateWorkspaceRequest(BaseModel):
     execution_priority: Optional[str] = Field(
         None, description="Execution priority: 'low' | 'medium' | 'high'"
     )
-    # External Runtime configuration (unified for all workspaces)
-    executor_runtime: Optional[str] = Field(
-        None,
-        description="Selected executor runtime (e.g., 'openclaw', 'gemini_cli'). Null = Mindscape LLM",
-    )
     sandbox_config: Optional[Dict[str, Any]] = Field(
         None, description="Sandbox configuration for runtime execution"
-    )
-    fallback_model: Optional[str] = Field(
-        default=None,
-        description="Explicit fallback model name when executor_runtime fails. None = no fallback.",
     )
     # Workspace launch enhancement fields (optional, can be set via seed/blueprint flow)
     workspace_blueprint: Optional[WorkspaceBlueprint] = Field(
@@ -333,17 +303,8 @@ class UpdateWorkspaceRequest(BaseModel):
         description="Workspace-level capability profile override (fast/standard/precise/tool_strict/safe_write). "
         "Overrides system default for this workspace.",
     )
-    # External Runtime configuration (unified for all workspaces)
-    executor_runtime: Optional[str] = Field(
-        None,
-        description="Selected executor runtime (e.g., 'openclaw', 'gemini_cli'). Null = Mindscape LLM",
-    )
     sandbox_config: Optional[Dict[str, Any]] = Field(
         None, description="Sandbox configuration for runtime execution"
-    )
-    fallback_model: Optional[str] = Field(
-        None,
-        description="Explicit fallback model name when executor_runtime fails. None = no fallback.",
     )
     # Workspace launch enhancement fields (optional)
     workspace_blueprint: Optional[WorkspaceBlueprint] = Field(
@@ -412,11 +373,17 @@ class WorkspaceChatResponse(BaseModel):
     """Response from workspace chat interaction"""
 
     workspace_id: str = Field(..., description="Workspace ID")
+    status: Optional[str] = Field(None, description="Request status")
+    task_id: Optional[str] = Field(None, description="Triggered task or execution ID")
+    event_id: Optional[str] = Field(None, description="Created event ID")
     display_events: list[dict] = Field(
         default_factory=list, description="Recent events to display in timeline"
     )
     triggered_playbook: Optional[dict] = Field(
         None, description="Triggered playbook information (if any)"
+    )
+    object_action: Optional[Dict[str, Any]] = Field(
+        None, description="AOL object action dispatch and closure status"
     )
     pending_tasks: list[dict] = Field(
         default_factory=list, description="Pending task status cards"

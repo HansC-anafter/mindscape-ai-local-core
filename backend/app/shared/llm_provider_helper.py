@@ -54,9 +54,7 @@ def resolve_executor_runtime(
         return executor_runtime
     if workspace is None:
         return None
-    return getattr(workspace, "resolved_executor_runtime", None) or getattr(
-        workspace, "executor_runtime", None
-    )
+    return getattr(workspace, "resolved_executor_runtime", None)
 
 
 def resolve_llm_selection(
@@ -77,18 +75,19 @@ def resolve_llm_selection(
     selection is disabled by default so request-paths do not silently fall back
     to server-side providers like Vertex AI.
     """
-    from backend.app.services.system_settings_store import SystemSettingsStore
+    from backend.app.services.model_routing_policy_service import (
+        ModelRoutingPolicyService,
+    )
 
-    chat_setting = None
+    chat_route = None
     if model_name is None or provider_name is None:
-        settings_store = SystemSettingsStore()
-        chat_setting = settings_store.get_setting("chat_model")
+        chat_route = ModelRoutingPolicyService().resolve_chat_default(
+            default=default_model
+        )
 
     resolved_model_name = model_name
-    if not resolved_model_name and chat_setting and chat_setting.value:
-        resolved_model_name = str(chat_setting.value)
-    if not resolved_model_name and default_model:
-        resolved_model_name = default_model
+    if not resolved_model_name and chat_route and chat_route.model_name:
+        resolved_model_name = chat_route.model_name
     if not resolved_model_name:
         raise ValueError(
             f"chat_model not configured for purpose '{purpose}'. "
@@ -108,9 +107,8 @@ def resolve_llm_selection(
         )
 
     resolved_provider_name = provider_name
-    if not resolved_provider_name and chat_setting:
-        metadata = getattr(chat_setting, "metadata", None) or {}
-        resolved_provider_name = metadata.get("provider")
+    if not resolved_provider_name and chat_route:
+        resolved_provider_name = chat_route.provider
     if not resolved_provider_name and allow_model_inference:
         resolved_provider_name = _infer_provider_name_from_model(resolved_model_name)
     if not resolved_provider_name:
@@ -205,13 +203,9 @@ def get_llm_provider_from_settings(
 
     if not provider:
         available_providers = llm_manager.get_available_providers()
-        from backend.app.services.system_settings_store import SystemSettingsStore
-
-        settings_store = SystemSettingsStore()
-        chat_setting = settings_store.get_setting("chat_model")
         resolved_model_name = (
             selection.model_name
-            or (str(chat_setting.value) if chat_setting and chat_setting.value else "unknown")
+            or "unknown"
         )
 
         # Provide specific error message based on provider type
@@ -256,15 +250,11 @@ def get_model_name_from_chat_model(default: Optional[str] = None) -> Optional[st
     Returns:
         Model name (e.g., 'gemini-2.5-pro', 'gpt-4o-mini') or None if not configured
     """
-    from backend.app.services.system_settings_store import SystemSettingsStore
+    from backend.app.services.model_routing_policy_service import (
+        ModelRoutingPolicyService,
+    )
 
-    settings_store = SystemSettingsStore()
-    chat_setting = settings_store.get_setting("chat_model")
-
-    if not chat_setting:
-        return default
-
-    return str(chat_setting.value)
+    return ModelRoutingPolicyService().resolve_chat_default(default=default).model_name
 
 
 import functools

@@ -90,8 +90,19 @@ def resolve_stage_model_name(
 ) -> Optional[str]:
     if requested_model:
         return requested_model
+
+    def _global_chat_model_name() -> Optional[str]:
+        try:
+            from backend.app.shared.llm_provider_helper import (
+                get_model_name_from_chat_model,
+            )
+
+            return get_model_name_from_chat_model()
+        except Exception:
+            return None
+
     if not capability_profile or llm_provider_manager is None:
-        return None
+        return _global_chat_model_name()
 
     try:
         profile = CapabilityProfile(str(capability_profile))
@@ -100,9 +111,9 @@ def resolve_stage_model_name(
             profile,
             llm_manager,
             profile_id=profile_id or "default-user",
-        )
+        ) or _global_chat_model_name()
     except Exception:
-        return None
+        return _global_chat_model_name()
 
 
 async def resolve_governed_stage_route(
