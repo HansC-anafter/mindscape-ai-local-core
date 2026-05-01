@@ -32,10 +32,10 @@ The runtime host for this system remains `mindscape-ai-local-core`.
 4. [Graph And Projection Surfaces](./graph-and-projection-surfaces.md)
 5. [Rollout Phases And Runtime Adoption](./rollout-phases-and-runtime-adoption.md)
 
-## Cross-Repo Companion Docs
+## Companion Docs
 
 - Pack authoring and manifest-side contracts live in:
-  `/Users/shock/Projects_local/workspace/mindscape-ai-cloud/docs/architecture/addressable-object-layer/`
+  the capability-source authoring docs
 - Runtime API/spec lives in:
   `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/docs/api/addressable-object-layer-runtime-api.md`
 - Active implementation tracking lives in:

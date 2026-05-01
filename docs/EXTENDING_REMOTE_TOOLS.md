@@ -16,16 +16,16 @@ Mindscape AI Local Core provides a generic mechanism for calling remote tool ser
 
 ### Extension Points
 
-Remote tool providers should be implemented as **System Capability Packs** in the cloud repository, not in local-core.
+Remote tool providers should be implemented as **System Capability Packs** in the capability source repository, not in local-core.
 
 ## Implementation Guide
 
 ### 1. System Capability Pack Structure
 
-Create a system capability pack in your cloud repository:
+Create a system capability pack in your capability source repository:
 
 ```
-your-cloud-repo/
+your-capability-source/
   capabilities/
     system/
       your_remote_tools/
@@ -330,4 +330,3 @@ See `example-remote-http-pack` in the cloud repository for a complete minimal ex
 ## Support
 
 For questions or issues implementing remote tool providers, please open an issue in the Mindscape AI Local Core repository.
-

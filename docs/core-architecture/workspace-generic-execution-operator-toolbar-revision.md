@@ -7,11 +7,11 @@ Scope: Corrective implementation details for execution-chat/operator entry after
 
 ### Evidence
 
-- **E1. Local-Core is the runtime host; Cloud is the pack authoring/packaging repo.** The red-line guide states that `mindscape-ai-local-core` is only a runtime environment, and capability source must be developed in `mindscape-ai-cloud`, packaged, then installed into Local-Core. (`../docs-internal/DEVELOPER_GUIDE_MINDSCAPE_AI.md:146-155`)
-- **E2. Installed capability UI paths inside Local-Core are not source-of-truth.** Deploy rules explicitly forbid direct edits under `local-core/web-console/src/app/capabilities/<pack>/` and require capability UI edits in `mindscape-ai-cloud/capabilities/<pack>/`. (`../../mindscape-ai-cloud/.agent/skills/deploy-pack/SKILL.md:132-139`)
-- **E3. Capability installation happens through Local-Core, and installed UI files are copied into Local-Core web-console.** The installation guide says packaging happens in cloud, installation happens through the Local-Core API, and installed UI files land in `web-console/src/app/capabilities/{capability_code}/components/`. (`../docs-internal/CAPABILITY_INSTALLATION_GUIDE.md:83-166`, `../docs-internal/CAPABILITY_INSTALLATION_GUIDE.md:211-236`)
-- **E4. Cloud-side pack UI installation is still TBD.** The same installation guide says cloud web-console does not currently have an automatic pack UI install/runtime path. (`../docs-internal/CAPABILITY_INSTALLATION_GUIDE.md:142-166`)
-- **E5. Execution runtime ownership is explicitly Local-Core / semantic-hub, not mindscape-ai-cloud.** The playbook guide defines execution as `local-core runtime` or `semantic-hub runtime`, while `mindscape-ai-cloud` is the control plane. (`../../mindscape-ai-cloud/docs/architecture/playbook-implementation-guide.md:64-80`)
+- **E1. Local-Core is the runtime host; the capability source workspace is authoring/packaging only.** The red-line guide states that `mindscape-ai-local-core` is only a runtime environment, and capability source must be developed in the canonical capability source workspace, packaged, then installed into Local-Core. (`../docs-internal/DEVELOPER_GUIDE_MINDSCAPE_AI.md:146-155`)
+- **E2. Installed capability UI paths inside Local-Core are not source-of-truth.** Deploy rules explicitly forbid direct edits under `local-core/web-console/src/app/capabilities/<pack>/` and require capability UI edits in the canonical capability source workspace. (`deploy-pack` skill rules)
+- **E3. Capability installation happens through Local-Core, and installed UI files are copied into Local-Core web-console.** The installation guide says packaging happens in the source workspace, installation happens through the Local-Core API, and installed UI files land in `web-console/src/app/capabilities/{capability_code}/components/`. (`../docs-internal/CAPABILITY_INSTALLATION_GUIDE.md:83-166`, `../docs-internal/CAPABILITY_INSTALLATION_GUIDE.md:211-236`)
+- **E4. The source workspace is not a UI install/runtime path.** The installation guide says Pack UI installation and runtime loading happen in Local-Core, not in the source workspace. (`../docs-internal/CAPABILITY_INSTALLATION_GUIDE.md:142-166`)
+- **E5. Execution runtime ownership is explicitly Local-Core / semantic-hub, not the source workspace.** The boundary guides define execution as `local-core runtime` or `semantic-hub runtime`; the source workspace is not a runtime host. (`../docs-internal/DEVELOPER_GUIDE_MINDSCAPE_AI.md`, `../docs-internal/CAPABILITY_INSTALLATION_GUIDE.md`)
 - **E6. Local-Core already owns the workspace shell runtime surface.** Workspace pages mount under `web-console/src/app/workspaces/[workspaceId]/...`, and the shared layout currently hosts workspace-level navigation/event plumbing. (`web-console/src/app/workspaces/[workspaceId]/layout.tsx:1-108`)
 - **E7. Local-Core already owns the canonical execution detail surface.** The dedicated execution page lives under `/workspaces/{workspaceId}/executions/{executionId}` and already hosts the execution inspector/chat surface. (`web-console/src/app/workspaces/[workspaceId]/executions/[executionId]/page.tsx:1-120`)
 - **E8. Local-Core already owns the execution-chat backend/runtime contract.** The backend exposes `/api/v1/workspaces/{workspace_id}/executions/{execution_id}/chat`, resolves execution-chat config locally, and routes agent turns through the Local-Core execution-chat service. (`backend/features/workspace/executions.py:31-34`, `backend/features/workspace/executions.py:1049-1264`)
@@ -22,12 +22,12 @@ Scope: Corrective implementation details for execution-chat/operator entry after
 ### H1. The first failure came from editing the easiest UI files, not the correct ownership layer.
 
 - The initial pass added operator actions in Local-Core installed capability UI because those files were immediately available.
-- That repeated the exact violation forbidden by the deploy/install rules: editing the installed copy instead of the cloud pack source. (E1, E2, E3, E9)
+- That repeated the exact violation forbidden by the deploy/install rules: editing the installed copy instead of the canonical pack source. (E1, E2, E3, E9)
 
 ### H2. The second failure came from over-correcting source-of-truth into runtime ownership.
 
-- After noticing the installed-path violation, the correction attempt incorrectly claimed that the cloud repo should own the workspace-generic toolbar runtime.
-- That contradicted the red-line runtime split: execution runtime lives in Local-Core / semantic-hub, while `mindscape-ai-cloud` remains the control plane. (E4, E5, E6, E7, E8)
+- After noticing the installed-path violation, the correction attempt incorrectly claimed that the source workspace should own the workspace-generic toolbar runtime.
+- That contradicted the red-line runtime split: execution runtime lives in Local-Core / semantic-hub, while the source workspace remains authoring/packaging only. (E4, E5, E6, E7, E8)
 
 ### H3. The stable precedent was already present: execution chat is a Local-Core execution surface.
 
@@ -54,7 +54,7 @@ Scope: Corrective implementation details for execution-chat/operator entry after
 
 | Assumption | Verification Question | Answer |
 |---|---|---|
-| Workspace-generic operator runtime can live in cloud repo. | Does any mandatory guide say cloud repo is the runtime host for installed pack/workspace UI? | No. The red-line guides say capability source is authored in cloud, but installation/runtime happens in Local-Core; cloud-side pack UI runtime remains TBD. (E1, E3, E4, E5) |
+| Promoting a source-only repo into workspace runtime ownership is acceptable. | Do any mandatory guides allow a source-only repo to own installed pack/workspace runtime UI? | No. The mandatory guides say the capability source/code workspace is authoring-only, while installation/runtime happens in Local-Core only. (E1, E3, E4, E5) |
 | Local-Core already has a valid runtime host for execution operator surfaces. | Is there an existing workspace shell and canonical execution surface in Local-Core? | Yes. `layout.tsx` hosts workspace-level runtime wiring, and the dedicated execution page already exists. (E6, E7) |
 | Execution chat backend/runtime must be preserved in Local-Core. | Is execution chat already exposed as a Local-Core execution-scoped API and agent loop? | Yes. The execution-chat endpoints and agent-turn path are already Local-Core owned. (E8) |
 | Pack-local buttons are required for execution chat launch. | Does the current system require pack-specific chat backends or pack-specific execution surfaces? | No. Execution chat is already execution-scoped and canonicalized in Local-Core. Pack-local launchers are a UX choice, not a runtime requirement. (E7, E8) |
@@ -65,9 +65,9 @@ Scope: Corrective implementation details for execution-chat/operator entry after
 ### Failure Mode 1: The next implementation again edits installed capability UI paths inside Local-Core.
 
 - Evidence ruling it out: the deploy/install rules explicitly forbid that. (E2, E3)
-- Mitigation in this plan: all pack-source edits stay in cloud repo; Local-Core work only targets core workspace shell / execution surfaces. (Resolves P1)
+- Mitigation in this plan: all pack-source edits stay in the canonical source workspace; Local-Core work only targets core workspace shell / execution surfaces. (Resolves P1)
 
-### Failure Mode 2: The correction over-rotates and moves workspace execution operator runtime into cloud repo.
+### Failure Mode 2: The correction over-rotates and moves workspace execution operator runtime into the source workspace.
 
 - Evidence ruling it out: the runtime split and install chain explicitly keep runtime in Local-Core / semantic-hub. (E1, E3, E4, E5)
 - Mitigation in this plan: define generic operator toolbar/runtime as Local-Core workspace-shell responsibility only. (Resolves P2, P4)
@@ -79,16 +79,14 @@ Scope: Corrective implementation details for execution-chat/operator entry after
 
 ## Phase 4: Revised Implementation Plan
 
-### I1. Publish the boundary correction in both repos
+### I1. Publish the boundary correction in authoritative docs
 Resolves Problem #2, #4.
 
-- Keep a cloud-side ADR that states what cloud repo does **not** own: workspace-generic execution operator runtime.
 - Keep the operative implementation-details document in Local-Core, because the runtime host and workspace shell both live there.
 - Update Local-Core architecture indexing so the superseded pack-launched draft is no longer treated as current guidance.
 
 Verified insertion points:
 
-- `../../mindscape-ai-cloud/docs/architecture/decisions/`
 - `docs/core-architecture/README.md`
 - `docs/core-architecture/workbench-execution-chat-entry.md`
 
@@ -105,7 +103,7 @@ Verified runtime host surfaces:
 
 Concrete replacement logic:
 
-1. Do **not** nominate cloud repo as the runtime owner.
+1. Do **not** nominate the source workspace as the runtime owner.
 2. Do **not** place the generic toolbar inside pack-local installed UI copies.
 3. Define the toolbar, selection state, and launch semantics against the Local-Core workspace shell and canonical execution surface.
 
@@ -114,21 +112,21 @@ Resolves Problem #1, #2.
 
 The correct split is:
 
-1. pack-specific UI source is authored in `mindscape-ai-cloud/capabilities/<pack>/`
+1. pack-specific UI source is authored in the canonical capability source workspace
 2. packaged as `.mindpack`
 3. installed into Local-Core
 4. rendered by Local-Core runtime
 
 This means:
 
-- cloud repo remains the authoring/packaging repo for pack UI source
+- the source workspace remains the authoring/packaging home for pack UI source
 - Local-Core remains the runtime host for installed pack UI and workspace-generic operator surfaces
 
 Concrete replacement logic:
 
 - direct edits under `local-core/web-console/src/app/capabilities/<pack>/` remain prohibited
 - any generic operator surface must target Local-Core core UI, not pack-installed copies
-- cloud repo must not be described as the runtime owner of the toolbar
+- the source workspace must not be described as the runtime owner of the toolbar
 
 ### I4. The workspace-generic launch contract inherits the core execution contract
 Resolves Problem #3, #4.
@@ -172,17 +170,17 @@ This document does not revert code. The cleanup task should run separately and r
 
 - Local-Core installed-path pack launcher experiments
 - Local-Core experimental launcher/helper paths that encoded the rejected interaction model
-- any remaining doc text that treats pack-local launchers or cloud runtime ownership as desired architecture
+- any remaining doc text that treats pack-local launchers or source-workspace runtime ownership as desired architecture
 
 ## Phase 5: Citation Audit (Critical Checks)
 
 The most critical citations were re-verified for this revision:
 
 - Local-Core runtime-only warning: `../docs-internal/DEVELOPER_GUIDE_MINDSCAPE_AI.md:146-155`
-- Cloud deploy boundary: `../../mindscape-ai-cloud/.agent/skills/deploy-pack/SKILL.md:132-139`
-- Cloud package / Local-Core install chain: `../docs-internal/CAPABILITY_INSTALLATION_GUIDE.md:83-166`
+- Deploy boundary: `deploy-pack` skill rules
+- Source package / Local-Core install chain: `../docs-internal/CAPABILITY_INSTALLATION_GUIDE.md:83-166`
 - Installed UI file target in Local-Core: `../docs-internal/CAPABILITY_INSTALLATION_GUIDE.md:211-236`
-- Execution plane split: `../../mindscape-ai-cloud/docs/architecture/playbook-implementation-guide.md:64-80`
+- Execution plane split: Local-Core boundary guides
 - Local-Core workspace shell: `web-console/src/app/workspaces/[workspaceId]/layout.tsx:1-108`
 - Local-Core canonical execution page: `web-console/src/app/workspaces/[workspaceId]/executions/[executionId]/page.tsx:1-120`
 - Local-Core execution chat runtime: `backend/features/workspace/executions.py:1049-1264`
@@ -200,13 +198,7 @@ Steps:
 nl -ba /Users/shock/Projects_local/workspace/mindscape-ai-local-core/docs-internal/CAPABILITY_INSTALLATION_GUIDE.md | sed -n '83,166p'
 ```
 
-2. Re-read the execution-plane split:
-
-```bash
-nl -ba /Users/shock/Projects_local/workspace/mindscape-ai-cloud/docs/architecture/playbook-implementation-guide.md | sed -n '64,80p'
-```
-
-3. Re-read the Local-Core runtime-only warning:
+2. Re-read the Local-Core runtime-only warning:
 
 ```bash
 nl -ba /Users/shock/Projects_local/workspace/mindscape-ai-local-core/docs-internal/DEVELOPER_GUIDE_MINDSCAPE_AI.md | sed -n '146,155p'
@@ -215,11 +207,11 @@ nl -ba /Users/shock/Projects_local/workspace/mindscape-ai-local-core/docs-intern
 Pass:
 
 - the docs clearly state that Local-Core is the runtime host
-- no document claims the cloud repo hosts the workspace-generic toolbar runtime
+- no document claims the source workspace hosts the workspace-generic toolbar runtime
 
 Fail:
 
-- any document still says cloud repo owns the runtime toolbar/shell
+- any document still says the source workspace owns the runtime toolbar/shell
 
 ### Scenario B: Workspace-shell host validation
 Problems covered: P3, P4
@@ -252,18 +244,14 @@ Pass:
 
 Fail:
 
-- the plan requires a new cloud runtime host for the same execution surface
+- the plan requires a new source-workspace runtime host for the same execution surface
 
 ### Scenario C: Installed-path boundary validation
 Problems covered: P1, P3
 
 Steps:
 
-1. Re-read the deploy/install red line:
-
-```bash
-nl -ba /Users/shock/Projects_local/workspace/mindscape-ai-cloud/.agent/skills/deploy-pack/SKILL.md | sed -n '132,139p'
-```
+1. Re-read the deploy/install red line from the approved deploy workflow.
 
 2. Audit the current experimental code scope:
 
@@ -289,8 +277,8 @@ Prevents: P2, P4
 
 Add a grep-based doc guard that fails if architecture docs contain phrases equivalent to:
 
-- `cloud repo owns workspace generic toolbar runtime`
-- `cloud web-console is the runtime host for installed pack UI`
+- `source-only repo promoted into workspace-generic runtime ownership`
+- `source-only repo promoted into Pack UI install/runtime ownership`
 
 ### Test Set T2: Installed-path authoring guard
 Prevents: P1

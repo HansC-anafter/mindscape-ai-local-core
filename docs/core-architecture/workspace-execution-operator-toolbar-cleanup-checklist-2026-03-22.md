@@ -41,5 +41,5 @@ Scope: Remove the rejected Local-Core launcher/context-menu experiment while pre
 ## Remaining Boundary Rules
 
 1. New pack feature work must not target `local-core/web-console/src/app/capabilities/<pack>/`.
-2. Pack source authoring remains in `mindscape-ai-cloud/capabilities/<pack>/`.
+2. Pack source authoring remains in the canonical capability source workspace.
 3. If future workspace-generic execution operator UI is introduced, it must be defined against Local-Core workspace/runtime surfaces, not pack-installed UI copies and not cloud runtime ownership.

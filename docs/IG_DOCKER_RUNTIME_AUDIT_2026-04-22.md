@@ -4,6 +4,8 @@ Scope: audit every visible Docker container on the host, then isolate the curren
 
 Method: only claims backed by runtime evidence are marked as facts. Code-path analysis is separated and labeled as inference.
 
+Note: source-side stack identifiers below are scrubbed to generic placeholders.
+
 ## 1. Container Inventory Snapshot
 
 Evidence 1.1 — `docker ps -a`
@@ -28,7 +30,7 @@ mindscape-ai-local-core-postgres|pgvector/pgvector:pg16|Up 3 days (healthy)|3 we
 mindscape-ai-local-core-redis|redis:7-alpine|Up 3 days (healthy)|3 weeks ago
 mindscape-ai-local-core-media-proxy|mindscape-ai-local-core-media-proxy|Up 3 days (healthy)|3 weeks ago
 mindscape-ai-local-core-whisper|mindscape-ai-local-core-whisper-service|Up 3 days (healthy)|3 weeks ago
-mindscape-ai-cloud-cloud-api-1|mindscape-ai-cloud-cloud-api|Up 3 days (healthy)|3 weeks ago
+source-stack-api-1|source-stack-api|Up 3 days (healthy)|3 weeks ago
 mindscape-ai-gpu-executor-backend|mindscape-ai-local-core-gpu-executor-backend|Created|3 weeks ago
 mindscape-ai-gpu-executor-redis|redis:7-alpine|Up 3 days (healthy)|3 weeks ago
 mindscape-ai-gpu-executor-postgres|pgvector/pgvector:pg16|Up 3 days (healthy)|3 weeks ago
@@ -37,8 +39,8 @@ site-hub-site-hub-registry-api-1|site-hub-site-hub-registry-api|Exited (137) 3 w
 site-hub-site-hub-redis-1|redis:7-alpine|Exited (255) 3 weeks ago|3 weeks ago
 site-hub-registry-db-1|postgis/postgis:15-3.4|Exited (255) 3 weeks ago|3 weeks ago
 mindscape-ai-local-core-ocr|mindscape-ai-local-core-ocr-service|Exited (0) 4 weeks ago|4 weeks ago
-mindscape-ai-cloud-redis-1|redis:7-alpine|Up 3 days (healthy)|3 months ago
-mindscape-ai-cloud-postgres-1|postgres:15-alpine|Up 3 days (healthy)|3 months ago
+source-stack-redis-1|redis:7-alpine|Up 3 days (healthy)|3 months ago
+source-stack-postgres-1|postgres:15-alpine|Up 3 days (healthy)|3 months ago
 ```
 
 Evidence 1.2 — `docker inspect`
@@ -63,7 +65,7 @@ Output:
 /mindscape-ai-local-core-redis|redis:7-alpine|running|healthy|0|2026-04-18T12:32:56.801749835Z|2026-04-18T12:32:54.2717195Z|0|
 /mindscape-ai-local-core-media-proxy|mindscape-ai-local-core-media-proxy|running|healthy|0|2026-04-18T12:32:56.811743751Z|2026-04-18T12:32:54.272257167Z|0|
 /mindscape-ai-local-core-whisper|mindscape-ai-local-core-whisper-service|running|healthy|0|2026-04-18T12:32:56.794109168Z|2026-04-18T12:32:54.271780125Z|0|
-/mindscape-ai-cloud-cloud-api-1|mindscape-ai-cloud-cloud-api|running|healthy|0|2026-04-18T12:32:56.814668793Z|2026-04-18T12:32:54.271620333Z|0|
+/source-stack-api-1|source-stack-api|running|healthy|0|2026-04-18T12:32:56.814668793Z|2026-04-18T12:32:54.271620333Z|0|
 /mindscape-ai-gpu-executor-backend|mindscape-ai-local-core-gpu-executor-backend|created|none|0|0001-01-01T00:00:00Z|0001-01-01T00:00:00Z|0|
 /mindscape-ai-gpu-executor-redis|redis:7-alpine|running|healthy|0|2026-04-18T12:32:56.81062171Z|2026-04-18T12:32:54.271806583Z|0|
 /mindscape-ai-gpu-executor-postgres|pgvector/pgvector:pg16|running|healthy|0|2026-04-18T12:32:56.802549168Z|2026-04-18T12:32:54.271816208Z|0|
@@ -72,8 +74,8 @@ Output:
 /site-hub-site-hub-redis-1|redis:7-alpine|exited|none|0|2026-03-26T05:38:57.437412051Z|2026-03-26T11:21:42.647191834Z|255|
 /site-hub-registry-db-1|postgis/postgis:15-3.4|exited|starting|0|2026-03-26T05:38:57.415265134Z|2026-03-26T11:21:42.6470515Z|255|
 /mindscape-ai-local-core-ocr|mindscape-ai-local-core-ocr-service|exited|unhealthy|0|2026-03-23T20:07:00.750119253Z|2026-03-23T20:07:11.58918655Z|0|
-/mindscape-ai-cloud-redis-1|redis:7-alpine|running|healthy|0|2026-04-18T12:32:56.801669376Z|2026-04-18T12:32:54.271839417Z|0|
-/mindscape-ai-cloud-postgres-1|postgres:15-alpine|running|healthy|0|2026-04-18T12:32:56.813124335Z|2026-04-18T12:32:54.272822375Z|0|
+/source-stack-redis-1|redis:7-alpine|running|healthy|0|2026-04-18T12:32:56.801669376Z|2026-04-18T12:32:54.271839417Z|0|
+/source-stack-postgres-1|postgres:15-alpine|running|healthy|0|2026-04-18T12:32:56.813124335Z|2026-04-18T12:32:54.272822375Z|0|
 ```
 
 Facts from 1.1 + 1.2:
@@ -106,11 +108,11 @@ mindscape-ai-local-core-postgres|93.39%|371.4MiB / 15.6GiB|94.5GB / 405GB|16GB /
 mindscape-ai-local-core-redis|1.02%|8.277MiB / 15.6GiB|291MB / 182MB|1.3GB / 3.69MB|6
 mindscape-ai-local-core-media-proxy|0.18%|85.16MiB / 15.6GiB|23.7MB / 13.8MB|2.69GB / 137MB|5
 mindscape-ai-local-core-whisper|0.25%|23.7MiB / 15.6GiB|104kB / 126B|3.05GB / 15.7MB|5
-mindscape-ai-cloud-cloud-api-1|12.79%|172.7MiB / 15.6GiB|1.74kB / 126B|7.33GB / 11.9MB|3
+source-stack-api-1|12.79%|172.7MiB / 15.6GiB|1.74kB / 126B|7.33GB / 11.9MB|3
 mindscape-ai-gpu-executor-redis|0.57%|4.836MiB / 15.6GiB|1.82kB / 126B|1.04GB / 5.75MB|6
 mindscape-ai-gpu-executor-postgres|0.05%|10.52MiB / 15.6GiB|1.65kB / 126B|1.89GB / 19.5MB|6
-mindscape-ai-cloud-redis-1|0.63%|5.746MiB / 15.6GiB|1.95kB / 126B|1.01GB / 5.42MB|6
-mindscape-ai-cloud-postgres-1|0.07%|8.652MiB / 15.6GiB|1.78kB / 126B|739MB / 15.1MB|6
+source-stack-redis-1|0.63%|5.746MiB / 15.6GiB|1.95kB / 126B|1.01GB / 5.42MB|6
+source-stack-postgres-1|0.07%|8.652MiB / 15.6GiB|1.78kB / 126B|739MB / 15.1MB|6
 ```
 
 Facts from 1.3:
@@ -467,12 +469,12 @@ Facts from 5.1:
 
 ## 6. Cloud Postgres Misrouted Traffic
 
-Evidence 6.1 — `mindscape-ai-cloud-postgres-1`
+Evidence 6.1 — `source-stack-postgres-1`
 
 Command:
 
 ```bash
-docker logs --since 12h --tail 200 mindscape-ai-cloud-postgres-1
+docker logs --since 12h --tail 200 source-stack-postgres-1
 ```
 
 Output excerpt:
@@ -488,7 +490,7 @@ Output excerpt:
 
 Fact:
 
-- Something is repeatedly connecting to `mindscape-ai-cloud-postgres-1` using a non-existent database name `mindscape`.
+- Something is repeatedly connecting to `source-stack-postgres-1` using a non-existent database name `mindscape`.
 
 Inference:
 
@@ -512,7 +514,7 @@ Facts:
 
 Sampled tails for these returned no notable recent log lines during this audit window:
 
-- `mindscape-ai-cloud-redis-1`
+- `source-stack-redis-1`
 - `mindscape-ai-gpu-executor-redis`
 
 ## 9. Applied Fixes As Of 2026-04-22
@@ -545,7 +547,7 @@ Facts:
    - real `runner-browser` instability on some IG workloads, and
    - a backend/UI truth mismatch between `active-executions` and `sidebar-counts`.
 4. The backend also restarted during the audit window, causing transient fetch resets.
-5. `mindscape-ai-cloud-postgres-1` is receiving repeated bad connections to the nonexistent DB `mindscape`.
+5. `source-stack-postgres-1` is receiving repeated bad connections to the nonexistent DB `mindscape`.
 6. `mindscape-ai-local-core-ocr` is not running.
 
 Open repair items:
@@ -553,5 +555,5 @@ Open repair items:
 1. Unify the sidebar `running` count with the same execution truth used by `/active-executions`, or explicitly relabel the card if it is intentionally reference-count-based.
 2. Trace why `ig_analyze_following` tasks still sit in `phase=queue` long enough to trip the no-progress watchdog.
 3. Trace why some `ig_batch_pin_references` subprocesses are still dying with `exitcode=-9`.
-4. Identify the caller hitting `mindscape-ai-cloud-postgres-1` with `database "mindscape"` and fix or silence it.
+4. Identify the caller hitting `source-stack-postgres-1` with `database "mindscape"` and fix or silence it.
 5. Decide whether `mindscape-ai-local-core-ocr` should be restored or its dependent OCR paths should be hard-disabled.

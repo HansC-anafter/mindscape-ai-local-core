@@ -122,7 +122,7 @@ Playbook architecture and workflow execution mechanisms, including identity gove
 Architecture and implementation details for upgrading execution-scoped chat from prompt-only discussion to an LLM + tool executor loop, while preserving legacy discussion mode and Local-Core governance boundaries.
 
 #### [Workspace Generic Execution Operator Toolbar Revision](./workspace-generic-execution-operator-toolbar-revision.md)
-Corrective implementation plan for restoring the proper boundary: cloud repo remains pack authoring/packaging only, while Local-Core remains the runtime host for workspace-generic execution operator surfaces and execution-chat runtime.
+Corrective implementation plan for restoring the proper boundary: Local-Core remains the runtime host for workspace-generic execution operator surfaces and execution-chat runtime.
 
 #### [Workbench Execution Chat Entry](./workbench-execution-chat-entry.md)
 Historical draft of the earlier pack-launched entry model. Kept for audit only.

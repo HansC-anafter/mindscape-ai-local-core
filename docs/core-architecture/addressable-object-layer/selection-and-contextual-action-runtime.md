@@ -7,7 +7,7 @@ without hard-coding pack-to-pack UI bindings.
 
 ## Product Reframe
 
-This architecture is not primarily a "global toolbar" feature.
+This architecture is not primarily just a "global toolbar buttons" feature.
 
 It is a runtime capability where:
 
@@ -18,10 +18,14 @@ It is a runtime capability where:
   stable object identities
 
 The toolbar or popover is only one projection surface for that capability.
+For this rollout, however, any claim that AOL is `global` or `全站可用`
+requires one Local-Core-owned always-visible global entry anchor in the shared
+workspace shell.
 
 ## Reframe The Problem
 
-The platform should not start from "global toolbar buttons."
+The platform should not start from per-pack button matrices or from detached
+toolbar chrome alone.
 
 It should start from:
 
@@ -30,6 +34,11 @@ It should start from:
 3. runtime shows contextual actions based on object type and relations
 4. runtime launches meeting, preview, proposal, or canonical surface
 
+When the runtime is exposed as a global user-facing tool, that runtime may
+project through one shared Local-Core-owned global anchor. The anchor is not
+the architecture itself; it is the approved projection surface for entering the
+selection-driven runtime flow.
+
 ## Runtime Ownership
 
 This runtime remains Local-Core owned.
@@ -37,6 +46,7 @@ This runtime remains Local-Core owned.
 Local-Core owns:
 
 - selection state
+- one shared global entry anchor when AOL is exposed as a global lane
 - selection-to-object resolution entry
 - object summary popover
 - contextual action surface

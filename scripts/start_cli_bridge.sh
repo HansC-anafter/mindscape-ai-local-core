@@ -354,9 +354,30 @@ fi
 # --- Detect installed CLIs ---
 log_info "Scanning for installed CLI agents..."
 DETECTED=0
+detect_cli_version() {
+    local cli="$1"
+    local tmp_file="${TMPDIR:-/tmp}/mindscape_cli_version_${cli}_$$"
+    "$cli" --version >"$tmp_file" 2>/dev/null &
+    local pid=$!
+    local ticks=0
+    while kill -0 "$pid" 2>/dev/null; do
+        if [[ "$ticks" -ge 20 ]]; then
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            rm -f "$tmp_file"
+            echo "timeout"
+            return 0
+        fi
+        sleep 0.1
+        ticks=$((ticks + 1))
+    done
+    wait "$pid" 2>/dev/null || true
+    head -1 "$tmp_file" 2>/dev/null || echo "unknown"
+    rm -f "$tmp_file"
+}
 for cli in gemini claude codex openclaw aider; do
     if command -v "$cli" &>/dev/null; then
-        VERSION=$("$cli" --version 2>/dev/null | head -1 || echo "unknown")
+        VERSION=$(detect_cli_version "$cli")
         log_info "  Found: $cli ($VERSION)"
         DETECTED=$((DETECTED + 1))
     fi

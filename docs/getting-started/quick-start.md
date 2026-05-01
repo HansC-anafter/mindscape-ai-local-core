@@ -47,7 +47,7 @@ Current checked-in evidence:
 
 Important:
 
-- some demo lanes depend on installable capability/runtime packs from `mindscape-ai-cloud`
+- some demo lanes depend on installable capability/runtime packs from the canonical capability source workspace
 - local-core remains the governance host and bounded writeback layer
 
 ## Path B: Engine-First
