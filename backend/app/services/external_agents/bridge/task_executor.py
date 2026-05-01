@@ -41,6 +41,7 @@ from backend.app.services.external_agents.bridge.codex_cli_runner import (
     MAX_CLI_OUTPUT_SIZE,
     cli_activity_signature,
     extract_codex_cli_error,
+    resolve_codex_cli_binary,
     looks_like_codex_auth_failure,
     looks_like_codex_quota_exhaustion,
     resolve_codex_cli_output,
@@ -346,28 +347,17 @@ class HostBridgeTaskExecutor:
                 candidates.append(candidate)
         return candidates or [base_url]
 
-    @staticmethod
-    def _fallback_runtime_auth_env(runtime_name: str) -> Dict[str, str]:
-        runtime_name = (runtime_name or "").strip().lower()
-        if runtime_name == "codex_cli":
-            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-            return {"OPENAI_API_KEY": api_key} if api_key else {}
-        if runtime_name == "claude_code_cli":
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-            return {"ANTHROPIC_API_KEY": api_key} if api_key else {}
-        api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-        return {"GEMINI_API_KEY": api_key} if api_key else {}
-
     def _fetch_runtime_auth_bundle_sync(
         self,
         runtime_name: str,
         ctx: ExecutionContext,
+        *,
+        excluded_runtime_ids: Optional[set[str]] = None,
     ) -> Dict[str, Any]:
         backend_urls = self._resolve_backend_api_urls()
         if not backend_urls:
             return {
-                "auth_mode": "env_fallback",
-                "env": self._fallback_runtime_auth_env(runtime_name),
+                "error": f"No backend API available for {runtime_name} auth bundle resolution",
             }
 
         params = {"surface": runtime_name}
@@ -377,6 +367,8 @@ class HostBridgeTaskExecutor:
             params["auth_workspace_id"] = ctx.auth_workspace_id
         if ctx.source_workspace_id:
             params["source_workspace_id"] = ctx.source_workspace_id
+        if excluded_runtime_ids:
+            params["exclude_runtime_ids"] = ",".join(sorted(excluded_runtime_ids))
         query = urllib.parse.urlencode(params)
         timeout_seconds = self._parse_env_float(
             "MINDSCAPE_CLI_AUTH_BUNDLE_TIMEOUT_SECONDS",
@@ -429,20 +421,32 @@ class HostBridgeTaskExecutor:
             last_exc,
         )
         return {
-            "auth_mode": "env_fallback",
-            "env": self._fallback_runtime_auth_env(runtime_name),
+            "error": f"Failed to fetch auth bundle for {runtime_name}: {last_exc}",
         }
 
     async def _fetch_runtime_auth_env(
         self,
         runtime_name: str,
         ctx: ExecutionContext,
+        *,
+        excluded_runtime_ids: Optional[set[str]] = None,
     ) -> Dict[str, Any]:
         return await asyncio.to_thread(
             self._fetch_runtime_auth_bundle_sync,
             runtime_name,
             ctx,
+            excluded_runtime_ids=excluded_runtime_ids,
         )
+
+    @staticmethod
+    def _codex_cli_model_hint(model: str) -> str:
+        candidate = str(model or "").strip()
+        if not candidate:
+            return ""
+        lowered = candidate.lower()
+        if lowered.startswith(("gpt-", "o", "codex")):
+            return candidate
+        return ""
 
     def _report_runtime_quota_exhausted_sync(
         self,
@@ -873,9 +877,7 @@ class HostBridgeTaskExecutor:
     def _resolve_runtime_binary(self, runtime_surface: str) -> str:
         runtime_surface = runtime_surface.lower()
         if runtime_surface == "codex_cli":
-            return os.environ.get("CODEX_CLI_PATH", "").strip() or (
-                shutil.which("codex") or "codex"
-            )
+            return resolve_codex_cli_binary(os.environ.get("CODEX_CLI_PATH"))
         if runtime_surface == "claude_code_cli":
             return os.environ.get("CLAUDE_CODE_CLI_PATH", "").strip() or (
                 shutil.which("claude") or "claude"
@@ -967,8 +969,9 @@ class HostBridgeTaskExecutor:
             "--output-last-message",
             last_message_path,
         ]
-        if ctx.model:
-            cmd.extend(["--model", ctx.model])
+        codex_model = self._codex_cli_model_hint(ctx.model)
+        if codex_model:
+            cmd.extend(["--model", codex_model])
         if ctx.task:
             cmd.append(prompt)
         if ctx.max_duration:
@@ -978,7 +981,11 @@ class HostBridgeTaskExecutor:
             last_quota_error = ""
             attempt = 1
             while attempt <= max_attempts:
-                auth_bundle = await self._fetch_runtime_auth_env("codex_cli", ctx)
+                auth_bundle = await self._fetch_runtime_auth_env(
+                    "codex_cli",
+                    ctx,
+                    excluded_runtime_ids=attempted_runtime_ids,
+                )
                 if isinstance(auth_bundle, dict):
                     bundle_attempt_capacity_raw = (
                         auth_bundle.get("available_quota_scope_count")
@@ -1002,6 +1009,17 @@ class HostBridgeTaskExecutor:
                     if isinstance(auth_bundle, dict)
                     else ""
                 )
+                if (
+                    isinstance(auth_bundle, dict)
+                    and auth_bundle.get("error")
+                    and not selected_runtime_id
+                ):
+                    return ExecutionResult(
+                        status="failed",
+                        output="",
+                        error=str(auth_bundle.get("error")),
+                        metadata={"selected_runtime_id": None},
+                    )
                 if attempt > 1 and not selected_runtime_id:
                     pool_error = ""
                     if isinstance(auth_bundle, dict):
@@ -1114,6 +1132,13 @@ class HostBridgeTaskExecutor:
         prompt = self._build_runtime_prompt(ctx)
         cwd, snapshot_root, snapshot_paths = self._resolve_cli_runtime_paths(ctx)
         auth_bundle = await self._fetch_runtime_auth_env("claude_code_cli", ctx)
+        if isinstance(auth_bundle, dict) and auth_bundle.get("error"):
+            return ExecutionResult(
+                status="failed",
+                output="",
+                error=str(auth_bundle.get("error")),
+                metadata={"selected_runtime_id": None},
+            )
         extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
 
         cmd = [

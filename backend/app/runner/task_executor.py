@@ -355,7 +355,6 @@ def _child_execute_playbook(payload: Dict[str, Any]) -> None:
                 raise RuntimeError(
                     f"Tool execution failed for '{tool_name}': {result.error}"
                 )
-            # Write result to temp file for parent process to read
             if result_file:
                 import json as _json
 
@@ -510,7 +509,6 @@ async def _mark_task_succeeded(
 ) -> None:
     """Mark a task as SUCCEEDED, reading tool result from IPC temp file."""
     try:
-        # Read tool result from temp file IPC
         tool_result = None
         if result_file and os.path.exists(result_file):
             try:
@@ -540,6 +538,30 @@ async def _mark_task_succeeded(
             )
             if tool_result is not None:
                 update_kwargs["result"] = tool_result
+                try:
+                    from backend.app.services.object_action_closure_wiring import (
+                        close_object_action_from_execution_result,
+                    )
+
+                    closure_inputs = (
+                        ctxs.get("inputs")
+                        if isinstance(ctxs.get("inputs"), dict)
+                        else latest.params
+                    )
+                    closure_result = close_object_action_from_execution_result(
+                        workspace_id=latest.workspace_id,
+                        execution_id=latest.execution_id or latest.id,
+                        inputs=closure_inputs if isinstance(closure_inputs, dict) else {},
+                        execution_result=tool_result,
+                    )
+                    if closure_result:
+                        ctxs["object_action_closure"] = closure_result
+                        update_kwargs["execution_context"] = ctxs
+                except Exception:
+                    logger.exception(
+                        "Failed to run AOL object action closure for task %s",
+                        latest.id,
+                    )
             
             # 1. DB Write MUST precede Ack
             tasks_store.update_task(
@@ -995,7 +1017,6 @@ async def _run_single_task(
             else:
                 await _mark_task_succeeded(tasks_store, task.id, runner_id, result_file, redis_queue)
     finally:
-        # Clean up result temp file regardless of outcome
         try:
             if result_file and os.path.exists(result_file):
                 os.unlink(result_file)

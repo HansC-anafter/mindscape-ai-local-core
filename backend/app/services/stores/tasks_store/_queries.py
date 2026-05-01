@@ -359,7 +359,10 @@ class TasksStoreQueryMixin:
             return [self._row_to_task(row) for row in rows]
 
     def list_pending_tasks(
-        self, workspace_id: str, exclude_cancelled: bool = True
+        self,
+        workspace_id: str,
+        exclude_cancelled: bool = True,
+        limit: Optional[int] = None,
     ) -> List[Task]:
         """
         List pending tasks for a workspace
@@ -372,7 +375,7 @@ class TasksStoreQueryMixin:
             List of pending tasks
         """
         tasks = self.list_tasks_by_workspace(
-            workspace_id=workspace_id, status=TaskStatus.PENDING
+            workspace_id=workspace_id, status=TaskStatus.PENDING, limit=limit
         )
         if exclude_cancelled:
             return [
@@ -382,7 +385,11 @@ class TasksStoreQueryMixin:
             ]
         return tasks
 
-    def list_running_tasks(self, workspace_id: str) -> List[Task]:
+    def list_running_tasks(
+        self,
+        workspace_id: str,
+        limit: Optional[int] = None,
+    ) -> List[Task]:
         """
         List running tasks for a workspace
 
@@ -393,7 +400,7 @@ class TasksStoreQueryMixin:
             List of running tasks
         """
         return self.list_tasks_by_workspace(
-            workspace_id=workspace_id, status=TaskStatus.RUNNING
+            workspace_id=workspace_id, status=TaskStatus.RUNNING, limit=limit
         )
 
     def find_existing_suggestion_tasks(

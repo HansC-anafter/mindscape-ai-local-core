@@ -11,6 +11,9 @@ from backend.app.models.execution_metadata import (
 )
 from backend.app.models.workspace import PlaybookExecution
 from backend.app.services.execution_core.clock import utc_now as _utc_now
+from backend.app.services.playbook_run_executor_core.result_compaction import (
+    compact_workflow_result_for_task_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -326,7 +329,9 @@ async def execute_legacy_workflow(
 
             if status == "paused":
                 execution_context["status"] = "paused"
-                execution_context["workflow_result"] = result
+                execution_context["workflow_result"] = (
+                    compact_workflow_result_for_task_context(result)
+                )
                 execution_context["checkpoint"] = (
                     result.get("checkpoint")
                     if isinstance(result.get("checkpoint"), dict)
@@ -349,7 +354,9 @@ async def execute_legacy_workflow(
             workflow_failed = workflow_result_has_errors_fn(result)
             execution_context["status"] = "failed" if workflow_failed else "completed"
             execution_context["current_step_index"] = total_steps
-            execution_context["workflow_result"] = result
+            execution_context["workflow_result"] = compact_workflow_result_for_task_context(
+                result
+            )
             merged_context.update(execution_context)
             tasks_store.update_task(
                 task.id,

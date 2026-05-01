@@ -451,34 +451,22 @@ class SuggestionGenerator:
                 vertex_location=config.agent_backend.vertex_location
             )
 
-            # Get user's selected chat model to determine provider
-            from backend.app.services.system_settings_store import SystemSettingsStore
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-            provider_name = None
+            from backend.app.services.model_routing_policy_service import (
+                ModelRoutingPolicyService,
+            )
 
-            if chat_setting:
-                # Get provider from model metadata or infer from model name
-                provider_name = chat_setting.metadata.get("provider")
-                if not provider_name:
-                    model_name = str(chat_setting.value)
-                    # Infer provider from model name
-                    if "gemini" in model_name.lower():
-                        provider_name = "vertex-ai"
-                    elif "gpt" in model_name.lower() or "text-" in model_name.lower():
-                        provider_name = "openai"
-                    elif "claude" in model_name.lower():
-                        provider_name = "anthropic"
+            resolved_route = ModelRoutingPolicyService().resolve_chat_default()
+            provider_name = resolved_route.provider
+            model_name = resolved_route.model_name
 
             # Get provider based on user's selection - no fallback
-            if not provider_name:
+            if not provider_name or not model_name:
                 error_msg = "Cannot determine LLM provider: chat_model not configured in system settings"
                 logger.error(error_msg)
                 raise ValueError(error_msg)
 
             llm_provider = llm_manager.get_provider(provider_name)
             if not llm_provider:
-                model_name = str(chat_setting.value) if chat_setting and chat_setting.value else "unknown"
                 error_msg = f"Provider '{provider_name}' not available for model '{model_name}'. Please check your API configuration."
                 logger.error(error_msg)
                 raise ValueError(error_msg)

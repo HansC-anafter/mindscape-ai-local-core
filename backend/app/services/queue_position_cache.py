@@ -13,20 +13,16 @@ from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASO
 
 
 _QUEUE_TOTALS_SQL = """
-SELECT COALESCE(queue_shard, 'default') AS queue_shard,
+SELECT queue_shard AS queue_shard,
        COUNT(*) AS pending_total,
-       SUM(
-           CASE
-               WHEN next_eligible_at <= :now
-                AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
-               THEN 1
-               ELSE 0
-           END
-       ) AS eligible_total
+       COUNT(*) AS eligible_total
 FROM tasks
 WHERE status = 'pending'
   AND task_type IN ('playbook_execution', 'tool_execution')
-GROUP BY COALESCE(queue_shard, 'default')
+  AND frontier_state = 'ready'
+  AND next_eligible_at <= :now
+  AND (blocked_reason IS NULL OR blocked_reason = '')
+GROUP BY queue_shard
 """
 
 _QUEUE_POSITION_ESTIMATE_SQL = """
@@ -34,9 +30,10 @@ SELECT COUNT(*) AS ahead
 FROM tasks
 WHERE status = 'pending'
   AND task_type IN ('playbook_execution', 'tool_execution')
-  AND COALESCE(queue_shard, 'default') = :queue_shard
+  AND __QUEUE_CLAUSE__
   AND next_eligible_at <= :now
-  AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
+  AND (blocked_reason IS NULL OR blocked_reason = '')
+  AND frontier_state = 'ready'
   AND next_eligible_at < :cutoff
 """
 
@@ -119,8 +116,7 @@ class QueuePositionCache:
                 ahead = conn.execute(
                     _sa_text(
                         _QUEUE_POSITION_ESTIMATE_SQL.replace(
-                            "COALESCE(queue_shard, 'default') = :queue_shard",
-                            queue_clause,
+                            "__QUEUE_CLAUSE__", queue_clause
                         )
                     ),
                     {

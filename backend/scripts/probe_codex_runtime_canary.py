@@ -67,7 +67,7 @@ async def _probe_runtime(
     else:
         bundle = CodexPoolService(requalification_runner=lambda: None).get_active_auth_bundle(
             preferred_runtime_id=runtime_id,
-            allow_fallback=False,
+            allow_runtime_substitution=False,
         )
     if "env" not in bundle:
         return {

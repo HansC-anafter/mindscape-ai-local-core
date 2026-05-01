@@ -938,20 +938,14 @@ class PlaybookRunner:
             # For simplicity, we'll keep the last 5 messages as context, but clear the rest
             # This is a heuristic - in practice, you might want more sophisticated step boundary detection
             if len(conv_manager.conversation_history) > 5:
-                # Keep system prompt and initial messages, remove recent step-specific messages
-                # Keep first 3 messages (usually system prompt and initial setup) and last 2 as context
                 kept_messages = conv_manager.conversation_history[:3]
-                # Remove messages that look like they're from the current step
-                # (assistant messages with tool calls, system messages with tool results)
                 for msg in conv_manager.conversation_history[3:-2]:
                     role = msg.get("role", "")
                     content = msg.get("content", "")
-                    # Keep user messages and important system messages, but remove tool-related ones
                     if role == "user" or (
                         role == "system" and "tool_call_result" not in content
                     ):
                         kept_messages.append(msg)
-                # Keep last 2 messages as context
                 kept_messages.extend(conv_manager.conversation_history[-2:])
                 conv_manager.conversation_history = kept_messages
             else:

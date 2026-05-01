@@ -9,8 +9,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from backend.app.models.personalized_playbook import OptimizationSuggestion, UsageAnalysis
-from backend.app.services.playbook_store import PlaybookStore
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.playbook_service import PlaybookService
 from backend.app.services.agent_runner import LLMProviderManager
 from backend.app.shared.llm_provider_helper import get_llm_provider_from_settings
 
@@ -21,8 +21,8 @@ class PlaybookOptimizationService:
     """Service for analyzing Playbook usage and generating optimization suggestions"""
 
     def __init__(self):
-        self.playbook_store = PlaybookStore()
         self.mindscape_store = MindscapeStore()
+        self.playbook_service = PlaybookService(store=self.mindscape_store)
 
     async def analyze_usage(
         self,
@@ -35,10 +35,10 @@ class PlaybookOptimizationService:
         Returns usage statistics and patterns
         """
         # Get user meta for usage stats
-        user_meta = self.playbook_store.get_user_meta(profile_id, playbook_code)
+        user_meta = self.mindscape_store.get_user_meta(profile_id, playbook_code)
 
         # Get execution history from events
-        events = self.mindscape_store.list_events(
+        events = self.mindscape_store.get_events(
             profile_id=profile_id,
             limit=100
         )
@@ -106,9 +106,10 @@ class PlaybookOptimizationService:
             usage_analysis = await self.analyze_usage(profile_id, playbook_code)
 
         # Get base Playbook
-        from backend.app.services.playbook_loader import PlaybookLoader
-        loader = PlaybookLoader()
-        playbook = loader.get_playbook_by_code(playbook_code)
+        playbook = await self.playbook_service.get_playbook(
+            playbook_code=playbook_code,
+            locale="zh-TW",
+        )
 
         if not playbook:
             logger.warning(f"Playbook not found: {playbook_code}")
@@ -273,9 +274,10 @@ class PlaybookOptimizationService:
             Created variant data
         """
         # Get base Playbook
-        from backend.app.services.playbook_loader import PlaybookLoader
-        loader = PlaybookLoader()
-        playbook = loader.get_playbook_by_code(playbook_code)
+        playbook = await self.playbook_service.get_playbook(
+            playbook_code=playbook_code,
+            locale="zh-TW",
+        )
 
         if not playbook:
             raise ValueError(f"Playbook not found: {playbook_code}")
@@ -315,4 +317,7 @@ class PlaybookOptimizationService:
             "is_default": False
         }
 
-        return self.playbook_store.create_personalized_variant(variant_data)
+        raise NotImplementedError(
+            "Personalized playbook variant persistence is not available in the "
+            "current PlaybookService/PlaybookRegistry backend."
+        )

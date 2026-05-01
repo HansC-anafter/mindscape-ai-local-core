@@ -106,9 +106,7 @@ def build_queue_partition_filter_clause(
         params[key] = token
         placeholders.append(f":{key}")
 
-    default_key = f"{param_prefix}_default"
-    params[default_key] = LEGACY_DEFAULT_QUEUE_PARTITION
-    clause = (
-        f"COALESCE({column_sql}, :{default_key}) IN ({', '.join(placeholders)})"
-    )
+    clause = f"{column_sql} IN ({', '.join(placeholders)})"
+    if LEGACY_DEFAULT_QUEUE_PARTITION in aliases:
+        clause = f"({clause} OR {column_sql} IS NULL)"
     return clause, params

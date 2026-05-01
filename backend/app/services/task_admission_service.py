@@ -274,33 +274,26 @@ class TaskAdmissionService:
             queue_shard,
             param_prefix="queue_partition",
         )
-        query = text(
+        pending_query = text(
             f"""
             SELECT
-                COUNT(*) FILTER (
-                    WHERE status = 'pending'
-                      AND COALESCE(blocked_reason, '') = :unblocked_reason
-                      AND COALESCE(next_eligible_at, created_at) <= :now
-                      AND COALESCE(frontier_state, :legacy_ready_state) IN (
-                        :ready_frontier_state,
-                        :legacy_ready_state
-                      )
-                ) AS pending_total,
-                COUNT(*) FILTER (
-                    WHERE status = 'running'
-                ) AS running_total,
-                MIN(COALESCE(frontier_enqueued_at, next_eligible_at, created_at)) FILTER (
-                    WHERE status = 'pending'
-                      AND COALESCE(blocked_reason, '') = :unblocked_reason
-                      AND COALESCE(next_eligible_at, created_at) <= :now
-                      AND COALESCE(frontier_state, :legacy_ready_state) IN (
-                        :ready_frontier_state,
-                        :legacy_ready_state
-                      )
-                ) AS oldest_pending_at
+                COUNT(*) AS pending_total,
+                MIN(COALESCE(frontier_enqueued_at, next_eligible_at, created_at)) AS oldest_pending_at
             FROM tasks
             WHERE task_type IN (:task_type_pb, :task_type_tool)
-              AND status IN (:pending_status, :running_status)
+              AND status = :pending_status
+              AND (blocked_reason IS NULL OR blocked_reason = :unblocked_reason)
+              AND next_eligible_at <= :now
+              AND frontier_state = :ready_frontier_state
+              AND {queue_clause}
+            """
+        )
+        running_query = text(
+            f"""
+            SELECT COUNT(*) AS running_total
+            FROM tasks
+            WHERE task_type IN (:task_type_pb, :task_type_tool)
+              AND status = :running_status
               AND {queue_clause}
             """
         )
@@ -317,7 +310,8 @@ class TaskAdmissionService:
         params.update(queue_params)
         try:
             with tasks_store.get_connection() as conn:
-                row = conn.execute(query, params).fetchone()
+                pending_row = conn.execute(pending_query, params).fetchone()
+                running_row = conn.execute(running_query, params).fetchone()
         except Exception as exc:
             logger.warning(
                 "Task admission pressure query failed for shard=%s: %s",
@@ -333,9 +327,11 @@ class TaskAdmissionService:
 
         return AdmissionPressure(
             queue_shard=queue_shard,
-            pending_total=int(_row_value(row, "pending_total", 0) or 0),
-            running_total=int(_row_value(row, "running_total", 0) or 0),
-            oldest_pending_at=_coerce_datetime(_row_value(row, "oldest_pending_at")),
+            pending_total=int(_row_value(pending_row, "pending_total", 0) or 0),
+            running_total=int(_row_value(running_row, "running_total", 0) or 0),
+            oldest_pending_at=_coerce_datetime(
+                _row_value(pending_row, "oldest_pending_at")
+            ),
         )
 
     def _resolve_partition_env_limit(
