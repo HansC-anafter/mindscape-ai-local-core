@@ -170,21 +170,24 @@ docker compose exec postgres psql -U mindscape -d mindscape_vectors
 
 ## Data Persistence
 
-Data is persisted in Docker volumes:
+Data is persisted through host-mounted directories:
 
-- **PostgreSQL data**: `postgres_data` volume
-- **Application data**: `./data` directory (mounted from host)
-- **Logs**: `./logs` directory (mounted from host)
+- **PostgreSQL data**: `${LOCAL_CORE_POSTGRES_HOST_DIR:-./data/postgres}`
+- **Application data**: `${LOCAL_CORE_DATA_HOST_DIR:-./data}`
+- **Logs**: `${LOCAL_CORE_LOGS_HOST_DIR:-./logs}`
 
-To backup data:
+Use the verified backup script instead of ad hoc `pg_dump > file` commands:
 
 ```bash
-# Backup PostgreSQL
-docker compose exec postgres pg_dump -U mindscape mindscape_vectors > backup.sql
+# Standard runtime backup
+scripts/backup_local_runtime.sh
 
-# Backup application data
-tar -czf data-backup.tar.gz ./data
+# Verify a completed backup
+scripts/verify_local_runtime_backup.sh <backup-dir>
 ```
+
+See `docs/operations/local-runtime-backups.md` for backup scope, full-backup
+options, and restore notes.
 
 ## Development Mode
 
@@ -308,4 +311,3 @@ For production deployment:
 - See [Installation Guide](./installation.md) for non-Docker setup
 - See [Quick Start Guide](./quick-start.md) for first-time usage
 - See [Architecture Documentation](../architecture/) for system design
-
