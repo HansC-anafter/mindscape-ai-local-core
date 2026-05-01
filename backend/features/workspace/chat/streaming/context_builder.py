@@ -24,6 +24,7 @@ async def build_streaming_context(
     model_name: Optional[str] = None,
     thread_id: Optional[str] = None,
     hours: int = 24,
+    side_chain_mode: str = "auto",
 ) -> Optional[str]:
     """
     Build context for streaming response
@@ -71,7 +72,7 @@ async def build_streaming_context(
         workspace=workspace,
         thread_id=thread_id,
         hours=hours,
-        side_chain_mode="auto",
+        side_chain_mode=side_chain_mode,
     )
 
     if context is not None:

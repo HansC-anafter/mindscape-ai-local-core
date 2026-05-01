@@ -105,8 +105,14 @@ class SideChainHandler:
 
                 tasks_store = TasksStore()
 
-                running_tasks = tasks_store.list_running_tasks(workspace_id)
-                pending_tasks = tasks_store.list_pending_tasks(workspace_id)
+                running_tasks = tasks_store.list_running_tasks(
+                    workspace_id,
+                    limit=task_limit,
+                )
+                pending_tasks = tasks_store.list_pending_tasks(
+                    workspace_id,
+                    limit=task_limit,
+                )
 
                 for task in (running_tasks + pending_tasks)[:task_limit]:
                     task_status = (

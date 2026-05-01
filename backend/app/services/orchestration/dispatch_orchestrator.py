@@ -84,7 +84,6 @@ class DispatchOrchestrator:
         # Signature: async (wave_summary, task_ir) -> Optional[List[PhaseIR]]
         self._on_wave_complete = on_wave_complete
 
-        # PhaseAttempt tracking (phase_id -> latest attempt).
         self._attempts: Dict[str, PhaseAttempt] = {}
 
         # Result tracking for the artifact pipeline.
@@ -261,7 +260,6 @@ class DispatchOrchestrator:
         else:
             agg_status = "partial_failure"
 
-        # Persist PhaseAttempt records to tasks_store for L5→L3 signal path
         session_id = getattr(self.session, "id", None)
         if self.tasks_store and self._attempts and session_id:
             try:
@@ -341,8 +339,7 @@ class DispatchOrchestrator:
         """Dispatch a single phase, creating a PhaseAttempt."""
         attempt = self._create_attempt(phase, task_ir_id)
 
-        # Idempotency guard runs before mark_dispatched() to keep
-        # attempt state clean.
+        # Idempotency is registered before dispatch state changes.
         if self._handoff_registry_store:
             registered = self._handoff_registry_store.register_attempt(
                 idempotency_key=attempt.idempotency_key,
@@ -681,8 +678,6 @@ class DispatchOrchestrator:
 
             execution_id = result.get("execution_id")
 
-            # Write execution_id back to attempt.adapter_meta
-            # for direct attempt → execution_id join
             if execution_id:
                 attempt.adapter_meta["execution_id"] = execution_id
 
@@ -722,7 +717,7 @@ class DispatchOrchestrator:
         task = Task(
             id=str(uuid.uuid4()),
             workspace_id=target_workspace_id,
-            message_id=attempt.id,  # link to attempt as origin
+                    message_id=attempt.id,
             pack_id=phase.tool_name or "meeting_dispatch",
             task_type="tool_execution",
             status=TaskStatus.PENDING,
@@ -989,10 +984,6 @@ class DispatchOrchestrator:
         resolved_runtime = getattr(workspace, "resolved_executor_runtime", None)
         if isinstance(resolved_runtime, str) and resolved_runtime.strip():
             return resolved_runtime.strip()
-
-        executor_runtime = getattr(workspace, "executor_runtime", None)
-        if isinstance(executor_runtime, str) and executor_runtime.strip():
-            return executor_runtime.strip()
         return None
 
     @staticmethod

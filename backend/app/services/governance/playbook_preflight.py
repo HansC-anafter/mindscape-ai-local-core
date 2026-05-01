@@ -496,30 +496,35 @@ class PlaybookPreflight:
             return False, str(e)
 
     def _get_bound_runtime_ids(self, workspace: Any) -> List[str]:
-        """Return workspace-bound runtime IDs from executor_specs or fallback field."""
+        """Return workspace-bound runtime IDs from model-routing-registry policy."""
+        from backend.app.services.executor_routing_policy_service import (
+            ExecutorRoutingPolicyService,
+        )
+
         runtime_ids: List[str] = []
+        snapshot = ExecutorRoutingPolicyService.extract_workspace_policy_snapshot(
+            workspace
+        )
+        primary_runtime = snapshot.get("primary_executor_runtime")
+        if isinstance(primary_runtime, str) and primary_runtime.strip():
+            runtime_ids.append(primary_runtime.strip())
 
-        executor_specs = getattr(workspace, "executor_specs", None) or []
-        for spec in executor_specs:
-            runtime_id = None
-            if isinstance(spec, dict):
-                runtime_id = spec.get("runtime_id")
-            else:
-                runtime_id = getattr(spec, "runtime_id", None)
+        surfaces = snapshot.get("surfaces")
+        if isinstance(surfaces, dict):
+            for surface, entry in surfaces.items():
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("enabled") and surface not in runtime_ids:
+                    runtime_ids.append(surface)
+                preferred_runtime_id = entry.get("preferred_runtime_id")
+                if (
+                    isinstance(preferred_runtime_id, str)
+                    and preferred_runtime_id.strip()
+                    and preferred_runtime_id.strip() not in runtime_ids
+                ):
+                    runtime_ids.append(preferred_runtime_id.strip())
 
-            if isinstance(runtime_id, str):
-                rid = runtime_id.strip()
-                if rid and rid not in runtime_ids:
-                    runtime_ids.append(rid)
-
-        if runtime_ids:
-            return runtime_ids
-
-        preferred = getattr(workspace, "executor_runtime", None)
-        if isinstance(preferred, str) and preferred.strip():
-            return [preferred.strip()]
-
-        return []
+        return runtime_ids
 
     def _check_sandbox_config(
         self,
@@ -540,12 +545,12 @@ class PlaybookPreflight:
         Returns:
             Tuple of (approved, issue_description)
         """
-        # P2: allow all runtimes bound to the workspace (executor_specs first, then fallback field).
+        # P2: allow only runtimes bound by model-routing-registry policy.
         bound_runtimes = self._get_bound_runtime_ids(workspace)
         if bound_runtimes and agent_id not in bound_runtimes:
             return (
                 False,
-                f"Agent '{agent_id}' not in workspace executor_specs: {bound_runtimes}",
+                f"Agent '{agent_id}' not in model-route-registry workspace executor route: {bound_runtimes}",
             )
 
         # Get sandbox config

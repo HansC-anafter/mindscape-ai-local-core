@@ -166,20 +166,21 @@ class MeetingIRCompilerMixin:
         )
 
         try:
-            from backend.app.services.orchestration.meeting.spatial_scheduling_compiler import (
-                emit_spatial_schedule_for_task_ir,
+            from backend.app.services.orchestration.meeting.capability_artifact_emitter import (
+                emit_requested_artifacts_for_task_ir,
             )
 
-            emit_spatial_schedule_for_task_ir(
+            emit_requested_artifacts_for_task_ir(
                 task_ir=task_ir,
                 session=getattr(self, "session", None),
+                workspace=getattr(self, "workspace", None),
                 decision=decision,
                 action_items=action_items,
                 action_intents=action_intents,
             )
         except Exception as exc:
             logger.warning(
-                "Failed to emit spatial schedule artifact for task %s: %s",
+                "Failed to emit requested capability artifacts for task %s: %s",
                 task_id,
                 exc,
             )

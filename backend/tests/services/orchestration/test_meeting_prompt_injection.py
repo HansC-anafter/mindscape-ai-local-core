@@ -180,6 +180,61 @@ class TestBuildTurnPromptInjection:
         )
         assert "=== Active Intents ===" not in prompt
 
+    def test_native_spatial_prompt_injects_storyboard_benchmark_block(self):
+        engine = StubEngine()
+        engine.executor_runtime = "codex_cli"
+        engine._requires_full_deliberation_review = MagicMock(return_value=True)
+        engine.session.agenda = ["Single-camera tray delivery"]
+        engine.session.metadata = {
+            "request_contract": {
+                "human_instructions": (
+                    "Use the storyboard benchmark as a hard acceptance target."
+                ),
+                "governance_constraints": {
+                    "spatial_schedule": {
+                        "storyboard_acceptance": {
+                            "storyboard_id": "story_counter_tray_single_cam_delivery_v1",
+                            "intent_summary": "Single-camera indoor countertop tray delivery",
+                            "acceptance_checks": {
+                                "required_actor_ids": ["actor.attendant"],
+                                "required_performance_beats": [
+                                    "beat.entry_with_tray",
+                                    "beat.align_to_counter",
+                                ],
+                                "required_segment_titles": [
+                                    "Entry with tray",
+                                    "Align to counter",
+                                ],
+                            },
+                            "storyboard_cards": [
+                                {
+                                    "card_id": "card.entry_with_tray",
+                                    "title": "Entry with tray",
+                                    "required_segment_title": "Entry with tray",
+                                    "required_beat_ids": ["beat.entry_with_tray"],
+                                }
+                            ],
+                        }
+                    }
+                },
+            }
+        }
+
+        prompt = engine._build_turn_prompt(
+            role_id="planner",
+            round_num=1,
+            user_message="Design a tray handoff scene for downstream replay",
+            decision=None,
+            planner_proposals=[],
+            critic_notes=[],
+        )
+
+        assert "=== Handoff Instructions ===" in prompt
+        assert "=== Storyboard Acceptance Benchmark ===" in prompt
+        assert "actor.attendant" in prompt
+        assert "beat.entry_with_tray" in prompt
+        assert "Entry with tray" in prompt
+
 
 class FakeInstruction:
     """Fake WorkspaceInstruction for testing."""

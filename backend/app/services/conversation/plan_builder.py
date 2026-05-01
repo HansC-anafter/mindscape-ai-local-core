@@ -162,23 +162,12 @@ class PlanBuilder:
                 )
             llm_manager = self._llm_manager_cache[cache_key]
 
-            # Get user's selected chat model to determine provider
-            from backend.app.services.system_settings_store import SystemSettingsStore
+            from backend.app.services.model_routing_policy_service import (
+                ModelRoutingPolicyService,
+            )
 
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-            provider_name = None
-
-            if chat_setting:
-                provider_name = chat_setting.metadata.get("provider")
-                if not provider_name:
-                    model_name = str(chat_setting.value)
-                    if "gemini" in model_name.lower():
-                        provider_name = "vertex-ai"
-                    elif "gpt" in model_name.lower() or "text-" in model_name.lower():
-                        provider_name = "openai"
-                    elif "claude" in model_name.lower():
-                        provider_name = "anthropic"
+            resolved_route = ModelRoutingPolicyService().resolve_chat_default()
+            model_name = resolved_route.model_name
 
             try:
                 llm_provider = get_llm_provider_from_settings(llm_manager)

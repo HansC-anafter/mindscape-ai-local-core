@@ -98,6 +98,11 @@ class MeetingActionItemsMixin:
             if isinstance(payload.get("camera_blocking"), dict)
             else {}
         )
+        verification_action = (
+            dict(payload.get("verification_action_item") or {})
+            if isinstance(payload.get("verification_action_item"), dict)
+            else {}
+        )
 
         def _clean_refs(*groups: Any) -> List[str]:
             refs: List[str] = []
@@ -118,6 +123,50 @@ class MeetingActionItemsMixin:
         object_ids = _clean_refs([item.get("id") for item in objects])
         anchor_ids = _clean_refs([item.get("id") for item in anchors])
         shared_refs = _clean_refs(actor_ids, object_ids, anchor_ids)
+        entity_refs = _clean_refs(payload.get("entity_refs") or [], actor_ids, object_ids)
+
+        message_lower = str(user_message or "").lower()
+        if verification_action and (
+            "exactly one" in message_lower
+            or "one downstream action item" in message_lower
+            or "one verification action item" in message_lower
+        ):
+            title = str(
+                verification_action.get("title")
+                or verification_action.get("deliverable")
+                or "Verify Native Spatial PD Gate"
+            ).strip()
+            description = "\n".join(
+                part
+                for part in [
+                    str(decision_summary or "").strip(),
+                    str(verification_action.get("verification") or "").strip(),
+                ]
+                if part
+            )
+            return [
+                ActionIntent(
+                    intent_id="native.spatial.verification",
+                    title=title[:120] or "Verify Native Spatial PD Gate",
+                    description=description,
+                    assignee=str(
+                        verification_action.get("owner")
+                        or verification_action.get("assigned_to")
+                        or "reviewer"
+                    ).strip(),
+                    confidence=IntentConfidence.HIGH,
+                    target_workspace_id=workspace_id,
+                    priority="high",
+                    asset_refs=_clean_refs(entity_refs, anchor_ids, shared_refs),
+                    engine="manual:verification",
+                    input_params={
+                        "schedule_id": payload.get("schedule_id"),
+                        "entity_refs": entity_refs,
+                        "anchor_ids": anchor_ids,
+                        "verification_action_item": verification_action,
+                    },
+                )
+            ]
 
         intents: List[ActionIntent] = [
             ActionIntent(

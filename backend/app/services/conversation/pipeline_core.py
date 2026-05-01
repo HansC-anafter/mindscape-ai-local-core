@@ -146,12 +146,27 @@ class PipelineCore:
         )
 
         result = PipelineResult()
+        explicit_meeting_session_id = None
+        action_params = getattr(request, "action_params", None) if request else None
+        if isinstance(action_params, dict):
+            explicit_meeting_session_id = (
+                action_params.get("meeting_session_id")
+                or action_params.get("meeting_id")
+            )
+            if explicit_meeting_session_id:
+                result.meeting_session_id = str(explicit_meeting_session_id)
 
         try:
             # --- Stage 0: Routing Decision (ADR-R1) ---
-            executor_runtime = getattr(
-                self.workspace, "resolved_executor_runtime", None
-            ) or getattr(self.workspace, "executor_runtime", None)
+            from backend.app.services.executor_routing_policy_service import (
+                ExecutorRoutingPolicyService,
+            )
+
+            executor_runtime = (
+                ExecutorRoutingPolicyService.extract_workspace_policy_snapshot(
+                    self.workspace
+                ).get("primary_executor_runtime")
+            )
 
             router = IngressRouter()
             route_decision = await router.decide(
@@ -176,6 +191,7 @@ class PipelineCore:
                     user_message=message,
                     model_name=model_name,
                     executor_runtime=executor_runtime,
+                    explicit_session_id=explicit_meeting_session_id,
                 )
                 if session:
                     result.meeting_session_id = session.id
@@ -190,9 +206,11 @@ class PipelineCore:
                 )
 
                 execution_launcher = build_execution_launcher(self.store)
-                executor_runtime = getattr(
-                    self.workspace, "resolved_executor_runtime", None
-                ) or getattr(self.workspace, "executor_runtime", None)
+                executor_runtime = (
+                    ExecutorRoutingPolicyService.extract_workspace_policy_snapshot(
+                        self.workspace
+                    ).get("primary_executor_runtime")
+                )
 
                 # Enrich uploaded file metadata (aligned with pipeline_dispatch)
                 raw_files = getattr(request, "files", None) or []
@@ -376,17 +394,42 @@ class PipelineCore:
                 PostgresTimelineItemsStore,
             )
 
+            use_agent = route_decision.route_kind == RouteKind.GOVERNED
             timeline_items_store = PostgresTimelineItemsStore()
-            context_str = await build_streaming_context(
-                workspace_id=workspace_id,
-                message=message,
-                profile_id=profile_id,
-                workspace=self.workspace,
-                store=self.store,
-                timeline_items_store=timeline_items_store,
-                model_name=model_name,
-                thread_id=thread_id,
-            )
+            try:
+                context_coro = build_streaming_context(
+                    workspace_id=workspace_id,
+                    message=message,
+                    profile_id=profile_id,
+                    workspace=self.workspace,
+                    store=self.store,
+                    timeline_items_store=timeline_items_store,
+                    model_name=model_name,
+                    thread_id=thread_id,
+                    side_chain_mode="off" if use_agent else "auto",
+                )
+                context_str = (
+                    await asyncio.wait_for(context_coro, timeout=20)
+                    if use_agent
+                    else await context_coro
+                )
+            except asyncio.TimeoutError:
+                context_str = ""
+                logger.warning(
+                    "[PipelineCore] Context build timed out for governed dispatch; "
+                    "continuing with minimal context (workspace=%s thread=%s)",
+                    workspace_id,
+                    thread_id,
+                )
+                await self._emit_pipeline_stage(
+                    workspace_id,
+                    profile_id,
+                    thread_id,
+                    project_id,
+                    "context_building_degraded",
+                    "Context build timed out; dispatching with bounded workspace metadata.",
+                    user_event_id,
+                )
 
             # Inject workspace instruction into context (feeds both agent and LLM dispatch)
             from backend.app.services.workspace_instruction_helper import (
@@ -404,8 +447,6 @@ class PipelineCore:
                 )
 
             # --- Stage 3: Dispatch (uses RouteDecision) ---
-            use_agent = route_decision.route_kind == RouteKind.GOVERNED
-
             if use_agent:
                 # Extract uploaded file metadata from original request
                 _uploaded_files = getattr(request, "files", None) or []

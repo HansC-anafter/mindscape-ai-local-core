@@ -26,6 +26,7 @@ from ...services.stores.intent_tags_store import IntentTagsStore
 from ...core.domain_context import LocalDomainContext
 from ...services.i18n_service import get_i18n_service
 from ...core.ports.intent_registry_port import IntentRegistryPort
+from ...shared.llm_provider_helper import get_model_name_from_chat_model
 from backend.app.services.conversation.context_builder import ContextBuilder
 from backend.app.services.conversation.pack_suggester import PackSuggester
 from backend.app.services.pack_info_collector import PackInfoCollector
@@ -68,18 +69,11 @@ class IntentExtractor:
         self.intent_registry = intent_registry
         self.intent_tags_store = IntentTagsStore()
 
-        # Get model name from system settings - must be configured by user
-        from ...services.system_settings_store import SystemSettingsStore
-
-        settings_store = SystemSettingsStore()
-        chat_setting = settings_store.get_setting("chat_model")
-
-        if not chat_setting or not chat_setting.value:
+        model_name = get_model_name_from_chat_model()
+        if not model_name:
             raise ValueError(
                 "LLM model not configured. Please select a model in the system settings panel."
             )
-
-        model_name = str(chat_setting.value)
         if not model_name or model_name.strip() == "":
             raise ValueError(
                 "LLM model is empty. Please select a valid model in the system settings panel."

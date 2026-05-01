@@ -1,8 +1,16 @@
+import sys
+from pathlib import Path
 from types import SimpleNamespace
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[4]
+_APP_ROOT = _BACKEND_ROOT / "app"
+for _path in (str(_BACKEND_ROOT), str(_APP_ROOT)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
 from backend.app.models.handoff import HandoffIn
 from backend.app.services.orchestration.meeting._ir_compiler import MeetingIRCompilerMixin
-from backend.app.services.orchestration.meeting.spatial_scheduling_compiler import (
+from backend.app.capabilities.spatial_scheduling.services.spatial_schedule_compiler import (
     SPATIAL_SCHEDULE_ARTIFACT_MIME,
     build_spatial_schedule_artifact,
     build_spatial_schedule_context,
@@ -326,6 +334,7 @@ def test_build_spatial_scheduling_ir_merges_action_item_fallbacks_and_world_cont
     assert [entity.entity_id for entity in schedule.entities] == [
         "actor.lead",
         "prop.marker",
+        "camera.main",
     ]
     assert [anchor.anchor_id for anchor in schedule.anchors] == [
         "scene.demo",
@@ -335,7 +344,7 @@ def test_build_spatial_scheduling_ir_merges_action_item_fallbacks_and_world_cont
     assert schedule.segments[0].anchors == ["scene.demo", "main_floor", "stage_mark"]
     summary = schedule.constraint_summary.model_dump(mode="json")
     assert "single_stage_scene" in [item["summary"] for item in summary["scene"]]
-    assert "single_camera_family" in summary["camera"][0]["summary"]
+    assert any("single_camera_family" in item["summary"] for item in summary["camera"])
     assert summary["objects"][0]["item_id"] == "prop.marker"
     assert summary["anchors"][-1]["item_id"] == "stage_mark"
     assert summary["spatial_relations"][0]["summary"] == "actor_on_mark"
@@ -476,6 +485,45 @@ def test_build_spatial_scheduling_ir_reflects_governance_object_and_anchor_ident
         "object.tray",
     ]
     assert sorted(schedule.segments[1].anchors) == [
+        "anchor.counter",
+        "anchor.tray_rest",
+    ]
+
+
+def test_build_spatial_scheduling_ir_preserves_native_camera_handoff_anchor_sequence():
+    schedule = build_spatial_scheduling_ir(
+        task_id="task-native-camera-001",
+        workspace_id="ws-001",
+        session_id="session-001",
+        decision=(
+            "Drive camera.main with hold_then_minor_reframe across anchors "
+            "anchor.entry_handoff, anchor.counter, anchor.tray_rest."
+        ),
+        action_items=[
+            {
+                "intent_id": "seg-camera-001",
+                "title": "Drive camera.main with hold_then_minor_reframe",
+                "description": (
+                    "Stage the tray handoff from anchor.entry_handoff across "
+                    "anchor.counter and settle at anchor.tray_rest."
+                ),
+            }
+        ],
+        action_intents=None,
+        governance=None,
+        world_context=None,
+    )
+    artifact = build_spatial_schedule_artifact(
+        task_id="task-native-camera-001",
+        schedule=schedule,
+    )
+    context = build_spatial_schedule_context(schedule=schedule, artifact=artifact)
+
+    native_execution_plan = context["constraint_summary"]["native_execution_plan"]
+    assert native_execution_plan["camera_blocking"][0]["camera_entity_id"] == "camera.main"
+    assert native_execution_plan["camera_blocking"][0]["mode"] == "hold_then_minor_reframe"
+    assert native_execution_plan["camera_blocking"][0]["anchor_ids"] == [
+        "anchor.entry_handoff",
         "anchor.counter",
         "anchor.tray_rest",
     ]

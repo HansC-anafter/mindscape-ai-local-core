@@ -134,24 +134,50 @@ async def setup_chat_session(
     except Exception:
         pass
 
-    # 2. Detect / resolve project
-    from backend.app.services.project.project_creation_helper import (
-        detect_and_create_project_if_needed,
-    )
-
     requested_project_id = getattr(request, "project_id", None)
-    project_id, _ = await detect_and_create_project_if_needed(
-        message=request.message,
-        workspace_id=workspace_id,
-        profile_id=profile_id,
-        store=store,
-        workspace=workspace,
-        existing_project_id=requested_project_id,
-        create_on_medium_confidence=True,
-    )
+    requested_thread_id = getattr(request, "thread_id", None)
+
+    # 2. Detect / resolve project.
+    # Project auto-creation is a workspace-lobby behavior. Explicit thread
+    # requests are already inside an existing conversation surface such as a
+    # meeting graph, so they should not create unrelated projects before the
+    # turn is even routed.
+    project_id = requested_project_id
+    if not project_id and requested_thread_id:
+        try:
+            thread = await asyncio.to_thread(
+                store.conversation_threads.get_thread, requested_thread_id
+            )
+            project_id = getattr(thread, "project_id", None) if thread else None
+        except Exception as exc:
+            logger.debug(
+                "Failed to resolve project for explicit thread %s: %s",
+                requested_thread_id,
+                exc,
+            )
+        logger.info(
+            "Skipping project auto-detection for explicit thread %s (project=%s)",
+            requested_thread_id,
+            project_id,
+        )
+
+    if not project_id and not requested_thread_id:
+        from backend.app.services.project.project_creation_helper import (
+            detect_and_create_project_if_needed,
+        )
+
+        project_id, _ = await detect_and_create_project_if_needed(
+            message=request.message,
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            store=store,
+            workspace=workspace,
+            existing_project_id=requested_project_id,
+            create_on_medium_confidence=True,
+        )
 
     # 3. Ensure thread
-    thread_id = getattr(request, "thread_id", None)
+    thread_id = requested_thread_id
     if not thread_id:
         thread_id = await asyncio.to_thread(
             get_or_create_default_thread, workspace_id, store
@@ -159,6 +185,21 @@ async def setup_chat_session(
 
     # 4. Create user event
     event_id = user_event_id or str(uuid.uuid4())
+    action_params = getattr(request, "action_params", None) or {}
+    meeting_session_id = None
+    if isinstance(action_params, dict):
+        meeting_session_id = (
+            action_params.get("meeting_session_id")
+            or action_params.get("meeting_id")
+            or action_params.get("thread_id")
+        )
+    if (
+        not meeting_session_id
+        and requested_thread_id
+        and isinstance(action_params, dict)
+        and action_params.get("meeting_command")
+    ):
+        meeting_session_id = requested_thread_id
     user_event = MindEvent(
         id=event_id,
         timestamp=_utc_now(),
@@ -173,9 +214,18 @@ async def setup_chat_session(
             "message": request.message,
             "files": getattr(request, "files", []) or [],
             "mode": getattr(request, "mode", "qa"),
+            "meeting_session_id": meeting_session_id,
+            "meeting_command": (
+                action_params.get("meeting_command")
+                if isinstance(action_params, dict)
+                else None
+            ),
         },
         entity_ids=[],
-        metadata={},
+        metadata={
+            "meeting_session_id": meeting_session_id,
+            "action_params": action_params if isinstance(action_params, dict) else {},
+        },
     )
     await asyncio.to_thread(store.create_event, user_event)
     logger.info(
@@ -204,12 +254,16 @@ async def setup_chat_session(
     if not runtime_profile:
         runtime_profile = await rt_store.create_default_profile(workspace_id)
 
-    resolved_mode_enum = get_resolved_mode(workspace, runtime_profile)
-    execution_mode = (
-        resolved_mode_enum.value
-        if resolved_mode_enum
-        else (getattr(workspace, "execution_mode", None) or "meeting")
-    )
+    requested_mode = str(getattr(request, "mode", "") or "").strip().lower()
+    if requested_mode and requested_mode != "auto":
+        execution_mode = requested_mode
+    else:
+        resolved_mode_enum = get_resolved_mode(workspace, runtime_profile)
+        execution_mode = (
+            resolved_mode_enum.value
+            if resolved_mode_enum
+            else (getattr(workspace, "execution_mode", None) or "meeting")
+        )
 
     locale = get_locale_from_context(profile=profile, workspace=workspace) or "zh-TW"
 

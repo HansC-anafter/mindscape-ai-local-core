@@ -84,6 +84,79 @@ def test_validate_manifest_accepts_aol2_contract_fields(tmp_path):
     assert result.errors == []
 
 
+def test_validate_manifest_accepts_runtime_contract_fields(tmp_path):
+    manifest = {
+        **_base_manifest(),
+        "contract_exports": [
+            {
+                "contract_id": "demo_contract",
+                "module": "capabilities.demo_capability.schema.demo_contract",
+                "version": "1.0.0",
+                "legacy_aliases": ["shared.schemas.demo_contract"],
+            }
+        ],
+        "contract_imports": [
+            {
+                "contract_id": "visual_signal",
+                "provider_pack": "layer_asset_forge",
+                "version_range": "^1.0",
+            }
+        ],
+    }
+
+    result = _load_validate_manifest_module().validate_manifest(
+        _write_manifest(tmp_path, manifest)
+    )
+
+    assert result.valid is True
+    assert result.errors == []
+
+
+def test_validate_manifest_accepts_meeting_artifact_producers(tmp_path):
+    manifest = {
+        **_base_manifest(),
+        "meeting_artifact_producers": [
+            {
+                "mime_type": "application/vnd.mindscape.spatial-scheduling+json",
+                "backend": "capabilities.demo_capability.tools.spatial_schedule:compile_from_meeting",
+                "governance_request_key": "spatial_schedule",
+                "input_contract": "meeting_task_ir_v1",
+            }
+        ],
+    }
+
+    result = _load_validate_manifest_module().validate_manifest(
+        _write_manifest(tmp_path, manifest)
+    )
+
+    assert result.valid is True
+    assert result.errors == []
+
+
+def test_validate_manifest_rejects_foreign_meeting_artifact_producer_backend(tmp_path):
+    manifest = {
+        **_base_manifest(),
+        "meeting_artifact_producers": [
+            {
+                "mime_type": "application/vnd.mindscape.spatial-scheduling+json",
+                "backend": "capabilities.other_pack.tools.spatial_schedule:compile_from_meeting",
+                "governance_request_key": "spatial_schedule",
+                "input_contract": "meeting_task_ir_v1",
+            }
+        ],
+    }
+
+    result = _load_validate_manifest_module().validate_manifest(
+        _write_manifest(tmp_path, manifest)
+    )
+
+    assert result.valid is False
+    assert any(
+        error.field == "meeting_artifact_producers[0].backend"
+        for error in result.errors
+    )
+
+
 def test_validate_manifest_rejects_incomplete_aol2_claim(tmp_path):
     manifest = {
         **_base_manifest(),
@@ -122,3 +195,6 @@ def test_local_and_cloud_manifest_schemas_expose_aol_contract_fields():
         assert field in cloud_schema["properties"]["object_exports"]["items"]["properties"]
     assert "affordances" in local_schema["properties"]
     assert "affordances" in cloud_schema["properties"]
+    for field in ("contract_exports", "contract_imports", "meeting_artifact_producers"):
+        assert field in local_schema["properties"]
+        assert field in cloud_schema["properties"]

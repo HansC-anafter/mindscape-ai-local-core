@@ -103,20 +103,16 @@ class QAResponseGenerator:
             from backend.app.services.conversation.context_builder import ContextBuilder
             from ...capabilities.core_llm.services.generate import run as generate_text
             from ...services.i18n_service import get_i18n_service
-            from ...services.system_settings_store import SystemSettingsStore
+            from ...shared.llm_provider_helper import get_model_name_from_chat_model
 
             i18n = get_i18n_service(default_locale=self.default_locale)
 
-            # Get model name from system settings - must be configured by user
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-
-            if not chat_setting or not chat_setting.value:
+            # Get model name through the routing registry-backed helper.
+            model_name = get_model_name_from_chat_model()
+            if not model_name:
                 raise ValueError(
                     "LLM model not configured. Please select a model in the system settings panel."
                 )
-
-            model_name = str(chat_setting.value)
             if not model_name or model_name.strip() == "":
                 raise ValueError(
                     "LLM model is empty. Please select a valid model in the system settings panel."

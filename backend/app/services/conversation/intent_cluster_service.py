@@ -326,18 +326,16 @@ class IntentClusterService:
 Cluster label (2-4 words, in English, no quotes):"""
 
             # Call LLM to generate label
-            from ...services.system_settings_store import SystemSettingsStore
             from ...shared.llm_utils import call_llm, build_prompt
-            from ...shared.llm_provider_helper import create_llm_provider_manager
+            from ...shared.llm_provider_helper import (
+                create_llm_provider_manager,
+                get_model_name_from_chat_model,
+            )
 
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-
-            if not chat_setting or not chat_setting.value:
+            model_name = get_model_name_from_chat_model()
+            if not model_name:
                 # Fallback: use first intent title
                 return cluster_intent_cards[0].title[:30]
-
-            model_name = str(chat_setting.value)
 
             try:
                 response = await call_llm(

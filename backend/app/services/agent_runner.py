@@ -95,7 +95,6 @@ class AgentPromptBuilder:
         prompt_parts.append(f"[AGENT_ROLE]\n{agent_config['role']}")
         prompt_parts.append(f"{agent_config['instructions']}\n[/AGENT_ROLE]")
 
-        # Language policy section (using unified template)
         from backend.app.shared.i18n_loader import get_locale_from_context
         from backend.app.shared.prompt_templates import build_language_policy_section
 

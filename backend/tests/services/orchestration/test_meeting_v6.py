@@ -427,7 +427,7 @@ class TestBlockedByValidation:
 
 
 # ---------------------------------------------------------------------------
-# [Medium] single-path 用實際 workspace key
+# Single-path workspace key routing.
 # ---------------------------------------------------------------------------
 
 
@@ -513,7 +513,7 @@ class TestMultiAllPolicyBlocked:
 
 
 # ---------------------------------------------------------------------------
-# [High] tool_execution input_params 寫入 execution_context
+# Tool execution input parameter propagation.
 # ---------------------------------------------------------------------------
 
 
@@ -704,6 +704,67 @@ class TestVisibilityModel:
 
 class TestCorrectnessFeedbackRealPath:
     """MeetingEngine stage should apply session correctness feedback."""
+
+    @pytest.mark.asyncio
+    async def test_stage_dispatch_skips_plan_only_manual_verification(
+        self, monkeypatch
+    ):
+        from backend.app.models.action_intent import ActionIntent
+        from backend.app.services.orchestration.meeting.engine import MeetingEngine
+
+        class StubEngine(StubMixin):
+            pass
+
+        engine = StubEngine()
+        engine.session.metadata = {"phase_attempts": {}}
+        engine.session.created_at = None
+        engine.workspace = MagicMock(id="ws-default")
+        engine.model_name = None
+        engine._available_playbooks_cache = ""
+        engine._request_contract = None
+        engine.execution_launcher = None
+        engine.tasks_store = MagicMock()
+        engine._emit_meeting_stage = AsyncMock()
+
+        compiled_ir = MagicMock(phases=[MagicMock(id="native.spatial.verification")])
+        engine._compile_to_task_ir = MagicMock(return_value=compiled_ir)
+
+        dispatch_module = importlib.import_module(
+            "backend.app.services.orchestration.dispatch_orchestrator"
+        )
+
+        class _UnexpectedDispatchOrchestrator:
+            def __init__(self, **kwargs):
+                raise AssertionError("plan-only verification must not dispatch runtime")
+
+        monkeypatch.setattr(
+            dispatch_module,
+            "DispatchOrchestrator",
+            _UnexpectedDispatchOrchestrator,
+        )
+
+        action_intents = [
+            ActionIntent(
+                intent_id="native.spatial.verification",
+                title="Verify target scene readiness",
+                description="Stop dispatch if required inputs are missing.",
+                engine="manual:verification",
+                priority="high",
+            )
+        ]
+        action_items = [intent.to_action_item_dict() for intent in action_intents]
+
+        result_ir, dispatch_result = await MeetingEngine._stage_decompose_and_dispatch(
+            engine,
+            decision="S7 decision",
+            action_intents=action_intents,
+            action_items=action_items,
+        )
+
+        assert result_ir is compiled_ir
+        assert dispatch_result["status"] == "skipped"
+        assert dispatch_result["reason"] == "plan_only_no_actuator"
+        assert action_items[0]["landing_status"] == "planned"
 
     @pytest.mark.asyncio
     async def test_stage_dispatch_filters_low_priority_when_remediation_active(

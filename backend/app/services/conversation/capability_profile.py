@@ -40,7 +40,7 @@ class CapabilityProfileRegistry:
     def __init__(self):
         # Default profile configurations
         # Note: model_candidates are examples, actual should support multiple providers
-        # Can be overridden by SystemSettingsStore profile_model_map
+        # Can be overridden by deployment-scoped profile model bindings in system settings.
         self.profiles: Dict[CapabilityProfile, ProfileConfig] = {
             CapabilityProfile.FAST: ProfileConfig(
                 profile=CapabilityProfile.FAST,
@@ -131,8 +131,14 @@ class CapabilityProfileRegistry:
         else:
             model_candidates = config.model_candidates
 
-        # Override with SystemSettingsStore profile_model_map if available
-        profile_mapping = settings_store.get_profile_model_map()
+        # Override with registry-backed scoped profile bindings if available
+        from backend.app.services.model_routing_policy_service import (
+            ModelRoutingPolicyService,
+        )
+
+        profile_mapping = ModelRoutingPolicyService().get_profile_bindings_for_scope(
+            "local"
+        )
         if profile_mapping and profile.value in profile_mapping:
             # New format is Dict[str, str] (single model), wrap in list
             custom_model = profile_mapping[profile.value]
@@ -210,13 +216,17 @@ class CapabilityProfileRegistry:
             Tenant-specific model list or None
         """
         try:
-            # Method 1: Read from SystemSettingsStore global config
-            from backend.app.services.system_settings_store import SystemSettingsStore
-            settings_store = SystemSettingsStore()
-            profile_mapping = settings_store.get_profile_model_map()
+            # Method 1: Read from registry-backed global scoped bindings
+            from backend.app.services.model_routing_policy_service import (
+                ModelRoutingPolicyService,
+            )
 
-            if profile_mapping and profile.value in profile_mapping:
-                custom_model = profile_mapping[profile.value]
+            profile_bindings = ModelRoutingPolicyService().get_profile_bindings_for_scope(
+                "local"
+            )
+
+            if profile_bindings and profile.value in profile_bindings:
+                custom_model = profile_bindings[profile.value]
                 custom_models = [custom_model] if isinstance(custom_model, str) else custom_model
                 # Filter out standard models, return only custom models
                 standard_prefixes = ["gpt", "claude", "gemini", "text-", "o1"]
@@ -235,12 +245,16 @@ class CapabilityProfileRegistry:
                     config_store = ConfigStore()
                     config = config_store.get_or_create_config(profile_id)
 
-                    # Read from metadata.profile_model_mapping if exists
                     if config.metadata:
                         metadata = config.metadata if isinstance(config.metadata, dict) else json.loads(config.metadata) if isinstance(config.metadata, str) else {}
-                        profile_mapping = metadata.get("profile_model_mapping", {})
-                        if profile_mapping and profile.value in profile_mapping:
-                            custom_models = profile_mapping[profile.value]
+                        scoped_bindings = metadata.get("profile_model_bindings", {})
+                        tenant_local_bindings = (
+                            scoped_bindings.get("local", {})
+                            if isinstance(scoped_bindings, dict)
+                            else {}
+                        )
+                        if tenant_local_bindings and profile.value in tenant_local_bindings:
+                            custom_models = tenant_local_bindings[profile.value]
                             # Filter out standard models, return only custom models
                             standard_prefixes = ["gpt", "claude", "gemini", "text-", "o1"]
                             custom_only = [
@@ -251,7 +265,7 @@ class CapabilityProfileRegistry:
                                 logger.debug(f"Found {len(custom_only)} tenant-specific custom models for profile {profile.value}")
                                 return custom_only
                 except Exception as e:
-                    logger.debug(f"Failed to read tenant-specific profile_model_mapping: {e}")
+                    logger.debug(f"Failed to read tenant-specific profile_model_bindings: {e}")
 
             return None
         except Exception as e:
@@ -412,4 +426,3 @@ class CapabilityProfileRegistry:
             f"Defaulting to False (conservative). Will try fallback_profile or chat_model."
         )
         return False
-

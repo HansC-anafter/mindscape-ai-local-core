@@ -47,6 +47,11 @@ def parse_args() -> argparse.Namespace:
         help="Force meeting generation through an executor runtime (e.g. codex_cli)",
     )
     parser.add_argument(
+        "--require-storyboard-acceptance",
+        action="store_true",
+        help="Fail unless the meeting output satisfies the configured storyboard acceptance benchmark",
+    )
+    parser.add_argument(
         "--require-motion-evidence",
         action="store_true",
         help="Fail unless motion asset / clip / keyframe / visual acceptance evidence is materialized",
@@ -74,6 +79,7 @@ def main() -> int:
                 project_id=args.project_id,
                 model_name=args.model_name,
                 executor_runtime=args.executor_runtime,
+                require_storyboard_acceptance=args.require_storyboard_acceptance,
                 require_motion_evidence=args.require_motion_evidence,
                 emit_visual_acceptance_bundle=args.emit_visual_acceptance_bundle,
                 max_events=args.max_events,

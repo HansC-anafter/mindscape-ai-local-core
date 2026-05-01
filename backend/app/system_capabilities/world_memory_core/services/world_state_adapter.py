@@ -5,9 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from backend.app.services.orchestration.meeting.spatial_scheduling_compiler import (
-    normalize_spatial_schedule_context,
-)
 from backend.app.system_capabilities.world_memory_core.schema.world_memory_packet import (
     WorldMemoryPacket,
 )
@@ -29,7 +26,7 @@ class WorldStateAdapter:
         performance_context: Optional[Dict[str, Any]] = None,
     ) -> WorldStateSnapshot:
         raw_schedule = dict(spatial_schedule_context or {})
-        normalized_schedule = normalize_spatial_schedule_context(raw_schedule)
+        normalized_schedule = self._normalize_schedule_projection(raw_schedule)
 
         performance_state = self._derive_performance_state(performance_context)
         metadata = self._derive_packet_metadata(
@@ -154,6 +151,150 @@ class WorldStateAdapter:
             return dict(normalized_context["constraint_summary"])
         return dict(raw_context.get("constraint_summary") or {})
 
+    def _normalize_schedule_projection(
+        self,
+        raw_context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        if not raw_context:
+            return None
+
+        artifact_ref = self._derive_primary_artifact_ref(raw_context)
+        active_segments = self._derive_active_segments(raw_context)
+        consumer_receipts = self._derive_consumer_receipts(raw_context)
+        revision_refs = self._derive_revision_refs(raw_context)
+
+        normalized = {
+            "schedule_id": raw_context.get("schedule_id"),
+            "status": raw_context.get("status") or "planned",
+            "artifact_ref": artifact_ref,
+            "entity_kinds": list(raw_context.get("entity_kinds") or []),
+            "active_segments": active_segments,
+            "constraint_summary": dict(raw_context.get("constraint_summary") or {}),
+            "consumer_receipts": consumer_receipts,
+            "schedule_revision_refs": revision_refs,
+            "updated_at": raw_context.get("updated_at"),
+        }
+        return {
+            key: value
+            for key, value in normalized.items()
+            if value not in (None, {}, [])
+        }
+
+    @staticmethod
+    def _derive_primary_artifact_ref(raw_context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        artifact_ref = raw_context.get("artifact_ref")
+        if isinstance(artifact_ref, dict) and artifact_ref.get("artifact_id"):
+            return {
+                key: value
+                for key, value in {
+                    "artifact_id": artifact_ref.get("artifact_id"),
+                    "type": artifact_ref.get("type") or artifact_ref.get("artifact_type"),
+                    "uri": artifact_ref.get("uri"),
+                }.items()
+                if value not in (None, "", [], {})
+            }
+
+        source_artifact_id = raw_context.get("source_artifact_id")
+        if source_artifact_id:
+            return {
+                key: value
+                for key, value in {
+                    "artifact_id": source_artifact_id,
+                    "type": raw_context.get("artifact_type"),
+                    "uri": raw_context.get("artifact_uri"),
+                }.items()
+                if value not in (None, "", [], {})
+            }
+
+        for candidate in list(raw_context.get("artifact_refs") or []):
+            if not isinstance(candidate, dict) or not candidate.get("artifact_id"):
+                continue
+            return {
+                key: value
+                for key, value in {
+                    "artifact_id": candidate.get("artifact_id"),
+                    "type": candidate.get("type") or candidate.get("artifact_type"),
+                    "uri": candidate.get("uri"),
+                }.items()
+                if value not in (None, "", [], {})
+            }
+        return None
+
+    @staticmethod
+    def _derive_active_segments(raw_context: Dict[str, Any]) -> list[Dict[str, Any]]:
+        active_segments = raw_context.get("active_segments")
+        if isinstance(active_segments, list):
+            return [dict(segment) for segment in active_segments if isinstance(segment, dict)]
+
+        segments: list[Dict[str, Any]] = []
+        for segment_id in list(raw_context.get("active_segment_ids") or []):
+            normalized_segment_id = str(segment_id or "").strip()
+            if not normalized_segment_id:
+                continue
+            segments.append(
+                {
+                    "segment_id": normalized_segment_id,
+                    "title": normalized_segment_id,
+                    "entity_refs": [],
+                    "anchor_ids": [],
+                }
+            )
+        return segments
+
+    @staticmethod
+    def _derive_consumer_receipts(raw_context: Dict[str, Any]) -> Dict[str, Any]:
+        consumer_receipts = raw_context.get("consumer_receipts")
+        if isinstance(consumer_receipts, dict):
+            return dict(consumer_receipts)
+
+        receipts: Dict[str, Any] = {}
+        for consumer_ref in list(raw_context.get("consumer_refs") or []):
+            if not isinstance(consumer_ref, dict):
+                continue
+            consumer_code = str(consumer_ref.get("consumer_code") or "").strip()
+            if not consumer_code:
+                continue
+            receipts[consumer_code] = {
+                "status": consumer_ref.get("status"),
+                "receipt_ref": {
+                    "artifact_id": consumer_ref.get("receipt_artifact_id"),
+                },
+            }
+        return receipts
+
+    @staticmethod
+    def _derive_revision_refs(raw_context: Dict[str, Any]) -> list[Dict[str, Any]]:
+        revision_refs = raw_context.get("schedule_revision_refs")
+        if isinstance(revision_refs, list):
+            return [dict(ref) for ref in revision_refs if isinstance(ref, dict)]
+
+        revisions: list[Dict[str, Any]] = []
+        for revision_ref in list(raw_context.get("revision_refs") or []):
+            if not isinstance(revision_ref, dict):
+                continue
+            artifact_id = revision_ref.get("artifact_id")
+            if not artifact_id:
+                continue
+            revisions.append(
+                {
+                    "schedule_id": revision_ref.get("schedule_id"),
+                    "artifact_ref": {
+                        key: value
+                        for key, value in {
+                            "artifact_id": artifact_id,
+                            "type": revision_ref.get("type")
+                            or revision_ref.get("artifact_type"),
+                            "uri": revision_ref.get("uri"),
+                        }.items()
+                        if value not in (None, "", [], {})
+                    },
+                    "updated_at": revision_ref.get("updated_at"),
+                    "relation": revision_ref.get("relation")
+                    or revision_ref.get("relationship"),
+                }
+            )
+        return revisions
+
     def _derive_performance_state(
         self,
         performance_context: Optional[Dict[str, Any]],
@@ -244,4 +385,3 @@ class WorldStateAdapter:
             return datetime.fromisoformat(normalized)
         except ValueError:
             return None
-

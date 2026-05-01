@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
@@ -26,10 +25,6 @@ from backend.app.services.memory.workspace_core_memory import (
     WorkspaceCoreMemoryService,
 )
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.orchestration.meeting.spatial_scheduling_compiler import (
-    merge_spatial_schedule_context,
-    normalize_spatial_schedule_context,
-)
 from backend.app.services.stores.postgres.goal_ledger_store import GoalLedgerStore
 from backend.app.services.stores.postgres.memory_item_store import MemoryItemStore
 from backend.app.services.stores.postgres.personal_knowledge_store import (
@@ -319,7 +314,7 @@ class GovernanceContextReadModel:
         session_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         workspace_metadata = dict(getattr(workspace, "metadata", {}) or {})
-        workspace_context = normalize_spatial_schedule_context(
+        workspace_context = self._as_optional_dict(
             workspace_metadata.get("spatial_schedule_context")
         )
         session_context = self._safe_get_session_spatial_schedule_context(
@@ -330,15 +325,7 @@ class GovernanceContextReadModel:
             return workspace_context
         if workspace_context is None:
             return session_context
-        if not self._should_prefer_session_schedule(
-            existing=workspace_context,
-            incoming=session_context,
-        ):
-            return workspace_context
-        return merge_spatial_schedule_context(
-            existing=workspace_context,
-            incoming=session_context,
-        )
+        return {**workspace_context, **session_context}
 
     def _safe_get_session_spatial_schedule_context(
         self,
@@ -382,96 +369,13 @@ class GovernanceContextReadModel:
             return None
         if workspace_id and getattr(session, "workspace_id", None) not in (None, workspace_id):
             return None
-        return normalize_spatial_schedule_context(
+        return self._as_optional_dict(
             dict(getattr(session, "metadata", {}) or {}).get("spatial_schedule_context")
         )
 
     @staticmethod
-    def _should_prefer_session_schedule(
-        *,
-        existing: Optional[Dict[str, Any]],
-        incoming: Optional[Dict[str, Any]],
-    ) -> bool:
-        if not isinstance(incoming, dict) or not incoming.get("schedule_id"):
-            return False
-        if not isinstance(existing, dict) or not existing.get("schedule_id"):
-            return True
-
-        incoming_updated_at = GovernanceContextReadModel._parse_schedule_updated_at(
-            incoming.get("updated_at")
-        )
-        existing_updated_at = GovernanceContextReadModel._parse_schedule_updated_at(
-            existing.get("updated_at")
-        )
-        if incoming_updated_at and existing_updated_at:
-            return incoming_updated_at >= existing_updated_at
-        if incoming_updated_at and not existing_updated_at:
-            return True
-        if not incoming_updated_at and existing_updated_at:
-            return False
-        return incoming.get("schedule_id") != existing.get("schedule_id") or incoming == existing
-
-    @staticmethod
-    def _parse_schedule_updated_at(value: Any) -> Optional[datetime]:
-        if not isinstance(value, str) or not value.strip():
-            return None
-        normalized = value.replace("Z", "+00:00")
-        try:
-            return datetime.fromisoformat(normalized)
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _derive_schedule_artifact_ref(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        source_artifact_id = raw.get("source_artifact_id")
-        if source_artifact_id:
-            return {
-                "artifact_id": source_artifact_id,
-                "type": raw.get("artifact_type")
-                or "application/vnd.mindscape.spatial-scheduling+json",
-            }
-
-        artifact_refs = list(raw.get("artifact_refs") or [])
-        for artifact_ref in artifact_refs:
-            if isinstance(artifact_ref, dict) and artifact_ref.get("artifact_id"):
-                return {
-                    "artifact_id": artifact_ref.get("artifact_id"),
-                    "type": artifact_ref.get("type")
-                    or "application/vnd.mindscape.spatial-scheduling+json",
-                }
-        return None
-
-    @staticmethod
-    def _derive_active_segments(raw: Dict[str, Any]) -> list[Dict[str, Any]]:
-        segment_ids = list(raw.get("active_segment_ids") or [])
-        segments = []
-        for segment_id in segment_ids:
-            segments.append(
-                {
-                    "segment_id": segment_id,
-                    "title": segment_id,
-                    "entity_refs": [],
-                    "anchor_ids": [],
-                }
-            )
-        return segments
-
-    @staticmethod
-    def _derive_consumer_receipts(raw: Dict[str, Any]) -> Dict[str, Any]:
-        receipts: Dict[str, Any] = {}
-        for consumer_ref in list(raw.get("consumer_refs") or []):
-            if not isinstance(consumer_ref, dict):
-                continue
-            consumer_code = consumer_ref.get("consumer_code")
-            if not consumer_code:
-                continue
-            receipts[str(consumer_code)] = {
-                "status": consumer_ref.get("status"),
-                "receipt_ref": {
-                    "artifact_id": consumer_ref.get("receipt_artifact_id"),
-                },
-            }
-        return receipts
+    def _as_optional_dict(value: Any) -> Optional[Dict[str, Any]]:
+        return dict(value) if isinstance(value, dict) else None
 
     async def build_for_workspace_id(
         self,

@@ -18,8 +18,8 @@ from backend.app.models.workspace import Workspace, WorkspaceChatRequest
 from backend.app.services.conversation_orchestrator import ConversationOrchestrator
 from backend.app.services.stores.timeline_items_store import TimelineItemsStore
 from backend.app.services.conversation.context_builder import ContextBuilder
-from backend.app.services.system_settings_store import SystemSettingsStore
 from backend.app.shared.i18n_loader import get_locale_from_context, load_i18n_string
+from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
 from backend.app.shared.llm_utils import build_prompt
 
 from .chat_session_setup import (
@@ -336,10 +336,7 @@ def _resolve_model_name(request) -> Optional[str]:
     model_name = getattr(request, "model_name", None)
     if not model_name:
         try:
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-            if chat_setting and chat_setting.value:
-                model_name = str(chat_setting.value)
+            model_name = get_model_name_from_chat_model()
         except Exception as e:
             logger.warning("Failed to fetch model_name from settings: %s", e)
 

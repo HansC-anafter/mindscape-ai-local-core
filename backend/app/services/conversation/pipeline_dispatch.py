@@ -38,9 +38,10 @@ async def dispatch_to_agent(
 ) -> Any:
     """Dispatch to external agent runtime (e.g. Gemini CLI).
 
-    P0 Fail-Loud: When the agent is unavailable or fails, check
-    workspace.fallback_model. If set, delegate to dispatch_to_llm
-    with that model. If not set, report error (no silent fallback).
+    P0 Fail-Loud: When the agent is unavailable or fails, report
+    the runtime failure back to the caller. Workspace-level fallback
+    models are disabled and must not be used as an alternate routing
+    source.
 
     Args:
         workspace_id: Workspace ID.
@@ -68,42 +69,29 @@ async def dispatch_to_agent(
         AgentExecutionResponse,
     )
 
+    resolved_model_name = model_name
+    if not resolved_model_name:
+        try:
+            from backend.app.services.conversation.chat_model_resolution import (
+                resolve_conversational_model_name,
+            )
+
+            resolved_model_name = resolve_conversational_model_name(
+                model_name,
+                workspace=workspace,
+                db_path=getattr(store, "db_path", None),
+            )
+        except Exception as e:
+            logger.warning("Failed to resolve model for agent dispatch: %s", e)
+
     executor = WorkspaceAgentExecutor(workspace)
     agent_available = await executor.check_agent_available(executor_runtime)
 
     if not agent_available:
-        # P0 Fail-Loud: check for explicit fallback model
-        fallback_model = getattr(workspace, "fallback_model", None)
-        if fallback_model:
-            await emit_pipeline_stage(
-                workspace_id,
-                profile_id,
-                thread_id,
-                project_id,
-                "agent_fallback",
-                f"Executor {executor_runtime} unavailable, using fallback model {fallback_model}",
-                user_event_id,
-            )
-            return await dispatch_to_llm(
-                workspace_id=workspace_id,
-                profile_id=profile_id,
-                thread_id=thread_id,
-                project_id=project_id,
-                message=message,
-                user_event_id=user_event_id,
-                execution_mode=execution_mode,
-                model_name=fallback_model,
-                context_str=context_str,
-                store=store,
-                workspace=workspace,
-                profile=profile,
-                result=result,
-                is_fallback=True,
-            )
         result.success = False
         result.error = (
             f"Executor {executor_runtime} unavailable: no runtime connected. "
-            f"Start the CLI bridge or configure a fallback model."
+            f"Start the CLI bridge. Runtime substitution is disabled."
         )
         return result
 
@@ -202,6 +190,7 @@ async def dispatch_to_agent(
             "conversation_context": context_str or "",
             "thread_id": thread_id,
             "project_id": project_id,
+            "model": resolved_model_name or "",
             "uploaded_files": enriched_files or [],
             "recommended_pack_codes": recommended_pack_codes,
             "file_hint": file_hint,
@@ -263,39 +252,11 @@ async def dispatch_to_agent(
             else {"id": assistant_event.id}
         )
     else:
-        # P0 Fail-Loud: agent execution failed, check for fallback
-        fallback_model = getattr(workspace, "fallback_model", None)
-        if fallback_model:
-            await emit_pipeline_stage(
-                workspace_id,
-                profile_id,
-                thread_id,
-                project_id,
-                "agent_fallback",
-                f"Executor {executor_runtime} failed: {agent_response.error}, using fallback model {fallback_model}",
-                user_event_id,
-            )
-            return await dispatch_to_llm(
-                workspace_id=workspace_id,
-                profile_id=profile_id,
-                thread_id=thread_id,
-                project_id=project_id,
-                message=message,
-                user_event_id=user_event_id,
-                execution_mode=execution_mode,
-                model_name=fallback_model,
-                context_str=context_str,
-                store=store,
-                workspace=workspace,
-                profile=profile,
-                result=result,
-                is_fallback=True,
-            )
         result.success = False
         result.error = (
             f"Executor {executor_runtime} execution failed: "
             f"{agent_response.error or 'unknown error'}. "
-            f"Configure a fallback model to avoid this."
+            f"Runtime substitution is disabled."
         )
 
     return result
@@ -349,22 +310,18 @@ async def dispatch_to_llm(
     # Resolve model
     if not model_name:
         try:
-            from backend.app.services.system_settings_store import (
-                SystemSettingsStore,
+            from backend.app.shared.llm_provider_helper import (
+                get_model_name_from_chat_model,
             )
 
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-            if chat_setting and chat_setting.value:
-                model_name = str(chat_setting.value)
+            model_name = get_model_name_from_chat_model()
         except Exception as e:
             logger.warning(f"Failed to fetch default chat model: {e}")
 
     if not model_name or str(model_name).strip() == "":
         result.success = False
         result.error = (
-            "No chat model configured. "
-            "Set chat_model in system settings or configure a fallback model."
+            "No chat model configured. Set chat_model in system settings."
         )
         return result
 

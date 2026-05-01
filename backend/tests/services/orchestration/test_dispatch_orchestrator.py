@@ -280,7 +280,6 @@ class TestPolicyBlockedSkip:
         result = await orchestrator.execute(
             task_ir=FakeTaskIR(phases=phases), action_items=items
         )
-        # Blocked phases are "completed" with skipped status in the attempt
         attempt = orchestrator.get_attempt("a")
         assert attempt is not None
         assert attempt.status == AttemptStatus.SKIPPED

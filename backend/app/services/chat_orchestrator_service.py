@@ -149,9 +149,15 @@ class ChatOrchestratorService:
             )
 
             # 4. Agent dispatch (if workspace has executor_runtime)
-            executor_runtime = getattr(
-                workspace, "resolved_executor_runtime", None
-            ) or getattr(workspace, "executor_runtime", None)
+            from backend.app.services.executor_routing_policy_service import (
+                ExecutorRoutingPolicyService,
+            )
+
+            executor_runtime = (
+                ExecutorRoutingPolicyService.extract_workspace_policy_snapshot(
+                    workspace
+                ).get("primary_executor_runtime")
+            )
             if executor_runtime:
                 await self._handle_agent_dispatch(
                     request=request,
@@ -210,38 +216,12 @@ class ChatOrchestratorService:
         agent_available = await executor.check_agent_available(executor_runtime)
 
         if not agent_available:
-            # P0 Fail-Loud: check for explicit fallback model
-            fallback_model = getattr(workspace, "fallback_model", None)
-            if fallback_model:
-                logger.info(
-                    "Agent %s unavailable, using fallback model %s",
-                    executor_runtime,
-                    fallback_model,
-                )
-                await self._create_pipeline_event(
-                    workspace_id,
-                    profile_id,
-                    session.thread_id,
-                    session.project_id,
-                    "agent_fallback",
-                    f"Executor {executor_runtime} unavailable, using fallback model {fallback_model}",
-                    session.user_event.id,
-                )
-                return await self._handle_llm_path(
-                    request,
-                    workspace,
-                    workspace_id,
-                    profile_id,
-                    session,
-                    model_name_override=fallback_model,
-                    is_fallback=True,
-                )
             await self._create_error_event(
                 workspace_id,
                 profile_id,
                 session.thread_id,
                 f"Executor {executor_runtime} unavailable: no runtime connected. "
-                f"Start the CLI bridge or configure a fallback model.",
+                f"Start the CLI bridge. Runtime substitution is disabled.",
             )
             logger.warning(
                 "Agent %s unavailable, no runtime connected", executor_runtime
@@ -392,39 +372,14 @@ class ChatOrchestratorService:
             )
             return
 
-        # Agent failed -- P0 Fail-Loud: check for fallback
+        # Agent failed -- P0 Fail-Loud
         error_msg = agent_response.error or "External agent execution failed"
-        fallback_model = getattr(workspace, "fallback_model", None)
-        if fallback_model:
-            logger.info(
-                "Agent %s failed, using fallback model %s",
-                executor_runtime,
-                fallback_model,
-            )
-            await self._create_pipeline_event(
-                workspace_id,
-                profile_id,
-                session.thread_id,
-                session.project_id,
-                "agent_fallback",
-                f"Executor {executor_runtime} failed: {error_msg}, using fallback model {fallback_model}",
-                session.user_event.id,
-            )
-            return await self._handle_llm_path(
-                request,
-                workspace,
-                workspace_id,
-                profile_id,
-                session,
-                model_name_override=fallback_model,
-                is_fallback=True,
-            )
         await self._create_error_event(
             workspace_id,
             profile_id,
             session.thread_id,
             f"Executor {executor_runtime} execution failed: {error_msg}. "
-            f"Configure a fallback model to avoid this.",
+            f"Runtime substitution is disabled.",
             retry_data={
                 "message": request.message,
                 "agent_id": executor_runtime,
@@ -445,9 +400,9 @@ class ChatOrchestratorService:
         """Generate response via default LLM streaming path.
 
         Args:
-            model_name_override: If set (e.g. from fallback_model),
-                use this model instead of request.model_name.
-            is_fallback: True when using fallback model after agent failure.
+            model_name_override: If set, use this model instead of request.model_name.
+            is_fallback: True when this LLM path is entered from an explicit
+                upstream fallback decision.
         """
         from backend.features.workspace.chat.streaming.llm_streaming import (
             stream_llm_response,
@@ -461,14 +416,11 @@ class ChatOrchestratorService:
         model_name = model_name_override or request.model_name
         if not model_name:
             try:
-                from backend.app.services.system_settings_store import (
-                    SystemSettingsStore,
+                from backend.app.shared.llm_provider_helper import (
+                    get_model_name_from_chat_model,
                 )
 
-                settings_store = SystemSettingsStore()
-                chat_setting = settings_store.get_setting("chat_model")
-                if chat_setting and chat_setting.value:
-                    model_name = str(chat_setting.value)
+                model_name = get_model_name_from_chat_model()
             except Exception as e:
                 logger.warning("Failed to fetch default chat model: %s", e)
 

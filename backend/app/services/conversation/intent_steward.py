@@ -444,17 +444,13 @@ class IntentStewardService:
         try:
             from ...shared.llm_utils import build_prompt, call_llm
             from ...shared.llm_provider_helper import get_llm_provider_from_settings
-            from ...services.system_settings_store import SystemSettingsStore
+            from ...shared.llm_provider_helper import get_model_name_from_chat_model
             import json
 
-            settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
-
-            if not chat_setting or not chat_setting.value:
+            model_name = get_model_name_from_chat_model()
+            if not model_name:
                 logger.warning("No chat model configured for LLM analysis")
                 return None
-
-            model_name = str(chat_setting.value)
 
             from ...shared.llm_provider_helper import create_llm_provider_manager
 

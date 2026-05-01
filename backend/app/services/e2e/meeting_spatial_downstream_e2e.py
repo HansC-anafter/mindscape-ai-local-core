@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import inspect
 import json
 import os
@@ -24,13 +25,6 @@ from backend.app.services.governance.governance_context_read_model import (
     GovernanceContextReadModel,
 )
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.orchestration.meeting.spatial_scheduling_compiler import (
-    SPATIAL_SCHEDULE_ARTIFACT_MIME,
-    build_spatial_schedule_artifact,
-    build_spatial_schedule_context,
-    build_spatial_scheduling_ir,
-    normalize_spatial_schedule_context,
-)
 from backend.app.services.stores.meeting_session_store import MeetingSessionStore
 from backend.app.services.stores.workspace_runtime_profile_store import (
     WorkspaceRuntimeProfileStore,
@@ -38,6 +32,30 @@ from backend.app.services.stores.workspace_runtime_profile_store import (
 from backend.app.services.visual_acceptance_bundle import (
     build_visual_acceptance_bundle,
 )
+
+SPATIAL_SCHEDULE_ARTIFACT_MIME = "application/vnd.mindscape.spatial-scheduling+json"
+
+
+def _spatial_scheduling_compiler() -> Any:
+    module_names = (
+        "capabilities.spatial_scheduling.services.spatial_schedule_compiler",
+        "backend.app.capabilities.spatial_scheduling.services.spatial_schedule_compiler",
+    )
+    errors = []
+    for module_name in module_names:
+        try:
+            return importlib.import_module(module_name)
+        except Exception as exc:
+            errors.append(f"{module_name}: {exc}")
+    raise RuntimeError(
+        "spatial_scheduling pack compiler is unavailable: " + "; ".join(errors)
+    )
+
+
+def normalize_spatial_schedule_context(raw: Any) -> Optional[Dict[str, Any]]:
+    compiler = _spatial_scheduling_compiler()
+    return compiler.normalize_spatial_schedule_context(raw)
+
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[5]
 LOCAL_CORE_REPO = WORKSPACE_ROOT / "mindscape-ai-local-core"
@@ -81,6 +99,40 @@ class ScenarioDefinition:
     def scenario_id(self) -> str:
         value = str(self.config.get("scenario_id") or "").strip()
         return value or f"meeting_spatial_{uuid.uuid4().hex[:8]}"
+
+
+def _resolve_config_path(base_dir: Path, raw_path: str) -> Path:
+    candidate = Path(str(raw_path or "").strip())
+    if not candidate.is_absolute():
+        candidate = (base_dir / candidate).resolve()
+    return candidate
+
+
+def _load_storyboard_acceptance_from_config(
+    config: Dict[str, Any],
+    *,
+    base_dir: Path,
+) -> Optional[Dict[str, Any]]:
+    direct_value = config.get("storyboard_acceptance")
+    if isinstance(direct_value, dict) and direct_value:
+        return _expand_path_tokens_in_payload(direct_value)
+
+    raw_path = config.get("storyboard_acceptance_file")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+
+    resolved_path = _resolve_config_path(base_dir, raw_path)
+    if not resolved_path.exists():
+        raise ValueError(
+            f"Storyboard acceptance file not found: {resolved_path}"
+        )
+    payload = json.loads(resolved_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not payload:
+        raise ValueError(
+            f"Storyboard acceptance file must contain a JSON object: {resolved_path}"
+        )
+    config["storyboard_acceptance_file"] = str(resolved_path)
+    return _expand_path_tokens_in_payload(payload)
 
 
 def _now_utc() -> datetime:
@@ -646,6 +698,21 @@ def load_scenario_definition(path: Path) -> ScenarioDefinition:
     if not isinstance(config, dict):
         raise ValueError(f"Scenario config must be a JSON object: {path}")
     config = _expand_path_tokens_in_payload(config)
+    storyboard_acceptance = _load_storyboard_acceptance_from_config(
+        config,
+        base_dir=path.parent,
+    )
+    if storyboard_acceptance:
+        config["storyboard_acceptance"] = storyboard_acceptance
+        handoff_payload = dict(config.get("handoff_in") or {})
+        governance_constraints = dict(
+            handoff_payload.get("governance_constraints") or {}
+        )
+        spatial_schedule = dict(governance_constraints.get("spatial_schedule") or {})
+        spatial_schedule.setdefault("storyboard_acceptance", storyboard_acceptance)
+        governance_constraints["spatial_schedule"] = spatial_schedule
+        handoff_payload["governance_constraints"] = governance_constraints
+        config["handoff_in"] = handoff_payload
     message = _SCENARIO_CONFIG_RE.sub("", raw).strip()
     if not message:
         message = str(config.get("meeting_message") or "").strip()
@@ -1002,7 +1069,8 @@ def build_recompiled_schedule_bundle(
         or (session_metadata.get("spatial_schedule_context") or {}).get("source_task_id")
         or f"task_{scenario.scenario_id}_recompiled"
     )
-    schedule = build_spatial_scheduling_ir(
+    compiler = _spatial_scheduling_compiler()
+    schedule = compiler.build_spatial_scheduling_ir(
         task_id=source_task_id,
         workspace_id=str(getattr(session, "workspace_id", "") or ""),
         session_id=str(getattr(session, "id", "") or ""),
@@ -1011,9 +1079,12 @@ def build_recompiled_schedule_bundle(
         governance=governance,
         world_context=dict(session_metadata.get("world_memory_packet") or {}),
     )
-    artifact = build_spatial_schedule_artifact(task_id=source_task_id, schedule=schedule)
+    artifact = compiler.build_spatial_schedule_artifact(
+        task_id=source_task_id,
+        schedule=schedule,
+    )
     context = normalize_spatial_schedule_context(
-        build_spatial_schedule_context(schedule=schedule, artifact=artifact)
+        compiler.build_spatial_schedule_context(schedule=schedule, artifact=artifact)
     )
     return {
         "schedule": schedule.model_dump(mode="json"),
@@ -1106,6 +1177,144 @@ def select_downstream_schedule_bundle(
     }
 
 
+def _normalize_execution_plan_entries(raw: Any) -> List[Dict[str, Any]]:
+    if isinstance(raw, dict):
+        return [dict(raw)]
+    if isinstance(raw, list):
+        return [dict(item) for item in raw if isinstance(item, dict)]
+    return []
+
+
+def _normalize_execution_plan_actors(raw: Any) -> List[Dict[str, Any]]:
+    actors: List[Dict[str, Any]] = []
+    for item in _normalize_execution_plan_entries(raw):
+        normalized = dict(item)
+        normalized["entity_id"] = str(
+            item.get("entity_id") or item.get("actor_id") or item.get("id") or ""
+        ).strip()
+        if normalized["entity_id"]:
+            actors.append(normalized)
+    return actors
+
+
+def _normalize_execution_plan_blocking_paths(raw: Any) -> List[Dict[str, Any]]:
+    paths: List[Dict[str, Any]] = []
+    for item in _normalize_execution_plan_entries(raw):
+        normalized = dict(item)
+        normalized["path_id"] = str(
+            item.get("path_id") or item.get("id") or ""
+        ).strip()
+        normalized["subject_entity_id"] = str(
+            item.get("subject_entity_id")
+            or item.get("actor_id")
+            or item.get("actor_ref")
+            or ""
+        ).strip()
+        normalized["object_entity_id"] = str(
+            item.get("object_entity_id")
+            or item.get("carried_object_id")
+            or item.get("carried_object_ref")
+            or item.get("object_ref")
+            or ""
+        ).strip()
+        normalized["from_anchor_id"] = str(
+            item.get("from_anchor_id") or item.get("from_anchor") or ""
+        ).strip()
+        normalized["to_anchor_id"] = str(
+            item.get("to_anchor_id") or item.get("to_anchor") or ""
+        ).strip()
+        if normalized["path_id"]:
+            paths.append(normalized)
+    return paths
+
+
+def _normalize_execution_plan_camera_blocking(raw: Any) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    for item in _normalize_execution_plan_entries(raw):
+        normalized = dict(item)
+        normalized["camera_entity_id"] = str(
+            item.get("camera_entity_id") or item.get("camera_id") or ""
+        ).strip()
+        normalized["mode"] = str(item.get("mode") or item.get("pattern") or "").strip()
+        normalized["anchor_ids"] = _unique_strings(
+            list(item.get("anchor_ids") or [])
+            + [
+                keyframe.get("anchor_id")
+                for keyframe in list(item.get("keyframes") or [])
+                if isinstance(keyframe, dict)
+            ]
+        )
+        normalized["must_hold"] = _unique_strings(item.get("must_hold") or [])
+        if normalized["camera_entity_id"]:
+            entries.append(normalized)
+    return entries
+
+
+def _normalize_execution_plan_performance_beats(raw: Any) -> List[Dict[str, Any]]:
+    beats: List[Dict[str, Any]] = []
+    for item in _normalize_execution_plan_entries(raw):
+        normalized = dict(item)
+        normalized["beat_id"] = str(
+            item.get("beat_id") or item.get("id") or ""
+        ).strip()
+        normalized["subject_entity_id"] = str(
+            item.get("subject_entity_id")
+            or item.get("actor_id")
+            or item.get("actor_ref")
+            or ""
+        ).strip()
+        normalized["object_entity_id"] = str(
+            item.get("object_entity_id")
+            or item.get("object_id")
+            or item.get("object_ref")
+            or ""
+        ).strip()
+        normalized["from_anchor_id"] = str(
+            item.get("from_anchor_id") or item.get("from_anchor") or ""
+        ).strip()
+        normalized["to_anchor_id"] = str(
+            item.get("to_anchor_id") or item.get("to_anchor") or item.get("anchor_id") or ""
+        ).strip()
+        normalized["action"] = str(
+            item.get("action") or item.get("intent") or ""
+        ).strip()
+        if normalized["beat_id"]:
+            beats.append(normalized)
+    return beats
+
+
+def _normalize_execution_plan_interaction_beats(raw: Any) -> List[Dict[str, Any]]:
+    beats: List[Dict[str, Any]] = []
+    for item in _normalize_execution_plan_entries(raw):
+        normalized = dict(item)
+        normalized["beat_id"] = str(
+            item.get("beat_id") or item.get("id") or ""
+        ).strip()
+        normalized["subject_entity_id"] = str(
+            item.get("subject_entity_id")
+            or item.get("actor_id")
+            or item.get("actor_ref")
+            or ""
+        ).strip()
+        normalized["object_entity_id"] = str(
+            item.get("object_entity_id")
+            or item.get("object_id")
+            or item.get("object_ref")
+            or item.get("primary_object_ref")
+            or ""
+        ).strip()
+        normalized["target_entity_id"] = str(
+            item.get("target_entity_id")
+            or item.get("target_id")
+            or item.get("secondary_object_ref")
+            or ""
+        ).strip()
+        normalized["interaction"] = str(item.get("interaction") or "").strip()
+        if normalized["beat_id"]:
+            beats.append(normalized)
+    return beats
+
+
 def build_execution_plan_artifacts(
     *,
     scenario: ScenarioDefinition,
@@ -1150,18 +1359,34 @@ def build_execution_plan_artifacts(
         for segment in list(schedule_artifact_excerpt.get("active_segments") or [])
     ]
     execution_source = "native_execution_plan" if native_execution_plan else "missing"
-    actors = list(native_execution_plan.get("actors") or [])
-    blocking_paths = list(native_execution_plan.get("blocking_paths") or [])
-    camera_blocking = list(native_execution_plan.get("camera_blocking") or [])
-    performance_beats = list(native_execution_plan.get("performance_beats") or [])
-    interaction_beats = list(native_execution_plan.get("interaction_beats") or [])
+    actors = _normalize_execution_plan_actors(native_execution_plan.get("actors"))
+    blocking_paths = _normalize_execution_plan_blocking_paths(
+        native_execution_plan.get("blocking_paths")
+    )
+    camera_blocking = _normalize_execution_plan_camera_blocking(
+        native_execution_plan.get("camera_blocking")
+    )
+    performance_beats = _normalize_execution_plan_performance_beats(
+        native_execution_plan.get("performance_beats")
+    )
+    interaction_beats = _normalize_execution_plan_interaction_beats(
+        native_execution_plan.get("interaction_beats")
+    )
     if not native_execution_plan and allow_scenario_fallback:
         execution_source = "scenario_bounded_constraints"
-        actors = list(bounded_constraints.get("actors") or [])
-        blocking_paths = list(bounded_constraints.get("blocking_paths") or [])
-        camera_blocking = list(bounded_constraints.get("camera_blocking") or [])
-        performance_beats = list(bounded_constraints.get("performance_beats") or [])
-        interaction_beats = list(bounded_constraints.get("interaction_beats") or [])
+        actors = _normalize_execution_plan_actors(bounded_constraints.get("actors"))
+        blocking_paths = _normalize_execution_plan_blocking_paths(
+            bounded_constraints.get("blocking_paths")
+        )
+        camera_blocking = _normalize_execution_plan_camera_blocking(
+            bounded_constraints.get("camera_blocking")
+        )
+        performance_beats = _normalize_execution_plan_performance_beats(
+            bounded_constraints.get("performance_beats")
+        )
+        interaction_beats = _normalize_execution_plan_interaction_beats(
+            bounded_constraints.get("interaction_beats")
+        )
     shared = {
         "schedule_id": schedule_id,
         "source_session_id": source_session_id,
@@ -1185,6 +1410,531 @@ def build_execution_plan_artifacts(
             "performance_beats": performance_beats,
             "interaction_beats": interaction_beats,
         },
+    }
+
+
+def _unique_strings(values: Iterable[Any]) -> List[str]:
+    items: List[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        items.append(normalized)
+    return items
+
+
+def _normalize_required_path_spec(item: Any) -> Dict[str, str]:
+    payload = _jsonable(item)
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        "path_id": str(payload.get("path_id") or payload.get("id") or "").strip(),
+        "subject_entity_id": str(
+            payload.get("subject_entity_id")
+            or payload.get("actor_id")
+            or payload.get("actor_ref")
+            or ""
+        ).strip(),
+        "object_entity_id": str(
+            payload.get("object_entity_id")
+            or payload.get("object_id")
+            or payload.get("carried_object_id")
+            or payload.get("carried_object_ref")
+            or ""
+        ).strip(),
+        "from_anchor_id": str(
+            payload.get("from_anchor_id") or payload.get("from_anchor") or ""
+        ).strip(),
+        "to_anchor_id": str(
+            payload.get("to_anchor_id") or payload.get("to_anchor") or ""
+        ).strip(),
+    }
+
+
+def _normalize_actual_path_spec(item: Any) -> Dict[str, str]:
+    payload = _jsonable(item)
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        "path_id": str(payload.get("path_id") or "").strip(),
+        "subject_entity_id": str(payload.get("subject_entity_id") or "").strip(),
+        "object_entity_id": str(payload.get("object_entity_id") or "").strip(),
+        "from_anchor_id": str(payload.get("from_anchor_id") or "").strip(),
+        "to_anchor_id": str(payload.get("to_anchor_id") or "").strip(),
+    }
+
+
+def _path_matches(expected: Dict[str, str], actual: Dict[str, str]) -> bool:
+    if not expected or not actual:
+        return False
+    for field_name, expected_value in expected.items():
+        if expected_value and str(actual.get(field_name) or "").strip() != expected_value:
+            return False
+    return True
+
+
+def _collect_storyboard_actuals(
+    execution_artifacts: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    blocking_plan = dict(execution_artifacts.get("blocking_plan_excerpt") or {})
+    camera_blocking = dict(execution_artifacts.get("camera_blocking_manifest") or {})
+    performance_beats = dict(execution_artifacts.get("performance_beats_excerpt") or {})
+    active_segments = list(
+        blocking_plan.get("active_segments")
+        or camera_blocking.get("active_segments")
+        or performance_beats.get("active_segments")
+        or []
+    )
+    blocking_paths = [
+        _normalize_actual_path_spec(item)
+        for item in list(blocking_plan.get("blocking_paths") or [])
+        if isinstance(item, dict)
+    ]
+    camera_entries = [
+        dict(item)
+        for item in list(camera_blocking.get("camera_blocking") or [])
+        if isinstance(item, dict)
+    ]
+    performance_entries = [
+        dict(item)
+        for item in list(performance_beats.get("performance_beats") or [])
+        if isinstance(item, dict)
+    ]
+    interaction_entries = [
+        dict(item)
+        for item in list(performance_beats.get("interaction_beats") or [])
+        if isinstance(item, dict)
+    ]
+    entity_refs = _unique_strings(
+        ref
+        for segment in active_segments
+        for ref in list(segment.get("entity_refs") or [])
+    )
+    anchor_ids = _unique_strings(
+        list(
+            anchor_id
+            for segment in active_segments
+            for anchor_id in list(segment.get("anchor_ids") or [])
+        )
+        + [path.get("from_anchor_id") for path in blocking_paths]
+        + [path.get("to_anchor_id") for path in blocking_paths]
+        + [
+            anchor_id
+            for entry in camera_entries
+            for anchor_id in list(entry.get("anchor_ids") or [])
+        ]
+    )
+    actor_ids = _unique_strings(
+        list(
+            actor.get("entity_id")
+            for actor in list(blocking_plan.get("actors") or [])
+            if isinstance(actor, dict)
+        )
+        + [path.get("subject_entity_id") for path in blocking_paths]
+        + [entry.get("subject_entity_id") for entry in performance_entries]
+        + [entry.get("subject_entity_id") for entry in interaction_entries]
+    )
+    object_ids = _unique_strings(
+        [ref for ref in entity_refs if ref.startswith("object.")]
+        + [path.get("object_entity_id") for path in blocking_paths]
+        + [entry.get("object_entity_id") for entry in performance_entries]
+        + [entry.get("object_entity_id") for entry in interaction_entries]
+        + [entry.get("target_entity_id") for entry in interaction_entries]
+    )
+    camera_ids = _unique_strings(
+        [ref for ref in entity_refs if ref.startswith("camera.")]
+        + [entry.get("camera_entity_id") for entry in camera_entries]
+    )
+    camera_modes = _unique_strings(
+        entry.get("mode") or entry.get("pattern") for entry in camera_entries
+    )
+    camera_anchor_ids = _unique_strings(
+        anchor_id
+        for entry in camera_entries
+        for anchor_id in list(entry.get("anchor_ids") or [])
+    )
+    camera_must_hold = _unique_strings(
+        must_hold
+        for entry in camera_entries
+        for must_hold in list(entry.get("must_hold") or [])
+    )
+    performance_beat_ids = _unique_strings(
+        entry.get("beat_id") for entry in performance_entries
+    )
+    interaction_beat_ids = _unique_strings(
+        entry.get("beat_id") for entry in interaction_entries
+    )
+    segment_titles = _unique_strings(
+        segment.get("title") for segment in active_segments if isinstance(segment, dict)
+    )
+    return {
+        "active_segment_count": len(active_segments),
+        "segment_titles": segment_titles,
+        "entity_refs": entity_refs,
+        "anchor_ids": anchor_ids,
+        "actor_ids": actor_ids,
+        "object_ids": object_ids,
+        "camera_ids": camera_ids,
+        "camera_modes": camera_modes,
+        "camera_anchor_ids": camera_anchor_ids,
+        "camera_must_hold": camera_must_hold,
+        "performance_beat_ids": performance_beat_ids,
+        "interaction_beat_ids": interaction_beat_ids,
+        "blocking_paths": blocking_paths,
+    }
+
+
+def _list_membership_check(
+    *,
+    check_id: str,
+    label: str,
+    expected: Sequence[Any],
+    actual: Sequence[Any],
+) -> Dict[str, Any]:
+    expected_list = _unique_strings(expected)
+    actual_list = _unique_strings(actual)
+    missing = [item for item in expected_list if item not in actual_list]
+    unexpected = [item for item in actual_list if item not in expected_list]
+    passed = not missing
+    detail = (
+        "All expected items present"
+        if passed
+        else f"Missing {', '.join(missing)}"
+    )
+    if unexpected:
+        detail += f"; additional observed: {', '.join(unexpected)}"
+    return {
+        "check_id": check_id,
+        "label": label,
+        "passed": passed,
+        "expected": expected_list,
+        "actual": actual_list,
+        "missing": missing,
+        "unexpected": unexpected,
+        "detail": detail,
+    }
+
+
+def render_storyboard_gap_report(
+    *,
+    scenario: ScenarioDefinition,
+    receipt: Dict[str, Any],
+) -> str:
+    storyboard_id = str(receipt.get("storyboard_id") or "").strip() or "unconfigured"
+    status = str(receipt.get("status") or "unknown").strip()
+    failed_checks = [
+        check for check in list(receipt.get("checks") or []) if not check.get("passed")
+    ]
+    passed_checks = [
+        check for check in list(receipt.get("checks") or []) if check.get("passed")
+    ]
+    failed_lines = "\n".join(
+        f"- `{check.get('check_id')}`: {check.get('detail')}"
+        for check in failed_checks
+    ) or "- None"
+    passed_lines = "\n".join(
+        f"- `{check.get('check_id')}`: {check.get('detail')}"
+        for check in passed_checks
+    ) or "- None"
+    actual_summary = dict(receipt.get("actual_summary") or {})
+    return (
+        f"# Storyboard Acceptance Gap Report\n\n"
+        f"- Scenario: `{scenario.scenario_id}`\n"
+        f"- Storyboard standard: `{storyboard_id}`\n"
+        f"- Status: `{status}`\n"
+        f"- Passed checks: {receipt.get('passed_check_count', 0)}\n"
+        f"- Failed checks: {receipt.get('failed_check_count', 0)}\n\n"
+        f"## Failed Checks\n{failed_lines}\n\n"
+        f"## Passed Checks\n{passed_lines}\n\n"
+        f"## Actual Summary\n"
+        f"```json\n{json.dumps(actual_summary, indent=2, ensure_ascii=False)}\n```\n"
+    )
+
+
+def build_storyboard_acceptance_artifacts(
+    *,
+    scenario: ScenarioDefinition,
+    execution_artifacts: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    standard = dict(scenario.config.get("storyboard_acceptance") or {})
+    standard_payload = _jsonable(standard) if standard else {}
+    standard_bundle: Dict[str, Any] = {
+        **standard_payload,
+        "scenario_id": scenario.scenario_id,
+        "generated_at": _now_utc(),
+    }
+    if not standard:
+        receipt = {
+            "status": "not_configured",
+            "scenario_id": scenario.scenario_id,
+            "storyboard_id": "",
+            "checks": [],
+            "passed_check_count": 0,
+            "failed_check_count": 0,
+            "actual_summary": {},
+            "generated_at": _now_utc(),
+        }
+        return {
+            "storyboard_acceptance_standard": standard_bundle,
+            "storyboard_acceptance_receipt": receipt,
+            "storyboard_gap_report": render_storyboard_gap_report(
+                scenario=scenario,
+                receipt=receipt,
+            ),
+        }
+
+    acceptance_checks = dict(standard.get("acceptance_checks") or {})
+    actuals = _collect_storyboard_actuals(execution_artifacts)
+    checks: List[Dict[str, Any]] = []
+
+    min_active_segment_count = int(acceptance_checks.get("min_active_segment_count") or 0)
+    if min_active_segment_count:
+        actual_count = int(actuals.get("active_segment_count") or 0)
+        passed = actual_count >= min_active_segment_count
+        checks.append(
+            {
+                "check_id": "min_active_segment_count",
+                "label": "Minimum active segment count",
+                "passed": passed,
+                "expected": min_active_segment_count,
+                "actual": actual_count,
+                "missing": [] if passed else [min_active_segment_count],
+                "unexpected": [],
+                "detail": (
+                    f"Expected at least {min_active_segment_count} active segments, got {actual_count}"
+                ),
+            }
+        )
+
+    max_actor_count = acceptance_checks.get("max_actor_count")
+    if isinstance(max_actor_count, int) and max_actor_count > 0:
+        actual_actor_count = len(list(actuals.get("actor_ids") or []))
+        passed = actual_actor_count <= max_actor_count
+        checks.append(
+            {
+                "check_id": "max_actor_count",
+                "label": "Maximum actor count",
+                "passed": passed,
+                "expected": max_actor_count,
+                "actual": actual_actor_count,
+                "missing": [],
+                "unexpected": [] if passed else list(actuals.get("actor_ids") or []),
+                "detail": (
+                    f"Expected at most {max_actor_count} actor(s), got {actual_actor_count}"
+                ),
+            }
+        )
+
+    for check_id, label, key_name in (
+        ("required_segment_titles", "Required segment titles", "segment_titles"),
+        ("required_actor_ids", "Canonical actor IDs", "actor_ids"),
+        ("required_object_ids", "Canonical object IDs", "object_ids"),
+        ("required_anchor_ids", "Canonical anchor IDs", "anchor_ids"),
+        ("required_camera_ids", "Canonical camera IDs", "camera_ids"),
+        (
+            "required_camera_anchor_coverage",
+            "Camera anchor coverage",
+            "camera_anchor_ids",
+        ),
+        (
+            "required_camera_must_hold",
+            "Camera must-hold annotations",
+            "camera_must_hold",
+        ),
+        (
+            "required_performance_beats",
+            "Required performance beats",
+            "performance_beat_ids",
+        ),
+        (
+            "required_interaction_beats",
+            "Required interaction beats",
+            "interaction_beat_ids",
+        ),
+    ):
+        expected_values = acceptance_checks.get(check_id)
+        if isinstance(expected_values, list) and expected_values:
+            checks.append(
+                _list_membership_check(
+                    check_id=check_id,
+                    label=label,
+                    expected=expected_values,
+                    actual=list(actuals.get(key_name) or []),
+                )
+            )
+
+    required_camera_pattern = str(
+        acceptance_checks.get("required_camera_pattern") or ""
+    ).strip()
+    if required_camera_pattern:
+        actual_patterns = list(actuals.get("camera_modes") or [])
+        passed = required_camera_pattern in actual_patterns
+        checks.append(
+            {
+                "check_id": "required_camera_pattern",
+                "label": "Camera pattern",
+                "passed": passed,
+                "expected": required_camera_pattern,
+                "actual": actual_patterns,
+                "missing": [] if passed else [required_camera_pattern],
+                "unexpected": [],
+                "detail": (
+                    f"Required camera pattern '{required_camera_pattern}' "
+                    f"{'found' if passed else 'not found'}"
+                ),
+            }
+        )
+
+    required_paths = list(acceptance_checks.get("required_paths") or [])
+    if required_paths:
+        actual_paths = list(actuals.get("blocking_paths") or [])
+        missing_paths: List[Dict[str, str]] = []
+        for raw_expected in required_paths:
+            expected_path = _normalize_required_path_spec(raw_expected)
+            if not expected_path:
+                continue
+            if not any(_path_matches(expected_path, actual_path) for actual_path in actual_paths):
+                missing_paths.append(expected_path)
+        checks.append(
+            {
+                "check_id": "required_paths",
+                "label": "Blocking path contract",
+                "passed": not missing_paths,
+                "expected": [_normalize_required_path_spec(item) for item in required_paths],
+                "actual": actual_paths,
+                "missing": missing_paths,
+                "unexpected": [],
+                "detail": (
+                    "All required blocking paths present"
+                    if not missing_paths
+                    else f"Missing {len(missing_paths)} required path spec(s)"
+                ),
+            }
+        )
+
+    for card in list(standard.get("storyboard_cards") or []):
+        if not isinstance(card, dict):
+            continue
+        card_id = str(card.get("card_id") or card.get("title") or "card").strip()
+        expected_segment_title = str(
+            card.get("required_segment_title") or card.get("title") or ""
+        ).strip()
+        required_anchor_ids = _unique_strings(card.get("required_anchor_ids") or [])
+        required_entity_refs = _unique_strings(card.get("required_entity_refs") or [])
+        required_beat_ids = _unique_strings(card.get("required_beat_ids") or [])
+        required_camera_anchor_ids = _unique_strings(
+            card.get("required_camera_anchor_ids") or []
+        )
+        required_interaction_ids = _unique_strings(
+            card.get("required_interaction_ids") or []
+        )
+        missing_parts: List[str] = []
+        if expected_segment_title and expected_segment_title not in list(
+            actuals.get("segment_titles") or []
+        ):
+            missing_parts.append(f"segment_title={expected_segment_title}")
+        if required_anchor_ids:
+            missing_anchor_ids = [
+                anchor_id
+                for anchor_id in required_anchor_ids
+                if anchor_id not in list(actuals.get("anchor_ids") or [])
+            ]
+            if missing_anchor_ids:
+                missing_parts.append(
+                    "anchor_ids=" + ",".join(missing_anchor_ids)
+                )
+        if required_entity_refs:
+            missing_entity_refs = [
+                entity_ref
+                for entity_ref in required_entity_refs
+                if entity_ref not in list(actuals.get("entity_refs") or [])
+            ]
+            if missing_entity_refs:
+                missing_parts.append(
+                    "entity_refs=" + ",".join(missing_entity_refs)
+                )
+        if required_beat_ids:
+            actual_beats = list(actuals.get("performance_beat_ids") or []) + list(
+                actuals.get("interaction_beat_ids") or []
+            )
+            missing_beats = [
+                beat_id for beat_id in required_beat_ids if beat_id not in actual_beats
+            ]
+            if missing_beats:
+                missing_parts.append("beat_ids=" + ",".join(missing_beats))
+        if required_camera_anchor_ids:
+            missing_camera_anchor_ids = [
+                anchor_id
+                for anchor_id in required_camera_anchor_ids
+                if anchor_id not in list(actuals.get("camera_anchor_ids") or [])
+            ]
+            if missing_camera_anchor_ids:
+                missing_parts.append(
+                    "camera_anchor_ids=" + ",".join(missing_camera_anchor_ids)
+                )
+        if required_interaction_ids:
+            missing_interactions = [
+                beat_id
+                for beat_id in required_interaction_ids
+                if beat_id not in list(actuals.get("interaction_beat_ids") or [])
+            ]
+            if missing_interactions:
+                missing_parts.append(
+                    "interaction_ids=" + ",".join(missing_interactions)
+                )
+        checks.append(
+            {
+                "check_id": f"storyboard_card:{card_id}",
+                "label": f"Storyboard card '{card.get('title') or card_id}'",
+                "passed": not missing_parts,
+                "expected": {
+                    "segment_title": expected_segment_title,
+                    "anchor_ids": required_anchor_ids,
+                    "entity_refs": required_entity_refs,
+                    "beat_ids": required_beat_ids,
+                    "camera_anchor_ids": required_camera_anchor_ids,
+                    "interaction_ids": required_interaction_ids,
+                },
+                "actual": {
+                    "segment_titles": list(actuals.get("segment_titles") or []),
+                    "anchor_ids": list(actuals.get("anchor_ids") or []),
+                    "entity_refs": list(actuals.get("entity_refs") or []),
+                    "performance_beat_ids": list(actuals.get("performance_beat_ids") or []),
+                    "interaction_beat_ids": list(actuals.get("interaction_beat_ids") or []),
+                    "camera_anchor_ids": list(actuals.get("camera_anchor_ids") or []),
+                },
+                "missing": missing_parts,
+                "unexpected": [],
+                "detail": (
+                    "Storyboard card coverage present"
+                    if not missing_parts
+                    else "Missing " + "; ".join(missing_parts)
+                ),
+            }
+        )
+
+    failed_check_count = sum(1 for check in checks if not check.get("passed"))
+    passed_check_count = len(checks) - failed_check_count
+    receipt = {
+        "status": "passed" if failed_check_count == 0 else "failed",
+        "scenario_id": scenario.scenario_id,
+        "storyboard_id": str(standard.get("storyboard_id") or "").strip(),
+        "production_bar": str(standard.get("production_bar") or "").strip(),
+        "passed_check_count": passed_check_count,
+        "failed_check_count": failed_check_count,
+        "checks": checks,
+        "actual_summary": actuals,
+        "generated_at": _now_utc(),
+    }
+    return {
+        "storyboard_acceptance_standard": standard_bundle,
+        "storyboard_acceptance_receipt": receipt,
+        "storyboard_gap_report": render_storyboard_gap_report(
+            scenario=scenario,
+            receipt=receipt,
+        ),
     }
 
 
@@ -1448,6 +2198,7 @@ def build_truth_matrix(
     execution_artifacts: Dict[str, Dict[str, Any]],
     downstream_result: Dict[str, Any],
     motion_evidence: Optional[Dict[str, Dict[str, Any]]] = None,
+    storyboard_evidence: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     blender_result = dict(downstream_result.get("blender_result") or {})
     proof_result = dict(downstream_result.get("proof_result") or {})
@@ -1467,6 +2218,10 @@ def build_truth_matrix(
     )
     visual_acceptance_review_receipt = dict(
         motion_evidence.get("visual_acceptance_review_receipt") or {}
+    )
+    storyboard_evidence = storyboard_evidence or {}
+    storyboard_acceptance_receipt = dict(
+        storyboard_evidence.get("storyboard_acceptance_receipt") or {}
     )
     execution_source = str(blocking_plan.get("execution_source") or "").strip()
     blender_preflight_continuity = bool(blender_result.get("bundle_dir")) and bool(
@@ -1503,6 +2258,9 @@ def build_truth_matrix(
         and frame_beat_map.get("status") == "materialized"
         and not list(frame_beat_map.get("missing_required_targets") or [])
         and visual_acceptance_bundle_materialized
+    )
+    storyboard_acceptance_passed = (
+        storyboard_acceptance_receipt.get("status") == "passed"
     )
     return {
         "scripted_meeting_session_closed": bool(
@@ -1566,6 +2324,14 @@ def build_truth_matrix(
         "stage_handoff_continuity": stage_handoff_continuity,
         "contract_continuity": stage_handoff_continuity,
         "script_to_motion_asset_continuity": script_to_motion_asset_continuity,
+        "storyboard_acceptance_configured": bool(
+            storyboard_acceptance_receipt
+            and storyboard_acceptance_receipt.get("status") != "not_configured"
+        ),
+        "storyboard_acceptance_passed": storyboard_acceptance_passed,
+        "storyboard_gap_count": int(
+            storyboard_acceptance_receipt.get("failed_check_count") or 0
+        ),
         "ue_importer_execution": False,
     }
 
@@ -1579,6 +2345,7 @@ def render_operator_report_html(
     execution_artifacts: Dict[str, Dict[str, Any]],
     downstream_result: Dict[str, Any],
     motion_evidence_artifacts: Dict[str, Dict[str, Any]],
+    storyboard_evidence_artifacts: Dict[str, Any],
     truth_matrix: Dict[str, Any],
 ) -> str:
     blender_result = dict(downstream_result.get("blender_result") or {})
@@ -1598,6 +2365,12 @@ def render_operator_report_html(
     )
     visual_acceptance_bundle_excerpt = dict(
         motion_evidence_artifacts.get("visual_acceptance_bundle_excerpt") or {}
+    )
+    storyboard_acceptance_receipt = dict(
+        storyboard_evidence_artifacts.get("storyboard_acceptance_receipt") or {}
+    )
+    storyboard_acceptance_standard = dict(
+        storyboard_evidence_artifacts.get("storyboard_acceptance_standard") or {}
     )
     execution_source = str(blocking_plan.get("execution_source") or "").strip() or "missing"
     return f"""<!DOCTYPE html>
@@ -1681,6 +2454,14 @@ def render_operator_report_html(
       <section class="card">
         <h2>Visual Acceptance Bundle</h2>
         <pre>{json.dumps(visual_acceptance_bundle_excerpt, indent=2, ensure_ascii=False, default=_json_default)}</pre>
+      </section>
+      <section class="card">
+        <h2>Storyboard Acceptance Standard</h2>
+        <pre>{json.dumps(storyboard_acceptance_standard, indent=2, ensure_ascii=False, default=_json_default)}</pre>
+      </section>
+      <section class="card">
+        <h2>Storyboard Acceptance Receipt</h2>
+        <pre>{json.dumps(storyboard_acceptance_receipt, indent=2, ensure_ascii=False, default=_json_default)}</pre>
       </section>
     </div>
   </body>
@@ -1801,6 +2582,7 @@ async def run_meeting_spatial_downstream_e2e(
     project_id: Optional[str] = None,
     model_name: Optional[str] = None,
     executor_runtime: Optional[str] = None,
+    require_storyboard_acceptance: bool = False,
     require_motion_evidence: bool = False,
     emit_visual_acceptance_bundle: bool = False,
     skip_phase_dispatch: Optional[bool] = None,
@@ -1813,6 +2595,12 @@ async def run_meeting_spatial_downstream_e2e(
     session_store = MeetingSessionStore()
     runtime_binding: Optional[Dict[str, Any]] = None
     output_dir.mkdir(parents=True, exist_ok=True)
+    require_storyboard_acceptance = _resolve_bool_config(
+        scenario,
+        "require_storyboard_acceptance",
+        require_storyboard_acceptance,
+        default=False,
+    )
 
     if meeting_session_id:
         session = session_store.get_by_id(meeting_session_id)
@@ -2071,6 +2859,10 @@ async def run_meeting_spatial_downstream_e2e(
         schedule_context=downstream_schedule_context,
         schedule_artifact_excerpt=downstream_schedule_artifact_excerpt,
     )
+    storyboard_evidence_artifacts = build_storyboard_acceptance_artifacts(
+        scenario=scenario,
+        execution_artifacts=execution_artifacts,
+    )
     downstream_input_manifest = build_downstream_input_manifest(
         scenario=scenario,
         schedule_context=downstream_schedule_context,
@@ -2126,6 +2918,7 @@ async def run_meeting_spatial_downstream_e2e(
         execution_artifacts=execution_artifacts,
         downstream_result=downstream_result,
         motion_evidence=motion_evidence_artifacts,
+        storyboard_evidence=storyboard_evidence_artifacts,
     )
 
     _write_text(output_dir / "meeting_input.md", scenario.message)
@@ -2203,6 +2996,18 @@ async def run_meeting_spatial_downstream_e2e(
         output_dir / "visual_acceptance_review_receipt.json",
         motion_evidence_artifacts.get("visual_acceptance_review_receipt") or {},
     )
+    _write_json(
+        output_dir / "storyboard_acceptance_standard.json",
+        storyboard_evidence_artifacts.get("storyboard_acceptance_standard") or {},
+    )
+    _write_json(
+        output_dir / "storyboard_acceptance_receipt.json",
+        storyboard_evidence_artifacts.get("storyboard_acceptance_receipt") or {},
+    )
+    _write_text(
+        output_dir / "storyboard_gap_report.md",
+        str(storyboard_evidence_artifacts.get("storyboard_gap_report") or ""),
+    )
     _write_json(output_dir / "e2e_truth_matrix.json", truth_matrix)
     report_html = render_operator_report_html(
         scenario=scenario,
@@ -2212,9 +3017,15 @@ async def run_meeting_spatial_downstream_e2e(
         execution_artifacts=execution_artifacts,
         downstream_result=downstream_result,
         motion_evidence_artifacts=motion_evidence_artifacts,
+        storyboard_evidence_artifacts=storyboard_evidence_artifacts,
         truth_matrix=truth_matrix,
     )
     _write_text(output_dir / "operator_report.html", report_html)
+    if require_storyboard_acceptance:
+        _must(
+            bool(truth_matrix.get("storyboard_acceptance_passed")),
+            "Storyboard acceptance gate failed",
+        )
     if require_motion_evidence:
         _must(
             bool(truth_matrix.get("script_to_motion_asset_continuity")),

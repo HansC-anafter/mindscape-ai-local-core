@@ -31,6 +31,45 @@ from .suggestion_action_handler_core import (
 logger = logging.getLogger(__name__)
 
 
+def _build_object_action_dispatch_metadata(
+    *,
+    action_params: Dict[str, Any],
+    execution_id: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    plan_payload = action_params.get("object_action_plan")
+    if not isinstance(plan_payload, dict):
+        return None
+
+    request_plan = plan_payload.get("request_plan")
+    if not isinstance(request_plan, dict):
+        request_plan = {}
+    selected_affordance = plan_payload.get("selected_affordance")
+    if not isinstance(selected_affordance, dict):
+        selected_affordance = {}
+
+    action_plan_id = (
+        action_params.get("object_action_plan_id")
+        or request_plan.get("action_plan_id")
+        or plan_payload.get("action_plan_id")
+    )
+    entries = action_params.get("object_action_entries")
+    if not isinstance(entries, list):
+        entries = plan_payload.get("role_assignments")
+    if not isinstance(entries, list):
+        entries = []
+
+    return {
+        "status": "closure_pending",
+        "action_plan_id": action_plan_id,
+        "execution_id": execution_id,
+        "meeting_id": action_params.get("meeting_id")
+        or action_params.get("meeting_session_id"),
+        "affordance_verb": request_plan.get("affordance_verb")
+        or selected_affordance.get("verb"),
+        "entries_count": len(entries),
+    }
+
+
 class SuggestionActionHandler:
     """Handles actions from dynamic suggestions"""
 
@@ -256,15 +295,25 @@ class SuggestionActionHandler:
             execution_id = execution_result.get("result", {}).get("execution_id")
 
         logger.info(f"_handle_execute_playbook: Returning execution_id={execution_id} for {playbook_code}")
+        object_action = _build_object_action_dispatch_metadata(
+            action_params=action_params,
+            execution_id=execution_id,
+        )
+        triggered_playbook = {
+            "playbook_code": playbook_code,
+            "execution_id": execution_id,
+            "status": "triggered",
+        }
+        if object_action:
+            triggered_playbook["object_action"] = object_action
 
         return {
             "workspace_id": ctx.workspace_id,
+            "status": "accepted",
+            "task_id": execution_id,
             "display_events": [],
-            "triggered_playbook": {
-                "playbook_code": playbook_code,
-                "execution_id": execution_id,
-                "status": "triggered"
-            },
+            "triggered_playbook": triggered_playbook,
+            "object_action": object_action,
             "pending_tasks": []
         }
 

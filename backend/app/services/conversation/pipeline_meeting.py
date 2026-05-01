@@ -27,6 +27,34 @@ def _sanitize_agenda_item(msg: str) -> str:
     return clean
 
 
+async def _append_agenda_if_needed(
+    session: Any,
+    session_store: Any,
+    user_message: Optional[str],
+    *,
+    model_name: Optional[str] = None,
+    executor_runtime: Optional[str] = None,
+    llm_generate_fn: Optional[Callable[..., Awaitable[str]]] = None,
+) -> None:
+    if not user_message:
+        return
+    decomposed = await _decompose_agenda(
+        user_message,
+        model_name=model_name,
+        executor_runtime=executor_runtime,
+        llm_generate_fn=llm_generate_fn,
+    )
+    current = list(session.agenda or [])
+    for item in decomposed:
+        if item and item not in current and len(current) < _AGENDA_MAX_ITEMS:
+            current.append(item)
+    if current == list(session.agenda or []):
+        return
+    session.agenda = current
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: session_store.update(session))
+
+
 async def _decompose_agenda(
     user_message: str,
     model_name: str | None = None,
@@ -179,6 +207,7 @@ async def ensure_meeting_session(
     user_message: Optional[str] = None,
     model_name: Optional[str] = None,
     executor_runtime: Optional[str] = None,
+    explicit_session_id: Optional[str] = None,
     llm_generate_fn: Optional[
         Callable[..., Awaitable[str]]
     ] = None,
@@ -196,6 +225,7 @@ async def ensure_meeting_session(
         user_message: Optional user message to include in agenda.
         model_name: Optional LLM model name for agenda decomposition.
         executor_runtime: Active executor runtime.
+        explicit_session_id: Optional meeting session ID from an object meeting shell.
         llm_generate_fn: Optional meeting-scoped runtime generation callback.
 
     Returns:
@@ -203,6 +233,62 @@ async def ensure_meeting_session(
     """
     try:
         loop = asyncio.get_running_loop()
+        if explicit_session_id:
+            session = await loop.run_in_executor(
+                None,
+                lambda: session_store.get_by_id(explicit_session_id),
+            )
+            if not session:
+                raise ValueError(
+                    f"Explicit meeting session not found: {explicit_session_id}"
+                )
+            if session.workspace_id != workspace_id:
+                raise ValueError(
+                    "Explicit meeting session workspace mismatch: "
+                    f"{explicit_session_id}"
+                )
+            if not session.is_active:
+                raise ValueError(
+                    f"Explicit meeting session is not active: {explicit_session_id}"
+                )
+            if project_id and session.project_id and session.project_id != project_id:
+                raise ValueError(
+                    "Explicit meeting session project mismatch: "
+                    f"{explicit_session_id}"
+                )
+
+            changed = False
+            if project_id and not session.project_id:
+                session.project_id = project_id
+                changed = True
+            if thread_id and not session.thread_id:
+                session.thread_id = thread_id
+                changed = True
+            elif thread_id and session.thread_id and session.thread_id != thread_id:
+                raise ValueError(
+                    "Explicit meeting session thread mismatch: "
+                    f"{explicit_session_id}"
+                )
+            if changed:
+                await loop.run_in_executor(None, lambda: session_store.update(session))
+
+            try:
+                await _append_agenda_if_needed(
+                    session,
+                    session_store,
+                    user_message,
+                    model_name=model_name,
+                    executor_runtime=executor_runtime,
+                    llm_generate_fn=llm_generate_fn,
+                )
+            except Exception as exc:
+                logger.debug("Non-fatal explicit-session agenda update: %s", exc)
+            logger.info(
+                "[PipelineCore] Reusing explicit meeting session %s",
+                session.id,
+            )
+            return session
+
         session = await loop.run_in_executor(
             None,
             lambda: session_store.get_active_session(
@@ -213,31 +299,17 @@ async def ensure_meeting_session(
         )
         if session:
             logger.info(f"[PipelineCore] Reusing active session {session.id}")
-            # Append user_message to agenda (dedup + cap)
-            if user_message:
-                decomposed = await _decompose_agenda(
+            try:
+                await _append_agenda_if_needed(
+                    session,
+                    session_store,
                     user_message,
                     model_name=model_name,
                     executor_runtime=executor_runtime,
                     llm_generate_fn=llm_generate_fn,
                 )
-                current = list(session.agenda or [])
-                for item in decomposed:
-                    if (
-                        item
-                        and item not in current
-                        and len(current) < _AGENDA_MAX_ITEMS
-                    ):
-                        current.append(item)
-                if current != list(session.agenda or []):
-                    session.agenda = current
-                    try:
-                        await loop.run_in_executor(
-                            None,
-                            lambda: session_store.update(session),
-                        )
-                    except Exception as exc:
-                        logger.debug("Non-fatal agenda update: %s", exc)
+            except Exception as exc:
+                logger.debug("Non-fatal agenda update: %s", exc)
             return session
 
         # Create new session with lens_id resolved from active preset

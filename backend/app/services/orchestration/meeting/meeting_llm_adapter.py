@@ -27,7 +27,7 @@ class MeetingLLMAdapter:
     existing ``_generate_text()`` method, which already handles:
 
     - direct LLM generation for meeting governance
-    - executor_runtime fallback when no direct provider is configured
+    - executor runtime path when explicitly selected by the meeting route
     - retry logic, availability checks, clarification handling
 
     Usage::

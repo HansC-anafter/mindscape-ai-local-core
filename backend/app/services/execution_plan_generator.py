@@ -62,7 +62,6 @@ def _resolve_governed_chat_inputs(llm_provider: Any) -> tuple[Any, Any]:
 
     return provider, llm_provider_manager
 
-# Prompt template for generating execution plan
 EXECUTION_PLAN_PROMPT = """You are an Execution Planning Agent. Your task is to analyze the user's request
 and create a structured execution plan BEFORE taking any action.
 
@@ -361,8 +360,8 @@ IMPORTANT: When interpreting the user's request, treat it as a continuation of t
             purpose="execution_plan_generation",
             stage_name="plan_generation",
             risk_level="read",
-            temperature=0.3,  # Lower temperature for more consistent plans
-            max_tokens=4000,  # Increased to handle complex execution plans
+            temperature=0.3,
+            max_tokens=4000,
         )
         response_text = _coerce_chat_text(response)
 
@@ -624,7 +623,7 @@ Return the CORRECTED execution plan as JSON with the same structure. Only fix th
             purpose="execution_plan_reevaluation",
             stage_name="plan_generation",
             risk_level="read",
-            temperature=0.2,  # Lower temperature for corrections
+            temperature=0.2,
             max_tokens=4000,
         )
         corrected_plan_data = _parse_plan_json(_coerce_chat_text(response))

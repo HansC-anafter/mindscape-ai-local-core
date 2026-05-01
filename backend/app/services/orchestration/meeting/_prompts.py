@@ -58,7 +58,7 @@ _NATIVE_SPATIAL_PD_PLANNER_DIRECTIVE = (
     '{"id":"anchor.tray_rest","object_ref":"object.counter","purpose":"tray_rest"}],'
     '"blocking_paths":[{"id":"path.tray_handoff","actor_ref":"actor.handoff","from_anchor":"anchor.entry_handoff","to_anchor":"anchor.tray_rest","carried_object_ref":"object.tray"}],'
     '"camera_blocking":{"camera_id":"camera.main","pattern":"hold_then_minor_reframe","keyframes":[{"frame":1,"anchor_id":"anchor.entry_handoff"},{"frame":36,"anchor_id":"anchor.counter"},{"frame":72,"anchor_id":"anchor.tray_rest"}]},'
-    '"performance_beats":[{"id":"beat.tray_transfer","actor_ref":"actor.handoff","object_ref":"object.tray","anchor_id":"anchor.entry_handoff","intent":"handoff"},'
+    '"performance_beats":[{"id":"beat.tray_transfer","actor_ref":"actor.handoff","object_ref":"object.tray","anchor_id":"anchor.tray_rest","intent":"handoff"},'
     '{"id":"beat.tray_counter_settle","object_ref":"object.tray","anchor_id":"anchor.tray_rest","intent":"settle"}],'
     '"interaction_beats":[{"id":"interaction.tray_on_counter","primary_object_ref":"object.tray","secondary_object_ref":"object.counter","interaction":"rest_on"}],'
     '"active_segments":[{"segment_id":"seg_setup","title":"...","entity_refs":["camera.main","object.counter","object.tray","actor.handoff"],"anchor_ids":["anchor.counter","anchor.entry_handoff","anchor.tray_rest"]}]'
@@ -71,6 +71,8 @@ _NATIVE_SPATIAL_PD_PLANNER_DIRECTIVE = (
 _FULL_REVIEW_NATIVE_SPATIAL_PD_FACILITATOR_DIRECTIVE = (
     "As facilitator, summarize spatial PD progress, unresolved decisions, and whether another round is needed. "
     "Do NOT converge until the current round includes both a planner spatial proposal and a critic review. "
+    "If a Storyboard Acceptance Benchmark is present, do NOT converge while any required card, beat, camera hold, "
+    "or canonical ID is still missing or drifting. "
     "If converged, include the marker [CONVERGED]. Keep concise."
 )
 
@@ -78,17 +80,23 @@ _FULL_REVIEW_NATIVE_SPATIAL_PD_PLANNER_DIRECTIVE = (
     "As planner, output ONE JSON object describing a bounded spatial PD proposal for this scene. "
     "Required top-level keys: decision_summary, actors, objects, anchors, blocking_paths, camera_blocking, "
     "performance_beats, interaction_beats, active_segments. "
-    "Choose the actor, object, anchor, path, camera, and beat IDs yourself from the user's intent; do not rely on preset example IDs. "
+    "Choose the actor, object, anchor, path, camera, and beat IDs yourself from the user's intent unless the request contract "
+    "provides a Storyboard Acceptance Benchmark; when it does, preserve those canonical IDs exactly. "
     "Keep the world minimal, replayable, and internally consistent. "
     "Every blocking path must reference defined actors and anchors. "
     "Every camera keyframe must reference defined anchors. "
     "Every performance or interaction beat must reference defined actors or objects. "
+    "Use semantic segment titles that match the storyboard phases; do not emit generic titles like segment.1. "
+    "Do not compress storyboard phases or beat coverage when a benchmark block is present. "
     "Do not ask another role or the user to finish the proposal later."
 )
 
 _FULL_REVIEW_NATIVE_SPATIAL_PD_CRITIC_DIRECTIVE = (
     "As critic, review the planner's spatial PD JSON for gaps, contradictions, and missing execution details. "
-    "Check actor/object/anchor continuity, path endpoints, camera coverage, beat completeness, and whether the world stays bounded. "
+    "Check actor/object/anchor continuity, path endpoints, camera coverage, beat completeness, semantic segment titles, "
+    "and whether the world stays bounded. "
+    "If a Storyboard Acceptance Benchmark is present, explicitly flag ID drift, missing cards, beat compression, "
+    "or camera must-hold coverage loss against that benchmark. "
     "Respond with concise findings and concrete change requests. Do not rewrite the full plan."
 )
 
@@ -219,6 +227,137 @@ class MeetingPromptsMixin:
             raw_body=True,
         )
         return block
+
+    def _prompt_request_contract_metadata(self) -> Dict[str, Any]:
+        getter = getattr(self, "_get_request_contract_metadata", None)
+        if callable(getter):
+            try:
+                contract = getter()
+            except Exception:
+                contract = {}
+            if isinstance(contract, dict):
+                return contract
+        metadata = getattr(getattr(self, "session", None), "metadata", None)
+        if isinstance(metadata, dict):
+            contract = metadata.get("request_contract")
+            if isinstance(contract, dict):
+                return contract
+        return {}
+
+    def _extract_native_spatial_storyboard_acceptance(self) -> Dict[str, Any]:
+        contract = self._prompt_request_contract_metadata()
+        governance_constraints = contract.get("governance_constraints")
+        if not isinstance(governance_constraints, dict):
+            governance_constraints = contract.get("constraints")
+        if not isinstance(governance_constraints, dict):
+            return {}
+        spatial_schedule = governance_constraints.get("spatial_schedule")
+        if not isinstance(spatial_schedule, dict):
+            return {}
+        candidate = spatial_schedule.get("storyboard_acceptance")
+        return dict(candidate) if isinstance(candidate, dict) else {}
+
+    @staticmethod
+    def _render_native_spatial_storyboard_benchmark(
+        benchmark: Dict[str, Any],
+    ) -> str:
+        acceptance_checks = (
+            dict(benchmark.get("acceptance_checks") or {})
+            if isinstance(benchmark.get("acceptance_checks"), dict)
+            else {}
+        )
+        lines: List[str] = []
+        storyboard_id = str(benchmark.get("storyboard_id") or "").strip()
+        if storyboard_id:
+            lines.append(f"Storyboard ID: {storyboard_id}")
+        intent_summary = str(benchmark.get("intent_summary") or "").strip()
+        if intent_summary:
+            lines.append(f"Intent: {intent_summary}")
+        production_bar = str(benchmark.get("production_bar") or "").strip()
+        if production_bar:
+            lines.append(f"Production bar: {production_bar}")
+
+        for label, values in (
+            ("Canonical actor IDs", acceptance_checks.get("required_actor_ids") or []),
+            ("Canonical object IDs", acceptance_checks.get("required_object_ids") or []),
+            ("Canonical anchor IDs", acceptance_checks.get("required_anchor_ids") or []),
+            (
+                "Required performance beats",
+                acceptance_checks.get("required_performance_beats") or [],
+            ),
+            (
+                "Required interaction beats",
+                acceptance_checks.get("required_interaction_beats") or [],
+            ),
+            (
+                "Required segment titles",
+                acceptance_checks.get("required_segment_titles") or [],
+            ),
+            (
+                "Camera must-hold",
+                acceptance_checks.get("required_camera_must_hold") or [],
+            ),
+        ):
+            normalized = [str(item).strip() for item in values if str(item).strip()]
+            if normalized:
+                lines.append(f"{label}: {', '.join(normalized)}")
+
+        camera_pattern = str(
+            acceptance_checks.get("required_camera_pattern") or ""
+        ).strip()
+        if camera_pattern:
+            lines.append(f"Camera pattern: {camera_pattern}")
+
+        cards = [
+            card for card in list(benchmark.get("storyboard_cards") or []) if isinstance(card, dict)
+        ]
+        if cards:
+            lines.append("Storyboard cards:")
+            for card in cards:
+                title = str(card.get("title") or card.get("card_id") or "").strip()
+                beat_ids = [
+                    str(item).strip()
+                    for item in list(card.get("required_beat_ids") or [])
+                    if str(item).strip()
+                ]
+                segment_title = str(
+                    card.get("required_segment_title") or card.get("title") or ""
+                ).strip()
+                summary_bits: List[str] = []
+                if segment_title:
+                    summary_bits.append(f"segment={segment_title}")
+                if beat_ids:
+                    summary_bits.append(f"beats={', '.join(beat_ids)}")
+                note_items = [
+                    str(item).strip()
+                    for item in list(card.get("notes") or [])
+                    if str(item).strip()
+                ]
+                if note_items:
+                    summary_bits.append(f"notes={' | '.join(note_items)}")
+                if title:
+                    lines.append(f"- {title}: {'; '.join(summary_bits)}")
+
+        return "\n".join(lines)
+
+    def _build_native_spatial_contract_block(self) -> str:
+        contract = self._prompt_request_contract_metadata()
+        sections: List[str] = []
+        human_instructions = str(contract.get("human_instructions") or "").strip()
+        if human_instructions:
+            sections.append(
+                "=== Handoff Instructions ===\n"
+                f"{human_instructions}\n"
+                "=== End Handoff Instructions ===\n\n"
+            )
+        benchmark = self._extract_native_spatial_storyboard_acceptance()
+        if benchmark:
+            sections.append(
+                "=== Storyboard Acceptance Benchmark ===\n"
+                f"{self._render_native_spatial_storyboard_benchmark(benchmark)}\n"
+                "=== End Storyboard Acceptance Benchmark ===\n\n"
+            )
+        return "".join(sections)
 
     def _use_native_spatial_pd_planner_mode(
         self, role_id: str, user_message: str
@@ -614,6 +753,10 @@ class MeetingPromptsMixin:
             f"Latest critic note:\n{latest_critic}\n\n"
             f"Recent turns:\n{history}\n\n"
         )
+        if minimal_native_pd_context:
+            contract_block = self._build_native_spatial_contract_block()
+            if contract_block:
+                common += contract_block
 
         # A1: Inject lens context (AgentSpec Agent Core requirement)
         lens_ctx = "" if minimal_native_pd_context else self._build_lens_context()

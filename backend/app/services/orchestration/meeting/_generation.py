@@ -155,7 +155,10 @@ class MeetingGenerationMixin:
                 "workspace is required for executor_runtime meeting mode"
             )
 
-        if str(self.executor_runtime).strip().lower() == "codex_cli":
+        if (
+            str(self.executor_runtime).strip().lower() == "codex_cli"
+            and self._meeting_codex_direct_enabled()
+        ):
             return await self._generate_text_via_direct_codex_cli(
                 messages, model=model
             )
@@ -211,16 +214,34 @@ class MeetingGenerationMixin:
 
         await self._emit_meeting_stage("generating", f"正在透過 {self.executor_runtime} 執行中...")
 
+        context_overrides: Dict[str, Any] = {
+            "meeting_session_id": self.session.id,
+            "thread_id": self.thread_id,
+            "project_id": self.project_id,
+            "conversation_context": system_prompt,
+        }
+        model_hint = self._executor_model_hint(self.executor_runtime, model)
+        if model_hint:
+            context_overrides["model"] = model_hint
+        try:
+            from backend.app.services.executor_route_context import (
+                build_executor_route_context,
+            )
+
+            route_context = build_executor_route_context(self.workspace)
+            if route_context:
+                context_overrides["executor_route_context"] = route_context
+        except Exception:
+            logger.warning(
+                "Failed to build meeting executor route context for workspace %s",
+                getattr(self.workspace, "id", None),
+                exc_info=True,
+            )
+
         result = await self._agent_executor.execute(
             task=task,
             agent_id=self.executor_runtime,
-            context_overrides={
-                "meeting_session_id": self.session.id,
-                "thread_id": self.thread_id,
-                "project_id": self.project_id,
-                "conversation_context": system_prompt,
-                "model": model,  # per-agent model hint for runtime bridge
-            },
+            context_overrides=context_overrides,
         )
         if not result.success:
             # Surface clarification requests as decision events, not fatal errors
@@ -270,6 +291,24 @@ class MeetingGenerationMixin:
             logger.warning("Failed to publish executor turn result to Redis: %s", pub_exc)
 
         return output_text
+
+    @staticmethod
+    def _meeting_codex_direct_enabled() -> bool:
+        raw = os.environ.get("MINDSCAPE_MEETING_CODEX_DIRECT", "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _executor_model_hint(executor_runtime: Optional[str], model: Optional[str]) -> Optional[str]:
+        candidate = str(model or "").strip()
+        if not candidate:
+            return None
+        runtime = str(executor_runtime or "").strip().lower()
+        if runtime == "codex_cli":
+            lowered = candidate.lower()
+            if lowered.startswith(("gpt-", "o", "codex")):
+                return candidate
+            return None
+        return candidate
 
     async def _generate_text_via_direct_codex_cli(
         self,
@@ -383,8 +422,9 @@ class MeetingGenerationMixin:
                 "--output-last-message",
                 last_message_path,
             ]
-            if model:
-                cmd.extend(["--model", model])
+            model_hint = self._executor_model_hint("codex_cli", model)
+            if model_hint:
+                cmd.extend(["--model", model_hint])
             cmd.append(task)
 
             try:

@@ -530,6 +530,37 @@ async def stream_llm_response(
             f"[LLMStreaming] Sent final complete event (VertexAI), full_text length: {len(full_text)} chars"
         )
 
+    elif provider_type == "OllamaProvider":
+        # Ollama exposes an OpenAI-compatible streaming interface through the
+        # provider abstraction, so the OpenAI streaming wrapper can consume it.
+        async for event in stream_openai_response(
+            provider, messages, model_name, openai_key, is_fallback=is_fallback
+        ):
+            yield event
+            if event.startswith("data: "):
+                try:
+                    data = json.loads(event[6:].strip())
+                    if data.get("type") == "chunk":
+                        full_text += data.get("content", "")
+                except Exception:
+                    pass
+
+        assistant_event = create_assistant_event(
+            full_text,
+            user_event_id,
+            profile_id,
+            project_id,
+            workspace_id,
+            thread_id,
+            store,
+            meeting_session_id=meeting_session_id,
+        )
+
+        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_fallback': is_fallback, 'is_final': True})}\n\n"
+        logger.info(
+            f"[LLMStreaming] Sent final complete event (Ollama), full_text length: {len(full_text)} chars"
+        )
+
     else:
         # Other providers - not yet supported
         logger.warning(

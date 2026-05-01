@@ -92,6 +92,15 @@ async def stage_decompose_and_dispatch(
     dispatchable_intents = [
         intent for intent in action_intents if intent.intent_id in dispatch_intent_ids
     ]
+    plan_only_no_actuator = bool(action_items) and all(
+        str(item.get("engine") or "").strip()
+        and not item.get("tool_name")
+        and not item.get("playbook_code")
+        and not str(item.get("engine") or "").startswith(
+            ("agent:", "tool:", "playbook:")
+        )
+        for item in action_items
+    )
 
     for decision_item in gate_result.clarify_intents:
         if decision_item.intent_id in overridden_gate_intent_ids:
@@ -132,6 +141,8 @@ async def stage_decompose_and_dispatch(
     ]
     if protected_playbook_items:
         skip_decomposition = True
+    if plan_only_no_actuator:
+        skip_decomposition = True
     if skip_decomposition:
         if protected_playbook_items:
             logger.info(
@@ -143,6 +154,11 @@ async def stage_decompose_and_dispatch(
                         for item in protected_playbook_items
                     }
                 ),
+            )
+        elif plan_only_no_actuator:
+            logger.info(
+                "Skipping TaskDecomposer for session %s because all action items are plan-only with no actuator",
+                getattr(meeting.session, "id", "?"),
             )
         else:
             logger.info(
@@ -201,6 +217,18 @@ async def stage_decompose_and_dispatch(
             )
     except Exception as exc:
         logger.warning("Failed to compile TaskIR from meeting: %s", exc)
+
+    if plan_only_no_actuator:
+        for item in action_items:
+            item["landing_status"] = "planned"
+        return compiled_ir, {
+            "status": "skipped",
+            "reason": "plan_only_no_actuator",
+            "total": len(action_items),
+            "succeeded": 0,
+            "failed": 0,
+            "phase_results": [],
+        }
 
     async def _on_wave_complete(wave_summary, task_ir):
         if not decomposer:
