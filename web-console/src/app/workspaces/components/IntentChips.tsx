@@ -19,13 +19,15 @@ interface IntentChipsProps {
   apiUrl: string;
   messageId?: string;
   onConfirm?: (intentTagId: string) => void;
+  compact?: boolean;
 }
 
 export default function IntentChips({
   workspaceId,
   apiUrl,
   messageId,
-  onConfirm
+  onConfirm,
+  compact = false,
 }: IntentChipsProps) {
   const [intentTags, setIntentTags] = useState<IntentTag[]>([]);
   const [loading, setLoading] = useState(false);
@@ -141,11 +143,11 @@ export default function IntentChips({
   }
 
   return (
-    <div className="px-4 pt-2 pb-1">
-      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+    <div className={compact ? 'px-0 py-0' : 'px-4 pt-2 pb-1'}>
+      <div className={`${compact ? 'mb-1 text-[10px] leading-4' : 'mb-1.5 text-xs'} text-gray-500 dark:text-gray-400`}>
         {t('mindscapePossibleDirections' as any) || 'Mindscape 看到的可能方向（僅供參考）'}
       </div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className={`flex flex-wrap ${compact ? 'gap-1' : 'gap-1.5'}`}>
         {intentTags.map((tag) => (
           <button
             key={tag.id}
@@ -156,7 +158,9 @@ export default function IntentChips({
               handleConfirmIntent(tag);
             }}
             disabled={confirmingId === tag.id || confirmingId !== null}
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-all ${
+            className={`inline-flex items-center gap-1 rounded-full border transition-all ${
+              compact ? 'px-2 py-0.5 text-[11px] leading-4' : 'px-2 py-0.5 text-xs'
+            } ${
               confirmingId === tag.id
                 ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 cursor-not-allowed animate-pulse'
                 : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 cursor-pointer active:bg-blue-50 dark:active:bg-blue-900/30'
@@ -164,7 +168,7 @@ export default function IntentChips({
           >
             <span>{tag.title}</span>
             {tag.confidence && (
-              <span className="text-gray-400 text-[10px]">
+              <span className="text-[10px] text-gray-400">
                 {Math.round(tag.confidence * 100)}%
               </span>
             )}
@@ -177,4 +181,3 @@ export default function IntentChips({
     </div>
   );
 }
-

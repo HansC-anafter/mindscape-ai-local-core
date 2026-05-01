@@ -45,7 +45,7 @@ export function useChatModel(
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(true);
-  const loadedApiUrlRef = useRef<string | null>(null);
+  const loadedKeyRef = useRef<string | null>(null);
 
   const {
     workspaceId,
@@ -58,13 +58,15 @@ export function useChatModel(
     onError,
   } = options || {};
 
+  const requestKey = `${apiUrl}:${workspaceId || 'default'}:${profileId}`;
+
   const loadModel = useCallback(async (retryCount = 0) => {
     if (!enabled || apiUrl == null) {
       return;
     }
 
     // Prevent duplicate loads for the same API URL
-    if (loadedApiUrlRef.current === apiUrl || !isMountedRef.current) {
+    if (loadedKeyRef.current === requestKey || !isMountedRef.current) {
       return;
     }
 
@@ -107,7 +109,7 @@ export function useChatModel(
       }
 
       // Mark as loaded only on success
-      loadedApiUrlRef.current = apiUrl;
+      loadedKeyRef.current = requestKey;
       setIsLoading(false);
       onSuccess?.(data.chat_model || null);
     } catch (err: any) {
@@ -147,6 +149,7 @@ export function useChatModel(
     apiUrl,
     workspaceId,
     profileId,
+    requestKey,
     timeout,
     enabled,
     maxRetries,
@@ -176,8 +179,8 @@ export function useChatModel(
     isMountedRef.current = true;
     if (enabled && apiUrl) {
       // Reset loaded flag when API URL changes
-      if (loadedApiUrlRef.current !== apiUrl) {
-        loadedApiUrlRef.current = null;
+      if (loadedKeyRef.current !== requestKey) {
+        loadedKeyRef.current = null;
       }
       loadModel();
     }
@@ -188,7 +191,7 @@ export function useChatModel(
         abortControllerRef.current.abort();
       }
     };
-  }, [apiUrl, enabled, loadModel]);
+  }, [apiUrl, enabled, loadModel, requestKey]);
 
   const selectModel = useCallback((modelName: string) => {
     if (isMountedRef.current) {
@@ -205,4 +208,3 @@ export function useChatModel(
     selectModel,
   };
 }
-

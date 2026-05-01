@@ -23,6 +23,10 @@ const nextConfig = {
         destination: `${mediaProxyUrl}/api/v1/media/:path*`,
       },
       {
+        source: '/api/v1/playbooks/',
+        destination: `${backendUrl}/api/v1/playbooks/`,
+      },
+      {
         source: '/api/:path*',
         destination: `${backendUrl}/api/:path*`,
       },

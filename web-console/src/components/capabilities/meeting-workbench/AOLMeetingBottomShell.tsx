@@ -18,19 +18,21 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+import { projectAddressableObjectGraph } from '@/lib/addressable-object-layer';
 import type {
   AddressableObjectRef,
   AddressableObjectSummary,
   AddressableSelectionTarget,
   ObjectMeetingAttachResponse,
+  ObjectGraphProjection,
 } from '@/lib/addressable-object-layer';
 import { useT } from '@/lib/i18n';
 import { useSendMessage } from '@/hooks/useSendMessage';
 
-type InspectorTab = 'object' | 'runtime' | 'session' | 'trace' | 'prompts' | 'patch';
+type InspectorTab = 'object' | 'runtime' | 'session' | 'trace' | 'prompts' | 'patch' | 'graph';
 type MeetingNodeStatus = 'ready' | 'context' | 'pending' | 'running' | 'blocked' | 'error';
-type MeetingNodeKind = 'meeting' | 'object' | 'command' | 'run' | 'result' | 'artifact' | 'group' | 'next';
-type MeetingLane = 'context' | 'commands' | 'runs' | 'outputs' | 'artifacts' | 'next';
+type MeetingNodeKind = 'meeting' | 'object' | 'command' | 'run' | 'result' | 'artifact' | 'group' | 'next' | 'event';
+type MeetingLane = 'context' | 'graph' | 'commands' | 'runs' | 'outputs' | 'artifacts' | 'next';
 type GraphViewMode = 'flow' | 'runs' | 'trace';
 
 interface MeetingNode {
@@ -46,6 +48,31 @@ interface MeetingNode {
   childCount?: number;
   defaultInspector?: InspectorTab;
   traceFilter?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface MeetingGraphEdge {
+  id: string;
+  from_id: string;
+  to_id: string;
+  type: string;
+  label?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+interface MeetingCommandImpact {
+  commandNode: MeetingNode;
+  commandText: string;
+  phase: 'initial' | 'inserted' | 'follow-up';
+  status: MeetingNodeStatus;
+  nodeIds: Set<string>;
+  edgeIds: Set<string>;
+  relatedNodes: MeetingNode[];
+  relatedEvents: MeetingEventSummary[];
+  decisions: MeetingEventSummary[];
+  actionItems: MeetingEventSummary[];
+  outputs: MeetingNode[];
+  artifacts: MeetingNode[];
 }
 
 interface AgentInfo {
@@ -162,6 +189,7 @@ interface MeetingMentionItem {
 
 interface MeetingGraphProjection {
   nodes: MeetingNode[];
+  edges: MeetingGraphEdge[];
   traceEvents: MeetingEventSummary[];
   eventCounts: Record<string, number>;
   traceCount: number;
@@ -202,13 +230,15 @@ const INSPECTOR_TABS: Array<{
   { id: 'runtime', label: 'Runtime', icon: Cpu },
   { id: 'session', label: 'Session', icon: FileText },
   { id: 'trace', label: 'Trace', icon: ListTree },
+  { id: 'graph', label: 'Graph', icon: GitBranch },
   { id: 'prompts', label: 'Prompts', icon: MessageSquare },
   { id: 'patch', label: 'Patch', icon: Wrench },
 ];
 
 const GRAPH_LANES: MeetingGraphLaneConfig[] = [
   { id: 'context', label: 'Context', description: 'Session and object' },
-  { id: 'commands', label: 'Commands', description: 'User intent' },
+  { id: 'graph', label: 'Object Graph', description: 'Bounded relations' },
+  { id: 'commands', label: 'Commands', description: 'Issued instructions' },
   { id: 'runs', label: 'Runs', description: 'Tools and execution' },
   { id: 'outputs', label: 'Outputs', description: 'Responses' },
   { id: 'artifacts', label: 'Artifacts', description: 'Landed assets' },
@@ -218,6 +248,7 @@ const GRAPH_LANES: MeetingGraphLaneConfig[] = [
 const MIN_CANVAS_ZOOM = 0.7;
 const MAX_CANVAS_ZOOM = 1.6;
 const CANVAS_ZOOM_STEP = 0.1;
+const MIN_DISCRETE_WHEEL_ZOOM_DELTA = 80;
 const MENTION_TOKEN_PATTERN = /(^|[\s，,、:：])(@[A-Za-z_][A-Za-z0-9_:-]*)/g;
 
 type MeetingInfoPanel = 'object' | 'sessions';
@@ -238,6 +269,23 @@ function clampCanvasZoom(value: number): number {
   return Math.min(MAX_CANVAS_ZOOM, Math.max(MIN_CANVAS_ZOOM, Number(value.toFixed(2))));
 }
 
+function shouldZoomMeetingCanvasFromWheel(event: React.WheelEvent<HTMLElement>): boolean {
+  if (event.deltaY === 0 || Math.abs(event.deltaX) > 0) {
+    return false;
+  }
+
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('[data-meeting-node="true"], [data-meeting-lane-scroll="true"]')) {
+    return false;
+  }
+
+  if (event.deltaMode === 1 || event.deltaMode === 2) {
+    return true;
+  }
+
+  return Math.abs(event.deltaY) >= MIN_DISCRETE_WHEEL_ZOOM_DELTA && Number.isInteger(event.deltaY);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -247,15 +295,15 @@ function isMeetingNodeStatus(value: string): value is MeetingNodeStatus {
 }
 
 function isMeetingNodeKind(value: string): value is MeetingNodeKind {
-  return ['meeting', 'object', 'command', 'run', 'result', 'artifact', 'group', 'next'].includes(value);
+  return ['meeting', 'object', 'command', 'run', 'result', 'artifact', 'group', 'next', 'event'].includes(value);
 }
 
 function isMeetingLane(value: string): value is MeetingLane {
-  return ['context', 'commands', 'runs', 'outputs', 'artifacts', 'next'].includes(value);
+  return ['context', 'graph', 'commands', 'runs', 'outputs', 'artifacts', 'next'].includes(value);
 }
 
 function isInspectorTab(value: string): value is InspectorTab {
-  return ['object', 'runtime', 'session', 'trace', 'prompts', 'patch'].includes(value);
+  return ['object', 'runtime', 'session', 'trace', 'prompts', 'patch', 'graph'].includes(value);
 }
 
 function readString(value: unknown): string {
@@ -283,6 +331,7 @@ function coerceExecutionGraphNode(rawNode: unknown): MeetingNode | null {
 
   const defaultInspector = readString(rawNode.defaultInspector);
   const childCount = typeof rawNode.childCount === 'number' ? rawNode.childCount : undefined;
+  const metadata = isRecord(rawNode.metadata) ? rawNode.metadata : undefined;
   return {
     id,
     title,
@@ -295,6 +344,30 @@ function coerceExecutionGraphNode(rawNode: unknown): MeetingNode | null {
     childCount,
     defaultInspector: isInspectorTab(defaultInspector) ? defaultInspector : undefined,
     traceFilter: readString(rawNode.traceFilter) || undefined,
+    metadata,
+  };
+}
+
+function coerceExecutionGraphEdge(rawEdge: unknown): MeetingGraphEdge | null {
+  if (!isRecord(rawEdge)) {
+    return null;
+  }
+
+  const id = readString(rawEdge.id);
+  const fromId = readString(rawEdge.from_id);
+  const toId = readString(rawEdge.to_id);
+  const type = readString(rawEdge.type);
+  if (!id || !fromId || !toId || !type) {
+    return null;
+  }
+
+  return {
+    id,
+    from_id: fromId,
+    to_id: toId,
+    type,
+    label: readString(rawEdge.label) || null,
+    metadata: isRecord(rawEdge.metadata) ? rawEdge.metadata : undefined,
   };
 }
 
@@ -309,6 +382,79 @@ function mergeMeetingNodes(primaryNodes: MeetingNode[], secondaryNodes: MeetingN
     merged.push(node);
   });
   return merged;
+}
+
+function addressableRefKey(ref: AddressableObjectRef): string {
+  return [ref.uri, ref.owner_pack, ref.object_kind, ref.object_id].filter(Boolean).join('|');
+}
+
+function collectGraphProjectionRefs(
+  summary: AddressableObjectSummary | null,
+  attachResponse: ObjectMeetingAttachResponse | null,
+): AddressableObjectRef[] {
+  const refs: AddressableObjectRef[] = [];
+  const seen = new Set<string>();
+
+  function pushRef(ref: AddressableObjectRef | null | undefined) {
+    if (!ref?.owner_pack || !ref.object_kind || !ref.object_id) {
+      return;
+    }
+    const key = addressableRefKey(ref);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    refs.push(ref);
+  }
+
+  pushRef(summary?.ref);
+  attachResponse?.attachments.forEach((attachment) => pushRef(attachment.ref));
+  attachResponse?.staged_refs.forEach((ref) => pushRef(ref));
+  return refs;
+}
+
+function graphRefLabel(ref: AddressableObjectRef): string {
+  return [ref.owner_pack, ref.object_kind, ref.object_id].filter(Boolean).join(' / ') || ref.uri || 'object';
+}
+
+function buildObjectGraphNodes(
+  projections: ObjectGraphProjection[],
+  loading: boolean,
+  error: string | null,
+): MeetingNode[] {
+  const nodes: MeetingNode[] = projections.map((projection) => {
+    const relationCount = projection.relations?.length ?? 0;
+    const title = projection.summary?.title || graphRefLabel(projection.ref);
+    return {
+      id: `object-graph-${safeMentionId(addressableRefKey(projection.ref) || title)}`,
+      eyebrow: projection.node_kind || projection.ref.object_kind || 'Object',
+      title: truncateText(title, 72),
+      detail: `${relationCount} bounded relation${relationCount === 1 ? '' : 's'}`,
+      status: relationCount > 0 ? 'ready' : 'context',
+      kind: 'object',
+      lane: 'graph',
+      defaultInspector: 'graph',
+      childCount: relationCount || undefined,
+      output: JSON.stringify(projection, null, 2),
+    };
+  });
+
+  if (loading || error) {
+    nodes.push({
+      id: 'object-graph-state',
+      eyebrow: loading ? 'Object graph' : 'Object graph error',
+      title: loading ? 'Loading object graph' : 'Object graph unavailable',
+      detail: loading
+        ? 'Reading bounded owner-pack relation projections.'
+        : error || 'Failed to load object graph.',
+      status: loading ? 'running' : 'error',
+      kind: 'group',
+      lane: 'graph',
+      defaultInspector: 'graph',
+    });
+  }
+
+  return nodes;
 }
 
 function buildApiUrls(apiUrl: string, path: string): string[] {
@@ -622,6 +768,125 @@ function getEventTitle(event: MeetingEventSummary): string {
   );
 }
 
+function graphEventNodeId(eventId: string): string {
+  return `event-${safeMentionId(eventId)}`;
+}
+
+function meetingNodeImpactIds(node: MeetingNode): string[] {
+  const ids = new Set<string>([node.id]);
+  (node.eventIds || []).forEach((eventId) => ids.add(graphEventNodeId(eventId)));
+  if (node.kind === 'command' && node.id.startsWith('command-')) {
+    ids.add(`event-${node.id.slice('command-'.length)}`);
+  }
+  return Array.from(ids);
+}
+
+function meetingNodeMatchesImpact(node: MeetingNode, impactNodeIds: Set<string>): boolean {
+  return meetingNodeImpactIds(node).some((id) => impactNodeIds.has(id));
+}
+
+function collectCommandImpactNodeIds(commandNode: MeetingNode, edges: MeetingGraphEdge[]): Set<string> {
+  const impactNodeIds = new Set<string>(meetingNodeImpactIds(commandNode));
+  const pending = Array.from(impactNodeIds);
+  const outgoing = new Map<string, MeetingGraphEdge[]>();
+  edges.forEach((edge) => {
+    const current = outgoing.get(edge.from_id) || [];
+    current.push(edge);
+    outgoing.set(edge.from_id, current);
+  });
+
+  while (pending.length > 0) {
+    const nodeId = pending.shift();
+    if (!nodeId) {
+      continue;
+    }
+    (outgoing.get(nodeId) || []).forEach((edge) => {
+      if (!impactNodeIds.has(edge.to_id)) {
+        impactNodeIds.add(edge.to_id);
+        pending.push(edge.to_id);
+      }
+    });
+  }
+
+  return impactNodeIds;
+}
+
+function addTraceOrderFallbackImpact(
+  impactNodeIds: Set<string>,
+  commandNode: MeetingNode,
+  traceEvents: MeetingEventSummary[],
+): void {
+  const commandEventId = commandNode.eventIds?.[0];
+  if (!commandEventId || impactNodeIds.size > meetingNodeImpactIds(commandNode).length) {
+    return;
+  }
+
+  const startIndex = traceEvents.findIndex((event) => event.id === commandEventId);
+  if (startIndex < 0) {
+    return;
+  }
+
+  for (let index = startIndex; index < traceEvents.length; index += 1) {
+    const event = traceEvents[index];
+    if (index > startIndex && readString(event.actor).toLowerCase() === 'user') {
+      break;
+    }
+    impactNodeIds.add(graphEventNodeId(event.id));
+  }
+}
+
+function deriveCommandImpactStatus(relatedNodes: MeetingNode[], commandNode: MeetingNode): MeetingNodeStatus {
+  if (relatedNodes.some((node) => node.status === 'error' || node.status === 'blocked')) {
+    return 'error';
+  }
+  if (relatedNodes.some((node) => node.status === 'running')) {
+    return 'running';
+  }
+  if (relatedNodes.some((node) => node.lane === 'outputs' || node.lane === 'artifacts')) {
+    return 'ready';
+  }
+  return commandNode.status;
+}
+
+function buildCommandImpact(
+  commandNode: MeetingNode | null,
+  nodes: MeetingNode[],
+  edges: MeetingGraphEdge[],
+  traceEvents: MeetingEventSummary[],
+): MeetingCommandImpact | null {
+  if (!commandNode || commandNode.kind !== 'command') {
+    return null;
+  }
+
+  const impactNodeIds = collectCommandImpactNodeIds(commandNode, edges);
+  addTraceOrderFallbackImpact(impactNodeIds, commandNode, traceEvents);
+  const relatedNodes = nodes.filter((node) => meetingNodeMatchesImpact(node, impactNodeIds));
+  const relatedEvents = traceEvents.filter((event) => impactNodeIds.has(graphEventNodeId(event.id)));
+  const edgeIds = new Set(
+    edges
+      .filter((edge) => impactNodeIds.has(edge.from_id) && impactNodeIds.has(edge.to_id))
+      .map((edge) => edge.id),
+  );
+  const commandNodes = nodes.filter((node) => node.kind === 'command');
+  const commandIndex = Math.max(0, commandNodes.findIndex((node) => node.id === commandNode.id));
+  const commandText = commandNode.output || commandNode.title;
+
+  return {
+    commandNode,
+    commandText,
+    phase: commandIndex === 0 ? 'initial' : commandIndex === 1 ? 'inserted' : 'follow-up',
+    status: deriveCommandImpactStatus(relatedNodes, commandNode),
+    nodeIds: impactNodeIds,
+    edgeIds,
+    relatedNodes,
+    relatedEvents,
+    decisions: relatedEvents.filter((event) => getEventType(event).startsWith('decision_')),
+    actionItems: relatedEvents.filter((event) => getEventType(event) === 'action_item'),
+    outputs: relatedNodes.filter((node) => node.lane === 'outputs'),
+    artifacts: relatedNodes.filter((node) => node.lane === 'artifacts'),
+  };
+}
+
 function hasExecutableActionSignal(event: MeetingEventSummary): boolean {
   const payload = isRecord(event.payload) ? event.payload : {};
   const metadata = isRecord(event.metadata) ? event.metadata : {};
@@ -763,7 +1028,7 @@ function buildMeetingEventNode(event: MeetingEventSummary, mode: GraphViewMode =
     kind,
     lane,
     eventIds: [event.id],
-    defaultInspector: stage ? 'trace' : undefined,
+    defaultInspector: stage || kind === 'command' ? 'trace' : undefined,
     traceFilter: stage ? eventType : undefined,
     output,
   };
@@ -813,11 +1078,13 @@ function projectMeetingGraph({
   events,
   artifacts,
   localTasks,
+  objectGraphNodes,
   artifactsLoading,
   artifactsError,
   eventsLoading,
   eventsError,
   executionGraphNodes,
+  executionGraphEdges,
   executionGraphLoading,
   executionGraphError,
   mode,
@@ -829,11 +1096,13 @@ function projectMeetingGraph({
   events: MeetingEventSummary[];
   artifacts: MeetingArtifactSummary[];
   localTasks: MeetingNode[];
+  objectGraphNodes: MeetingNode[];
   artifactsLoading: boolean;
   artifactsError: string | null;
   eventsLoading: boolean;
   eventsError: string | null;
   executionGraphNodes: MeetingNode[];
+  executionGraphEdges: MeetingGraphEdge[];
   executionGraphLoading: boolean;
   executionGraphError: string | null;
   mode: GraphViewMode;
@@ -936,6 +1205,7 @@ function projectMeetingGraph({
       lane: 'context',
     },
     ...projectedEvents,
+    ...objectGraphNodes,
     ...groupNodes,
     ...artifactNodes,
     ...executionGraphNodes,
@@ -955,6 +1225,7 @@ function projectMeetingGraph({
 
   return {
     nodes,
+    edges: executionGraphEdges,
     traceEvents: events,
     eventCounts: {
       ...eventCounts,
@@ -1040,108 +1311,14 @@ function parseRawMentionToken(token: string): MeetingMentionReference | null {
     return value || null;
   };
 
-  const storyboardSceneId = rawIdFor('@storyboard_scene:');
-  if (storyboardSceneId) {
-    const parts = storyboardSceneId.split(':').filter(Boolean);
-    const sessionId = parts[0] || undefined;
-    const sceneId = parts[parts.length - 1] || storyboardSceneId;
+  const objectId = rawIdFor('@object:');
+  if (objectId) {
     return createMentionReference({
-      id: storyboardSceneId,
-      kind: 'scene',
-      token,
-      label: `Storyboard scene ${sceneId}`,
-      description: 'performance_direction storyboard scene',
-      uri: `mindscape://performance_direction/storyboard_scene/${storyboardSceneId}`,
-      ownerPack: 'performance_direction',
-      objectKind: 'storyboard_scene',
-      capabilityCode: 'performance_direction',
-      sessionId,
-      sceneId,
-      metadata: { source: 'raw_mention_token' },
-    });
-  }
-
-  const storyboardProposalId = rawIdFor('@storyboard_proposal:');
-  if (storyboardProposalId) {
-    const sessionId = storyboardProposalId.split(':').filter(Boolean)[0] || undefined;
-    return createMentionReference({
-      id: storyboardProposalId,
-      kind: 'storyboard',
-      token,
-      label: `Storyboard proposal ${shortId(storyboardProposalId)}`,
-      description: 'performance_direction storyboard proposal artifact',
-      uri: `mindscape://performance_direction/storyboard_proposal_artifact/${storyboardProposalId}`,
-      ownerPack: 'performance_direction',
-      objectKind: 'storyboard_proposal_artifact',
-      capabilityCode: 'performance_direction',
-      sessionId,
-      metadata: { source: 'raw_mention_token' },
-    });
-  }
-
-  const storyboardId = rawIdFor('@storyboard:');
-  if (storyboardId) {
-    return createMentionReference({
-      id: storyboardId,
-      kind: 'storyboard',
-      token,
-      label: `Storyboard ${shortId(storyboardId)}`,
-      description: 'performance_direction storyboard',
-      uri: `mindscape://performance_direction/storyboard/${storyboardId}`,
-      ownerPack: 'performance_direction',
-      objectKind: 'storyboard',
-      capabilityCode: 'performance_direction',
-      sessionId: storyboardId,
-      metadata: { source: 'raw_mention_token' },
-    });
-  }
-
-  const reelsAssetId = rawIdFor('@reels_asset:');
-  if (reelsAssetId) {
-    return createMentionReference({
-      id: reelsAssetId,
+      id: objectId,
       kind: 'object',
       token,
-      label: `Reels asset ${shortId(reelsAssetId)}`,
-      description: 'performance_direction generated reels asset',
-      uri: `mindscape://performance_direction/generated_reels_asset/${reelsAssetId}`,
-      ownerPack: 'performance_direction',
-      objectKind: 'generated_reels_asset',
-      capabilityCode: 'performance_direction',
-      metadata: { source: 'raw_mention_token' },
-    });
-  }
-
-  const characterCardId = rawIdFor('@character_card:');
-  if (characterCardId) {
-    return createMentionReference({
-      id: characterCardId,
-      kind: 'character',
-      token,
-      label: `Character card ${shortId(characterCardId)}`,
-      description: 'character_training character card',
-      uri: `mindscape://character_training/character_card/${characterCardId}`,
-      ownerPack: 'character_training',
-      objectKind: 'character_card',
-      capabilityCode: 'character_training',
-      characterCardId,
-      metadata: { source: 'raw_mention_token' },
-    });
-  }
-
-  const characterId = rawIdFor('@character:');
-  if (characterId) {
-    return createMentionReference({
-      id: characterId,
-      kind: 'character',
-      token,
-      label: `Character ${shortId(characterId)}`,
-      description: 'character_training package',
-      uri: `mindscape://character_training/character_package/${characterId}`,
-      ownerPack: 'character_training',
-      objectKind: 'character_package',
-      capabilityCode: 'character_training',
-      packageId: characterId,
+      label: `Object ${shortId(objectId)}`,
+      description: 'Unresolved object token',
       metadata: { source: 'raw_mention_token' },
     });
   }
@@ -1256,7 +1433,7 @@ function isStoryboardSceneReference(ref: MeetingMentionReference): boolean {
 }
 
 function isCharacterReference(ref: MeetingMentionReference): boolean {
-  return ref.kind === 'character' || ref.ownerPack === 'character_training';
+  return ref.kind === 'character' || Boolean(ref.objectKind?.startsWith('character'));
 }
 
 function roleForMentionReference(ref: MeetingMentionReference): MeetingObjectActionRole | null {
@@ -1304,7 +1481,7 @@ function buildObjectActionPlanEntries(
   return entries;
 }
 
-function mentionKindForObject(ownerPack: string, objectKind: string): MeetingMentionKind {
+function mentionKindForObject(_ownerPack: string, objectKind: string): MeetingMentionKind {
   if (objectKind === 'storyboard') {
     return 'storyboard';
   }
@@ -1314,7 +1491,7 @@ function mentionKindForObject(ownerPack: string, objectKind: string): MeetingMen
   if (objectKind.startsWith('storyboard')) {
     return 'storyboard';
   }
-  if (ownerPack === 'character_training') {
+  if (objectKind.startsWith('character')) {
     return 'character';
   }
   return 'object';
@@ -1377,7 +1554,7 @@ function buildRegistryMentionItems(rawItems: unknown): MeetingMentionItem[] {
           capabilityCode: ownerPack,
           sessionId,
           sceneId,
-          packageId: ownerPack === 'character_training' && objectKind !== 'character_card' ? objectId : undefined,
+          packageId: objectKind === 'character_package' ? objectId : undefined,
           characterCardId: objectKind === 'character_card' ? objectId : undefined,
           metadata,
         }),
@@ -1805,6 +1982,7 @@ function MeetingTaskCanvas({
   onZoomOut,
   onResetView,
   onWheelZoom,
+  commandImpact,
 }: {
   nodes: MeetingNode[];
   selectedNodeId: string;
@@ -1814,6 +1992,7 @@ function MeetingTaskCanvas({
   onZoomOut: () => void;
   onResetView: () => void;
   onWheelZoom: (deltaY: number) => void;
+  commandImpact: MeetingCommandImpact | null;
 }) {
   const viewportRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<{
@@ -1834,6 +2013,18 @@ function MeetingTaskCanvas({
       grouped.set(node.lane, laneNodes);
     });
     return grouped;
+  }, [nodes]);
+  const commandDisplay = useMemo(() => {
+    const display = new Map<string, { sequence: number; phase: MeetingCommandImpact['phase'] }>();
+    nodes
+      .filter((node) => node.kind === 'command')
+      .forEach((node, index) => {
+        display.set(node.id, {
+          sequence: index + 1,
+          phase: index === 0 ? 'initial' : index === 1 ? 'inserted' : 'follow-up',
+        });
+      });
+    return display;
   }, [nodes]);
 
   return (
@@ -1884,7 +2075,7 @@ function MeetingTaskCanvas({
         }
       }}
       onWheel={(event) => {
-        if (event.deltaY === 0) {
+        if (!shouldZoomMeetingCanvasFromWheel(event)) {
           return;
         }
         event.preventDefault();
@@ -1942,7 +2133,7 @@ function MeetingTaskCanvas({
 
       <div className="absolute left-3 top-3 z-10 hidden items-center gap-1 rounded-md bg-white/80 px-2 py-1 text-[11px] text-slate-500 shadow-sm dark:bg-slate-950/80 dark:text-slate-400 md:flex">
         <MousePointer2 className="h-3.5 w-3.5" aria-hidden="true" />
-        Drag to pan / wheel zoom
+        Drag background to pan / mouse wheel zoom
       </div>
 
       <div className="flex min-h-full items-start justify-center pt-16">
@@ -1955,7 +2146,7 @@ function MeetingTaskCanvas({
           data-testid="meeting-graph-canvas-content"
         >
           <div
-            className="grid grid-cols-[repeat(6,minmax(11rem,15rem))] items-start gap-3"
+            className="grid grid-cols-[repeat(7,minmax(11rem,15rem))] items-start gap-3"
             data-testid="meeting-graph-lanes"
           >
             {GRAPH_LANES.map((lane) => {
@@ -1980,10 +2171,15 @@ function MeetingTaskCanvas({
                       {laneNodes.length}
                     </span>
                   </div>
-                  <div className="max-h-72 space-y-2 overflow-auto pr-1">
+                  <div className="max-h-72 space-y-2 overflow-auto pr-1" data-meeting-lane-scroll="true">
                     {laneNodes.length > 0 ? (
                       laneNodes.map((node) => {
                         const isSelected = node.id === selectedNodeId;
+                        const isImpactRelated = commandImpact
+                          ? meetingNodeMatchesImpact(node, commandImpact.nodeIds)
+                          : false;
+                        const isImpactMuted = Boolean(commandImpact) && !isImpactRelated;
+                        const commandMeta = commandDisplay.get(node.id);
                         return (
                           <button
                             key={node.id}
@@ -1992,21 +2188,42 @@ function MeetingTaskCanvas({
                             className={`w-full rounded-md border p-2.5 text-left transition-colors ${statusClass(
                               node.status,
                               isSelected,
-                            )}`}
+                            )} ${
+                              isImpactRelated && !isSelected
+                                ? 'ring-2 ring-blue-200 dark:ring-blue-800'
+                                : ''
+                            } ${
+                              isImpactMuted
+                                ? 'opacity-35'
+                                : ''
+                            }`}
                             data-testid={`meeting-graph-node-${node.id}`}
                             data-meeting-node="true"
+                            data-impact-state={commandImpact ? (isImpactRelated ? 'related' : 'muted') : 'none'}
                             aria-pressed={isSelected}
                           >
-                            <div className="flex items-center gap-2">
-                              <GitBranch className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            <div className="flex items-start gap-2">
+                              <GitBranch className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                               <span className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">
                                 {node.eyebrow}
                               </span>
-                              {node.childCount ? (
-                                <span className="ml-auto rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums opacity-80 dark:bg-slate-950/70">
-                                  {node.childCount}
-                                </span>
-                              ) : null}
+                              <div className="ml-auto flex max-w-[8.5rem] flex-wrap justify-end gap-1">
+                                {commandMeta ? (
+                                  <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-200">
+                                    #{commandMeta.sequence} {commandMeta.phase}
+                                  </span>
+                                ) : null}
+                                {node.childCount ? (
+                                  <span className="rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums opacity-80 dark:bg-slate-950/70">
+                                    {node.childCount}
+                                  </span>
+                                ) : null}
+                                {isImpactRelated && !isSelected ? (
+                                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-700 dark:bg-blue-950/60 dark:text-blue-200">
+                                    Impact
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
                             <div className="mt-2 truncate text-sm font-semibold">{node.title}</div>
                             <div className="mt-1 max-h-10 overflow-hidden text-xs leading-5 opacity-75">
@@ -2047,6 +2264,7 @@ function MeetingCommandBar({
   mentionItems,
   mentionItemsLoading,
   mentionItemsError,
+  onApplyMention,
 }: {
   command: string;
   onCommandChange: (value: string) => void;
@@ -2063,6 +2281,7 @@ function MeetingCommandBar({
   mentionItems: MeetingMentionItem[];
   mentionItemsLoading: boolean;
   mentionItemsError: string | null;
+  onApplyMention: (item: MeetingMentionItem) => void;
 }) {
   const selectedPackTool = packTools.find((tool) => tool.id === selectedPackToolId) ?? null;
   const mentionQuery = getMentionQuery(command);
@@ -2084,6 +2303,7 @@ function MeetingCommandBar({
 
   const applyMention = (item: MeetingMentionItem) => {
     onCommandChange(applyMentionToken(command, item.token));
+    onApplyMention(item);
     if (item.packToolId) {
       onSelectedPackToolChange(item.packToolId);
     }
@@ -2261,6 +2481,10 @@ function MeetingInspectorPanel({
   meetingId,
   summary,
   attachResponse,
+  objectGraphProjections,
+  objectGraphLoading,
+  objectGraphError,
+  commandImpact,
   traceEvents,
   eventCounts,
   activeTraceFilter,
@@ -2275,6 +2499,10 @@ function MeetingInspectorPanel({
   meetingId: string;
   summary: AddressableObjectSummary | null;
   attachResponse: ObjectMeetingAttachResponse | null;
+  objectGraphProjections: ObjectGraphProjection[];
+  objectGraphLoading: boolean;
+  objectGraphError: string | null;
+  commandImpact: MeetingCommandImpact | null;
   traceEvents: MeetingEventSummary[];
   eventCounts: Record<string, number>;
   activeTraceFilter: string | null;
@@ -2451,6 +2679,54 @@ function MeetingInspectorPanel({
 
         {activeInspector === 'trace' ? (
           <div className="space-y-3" data-testid="meeting-trace-panel">
+            {commandImpact ? (
+              <div className="rounded-md border border-blue-200 bg-blue-50/70 p-2 text-xs dark:border-blue-900 dark:bg-blue-950/20" data-testid="meeting-command-impact-panel">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold text-blue-950 dark:text-blue-100">Command impact</div>
+                  <span className="rounded bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-700 dark:bg-blue-950/70 dark:text-blue-200">
+                    {commandImpact.phase}
+                  </span>
+                </div>
+                <div className="mt-2 rounded bg-white/80 p-2 font-medium leading-5 text-slate-900 dark:bg-slate-950/70 dark:text-slate-100">
+                  {commandImpact.commandText}
+                </div>
+                <dl className="mt-2 grid grid-cols-2 gap-1.5 text-[11px] text-slate-600 dark:text-slate-300">
+                  <div className="rounded bg-white/70 px-2 py-1 dark:bg-slate-950/50">
+                    <dt className="font-semibold uppercase tracking-[0.12em] text-slate-500">Status</dt>
+                    <dd className="mt-0.5">{commandImpact.status}</dd>
+                  </div>
+                  <div className="rounded bg-white/70 px-2 py-1 dark:bg-slate-950/50">
+                    <dt className="font-semibold uppercase tracking-[0.12em] text-slate-500">Edges</dt>
+                    <dd className="mt-0.5">{commandImpact.edgeIds.size}</dd>
+                  </div>
+                  <div className="rounded bg-white/70 px-2 py-1 dark:bg-slate-950/50">
+                    <dt className="font-semibold uppercase tracking-[0.12em] text-slate-500">Decisions</dt>
+                    <dd className="mt-0.5">{commandImpact.decisions.length}</dd>
+                  </div>
+                  <div className="rounded bg-white/70 px-2 py-1 dark:bg-slate-950/50">
+                    <dt className="font-semibold uppercase tracking-[0.12em] text-slate-500">Actions</dt>
+                    <dd className="mt-0.5">{commandImpact.actionItems.length}</dd>
+                  </div>
+                  <div className="rounded bg-white/70 px-2 py-1 dark:bg-slate-950/50">
+                    <dt className="font-semibold uppercase tracking-[0.12em] text-slate-500">Outputs</dt>
+                    <dd className="mt-0.5">{commandImpact.outputs.length}</dd>
+                  </div>
+                  <div className="rounded bg-white/70 px-2 py-1 dark:bg-slate-950/50">
+                    <dt className="font-semibold uppercase tracking-[0.12em] text-slate-500">Artifacts</dt>
+                    <dd className="mt-0.5">{commandImpact.artifacts.length}</dd>
+                  </div>
+                </dl>
+                <div className="mt-2 max-h-28 space-y-1 overflow-auto">
+                  {commandImpact.relatedNodes.slice(0, 8).map((node) => (
+                    <div key={node.id} className="rounded bg-white/70 px-2 py-1 text-[11px] dark:bg-slate-950/50">
+                      <span className="font-semibold">{node.eyebrow}</span>
+                      <span className="mx-1 text-slate-400">/</span>
+                      <span>{node.title}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="rounded-md border border-slate-200 p-2 text-xs dark:border-slate-800">
               <div className="flex items-center justify-between gap-2">
                 <div className="font-semibold text-slate-900 dark:text-slate-100">Raw replay events</div>
@@ -2527,6 +2803,65 @@ function MeetingInspectorPanel({
             >
               {selectedTraceEvent ? JSON.stringify(selectedTraceEvent, null, 2) : 'No event selected.'}
             </pre>
+          </div>
+        ) : null}
+
+        {activeInspector === 'graph' ? (
+          <div className="space-y-3" data-testid="meeting-object-graph-panel">
+            <div className="rounded-md border border-slate-200 p-2 text-xs dark:border-slate-800">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-semibold text-slate-900 dark:text-slate-100">Bounded object graph</div>
+                <div className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold tabular-nums text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                  {objectGraphProjections.length}
+                </div>
+              </div>
+              {objectGraphLoading ? (
+                <div className="mt-2 text-slate-500 dark:text-slate-400">Loading bounded relation projections...</div>
+              ) : null}
+              {objectGraphError ? (
+                <div className="mt-2 rounded bg-amber-50 px-2 py-1.5 text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">
+                  {objectGraphError}
+                </div>
+              ) : null}
+            </div>
+            <div className="max-h-56 space-y-2 overflow-auto">
+              {objectGraphProjections.map((projection) => (
+                <div
+                  key={addressableRefKey(projection.ref)}
+                  className="rounded-md border border-slate-200 p-2 text-xs dark:border-slate-800"
+                >
+                  <div className="font-semibold text-slate-900 dark:text-slate-100">
+                    {projection.summary?.title || graphRefLabel(projection.ref)}
+                  </div>
+                  <div className="mt-1 truncate font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                    {projection.ref.uri || graphRefLabel(projection.ref)}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(projection.relations || []).slice(0, 6).map((relation, index) => (
+                      <span
+                        key={`${relation.relation_kind}-${index}`}
+                        className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600 dark:bg-slate-900 dark:text-slate-300"
+                      >
+                        {relation.direction} {relation.relation_kind}
+                      </span>
+                    ))}
+                    {(projection.relations || []).length === 0 ? (
+                      <span className="text-slate-400 dark:text-slate-500">No bounded relations</span>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+              {objectGraphProjections.length === 0 && !objectGraphLoading ? (
+                <div className="rounded-md border border-dashed border-slate-200 px-2 py-3 text-xs text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                  No graph projection available for the selected objects.
+                </div>
+              ) : null}
+            </div>
+            {selectedNode?.lane === 'graph' && selectedNode.output ? (
+              <pre className="max-h-44 overflow-auto rounded-md bg-slate-100 p-2 text-[11px] leading-5 text-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                {selectedNode.output}
+              </pre>
+            ) : null}
           </div>
         ) : null}
 
@@ -2644,6 +2979,7 @@ export function AOLMeetingBottomShell({
   const [packToolsLoading, setPackToolsLoading] = useState(false);
   const [packToolsError, setPackToolsError] = useState<string | null>(null);
   const [registryMentionItems, setRegistryMentionItems] = useState<MeetingMentionItem[]>([]);
+  const [appliedMentionItems, setAppliedMentionItems] = useState<MeetingMentionItem[]>([]);
   const [registryMentionItemsLoading, setRegistryMentionItemsLoading] = useState(false);
   const [registryMentionItemsError, setRegistryMentionItemsError] = useState<string | null>(null);
   const [activeMeetingId, setActiveMeetingId] = useState(meetingId ?? '');
@@ -2654,8 +2990,12 @@ export function AOLMeetingBottomShell({
   const [meetingEventsLoading, setMeetingEventsLoading] = useState(false);
   const [meetingEventsError, setMeetingEventsError] = useState<string | null>(null);
   const [executionGraphNodes, setExecutionGraphNodes] = useState<MeetingNode[]>([]);
+  const [executionGraphEdges, setExecutionGraphEdges] = useState<MeetingGraphEdge[]>([]);
   const [executionGraphLoading, setExecutionGraphLoading] = useState(false);
   const [executionGraphError, setExecutionGraphError] = useState<string | null>(null);
+  const [objectGraphProjections, setObjectGraphProjections] = useState<ObjectGraphProjection[]>([]);
+  const [objectGraphLoading, setObjectGraphLoading] = useState(false);
+  const [objectGraphError, setObjectGraphError] = useState<string | null>(null);
   const [meetingArtifacts, setMeetingArtifacts] = useState<MeetingArtifactSummary[]>([]);
   const [meetingArtifactsLoading, setMeetingArtifactsLoading] = useState(false);
   const [meetingArtifactsError, setMeetingArtifactsError] = useState<string | null>(null);
@@ -2722,10 +3062,12 @@ export function AOLMeetingBottomShell({
     setMeetingEvents([]);
     setMeetingEventsError(null);
     setExecutionGraphNodes([]);
+    setExecutionGraphEdges([]);
     setExecutionGraphError(null);
     setMeetingArtifacts([]);
     setMeetingArtifactsError(null);
     setActiveTraceFilter(null);
+    setAppliedMentionItems([]);
   }, [activeMeetingId]);
 
   useEffect(() => {
@@ -2734,6 +3076,7 @@ export function AOLMeetingBottomShell({
     async function fetchExecutionGraph() {
       if (!activeMeetingId) {
         setExecutionGraphNodes([]);
+        setExecutionGraphEdges([]);
         return;
       }
 
@@ -2755,13 +3098,19 @@ export function AOLMeetingBottomShell({
         const nodes = rawNodes
           .map(coerceExecutionGraphNode)
           .filter((node): node is MeetingNode => Boolean(node));
+        const rawEdges = Array.isArray(data.edges) ? data.edges : [];
+        const edges = rawEdges
+          .map(coerceExecutionGraphEdge)
+          .filter((edge): edge is MeetingGraphEdge => Boolean(edge));
 
         if (!cancelled) {
           setExecutionGraphNodes(nodes);
+          setExecutionGraphEdges(edges);
         }
       } catch (error) {
         if (!cancelled) {
           setExecutionGraphNodes([]);
+          setExecutionGraphEdges([]);
           setExecutionGraphError(error instanceof Error ? error.message : 'Failed to load execution graph.');
         }
       } finally {
@@ -2937,6 +3286,66 @@ export function AOLMeetingBottomShell({
   const objectTitle = effectiveSummary?.title || effectiveSelection?.label || 'Selected object';
   const objectKind = formatKind(effectiveSummary?.ref.object_kind || effectiveSelection?.objectKind);
   const hasObjectContext = Boolean(effectiveSummary || effectiveSelection || effectiveAttachResponse);
+  const objectGraphRefs = useMemo(
+    () => collectGraphProjectionRefs(effectiveSummary, effectiveAttachResponse),
+    [effectiveAttachResponse, effectiveSummary],
+  );
+  const objectGraphRefKey = useMemo(
+    () => objectGraphRefs.map(addressableRefKey).join('\n'),
+    [objectGraphRefs],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchObjectGraph() {
+      if (!workspaceId || objectGraphRefs.length === 0) {
+        setObjectGraphProjections([]);
+        setObjectGraphError(null);
+        setObjectGraphLoading(false);
+        return;
+      }
+
+      setObjectGraphLoading(true);
+      setObjectGraphError(null);
+
+      try {
+        const response = await projectAddressableObjectGraph({
+          apiUrl,
+          workspaceId,
+          objects: objectGraphRefs,
+          includeRelations: true,
+          includeSummaries: true,
+        });
+
+        if (!cancelled) {
+          setObjectGraphProjections(response.projections || []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setObjectGraphProjections([]);
+          setObjectGraphError(error instanceof Error ? error.message : 'Failed to load object graph.');
+        }
+      } finally {
+        if (!cancelled) {
+          setObjectGraphLoading(false);
+        }
+      }
+    }
+
+    void fetchObjectGraph();
+
+    function handleWorkspaceUpdate() {
+      void fetchObjectGraph();
+    }
+
+    window.addEventListener('workspace-task-updated', handleWorkspaceUpdate);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('workspace-task-updated', handleWorkspaceUpdate);
+    };
+  }, [apiUrl, objectGraphRefKey, objectGraphRefs, workspaceId]);
 
   useEffect(() => {
     if (!workspaceId) {
@@ -3181,6 +3590,11 @@ export function AOLMeetingBottomShell({
     };
   }, [activeInspector, apiUrl, workspaceId]);
 
+  const objectGraphNodes = useMemo(
+    () => buildObjectGraphNodes(objectGraphProjections, objectGraphLoading, objectGraphError),
+    [objectGraphError, objectGraphLoading, objectGraphProjections],
+  );
+
   const graphProjection = useMemo(
     () => projectMeetingGraph({
       activeMeetingId,
@@ -3190,11 +3604,13 @@ export function AOLMeetingBottomShell({
       events: meetingEvents,
       artifacts: meetingArtifacts,
       localTasks,
+      objectGraphNodes,
       artifactsLoading: meetingArtifactsLoading,
       artifactsError: meetingArtifactsError,
       eventsLoading: meetingEventsLoading,
       eventsError: meetingEventsError,
       executionGraphNodes,
+      executionGraphEdges,
       executionGraphLoading,
       executionGraphError,
       mode: graphViewMode,
@@ -3202,6 +3618,7 @@ export function AOLMeetingBottomShell({
     [
       activeMeetingId,
       effectiveSummary?.summary_text,
+      executionGraphEdges,
       executionGraphError,
       executionGraphLoading,
       executionGraphNodes,
@@ -3213,12 +3630,17 @@ export function AOLMeetingBottomShell({
       meetingEvents,
       meetingEventsError,
       meetingEventsLoading,
+      objectGraphNodes,
       objectKind,
       objectTitle,
     ],
   );
   const nodes = graphProjection.nodes;
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? nodes[0] ?? null;
+  const selectedCommandImpact = useMemo(
+    () => buildCommandImpact(selectedNode, nodes, graphProjection.edges, graphProjection.traceEvents),
+    [graphProjection.edges, graphProjection.traceEvents, nodes, selectedNode],
+  );
   const mentionItems = useMemo<MeetingMentionItem[]>(() => {
     const items: MeetingMentionItem[] = [];
 
@@ -3272,6 +3694,10 @@ export function AOLMeetingBottomShell({
         }),
       });
     }
+
+    appliedMentionItems.forEach((item) => {
+      items.push(item);
+    });
 
     registryMentionItems.forEach((item) => {
       items.push(item);
@@ -3333,6 +3759,7 @@ export function AOLMeetingBottomShell({
     });
   }, [
     activeMeetingId,
+    appliedMentionItems,
     effectiveSummary?.ref.object_id,
     effectiveSummary?.ref.object_kind,
     effectiveSummary?.ref.owner_pack,
@@ -3357,6 +3784,18 @@ export function AOLMeetingBottomShell({
     handleCanvasZoom(delta);
   }
 
+  function handleApplyMention(item: MeetingMentionItem) {
+    if (!item.ref && !item.packToolId) {
+      return;
+    }
+
+    setAppliedMentionItems((current) => {
+      const next = current.filter((candidate) => candidate.token !== item.token);
+      next.push(item);
+      return next.slice(-24);
+    });
+  }
+
   function handleToggleInspector(tab: InspectorTab) {
     setActiveInspector((current) => (current === tab ? null : tab));
   }
@@ -3373,6 +3812,10 @@ export function AOLMeetingBottomShell({
     setSelectedNodeId(nodeId);
     if (node?.traceFilter) {
       setActiveTraceFilter(node.traceFilter);
+    }
+    if (node?.kind === 'command') {
+      setActiveInspector('trace');
+      return;
     }
     if (node?.defaultInspector) {
       setActiveInspector(node.defaultInspector);
@@ -3669,6 +4112,7 @@ export function AOLMeetingBottomShell({
               setSelectedNodeId('ready');
             }}
             onWheelZoom={handleCanvasWheelZoom}
+            commandImpact={selectedCommandImpact}
           />
         </div>
         {isConsoleOpen ? (
@@ -3697,6 +4141,7 @@ export function AOLMeetingBottomShell({
           mentionItems={mentionItems}
           mentionItemsLoading={packToolsLoading || registryMentionItemsLoading}
           mentionItemsError={registryMentionItemsError}
+          onApplyMention={handleApplyMention}
         />
         {dispatchError ? (
           <div className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
@@ -3716,6 +4161,10 @@ export function AOLMeetingBottomShell({
           meetingId={activeMeetingId}
           summary={effectiveSummary}
           attachResponse={effectiveAttachResponse}
+          objectGraphProjections={objectGraphProjections}
+          objectGraphLoading={objectGraphLoading}
+          objectGraphError={objectGraphError}
+          commandImpact={selectedCommandImpact}
           traceEvents={graphProjection.traceEvents}
           eventCounts={graphProjection.eventCounts}
           activeTraceFilter={activeTraceFilter}

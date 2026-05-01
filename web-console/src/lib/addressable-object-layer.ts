@@ -9,6 +9,7 @@ export type AddressableObjectHostMode =
   | 'idle'
   | 'selecting'
   | 'resolving'
+  | 'disambiguating'
   | 'selected'
   | 'attaching'
   | 'meeting_opened'
@@ -81,15 +82,17 @@ export interface ResolvedAddressableObject {
   actions: AddressableObjectAction[];
 }
 
+export interface AddressableSelectionCandidate {
+  ref: AddressableObjectRef;
+  summary?: AddressableObjectSummary | null;
+}
+
 export interface SelectionResolveResponse {
   workspace_id: string;
   selection_id: string;
   status: 'resolved' | 'ambiguous' | 'unresolved';
   resolved_objects: ResolvedAddressableObject[];
-  candidate_objects: Array<{
-    ref: AddressableObjectRef;
-    summary?: AddressableObjectSummary | null;
-  }>;
+  candidate_objects: AddressableSelectionCandidate[];
   errors: AddressableRuntimeError[];
 }
 
@@ -105,6 +108,27 @@ export interface ObjectMeetingAttachResponse {
   target_ref?: AddressableObjectRef | null;
   staged_refs: AddressableObjectRef[];
   review_routes: string[];
+  errors: AddressableRuntimeError[];
+}
+
+export interface ObjectGraphRelation {
+  relation_kind: string;
+  direction: 'outbound' | 'inbound' | 'bidirectional';
+  target_ref: AddressableObjectRef;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ObjectGraphProjection {
+  ref: AddressableObjectRef;
+  summary?: AddressableObjectSummary | null;
+  node_kind?: string | null;
+  relations: ObjectGraphRelation[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ObjectGraphProjectResponse {
+  workspace_id: string;
+  projections: ObjectGraphProjection[];
   errors: AddressableRuntimeError[];
 }
 
@@ -125,6 +149,14 @@ interface AttachAddressableObjectParams {
   meetingType?: string;
   writeMode?: 'proposal_only' | 'staged' | 'recommendation_only';
   intentSummary?: string;
+}
+
+interface ProjectAddressableObjectGraphParams {
+  apiUrl: string;
+  workspaceId: string;
+  objects: AddressableObjectRef[];
+  includeRelations?: boolean;
+  includeSummaries?: boolean;
 }
 
 function createRuntimeId(prefix: string): string {
@@ -227,6 +259,29 @@ export async function attachAddressableObjectToMeeting({
   );
 
   return parseJsonOrThrow<ObjectMeetingAttachResponse>(response);
+}
+
+export async function projectAddressableObjectGraph({
+  apiUrl,
+  workspaceId,
+  objects,
+  includeRelations = true,
+  includeSummaries = true,
+}: ProjectAddressableObjectGraphParams): Promise<ObjectGraphProjectResponse> {
+  const response = await fetch(
+    `${apiUrl}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/object-graph/project`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        objects,
+        include_relations: includeRelations,
+        include_summaries: includeSummaries,
+      }),
+    },
+  );
+
+  return parseJsonOrThrow<ObjectGraphProjectResponse>(response);
 }
 
 export function buildCanonicalMeetingRoute(workspaceId: string, meetingId: string): string {

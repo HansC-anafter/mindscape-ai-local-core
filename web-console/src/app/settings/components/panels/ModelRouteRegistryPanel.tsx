@@ -47,6 +47,27 @@ interface RuntimeGroup {
   slots: ModelRouteSlot[];
 }
 
+interface RoutingPolicyItem {
+  key: string;
+  label: string;
+  summary: string;
+  active: boolean;
+}
+
+interface RoutingPolicyPayload {
+  route_authority: string;
+  precedence: RoutingPolicyItem[];
+  workspace_override: {
+    enabled: boolean;
+    summary: string;
+  };
+  fallback_policy: {
+    allowed: boolean;
+    mode: string;
+    summary: string;
+  };
+}
+
 interface ModelRouteRegistryPayload {
   summary: {
     total_slot_count: number;
@@ -62,6 +83,8 @@ interface ModelRouteRegistryPayload {
   pack_groups: PackGroup[];
   pack_coverage: PackCoverageEntry[];
   registered_runtimes: RuntimeGroup[];
+  policy?: RoutingPolicyPayload;
+  executor_policy?: RoutingPolicyPayload;
 }
 
 interface ReconcileResult {
@@ -270,6 +293,128 @@ export function ModelRouteRegistryPanel() {
           </div>
         </div>
       </Card>
+
+      {payload.policy && (
+        <Card>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-semibold text-primary dark:text-gray-100">
+                Routing Policy
+              </h3>
+              <SlotChip tone={payload.policy.fallback_policy.allowed ? 'danger' : 'success'}>
+                fallback {payload.policy.fallback_policy.allowed ? 'allowed' : 'disallowed'}
+              </SlotChip>
+            </div>
+
+            <div className="rounded-xl border border-default p-4 dark:border-gray-700">
+              <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">
+                Authority
+              </div>
+              <div className="mt-1 text-sm font-medium text-primary dark:text-gray-100">
+                {payload.policy.route_authority}
+              </div>
+              <div className="mt-3 text-xs uppercase tracking-wide text-secondary dark:text-gray-400">
+                Workspace override
+              </div>
+              <div className="mt-1 text-sm text-secondary dark:text-gray-300">
+                {payload.policy.workspace_override.summary}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-default p-4 dark:border-gray-700">
+              <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">
+                Precedence
+              </div>
+              <div className="mt-3 space-y-3">
+                {payload.policy.precedence.map((item) => (
+                  <div key={item.key} className="rounded-lg bg-surface-secondary px-3 py-3 dark:bg-gray-800">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-medium text-primary dark:text-gray-100">{item.label}</div>
+                      <SlotChip tone={item.active ? 'success' : 'neutral'}>
+                        {item.active ? 'active' : 'inactive'}
+                      </SlotChip>
+                    </div>
+                    <div className="mt-1 text-sm text-secondary dark:text-gray-400">{item.summary}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-default p-4 dark:border-gray-700">
+              <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">
+                Fallback
+              </div>
+              <div className="mt-1 text-sm font-medium text-primary dark:text-gray-100">
+                {payload.policy.fallback_policy.mode}
+              </div>
+              <div className="mt-2 text-sm text-secondary dark:text-gray-400">
+                {payload.policy.fallback_policy.summary}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {payload.executor_policy && (
+        <Card>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-semibold text-primary dark:text-gray-100">
+                Executor Runtime Policy
+              </h3>
+              <SlotChip tone={payload.executor_policy.fallback_policy.allowed ? 'danger' : 'success'}>
+                runtime substitution {payload.executor_policy.fallback_policy.allowed ? 'allowed' : 'disallowed'}
+              </SlotChip>
+            </div>
+
+            <div className="rounded-xl border border-default p-4 dark:border-gray-700">
+              <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">
+                Authority
+              </div>
+              <div className="mt-1 text-sm font-medium text-primary dark:text-gray-100">
+                {payload.executor_policy.route_authority}
+              </div>
+              <div className="mt-3 text-xs uppercase tracking-wide text-secondary dark:text-gray-400">
+                Workspace override
+              </div>
+              <div className="mt-1 text-sm text-secondary dark:text-gray-300">
+                {payload.executor_policy.workspace_override.summary}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-default p-4 dark:border-gray-700">
+              <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">
+                Precedence
+              </div>
+              <div className="mt-3 space-y-3">
+                {payload.executor_policy.precedence.map((item) => (
+                  <div key={item.key} className="rounded-lg bg-surface-secondary px-3 py-3 dark:bg-gray-800">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-medium text-primary dark:text-gray-100">{item.label}</div>
+                      <SlotChip tone={item.active ? 'success' : 'neutral'}>
+                        {item.active ? 'active' : 'inactive'}
+                      </SlotChip>
+                    </div>
+                    <div className="mt-1 text-sm text-secondary dark:text-gray-400">{item.summary}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-default p-4 dark:border-gray-700">
+              <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">
+                Runtime substitution
+              </div>
+              <div className="mt-1 text-sm font-medium text-primary dark:text-gray-100">
+                {payload.executor_policy.fallback_policy.mode}
+              </div>
+              <div className="mt-2 text-sm text-secondary dark:text-gray-400">
+                {payload.executor_policy.fallback_policy.summary}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card>
         <div className="space-y-4">

@@ -3,6 +3,7 @@
 import React from 'react';
 import { WorkspaceDataProvider } from '@/contexts/WorkspaceDataContext';
 import { ExecutionContextProvider } from '@/contexts/ExecutionContextContext';
+import { AddressableObjectHostProvider } from '@/components/capabilities/AddressableObjectHostShell';
 import Header from '../../../components/Header';
 import UpdateBanner from '../../../components/sync/UpdateBanner';
 import BrandNavigation from '../../../components/brand/BrandNavigation';
@@ -31,12 +32,14 @@ export default function WorkspaceLayout({
         <div className="flex flex-col h-screen">
           <Header />
           <UpdateBanner clientVersion="1.0.0" />
-          <div className="flex flex-1 overflow-hidden">
-            <BrandNavigation workspaceId={workspaceId} />
-            <main className="flex-1 overflow-hidden">
-              {children}
-            </main>
-          </div>
+          <AddressableObjectHostProvider workspaceId={workspaceId}>
+            <div className="relative flex flex-1 overflow-hidden">
+              <BrandNavigation workspaceId={workspaceId} />
+              <main className="flex-1 overflow-hidden pr-10">
+                {children}
+              </main>
+            </div>
+          </AddressableObjectHostProvider>
         </div>
       </ExecutionContextProvider>
     </WorkspaceDataProvider>

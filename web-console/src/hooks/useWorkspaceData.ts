@@ -53,17 +53,27 @@ export function useWorkspaceData(
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
-      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`, {
-        signal: controller.signal,
-      });
+      const [response, executorRouteResponse] = await Promise.all([
+        fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`, {
+          signal: controller.signal,
+        }),
+        fetch(
+          `${apiUrl}/api/v1/settings/model-route-registry/workspace-executor?workspace_id=${encodeURIComponent(workspaceId)}`,
+          {
+            signal: controller.signal,
+          }
+        ).catch(() => null),
+      ]);
       clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();
         setWorkspaceTitle(data.title || data.name || '');
-        // Load executor_runtime if exists
-        if (data.executor_runtime !== undefined) {
-          setExecutorRuntime(data.executor_runtime);
+        if (executorRouteResponse && executorRouteResponse.ok) {
+          const routeData = await executorRouteResponse.json();
+          setExecutorRuntime(
+            routeData.primary_executor_runtime || routeData.resolved_executor_runtime || null
+          );
         }
         onWorkspaceLoaded?.(data);
       }
@@ -159,4 +169,3 @@ export function useWorkspaceData(
     loadContextTokenCount,
   };
 }
-

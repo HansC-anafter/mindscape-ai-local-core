@@ -1,5 +1,4 @@
-import PerformanceDirectionStoryboardEditorPage from '@/app/capabilities/performance_direction/components/PerformanceDirectionStoryboardEditorPage';
-
+import PerformanceDirectionWorkbenchHost from '../../PerformanceDirectionWorkbenchHost';
 import { buildPerformanceDirectionSessionBasePath } from '../../routePaths';
 
 type PerformanceDirectionSessionPageProps = {
@@ -16,16 +15,11 @@ export default function PerformanceDirectionSessionPage({
   const sessionId = String(params.sessionId || '').trim();
 
   return (
-    <div
-      className="h-full overflow-y-auto overflow-x-hidden bg-white dark:bg-gray-950"
-      data-testid="capability-mainpage-scroll-shell"
-    >
-      <PerformanceDirectionStoryboardEditorPage
-        workspaceId={workspaceId}
-        routeMode="workbench"
-        routeSessionId={sessionId}
-        sessionRouteBasePath={buildPerformanceDirectionSessionBasePath(workspaceId)}
-      />
-    </div>
+    <PerformanceDirectionWorkbenchHost
+      workspaceId={workspaceId}
+      routeMode="workbench"
+      routeSessionId={sessionId}
+      sessionRouteBasePath={buildPerformanceDirectionSessionBasePath(workspaceId)}
+    />
   );
 }

@@ -1,27 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { t } from '@/lib/i18n';
 import { useUIState } from '@/contexts/UIStateContext';
 import { useWorkspaceRefs } from '@/contexts/WorkspaceRefsContext';
 import { useFileHandling } from '@/hooks/useFileHandling';
 import { FilePreviewGrid } from './FilePreviewGrid';
 import { InputBottomBar } from './InputBottomBar';
-import { useWorkspaceMetadata } from '@/contexts/WorkspaceMetadataContext';
 import { useMessages } from '@/contexts/MessagesContext';
-import { useChatModel } from '@/hooks/useChatModel';
-import { useExecutorSpecs, ExecutorSpec } from '@/hooks/useExecutorSpecs';
 import IntentChips from '../../app/workspaces/components/IntentChips';
-import { useToast } from '@/components/Toast';
-
-interface AgentInfo {
-  id: string;
-  name: string;
-  description: string;
-  status: string;
-  version: string;
-  risk_level: string;
-}
+import { WorkspaceChatRuntimeControls } from './WorkspaceChatRuntimeControls';
 
 interface InputAreaProps {
   workspaceId: string;
@@ -31,6 +19,7 @@ interface InputAreaProps {
   onCopyAll?: () => void;
   isLoading: boolean;
   canSend: boolean;
+  layoutVariant?: 'default' | 'meeting_pane';
   onFilesChanged?: (files: any[], analyzingFiles: Set<string>, analyzeFile: (file: any) => Promise<any>, clearFiles: () => void) => void;
 }
 
@@ -53,107 +42,12 @@ export function InputArea({
   onCopyAll,
   isLoading,
   canSend,
+  layoutVariant = 'default',
   onFilesChanged,
 }: InputAreaProps) {
   const { input, setInput, llmConfigured, duplicateFileToast, copiedAll } = useUIState();
-  const { showToast, ToastComponent } = useToast();
   const { textareaRef, fileInputRef } = useWorkspaceRefs();
-  const {
-    currentChatModel,
-    availableChatModels,
-    contextTokenCount,
-    executorRuntime,
-    setExecutorRuntime,
-  } = useWorkspaceMetadata();
   const { messages } = useMessages();
-  const { selectModel } = useChatModel(apiUrl, { workspaceId });
-  const { specs, resolvedRuntime, addSpec, setPrimary, removeSpec } = useExecutorSpecs(workspaceId, apiUrl);
-
-  // Fetch available agents from API
-  const [availableAgents, setAvailableAgents] = useState<AgentInfo[]>([]);
-
-  useEffect(() => {
-    const fetchAgents = async () => {
-      try {
-        // Use workspace-scoped endpoint for accurate per-workspace status
-        const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/agents`);
-        if (response.ok) {
-          const data = await response.json();
-          setAvailableAgents(data.agents || []);
-        }
-      } catch (err) {
-        console.error('[InputArea] Failed to fetch agents:', err);
-      }
-    };
-    fetchAgents();
-    // Poll every 30s to detect agent connection changes
-    const interval = setInterval(fetchAgents, 30_000);
-    return () => clearInterval(interval);
-  }, [apiUrl, workspaceId]);
-
-  const handleAgentChange = async (agentId: string | null) => {
-    const previousAgent = executorRuntime;
-    // Optimistic update
-    setExecutorRuntime(agentId);
-
-    const agentDisplayName = agentId
-      ? availableAgents.find(a => a.id === agentId)?.name || agentId
-      : 'Mindscape LLM';
-
-    try {
-      let success = false;
-      if (agentId) {
-        // Check if already bound
-        const alreadyBound = specs.some((s: ExecutorSpec) => s.runtime_id === agentId);
-        if (alreadyBound) {
-          success = await setPrimary(agentId);
-        } else {
-          success = await addSpec({
-            runtime_id: agentId,
-            display_name: agentDisplayName,
-            is_primary: true,
-            priority: 0,
-          });
-        }
-      } else {
-        // Clear: POST to legacy endpoint for backward compat
-        const response = await fetch(
-          `${apiUrl}/api/v1/workspaces/${workspaceId}/executor-runtime`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ agent_id: null }),
-          }
-        );
-        success = response.ok;
-      }
-
-      if (!success) {
-        setExecutorRuntime(previousAgent);
-        showToast({
-          type: 'error',
-          message: `Failed to switch executor to ${agentDisplayName}`,
-          duration: 3000,
-        });
-      } else {
-        showToast({
-          type: 'success',
-          message: agentId
-            ? `Executor switched to ${agentDisplayName}`
-            : 'Switched back to Mindscape LLM',
-          duration: 3000,
-        });
-      }
-    } catch (err) {
-      console.error('[InputArea] Error setting executor:', err);
-      setExecutorRuntime(previousAgent);
-      showToast({
-        type: 'error',
-        message: 'Failed to switch executor: network error',
-        duration: 3000,
-      });
-    }
-  };
 
   const fileHandling = useFileHandling(workspaceId, apiUrl, {
     onFileAnalyzed,
@@ -183,20 +77,9 @@ export function InputArea({
       onSend(e as any);
     }
   };
-
-  const handleModelChange = async (modelName: string, provider: string) => {
-    try {
-      const response = await fetch(
-        `${apiUrl}/api/v1/system-settings/llm-models/chat?model_name=${encodeURIComponent(modelName)}&provider=${encodeURIComponent(provider)}`,
-        { method: 'PUT', headers: { 'Content-Type': 'application/json' } }
-      );
-      if (response.ok) {
-        selectModel(modelName);
-      }
-    } catch (err) {
-      console.error('Failed to update chat model:', err);
-    }
-  };
+  const isMeetingPaneLayout = layoutVariant === 'meeting_pane';
+  const resolvedApiUrl =
+    apiUrl || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':8220') : '');
 
   return (
     <form
@@ -277,30 +160,33 @@ export function InputArea({
           />
         </div>
 
-        <IntentChips
-          workspaceId={workspaceId}
-          apiUrl={apiUrl || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':8220') : 'http://localhost:8220')}
-        />
+        {!isMeetingPaneLayout ? (
+          <IntentChips
+            workspaceId={workspaceId}
+            apiUrl={resolvedApiUrl || 'http://localhost:8220'}
+          />
+        ) : null}
 
         <InputBottomBar
           messagesCount={messages.length}
           copiedAll={copiedAll}
           onCopyAll={onCopyAll || (() => { })}
-          currentChatModel={currentChatModel}
-          availableChatModels={availableChatModels}
-          contextTokenCount={contextTokenCount}
-          onModelChange={handleModelChange}
+          leadingContent={
+            !isMeetingPaneLayout ? (
+              <WorkspaceChatRuntimeControls
+                workspaceId={workspaceId}
+                apiUrl={resolvedApiUrl}
+                layout="inline"
+              />
+            ) : null
+          }
           onFileUpload={() => fileInputRef.current?.click()}
           onSend={() => onSend({ preventDefault: () => { } } as React.FormEvent)}
           isLoading={isLoading}
           canSend={canSend}
           llmConfigured={llmConfigured}
-          availableAgents={availableAgents}
-          currentAgent={executorRuntime}
-          onAgentChange={handleAgentChange}
         />
       </div>
-      <ToastComponent />
     </form>
   );
 }

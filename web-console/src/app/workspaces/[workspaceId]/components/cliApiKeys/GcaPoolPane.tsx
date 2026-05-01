@@ -58,12 +58,12 @@ export function GcaPoolPane({
       {workspaceId && (
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 space-y-2">
           <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Workspace GCA policy</p>
-          <p className="text-xs text-blue-600 dark:text-blue-400">
-            By default, this workspace uses the enabled GCA pool with automatic rotation. Only pick a specific
-            account if you want to pin this workspace to one runtime for debugging or cost isolation. Discoverable
-            workspaces without their own override can fall back to the initiating or dispatch workspace, with trace
-            metadata recorded per task.
-          </p>
+        <p className="text-xs text-blue-600 dark:text-blue-400">
+            This workspace resolves Gemini CLI runtime through model-routing-registry. Pick a specific
+            account only if you want to pin `gemini_cli` to one concrete runtime for debugging or cost isolation.
+            Runtime substitution is disabled by default, so an unavailable preferred runtime fails closed instead
+            of borrowing another workspace or pool route.
+        </p>
           <div className="flex items-center gap-2 flex-wrap">
             <select
               value={boundGcaRuntimeId}
@@ -76,10 +76,10 @@ export function GcaPoolPane({
                   onBoundGcaRuntimeIdChange(previousValue);
                 }
               }}
-              disabled={!executorRuntimeId || savingBinding}
+              disabled={savingBinding}
               className="min-w-[220px] px-2 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             >
-              <option value="">Use enabled pool rotation</option>
+              <option value="">No surface pin (fail-closed)</option>
               {poolAccounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   Pin to {account.email || account.id} ({account.id})
@@ -87,11 +87,11 @@ export function GcaPoolPane({
               ))}
             </select>
             <span className="text-[11px] text-gray-500 dark:text-gray-400">
-              Executor: {executorRuntimeId || 'not bound'}
+              Primary executor: {executorRuntimeId || 'not pinned'}
               {workspaceGcaStatus?.policy_mode === 'pinned_runtime'
                 ? ` · saved: pinned ${workspaceGcaStatus.preferred_runtime_id || 'unknown'}`
                 : workspaceGcaStatus
-                  ? ' · saved: rotation enabled'
+                  ? ' · saved: no surface pin'
                   : ''}
             </span>
             {savingBinding && (
@@ -118,7 +118,7 @@ export function GcaPoolPane({
                 Policy:{' '}
                 {workspaceGcaStatus.policy_mode === 'pinned_runtime'
                   ? `Pinned to ${workspaceGcaStatus.preferred_runtime_id || 'unknown'}`
-                  : 'Enabled pool rotation'}
+                  : 'No surface pin (fail-closed)'}
               </div>
               <div>
                 Selected now:{' '}
@@ -211,7 +211,7 @@ export function GcaPoolPane({
                     : account.last_error_code === '429'
                       ? 'Previous 429 cleared; backend cooldown is inactive.'
                       : account.auth_status === 'connected'
-                        ? 'Available now for pool rotation.'
+                        ? 'Available now, but no runtime substitution is allowed without a bound runtime.'
                         : 'Authenticate this account before it can join the pool.'}
                 </div>
               </div>

@@ -11,12 +11,25 @@ export interface PoolAccount {
   last_error_code: string | null;
 }
 
-export interface ExecutorSpec {
-  runtime_id: string;
-  display_name: string;
-  is_primary: boolean;
-  config?: Record<string, any>;
-  priority: number;
+export interface WorkspaceExecutorSurfaceState {
+  surface: string;
+  enabled: boolean;
+  preferred_runtime_id: string | null;
+  source: string;
+}
+
+export interface WorkspaceExecutorPolicyPayload {
+  workspace_id: string;
+  route_authority: string;
+  primary_executor_runtime: string | null;
+  resolved_executor_runtime?: string | null;
+  allow_runtime_substitution: boolean;
+  dispatch_chain: string[];
+  surfaces: Record<string, WorkspaceExecutorSurfaceState>;
+  workspace_override: {
+    enabled: boolean;
+    summary: string;
+  };
 }
 
 export interface WorkspaceGcaStatus {
@@ -26,7 +39,7 @@ export interface WorkspaceGcaStatus {
   source_workspace_id: string | null;
   selection_reason: string;
   selection_trace: Array<Record<string, any>>;
-  policy_mode: 'pinned_runtime' | 'pool_rotation';
+  policy_mode: 'pinned_runtime' | 'unbound_runtime';
   preferred_runtime_id: string | null;
   resolved_runtime_id: string | null;
   resolved_email: string | null;

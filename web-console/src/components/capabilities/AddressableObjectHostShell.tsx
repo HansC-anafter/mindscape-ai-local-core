@@ -19,6 +19,7 @@ import {
   type AddressableObjectRole,
   type AddressableObjectSummary,
   type AddressableRuntimeError,
+  type AddressableSelectionCandidate,
   type AddressableSelectionTarget,
   type ObjectMeetingAttachResponse,
   type ResolvedAddressableObject,
@@ -41,7 +42,9 @@ interface AOLPanelState {
   mode: AddressableObjectHostMode;
   activeSurface: AddressableObjectSurfaceContext | null;
   selection: AddressableSelectionTarget | null;
+  contextRole: AddressableObjectRole;
   resolvedObject: ResolvedAddressableObject | null;
+  candidateObjects: AddressableSelectionCandidate[];
   warnings: AddressableRuntimeError[];
   attachResponse: ObjectMeetingAttachResponse | null;
   currentMeetingId: string | null;
@@ -77,7 +80,9 @@ const IDLE_PANEL_STATE: AOLPanelState = {
   mode: 'idle',
   activeSurface: null,
   selection: null,
+  contextRole: 'source',
   resolvedObject: null,
+  candidateObjects: [],
   warnings: [],
   attachResponse: null,
   currentMeetingId: null,
@@ -90,11 +95,15 @@ export function buildCapabilitySurfaceId(capabilityCode: string, componentCode: 
   return `capability_page:${capabilityCode}:${componentCode}`;
 }
 
-function buildSelectingState(activeSurface: AddressableObjectSurfaceContext | null): AOLPanelState {
+function buildSelectingState(
+  activeSurface: AddressableObjectSurfaceContext | null,
+  contextRole: AddressableObjectRole = 'source',
+): AOLPanelState {
   return {
     ...IDLE_PANEL_STATE,
     mode: 'selecting',
     activeSurface,
+    contextRole,
   };
 }
 
@@ -111,6 +120,11 @@ function buildStatusCopy(state: AOLPanelState): { title: string; description: st
       return {
         title: state.selection?.label || 'Resolving object',
         description: 'Resolving object context through the shared Local-Core runtime...',
+      };
+    case 'disambiguating':
+      return {
+        title: state.selection?.label || 'Choose object',
+        description: 'Resolve this selection to one object before opening the meeting.',
       };
     case 'selected':
       return {
@@ -172,6 +186,38 @@ const MEETING_PANE_DEFAULT_HEIGHT = 360;
 const MEETING_PANE_MIN_HEIGHT = 240;
 const MEETING_PANE_MAX_HEIGHT_RATIO = 0.72;
 type MeetingPaneSizePreset = 'compact' | 'default' | 'expanded';
+
+const ADDRESSABLE_OBJECT_ROLE_OPTIONS: Array<{
+  role: AddressableObjectRole;
+  label: string;
+  title: string;
+}> = [
+  {
+    role: 'target',
+    label: 'Target',
+    title: 'Primary object this meeting may change or review',
+  },
+  {
+    role: 'source',
+    label: 'Source',
+    title: 'Reference or input object for this meeting',
+  },
+  {
+    role: 'baseline',
+    label: 'Base',
+    title: 'Current state used for comparison',
+  },
+  {
+    role: 'constraint',
+    label: 'Rule',
+    title: 'Constraint, policy, budget, or boundary',
+  },
+  {
+    role: 'evidence',
+    label: 'Proof',
+    title: 'Evidence, preview, or prior decision',
+  },
+];
 
 function clampMeetingPaneHeight(nextHeight: number, rootHeight: number): number {
   const safeRootHeight = Number.isFinite(rootHeight) && rootHeight > 0 ? rootHeight : MEETING_PANE_DEFAULT_HEIGHT;
@@ -576,6 +622,111 @@ function AddressableObjectMeetingPane({
   );
 }
 
+function getCandidateTitle(candidate: AddressableSelectionCandidate): string {
+  return candidate.summary?.title || candidate.ref.object_id || candidate.ref.uri;
+}
+
+function getCandidateSubtitle(candidate: AddressableSelectionCandidate): string {
+  const parts = [
+    candidate.ref.owner_pack,
+    candidate.ref.object_kind,
+    candidate.summary?.subtitle || null,
+  ].filter(Boolean);
+  return parts.join(' / ');
+}
+
+function AddressableObjectRoleSegmentedControl({
+  value,
+  onChange,
+  disabled = false,
+}: {
+  value: AddressableObjectRole;
+  onChange: (role: AddressableObjectRole) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="space-y-1.5" data-testid="aol-role-control">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-gray-400">
+        Context role
+      </div>
+      <div
+        className="grid grid-cols-5 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 p-0.5 dark:border-gray-700 dark:bg-gray-800"
+        role="radiogroup"
+        aria-label="Object context role"
+      >
+        {ADDRESSABLE_OBJECT_ROLE_OPTIONS.map((option) => {
+          const isActive = option.role === value;
+          return (
+            <button
+              key={option.role}
+              type="button"
+              role="radio"
+              aria-checked={isActive}
+              disabled={disabled}
+              title={option.title}
+              data-testid={`aol-role-option-${option.role}`}
+              onClick={() => onChange(option.role)}
+              className={`h-8 min-w-0 truncate rounded-md px-1.5 text-[11px] font-medium transition-colors ${
+                isActive
+                  ? 'bg-white text-blue-700 shadow-sm dark:bg-gray-950 dark:text-blue-300'
+                  : 'text-gray-600 hover:bg-white/70 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-900/70 dark:hover:text-gray-100'
+              } disabled:cursor-not-allowed disabled:opacity-60`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AddressableCandidatePicker({
+  candidates,
+  onSelectCandidate,
+}: {
+  candidates: AddressableSelectionCandidate[];
+  onSelectCandidate: (candidate: AddressableSelectionCandidate) => void;
+}) {
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2" data-testid="aol-candidate-picker">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-gray-400">
+        Candidate objects
+      </div>
+      <div className="space-y-1.5">
+        {candidates.map((candidate) => {
+          const title = getCandidateTitle(candidate);
+          return (
+            <button
+              key={candidate.ref.uri}
+              type="button"
+              onClick={() => onSelectCandidate(candidate)}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-left transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
+              data-testid={`aol-candidate-${candidate.ref.object_id}`}
+            >
+              <div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+                {title}
+              </div>
+              <div className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
+                {getCandidateSubtitle(candidate)}
+              </div>
+              {candidate.summary?.summary_text ? (
+                <div className="mt-1 max-h-10 overflow-hidden text-xs leading-5 text-gray-600 dark:text-gray-300">
+                  {candidate.summary.summary_text}
+                </div>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function AddressableObjectPanel({
   state,
   onRequestObjectTargeting,
@@ -583,6 +734,8 @@ function AddressableObjectPanel({
   onClearCurrentObject,
   onAttachCurrentObject,
   onOpenCurrentMeeting,
+  onRoleChange,
+  onSelectCandidate,
 }: {
   state: AOLPanelState;
   onRequestObjectTargeting: () => void;
@@ -590,6 +743,8 @@ function AddressableObjectPanel({
   onClearCurrentObject: () => void;
   onAttachCurrentObject: () => void;
   onOpenCurrentMeeting: () => void;
+  onRoleChange: (role: AddressableObjectRole) => void;
+  onSelectCandidate: (candidate: AddressableSelectionCandidate) => void;
 }) {
   if (state.mode === 'idle') {
     return null;
@@ -656,6 +811,19 @@ function AddressableObjectPanel({
             <div className="mt-1 truncate">Source surface: {state.selection.sourceSurface || state.activeSurface?.surfaceId || 'unknown'}</div>
           </div>
         ) : null}
+
+        {state.mode !== 'resolving' && state.mode !== 'attaching' ? (
+          <AddressableObjectRoleSegmentedControl
+            value={state.contextRole}
+            onChange={onRoleChange}
+            disabled={Boolean(state.currentMeetingId)}
+          />
+        ) : null}
+
+        <AddressableCandidatePicker
+          candidates={state.candidateObjects}
+          onSelectCandidate={onSelectCandidate}
+        />
 
         {summary?.labels?.length ? (
           <div className="flex flex-wrap gap-1">
@@ -948,7 +1116,7 @@ function AddressableObjectHostProviderInner({
 
   const requestObjectTargeting = useCallback(() => {
     invalidateInflightRequests();
-    setPanelState((current) => buildSelectingState(current.activeSurface));
+    setPanelState((current) => buildSelectingState(current.activeSurface, current.contextRole));
   }, [invalidateInflightRequests]);
 
   const cancelObjectTargeting = useCallback(() => {
@@ -956,6 +1124,7 @@ function AddressableObjectHostProviderInner({
     setPanelState((current) => ({
       ...IDLE_PANEL_STATE,
       activeSurface: current.activeSurface,
+      contextRole: current.contextRole,
     }));
   }, [invalidateInflightRequests]);
 
@@ -964,6 +1133,7 @@ function AddressableObjectHostProviderInner({
     setPanelState((current) => ({
       ...IDLE_PANEL_STATE,
       activeSurface: current.activeSurface,
+      contextRole: current.contextRole,
     }));
   }, [invalidateInflightRequests]);
 
@@ -1044,11 +1214,18 @@ function AddressableObjectHostProviderInner({
   const captureSelection = useCallback(
     async (surface: AddressableObjectSurfaceContext, selection: AddressableSelectionTarget) => {
       const requestEpoch = invalidateInflightRequests();
+      const contextRole = selection.role ?? panelState.contextRole ?? 'source';
+      const roleSelection = {
+        ...selection,
+        role: contextRole,
+      };
       setPanelState({
         mode: 'resolving',
         activeSurface: surface,
-        selection,
+        selection: roleSelection,
+        contextRole,
         resolvedObject: null,
+        candidateObjects: [],
         warnings: [],
         attachResponse: null,
         currentMeetingId: null,
@@ -1062,10 +1239,26 @@ function AddressableObjectHostProviderInner({
           capabilityCode: surface.capabilityCode,
           route: surface.route,
           surfaceId: surface.surfaceId,
-          selection,
+          selection: roleSelection,
         });
 
         if (requestEpoch !== requestEpochRef.current) {
+          return;
+        }
+
+        if (response.status === 'ambiguous' && response.candidate_objects.length > 0) {
+          setPanelState({
+            mode: 'disambiguating',
+            activeSurface: surface,
+            selection: roleSelection,
+            contextRole,
+            resolvedObject: null,
+            candidateObjects: response.candidate_objects,
+            warnings: response.errors,
+            attachResponse: null,
+            currentMeetingId: null,
+            error: null,
+          });
           return;
         }
 
@@ -1073,15 +1266,17 @@ function AddressableObjectHostProviderInner({
           setPanelState({
             mode: 'error',
             activeSurface: surface,
-            selection,
+            selection: roleSelection,
+            contextRole,
             resolvedObject: null,
+            candidateObjects: response.candidate_objects,
             warnings: response.errors,
             attachResponse: null,
             currentMeetingId: null,
             error:
               response.errors[0]?.message ||
               (response.candidate_objects.length > 1
-                ? 'Selection resolved to multiple candidates. Disambiguation UI is not implemented yet.'
+                ? 'Selection resolved to multiple candidates.'
                 : 'Selection did not resolve to an addressable object.'),
           });
           return;
@@ -1090,8 +1285,10 @@ function AddressableObjectHostProviderInner({
         setPanelState({
           mode: 'selected',
           activeSurface: surface,
-          selection,
+          selection: roleSelection,
+          contextRole,
           resolvedObject: response.resolved_objects[0],
+          candidateObjects: [],
           warnings: response.errors,
           attachResponse: null,
           currentMeetingId: null,
@@ -1105,8 +1302,10 @@ function AddressableObjectHostProviderInner({
         setPanelState({
           mode: 'error',
           activeSurface: surface,
-          selection,
+          selection: roleSelection,
+          contextRole,
           resolvedObject: null,
+          candidateObjects: [],
           warnings: [],
           attachResponse: null,
           currentMeetingId: null,
@@ -1117,7 +1316,49 @@ function AddressableObjectHostProviderInner({
         });
       }
     },
-    [invalidateInflightRequests],
+    [invalidateInflightRequests, panelState.contextRole],
+  );
+
+  const changeContextRole = useCallback((role: AddressableObjectRole) => {
+    setPanelState((current) => ({
+      ...current,
+      contextRole: role,
+      selection: current.selection
+        ? {
+            ...current.selection,
+            role,
+          }
+        : current.selection,
+    }));
+  }, []);
+
+  const selectCandidateObject = useCallback(
+    (candidate: AddressableSelectionCandidate) => {
+      const surface = panelState.activeSurface;
+      if (!surface) {
+        return;
+      }
+
+      void captureSelection(surface, {
+        ownerPack: candidate.ref.owner_pack,
+        objectKind: candidate.ref.object_kind,
+        objectId: candidate.ref.object_id,
+        version: candidate.ref.version ?? undefined,
+        selector: candidate.ref.selector ?? undefined,
+        sourceSurface:
+          candidate.ref.source_surface ??
+          panelState.selection?.sourceSurface ??
+          surface.surfaceId,
+        label: candidate.summary?.title ?? candidate.ref.object_id,
+        role: panelState.contextRole,
+      });
+    },
+    [
+      captureSelection,
+      panelState.activeSurface,
+      panelState.contextRole,
+      panelState.selection?.sourceSurface,
+    ],
   );
 
   const attachCurrentObject = useCallback(async () => {
@@ -1140,7 +1381,7 @@ function AddressableObjectHostProviderInner({
         apiUrl: stateSnapshot.activeSurface.apiUrl,
         workspaceId: stateSnapshot.activeSurface.workspaceId,
         resolvedObject: stateSnapshot.resolvedObject,
-        role: (stateSnapshot.selection?.role ?? 'source') as AddressableObjectRole,
+        role: stateSnapshot.contextRole,
       });
 
       if (requestEpoch !== requestEpochRef.current) {
@@ -1250,6 +1491,8 @@ function AddressableObjectHostProviderInner({
                   onClearCurrentObject={clearCurrentObject}
                   onAttachCurrentObject={attachCurrentObject}
                   onOpenCurrentMeeting={openCurrentMeeting}
+                  onRoleChange={changeContextRole}
+                  onSelectCandidate={selectCandidateObject}
                 />
               </div>
             )}

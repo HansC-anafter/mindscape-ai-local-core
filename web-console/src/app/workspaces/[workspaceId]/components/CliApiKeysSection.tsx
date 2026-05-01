@@ -12,10 +12,10 @@ import {
     AgentMode,
     AgentTab,
     CliAgent,
-    ExecutorSpec,
     PoolAccount,
     WorkspaceAgentInfo,
     WorkspaceAgentListResponse,
+    WorkspaceExecutorPolicyPayload,
     WorkspaceGcaStatus,
 } from './cliApiKeys/types';
 
@@ -139,20 +139,16 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
         if (!workspaceId) return;
         try {
             const base = getApiBaseUrl();
-            const resp = await fetch(`${base}/api/v1/workspaces/${workspaceId}/executor-specs`);
+            const resp = await fetch(
+                `${base}/api/v1/settings/model-route-registry/workspace-executor?workspace_id=${encodeURIComponent(workspaceId)}`
+            );
             if (!resp.ok) return;
-            const data: {
-                resolved_executor_runtime?: string;
-                executor_specs?: ExecutorSpec[];
-            } = await resp.json();
-            const specs = data.executor_specs || [];
-            const targetRuntimeId = data.resolved_executor_runtime
-                || specs.find((spec) => spec.is_primary)?.runtime_id
+            const data: WorkspaceExecutorPolicyPayload = await resp.json();
+            const targetRuntimeId = data.primary_executor_runtime
+                || data.resolved_executor_runtime
                 || null;
             setExecutorRuntimeId(targetRuntimeId);
-            const targetSpec = specs.find((spec) => spec.runtime_id === targetRuntimeId);
-            const preferred = targetSpec?.config?.preferred_gca_runtime_id
-                || targetSpec?.config?.gca_runtime_id
+            const preferred = data.surfaces?.gemini_cli?.preferred_runtime_id
                 || '';
             setBoundGcaRuntimeId(preferred);
         } catch {
@@ -421,8 +417,8 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
     };
 
     const handleSaveWorkspaceBinding = useCallback(async (nextRuntimeId: string) => {
-        if (!workspaceId || !executorRuntimeId) {
-            setError('No executor runtime is bound to this workspace.');
+        if (!workspaceId) {
+            setError('Workspace context is required.');
             return false;
         }
 
@@ -432,15 +428,14 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
         try {
             const base = getApiBaseUrl();
             const resp = await fetch(
-                `${base}/api/v1/workspaces/${workspaceId}/executor-specs/${executorRuntimeId}/config`,
+                `${base}/api/v1/settings/model-route-registry/workspace-executor/preferred-runtime`,
                 {
-                    method: 'PATCH',
+                    method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        merge: true,
-                        config: {
-                            preferred_gca_runtime_id: nextRuntimeId || null,
-                        },
+                        workspace_id: workspaceId,
+                        surface: 'gemini_cli',
+                        preferred_runtime_id: nextRuntimeId || null,
                     }),
                 }
             );
@@ -459,7 +454,7 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
         } finally {
             setSavingBinding(false);
         }
-    }, [executorRuntimeId, loadWorkspaceBinding, loadWorkspaceGcaStatus, workspaceId]);
+    }, [loadWorkspaceBinding, loadWorkspaceGcaStatus, workspaceId]);
 
     const handleAgentAuthAction = useCallback(async (
         agentId: Extract<AgentTab, 'codex'>,

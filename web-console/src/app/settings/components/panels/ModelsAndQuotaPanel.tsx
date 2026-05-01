@@ -81,11 +81,10 @@ export function ModelsAndQuotaPanel() {
   const loadProfileBindings = useCallback(async () => {
     try {
       const data = await settingsApi.get<{
-        profile_model_map: Record<string, string>;
         profile_model_bindings?: Partial<Record<DeploymentScope, Record<string, string>>>;
       }>('/api/v1/system-settings/capability-profiles');
       setProfileBindings({
-        local: data.profile_model_bindings?.local || data.profile_model_map || {},
+        local: data.profile_model_bindings?.local || {},
         cloud: data.profile_model_bindings?.cloud || {},
       });
     } catch { /* silent — routing tab will show defaults */ }

@@ -2,26 +2,18 @@
 
 import React from 'react';
 import { t } from '@/lib/i18n';
-import { ChatModel } from '@/contexts/WorkspaceMetadataContext';
 
 interface InputBottomBarProps {
   messagesCount: number;
   copiedAll: boolean;
   onCopyAll: () => void;
-  currentChatModel: string;
-  availableChatModels: ChatModel[];
-
-  contextTokenCount: number | null;
-  onModelChange: (modelName: string, provider: string) => Promise<void>;
+  leadingContent?: React.ReactNode;
+  showCopyAll?: boolean;
   onFileUpload: () => void;
   onSend: () => void;
   isLoading: boolean;
   canSend: boolean;
   llmConfigured: boolean | null;
-  // External Agent support - unified across all workspaces
-  availableAgents?: Array<{ id: string; name: string; status: string }>;
-  currentAgent?: string | null;  // null = use Mindscape LLM
-  onAgentChange?: (agentId: string | null) => void;
 }
 
 /**
@@ -48,25 +40,19 @@ export function InputBottomBar({
   messagesCount,
   copiedAll,
   onCopyAll,
-  currentChatModel,
-  availableChatModels,
-  contextTokenCount,
-  onModelChange,
+  leadingContent,
+  showCopyAll = true,
   onFileUpload,
   onSend,
   isLoading,
   canSend,
   llmConfigured,
-  availableAgents = [],
-  currentAgent = null,
-  onAgentChange,
 }: InputBottomBarProps) {
   return (
     <div className="flex items-center justify-between px-4 pb-3 pt-2 border-t border-gray-200/30 dark:border-gray-700/30">
-      {/* Left: Copy all button and Model selector */}
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         {/* Copy all messages button */}
-        {messagesCount > 0 && (
+        {showCopyAll && messagesCount > 0 && (
           <button
             onClick={onCopyAll}
             className={`text-xs px-2 py-1 border rounded transition-colors ${copiedAll
@@ -92,68 +78,7 @@ export function InputBottomBar({
             )}
           </button>
         )}
-        <select
-          value={currentChatModel || ''}
-          onChange={async (e) => {
-            const selectedModel = e.target.value;
-            const model = availableChatModels.find(m => m.model_name === selectedModel);
-            if (model) {
-              await onModelChange(model.model_name, model.provider);
-            }
-          }}
-          className="text-xs px-2 py-1 border border-default dark:border-gray-600 rounded bg-surface-secondary dark:bg-gray-800 text-primary dark:text-gray-300 hover:bg-surface-accent dark:hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-accent dark:focus:ring-blue-400"
-          title={t('workspaceSelectChatModel')}
-        >
-          {availableChatModels.length > 0 ? (
-            availableChatModels.map((model) => (
-              <option key={model.model_name} value={model.model_name}>
-                {model.model_name}
-              </option>
-            ))
-          ) : (
-            <option value="">{'No models available'}</option>
-          )}
-        </select>
-
-        {/* Agent Selector - only show if agents are available */}
-        {availableAgents.length > 0 && onAgentChange && (
-          <select
-            value={currentAgent || ''}
-            onChange={(e) => {
-              const selectedAgent = e.target.value || null;
-              onAgentChange(selectedAgent);
-            }}
-            className={`text-xs px-2 py-1 border rounded focus:outline-none focus:ring-1 focus:ring-accent dark:focus:ring-blue-400 ${currentAgent
-              ? 'border-purple-400 dark:border-purple-500 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
-              : 'border-default dark:border-gray-600 bg-surface-secondary dark:bg-gray-800 text-primary dark:text-gray-300 hover:bg-surface-accent dark:hover:bg-gray-700'
-              }`}
-            title={t('workspaceSelectAgent') || 'Select Agent'}
-          >
-            <option value="">🧠 Mindscape LLM</option>
-            {availableAgents.map((agent) => (
-              <option
-                key={agent.id}
-                value={agent.id}
-                disabled={agent.status !== 'available'}
-              >
-                🤖 {agent.name} {agent.status !== 'available' && '(unavailable)'}
-              </option>
-            ))}
-          </select>
-        )}
-
-        {currentChatModel && (
-          <>
-            <span className="text-xs text-gray-500 dark:text-gray-300">✓ {currentChatModel}</span>
-            {contextTokenCount !== null && (
-              <span className="text-xs text-gray-400 dark:text-gray-400" title="Context tokens">
-                {contextTokenCount >= 1000
-                  ? `${(contextTokenCount / 1000).toFixed(1)}k`
-                  : contextTokenCount.toLocaleString()} tokens
-              </span>
-            )}
-          </>
-        )}
+        {leadingContent}
       </div>
 
       {/* Right: Action buttons */}
@@ -186,4 +111,3 @@ export function InputBottomBar({
     </div>
   );
 }
-

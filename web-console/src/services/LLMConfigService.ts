@@ -153,8 +153,15 @@ class LLMConfigService {
     }
 
     try {
+      const params = new URLSearchParams();
+      if (workspaceId) {
+        params.set('workspace_id', workspaceId);
+      }
+      if (profileId) {
+        params.set('profile_id', profileId);
+      }
       const response = await fetch(
-        `${apiUrl}/api/v1/system-settings/llm-models`,
+        `${apiUrl}/api/v1/settings/model-route-registry/workspace-chat${params.toString() ? `?${params.toString()}` : ''}`,
         {
           headers: {
             'Accept': 'application/json',
@@ -254,4 +261,3 @@ if (typeof window !== 'undefined') {
     llmConfigService.cleanupExpiredCache();
   }, 10 * 60 * 1000);
 }
-
