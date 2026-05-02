@@ -78,10 +78,10 @@ uvicorn backend.app.main:app --reload
 
 Frontend requirements:
 
-- Node.js compatible with the web console dependency set
-- pnpm through Corepack, matching the Docker frontend build
+- Node.js 18 or another version compatible with the web console dependency set
+- pnpm through Corepack, matching the Docker frontend build and workspace lockfile
 
-Example:
+Run dependency installation from the repository root because `web-console` is part of the pnpm workspace:
 
 ```bash
 corepack enable
