@@ -1,11 +1,6 @@
-/**
- * habit i18n messages (Traditional Chinese)
- */
 import type { MessageKey } from '../../keys';
 
 export const habitZhTW = {
-
-  // Habit Learning
   habitSuggestions: '習慣建議',
   enableHabitSuggestions: '啟用習慣建議',
   enableHabitSuggestionsDescription: '系統會基於你的使用記錄提出習慣候選，需你確認後才會成為預設',
@@ -44,8 +39,6 @@ export const habitZhTW = {
   habitViewDetails: '查看詳情',
   habitViewAuditLogs: '查看審計記錄',
 
-  // Habit errors
   habitConfirmFailed: '確認失敗：{error}',
   habitRejectFailed: '拒絕失敗：{error}',
-
 } as const satisfies Partial<Record<MessageKey, string>>;

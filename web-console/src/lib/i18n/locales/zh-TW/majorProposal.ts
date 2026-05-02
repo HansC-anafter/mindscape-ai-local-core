@@ -1,11 +1,6 @@
-/**
- * majorProposal i18n messages (Traditional Chinese)
- */
 import type { MessageKey } from '../../keys';
 
 export const majorProposalZhTW = {
-
-  // Major Proposal errors
   majorProposalDraftGenerated: '章節草稿已生成！',
   majorProposalGenerateFailed: '生成失敗：{error}',
   majorProposalAssembleFailed: '組裝失敗：{error}',
@@ -36,5 +31,4 @@ export const majorProposalZhTW = {
   majorProposalEnterTemplateNamePlaceholder: '例如：2025 年度創業補助申請',
   majorProposalWordLimit: '字數限制: {min} - {max} 字',
   majorProposalNoWordLimit: '字數限制: {min} - 無上限 字',
-
 } as const satisfies Partial<Record<MessageKey, string>>;

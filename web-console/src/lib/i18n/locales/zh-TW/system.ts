@@ -1,11 +1,6 @@
-/**
- * system i18n messages (Traditional Chinese)
- */
 import type { MessageKey } from '../../keys';
 
 export const systemZhTW = {
-
-  // System Management
   systemManagement: '系統管理與整合',
   serviceStatus: '服務狀態',
   systemManagementDescription: '管理工具、能力註冊、連接與系統整合',
@@ -64,7 +59,6 @@ export const systemZhTW = {
   discoveryMethodPlugin: 'Plugin',
   discoveryMethodFallback: 'Fallback',
 
-  // System Health
   systemHealthStatus: '系統狀態檢查',
   systemHealthNormal: '系統狀態正常',
   systemStatusNormal: '系統狀態正常',
@@ -78,5 +72,4 @@ export const systemZhTW = {
   later: '稍後再說',
   allSystemsNormal: '✓ 所有系統狀態正常',
   configureApiKey: '去設定 API Key',
-
 } as const satisfies Partial<Record<MessageKey, string>>;

@@ -1,11 +1,6 @@
-/**
- * navigation i18n messages (Traditional Chinese)
- */
 import type { MessageKey } from '../../keys';
 
 export const navigationZhTW = {
-
-  // Navigation
   navWorkspaces: '工作區',
   workspace: '工作區',
   backToWorkspaces: '返回工作區列表',
@@ -23,5 +18,4 @@ export const navigationZhTW = {
   switchToDarkMode: '切換至夜間模式',
   workspaceList: '工作區列表',
   backToWorkspace: '返回工作區',
-
 } as const satisfies Partial<Record<MessageKey, string>>;

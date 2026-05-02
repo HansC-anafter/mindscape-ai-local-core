@@ -1,11 +1,6 @@
-/**
- * Execution i18n messages (Traditional Chinese)
- * Playbook execution, workspace execution inspector, and related UI
- */
 import type { MessageKey } from '../../keys';
 
 export const executionZhTW = {
-  // Playbook Execution Inspector
   runInsightDraftChanges: '執行洞察與草案變更',
   reviewAISuggestions: '審查 AI 建議並套用變更以改進此 Playbook',
   aiAnalysis: 'AI 分析',
@@ -23,20 +18,17 @@ export const executionZhTW = {
   selectStepToViewDetails: '選擇步驟以查看詳細資訊',
   editPlaybook: '編輯 Playbook',
 
-  // Execution Status
   executionStatusRunning: '執行中',
   executionStatusSucceeded: '成功',
   executionStatusFailed: '失敗',
   executionStatusPaused: '已暫停',
   executionStatusUnknown: '未知',
 
-  // Trigger Source
   triggerSourceAuto: '自動',
   triggerSourceSuggested: '建議',
   triggerSourceManual: '手動',
   triggerSourceUnknown: '未知',
 
-  // Actions
   stop: '停止',
   stopping: '停止中...',
   reload: '重新載入',
@@ -51,7 +43,6 @@ export const executionZhTW = {
   executionRestartFailed: '執行重新開始失敗',
   view: '查看',
 
-  // Execution Header
   runNumber: '執行 #{number}',
   stepProgress: '步驟 {current} / {total}',
   startedAt: '開始時間 {time}',
@@ -60,7 +51,6 @@ export const executionZhTW = {
   unknownPlaybook: '未知 Playbook',
   errorLabel: '錯誤：',
 
-  // Step Details
   noEvents: '目前尚無事件',
   agent: '代理：',
   tool: '工具：',
@@ -71,10 +61,8 @@ export const executionZhTW = {
   tools: '工具',
   pending: '待處理',
 
-  // Execution Messages
   thisExecutionFailed: '此執行失敗：{reason}。請查看步驟時間軸以診斷問題。',
 
-  // Playbook Inspector
   playbookInspector: 'Playbook 檢查器',
   playbookRun: 'Playbook - 執行 #{number}',
   askPlaybookInspector: '請詢問 Playbook 檢查器關於此執行的問題。它知道步驟、事件和錯誤。',
@@ -87,21 +75,18 @@ export const executionZhTW = {
   reviewPlaybookStepsPrompt: '能否審查 Playbook 步驟並提供改進建議？',
   playbookConversation: 'Playbook 對話',
 
-  // Workspace Loading
   workspaceNotFound: '找不到工作空間',
   failedToLoadWorkspace: '載入工作空間失敗',
   loadingWorkspace: '載入工作空間中...',
   rateLimitExceeded: '已超過速率限制。請等待 {seconds} 秒後重新整理頁面。',
   retryButton: '重試',
 
-  // Timeline Panel
   returnToWorkspaceOverview: '返回工作空間總覽',
   currentExecution: '目前執行',
   otherExecutionsOfSamePlaybook: '相同 Playbook 的其他執行',
   otherPlaybooksExecutions: '其他 Playbook 的執行',
   recentFailures: '最近的失敗',
 
-  // Execution Chat
   discussPlaybookExecution: '與 AI 討論此 Playbook 執行...',
   itKnowsStepsEventsErrors: '它知道步驟、事件和錯誤。',
   executionChatDescription: '討論面板：詢問執行狀態、理解步驟或獲取建議。操作請使用主介面按鈕。',
@@ -112,4 +97,3 @@ export const executionZhTW = {
   playbookWaitingForResponse: 'Playbook 正在等待您的回應',
   sendMessageToContinue: '發送消息將繼續執行下一步。',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

@@ -1,11 +1,6 @@
-/**
- * review i18n messages (Traditional Chinese)
- */
 import type { MessageKey } from '../../keys';
 
 export const reviewZhTW = {
-
-  // Review Preferences
   reviewPreferences: '年度回顧節奏',
   reviewCadence: '回顧節奏',
   reviewCadenceManual: '不自動提醒',
@@ -27,7 +22,5 @@ export const reviewZhTW = {
   dayOfWeekSaturday: '星期六',
   dayOfWeekSunday: '星期日',
 
-  // Review errors
   reviewStartFailed: '開始回顧失敗：{error}',
-
 } as const satisfies Partial<Record<MessageKey, string>>;

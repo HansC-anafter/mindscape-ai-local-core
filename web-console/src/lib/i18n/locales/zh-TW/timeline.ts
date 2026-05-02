@@ -1,11 +1,6 @@
-/**
- * timeline i18n messages (Traditional Chinese)
- */
 import type { MessageKey } from '../../keys';
 
 export const timelineZhTW = {
-
-  // Timeline
   timeline: 'Timeline',
   timelineContentPlaceholder: 'Timeline content will be displayed here',
   viewFullTimeline: 'View Full Timeline',
@@ -14,7 +9,6 @@ export const timelineZhTW = {
   timelineToolCall: '工具调用',
   timelineWorkspaceCreated: '工作区创建',
 
-  // Timeline Panel Sections
   timelineRunning: '執行中',
   timelinePendingConfirmation: '待確認',
   timelineArchived: '已存檔',
@@ -23,7 +17,6 @@ export const timelineZhTW = {
   noPendingConfirmations: '目前沒有待確認的步驟',
   noArchivedExecutions: '目前沒有已存檔的執行',
 
-  // Execution Console
   executionAISuggested: '(AI 推測，執行中仍可更改)',
   executionRequiresConfirmation: '需要確認',
   executionSummary: '執行摘要',
@@ -34,5 +27,4 @@ export const timelineZhTW = {
   executionFailed: '執行失敗',
   executionSelectStepForDetails: '選擇步驟查看詳情',
   executionCancel: '取消執行',
-
 } as const satisfies Partial<Record<MessageKey, string>>;
