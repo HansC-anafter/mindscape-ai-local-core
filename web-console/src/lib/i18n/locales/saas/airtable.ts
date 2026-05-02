@@ -1,8 +1,3 @@
-/**
- * Airtable integration i18n messages
- * Modular i18n for Airtable SaaS integration
- */
-
 export const airtableZhTW = {
   connectAirtable: '連接 Airtable',
   airtableConnectionSuccess: 'Airtable 連接成功',
@@ -23,4 +18,3 @@ export const airtableJa = {
   airtablePersonalAccessToken: 'パーソナルアクセストークン',
   airtableTokenDescription: 'airtable.com/developers/web/guides/personal-access-tokens でパーソナルアクセストークンを作成',
 };
-

@@ -1,8 +1,3 @@
-/**
- * Google Sheets integration i18n messages
- * Modular i18n for Google Sheets SaaS integration
- */
-
 export const googleSheetsZhTW = {
   connectGoogleSheets: '連接 Google Sheets',
   googleSheetsConnectionSuccess: 'Google Sheets 連接成功',
@@ -38,4 +33,3 @@ export const googleSheetsJa = {
   reusedGoogleDriveOAuth: 'Google Drive OAuth を再利用',
   connectViaOAuth: 'OAuth で接続',
 };
-

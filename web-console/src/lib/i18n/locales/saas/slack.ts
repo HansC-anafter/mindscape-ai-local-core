@@ -1,8 +1,3 @@
-/**
- * Slack integration i18n messages
- * Modular i18n for Slack SaaS integration
- */
-
 export const slackZhTW = {
   connectSlack: '連接 Slack',
   slackConnectionSuccess: 'Slack 連接成功',
@@ -41,4 +36,3 @@ export const slackJa = {
   slackAccessToken: 'Slack アクセストークン',
   slackAccessTokenDescription: 'ボットトークン（xoxb-）またはユーザートークン（xoxp-）。api.slack.com/apps から取得',
 };
-

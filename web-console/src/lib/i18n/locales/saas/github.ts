@@ -1,8 +1,3 @@
-/**
- * GitHub integration i18n messages
- * Modular i18n for GitHub SaaS integration
- */
-
 export const githubZhTW = {
   connectGitHub: '連接 GitHub',
   githubConnectionSuccess: 'GitHub 連接成功',
@@ -41,4 +36,3 @@ export const githubJa = {
   githubPersonalAccessToken: 'パーソナルアクセストークン',
   githubTokenDescriptionFull: 'github.com/settings/tokens でパーソナルアクセストークンを作成',
 };
-
