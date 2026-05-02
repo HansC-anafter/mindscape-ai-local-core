@@ -1,13 +1,6 @@
-/**
- * Common i18n messages (Traditional Chinese)
- * Shared across all modules
- */
-
 import type { MessageKey } from '../../keys';
 
 export const commonZhTW = {
-
-  // Status
   status: '狀態',
   statusActive: '進行中',
   statusCompleted: '已完成',
@@ -17,13 +10,11 @@ export const commonZhTW = {
   statusPaused: '已暫停',
   statusArchived: '已封存',
 
-  // Priority
   priorityLow: '低',
   priorityMedium: '中',
   priorityHigh: '高',
   priorityCritical: '緊急',
 
-  // Actions
   save: '儲存',
   cancel: '取消',
   delete: '刪除',
@@ -40,7 +31,6 @@ export const commonZhTW = {
   sourceIntent: '來源 Intent',
   noOutcomes: '尚無成果',
 
-  // Common
   loading: '載入中...',
   saving: '儲存中...',
   error: '發生錯誤',
@@ -65,18 +55,15 @@ export const commonZhTW = {
   generalIntegrationsDescription: '常用的工具整合',
   developerIntegrations: '開發者整合',
 
-  // Modal titles
   configureTool: '配置工具',
   configureWorkflow: '配置工作流程',
   editMCPServer: '編輯 MCP 伺服器',
   addMCPServer: '新增 MCP 伺服器',
   closeModal: '關閉彈窗',
 
-  // Modal content
   unsupportedToolType: '不支持的工具類型',
   closeButton: '關閉',
 
-  // Pending Tasks
   intentBasedOnAISuggestion: '基於 AI 推測的意圖：',
   editIntentLabel: '編輯意圖標籤',
   backgroundExecution: '背景執行',
@@ -86,7 +73,6 @@ export const commonZhTW = {
   confidence: '信心：',
   executionSuccessUpdating: '執行成功，正在更新...',
 
-  // Background Tasks
   disabled: '已停用',
   runningNormally: '正常運行',
   executionFailed: '執行失敗',
@@ -126,7 +112,6 @@ export const commonZhTW = {
   requiredToolsNotSupported: '所需工具不支援',
   nextStep: '下一步',
   startedAt: '開始時間',
-  // Tool Status Labels
   statusNotConfigured: '未配置',
   statusNotConnected: '未連接',
   statusConnected: '已連接',
@@ -135,7 +120,6 @@ export const commonZhTW = {
   statusLocalMode: '本地模式',
   statusNotSupported: '不支援',
 
-  // Sidebar Tabs
   tabScheduling: '調度',
   tabSchedulingSubtitle: '任務 & 執行',
   tabOutcomes: '成果',
@@ -156,7 +140,6 @@ export const commonZhTW = {
   systemTools: '系統工具',
   systemTool: '系統工具',
 
-  // Copy actions
   copyAll: '複製全部',
   copyAllMessages: '複製所有訊息',
   copyMessage: '複製訊息',
@@ -164,7 +147,6 @@ export const commonZhTW = {
   user: '使用者',
   assistant: '助理',
 
-  // Artifacts
   artifactsProduced: '已產出',
   noArtifactsYet: '尚無產出',
   view: '查看',
@@ -176,14 +158,12 @@ export const commonZhTW = {
   usingPort: '使用端口',
   noPreviewAvailable: '無預覽可用',
 
-  // Execution
   executionStartedButNoId: '執行已啟動但無法獲取執行 ID',
   restartExecutionFailed: '重啟執行失敗',
   restartExecutionFailedRetry: '重啟執行失敗，請重試',
   confirmRestartExecution: '確認重啟執行',
   confirmRestartExecutionMessage: '確定要重啟此執行嗎？這將創建一個新的執行並取消當前執行。',
 
-  // New keys added to fix warnings
   disconnected: '已斷開',
   confirmDelete: '確認刪除',
   deleting: '刪除中',
@@ -192,7 +172,6 @@ export const commonZhTW = {
   contextWindow: '上下文窗口',
   executionStatusCancelled: '已取消',
 
-  // Common labels
   name: '名稱',
   description: '描述',
   type: '類型',
@@ -201,7 +180,6 @@ export const commonZhTW = {
   override: '覆蓋',
   token: 'Token',
 
-  // Sync
   updateRequired: '需要更新',
   updateAvailable: '有可用更新',
   updateRequiredDescription: '您的應用程式版本過舊，必須更新才能繼續使用。',

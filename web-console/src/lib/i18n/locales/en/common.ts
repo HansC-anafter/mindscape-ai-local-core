@@ -1,13 +1,6 @@
-/**
- * Common i18n messages (English)
- * Shared across all modules
- */
-
 import type { MessageKey } from '../../keys';
 
 export const commonEn = {
-
-  // Status
   status: 'Status',
   statusActive: 'Active',
   statusCompleted: 'Completed',
@@ -17,13 +10,11 @@ export const commonEn = {
   statusPaused: 'Paused',
   statusArchived: 'Archived',
 
-  // Priority
   priorityLow: 'Low',
   priorityMedium: 'Medium',
   priorityHigh: 'High',
   priorityCritical: 'Critical',
 
-  // Actions
   save: 'Save',
   cancel: 'Cancel',
   delete: 'Delete',
@@ -40,7 +31,6 @@ export const commonEn = {
   sourceIntent: 'Source Intent',
   noOutcomes: 'No outcomes yet',
 
-  // Common
   loading: 'Loading...',
   saving: 'Saving...',
   error: 'Error',
@@ -65,7 +55,6 @@ export const commonEn = {
   developerIntegrations: 'Developer Integrations',
   developerIntegrationsDescription: 'Advanced integrations for external environments, for tech partners',
 
-  // Pending Tasks
   intentBasedOnAISuggestion: 'Intent based on AI suggestion:',
   editIntentLabel: 'Edit intent label',
   backgroundExecution: 'Background Execution',
@@ -75,7 +64,6 @@ export const commonEn = {
   confidence: 'Confidence:',
   executionSuccessUpdating: 'Execution successful, updating...',
 
-  // Background Tasks
   disabled: 'Disabled',
   runningNormally: 'Running Normally',
   executionFailed: 'Execution Failed',
@@ -113,7 +101,6 @@ export const commonEn = {
   unsupported: 'Unsupported',
   toolsNeedConfiguration: 'Tools need configuration',
   requiredToolsNotSupported: 'Required tools not supported',
-  // Tool Status Labels
   statusNotConfigured: 'Not configured',
   statusNotConnected: 'Not connected',
   statusConnected: 'Connected',
@@ -124,7 +111,6 @@ export const commonEn = {
   nextStep: 'Next Step',
   startedAt: 'Started At',
 
-  // Sidebar Tabs
   tabScheduling: 'Scheduling',
   tabSchedulingSubtitle: 'Tasks & Execution',
   tabOutcomes: 'Outcomes',
@@ -145,7 +131,6 @@ export const commonEn = {
   systemTools: 'System Tools',
   systemTool: 'System Tool',
 
-  // Copy actions
   copyAll: 'Copy All',
   copyAllMessages: 'Copy All Messages',
   copyMessage: 'Copy Message',
@@ -153,18 +138,15 @@ export const commonEn = {
   user: 'User',
   assistant: 'Assistant',
 
-  // Modal titles
   configureTool: 'Configure Tool',
   configureWorkflow: 'Configure Workflow',
   editMCPServer: 'Edit MCP Server',
   addMCPServer: 'Add MCP Server',
   closeModal: 'Close Modal',
 
-  // Modal content
   unsupportedToolType: 'Unsupported tool type',
   closeButton: 'Close',
 
-  // New keys added to fix warnings
   disconnected: 'Disconnected',
   confirmDelete: 'Confirm Delete',
   deleting: 'Deleting',
@@ -173,7 +155,6 @@ export const commonEn = {
   contextWindow: 'Context Window',
   executionStatusCancelled: 'Cancelled',
 
-  // Common labels
   name: 'Name',
   description: 'Description',
   type: 'Type',
@@ -182,7 +163,6 @@ export const commonEn = {
   override: 'Override',
   token: 'Token',
 
-  // Sync
   updateRequired: 'Update Required',
   updateAvailable: 'Update Available',
   updateRequiredDescription: 'Application version outdated. Update required to continue.',
@@ -221,7 +201,6 @@ export const commonEn = {
   manualMergeDescription: 'Manually merge local and cloud changes',
   resolve: 'Resolve',
 
-  // Artifacts
   artifactsProduced: 'Produced',
   noArtifactsYet: 'No artifacts yet',
   viewSandbox: 'View Sandbox',
@@ -232,7 +211,6 @@ export const commonEn = {
   usingPort: 'Using port',
   noPreviewAvailable: 'No preview available',
 
-  // Execution
   executionStartedButNoId: 'Execution started but failed to get execution ID',
   restartExecutionFailed: 'Failed to restart execution',
   restartExecutionFailedRetry: 'Failed to restart execution. Try again.',
