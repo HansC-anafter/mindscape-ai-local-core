@@ -1,11 +1,6 @@
-/**
- * review i18n messages (English)
- */
 import type { MessageKey } from '../../keys';
 
 export const reviewEn = {
-
-  // Review Preferences
   reviewPreferences: 'Annual Review Rhythm',
   reviewCadence: 'Review Cadence',
   reviewCadenceManual: 'No automatic reminders',
@@ -27,7 +22,5 @@ export const reviewEn = {
   dayOfWeekSaturday: 'Saturday',
   dayOfWeekSunday: 'Sunday',
 
-  // Review errors
   reviewStartFailed: 'Failed to start review: {error}',
-
 } as const satisfies Partial<Record<MessageKey, string>>;

@@ -1,11 +1,6 @@
-/**
- * habit i18n messages (English)
- */
 import type { MessageKey } from '../../keys';
 
 export const habitEn = {
-
-  // Habit Learning
   habitSuggestions: 'Habit Suggestions',
   enableHabitSuggestions: 'Enable Habit Suggestions',
   enableHabitSuggestionsDescription: 'The system will propose habit candidates based on your usage records, which require your confirmation before becoming defaults',
@@ -44,8 +39,6 @@ export const habitEn = {
   habitViewDetails: 'View Details',
   habitViewAuditLogs: 'View Audit Logs',
 
-  // Habit errors
   habitConfirmFailed: 'Confirm failed: {error}',
   habitRejectFailed: 'Reject failed: {error}',
-
 } as const satisfies Partial<Record<MessageKey, string>>;

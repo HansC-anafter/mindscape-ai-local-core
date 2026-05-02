@@ -1,11 +1,6 @@
-/**
- * navigation i18n messages (English)
- */
 import type { MessageKey } from '../../keys';
 
 export const navigationEn = {
-
-  // Navigation
   navWorkspaces: 'Workspaces',
   workspace: 'Workspace',
   backToWorkspaces: 'Back to Workspaces',
@@ -23,5 +18,4 @@ export const navigationEn = {
   switchToDarkMode: 'Switch to Dark Mode',
   workspaceList: 'Workspace List',
   backToWorkspace: 'Back to Workspace',
-
 } as const satisfies Partial<Record<MessageKey, string>>;

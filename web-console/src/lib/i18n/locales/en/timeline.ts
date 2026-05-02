@@ -1,11 +1,6 @@
-/**
- * timeline i18n messages (English)
- */
 import type { MessageKey } from '../../keys';
 
 export const timelineEn = {
-
-  // Timeline
   timeline: 'Timeline',
   timelineContentPlaceholder: 'Timeline content will be displayed here',
   viewFullTimeline: 'View Full Timeline',
@@ -14,7 +9,6 @@ export const timelineEn = {
   timelineToolCall: 'Tool Call',
   timelineWorkspaceCreated: 'Workspace Created',
 
-  // Timeline Panel Sections
   timelineRunning: 'Running',
   timelinePendingConfirmation: 'Pending Confirmation',
   timelineArchived: 'Archived',
@@ -23,7 +17,6 @@ export const timelineEn = {
   noPendingConfirmations: 'No steps pending confirmation',
   noArchivedExecutions: 'No archived executions',
 
-  // Execution Console
   executionAISuggested: '(AI suggested, can still be changed during execution)',
   executionRequiresConfirmation: 'Requires Confirmation',
   executionSummary: 'Execution Summary',
@@ -34,5 +27,4 @@ export const timelineEn = {
   executionFailed: 'Execution Failed',
   executionSelectStepForDetails: 'Select a step to view details',
   executionCancel: 'Cancel Execution',
-
 } as const satisfies Partial<Record<MessageKey, string>>;

@@ -1,11 +1,6 @@
-/**
- * Execution i18n messages (English)
- * Playbook execution, workspace execution inspector, and related UI
- */
 import type { MessageKey } from '../../keys';
 
 export const executionEn = {
-  // Playbook Execution Inspector
   runInsightDraftChanges: 'Execution insights and draft changes',
   reviewAISuggestions: 'Review AI suggestions to improve this playbook',
   aiAnalysis: 'AI Analysis',
@@ -23,20 +18,17 @@ export const executionEn = {
   selectStepToViewDetails: 'Select step to view details',
   editPlaybook: 'Edit Playbook',
 
-  // Execution Status
   executionStatusRunning: 'Running',
   executionStatusSucceeded: 'Succeeded',
   executionStatusFailed: 'Failed',
   executionStatusPaused: 'Paused',
   executionStatusUnknown: 'Unknown',
 
-  // Trigger Source
   triggerSourceAuto: 'Auto',
   triggerSourceSuggested: 'Suggested',
   triggerSourceManual: 'Manual',
   triggerSourceUnknown: 'Unknown',
 
-  // Actions
   stop: 'Stop',
   stopping: 'Stopping...',
   reload: 'Reload',
@@ -51,7 +43,6 @@ export const executionEn = {
   executionRestartFailed: 'Execution reset failed',
   view: 'View',
 
-  // Execution Header
   runNumber: 'Run #{number}',
   stepProgress: 'Step {current} / {total}',
   startedAt: 'Started at {time}',
@@ -60,7 +51,6 @@ export const executionEn = {
   unknownPlaybook: 'Unknown playbook',
   errorLabel: 'Error: ',
 
-  // Step Details
   noEvents: 'No events yet',
   agent: 'Agent: ',
   tool: 'Tool: ',
@@ -71,10 +61,8 @@ export const executionEn = {
   tools: 'Tools',
   pending: 'Pending',
 
-  // Execution Messages
   thisExecutionFailed: 'This execution failed: {reason}. Check the steps timeline to diagnose the issue.',
 
-  // Playbook Inspector
   playbookInspector: 'Playbook Inspector',
   playbookRun: 'Playbook - Run #{number}',
   askPlaybookInspector: 'Ask Playbook Inspector about this execution. Knows steps, events, and errors.',
@@ -87,21 +75,18 @@ export const executionEn = {
   reviewPlaybookStepsPrompt: 'Review playbook steps and provide improvement suggestions.',
   playbookConversation: 'Playbook Conversation',
 
-  // Workspace Loading
   workspaceNotFound: 'Workspace not found',
   failedToLoadWorkspace: 'Failed to load workspace',
   loadingWorkspace: 'Loading workspace...',
   rateLimitExceeded: 'Rate limit exceeded. Wait {seconds} seconds before refreshing.',
   retryButton: 'Retry',
 
-  // Timeline Panel
   returnToWorkspaceOverview: 'Return to workspace overview',
   currentExecution: 'Current execution',
   otherExecutionsOfSamePlaybook: 'Other executions of the same playbook',
   otherPlaybooksExecutions: 'Other playbooks executions',
   recentFailures: 'Recent failures',
 
-  // Execution Chat
   discussPlaybookExecution: 'Discuss this playbook execution with AI...',
   itKnowsStepsEventsErrors: 'It knows steps, events, and errors.',
   executionChatDescription: 'Discussion panel for execution status, steps, or suggestions. Use main interface buttons for actions.',
@@ -112,4 +97,3 @@ export const executionEn = {
   playbookWaitingForResponse: 'Playbook is waiting for your response',
   sendMessageToContinue: 'Sending a message continues execution to next step.',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

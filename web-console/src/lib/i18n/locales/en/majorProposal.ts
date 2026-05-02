@@ -1,11 +1,6 @@
-/**
- * majorProposal i18n messages (English)
- */
 import type { MessageKey } from '../../keys';
 
 export const majorProposalEn = {
-
-  // Major Proposal errors
   majorProposalDraftGenerated: 'Chapter draft generated!',
   majorProposalGenerateFailed: 'Generation failed: {error}',
   majorProposalAssembleFailed: 'Assembly failed: {error}',
@@ -36,5 +31,4 @@ export const majorProposalEn = {
   majorProposalEnterTemplateNamePlaceholder: 'e.g., 2025 Startup Grant Application',
   majorProposalWordLimit: 'Word limit: {min} - {max} words',
   majorProposalNoWordLimit: 'Word limit: {min} - No limit words',
-
 } as const satisfies Partial<Record<MessageKey, string>>;
