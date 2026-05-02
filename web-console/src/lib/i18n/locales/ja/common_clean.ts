@@ -1,12 +1,6 @@
-/**
- * Common i18n messages (Japanese)
- * Shared across all modules
- */
-
 import type { MessageKey } from '../../keys';
 
 export const commonJa = {
-  // Status
   status: 'ステータス',
   statusActive: '進行中',
   statusCompleted: '完了',
@@ -16,13 +10,11 @@ export const commonJa = {
   statusPaused: '一時停止',
   statusArchived: 'アーカイブ済み',
 
-  // Priority
   priorityLow: '低',
   priorityMedium: '中',
   priorityHigh: '高',
   priorityCritical: '緊急',
 
-  // Actions
   save: '保存',
   cancel: 'キャンセル',
   delete: '削除',
@@ -39,7 +31,6 @@ export const commonJa = {
   sourceIntent: 'ソースインテント',
   noOutcomes: '成果なし',
 
-  // Common
   loading: '読み込み中...',
   saving: '保存中...',
   error: 'エラーが発生しました',
@@ -56,7 +47,6 @@ export const commonJa = {
   retryArtifactCreation: '成果物の作成を再試行',
   llmConfidenceScore: 'LLM 分析信頼度: {confidence} (範囲: 0~1)',
 
-  // Tool integration categories
   requiresExternalSetup: '外部設定が必要',
   generalIntegrations: '一般統合',
   generalIntegrationsLocalDescription: 'ローカルコアモードで動作する一般的なツール統合',
@@ -64,7 +54,6 @@ export const commonJa = {
   developerIntegrations: '開発者統合',
   developerIntegrationsDescription: '外部環境または技術協力が必要な高度な統合、主に技術パートナー向け',
 
-  // Pending Tasks
   intentBasedOnAISuggestion: 'AI 提案に基づく意図：',
   editIntentLabel: '意図ラベルを編集',
   backgroundExecution: 'バックグラウンド実行',
@@ -74,7 +63,6 @@ export const commonJa = {
   confidence: '信頼度：',
   executionSuccessUpdating: '実行成功、更新中...',
 
-  // Status and states
   disabled: '無効',
   enabled: '有効',
   runningNormally: '正常に実行中',
@@ -88,7 +76,6 @@ export const commonJa = {
   lastExecutionFailed: '最後の実行が失敗しました',
   operationFailed: '操作失敗',
 
-  // Execution flow
   executionAISuggested: 'AI 提案',
   executionRequiresConfirmation: '確認が必要',
   executionSelectStepForDetails: '詳細を表示するステップを選択してください',
@@ -99,7 +86,6 @@ export const commonJa = {
   executionConfirmContinue: '確認して続行',
   executionReject: '拒否',
 
-  // Timeline management
   timelineRunning: '実行中',
   timelinePendingConfirmation: '確認待ち',
   timelineArchived: 'アーカイブ済み',
@@ -112,7 +98,6 @@ export const commonJa = {
   timelineItemNotFound: '関連する Timeline Item が見つかりません',
   timelineItemUnavailable: 'Timeline Item を取得できません',
 
-  // Tool status labels
   statusNotConfigured: '未設定',
   statusNotConnected: '未接続',
   statusConnected: '接続済み',
@@ -123,7 +108,6 @@ export const commonJa = {
   nextStep: '次のステップ',
   startedAt: '開始時刻',
 
-  // Sidebar and navigation
   tabScheduling: 'スケジュール',
   tabOutcomes: '成果',
   tabBackgroundTasks: 'バックグラウンドタスク',
@@ -136,7 +120,6 @@ export const commonJa = {
   systemTools: 'システムツール',
   systemTool: 'システムツール',
 
-  // Modal and UI components
   configureTool: 'ツールを設定',
   configureWorkflow: 'ワークフローを設定',
   editMCPServer: 'MCP サーバーを編集',
@@ -145,7 +128,6 @@ export const commonJa = {
   unsupportedToolType: 'サポートされていないツールタイプ',
   closeButton: '閉じる',
 
-  // Copy actions
   copyAll: 'すべてコピー',
   copyAllMessages: 'すべてのメッセージをコピー',
   copyMessage: 'メッセージをコピー',
@@ -153,7 +135,6 @@ export const commonJa = {
   user: 'ユーザー',
   assistant: 'アシスタント',
 
-  // System messages and errors
   disconnected: '切断されました',
   confirmDelete: '削除の確認',
   deleting: '削除中',
@@ -162,7 +143,6 @@ export const commonJa = {
   contextWindow: 'コンテキストウィンドウ',
   executionStatusCancelled: 'キャンセルされました',
 
-  // Additional status and actions
   ready: '準備完了',
   needsSetup: '設定が必要',
   unsupported: 'サポートされていません',
