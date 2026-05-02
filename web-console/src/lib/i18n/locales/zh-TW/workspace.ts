@@ -1,10 +1,6 @@
-/**
- * workspace i18n messages (Traditional Chinese)
- */
 import type { MessageKey } from '../../keys';
 
 export const workspaceZhTW = {
-  // Workspace creation wizard
   createWorkspace: '建立工作區',
   selectCreationMethod: '選擇建立方式',
   quickCreate: '快速建立',
@@ -29,7 +25,6 @@ export const workspaceZhTW = {
   next: '下一步',
   previous: '上一步',
 
-  // Workspace launchpad
   workspaceBrief: 'workspaceBrief',
   firstPlaybook: 'firstPlaybook',
   recommendedPlaybook: 'recommendedPlaybook',
@@ -42,18 +37,15 @@ export const workspaceZhTW = {
   toolConnections: 'Tool Connections',
   editBlueprint: 'editBlueprint',
 
-  // Workspace status
   ready: 'Ready',
   pending: 'Pending',
   active: 'Active',
 
-  // Workspace empty state
   workspaceNotConfigured: '工作區尚未配置',
   workspaceNotConfiguredDescription: '需要初始設定。使用「最小文件引用」或手動配置。',
   configureWorkspace: '配置工作區',
   startWorkDirectly: '直接開始工作',
 
-  // Setup drawer
   assembleWorkspace: '組裝工作區',
   minimumFileReference: '最小文件引用 (MFR)',
   minimumFileReferenceDescription: '快速設定：貼上文字、上傳檔案或貼上網址，自動生成藍圖。',
@@ -64,17 +56,14 @@ export const workspaceZhTW = {
   configurationFailed: '配置失敗：',
   creationFailed: '建立失敗：',
 
-  // Other methods (coming soon)
   otherMethods: '其他方式（即將推出）：',
   uploadFile: '📄 上傳檔案',
   pasteUrl: '🔗 貼上網址',
 
-  // Error messages
   errorLoadingWorkspace: 'Error Loading Workspace',
   workspaceNotFound: 'Workspace not found',
   loadingWorkspace: 'Loading workspace...',
 
-  // Workspace instruction page
   workspaceInstructionTitle: 'Workspace 指令',
   workspaceInstructionUnsavedChanges: '● 未儲存的變更',
   workspaceInstructionSaved: '✓ 已儲存',
@@ -106,7 +95,6 @@ export const workspaceZhTW = {
   instructionChatInitialMessage: '描述你的需求，我會提供可套用的 instruction patch。',
   instructionChatErrorPrefix: '無法取得建議：',
 
-  // Workspace governance
   governance: '治理',
   governancePageDescription: '檢視這個工作區的治理決策、治理指標與治理記憶。',
   decisionHistory: '決策紀錄',

@@ -1,10 +1,6 @@
-/**
- * workspace i18n messages (English)
- */
 import type { MessageKey } from '../../keys';
 
 export const workspaceEn = {
-  // Workspace creation wizard
   createWorkspace: 'Create Workspace',
   selectCreationMethod: 'Select Creation Method',
   quickCreate: 'Quick Create',
@@ -29,7 +25,6 @@ export const workspaceEn = {
   next: 'Next',
   previous: 'Previous',
 
-  // Workspace launchpad
   workspaceBrief: 'workspaceBrief',
   firstPlaybook: 'firstPlaybook',
   recommendedPlaybook: 'recommendedPlaybook',
@@ -42,18 +37,15 @@ export const workspaceEn = {
   toolConnections: 'Tool Connections',
   editBlueprint: 'editBlueprint',
 
-  // Workspace status
   ready: 'Ready',
   pending: 'Pending',
   active: 'Active',
 
-  // Workspace empty state
   workspaceNotConfigured: 'Workspace Not Configured',
   workspaceNotConfiguredDescription: 'Initial setup required. Use "Minimum File Reference" or configure manually.',
   configureWorkspace: 'Configure Workspace',
   startWorkDirectly: 'Start Work Directly',
 
-  // Setup drawer
   assembleWorkspace: 'Assemble Workspace',
   minimumFileReference: 'Minimum File Reference (MFR)',
   minimumFileReferenceDescription: 'Quick setup: paste text, upload file, or paste URLs to auto-generate blueprint.',
@@ -64,17 +56,14 @@ export const workspaceEn = {
   configurationFailed: 'Configuration failed:',
   creationFailed: 'Creation failed:',
 
-  // Other methods (coming soon)
   otherMethods: 'Other methods (Coming soon):',
   uploadFile: '📄 Upload File',
   pasteUrl: '🔗 Paste URL',
 
-  // Error messages
   errorLoadingWorkspace: 'Error Loading Workspace',
   workspaceNotFound: 'Workspace not found',
   loadingWorkspace: 'Loading workspace...',
 
-  // Workspace instruction page
   workspaceInstructionTitle: 'Workspace Instruction',
   workspaceInstructionUnsavedChanges: '● Unsaved changes',
   workspaceInstructionSaved: '✓ Saved',
@@ -106,7 +95,6 @@ export const workspaceEn = {
   instructionChatInitialMessage: 'Describe what you want. I will generate an instruction patch you can apply.',
   instructionChatErrorPrefix: 'Failed to get suggestion: ',
 
-  // Workspace governance
   governance: 'Governance',
   governancePageDescription: 'Inspect governance decisions, workspace metrics, and governed memory for this workspace.',
   decisionHistory: 'Decision History',

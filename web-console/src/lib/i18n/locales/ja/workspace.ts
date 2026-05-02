@@ -1,10 +1,6 @@
-/**
- * workspace i18n messages (Japanese)
- */
 import type { MessageKey } from '../../keys';
 
 export const workspaceJa = {
-  // Workspace creation wizard
   createWorkspace: 'ワークスペースを作成',
   selectCreationMethod: '作成方法を選択',
   quickCreate: 'クイック作成',
@@ -29,7 +25,6 @@ export const workspaceJa = {
   next: '次へ',
   previous: '前へ',
 
-  // Workspace launchpad
   workspaceBrief: 'workspaceBrief',
   firstPlaybook: 'firstPlaybook',
   recommendedPlaybook: 'recommendedPlaybook',
@@ -42,18 +37,15 @@ export const workspaceJa = {
   toolConnections: 'ツール接続',
   editBlueprint: 'editBlueprint',
 
-  // Workspace status
   ready: '準備完了',
   pending: '保留中',
   active: 'アクティブ',
 
-  // Workspace empty state
   workspaceNotConfigured: 'ワークスペース未設定',
   workspaceNotConfiguredDescription: '初期設定が必要。「最小ファイル参照」を使用するか手動で設定。',
   configureWorkspace: 'ワークスペースを設定',
   startWorkDirectly: '直接作業を開始',
 
-  // Setup drawer
   assembleWorkspace: 'ワークスペースを組み立て',
   minimumFileReference: '最小ファイル参照 (MFR)',
   minimumFileReferenceDescription: 'クイック設定：テキスト貼り付け、ファイルアップロード、URL 貼り付けで自動生成。',
@@ -64,17 +56,14 @@ export const workspaceJa = {
   configurationFailed: '設定失敗：',
   creationFailed: '作成失敗：',
 
-  // Other methods (coming soon)
   otherMethods: 'その他の方法（近日公開）：',
   uploadFile: '📄 ファイルをアップロード',
   pasteUrl: '🔗 URL を貼り付け',
 
-  // Error messages
   errorLoadingWorkspace: 'ワークスペース読み込みエラー',
   workspaceNotFound: 'ワークスペースが見つかりません',
   loadingWorkspace: 'ワークスペースを読み込み中...',
 
-  // Workspace instruction page
   workspaceInstructionTitle: 'ワークスペース指示',
   workspaceInstructionUnsavedChanges: '● 未保存の変更',
   workspaceInstructionSaved: '✓ 保存済み',
@@ -106,7 +95,6 @@ export const workspaceJa = {
   instructionChatInitialMessage: '要件を説明してください。適用可能な instruction patch を提案します。',
   instructionChatErrorPrefix: '提案を取得できませんでした：',
 
-  // Workspace governance
   governance: 'ガバナンス',
   governancePageDescription:
     'このワークスペースのガバナンス判断、指標、ガバナンスメモリを確認します。',
