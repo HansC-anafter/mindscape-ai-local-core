@@ -1,8 +1,3 @@
-/**
- * Playbook Variants-related i18n message keys
- * Playbook variants, personal versions, LLM customization
- */
-
 export const playbookVariantsKeys = {
   variantName: true,
   variantDescriptionPlaceholder: true,

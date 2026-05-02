@@ -1,11 +1,6 @@
-/**
- * Playbooks i18n messages (Traditional Chinese)
- * Playbooks, PlaybookChat, and playbook-related errors
- */
 import type { MessageKey } from '../../keys';
 
 export const playbooksZhTW = {
-  // PlaybookChat
   sendMessageFailed: '發送消息失敗，請重試',
   conversationCompleted: '對話已完成',
   enterYourAnswer: '輸入你的回答...',
@@ -26,7 +21,6 @@ export const playbooksZhTW = {
   whatToolsDoYouUse: '平常用什麼工具工作（WP / Notion / ...）',
   whatWorkRhythmDoYouLike: '你喜歡什麼樣的工作節奏',
 
-  // Playbooks
   playbooks: 'Playbooks',
   playbooksTitle: 'Playbook 工作劇本庫',
   playbookWorkflow: '可反覆執行的工作流程',
@@ -73,7 +67,6 @@ export const playbooksZhTW = {
   executionFailed: '執行失敗',
   willReturnAfterCompletion: '完成後會自動返回心智空間並更新進度',
 
-  // Playbook errors
   playbookEnterVariantName: '請輸入版本名稱',
   playbookSelectAtLeastOneSuggestion: '請至少選擇一個建議',
   playbookCreateVariantFailed: '創建變體失敗：{error}',
@@ -83,7 +76,6 @@ export const playbooksZhTW = {
   playbookGetSuggestionsFailed: '獲取優化建議失敗：{error}',
   playbookVariantCreatedSuccess: '變體已創建！',
 
-  // Playbook tabs
   playbookTabInfo: '資訊',
   playbookTabSuggestions: '使用建議',
   playbookTabHistory: '執行記錄',

@@ -1,11 +1,6 @@
-/**
- * Playbooks i18n messages (Japanese)
- * Playbooks, PlaybookChat, and playbook-related errors
- */
 import type { MessageKey } from '../../keys';
 
 export const playbooksJa = {
-  // PlaybookChat
   sendMessageFailed: 'メッセージの送信に失敗しました。再試行してください',
   conversationCompleted: '会話が完了しました',
   enterYourAnswer: '回答を入力...',
@@ -26,7 +21,6 @@ export const playbooksJa = {
   whatToolsDoYouUse: '普段どのツールで作業していますか（WP / Notion / ...）',
   whatWorkRhythmDoYouLike: 'どのような作業リズムが好きですか',
 
-  // Playbooks
   playbooks: 'プレイブック',
   playbooksTitle: 'プレイブックライブラリ',
   playbookWorkflow: '再利用可能なワークフロー',
@@ -73,7 +67,6 @@ export const playbooksJa = {
   executionFailed: '実行失敗',
   willReturnAfterCompletion: '完了後、自動的にマインドスケープに戻り、進捗を更新します',
 
-  // Playbook errors
   playbookEnterVariantName: 'バリアント名を入力してください',
   playbookSelectAtLeastOneSuggestion: '少なくとも 1 つの提案を選択してください',
   playbookCreateVariantFailed: 'バリアントの作成に失敗しました：{error}',
@@ -83,7 +76,6 @@ export const playbooksJa = {
   playbookGetSuggestionsFailed: '最適化提案の取得に失敗しました：{error}',
   playbookVariantCreatedSuccess: 'バリアントが作成されました！',
 
-  // Playbook tabs
   playbookTabInfo: '情報',
   playbookTabSuggestions: '使用提案',
   playbookTabHistory: '実行履歴',

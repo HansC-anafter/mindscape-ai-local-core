@@ -1,11 +1,6 @@
-/**
- * Playbooks i18n messages (English)
- * Playbooks, PlaybookChat, and playbook-related errors
- */
 import type { MessageKey } from '../../keys';
 
 export const playbooksEn = {
-  // PlaybookChat
   sendMessageFailed: 'Failed to send message, please retry',
   conversationCompleted: 'Conversation completed',
   enterYourAnswer: 'Enter your answer...',
@@ -26,7 +21,6 @@ export const playbooksEn = {
   whatToolsDoYouUse: 'What tools do you usually work with (WP / Notion / ...)',
   whatWorkRhythmDoYouLike: 'What work rhythm do you prefer',
 
-  // Playbooks
   playbooks: 'Playbooks',
   playbooksTitle: 'Playbook Library',
   playbookWorkflow: 'Reusable workflows',
@@ -73,7 +67,6 @@ export const playbooksEn = {
   executionFailed: 'Execution Failed',
   willReturnAfterCompletion: 'Will automatically return to Mindscape and update progress after completion',
 
-  // Playbook errors
   playbookEnterVariantName: 'Please enter variant name',
   playbookSelectAtLeastOneSuggestion: 'Please select at least one suggestion',
   playbookCreateVariantFailed: 'Failed to create variant: {error}',
@@ -83,7 +76,6 @@ export const playbooksEn = {
   playbookGetSuggestionsFailed: 'Failed to get optimization suggestions: {error}',
   playbookVariantCreatedSuccess: 'Variant created!',
 
-  // Playbook tabs
   playbookTabInfo: 'Info',
   playbookTabSuggestions: 'Usage Suggestions',
   playbookTabHistory: 'Execution History',
