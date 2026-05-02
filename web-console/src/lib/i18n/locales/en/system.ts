@@ -1,11 +1,6 @@
-/**
- * system i18n messages (English)
- */
 import type { MessageKey } from '../../keys';
 
 export const systemEn = {
-
-  // System Management
   systemManagement: 'System Management & Integration',
   serviceStatus: 'Service Status',
   systemManagementDescription: 'Manage tools, capability registration, connections, and system integrations',
@@ -64,7 +59,6 @@ export const systemEn = {
   discoveryMethodPlugin: 'Plugin',
   discoveryMethodFallback: 'Fallback',
 
-  // System Health
   systemHealthStatus: 'System Health Check',
   systemHealthNormal: 'System Status Normal',
   systemStatusNormal: 'System Status Normal',
