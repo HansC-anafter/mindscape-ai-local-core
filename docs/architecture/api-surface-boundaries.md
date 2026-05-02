@@ -18,7 +18,7 @@ Local Core route families include:
 - workspace group routes under `/api/v1/workspace-groups`
 - playbook routes under `/api/v1/playbooks`
 - tool routes under the tool router family
-- sandbox, deployment, data source, lens, composition, surface, dashboard, and skill listing routes
+- supporting workspace, retrieval, configuration, and integration routes
 - system settings routes under `/api/v1/system-settings`
 - settings extension routes under `/api/v1/settings`
 - runtime environment and workspace runtime configuration routes
@@ -29,7 +29,7 @@ These route families are Local Core host surfaces. Their public documentation sh
 
 ## Workspace Runtime Routes
 
-The workspace router is mounted at `/api/v1/workspaces` and aggregates workspace CRUD, activity stream, launchpad, file, intent, instruction, task, workbench, health, meeting graph, object runtime, profile, runtime, pinned item, stub, and governance subroutes.
+The workspace router is mounted at `/api/v1/workspaces` and aggregates the local workspace lifecycle, files, activity, tasks, workbench state, health, meeting context, object runtime, profile, runtime configuration, pinned state, and governance surfaces.
 
 Workspace routes are the main local runtime surface. Public documentation may describe workspace-scoped state, object runtime behavior, meeting graph access, governance review surfaces, and runtime configuration boundaries.
 
@@ -45,23 +45,23 @@ These routes are safe to document as host contracts. Capability-owned object sch
 
 ## Governance, Lens, and Memory Routes
 
-Workspace governance routes are mounted under the workspace router. They expose governed memory review surfaces, memory health, memory impact graph, decisions, cost monitoring, and governance metrics.
+Workspace governance routes are mounted under the workspace router. They expose governed memory review surfaces, memory health, memory impact analysis, decisions, cost monitoring, and governance metrics.
 
-Lens routes expose local lens schemas, instances, runtime resolution, profile diffing, effective lens selection, overrides, receipts, previews, changesets, packages, and evidence surfaces.
+Lens routes expose local lens schemas, instances, runtime resolution, effective lens selection, overrides, review artifacts, package lifecycle, and evidence surfaces.
 
 Vector routes support semantic retrieval and vector database configuration. Public documentation may describe these as governed retrieval and review surfaces. It must not present raw provider payload dumps, private receipt internals, or unrestricted memory export as stable public APIs.
 
 ## Playbook and Tool Routes
 
-Playbook routes are mounted under `/api/v1/playbooks` and aggregate query, CRUD, management, variant, intent, tool, testing, resource, and fork subroutes.
+Playbook routes are mounted under `/api/v1/playbooks` and aggregate playbook discovery, lifecycle, variants, intent support, tool binding, resource binding, and fork behavior.
 
-Tool routes aggregate status, OAuth, connections, execution, registration, retrieval, filtered selection, slot mappings, base tool registry behavior, and provider adapter routes.
+Tool routes aggregate tool status, OAuth and connection management, execution, registration, retrieval, filtered selection, slot mappings, registry behavior, and adapter boundaries.
 
 Public documentation may describe playbooks and tools as local execution interfaces. It must not document capability-owned playbook specs, provider-native credentials, or per-provider private payloads as Local Core architecture.
 
 ## Meeting, Dispatch, and Handoff Routes
 
-Meeting session routes are workspace-scoped. Agent dispatch routes include WebSocket and REST polling surfaces for agent-side task dispatch. Handoff bundle routes support package, verify, intake, and compile operations for signed handoff payloads.
+Meeting session routes are workspace-scoped. Agent dispatch routes include WebSocket and REST polling surfaces for agent-side task dispatch. Handoff bundle routes support signed handoff payload lifecycle operations.
 
 MCP bridge and device-node routes are optional integration surfaces. They let Local Core accept or expose local work through sidecar and connector processes, but they do not make those connectors Local Core ownership.
 
