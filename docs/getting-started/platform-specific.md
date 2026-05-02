@@ -58,6 +58,8 @@ The startup helper can configure host-side companion processes and then start Co
 docker compose up -d
 ```
 
+On macOS, the helper starts Compose with the `control-plane` profile after the host-side checks complete.
+
 On Apple Silicon, make sure Docker Desktop has enough memory assigned for the default service set.
 
 ## Linux
@@ -79,6 +81,8 @@ The startup helper can configure systemd services for host-side companion proces
 ```bash
 docker compose up -d
 ```
+
+On Linux, the helper starts Compose with the `control-plane` profile after the host-side checks complete.
 
 ## Optional Local Inference
 

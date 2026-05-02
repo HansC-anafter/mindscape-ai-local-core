@@ -95,6 +95,28 @@ curl http://localhost:8200/healthz
 
 If running the frontend manually, ensure its environment points to the correct backend URL.
 
+## Startup Helper Differs From Direct Compose
+
+Direct Compose starts the container-only stack:
+
+```bash
+docker compose up -d
+```
+
+The macOS and Linux helper performs host-side setup first and then starts Compose with the `control-plane` profile:
+
+```bash
+./scripts/start.sh
+```
+
+The Windows helper performs Windows host-side setup first and then starts the default Compose stack:
+
+```powershell
+.\scripts\start.ps1
+```
+
+If a problem only appears when using a helper, check the helper output and host-side logs under `logs/` before changing Compose settings.
+
 ## PostgreSQL Problems
 
 The default host PostgreSQL port is `5433`, mapped to container port `5432`.

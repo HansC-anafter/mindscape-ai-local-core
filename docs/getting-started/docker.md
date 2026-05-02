@@ -35,6 +35,28 @@ Windows PowerShell users can use:
 
 The helper scripts check Docker availability and can start host-side companion processes. The direct `docker compose up -d` path is the simplest container-only startup path.
 
+## Startup Modes
+
+Direct Compose starts the default container set only:
+
+```bash
+docker compose up -d
+```
+
+The macOS and Linux helper checks Docker, prepares repository-defined host companions when available, and then starts Compose with the `control-plane` profile:
+
+```bash
+./scripts/start.sh
+```
+
+The Windows helper checks Docker, prepares Windows host companions when available, and then starts the default Compose stack:
+
+```powershell
+.\scripts\start.ps1
+```
+
+Use direct Compose for a container-only smoke test. Use a helper when you need the local host companions that are part of this repository's startup flow. Do not add capability internals, generated runtime bundles, ignored paths, local data, or credentials to public setup steps.
+
 ## Access
 
 Default local endpoints:
