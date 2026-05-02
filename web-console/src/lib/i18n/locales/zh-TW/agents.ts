@@ -1,11 +1,6 @@
-/**
- * agents i18n messages (Traditional Chinese)
- */
 import type { MessageKey } from '../../keys';
 
 export const agentsZhTW = {
-
-  // Agents
   runAgent: '啟動 AI 團隊',
   pageTitle: '今天想找誰幫忙？',
   pageSubtitle: '在這個心智空間裡，你請來了哪些「職業角色」的 AI 成員',
@@ -82,7 +77,6 @@ export const agentsZhTW = {
   allAgentsRunning: '所有 AI 小隊正在執行中...',
   allAgentsResults: '全部 AI 小隊執行結果',
 
-  // AI Roles
   roleProductDesigner: '平面設計助理',
   roleProductDesignerDescription: '幫你整理產品想法、調整頁面架構、把模糊感受變成需求',
   roleProductDesignerTask1: '幫我整理這個產品想法的核心價值與目標用戶',
@@ -182,7 +176,6 @@ export const agentsZhTW = {
   roleCourseProductionPartnerTeamTitle: '這個成員背後的 AI 小隊',
   roleCourseProductionPartnerTeamDescription: '線上課程製作夥伴由一支專業的 AI 小隊協作，各司其職，讓你能專注在教學本身：',
 
-  // Categories
   categoryAll: '全部',
   categoryDesign: '設計',
   categoryContent: '內容',
@@ -194,7 +187,6 @@ export const agentsZhTW = {
   noRolesFound: '找不到符合條件的角色',
   tryDifferentSearch: '請嘗試不同的搜尋條件或分類篩選',
 
-  // Agents execution
   executionResult: '執行結果',
   executionId: '執行 ID',
   suggestedPlaybooks: '建議的 Playbook',
@@ -212,7 +204,6 @@ export const agentsZhTW = {
   toolsCount: '個工具',
   requiredToolsLabel: '需要的工具：',
 
-  // History
   refresh: '重新整理',
   noExecutionHistory: '還沒有執行記錄，去執行你的第一個 AI 團隊吧！',
   time: '時間',
@@ -220,7 +211,6 @@ export const agentsZhTW = {
   historyTask: '任務',
   duration: '耗時',
 
-  // AI Team
   aiTeamBehindThisMember: '這個成員背後的 AI 小隊',
 
 } as const satisfies Partial<Record<MessageKey, string>>;

@@ -1,11 +1,6 @@
-/**
- * agents i18n messages (English)
- */
 import type { MessageKey } from '../../keys';
 
 export const agentsEn = {
-
-  // Agents
   runAgent: 'Launch AI Team',
   pageTitle: 'Who do you want help from today?',
   pageSubtitle: 'In this Mindscape, which "professional role" AI members have you invited',
@@ -82,7 +77,6 @@ export const agentsEn = {
   allAgentsRunning: 'All AI teams are running...',
   allAgentsResults: 'All AI Teams Results',
 
-  // AI Roles
   roleProductDesigner: 'Graphic Design Assistant',
   roleProductDesignerDescription: 'Helps you organize product ideas, adjust page architecture, and turn vague feelings into requirements',
   roleProductDesignerTask1: 'Help me organize the core value and target users of this product idea',
@@ -182,7 +176,6 @@ export const agentsEn = {
   roleCourseProductionPartnerTeamTitle: 'AI Team Behind This Member',
   roleCourseProductionPartnerTeamDescription: 'Online Course Production Partner is supported by a professional AI team, each with specialized roles, allowing you to focus on teaching itself:',
 
-  // Categories
   categoryAll: 'All',
   categoryDesign: 'Design',
   categoryContent: 'Content',
@@ -194,7 +187,6 @@ export const agentsEn = {
   noRolesFound: 'No roles found',
   tryDifferentSearch: 'Try different search terms or category filters',
 
-  // Agents execution
   executionResult: 'Execution Result',
   executionId: 'Execution ID',
   suggestedPlaybooks: 'Suggested Playbooks',
@@ -212,7 +204,6 @@ export const agentsEn = {
   toolsCount: 'tools',
   requiredToolsLabel: 'Required Tools:',
 
-  // History
   refresh: 'Refresh',
   noExecutionHistory: 'No execution history yet. Go run your first AI team!',
   time: 'Time',
@@ -220,7 +211,6 @@ export const agentsEn = {
   historyTask: 'Task',
   duration: 'Duration',
 
-  // AI Team
   aiTeamBehindThisMember: 'AI Team Behind This Member',
 
 } as const satisfies Partial<Record<MessageKey, string>>;

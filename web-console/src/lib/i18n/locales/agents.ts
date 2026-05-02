@@ -1,11 +1,6 @@
-/**
- * Agents i18n messages
- * AI Agents, AI Roles, Categories, and agent execution
- */
 import type { MessageKey } from '../keys';
 
 export const agentsZhTW = {
-  // Agents
   runAgent: '啟動 AI 團隊',
   pageTitle: '今天想找誰幫忙？',
   pageSubtitle: '在這個心智空間裡，你請來了哪些「職業角色」的 AI 成員',
@@ -82,7 +77,6 @@ export const agentsZhTW = {
   allAgentsRunning: '所有 AI 小隊正在執行中...',
   allAgentsResults: '全部 AI 小隊執行結果',
 
-  // AI Roles
   roleProductDesigner: '產品設計師',
   roleProductDesignerDescription: '幫你整理產品想法、調整頁面架構、把模糊感受變成需求',
   roleProductDesignerTask1: '幫我整理這個產品想法的核心價值與目標用戶',
@@ -182,7 +176,6 @@ export const agentsZhTW = {
   roleCourseProductionPartnerTeamTitle: '這個成員背後的 AI 小隊',
   roleCourseProductionPartnerTeamDescription: '線上課程製作夥伴由一支專業的 AI 小隊協作，各司其職，讓你能專注在教學本身：',
 
-  // Categories
   categoryAll: '全部',
   categoryDesign: '設計',
   categoryContent: '內容',
@@ -194,7 +187,6 @@ export const agentsZhTW = {
   noRolesFound: '找不到符合條件的角色',
   tryDifferentSearch: '請嘗試不同的搜尋條件或分類篩選',
 
-  // Agents execution
   executionResult: '執行結果',
   executionId: '執行 ID',
   suggestedPlaybooks: '建議的 Playbook',
@@ -212,7 +204,6 @@ export const agentsZhTW = {
   toolsCount: '個工具',
   requiredToolsLabel: '需要的工具：',
 
-  // History
   refresh: '重新整理',
   noExecutionHistory: '還沒有執行記錄，去執行你的第一個 AI 團隊吧！',
   time: '時間',
@@ -220,12 +211,10 @@ export const agentsZhTW = {
   historyTask: '任務',
   duration: '耗時',
 
-  // AI Team
   aiTeamBehindThisMember: '這個成員背後的 AI 小隊',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const agentsEn = {
-  // Agents
   runAgent: 'Launch AI Team',
   pageTitle: 'Who do you want help from today?',
   pageSubtitle: 'In this Mindscape, which "professional role" AI members have you invited',
@@ -302,7 +291,6 @@ export const agentsEn = {
   allAgentsRunning: 'All AI teams are running...',
   allAgentsResults: 'All AI Teams Results',
 
-  // AI Roles
   roleProductDesigner: 'Product Designer',
   roleProductDesignerDescription: 'Helps you organize product ideas, adjust page architecture, and turn vague feelings into requirements',
   roleProductDesignerTask1: 'Help me organize the core value and target users of this product idea',
@@ -402,7 +390,6 @@ export const agentsEn = {
   roleCourseProductionPartnerTeamTitle: 'AI Team Behind This Member',
   roleCourseProductionPartnerTeamDescription: 'Online Course Production Partner is supported by a professional AI team, each with specialized roles, allowing you to focus on teaching itself:',
 
-  // Categories
   categoryAll: 'All',
   categoryDesign: 'Design',
   categoryContent: 'Content',
@@ -414,7 +401,6 @@ export const agentsEn = {
   noRolesFound: 'No roles found',
   tryDifferentSearch: 'Try different search terms or category filters',
 
-  // Agents execution
   executionResult: 'Execution Result',
   executionId: 'Execution ID',
   suggestedPlaybooks: 'Suggested Playbooks',
@@ -432,7 +418,6 @@ export const agentsEn = {
   toolsCount: 'tools',
   requiredToolsLabel: 'Required Tools:',
 
-  // History
   refresh: 'Refresh',
   noExecutionHistory: 'No execution history yet. Go run your first AI team!',
   time: 'Time',
@@ -440,6 +425,5 @@ export const agentsEn = {
   historyTask: 'Task',
   duration: 'Duration',
 
-  // AI Team
   aiTeamBehindThisMember: 'AI Team Behind This Member',
 } as const satisfies Partial<Record<MessageKey, string>>;

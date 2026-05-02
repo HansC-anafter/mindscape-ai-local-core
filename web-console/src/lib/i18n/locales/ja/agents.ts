@@ -1,11 +1,6 @@
-/**
- * Agents i18n messages (Japanese)
- * AI Agents, AI Roles, Categories, and agent execution
- */
 import type { MessageKey } from '../../keys';
 
 export const agentsJa = {
-  // Agents
   runAgent: 'AI チームを起動',
   pageTitle: '今日は誰に助けてもらいたいですか？',
   pageSubtitle: 'このマインドスケープでは、どの「職業ロール」の AI メンバーを招待しましたか',
@@ -82,7 +77,6 @@ export const agentsJa = {
   allAgentsRunning: 'すべての AI チームが実行中...',
   allAgentsResults: 'すべての AI チームの実行結果',
 
-  // AI Roles
   roleProductDesigner: 'プロダクトデザイナー',
   roleProductDesignerDescription: '製品アイデアを整理し、ページアーキテクチャを調整し、曖昧な感覚を要件に変換',
   roleProductDesignerTask1: 'この製品アイデアのコアバリューとターゲットユーザーを整理するのを手伝ってください',
@@ -182,7 +176,6 @@ export const agentsJa = {
   roleCourseProductionPartnerTeamTitle: 'このメンバーの背後にある AI チーム',
   roleCourseProductionPartnerTeamDescription: 'オンラインコース制作パートナーは、専門的な AI チームによってサポートされており、それぞれが専門的な役割を持ち、あなたが教育自体に集中できるようにします：',
 
-  // Categories
   categoryAll: 'すべて',
   categoryDesign: 'デザイン',
   categoryContent: 'コンテンツ',
@@ -194,7 +187,6 @@ export const agentsJa = {
   noRolesFound: '一致するロールが見つかりません',
   tryDifferentSearch: '異なる検索条件またはカテゴリフィルターをお試しください',
 
-  // Agents execution
   executionResult: '実行結果',
   executionId: '実行 ID',
   suggestedPlaybooks: '推奨プレイブック',
@@ -212,7 +204,6 @@ export const agentsJa = {
   toolsCount: '個のツール',
   requiredToolsLabel: '必要なツール：',
 
-  // History
   refresh: '更新',
   noExecutionHistory: 'まだ実行履歴がありません。最初の AI チームを実行してください！',
   time: '時間',
@@ -220,7 +211,5 @@ export const agentsJa = {
   historyTask: 'タスク',
   duration: '所要時間',
 
-  // AI Team
   aiTeamBehindThisMember: 'このメンバーの背後にある AI チーム',
 } as const satisfies Partial<Record<MessageKey, string>>;
-
