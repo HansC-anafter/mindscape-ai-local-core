@@ -1,11 +1,6 @@
-/**
- * Habit Learning i18n messages (Japanese)
- * Habit suggestions and habit management
- */
 import type { MessageKey } from '../../keys';
 
 export const habitJa = {
-  // Habit Learning
   habitSuggestions: '習慣提案',
   enableHabitSuggestions: '習慣提案を有効化',
   enableHabitSuggestionsDescription: 'システムは使用記録に基づいて習慣候補を提案します。確認後にデフォルトになります',
@@ -44,8 +39,6 @@ export const habitJa = {
   habitViewDetails: '詳細を表示',
   habitViewAuditLogs: '監査ログを表示',
 
-  // Habit errors
   habitConfirmFailed: '確認に失敗しました：{error}',
   habitRejectFailed: '拒否に失敗しました：{error}',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

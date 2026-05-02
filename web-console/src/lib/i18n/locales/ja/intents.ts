@@ -1,11 +1,6 @@
-/**
- * Intents i18n messages (Japanese)
- * Intent cards and long-term goals
- */
 import type { MessageKey } from '../../keys';
 
 export const intentsJa = {
-  // Intents
   intents: '意図カード',
   intentsDescription: '長期目標とプロジェクトを追跡',
   intentTitle: 'タイトル',
@@ -19,4 +14,3 @@ export const intentsJa = {
   newIntent: '新しい意図カード',
   editIntent: '意図カードを編集',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

@@ -1,11 +1,6 @@
-/**
- * Common i18n messages (Japanese)
- * Shared across all modules
- */
 import type { MessageKey } from '../../keys';
 
 export const commonJa = {
-  // Status
   status: 'ステータス',
   statusActive: '進行中',
   statusCompleted: '完了',
@@ -15,13 +10,11 @@ export const commonJa = {
   statusPaused: '一時停止',
   statusArchived: 'アーカイブ済み',
 
-  // Priority
   priorityLow: '低',
   priorityMedium: '中',
   priorityHigh: '高',
   priorityCritical: '緊急',
 
-  // Actions
   save: '保存',
   cancel: 'キャンセル',
   delete: '削除',
@@ -33,7 +26,6 @@ export const commonJa = {
   accept: '受け入れる',
   skip: 'スキップ',
 
-  // Common
   loading: '読み込み中...',
   saving: '保存中...',
   error: 'エラーが発生しました',
@@ -50,7 +42,6 @@ export const commonJa = {
   retryArtifactCreation: '成果物の作成を再試行',
   llmConfidenceScore: 'LLM 分析信頼度: {confidence} (範囲: 0~1)',
 
-  // Pending Tasks
   intentBasedOnAISuggestion: 'AI 提案に基づく意図：',
   editIntentLabel: '意図ラベルを編集',
   backgroundExecution: 'バックグラウンド実行',
@@ -60,7 +51,6 @@ export const commonJa = {
   confidence: '信頼度：',
   executionSuccessUpdating: '実行成功、更新中...',
 
-  // Background Tasks
   disabled: '無効',
   runningNormally: '正常に実行中',
   executionFailed: '実行失敗',
@@ -100,7 +90,6 @@ export const commonJa = {
   requiredToolsNotSupported: '必要なツールがサポートされていません',
   nextStep: '次のステップ',
   startedAt: '開始時刻',
-  // Tool Status Labels
   statusNotConfigured: '未設定',
   statusNotConnected: '未接続',
   statusConnected: '接続済み',
@@ -116,7 +105,6 @@ export const commonJa = {
   systemTools: 'システムツール',
   systemTool: 'システムツール',
 
-  // Sidebar Tabs
   tabScheduling: 'スケジュール',
   tabSchedulingSubtitle: 'タスク & 実行',
   tabOutcomes: '成果',
@@ -130,14 +118,12 @@ export const commonJa = {
   packUIEntryPoints: 'Pack UI エントリーポイント',
   backgroundTasksPanel: 'バックグラウンドタスクパネル',
 
-  // Copy actions
   copyAll: 'すべてコピー',
   copyAllMessages: 'すべてのメッセージをコピー',
   copyMessage: 'メッセージをコピー',
   copied: 'コピーしました',
   user: 'ユーザー',
   assistant: 'アシスタント',
-  // Common labels
   name: '名前',
   description: '説明',
   type: 'タイプ',
@@ -146,4 +132,3 @@ export const commonJa = {
   override: '上書き',
 
 } as const satisfies Partial<Record<MessageKey, string>>;
-

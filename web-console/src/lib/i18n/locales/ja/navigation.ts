@@ -1,11 +1,6 @@
-/**
- * Navigation i18n messages (Japanese)
- * Navigation menu items and routes
- */
 import type { MessageKey } from '../../keys';
 
 export const navigationJa = {
-  // Navigation
   navWorkspaces: 'ワークスペース',
   workspace: 'ワークスペース',
   backToWorkspaces: 'ワークスペース一覧に戻る',
@@ -23,4 +18,3 @@ export const navigationJa = {
   switchToDarkMode: 'ダークモードに切り替え',
   workspaceList: 'ワークスペース一覧',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

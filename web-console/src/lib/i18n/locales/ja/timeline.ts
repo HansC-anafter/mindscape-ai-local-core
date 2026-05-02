@@ -1,11 +1,6 @@
-/**
- * Timeline i18n messages (Japanese)
- * Timeline and event display
- */
 import type { MessageKey } from '../../keys';
 
 export const timelineJa = {
-  // Timeline
   timeline: 'タイムライン',
   timelineContentPlaceholder: 'タイムラインコンテンツがここに表示されます',
   viewFullTimeline: '完全なタイムラインを表示',
@@ -14,7 +9,6 @@ export const timelineJa = {
   timelineToolCall: 'ツール呼び出し',
   timelineWorkspaceCreated: 'ワークスペース作成',
 
-  // Timeline Panel Sections
   timelineRunning: '実行中',
   timelinePendingConfirmation: '確認待ち',
   timelineArchived: 'アーカイブ済み',
@@ -23,7 +17,6 @@ export const timelineJa = {
   noPendingConfirmations: '確認待ちのステップはありません',
   noArchivedExecutions: 'アーカイブ済みの実行はありません',
 
-  // Execution Console
   executionAISuggested: '（AI 推測、実行中でも変更可能）',
   executionRequiresConfirmation: '確認が必要',
   executionSummary: '実行サマリー',
@@ -35,4 +28,3 @@ export const timelineJa = {
   executionSelectStepForDetails: '詳細を表示するステップを選択',
   executionCancel: '実行をキャンセル',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

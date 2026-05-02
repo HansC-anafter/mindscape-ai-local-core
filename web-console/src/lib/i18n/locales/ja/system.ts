@@ -1,11 +1,6 @@
-/**
- * System Management i18n messages (Japanese)
- * System Management, System Health
- */
 import type { MessageKey } from '../../keys';
 
 export const systemJa = {
-  // System Management
   systemManagement: 'システム管理と統合',
   serviceStatus: 'サービスステータス',
   systemManagementDescription: 'ツール、能力登録、接続、システム統合を管理',
@@ -54,7 +49,6 @@ export const systemJa = {
   discoveryMethodPlugin: 'プラグイン',
   discoveryMethodFallback: 'フォールバック',
 
-  // System Health
   systemHealthStatus: 'システムヘルスチェック',
   systemHealthNormal: 'システムステータス正常',
   systemStatusNormal: 'システムステータス正常',
@@ -69,4 +63,3 @@ export const systemJa = {
   allSystemsNormal: '✓ すべてのシステム正常',
   configureApiKey: 'API キーを設定',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

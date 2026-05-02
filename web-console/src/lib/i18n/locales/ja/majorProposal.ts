@@ -1,11 +1,6 @@
-/**
- * Major Proposal i18n messages (Japanese)
- * Major proposal errors and UI strings
- */
 import type { MessageKey } from '../../keys';
 
 export const majorProposalJa = {
-  // Major Proposal errors
   majorProposalDraftGenerated: '章の草稿が生成されました！',
   majorProposalGenerateFailed: '生成に失敗しました：{error}',
   majorProposalAssembleFailed: '組み立てに失敗しました：{error}',
@@ -37,4 +32,3 @@ export const majorProposalJa = {
   majorProposalWordLimit: '文字数制限: {min} - {max} 文字',
   majorProposalNoWordLimit: '文字数制限: {min} - 上限なし 文字',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

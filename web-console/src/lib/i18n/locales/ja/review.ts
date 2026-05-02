@@ -1,11 +1,6 @@
-/**
- * Review i18n messages (Japanese)
- * Review preferences and review-related functionality
- */
 import type { MessageKey } from '../../keys';
 
 export const reviewJa = {
-  // Review Preferences
   reviewPreferences: '年間レビューリズム',
   reviewCadence: 'レビューリズム',
   reviewCadenceManual: '自動リマインダーなし',
@@ -27,7 +22,5 @@ export const reviewJa = {
   dayOfWeekSaturday: '土曜日',
   dayOfWeekSunday: '日曜日',
 
-  // Review errors
   reviewStartFailed: 'レビューの開始に失敗しました：{error}',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

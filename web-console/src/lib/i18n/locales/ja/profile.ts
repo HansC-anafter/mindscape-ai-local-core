@@ -1,11 +1,6 @@
-/**
- * Profile i18n messages (Japanese)
- * User profile and preferences
- */
 import type { MessageKey } from '../../keys';
 
 export const profileJa = {
-  // Profile
   profile: 'プロフィール',
   profileDescription: 'あなたが誰か、あなたの役割と好みを定義',
   name: '名前',
@@ -17,4 +12,3 @@ export const profileJa = {
   responseLength: '応答の長さ',
   language: '言語',
 } as const satisfies Partial<Record<MessageKey, string>>;
-
