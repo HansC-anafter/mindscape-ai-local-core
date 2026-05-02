@@ -45,7 +45,7 @@ The backend runtime includes routes for:
 - materialization of object outcomes through owner capability backends
 - object graph projection with persisted relation fallback
 
-The frontend includes an AOL runtime shell provider and anchors that let workspace capability pages participate in object targeting and meeting attachment flows.
+The frontend includes the addressable-object host provider, host shell components, and meeting bottom shell surfaces that let workspace capability pages participate in object targeting and meeting attachment flows.
 
 ## Optional Runtime Adapters
 
