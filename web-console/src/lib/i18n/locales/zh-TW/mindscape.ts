@@ -1,11 +1,7 @@
-/**
- * mindscape i18n messages (Traditional Chinese)
- */
 import type { MessageKey } from '../../keys';
 
 export const mindscapeZhTW = {
 
-  // Mindscape
   mindscape: '心智空間',
   mindscapeDescription: '這裡是「你的人生/工作地圖 & 偏好」的地方',
   mindscapeSubDescription: '自我描述、價值觀、目前階段、工作角色、重要專案 / 客戶 / 目標',
@@ -56,7 +52,6 @@ export const mindscapeZhTW = {
   whatAreYouThinking: '遇到什麼卡點或在想什麼',
   quickSetup: '快速設定（不到 1 分鐘）',
 
-  // Self-intro Dialog
   letAIKnowYou: '讓 AI 認識現在的你',
   close: '關閉',
   optional: '選填',
@@ -69,11 +64,9 @@ export const mindscapeZhTW = {
   submitting: '設定中...',
   completeSetup: '完成設定',
 
-  // TaskCard
   taskLabel: '任務',
   taskCompleted: '已完成',
 
-  // OnboardingBanner
   congratulationsFullyActivated: '恭喜！心智空間已完全啟動，所有 Buff 已點滿',
   afterTaskCompletion: '之後每次你完成任務，系統都會從使用記錄中挖出新的線索，再問你要不要「升級」這份心智空間。',
   welcomeToMindscape: '歡迎來到心智空間',
@@ -90,7 +83,6 @@ export const mindscapeZhTW = {
   notActivated: '未啟動',
   afterCompletionMindscapeWillOrganize: '完成後，心智空間就會開始自動幫你整理人生／工作的全局。',
 
-  // Mindscape errors
   mindscapeAcceptSuggestion: '已接受建議：{title}',
   mindscapeAcceptSuggestionFailed: '接受建議失敗：{error}',
   mindscapeSkipSuggestionFailed: '略過建議失敗：{error}',
@@ -98,7 +90,6 @@ export const mindscapeZhTW = {
   longTermProject: '長期專案',
   designPrinciple: '設計原則',
 
-  // Mind Profile
   mindProfileCardTitle: '心智檔案',
   mindProfileDirectionTitle: '方向',
   mindProfileActionTitle: '行動',
@@ -112,13 +103,11 @@ export const mindscapeZhTW = {
   mindProfileOpenGraphButton: '開啟圖譜',
   mindProfileKnowledgeCount: '{count} 項',
 
-  // Graph Lens
   graphLensLabel: '視角',
   graphLensAll: '全部',
   graphLensDirection: '方向',
   graphLensAction: '行動',
 
-  // Graph Node Type
   graphNodeTypeLabel: '類型',
   graphNodeTypeValue: '價值',
   graphNodeTypeWorldview: '世界觀',
@@ -128,7 +117,6 @@ export const mindscapeZhTW = {
   graphNodeTypeRole: '角色',
   graphNodeTypeRhythm: '節奏',
 
-  // Graph Node
   graphNodeDescriptionLabel: '描述',
   graphNodeLinkedPlaybooksLabel: '連結的劇本',
   graphNodeNoLinkedPlaybooks: '無連結的劇本',
@@ -149,7 +137,6 @@ export const mindscapeZhTW = {
   graphNodeIsActiveLabel: '啟用',
   graphNodeConfidenceLabel: '信心度',
 
-  // Graph Node Playbook Link
   graphNodeLinkPlaybookTitle: '連結劇本',
   graphNodePlaybookCodeLabel: '劇本代碼',
   graphNodePlaybookCodePlaceholder: '輸入劇本代碼',
@@ -158,20 +145,17 @@ export const mindscapeZhTW = {
   graphNodeUnlinkPlaybookConfirm: '取消連結劇本',
   graphNodeUnlinkPlaybookFailed: '取消連結劇本失敗',
 
-  // Graph Node Workspace
   graphNodeOpenWorkspaceTitle: '開啟工作區',
   graphNodeWorkspaceIdLabel: '工作區 ID',
   graphNodeWorkspaceIdPlaceholder: '輸入工作區 ID',
   graphNodeWorkspaceIdHint: '要開啟的工作區 ID',
 
-  // Graph Empty State
   graphEmptyTitle: '圖譜為空',
   graphEmptyDescription: '尚未創建任何節點',
   graphEmptyHint: '點擊下方按鈕快速初始化示例節點，或點擊右上角的「創建節點」按鈕手動建立',
   graphInitializeButton: '初始化示例節點',
   graphInitializeFailed: '初始化失敗，請稍後再試',
 
-  // Common actions
   link: '連結',
   linking: '連結中...',
   binding: '綁定',

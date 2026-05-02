@@ -1,11 +1,6 @@
-/**
- * Mindscape i18n messages (Japanese)
- * Mindscape-related messages including onboarding, self-intro, task cards
- */
 import type { MessageKey } from '../../keys';
 
 export const mindscapeJa = {
-  // Mindscape
   mindscape: 'マインドスケープ',
   mindscapeDescription: 'ここは「あなたの人生/仕事マップ & 好み」の場所',
   mindscapeSubDescription: '自己紹介、価値観、現在の段階、仕事の役割、重要なプロジェクト / クライアント / 目標',
@@ -56,7 +51,6 @@ export const mindscapeJa = {
   whatAreYouThinking: 'どのような障害や考えがありますか',
   quickSetup: 'クイック設定（1 分未満）',
 
-  // Self-intro Dialog
   letAIKnowYou: 'AI に今のあなたを知らせる',
   close: '閉じる',
   optional: 'オプション',
@@ -69,11 +63,9 @@ export const mindscapeJa = {
   submitting: '設定中...',
   completeSetup: '設定を完了',
 
-  // TaskCard
   taskLabel: 'タスク',
   taskCompleted: '完了',
 
-  // OnboardingBanner
   congratulationsFullyActivated: 'おめでとうございます！マインドスケープが完全に起動し、すべてのバフが最大になりました',
   afterTaskCompletion: '今後、タスクを完了するたびに、システムは使用記録から新しい手がかりを抽出し、このマインドスケープを「アップグレード」するかどうかを尋ねます。',
   welcomeToMindscape: 'マインドスケープへようこそ',
@@ -90,7 +82,6 @@ export const mindscapeJa = {
   notActivated: '未起動',
   afterCompletionMindscapeWillOrganize: '完了すると、マインドスケープは自動的にあなたの人生/仕事の全体像の整理を開始します。',
 
-  // Mindscape errors
   mindscapeAcceptSuggestion: '提案を受け入れました：{title}',
   mindscapeAcceptSuggestionFailed: '提案の受け入れに失敗しました：{error}',
   mindscapeSkipSuggestionFailed: '提案のスキップに失敗しました：{error}',
@@ -98,7 +89,6 @@ export const mindscapeJa = {
   longTermProject: '長期プロジェクト',
   designPrinciple: 'デザイン原則',
 
-  // Mind Profile
   mindProfileCardTitle: 'マインドプロファイル',
   mindProfileDirectionTitle: '方向',
   mindProfileActionTitle: 'アクション',
@@ -112,13 +102,11 @@ export const mindscapeJa = {
   mindProfileOpenGraphButton: 'グラフを開く',
   mindProfileKnowledgeCount: '{count} 項目',
 
-  // Graph Lens
   graphLensLabel: 'レンズ',
   graphLensAll: 'すべて',
   graphLensDirection: '方向',
   graphLensAction: 'アクション',
 
-  // Graph Node Type
   graphNodeTypeLabel: 'タイプ',
   graphNodeTypeValue: '価値',
   graphNodeTypeWorldview: '世界観',
@@ -128,7 +116,6 @@ export const mindscapeJa = {
   graphNodeTypeRole: '役割',
   graphNodeTypeRhythm: 'リズム',
 
-  // Graph Node
   graphNodeDescriptionLabel: '説明',
   graphNodeLinkedPlaybooksLabel: 'リンクされたプレイブック',
   graphNodeNoLinkedPlaybooks: 'リンクされたプレイブックなし',
@@ -149,7 +136,6 @@ export const mindscapeJa = {
   graphNodeIsActiveLabel: 'アクティブ',
   graphNodeConfidenceLabel: '信頼度',
 
-  // Graph Node Playbook Link
   graphNodeLinkPlaybookTitle: 'プレイブックをリンク',
   graphNodePlaybookCodeLabel: 'プレイブックコード',
   graphNodePlaybookCodePlaceholder: 'プレイブックコードを入力',
@@ -158,23 +144,19 @@ export const mindscapeJa = {
   graphNodeUnlinkPlaybookConfirm: 'プレイブックのリンクを解除',
   graphNodeUnlinkPlaybookFailed: 'プレイブックのリンク解除に失敗しました',
 
-  // Graph Node Workspace
   graphNodeOpenWorkspaceTitle: 'ワークスペースを開く',
   graphNodeWorkspaceIdLabel: 'ワークスペース ID',
   graphNodeWorkspaceIdPlaceholder: 'ワークスペース ID を入力',
   graphNodeWorkspaceIdHint: '開くワークスペースの ID',
 
-  // Graph Empty State
   graphEmptyTitle: 'グラフが空です',
   graphEmptyDescription: 'まだノードが作成されていません',
   graphEmptyHint: '下のボタンをクリックしてサンプルノードを素早く初期化するか、右上の「ノードを作成」ボタンをクリックして手動で構築してください',
   graphInitializeButton: 'サンプルノードを初期化',
   graphInitializeFailed: '初期化に失敗しました。後でもう一度お試しください',
 
-  // Common actions
   link: 'リンク',
   linking: 'リンク中...',
   binding: 'バインド',
 
 } as const satisfies Partial<Record<MessageKey, string>>;
-

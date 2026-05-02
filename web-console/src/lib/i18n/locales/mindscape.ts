@@ -1,11 +1,6 @@
-/**
- * Mindscape i18n messages
- * Mindscape-related messages including onboarding, self-intro, task cards
- */
 import type { MessageKey } from '../keys';
 
 export const mindscapeZhTW = {
-  // Mindscape
   mindscape: '心智空間',
   mindscapeDescription: '這裡是「你的人生/工作地圖 & 偏好」的地方',
   mindscapeSubDescription: '自我描述、價值觀、目前階段、工作角色、重要專案 / 客戶 / 目標',
@@ -56,7 +51,6 @@ export const mindscapeZhTW = {
   whatAreYouThinking: '遇到什麼卡點或在想什麼',
   quickSetup: '快速設定（不到 1 分鐘）',
 
-  // Self-intro Dialog
   letAIKnowYou: '讓 AI 認識現在的你',
   close: '關閉',
   optional: '選填',
@@ -69,11 +63,9 @@ export const mindscapeZhTW = {
   submitting: '設定中...',
   completeSetup: '完成設定',
 
-  // TaskCard
   taskLabel: '任務',
   taskCompleted: '已完成',
 
-  // OnboardingBanner
   congratulationsFullyActivated: '恭喜！心智空間已完全啟動，所有 Buff 已點滿',
   afterTaskCompletion: '之後每次你完成任務，系統都會從使用記錄中挖出新的線索，再問你要不要「升級」這份心智空間。',
   welcomeToMindscape: '歡迎來到心智空間',
@@ -90,7 +82,6 @@ export const mindscapeZhTW = {
   notActivated: '未啟動',
   afterCompletionMindscapeWillOrganize: '完成後，心智空間就會開始自動幫你整理人生／工作的全局。',
 
-  // Mindscape errors
   mindscapeAcceptSuggestion: '已接受建議：{title}',
   mindscapeAcceptSuggestionFailed: '接受建議失敗：{error}',
   mindscapeSkipSuggestionFailed: '略過建議失敗：{error}',
@@ -98,7 +89,6 @@ export const mindscapeZhTW = {
   longTermProject: '長期專案',
   designPrinciple: '設計原則',
 
-  // Mind Profile Card
   mindProfileCardTitle: '我的心智輪廓（beta）',
   mindProfileDirectionTitle: '方向指引',
   mindProfileActionTitle: '行動指引',
@@ -112,13 +102,11 @@ export const mindscapeZhTW = {
   mindProfileOpenGraphButton: '打開心智圖譜 →',
   mindProfileKnowledgeCount: '{count} 篇文檔已連結',
 
-  // Graph Controls
   graphLensLabel: '視角：',
   graphLensAll: '全部',
   graphLensDirection: '方向視角',
   graphLensAction: '行動視角',
 
-  // Graph Node
   graphNodeTypeLabel: '類型',
   graphNodeTypeValue: '價值觀',
   graphNodeTypeWorldview: '世界觀',
@@ -176,7 +164,6 @@ export const mindscapeZhTW = {
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const mindscapeEn = {
-  // Mindscape
   mindscape: 'Mindscape',
   mindscapeDescription: 'This is where "your life/work map & preferences" live',
   mindscapeSubDescription: 'Self-description, values, current stage, work roles, important projects/clients/goals',
@@ -227,7 +214,6 @@ export const mindscapeEn = {
   whatAreYouThinking: 'What blockers or thoughts do you have',
   quickSetup: 'Quick Setup (less than 1 min)',
 
-  // Self-intro Dialog
   letAIKnowYou: 'Let AI Know You',
   close: 'Close',
   optional: 'Optional',
@@ -240,11 +226,9 @@ export const mindscapeEn = {
   submitting: 'Submitting...',
   completeSetup: 'Complete Setup',
 
-  // TaskCard
   taskLabel: 'Task',
   taskCompleted: 'Completed',
 
-  // OnboardingBanner
   congratulationsFullyActivated: 'Congratulations! Mindscape is Fully Activated - All Buffs Maxed',
   afterTaskCompletion: 'From now on, every time you complete a task, the system will extract new clues from your usage records and ask if you want to "upgrade" this Mindscape.',
   welcomeToMindscape: 'Welcome to Mindscape',
@@ -261,7 +245,6 @@ export const mindscapeEn = {
   notActivated: 'Not Activated',
   afterCompletionMindscapeWillOrganize: 'Once completed, Mindscape will automatically start organizing the big picture of your life/work.',
 
-  // Mindscape errors
   mindscapeAcceptSuggestion: 'Suggestion accepted: {title}',
   mindscapeAcceptSuggestionFailed: 'Failed to accept suggestion: {error}',
   mindscapeSkipSuggestionFailed: 'Failed to skip suggestion: {error}',
@@ -269,7 +252,6 @@ export const mindscapeEn = {
   longTermProject: 'Long-term Project',
   designPrinciple: 'Design Principle',
 
-  // Mind Profile Card
   mindProfileCardTitle: 'My Mind Profile (beta)',
   mindProfileDirectionTitle: 'Direction Guidance',
   mindProfileActionTitle: 'Action Guidance',
@@ -283,13 +265,11 @@ export const mindscapeEn = {
   mindProfileOpenGraphButton: 'Open Mind Graph →',
   mindProfileKnowledgeCount: '{count} documents linked',
 
-  // Graph Controls
   graphLensLabel: 'Lens:',
   graphLensAll: 'All',
   graphLensDirection: 'Direction',
   graphLensAction: 'Action',
 
-  // Graph Node
   graphNodeTypeLabel: 'Type',
   graphNodeTypeValue: 'Value',
   graphNodeTypeWorldview: 'Worldview',

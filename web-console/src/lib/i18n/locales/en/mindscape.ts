@@ -1,11 +1,7 @@
-/**
- * mindscape i18n messages (English)
- */
 import type { MessageKey } from '../../keys';
 
 export const mindscapeEn = {
 
-  // Mindscape
   mindscape: 'Mindscape',
   mindscapeDescription: 'This is where "your life/work map & preferences" live',
   mindscapeSubDescription: 'Self-description, values, current stage, work roles, important projects/clients/goals',
@@ -56,7 +52,6 @@ export const mindscapeEn = {
   whatAreYouThinking: 'What blockers or thoughts do you have',
   quickSetup: 'Quick Setup (less than 1 min)',
 
-  // Self-intro Dialog
   letAIKnowYou: 'Let AI Know You',
   close: 'Close',
   optional: 'Optional',
@@ -69,11 +64,9 @@ export const mindscapeEn = {
   submitting: 'Submitting...',
   completeSetup: 'Complete Setup',
 
-  // TaskCard
   taskLabel: 'Task',
   taskCompleted: 'Completed',
 
-  // OnboardingBanner
   congratulationsFullyActivated: 'Congratulations! Mindscape is Fully Activated - All Buffs Maxed',
   afterTaskCompletion: 'From now on, every time you complete a task, the system will extract new clues from your usage records and ask if you want to "upgrade" this Mindscape.',
   welcomeToMindscape: 'Welcome to Mindscape',
@@ -90,7 +83,6 @@ export const mindscapeEn = {
   notActivated: 'Not Activated',
   afterCompletionMindscapeWillOrganize: 'Once completed, Mindscape will automatically start organizing the big picture of your life/work.',
 
-  // Mindscape errors
   mindscapeAcceptSuggestion: 'Suggestion accepted: {title}',
   mindscapeAcceptSuggestionFailed: 'Failed to accept suggestion: {error}',
   mindscapeSkipSuggestionFailed: 'Failed to skip suggestion: {error}',
@@ -98,7 +90,6 @@ export const mindscapeEn = {
   longTermProject: 'Long-term Project',
   designPrinciple: 'Design Principle',
 
-  // Mind Profile
   mindProfileCardTitle: 'Mind Profile',
   mindProfileDirectionTitle: 'Direction',
   mindProfileActionTitle: 'Action',
@@ -112,13 +103,11 @@ export const mindscapeEn = {
   mindProfileOpenGraphButton: 'Open Graph',
   mindProfileKnowledgeCount: '{count} items',
 
-  // Graph Lens
   graphLensLabel: 'Lens',
   graphLensAll: 'All',
   graphLensDirection: 'Direction',
   graphLensAction: 'Action',
 
-  // Graph Node Type
   graphNodeTypeLabel: 'Type',
   graphNodeTypeValue: 'Value',
   graphNodeTypeWorldview: 'Worldview',
@@ -128,7 +117,6 @@ export const mindscapeEn = {
   graphNodeTypeRole: 'Role',
   graphNodeTypeRhythm: 'Rhythm',
 
-  // Graph Node
   graphNodeDescriptionLabel: 'Description',
   graphNodeLinkedPlaybooksLabel: 'Linked Playbooks',
   graphNodeNoLinkedPlaybooks: 'No linked playbooks',
@@ -149,7 +137,6 @@ export const mindscapeEn = {
   graphNodeIsActiveLabel: 'Active',
   graphNodeConfidenceLabel: 'Confidence',
 
-  // Graph Node Playbook Link
   graphNodeLinkPlaybookTitle: 'Link Playbook',
   graphNodePlaybookCodeLabel: 'Playbook Code',
   graphNodePlaybookCodePlaceholder: 'Enter playbook code',
@@ -158,20 +145,17 @@ export const mindscapeEn = {
   graphNodeUnlinkPlaybookConfirm: 'Unlink Playbook',
   graphNodeUnlinkPlaybookFailed: 'Failed to unlink playbook',
 
-  // Graph Node Workspace
   graphNodeOpenWorkspaceTitle: 'Open Workspace',
   graphNodeWorkspaceIdLabel: 'Workspace ID',
   graphNodeWorkspaceIdPlaceholder: 'Enter workspace ID',
   graphNodeWorkspaceIdHint: 'The ID of the workspace to open',
 
-  // Graph Empty State
   graphEmptyTitle: 'Graph is Empty',
   graphEmptyDescription: 'No nodes have been created yet',
   graphEmptyHint: 'Click the button below to quickly initialize sample nodes, or click "Create Node" in the top right to manually build',
   graphInitializeButton: 'Initialize Sample Nodes',
   graphInitializeFailed: 'Initialization failed, please try again later',
 
-  // Common actions
   link: 'Link',
   linking: 'Linking...',
   binding: 'Binding',
