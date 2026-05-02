@@ -18,6 +18,7 @@ Only documents that have been checked against the current repository are listed 
 - [Tool Retrieval and Resource Bindings](./tool-retrieval-and-resource-bindings.md)
 - [Meeting Orchestration](./meeting-orchestration.md)
 - [TaskIR and Dispatch](./taskir-and-dispatch.md)
+- [Implementation Landmarks](./implementation-landmarks.md)
 
 ## Release Rules
 

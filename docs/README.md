@@ -8,6 +8,7 @@ Detailed architecture notes, capability authoring notes, unreleased API referenc
 
 - [Getting Started](./getting-started/README.md)
 - [Architecture](./architecture/README.md)
+- [Implementation Landmarks](./architecture/implementation-landmarks.md)
 - [Installation Guide](./getting-started/installation.md)
 - [Docker Deployment Guide](./getting-started/docker.md)
 - [Platform-Specific Installation Notes](./getting-started/platform-specific.md)
