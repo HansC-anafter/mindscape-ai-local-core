@@ -1,7 +1,3 @@
-/**
- * Settings-related i18n message keys
- * Application settings, configuration, preferences
- */
 
 export const settingsKeys = {
   settings: true,
@@ -26,7 +22,6 @@ export const settingsKeys = {
   viewAllSettings: true,
   saveSettings: true,
 
-  // Language and locale
   language: true,
   locale: true,
   mainLanguage: true,
@@ -43,7 +38,6 @@ export const settingsKeys = {
   translationManagementComingSoon: true,
   selectLocalizationSection: true,
 
-  // API Keys
   llmApiKeyConfig: true,
   anthropicApiKey: true,
   openaiApiKey: true,
@@ -60,7 +54,6 @@ export const settingsKeys = {
   configureApiKey: true,
   configureApiKeyFirst: true,
 
-  // LLM Configuration
   chatModel: true,
   chatModelDescription: true,
   currentModel: true,
@@ -138,7 +131,6 @@ export const settingsKeys = {
   enableModelToConfigure: true,
   resetDate: true,
 
-  // Backend configuration
   backendConfiguration: true,
   backendDescription: true,
   backendMode: true,
@@ -150,7 +142,6 @@ export const settingsKeys = {
   localLLMDescription: true,
   operationMode: true,
 
-  // Vector DB
   vectorDB: true,
   vectorDBConfig: true,
   enableVectorDB: true,
@@ -158,7 +149,6 @@ export const settingsKeys = {
   customPostgreSQL: true,
   customPostgreSQLDescription: true,
 
-  // Obsidian
   enableObsidianIntegration: true,
   obsidianConfig: true,
   obsidianVaultIntegration: true,
@@ -176,7 +166,6 @@ export const settingsKeys = {
   obsidianIncludeTagsDescription: true,
   syncToObsidian: true,
 
-  // Work rhythm
   workRhythmSettings: true,
   workRhythmCalibrationStatus: true,
   preferredRhythm: true,
@@ -184,7 +173,6 @@ export const settingsKeys = {
   optionalCalibration: true,
   projectCalibrationStatus: true,
 
-  // Preferences
   preferences: true,
   memberPreferences: true,
   memberPreferencesDescription: true,
@@ -198,7 +186,6 @@ export const settingsKeys = {
   habitSuggestionsEnabled: true,
   habitSuggestionsDisabled: true,
 
-  // Config Assistant
   configAssistant: true,
   configAssistantWelcome: true,
   configAssistantHelpLLM: true,
@@ -265,12 +252,10 @@ export const settingsKeys = {
   unsplashFingerprintsProgressNote: true,
   unsplashFingerprintsTableNotCreated: true,
 
-  // Theme preset
   themePreset: true,
   themePresetDescription: true,
   themePresetOnlyInLightMode: true,
 
-  // Cloud frontend URL
   cloudFrontendUrl: true,
   cloudFrontendUrlDescription: true,
   cloudFrontendUrlLabel: true,
@@ -278,7 +263,6 @@ export const settingsKeys = {
   cloudFrontendUrlSaved: true,
   failedToSaveCloudFrontendUrl: true,
 
-  // Workflow discovery & Folder Picker
   selectFolder: true,
   searchFolders: true,
   emptyDirectory: true,
@@ -295,7 +279,6 @@ export const settingsKeys = {
   retry: true,
   selected: true,
 
-  // Runtime Environments
   runtimeEnvironments: true,
   runtimeEnvironmentsDescription: true,
   addRuntime: true,
@@ -306,7 +289,6 @@ export const settingsKeys = {
   add: true,
   loading: true,
 
-  // Port Configuration
   portConfiguration: true,
   portConfigurationDescription: true,
   clusterIdentifier: true,

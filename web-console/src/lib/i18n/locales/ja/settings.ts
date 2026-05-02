@@ -1,7 +1,3 @@
-/**
- * Settings i18n messages (Japanese)
- * Settings, Settings Tabs, Tool Actions, Capability Packs, Local File System, Vector DB, Obsidian
- */
 import type { MessageKey } from '../../keys';
 import { slackJa } from '../saas/slack';
 import { airtableJa } from '../saas/airtable';
@@ -10,7 +6,6 @@ import { githubJa } from '../saas/github';
 import { toolsJa } from '../saas/tools';
 
 export const settingsJa = {
-  // Settings
   settings: '設定',
   backendConfiguration: 'エージェントバックエンド設定',
   backendDescription: 'エージェントの実行方法を設定します。ほとんどのユーザーには「ローカル LLM」を推奨します。リモートバックエンドは開発者向けの高度なオプションです。',
@@ -172,7 +167,6 @@ export const settingsJa = {
   editMCPServer: 'MCP サーバーを編集',
   configureMCPServer: 'MCP サーバーを設定',
 
-  // Settings Tabs
   basicSettings: '基本設定',
   credentialsAndOAuth: '認証情報と OAuth 統合',
   serviceCredentials: 'サービス認証情報',
@@ -205,7 +199,6 @@ export const settingsJa = {
   clearCredential: '認証情報を削除',
   clearingCredential: '削除中...',
 
-  // Tool Actions
   testing: 'テスト中...',
   connectionTestSuccessful: '接続テスト成功！',
   manage: '管理',
@@ -214,7 +207,6 @@ export const settingsJa = {
   toolsCountLabel: '個のツール',
   discovering: '発見中...',
 
-  // Capability Packs
   installed: 'インストール済み',
   installing: 'インストール中...',
   installPack: '能力パックをインストール',
@@ -235,14 +227,12 @@ export const settingsJa = {
   capabilityStoredInDefaultAssistantTitle: '能力がデフォルトアシスタントロールに一時保存されました',
   capabilityAssignedToDefaultAssistant: 'この能力はデフォルトアシスタントロールに割り当てられました。設定でより適切なロールに再割り当てできます。',
   mainCapabilities: '主要能力',
-  // Pack names and descriptions
   packProductDesignerName: 'プロダクトデザイナーパック',
   packProductDesignerDescription: '製品アイデアを整理し、ページアーキテクチャを調整し、曖昧な感覚を要件に変換',
   packContentCreatorName: 'コンテンツクリエイターパック',
   packContentCreatorDescription: 'コンテンツの構想、構造の調整、テキストの磨き上げを一緒に行う',
   packWordPressWebmasterName: 'WordPress ウェブマスターパック',
   packWordPressWebmasterDescription: 'WordPress サイトの管理を支援：SEO、コンテンツ、注文、データ分析',
-  // Pack capabilities
   packProductDesignerCap1: '製品要件を分解 → 仕様表',
   packProductDesignerCap2: '情報アーキテクチャを設計 → ページブロック',
   packProductDesignerCap3: 'インタビュー / フィードバックを整理 → インサイト',
@@ -254,7 +244,6 @@ export const settingsJa = {
   packWordPressWebmasterCap3: '注文分析 → 異常検出',
   packWordPressWebmasterCap4: 'データ分析 → トラフィックとコンバージョンレポート',
 
-  // Local File System
   localFileSystemConfig: 'ローカルファイルシステム設定',
   allowedDirectories: 'アクセスを許可するディレクトリ',
   enterNewDirectoryPath: '新しいディレクトリパスを入力...',
@@ -266,7 +255,6 @@ export const settingsJa = {
   allowWriteDescription: '有効にすると、AI がファイルを作成および変更できます。必要時のみ有効にすることを推奨します。',
   supportedPathFormats: 'サポートされるパス形式：絶対パス（例：/home/user/Documents）、相対パス（例：./data/documents）、ユーザーディレクトリ（例：~/Documents）',
 
-  // Vector DB
   vectorDBConfig: 'ベクトルデータベース設定（PostgreSQL / pgvector）',
   operationMode: '動作モード',
   localMode: 'ローカルモード（デフォルト）',
@@ -312,7 +300,6 @@ export const settingsJa = {
   location: '場所',
   deprecated: '非推奨',
 
-  // Obsidian
   obsidianConfig: 'Obsidian 設定',
   obsidianVaultPaths: 'Vault パス',
   obsidianVaultPathsDescription: '1 つ以上の Obsidian Vault パスを選択',
@@ -335,7 +322,6 @@ export const settingsJa = {
   pleaseEnterTag: 'タグを入力してください',
   tagAlreadyExists: 'このタグは既に存在します',
 
-  // Google OAuth
   oauthIntegration: 'OAuth 統合',
   googleOAuthConfiguration: 'Google OAuth 設定',
   googleOAuthDescription: 'Google Drive 統合用に Google OAuth 2.0 認証情報を設定します。認証情報は',
@@ -365,7 +351,6 @@ export const settingsJa = {
   googleOAuthConfigurationSaved: 'Google OAuth 設定が正常に保存されました',
   failedToTestOAuthConfiguration: 'OAuth 設定のテストに失敗しました',
 
-  // Service Status
   serviceStatus: 'サービスステータス',
   loadingServiceStatus: 'サービスステータスを読み込み中...',
   failedToLoadServiceStatus: 'サービスステータスの読み込みに失敗しました',
@@ -397,7 +382,6 @@ export const settingsJa = {
   copyRedirectURI: 'Redirect URI をコピー',
   redirectURICopied: 'Redirect URI がクリップボードにコピーされました',
 
-  // Configuration Assistant
   configAssistant: '設定アシスタント',
   configAssistantWelcome: 'ようこそ！以下のお手伝いができます：',
   configAssistantHelpLLM: 'LLM API キーの設定',
@@ -429,13 +413,11 @@ export const settingsJa = {
   configureLLMKeys: 'LLM キーを設定',
   connectTools: 'ツールを接続',
   viewAllSettings: 'すべての設定を表示',
-  // SaaS integrations - imported from modular files
   ...slackJa,
   ...airtableJa,
   ...googleSheetsJa,
   ...githubJa,
   ...toolsJa,
-  // Workspace storage configuration
   configureWorkspaceStoragePath: 'ワークスペース保存パスの設定',
   workspaceStoragePath: 'ワークスペース保存パス',
   workspaceStoragePathDescription: 'ワークスペースのファイル保存パスを設定します。すべての Playbook 成果物はこのパスの下に保存されます。',
@@ -462,7 +444,6 @@ export const settingsJa = {
   workspaceStoragePathLabel: 'ワークスペース保存パス：',
   storagePathConfigured: '保存パスが設定されました',
 
-  // Cloud Extension
   cloudExtension: 'クラウド拡張',
   cloudPlaybookProviders: 'クラウド Playbook プロバイダー',
   cloudPlaybookProvidersDescription: 'リモートサービスから Playbook にアクセスするためのクラウドプロバイダーを設定します。すべてのプロバイダーは同じ中立インターフェースを通じて設定されます - 「公式」と「カスタム」の区別はありません。',

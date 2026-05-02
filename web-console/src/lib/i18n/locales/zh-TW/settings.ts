@@ -1,6 +1,3 @@
-/**
- * settings i18n messages (Traditional Chinese)
- */
 import type { MessageKey } from '../../keys';
 import { slackZhTW } from '../saas/slack';
 import { airtableZhTW } from '../saas/airtable';
@@ -10,7 +7,6 @@ import { toolsZhTW } from '../saas/tools';
 
 export const settingsZhTW = {
 
-  // Settings
   settings: '設定',
   backendConfiguration: 'Agent Backend Configuration',
   backendDescription: 'Configure how agents are executed. For most users, "Local LLM" is recommended. Remote backend is an advanced option for developers.',
@@ -209,7 +205,6 @@ export const settingsZhTW = {
   editMCPServer: '編輯 MCP 服務器',
   configureMCPServer: '配置 MCP 服務器',
 
-  // Settings Tabs
   basicSettings: '基礎設定',
   credentialsAndOAuth: '憑證與 OAuth 整合',
   serviceCredentials: '服務憑證',
@@ -255,7 +250,6 @@ export const settingsZhTW = {
   clearCredential: '清除憑證',
   clearingCredential: '清除中...',
 
-  // Tool Actions
   testing: '測試中...',
   connectionTestSuccessful: '連線測試成功！',
   manage: '管理',
@@ -264,7 +258,6 @@ export const settingsZhTW = {
   toolsCountLabel: '個工具',
   discovering: '發現中...',
 
-  // Capability Packs
   installed: '已安裝',
   installing: '安裝中...',
   installPack: '安裝能力包',
@@ -285,14 +278,12 @@ export const settingsZhTW = {
   capabilityStoredInDefaultAssistantTitle: '能力已暫存於預設助手角色',
   capabilityAssignedToDefaultAssistant: '此能力已分配給預設助手角色。您可以在設定中將它分配到更適合的角色。',
   mainCapabilities: '主要能力',
-  // Pack names and descriptions
   packProductDesignerName: '平面設計助理 Pack',
   packProductDesignerDescription: '幫你整理產品想法、調整頁面架構，把模糊感受變成需求',
   packContentCreatorName: '內容創作者 Pack',
   packContentCreatorDescription: '陪你一起構思內容、調整結構、打磨文字',
   packWordPressWebmasterName: 'WordPress 站長 Pack',
   packWordPressWebmasterDescription: '幫你管理 WordPress 網站: SEO、內容、訂單、數據分析',
-  // Pack capabilities
   packProductDesignerCap1: '拆解產品需求 → 規格表',
   packProductDesignerCap2: '設計資訊架構 → 頁面區塊',
   packProductDesignerCap3: '整理訪談 / 回饋 → insight',
@@ -304,7 +295,6 @@ export const settingsZhTW = {
   packWordPressWebmasterCap3: '訂單分析 → 異常檢測',
   packWordPressWebmasterCap4: '數據分析 → 流量與轉換報告',
 
-  // Local File System
   localFileSystemConfig: '本地文件系統配置',
   allowedDirectories: '允許訪問的目錄',
   enterNewDirectoryPath: '輸入新目錄路徑...',
@@ -316,7 +306,6 @@ export const settingsZhTW = {
   appendWorkspaceNameTooltip: '附加工作區名稱: {workspaceTitle}',
   supportedPathFormats: '支援的路徑格式：絕對路徑（如 /home/user/Documents）、相對路徑（如 ./data/documents）、使用者目錄（如 ~/Documents）',
 
-  // Vector DB
   vectorDBConfig: '向量資料庫設定（PostgreSQL / pgvector）',
   operationMode: '運作模式',
   localMode: '本地模式（預設）',
@@ -379,7 +368,6 @@ export const settingsZhTW = {
   openaiApiStep2: '登入後點擊「Create new secret key」',
   openaiApiStep3: '複製金鑰並貼上到上方欄位',
 
-  // Obsidian
   obsidianConfig: 'Obsidian 設定',
   obsidianVaultPaths: 'Vault 路徑',
   obsidianVaultPathsDescription: '選擇一個或多個 Obsidian Vault 路徑',
@@ -402,7 +390,6 @@ export const settingsZhTW = {
   pleaseEnterTag: '請輸入標籤',
   tagAlreadyExists: '此標籤已存在',
 
-  // Google OAuth
   oauthIntegration: 'OAuth 整合',
   googleOAuthConfiguration: 'Google OAuth 設定',
   googleOAuthDescription: '設定 Google OAuth 2.0 憑證以整合 Google Drive。從',
@@ -432,7 +419,6 @@ export const settingsZhTW = {
   googleOAuthConfigurationSaved: 'Google OAuth 配置已成功儲存',
   failedToTestOAuthConfiguration: '測試 OAuth 配置失敗',
 
-  // Service Status
   serviceStatus: '服務狀態',
   loadingServiceStatus: '載入服務狀態中...',
   failedToLoadServiceStatus: '載入服務狀態失敗',
@@ -464,7 +450,6 @@ export const settingsZhTW = {
   copyRedirectURI: '複製 Redirect URI',
   redirectURICopied: 'Redirect URI 已複製到剪貼板',
 
-  // Configuration Assistant
   configAssistant: '配置助理',
   configAssistantWelcome: '歡迎！我可以幫你：',
   configAssistantHelpLLM: '配置 LLM API 金鑰',
@@ -497,7 +482,6 @@ export const settingsZhTW = {
   connectTools: '連接工具',
   viewAllSettings: '查看所有設定',
 
-  // New keys added to fix warnings (Chinese translations)
   mcpServerDescription: 'MCP 服務器描述',
   addMCPServer: '添加 MCP 服務器',
   importClaudeConfig: '匯入 Claude 配置',
@@ -527,7 +511,6 @@ export const settingsZhTW = {
   webhookUrlDescription: 'Webhook URL 描述',
   configureWorkflow: '配置工作流程',
 
-  // Workspace storage configuration
   configureWorkspaceStoragePath: '配置工作區儲存路徑',
   workspaceStoragePath: '工作區儲存路徑',
   workspaceStoragePathDescription: '設定工作區的檔案儲存路徑。所有 Playbook 產出物將儲存在此路徑下。',
@@ -554,7 +537,6 @@ export const settingsZhTW = {
   workspaceStoragePathLabel: '工作區儲存路徑：',
   storagePathConfigured: '儲存路徑已配置',
 
-  // Resource Binding
   resourceBindings: '資源綁定',
   resourceBindingsDescription: '管理工作區資源綁定和覆寫設定',
   addBinding: '新增綁定',
@@ -567,7 +549,6 @@ export const settingsZhTW = {
   noResourceBindingsDescription: '點擊「新增綁定」來建立一個',
   deleteResourceBinding: '刪除資源綁定',
   deleteResourceBindingConfirm: '確定要刪除 {resourceType}「{resourceId}」的綁定嗎？',
-  // Tool Overlay
   toolOverlaySettings: '工具覆寫設定',
   toolOverlayDescription: '配置工作區特定的工具訪問和限制',
   toolWhitelist: '工具白名單',
@@ -590,7 +571,6 @@ export const settingsZhTW = {
   enableToolsInWorkspace: '在此工作區啟用工具',
   saveSettings: '儲存設定',
   toolOverlaySaved: '工具覆寫設定已成功儲存',
-  // Data Source Overlay
   dataSourceOverlaySettings: '資料來源覆寫設定',
   dataSourceOverlayDescription: '管理工作區資料來源綁定和訪問控制',
   addDataSource: '新增資料來源',
@@ -606,7 +586,6 @@ export const settingsZhTW = {
   displayName: '顯示名稱（選填）',
   displayNameOptional: '此工作區的自訂顯示名稱',
   enableDataSourceInWorkspace: '在此工作區啟用此資料來源',
-  // Playbook Fork
   forkPlaybook: '複製 Playbook',
   forkPlaybookToWorkspace: '複製到工作區',
   forkPlaybookDialog: '複製 Playbook 到工作區',
@@ -615,7 +594,6 @@ export const settingsZhTW = {
   targetWorkspaceIdDescription: '留空以使用目前工作區，或輸入特定工作區 ID',
   forking: '複製中...',
   fork: '複製',
-  // Playbook Scope
   template: '模板',
   instance: '實例',
   playbookScope: '範圍',
@@ -624,7 +602,6 @@ export const settingsZhTW = {
   profileScope: '個人',
   workspaceScope: '工作區',
 
-  // Cloud Extension
   cloudExtension: '雲端擴充',
   cloudFrontendUrl: 'Cloud Frontend URL',
   cloudFrontendUrlDescription: '設定 Cloud 前端 URL，用於導航到 Cloud UI 組件（例如 IG Posts 網格視圖）。注意：這是 Cloud 服務的前端，不是 Local-Core 的前端。',
@@ -702,14 +679,12 @@ export const settingsZhTW = {
   providerNamePlaceholder: '我的自訂雲端',
   apiUrlPlaceholderGeneric: 'https://api.example.com',
 
-  // SaaS integrations - imported from modular files
   ...slackZhTW,
   ...airtableZhTW,
   ...googleSheetsZhTW,
   ...githubZhTW,
   ...toolsZhTW,
 
-  // Workflow discovery & Folder Picker
   selectFolder: '選擇資料夾',
   searchFolders: '搜尋資料夾...',
   emptyDirectory: '此目錄下沒有資料夾',
@@ -724,7 +699,6 @@ export const settingsZhTW = {
   scanning: '掃描中...',
   scan: '開始掃描',
 
-  // Runtime Environments
   runtimeEnvironments: '執行環境',
   runtimeEnvironmentsDescription: '配置 Playbook 和任務的執行環境',
   addRuntime: '新增執行環境',
@@ -735,7 +709,6 @@ export const settingsZhTW = {
   add: '新增',
   loading: '載入中',
 
-  // Port Configuration
   portConfiguration: '連接埠配置',
   portConfigurationDescription: '配置各個服務的連接埠號。修改後需要重啟服務才能生效。',
   clusterIdentifier: '叢集標識（可選）',

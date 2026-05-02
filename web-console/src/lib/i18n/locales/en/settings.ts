@@ -1,6 +1,3 @@
-/**
- * settings i18n messages (English)
- */
 import type { MessageKey } from '../../keys';
 import { slackEn } from '../saas/slack';
 import { airtableEn } from '../saas/airtable';
@@ -10,7 +7,6 @@ import { toolsEn } from '../saas/tools';
 
 export const settingsEn = {
 
-  // Settings
   settings: 'Settings',
   backendConfiguration: 'Agent Backend Configuration',
   backendDescription: 'Configure how agents are executed. For most users, "Local LLM" is recommended. Remote backend is an advanced option for developers.',
@@ -209,7 +205,6 @@ export const settingsEn = {
   editMCPServer: 'Edit MCP Server',
   configureMCPServer: 'Configure MCP Server',
 
-  // Settings Tabs
   basicSettings: 'Basic Settings',
   credentialsAndOAuth: 'Credentials & OAuth',
   serviceCredentials: 'Service Credentials',
@@ -255,7 +250,6 @@ export const settingsEn = {
   clearCredential: 'Clear Credential',
   clearingCredential: 'Clearing...',
 
-  // Tool Actions
   testing: 'Testing...',
   connectionTestSuccessful: 'Connection test successful!',
   manage: 'Manage',
@@ -264,7 +258,6 @@ export const settingsEn = {
   toolsCountLabel: 'tools',
   discovering: 'Discovering...',
 
-  // Capability Packs
   installed: 'Installed',
   installing: 'Installing...',
   installPack: 'Install Pack',
@@ -285,14 +278,12 @@ export const settingsEn = {
   capabilityStoredInDefaultAssistantTitle: 'Capability stored in default assistant role',
   capabilityAssignedToDefaultAssistant: 'This capability has been assigned to the default assistant role. You can reassign it to a more suitable role in settings.',
   mainCapabilities: 'Main Capabilities',
-  // Pack names and descriptions
   packProductDesignerName: 'Graphic Design Assistant Pack',
   packProductDesignerDescription: 'Help you organize product ideas, adjust page architecture, and turn vague feelings into requirements',
   packContentCreatorName: 'Content Creator Pack',
   packContentCreatorDescription: 'Work with you to brainstorm content, adjust structure, and polish text',
   packWordPressWebmasterName: 'WordPress Webmaster Pack',
   packWordPressWebmasterDescription: 'Help you manage WordPress sites: SEO, content, orders, and data analysis',
-  // Pack capabilities
   packProductDesignerCap1: 'Break down product requirements → Specification sheet',
   packProductDesignerCap2: 'Design information architecture → Page blocks',
   packProductDesignerCap3: 'Organize interviews / feedback → Insights',
@@ -304,7 +295,6 @@ export const settingsEn = {
   packWordPressWebmasterCap3: 'Order analysis → Anomaly detection',
   packWordPressWebmasterCap4: 'Data analysis → Traffic and conversion reports',
 
-  // Local File System
   localFileSystemConfig: 'Local File System Configuration',
   allowedDirectories: 'Allowed Directories',
   enterNewDirectoryPath: 'Enter new directory path...',
@@ -316,7 +306,6 @@ export const settingsEn = {
   appendWorkspaceNameTooltip: 'Append workspace name: {workspaceTitle}',
   supportedPathFormats: 'Supported path formats: absolute paths (e.g., /home/user/Documents), relative paths (e.g., ./data/documents), user directory (e.g., ~/Documents)',
 
-  // Vector DB
   vectorDBConfig: 'Vector Database Configuration (PostgreSQL / pgvector)',
   operationMode: 'Operation Mode',
   localMode: 'Local Mode (Default)',
@@ -377,7 +366,6 @@ export const settingsEn = {
   openaiApiStep2: 'Sign in and click "Create new secret key"',
   openaiApiStep3: 'Copy the key and paste it above',
 
-  // Obsidian
   obsidianConfig: 'Obsidian Configuration',
   obsidianVaultPaths: 'Vault Paths',
   obsidianVaultPathsDescription: 'Select one or more Obsidian vault paths',
@@ -400,7 +388,6 @@ export const settingsEn = {
   pleaseEnterTag: 'Please enter a tag',
   tagAlreadyExists: 'This tag already exists',
 
-  // Google OAuth
   oauthIntegration: 'OAuth Integration',
   googleOAuthConfiguration: 'Google OAuth Configuration',
   googleOAuthDescription: 'Configure Google OAuth 2.0 credentials for Google Drive integration. Get credentials from',
@@ -430,7 +417,6 @@ export const settingsEn = {
   googleOAuthConfigurationSaved: 'Google OAuth configuration saved successfully',
   failedToTestOAuthConfiguration: 'Failed to test OAuth configuration',
 
-  // Service Status
   serviceStatus: 'Service Status',
   loadingServiceStatus: 'Loading service status...',
   failedToLoadServiceStatus: 'Failed to load service status',
@@ -462,7 +448,6 @@ export const settingsEn = {
   copyRedirectURI: 'Copy Redirect URI',
   redirectURICopied: 'Redirect URI copied to clipboard',
 
-  // Configuration Assistant
   configAssistant: 'Configuration Assistant',
   configAssistantWelcome: 'Welcome! I can help you with:',
   configAssistantHelpLLM: 'Configure LLM API keys',
@@ -495,7 +480,6 @@ export const settingsEn = {
   connectTools: 'Connect Tools',
   viewAllSettings: 'View All Settings',
 
-  // New keys added to fix warnings (English translations)
   mcpServerDescription: 'MCP Server Description',
   addMCPServer: 'Add MCP Server',
   importClaudeConfig: 'Import Claude Config',
@@ -525,7 +509,6 @@ export const settingsEn = {
   webhookUrlDescription: 'Webhook URL Description',
   configureWorkflow: 'Configure Workflow',
 
-  // Workspace storage configuration
   configureWorkspaceStoragePath: 'Configure Workspace Storage Path',
   workspaceStoragePath: 'Workspace Storage Path',
   workspaceStoragePathDescription: 'Set the file storage path for the Workspace. All Playbook artifacts will be stored under this path.',
@@ -552,7 +535,6 @@ export const settingsEn = {
   workspaceStoragePathLabel: 'Workspace Storage Path:',
   storagePathConfigured: 'Storage path configured',
 
-  // Resource Binding
   resourceBindings: 'Resource Bindings',
   resourceBindingsDescription: 'Manage workspace resource bindings and overlays',
   addBinding: 'Add Binding',
@@ -565,7 +547,6 @@ export const settingsEn = {
   noResourceBindingsDescription: 'Click "Add Binding" to create one',
   deleteResourceBinding: 'Delete Resource Binding',
   deleteResourceBindingConfirm: 'Are you sure you want to delete the binding for {resourceType} "{resourceId}"?',
-  // Tool Overlay
   toolOverlaySettings: 'Tool Overlay Settings',
   toolOverlayDescription: 'Configure workspace-specific tool access and restrictions',
   toolWhitelist: 'Tool Whitelist',
@@ -588,7 +569,6 @@ export const settingsEn = {
   enableToolsInWorkspace: 'Enable tools in this workspace',
   saveSettings: 'Save Settings',
   toolOverlaySaved: 'Tool overlay settings saved successfully',
-  // Data Source Overlay
   dataSourceOverlaySettings: 'Data Source Overlay Settings',
   dataSourceOverlayDescription: 'Manage workspace data source bindings and access controls',
   addDataSource: 'Add Data Source',
@@ -604,7 +584,6 @@ export const settingsEn = {
   displayName: 'Display Name (Optional)',
   displayNameOptional: 'Custom display name for this workspace',
   enableDataSourceInWorkspace: 'Enable this data source in workspace',
-  // Playbook Fork
   forkPlaybook: 'Fork Playbook',
   forkPlaybookToWorkspace: 'Fork to Workspace',
   forkPlaybookDialog: 'Fork Playbook to Workspace',
@@ -613,7 +592,6 @@ export const settingsEn = {
   targetWorkspaceIdDescription: 'Leave empty to use current workspace, or enter a specific workspace ID',
   forking: 'Forking...',
   fork: 'Fork',
-  // Playbook Scope
   template: 'Template',
   instance: 'Instance',
   playbookScope: 'Scope',
@@ -622,7 +600,6 @@ export const settingsEn = {
   profileScope: 'PROFILE',
   workspaceScope: 'WORKSPACE',
 
-  // Cloud Extension
   cloudExtension: 'Cloud Extension',
   cloudFrontendUrl: 'Cloud Frontend URL',
   cloudFrontendUrlDescription: 'Configure Cloud frontend URL for navigation to Cloud UI components (e.g., IG Posts grid view). Note: This is the Cloud service frontend, not the Local-Core frontend.',
@@ -700,14 +677,12 @@ export const settingsEn = {
   providerNamePlaceholder: 'My Custom Cloud',
   apiUrlPlaceholderGeneric: 'https://api.example.com',
 
-  // SaaS integrations - imported from modular files
   ...slackEn,
   ...airtableEn,
   ...googleSheetsEn,
   ...githubEn,
   ...toolsEn,
 
-  // Workflow discovery & Folder Picker
   selectFolder: 'Select Folder',
   searchFolders: 'Search folders...',
   emptyDirectory: 'No folders found in this directory',
@@ -723,7 +698,6 @@ export const settingsEn = {
   scan: 'Start Scan',
   token: 'Token',
 
-  // Runtime Environments
   runtimeEnvironments: 'Runtime Environments',
   runtimeEnvironmentsDescription: 'Configure runtime environments for Playbooks and tasks',
   addRuntime: 'Add Runtime',
@@ -732,7 +706,6 @@ export const settingsEn = {
   runtimeConfigurationUpdated: 'Runtime configuration updated',
   runtimeAddedSuccessfully: 'Runtime "{name}" added successfully',
 
-  // Port Configuration
   portConfiguration: 'Port Configuration',
   portConfigurationDescription: 'Configure port numbers for each service. Changes require a service restart to take effect.',
   clusterIdentifier: 'Cluster Identifier (Optional)',
@@ -762,7 +735,6 @@ export const settingsEn = {
   portConfigLoadFailed: 'Failed to load port configuration',
   portConfigUpdateDbString: 'Please follow the instructions to update database connection strings and restart related services',
 
-  // Service Status Cloud
   modelReady: 'Ready',
   modelCloudConnected: 'Cloud Connected',
 } as const satisfies Partial<Record<MessageKey, string>>;
