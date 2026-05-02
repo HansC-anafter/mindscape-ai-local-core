@@ -1,8 +1,3 @@
-/**
- * Navigation-related i18n message keys
- * Navigation menu items and navigation actions
- */
-
 export const navigationKeys = {
   navAgents: true,
   navHistory: true,
@@ -22,4 +17,3 @@ export const navigationKeys = {
   switchToDarkMode: true,
   backToWorkspace: true,
 } as const;
-

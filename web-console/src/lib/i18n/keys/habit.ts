@@ -1,8 +1,3 @@
-/**
- * Habit-related i18n message keys
- * Habit detection, confirmation, management, metrics
- */
-
 export const habitKeys = {
   habitSuggestions: true,
   habitSuggestionMessage: true,
@@ -44,4 +39,3 @@ export const habitKeys = {
   habitSuggestionsEnabled: true,
   habitSuggestionsDisabled: true,
 } as const;
-

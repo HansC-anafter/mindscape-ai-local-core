@@ -1,8 +1,3 @@
-/**
- * Profile-related i18n message keys
- * User profile, preferences, self-introduction, personalization
- */
-
 export const profileKeys = {
   profile: true,
   profileDescription: true,
@@ -32,4 +27,3 @@ export const profileKeys = {
   writeYourNotesHere: true,
   saveNotes: true,
 } as const;
-

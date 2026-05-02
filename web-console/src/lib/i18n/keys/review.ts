@@ -1,8 +1,3 @@
-/**
- * Review-related i18n message keys
- * Review cadence, preferences, insights, weekly highlights
- */
-
 export const reviewKeys = {
   reviewCadence: true,
   reviewCadenceDescription: true,
@@ -23,4 +18,3 @@ export const reviewKeys = {
   planningWeeklyHighlightsDescription: true,
   weeklyFocusLabel: true,
 } as const;
-
