@@ -1,0 +1,18 @@
+# Mindscape AI Local Core Documentation
+
+This public documentation area is currently limited to installation and local startup material that is safe for external readers.
+
+Detailed architecture notes, capability authoring notes, unreleased API references, private validation material, scenario notes, operational notes, and contributor-facing implementation material are withheld from this public directory until they are rewritten as stable external documentation.
+
+## Start Here
+
+- [Getting Started](./getting-started/README.md)
+- [Architecture](./architecture/README.md)
+- [Installation Guide](./getting-started/installation.md)
+- [Docker Deployment Guide](./getting-started/docker.md)
+- [Platform-Specific Installation Notes](./getting-started/platform-specific.md)
+- [Troubleshooting Guide](./getting-started/troubleshooting.md)
+
+## Assets
+
+- [Integration logo sources](./assets/integrations/SOURCES.md)
