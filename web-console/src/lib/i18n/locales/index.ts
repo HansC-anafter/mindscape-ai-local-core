@@ -1,8 +1,3 @@
-/**
- * Aggregated i18n messages
- * Combines all locale modules into a single messages object
- */
-
 import { keys } from '../keys';
 import type { MessageKey } from '../keys';
 import { commonZhTW } from './zh-TW/common';
@@ -55,17 +50,10 @@ import { workspaceZhTW } from './zh-TW/workspace';
 import { workspaceEn } from './en/workspace';
 import { workspaceJa } from './ja/workspace';
 
-/**
- * Merge multiple message objects into one
- * Uses Object.assign to combine all message objects
- */
 function mergeMessages(...objects: Array<Record<string, string>>): Record<string, string> {
   return Object.assign({}, ...objects);
 }
 
-/**
- * Aggregate all zh-TW messages
- */
 const mergeZhTW = {
   ...commonZhTW,
   ...appZhTW,
@@ -86,9 +74,6 @@ const mergeZhTW = {
   ...workspaceZhTW,
 } as const;
 
-/**
- * Aggregate all en messages
- */
 const mergeEn = {
   ...commonEn,
   ...appEn,
@@ -109,9 +94,6 @@ const mergeEn = {
   ...workspaceEn,
 } as const;
 
-/**
- * Aggregate all ja messages
- */
 const mergeJa = {
   ...commonJa,
   ...appJa,
@@ -132,21 +114,10 @@ const mergeJa = {
   ...workspaceJa,
 } as const;
 
-/**
- * Type-safe message bundles
- */
 export type MessageBundles = typeof messages;
 
-/**
- * MessageKey type derived from centralized keys.ts
- * Re-exported for use in modules and components
- */
 export type { MessageKey };
 
-/**
- * Validate that both locales have the same keys
- * Also validates against centralized keys.ts
- */
 function validateKeyParity(zhTW: Record<string, any>, en: Record<string, any>): void {
   const zhTWKeys = new Set(Object.keys(zhTW));
   const enKeys = new Set(Object.keys(en));
@@ -164,7 +135,6 @@ function validateKeyParity(zhTW: Record<string, any>, en: Record<string, any>): 
     }
   }
 
-  // Validate against centralized keys.ts
   try {
     const centralizedKeySet = new Set(Object.keys(keys));
     const missingInCentralized = Array.from(zhTWKeys).filter(key => !centralizedKeySet.has(key));
@@ -180,18 +150,13 @@ function validateKeyParity(zhTW: Record<string, any>, en: Record<string, any>): 
       }
     }
   } catch {
-    // keys.ts might not be available in all environments, ignore
   }
 }
 
-// Validate key parity in development
 if (process.env.NODE_ENV === 'development') {
   validateKeyParity(mergeZhTW, mergeEn);
 }
 
-/**
- * Final aggregated messages object
- */
 export const messages = {
   'zh-TW': mergeZhTW,
   en: mergeEn,

@@ -1,8 +1,3 @@
-/**
- * Centralized i18n message keys index
- * Aggregates all module keys into a single export
- */
-
 import { commonKeys } from './common';
 import { appKeys } from './app';
 import { navigationKeys } from './navigation';
@@ -28,10 +23,6 @@ import { capabilityPacksKeys } from './capabilityPacks';
 import { resourceBindingKeys } from './resourceBinding';
 import { playbookVariantsKeys } from './playbookVariants';
 
-/**
- * All i18n message keys
- * Merged from all modules
- */
 export const keys = {
   ...commonKeys,
   ...appKeys,
@@ -60,4 +51,3 @@ export const keys = {
 } as const;
 
 export type MessageKey = keyof typeof keys;
-
