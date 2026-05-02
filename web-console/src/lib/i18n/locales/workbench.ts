@@ -1,11 +1,6 @@
-/**
- * Workbench i18n messages
- * Workbench, Workspace errors, Workspace Modes, Multi-AI Collaboration
- */
 import type { MessageKey } from '../keys';
 
 export const workbenchZhTW = {
-  // Workbench
   workbench: '工作台',
   mindscapeAIWorkbench: '默默 AI 工作台',
   currentContext: '當前 Context',
@@ -62,7 +57,6 @@ export const workbenchZhTW = {
   defaultPlaybook: 'Default Playbook',
   locale: 'Locale',
 
-  // Execution failure diagnostics
   failureType: '失敗類型',
   failureReason: '失敗原因',
   diagnosticInfo: '診斷信息',
@@ -71,7 +65,6 @@ export const workbenchZhTW = {
   trackExecution: '追蹤調度',
   noExecutionSteps: '未找到執行步驟 - Playbook 可能未啟動或卡在初始化階段',
 
-  // Workspace Modes
   workspaceMode: '工作區模式',
   activePlaybook: '正在使用工作劇本',
   noActivePlaybook: '無活動中',
@@ -85,7 +78,6 @@ export const workbenchZhTW = {
   clearMode: '清除模式',
   clear: '清除',
 
-  // Research Mode
   researchLiteratureSummary: '文獻摘要',
   researchLiteratureSummaryDescription: '自動生成上傳文件的文獻摘要',
   generateSummary: '生成摘要',
@@ -96,7 +88,6 @@ export const workbenchZhTW = {
   obsidianVaultIntegrationDescription: '將文件同步到 Obsidian vault',
   syncToObsidian: '同步到 Obsidian',
 
-  // Publishing Mode
   publishingVersionTree: '版本樹',
   publishingVersionTreeDescription: '查看和管理內容版本歷史',
   viewVersions: '查看版本',
@@ -110,7 +101,6 @@ export const workbenchZhTW = {
   publishingI18nCheckDescription: '檢查多語系翻譯完整性',
   checkI18n: '檢查 i18n',
 
-  // Planning Mode
   planningTodayChecklist: '今日 Checklist',
   planningTodayChecklistDescription: '查看和管理今日待辦事項',
   viewChecklist: '查看 Checklist',
@@ -121,7 +111,6 @@ export const workbenchZhTW = {
   planningLongTermIntentDescription: '追蹤長期目標和專案進度',
   viewIntentProgress: '查看進度',
 
-  // Multi-AI Collaboration
   multiAICollaborationTitle: '已預覽此文件',
   fileReceived: '已接收',
   pages: '頁',
@@ -178,7 +167,6 @@ export const workbenchZhTW = {
   connected: '已連線',
   notConnected: '未連線',
 
-  // Workspace errors
   workspaceCreateFailed: '建立工作區失敗',
   workspaceFileAnalysisFailed: '文件分析失敗',
   workspaceSendMessageFailed: '發送訊息失敗',
@@ -193,7 +181,6 @@ export const workbenchZhTW = {
   workspaceDeleteFailed: '刪除工作區失敗',
   workspaceDeleteConfirm: '確定要刪除工作區「{workspaceName}」嗎？此操作無法復原，所有相關資料都會被永久刪除。',
 
-  // Welcome messages (from backend i18n)
   'welcome.new_workspace': '歡迎來到「{workspace_title}」工作區！\n\n這是您的工作協作空間，我可以在這裡協助您：\n\n**我可以幫您：**\n• 執行 Playbook 工作流程（如：每日規劃、專案拆解等）\n• 管理任務和追蹤進度\n• 回答問題和提供建議\n• 分析您的工作模式\n\n**快速開始：**\n• 直接告訴我您想要完成什麼任務\n• 或點擊下方的建議快速開始\n\n**建議：**\n如果您是第一次使用，建議先完成「心智空間」的冷啟動任務，這樣我能更好地理解您的需求和工作習慣。\n\n隨時告訴我您需要什麼幫助！',
   'welcome.returning_workspace': '歡迎回到「{workspace_title}」工作區！\n\n我可以協助您：\n• 執行 Playbook 工作流程\n• 管理專案和任務\n• 回答問題和提供建議\n• 分析您的工作模式\n\n直接告訴我您想要做什麼，或點擊下方的建議快速開始！',
   'welcome.fallback': '歡迎來到「{workspace_title}」工作區！我可以協助您執行 Playbook、管理任務、回答問題等。直接告訴我您想要做什麼吧！',
@@ -204,13 +191,12 @@ export const workbenchZhTW = {
   'suggestions.execute_playbook': '執行 {playbook_name}',
   'suggestion.run_playbook_cta': '執行',
   'suggestion.create_intent_card_title': '建立意圖卡',
-  'suggestion.create_intent_card_titl': '建立意圖卡', // typo fallback
+  'suggestion.create_intent_card_titl': '建立意圖卡',
   'suggestion.create_intent_card_description': '開始追蹤你的長期目標和任務',
   viewOriginalResponse: '查看原始回應',
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const workbenchEn = {
-  // Workbench
   workbench: 'Workbench',
   mindscapeAIWorkbench: 'Mindscape AI Workbench',
   currentContext: 'Current Context',
@@ -268,7 +254,6 @@ export const workbenchEn = {
   defaultPlaybook: 'Default Playbook',
   locale: 'Locale',
 
-  // Execution failure diagnostics
   failureType: 'Failure Type',
   failureReason: 'Failure Reason',
   diagnosticInfo: 'Diagnostic Info',
@@ -277,7 +262,6 @@ export const workbenchEn = {
   trackExecution: 'Track Execution',
   noExecutionSteps: 'No execution steps found - Playbook may not have started or is stuck in initialization phase',
 
-  // Workspace Modes
   workspaceMode: 'Workspace Mode',
   activePlaybook: 'Active Playbook',
   noActivePlaybook: 'No Active',
@@ -291,7 +275,6 @@ export const workbenchEn = {
   clearMode: 'Clear mode',
   clear: 'Clear',
 
-  // Research Mode
   researchLiteratureSummary: 'Literature Summary',
   researchLiteratureSummaryDescription: 'Automatically generate literature summary from uploaded files',
   generateSummary: 'Generate Summary',
@@ -302,7 +285,6 @@ export const workbenchEn = {
   obsidianVaultIntegrationDescription: 'Sync files to Obsidian vault',
   syncToObsidian: 'Sync to Obsidian',
 
-  // Publishing Mode
   publishingVersionTree: 'Version Tree',
   publishingVersionTreeDescription: 'View and manage content version history',
   viewVersions: 'View Versions',
@@ -316,7 +298,6 @@ export const workbenchEn = {
   publishingI18nCheckDescription: 'Check multilingual translation completeness',
   checkI18n: 'Check i18n',
 
-  // Planning Mode
   planningTodayChecklist: 'Today Checklist',
   planningTodayChecklistDescription: 'View and manage today\'s todos',
   viewChecklist: 'View Checklist',
@@ -327,7 +308,6 @@ export const workbenchEn = {
   planningLongTermIntentDescription: 'Track long-term goals and project progress',
   viewIntentProgress: 'View Progress',
 
-  // Multi-AI Collaboration
   multiAICollaborationTitle: 'Already previewed this file',
   fileReceived: 'Received',
   pages: 'pages',
@@ -384,7 +364,6 @@ export const workbenchEn = {
   connected: 'Connected',
   notConnected: 'Not Connected',
 
-  // Workspace errors
   workspaceCreateFailed: 'Failed to create workspace',
   workspaceFileAnalysisFailed: 'File analysis failed',
   workspaceSendMessageFailed: 'Failed to send message',
@@ -399,7 +378,6 @@ export const workbenchEn = {
   workspaceDeleteFailed: 'Failed to delete workspace',
   workspaceDeleteConfirm: 'Are you sure you want to delete workspace "{workspaceName}"? This action cannot be undone and all associated data will be permanently deleted.',
 
-  // Welcome messages (from backend i18n)
   'welcome.new_workspace': 'Welcome to "{workspace_title}" workspace!\n\nThis is your collaboration space where I can help you:\n\n**I can help you:**\n• Execute Playbook workflows (e.g., daily planning, project breakdown)\n• Manage tasks and track progress\n• Answer questions and provide suggestions\n• Analyze your work patterns\n\n**Quick start:**\n• Tell me directly what you want to accomplish\n• Or click the suggestions below to get started\n\n**Suggestion:**\nIf this is your first time, I recommend completing the "Mindscape" cold-start tasks so I can better understand your needs and work habits.\n\nLet me know what you need help with!',
   'welcome.returning_workspace': 'Welcome back to "{workspace_title}" workspace!\n\nI can help you:\n• Execute Playbook workflows\n• Manage projects and tasks\n• Answer questions and provide suggestions\n• Analyze your work patterns\n\nTell me directly what you want to do, or click the suggestions below to get started!',
   'welcome.fallback': 'Welcome to "{workspace_title}" workspace! I can help you execute Playbooks, manage tasks, answer questions, and more. Just tell me what you want to do!',
@@ -409,7 +387,7 @@ export const workbenchEn = {
   'suggestions.execute_playbook': 'Execute {playbook_name}',
   'suggestion.run_playbook_cta': 'Run Playbook',
   'suggestion.create_intent_card_title': 'Create Intent Card',
-  'suggestion.create_intent_card_titl': 'Create Intent Card', // typo fallback
+  'suggestion.create_intent_card_titl': 'Create Intent Card',
   'suggestion.create_intent_card_description': 'Start tracking your long-term goals and tasks',
   viewOriginalResponse: 'View Original Response',
 } as const satisfies Partial<Record<MessageKey, string>>;

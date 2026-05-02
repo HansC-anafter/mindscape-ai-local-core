@@ -1,12 +1,7 @@
-/**
- * Settings i18n messages
- * Settings, Settings Tabs, Tool Actions, Capability Packs, Local File System, Vector DB, Obsidian
- */
 import type { MessageKey } from '../keys';
 import { slackZhTW, airtableZhTW, googleSheetsZhTW, githubZhTW, toolsZhTW, slackEn, airtableEn, googleSheetsEn, githubEn, toolsEn } from './saas';
 
 export const settingsZhTW = {
-  // Settings
   settings: '設定',
   backendConfiguration: 'Agent Backend Configuration',
   backendDescription: 'Configure how agents are executed. For most users, "Local LLM" is recommended. Remote backend is an advanced option for developers.',
@@ -18,7 +13,6 @@ export const settingsZhTW = {
   backendStatus: 'Backend Status',
   available: 'Available',
   notConfigured: 'Not Configured',
-  // saveConfiguration: 'Save Configuration',
   developerOption: '開發者選項',
   remoteServiceDescription: 'Remote Agent Service 適用於擁有自己的代理編排後端的高級用戶（例如自訂雲端服務）。',
   serviceUrl: 'Service URL',
@@ -176,7 +170,6 @@ export const settingsZhTW = {
   editMCPServer: '編輯 MCP 服務器',
   configureMCPServer: '配置 MCP 服務器',
 
-  // Settings Tabs
   basicSettings: '基礎設定',
   languagePreference: '語言偏好',
   languagePreferenceDescription: '設定系統預設語言，新建立的 Workspace 將使用此語言設定',
@@ -204,7 +197,6 @@ export const settingsZhTW = {
   noPlaybooksUseThisTool: '目前沒有使用此工具的 Playbook',
   playbooksUsingThisTool: '{count} 個 Playbook 使用此工具',
 
-  // Tool Actions
   testing: '測試中...',
   connectionTestSuccessful: '連線測試成功！',
   configure: '設定',
@@ -214,7 +206,6 @@ export const settingsZhTW = {
   toolsCountLabel: '個工具',
   discovering: '發現中...',
 
-  // Capability Packs
   installed: '已安裝',
   installing: '安裝中...',
   installPack: '安裝能力包',
@@ -235,14 +226,12 @@ export const settingsZhTW = {
   capabilityStoredInDefaultAssistantTitle: '能力已暫存於預設助手角色',
   capabilityAssignedToDefaultAssistant: '此能力已分配給預設助手角色。您可以在設定中將它分配到更適合的角色。',
   mainCapabilities: '主要能力',
-  // Pack names and descriptions
   packProductDesignerName: '產品設計師 Pack',
   packProductDesignerDescription: '幫你整理產品想法、調整頁面架構，把模糊感受變成需求',
   packContentCreatorName: '內容創作者 Pack',
   packContentCreatorDescription: '陪你一起構思內容、調整結構、打磨文字',
   packWordPressWebmasterName: 'WordPress 站長 Pack',
   packWordPressWebmasterDescription: '幫你管理 WordPress 網站: SEO、內容、訂單、數據分析',
-  // Pack capabilities
   packProductDesignerCap1: '拆解產品需求 → 規格表',
   packProductDesignerCap2: '設計資訊架構 → 頁面區塊',
   packProductDesignerCap3: '整理訪談 / 回饋 → insight',
@@ -254,7 +243,6 @@ export const settingsZhTW = {
   packWordPressWebmasterCap3: '訂單分析 → 異常檢測',
   packWordPressWebmasterCap4: '數據分析 → 流量與轉換報告',
 
-  // Local File System
   localFileSystemConfig: '本地文件系統配置',
   allowedDirectories: '允許訪問的目錄',
   enterNewDirectoryPath: '輸入新目錄路徑...',
@@ -264,7 +252,6 @@ export const settingsZhTW = {
   allowWriteDescription: '啟用後，AI 可以創建和修改文件。建議僅在必要時啟用。',
   supportedPathFormats: '支持的路径格式：绝对路径（如 /home/user/Documents）、相对路径（如 ./data/documents）、用户目录（如 ~/Documents）',
 
-  // Vector DB
   vectorDBConfig: '向量資料庫設定（PostgreSQL / pgvector）',
   operationMode: '運作模式',
   localMode: '本地模式（預設）',
@@ -317,7 +304,6 @@ export const settingsZhTW = {
   location: '位置',
   deprecated: '已棄用',
 
-  // Obsidian
   obsidianConfig: 'Obsidian 設定',
   obsidianVaultPaths: 'Vault 路徑',
   obsidianVaultPathsDescription: '選擇一個或多個 Obsidian Vault 路徑',
@@ -340,7 +326,6 @@ export const settingsZhTW = {
   pleaseEnterTag: '請輸入標籤',
   tagAlreadyExists: '此標籤已存在',
 
-  // Google OAuth
   oauthIntegration: 'OAuth 整合',
   googleOAuthConfiguration: 'Google OAuth 設定',
   googleOAuthDescription: '設定 Google OAuth 2.0 憑證以整合 Google Drive。從',
@@ -370,7 +355,6 @@ export const settingsZhTW = {
   googleOAuthConfigurationSaved: 'Google OAuth 配置已成功儲存',
   failedToTestOAuthConfiguration: '測試 OAuth 配置失敗',
 
-  // Service Status
   serviceStatus: '服務狀態',
   loadingServiceStatus: '載入服務狀態中...',
   failedToLoadServiceStatus: '載入服務狀態失敗',
@@ -400,7 +384,6 @@ export const settingsZhTW = {
   copyRedirectURI: '複製 Redirect URI',
   redirectURICopied: 'Redirect URI 已複製到剪貼板',
 
-  // Configuration Assistant
   configAssistant: '配置助理',
   configAssistantWelcome: '歡迎！我可以幫你：',
   configAssistantHelpLLM: '配置 LLM API 金鑰',
@@ -432,7 +415,6 @@ export const settingsZhTW = {
   configureLLMKeys: '配置 LLM 金鑰',
   connectTools: '連接工具',
   viewAllSettings: '查看所有設定',
-  // SaaS integrations - imported from modular files
   ...slackZhTW,
   ...airtableZhTW,
   ...googleSheetsZhTW,
@@ -441,7 +423,6 @@ export const settingsZhTW = {
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const settingsEn = {
-  // Settings
   settings: 'Settings',
   backendConfiguration: 'Agent Backend Configuration',
   backendDescription: 'Configure how agents are executed. For most users, "Local LLM" is recommended. Remote backend is an advanced option for developers.',
@@ -528,14 +509,12 @@ export const settingsEn = {
   socialMediaConnecting: 'Connecting...',
   socialMediaDisconnectConfirm: 'Are you sure you want to disconnect this social media account?',
   connected: 'Connected',
-  // configure: 'Configure',
   connectionStatus: 'Connection Status',
   connectionName: 'Connection Name',
   lastValidated: 'Last Validated',
   discoveredTools: 'Discovered Tools',
   noToolsDiscovered: 'No tools discovered yet',
   enabled: 'Enabled',
-  // disabled: 'Disabled',
   oauthConfiguration: 'OAuth Configuration',
   oauthConfigurationDescription: 'Configure OAuth Client ID and Secret for this platform',
   oauthClientID: 'Client ID',
@@ -572,7 +551,6 @@ export const settingsEn = {
   enableModelToConfigure: 'Please enable the model to view configuration',
   selectModelToConfigure: 'Select an enabled model to view configuration',
   enterApiKey: 'Enter API Key',
-  // apiKeyConfigured: 'API Key configured',
   baseUrl: 'Base URL',
   optional: 'Optional',
   resetDate: 'Reset Date',
@@ -609,7 +587,6 @@ export const settingsEn = {
   command: 'Command',
   arguments: 'Arguments',
   environmentVariables: 'Environment Variables',
-  // baseUrl: 'Base URL',
   apiKey: 'API Key',
   back: 'Back',
   next: 'Next',
@@ -618,7 +595,6 @@ export const settingsEn = {
   editMCPServer: 'Edit MCP Server',
   configureMCPServer: 'Configure MCP Server',
 
-  // Settings Tabs
   basicSettings: 'Basic Settings',
   languagePreference: 'Language Preference',
   languagePreferenceDescription: 'Set the default system language. New workspaces will use this language setting',
@@ -643,17 +619,14 @@ export const settingsEn = {
   noPlaybooksUseThisTool: 'Currently no Playbook uses this tool',
   playbooksUsingThisTool: '{count} Playbook{plural} {verb} this tool',
 
-  // Tool Actions
   testing: 'Testing...',
   connectionTestSuccessful: 'Connection test successful!',
-  // configure: 'Configure',
   manage: 'Manage',
   showing: 'Showing',
   of: 'of',
   toolsCountLabel: 'tools',
   discovering: 'Discovering...',
 
-  // Capability Packs
   installed: 'Installed',
   installing: 'Installing...',
   installPack: 'Install Pack',
@@ -674,14 +647,12 @@ export const settingsEn = {
   capabilityStoredInDefaultAssistantTitle: 'Capability stored in default assistant role',
   capabilityAssignedToDefaultAssistant: 'This capability has been assigned to the default assistant role. You can reassign it to a more suitable role in settings.',
   mainCapabilities: 'Main Capabilities',
-  // Pack names and descriptions
   packProductDesignerName: 'Product Designer Pack',
   packProductDesignerDescription: 'Help you organize product ideas, adjust page architecture, and turn vague feelings into requirements',
   packContentCreatorName: 'Content Creator Pack',
   packContentCreatorDescription: 'Work with you to brainstorm content, adjust structure, and polish text',
   packWordPressWebmasterName: 'WordPress Webmaster Pack',
   packWordPressWebmasterDescription: 'Help you manage WordPress sites: SEO, content, orders, and data analysis',
-  // Pack capabilities
   packProductDesignerCap1: 'Break down product requirements → Specification sheet',
   packProductDesignerCap2: 'Design information architecture → Page blocks',
   packProductDesignerCap3: 'Organize interviews / feedback → Insights',
@@ -693,7 +664,6 @@ export const settingsEn = {
   packWordPressWebmasterCap3: 'Order analysis → Anomaly detection',
   packWordPressWebmasterCap4: 'Data analysis → Traffic and conversion reports',
 
-  // Local File System
   localFileSystemConfig: 'Local File System Configuration',
   allowedDirectories: 'Allowed Directories',
   enterNewDirectoryPath: 'Enter new directory path...',
@@ -703,7 +673,6 @@ export const settingsEn = {
   allowWriteDescription: 'When enabled, AI can create and modify files. Recommended to enable only when necessary.',
   supportedPathFormats: 'Supported path formats: absolute paths (e.g., /home/user/Documents), relative paths (e.g., ./data/documents), user directory (e.g., ~/Documents)',
 
-  // Vector DB
   vectorDBConfig: 'Vector Database Configuration (PostgreSQL / pgvector)',
   operationMode: 'Operation Mode',
   localMode: 'Local Mode (Default)',
@@ -758,7 +727,6 @@ export const settingsEn = {
   location: 'Location',
   deprecated: 'Deprecated',
 
-  // Obsidian
   obsidianConfig: 'Obsidian Configuration',
   obsidianVaultPaths: 'Vault Paths',
   obsidianVaultPathsDescription: 'Select one or more Obsidian vault paths',
@@ -781,7 +749,6 @@ export const settingsEn = {
   pleaseEnterTag: 'Please enter a tag',
   tagAlreadyExists: 'This tag already exists',
 
-  // Google OAuth
   oauthIntegration: 'OAuth Integration',
   googleOAuthConfiguration: 'Google OAuth Configuration',
   googleOAuthDescription: 'Configure Google OAuth 2.0 credentials for Google Drive integration. Get credentials from',
@@ -811,7 +778,6 @@ export const settingsEn = {
   googleOAuthConfigurationSaved: 'Google OAuth configuration saved successfully',
   failedToTestOAuthConfiguration: 'Failed to test OAuth configuration',
 
-  // Service Status
   serviceStatus: 'Service Status',
   loadingServiceStatus: 'Loading service status...',
   failedToLoadServiceStatus: 'Failed to load service status',
@@ -834,10 +800,6 @@ export const settingsEn = {
   healthy: 'healthy',
   unhealthy: 'unhealthy',
   unavailable: 'unavailable',
-  // configured: 'Configured',
-  // notConfigured: 'Not Configured',
-  // connected: 'Connected',
-  // notConnected: 'Not Connected',
   provider: 'Provider:',
   workspaceNotSelected: 'No workspace selected. Please select a workspace to see detailed health status.',
   workspaceNotFound: 'Workspace "{workspaceId}" not found. Please select a valid workspace.',
@@ -845,7 +807,6 @@ export const settingsEn = {
   copyRedirectURI: 'Copy Redirect URI',
   redirectURICopied: 'Redirect URI copied to clipboard',
 
-  // Configuration Assistant
   configAssistant: 'Configuration Assistant',
   configAssistantWelcome: 'Welcome! I can help you with:',
   configAssistantHelpLLM: 'Configure LLM API keys',
@@ -877,7 +838,6 @@ export const settingsEn = {
   configureLLMKeys: 'Configure LLM Keys',
   connectTools: 'Connect Tools',
   viewAllSettings: 'View All Settings',
-  // SaaS integrations - imported from modular files
   ...slackEn,
   ...airtableEn,
   ...googleSheetsEn,
