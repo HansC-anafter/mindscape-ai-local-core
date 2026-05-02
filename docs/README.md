@@ -13,7 +13,3 @@ Detailed architecture notes, capability authoring notes, unreleased API referenc
 - [Docker Deployment Guide](./getting-started/docker.md)
 - [Platform-Specific Installation Notes](./getting-started/platform-specific.md)
 - [Troubleshooting Guide](./getting-started/troubleshooting.md)
-
-## Assets
-
-- [Integration logo sources](./assets/integrations/SOURCES.md)
