@@ -1,313 +1,123 @@
 # Docker Deployment Guide
 
-This guide explains how to deploy Mindscape AI Local Core using Docker and Docker Compose.
+Docker Compose is the supported startup path for Mindscape AI Local Core.
 
 ## Prerequisites
 
-- **Docker** 20.10+ ([Install Docker](https://docs.docker.com/get-docker/))
-- **Docker Compose** 2.0+ (included with Docker Desktop)
-- At least **4GB RAM** available for Docker
-- At least **10GB disk space** for images and volumes
+- Docker with Docker Compose v2
+- Git
+- At least 8 GB of memory available to Docker for the default service set
+- Enough disk space for container images, PostgreSQL data, model caches, and generated local data
 
-## Quick Start
+LLM provider keys are optional for startup. Without them, the system can start, but AI features that need external LLM providers will be unavailable until configured.
 
-**You can start the system immediately after cloning - no configuration required!**
+## Start
 
-### 1. Clone the Repository
+Clone the repository and start the default Docker services:
 
 ```bash
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
+docker compose up -d
 ```
 
-### 2. Start Services (No Configuration Needed!)
+Linux and macOS users can also use the startup helper:
 
-**Windows PowerShell:**
-```powershell
-# Make sure you're in the project directory (if not already)
-# The script will automatically detect and navigate to the correct directory
-.\scripts\start.ps1
-
-# If you get an execution policy error, run:
-#   powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
-```
-
-**Linux/macOS:**
 ```bash
-# Make sure you're in the project directory (if not already)
-# The script will automatically detect and navigate to the correct directory
 ./scripts/start.sh
 ```
 
-**Or manually:**
-```bash
-# Build and start all services
-docker compose up -d
+Windows PowerShell users can use:
 
-# Check service status
-docker compose ps
-
-# View logs
-docker compose logs -f
+```powershell
+.\scripts\start.ps1
 ```
 
-> **Note**: The start scripts (`start.ps1` / `start.sh`) automatically check Docker availability and provide helpful error messages if Docker Desktop is not running.
+The helper scripts check Docker availability and can start host-side companion processes. The direct `docker compose up -d` path is the simplest container-only startup path.
 
-The system will start successfully **without any API keys**. You can configure API keys later through the web interface.
+## Access
 
-### 3. Access the Application
+Default local endpoints:
 
-- **Frontend**: http://localhost:8300
-- **Backend API**: http://localhost:8200
-- **API Documentation**: http://localhost:8200/docs
-
-> **💡 Important**: API keys (OpenAI or Anthropic) are **optional** for initial startup. The system will start successfully without them, and you can configure them later through the web interface at http://localhost:8300/settings. Some AI features will be unavailable until API keys are configured.
-
-### 4. Configure API Keys (Optional)
-
-> **Note**: You can configure API keys through the web interface after starting services. Creating a `.env` file is optional but recommended for production use.
-
-To configure via `.env` file, create it in the project root:
-
-```bash
-# LLM Providers (at least one required)
-OPENAI_API_KEY=your_openai_api_key_here
-# or
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-
-# PostgreSQL (primary database - required)
-POSTGRES_CORE_DB=mindscape_core
-POSTGRES_VECTOR_DB=mindscape_vectors
-POSTGRES_USER=mindscape
-POSTGRES_PASSWORD=mindscape_password
-
-# Security
-LOCAL_AUTH_SECRET=dev-secret-key-change-in-production
-
-# Logging
-LOG_LEVEL=INFO
-
-# OCR Service
-OCR_USE_GPU=false
-OCR_LANG=ch
-
-# Timezone
-TZ=UTC
-```
-
+- Web console: `http://localhost:8300`
+- Backend API: `http://localhost:8200`
+- API docs: `http://localhost:8200/docs`
+- Backend liveness: `http://localhost:8200/healthz`
+- Backend health details: `http://localhost:8200/health`
 
 ## Services
 
-The Docker Compose configuration includes:
+The default Compose stack includes:
 
-1. **backend** - FastAPI backend service (port 8200)
-2. **frontend** - Next.js web console (port 8300, mapped from container port 3000)
-3. **postgres** - PostgreSQL with pgvector for vector storage (port 5433, mapped from container port 5432)
-4. **ocr-service** - PaddleOCR service for PDF processing (port 8001)
+- `backend`: FastAPI backend on host port `8200`
+- `frontend`: Next.js web console on host port `8300`
+- `postgres`: PostgreSQL with pgvector on host port `5433`
+- `redis`: Redis on host port `6379`
+- `runner-default`, `runner-browser`, and `runner-vision`: local task runner workers
+- `media-proxy`: media proxy on host port `8202`
+- `xtts-service`: local TTS sidecar on host port `8020`
+- `whisper-service`: local Whisper sidecar on host port `8006`
+
+Optional profiles:
+
+- `control-plane`: starts `backend-control` on host port `8220` by default
+- `ocr`: starts `ocr-service` on host port `8001`
+
+Examples:
+
+```bash
+docker compose --profile control-plane up -d
+docker compose --profile ocr up -d
+```
+
+## Configuration
+
+The repository includes `.env.example`. Copy it to `.env` when you need persistent local configuration:
+
+```bash
+cp .env.example .env
+```
+
+Useful settings include:
+
+- `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` for external LLM providers
+- `LOCAL_AUTH_SECRET` for local auth signing
+- `POSTGRES_CORE_DB`, `POSTGRES_VECTOR_DB`, `POSTGRES_CORE_USER`, `POSTGRES_VECTOR_USER`, `POSTGRES_CORE_PASSWORD`, and `POSTGRES_VECTOR_PASSWORD` when overriding database defaults
+- `OLLAMA_HOST` and `OLLAMA_BASE_URL` when connecting to a host Ollama service
+- `LOCAL_CORE_DATA_HOST_DIR`, `LOCAL_CORE_POSTGRES_HOST_DIR`, and `LOCAL_CORE_LOGS_HOST_DIR` when moving data and logs outside the repository tree
+- `TZ` for container timezone
+
+Do not commit `.env`, local data, logs, backups, credentials, or generated runtime artifacts.
 
 ## Common Commands
 
-### Start Services
-
 ```bash
-# Start all services in detached mode
-docker compose up -d
-
-# Start specific service
-docker compose up -d backend
-```
-
-### Stop Services
-
-```bash
-# Stop all services
-docker compose stop
-
-# Stop and remove containers
-docker compose down
-
-# Stop and remove containers + volumes (⚠️ deletes data)
-docker compose down -v
-```
-
-### View Logs
-
-```bash
-# All services
+docker compose ps
 docker compose logs -f
-
-# Specific service
 docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f ocr-service
-```
-
-### Rebuild Services
-
-```bash
-# Rebuild all services
-docker compose build
-
-# Rebuild specific service
-docker compose build backend
-
-# Rebuild and restart
 docker compose up -d --build
+docker compose stop
+docker compose down
 ```
 
-### Access Container Shell
+Use `docker compose down -v` only when you intentionally want to remove Compose-managed volumes. Host-mounted data under `./data` and configured host directories are separate and should be backed up before destructive maintenance.
+
+## Data and Backups
+
+Default host-mounted paths include:
+
+- PostgreSQL data: `${LOCAL_CORE_POSTGRES_HOST_DIR:-./data/postgres}`
+- application data: `${LOCAL_CORE_DATA_HOST_DIR:-./data}`
+- logs: `${LOCAL_CORE_LOGS_HOST_DIR:-./logs}`
+- local secrets mount: `${LOCAL_CORE_SECRETS_HOST_DIR:-./data/secrets}`
+- model cache: `${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}`
+- storage cache: `${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}`
+
+Use the backup helper before deleting containers, data directories, or database mounts:
 
 ```bash
-# Backend container
-docker compose exec backend bash
-
-# Frontend container
-docker compose exec frontend sh
-
-# PostgreSQL container
-docker compose exec postgres psql -U mindscape -d mindscape_vectors
-```
-
-## Data Persistence
-
-Data is persisted through host-mounted directories:
-
-- **PostgreSQL data**: `${LOCAL_CORE_POSTGRES_HOST_DIR:-./data/postgres}`
-- **Application data**: `${LOCAL_CORE_DATA_HOST_DIR:-./data}`
-- **Logs**: `${LOCAL_CORE_LOGS_HOST_DIR:-./logs}`
-
-Use the verified backup script instead of ad hoc `pg_dump > file` commands:
-
-```bash
-# Standard runtime backup
 scripts/backup_local_runtime.sh
-
-# Verify a completed backup
 scripts/verify_local_runtime_backup.sh <backup-dir>
 ```
 
-See `docs/operations/local-runtime-backups.md` for backup scope, full-backup
-options, and restore notes.
-
-## Development Mode
-
-The Docker Compose configuration is set up for development:
-
-- **Hot reload** enabled for backend and frontend
-- **Source code mounted** as volumes for live updates
-- **Development mode** enabled for better debugging
-
-For production deployment, modify the Dockerfiles to use production builds.
-
-## Troubleshooting
-
-### Container Name Conflict
-
-If you encounter an error like:
-```
-Error response from daemon: Conflict. The container name "/mindscape-ai-local-core-xxx" is already in use
-```
-
-This happens when a previous container with the same name still exists (even if stopped).
-
-**Solution:**
-
-**Option 1: Use the start script (recommended)**
-The start scripts (`start.ps1` / `start.sh`) automatically detect and offer to clean up conflicting containers.
-
-**Option 2: Manual cleanup**
-```bash
-# Remove all containers for this project
-docker compose down
-
-# Or remove a specific container
-docker rm -f mindscape-ai-local-core-ocr
-
-# Then start again
-docker compose up -d
-```
-
-**Option 3: Force recreate**
-```bash
-# Stop and remove containers, then recreate
-docker compose down
-docker compose up -d --force-recreate
-```
-
-### Other Issues
-
-### Port Already in Use
-
-If ports 3000, 8000, 8001, or 5432 are already in use:
-
-1. Stop the conflicting service, or
-2. Modify port mappings in `docker-compose.yml`:
-
-```yaml
-ports:
-  - "3001:3000"  # Change frontend port
-  - "8001:8000"  # Change backend port
-```
-
-### Container Won't Start
-
-```bash
-# Check logs
-docker compose logs backend
-
-# Check container status
-docker compose ps
-
-# Restart service
-docker compose restart backend
-```
-
-### Database Connection Issues
-
-```bash
-# Check PostgreSQL is running
-docker compose ps postgres
-
-# Check PostgreSQL logs
-docker compose logs postgres
-
-# Test connection
-docker compose exec backend python -c "import psycopg2; print('OK')"
-```
-
-### OCR Service Issues
-
-```bash
-# Check OCR service logs
-docker compose logs ocr-service
-
-# Test OCR health endpoint
-curl http://localhost:8001/health
-```
-
-### Out of Memory
-
-If containers are killed due to memory issues:
-
-1. Increase Docker memory limit in Docker Desktop settings
-2. Reduce number of services (e.g., disable OCR if not needed)
-3. Use `docker compose up` without `-d` to see error messages
-
-## Production Considerations
-
-For production deployment:
-
-1. **Set strong passwords** in `.env` file
-2. **Use production builds** (modify Dockerfiles)
-3. **Enable HTTPS** (use reverse proxy like nginx)
-4. **Set up backups** for PostgreSQL and data directories
-5. **Monitor resources** (CPU, memory, disk)
-6. **Use Docker secrets** for sensitive data
-7. **Configure logging** to external service
-8. **Set resource limits** in docker-compose.yml
-
-## Next Steps
-
-- See [Installation Guide](./installation.md) for non-Docker setup
-- See [Quick Start Guide](./quick-start.md) for first-time usage
-- See [Architecture Documentation](../architecture/) for system design
+The backup script creates PostgreSQL dumps, selected data archives, metadata, a manifest, and checksums. The verification script checks manifest artifacts, PostgreSQL dumps, and archive readability.
