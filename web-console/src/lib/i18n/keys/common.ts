@@ -1,10 +1,4 @@
-/**
- * Common i18n message keys
- * Shared across all modules: status, priority, actions, time, etc.
- */
-
 export const commonKeys = {
-  // Status
   status: true,
   statusActive: true,
   statusCompleted: true,
@@ -21,13 +15,11 @@ export const commonKeys = {
   statusLocalMode: true,
   statusNotSupported: true,
 
-  // Priority
   priorityLow: true,
   priorityMedium: true,
   priorityHigh: true,
   priorityCritical: true,
 
-  // Actions
   save: true,
   cancel: true,
   delete: true,
@@ -63,7 +55,6 @@ export const commonKeys = {
   bind: true,
   fork: true,
 
-  // Common states
   loading: true,
   saving: true,
   executing: true,
@@ -80,7 +71,6 @@ export const commonKeys = {
   deleting: true,
   forking: true,
 
-  // Common messages
   error: true,
   success: true,
   noData: true,
@@ -101,7 +91,6 @@ export const commonKeys = {
   default: true,
   unnamed: true,
 
-  // Time
   time: true,
   times: true,
   duration: true,
@@ -115,7 +104,6 @@ export const commonKeys = {
   nextExecution: true,
   lastValidated: true,
 
-  // Days of week
   dayOfWeekMonday: true,
   dayOfWeekTuesday: true,
   dayOfWeekWednesday: true,
@@ -124,7 +112,6 @@ export const commonKeys = {
   dayOfWeekSaturday: true,
   dayOfWeekSunday: true,
 
-  // Common UI
   closeButton: true,
   closeModal: true,
   editButton: true,
@@ -143,7 +130,6 @@ export const commonKeys = {
   of: true,
   comma: true,
 
-  // Common labels
   name: true,
   description: true,
   type: true,
@@ -188,7 +174,6 @@ export const commonKeys = {
   noSopContent: true,
   sopDocument: true,
 
-  // Common placeholders
   enterYourAnswer: true,
   pleaseWait: true,
   pleaseSelectFile: true,
@@ -201,7 +186,6 @@ export const commonKeys = {
   pleaseCompleteFirstQuestion: true,
   pleaseSelectAIMemberFirst: true,
 
-  // Common errors
   unknownError: true,
   operationFailed: true,
   retryFailed: true,
@@ -213,7 +197,6 @@ export const commonKeys = {
   fileUploadFailed: true,
   testExecutionError: true,
 
-  // Common confirmations
   confirmDelete: true,
   deleteBinding: true,
   deleteResourceBinding: true,
@@ -222,7 +205,6 @@ export const commonKeys = {
   confirmTrackIntent: true,
   confirmHabit: true,
 
-  // Common notifications
   actionRequired: true,
   needsImmediateAction: true,
   needsSetup: true,
@@ -234,7 +216,6 @@ export const commonKeys = {
   unhealthy: true,
   runningNormally: true,
 
-  // Common descriptions
   descriptionOptional: true,
   noDescription: true,
   technicalInfo: true,
@@ -254,7 +235,6 @@ export const commonKeys = {
   processingMessage: true,
   viewSummary: true,
 
-  // Sync
   updateRequired: true,
   updateAvailable: true,
   updateRequiredDescription: true,
@@ -293,7 +273,6 @@ export const commonKeys = {
   manualMergeDescription: true,
   resolve: true,
 
-  // Artifacts
   artifactsProduced: true,
   noArtifactsYet: true,
   viewSandbox: true,
@@ -304,10 +283,8 @@ export const commonKeys = {
   usingPort: true,
   noPreviewAvailable: true,
 
-  // Execution
   executionStartedButNoId: true,
   restartExecutionFailed: true,
   restartExecutionFailedRetry: true,
   confirmRestartExecutionMessage: true,
 } as const;
-

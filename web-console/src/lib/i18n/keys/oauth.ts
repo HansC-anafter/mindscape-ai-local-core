@@ -1,8 +1,3 @@
-/**
- * OAuth-related i18n message keys
- * OAuth configuration, Google OAuth, authentication
- */
-
 export const oauthKeys = {
   oauthIntegration: true,
   oauthConfiguration: true,
@@ -25,7 +20,6 @@ export const oauthKeys = {
   failedToSaveOAuthConfiguration: true,
   failedToTestOAuthConfiguration: true,
 
-  // Google OAuth
   googleOAuthConfiguration: true,
   googleOAuthDescription: true,
   googleOAuthConfigurationSaved: true,
@@ -47,4 +41,3 @@ export const oauthKeys = {
   redirectURICopied: true,
   connectViaOAuth: true,
 } as const;
-

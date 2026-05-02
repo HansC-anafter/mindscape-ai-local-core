@@ -1,8 +1,3 @@
-/**
- * Integrations-related i18n message keys
- * Third-party integrations, MCP servers, workflows, social media
- */
-
 export const integrationsKeys = {
   integrations: true,
   integrationsDescription: true,
@@ -16,7 +11,6 @@ export const integrationsKeys = {
   selectToolsSection: true,
   selectPacksSection: true,
 
-  // Social media integration
   socialMediaIntegration: true,
   socialMediaIntegrationDescription: true,
   twitterIntegration: true,
@@ -48,7 +42,6 @@ export const integrationsKeys = {
   socialMediaDisconnectConfirm: true,
   lastValidated: true,
 
-  // Slack integration
   connectSlack: true,
   slackConnectionSuccess: true,
   selectSlackAuthMethod: true,
@@ -60,13 +53,11 @@ export const integrationsKeys = {
   slackAccessToken: true,
   slackAccessTokenDescription: true,
 
-  // Airtable integration
   connectAirtable: true,
   airtableConnectionSuccess: true,
   airtablePersonalAccessToken: true,
   airtableTokenDescription: true,
 
-  // Google Sheets integration
   connectGoogleSheets: true,
   googleSheetsConnectionSuccess: true,
   reuseGoogleDriveOAuth: true,
@@ -76,7 +67,6 @@ export const integrationsKeys = {
   googleSheetsOAuthNote: true,
   reusedGoogleDriveOAuth: true,
 
-  // GitHub integration
   connectGitHub: true,
   githubConnectionSuccess: true,
   selectGitHubAuthMethod: true,
@@ -88,7 +78,6 @@ export const integrationsKeys = {
   githubPersonalAccessToken: true,
   githubTokenDescriptionFull: true,
 
-  // Canva integration
   connectCanva: true,
   canvaConnectionSuccess: true,
   selectCanvaAuthMethod: true,
@@ -104,7 +93,6 @@ export const integrationsKeys = {
   canvaBaseURL: true,
   canvaBrandID: true,
 
-  // MCP Server
   mcpServer: true,
   mcpServerDescription: true,
   addMCPServer: true,
@@ -122,7 +110,6 @@ export const integrationsKeys = {
   serverName: true,
   disconnected: true,
 
-  // Workflow
   thirdPartyWorkflow: true,
   thirdPartyWorkflowDescription: true,
   addWorkflow: true,
@@ -137,7 +124,6 @@ export const integrationsKeys = {
   webhookUrlDescription: true,
   configureWorkflow: true,
 
-  // Service Account (Vertex AI)
   serviceAccountJsonFile: true,
   chooseJsonFile: true,
   browse: true,
@@ -155,4 +141,3 @@ export const integrationsKeys = {
   gcpProjectId: true,
   availableInLocalMode: true,
 } as const;
-

@@ -1,8 +1,3 @@
-/**
- * Workspace-related i18n message keys
- * Workspace management, creation, configuration, storage
- */
-
 export const workspaceKeys = {
   workspace: true,
   workspaceList: true,
@@ -38,7 +33,6 @@ export const workspaceKeys = {
   noActivePlaybook: true,
   pendingTasksWaiting: true,
 
-  // Workspace storage
   configureWorkspaceStoragePath: true,
   workspaceStoragePath: true,
   workspaceStoragePathDescription: true,
@@ -64,7 +58,6 @@ export const workspaceKeys = {
   playbookStorageConfiguration: true,
   playbookStorageConfigurationDescription: true,
 
-  // Workspace work scenes
   workScenes: true,
   selectWorkScene: true,
   suggestedScene: true,
@@ -118,7 +111,6 @@ export const workspaceKeys = {
   restoreAvailable: true,
   restoreExpired: true,
 
-  // Workspace creation
   createWorkspace: true,
   selectCreationMethod: true,
   quickCreate: true,
@@ -165,7 +157,6 @@ export const workspaceKeys = {
   pasteUrl: true,
   errorLoadingWorkspace: true,
 
-  // Workspace instruction page
   workspaceInstructionTitle: true,
   workspaceInstructionUnsavedChanges: true,
   workspaceInstructionSaved: true,
@@ -197,7 +188,6 @@ export const workspaceKeys = {
   instructionChatInitialMessage: true,
   instructionChatErrorPrefix: true,
 
-  // Workspace governance
   governance: true,
   governancePageDescription: true,
   decisionHistory: true,

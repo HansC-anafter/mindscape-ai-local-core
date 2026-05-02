@@ -1,8 +1,3 @@
-/**
- * Cloud Extension-related i18n message keys
- * Cloud playbook providers, cloud services
- */
-
 export const cloudKeys = {
   cloudExtension: true,
   cloudPlaybookProviders: true,
@@ -51,4 +46,3 @@ export const cloudKeys = {
   providerNamePlaceholder: true,
   apiUrlPlaceholderGeneric: true,
 } as const;
-
