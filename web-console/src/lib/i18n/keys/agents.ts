@@ -1,10 +1,4 @@
-/**
- * Agents-related i18n message keys
- * AI agents, agent types, agent roles, agent execution
- */
-
 export const agentsKeys = {
-  // Agent types
   agentType: true,
   agentTypeCoach: true,
   agentTypeCoder: true,
@@ -19,7 +13,6 @@ export const agentsKeys = {
   agentWriter: true,
   agentsDescription: true,
 
-  // Agent roles
   aiRoles: true,
   roleBusinessStrategist: true,
   roleBusinessStrategistDescription: true,
@@ -125,7 +118,6 @@ export const agentsKeys = {
   analyzingRoleCapabilities: true,
   temporarilyStoredInDefaultRole: true,
 
-  // Agent team
   aiTeamBehindThisMember: true,
   aiTeamCollaborating: true,
   aiTeamCollaboratingHelp: true,
@@ -137,7 +129,6 @@ export const agentsKeys = {
   activeAIAssistants: true,
   completedTasks: true,
 
-  // Agent execution
   runAgent: true,
   runAllAgents: true,
   runAllAgentsDescription: true,
@@ -146,7 +137,6 @@ export const agentsKeys = {
   agent: true,
   collaboration: true,
 
-  // Team formation
   teamFormationCoach: true,
   teamFormationCoachDesc: true,
   teamFormationCoder: true,
@@ -156,7 +146,6 @@ export const agentsKeys = {
   teamFormationWriter: true,
   teamFormationWriterDesc: true,
 
-  // Agent capabilities
   capabilities: true,
   capabilitiesCount: true,
   capabilitiesDescription: true,
@@ -171,4 +160,3 @@ export const agentsKeys = {
   mainCapabilities: true,
   aiRole: true,
 } as const;
-

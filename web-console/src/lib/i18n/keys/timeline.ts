@@ -1,8 +1,3 @@
-/**
- * Timeline-related i18n message keys
- * Timeline display, events, messages, workspace history
- */
-
 export const timelineKeys = {
   timeline: true,
   timelineAssistantReply: true,
@@ -23,4 +18,3 @@ export const timelineKeys = {
   tool: true,
   collaboration: true,
 } as const;
-

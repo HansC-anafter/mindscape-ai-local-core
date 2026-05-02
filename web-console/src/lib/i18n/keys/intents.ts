@@ -1,8 +1,3 @@
-/**
- * Intents-related i18n message keys
- * Intent management, creation, tracking, status
- */
-
 export const intentsKeys = {
   intents: true,
   intentsDescription: true,
@@ -39,4 +34,3 @@ export const intentsKeys = {
   'intentChips.confirmSuccessWithPlaybook': true,
   'intentChips.confirmError': true,
 } as const;
-

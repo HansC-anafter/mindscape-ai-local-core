@@ -1,8 +1,3 @@
-/**
- * Capability Packs-related i18n message keys
- * Capability packs, installation, management
- */
-
 export const capabilityPacksKeys = {
   capabilityPacks: true,
   capabilityPacksDescription: true,
@@ -32,7 +27,6 @@ export const capabilityPacksKeys = {
   apiRoutes: true,
   installedAt: true,
 
-  // Pack content
   packContentCreatorName: true,
   packContentCreatorDescription: true,
   packContentCreatorCap1: true,

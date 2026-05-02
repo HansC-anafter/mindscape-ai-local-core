@@ -1,8 +1,3 @@
-/**
- * Mindscape-related i18n message keys
- * Mindscape management, activation, suggestions, organization
- */
-
 export const mindscapeKeys = {
   mindscape: true,
   mindscapeDescription: true,
@@ -118,4 +113,3 @@ export const mindscapeKeys = {
   open: true,
   binding: true,
 } as const;
-

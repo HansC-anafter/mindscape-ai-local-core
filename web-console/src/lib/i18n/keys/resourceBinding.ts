@@ -1,8 +1,3 @@
-/**
- * Resource Binding-related i18n message keys
- * Resource bindings, data source overlay, tool overlay
- */
-
 export const resourceBindingKeys = {
   resourceBindings: true,
   resourceBindingsDescription: true,
@@ -17,7 +12,6 @@ export const resourceBindingKeys = {
   deleteResourceBinding: true,
   deleteResourceBindingConfirm: true,
 
-  // Data Source Overlay
   dataSourceOverlaySettings: true,
   dataSourceOverlayDescription: true,
   addDataSource: true,
@@ -28,7 +22,6 @@ export const resourceBindingKeys = {
   availableDataSources: true,
   enableDataSourceInWorkspace: true,
 
-  // Tool Overlay
   toolOverlaySettings: true,
   toolOverlayDescription: true,
   toolWhitelist: true,
@@ -50,4 +43,3 @@ export const resourceBindingKeys = {
   saveSettings: true,
   toolOverlaySaved: true,
 } as const;
-

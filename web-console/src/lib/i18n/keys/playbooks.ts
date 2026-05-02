@@ -1,8 +1,3 @@
-/**
- * Playbooks-related i18n message keys
- * Playbook management, execution, variants, suggestions
- */
-
 export const playbooksKeys = {
   playbooks: true,
   playbooksTitle: true,
@@ -155,4 +150,3 @@ export const playbooksKeys = {
   suggestedQuestionUsageStatus: true,
   thinking: true,
 } as const;
-

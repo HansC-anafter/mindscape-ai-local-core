@@ -1,8 +1,3 @@
-/**
- * Tools-related i18n message keys
- * Tool management, connections, configuration, capabilities
- */
-
 export const toolsKeys = {
   tools: true,
   toolsDescription: true,
@@ -42,7 +37,6 @@ export const toolsKeys = {
   connectTools: true,
   selectToolsSection: true,
 
-  // Tool connections
   addConnection: true,
   connections: true,
   connectionsDescription: true,
@@ -62,7 +56,6 @@ export const toolsKeys = {
   connectionFailed: true,
   connectionTestFailed: true,
 
-  // Local file system
   localFileSystem: true,
   localFileSystemConfig: true,
   directory: true,
@@ -82,7 +75,6 @@ export const toolsKeys = {
   discoveredTools: true,
   noToolsDiscovered: true,
 
-  // Tool descriptions
   toolLocalFilesDescription: true,
   toolVectorDBDescription: true,
   toolObsidianDescription: true,
@@ -95,7 +87,6 @@ export const toolsKeys = {
   toolGoogleSheetsDescription: true,
   toolGitHubDescription: true,
 
-  // Tool overlay
   toolOverlaySettings: true,
   toolOverlayDescription: true,
   toolWhitelist: true,
@@ -112,7 +103,6 @@ export const toolsKeys = {
   enableToolsInWorkspace: true,
   toolOverlaySaved: true,
 
-  // WordPress
   connectWordPress: true,
   wordpressConnections: true,
   wordpressConnectionsDescription: true,
@@ -121,13 +111,11 @@ export const toolsKeys = {
   wordpressPassword: true,
   siteIdentifier: true,
 
-  // Danger levels
   dangerLevel: true,
   dangerLevelLow: true,
   dangerLevelMedium: true,
   dangerLevelHigh: true,
 
-  // Access modes
   accessMode: true,
   readOnly: true,
   readWrite: true,
@@ -139,4 +127,3 @@ export const toolsKeys = {
   accessModeOverride: true,
   accessModeOverrideDescription: true,
 } as const;
-

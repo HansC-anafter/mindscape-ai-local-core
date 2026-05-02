@@ -1,8 +1,3 @@
-/**
- * System-related i18n message keys
- * System status, health, management, service status
- */
-
 export const systemKeys = {
   systemManagement: true,
   systemManagementDescription: true,
@@ -48,4 +43,3 @@ export const systemKeys = {
   deprecated: true,
   checkI18n: true,
 } as const;
-

@@ -1,8 +1,3 @@
-/**
- * App-related i18n message keys
- * Application core concepts, onboarding, welcome messages
- */
-
 export const appKeys = {
   appCoreConcept: true,
   appName: true,
@@ -18,7 +13,6 @@ export const appKeys = {
   setupCompleteAlert: true,
   setupGuide: true,
 
-  // Onboarding
   onboardingTask1ButtonCompleted: true,
   onboardingTask1ButtonUncompleted: true,
   onboardingTask1Footer: true,
@@ -34,12 +28,10 @@ export const appKeys = {
   onboardingTask3Title: true,
   onboardingTask3WordPressHint: true,
 
-  // Welcome messages
   'welcome.new_workspace': true,
   'welcome.returning_workspace': true,
   'welcome.fallback': true,
 
-  // Suggestions
   'suggestions.organize_tasks': true,
   'suggestions.daily_planning': true,
   'suggestions.view_progress': true,
@@ -60,7 +52,6 @@ export const appKeys = {
   recommendedPlaybooks: true,
   recommendedAction: true,
 
-  // Categories
   categoryAll: true,
   categoryBusiness: true,
   categoryCoaching: true,
@@ -69,10 +60,8 @@ export const appKeys = {
   categoryProductivity: true,
   categoryTechnical: true,
 
-  // Pages
   pageTitle: true,
   pageSubtitle: true,
   pages: true,
   congratulationsFullyActivated: true,
 } as const;
-

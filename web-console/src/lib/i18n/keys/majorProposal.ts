@@ -1,8 +1,3 @@
-/**
- * Major Proposal-related i18n message keys
- * Major proposal creation, templates, generation, publishing
- */
-
 export const majorProposalKeys = {
   majorProposalEnterInfo: true,
   majorProposalEnterContent: true,
@@ -36,4 +31,3 @@ export const majorProposalKeys = {
   majorProposalTemplateNotFound: true,
   proposalOrPlan: true,
 } as const;
-

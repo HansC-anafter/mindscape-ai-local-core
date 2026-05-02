@@ -1,8 +1,3 @@
-/**
- * Execution-related i18n message keys
- * Playbook execution, status, steps, timeline, artifacts
- */
-
 export const executionKeys = {
   execute: true,
   executing: true,
@@ -60,7 +55,6 @@ export const executionKeys = {
   executingInWorkspace: true,
   executingVariant: true,
 
-  // Execution confirmation
   executionAISuggested: true,
   executionRequiresConfirmation: true,
   executionSelectStepForDetails: true,
@@ -71,7 +65,6 @@ export const executionKeys = {
   executionConfirmContinue: true,
   executionReject: true,
 
-  // Background execution
   backgroundExecution: true,
   backgroundExecutionDescription: true,
   enableBackgroundTask: true,
@@ -93,7 +86,6 @@ export const executionKeys = {
   lastExecutionFailed: true,
   nextExecution: true,
 
-  // Timeline
   timelineRunning: true,
   timelinePendingConfirmation: true,
   timelineArchived: true,
@@ -101,7 +93,6 @@ export const executionKeys = {
   timelineItemNotFound: true,
   timelineItemUnavailable: true,
 
-  // Artifacts
   retryArtifactCreation: true,
   viewArtifact: true,
   viewOriginalResponse: true,
@@ -118,7 +109,6 @@ export const executionKeys = {
   toolCalls: true,
   selectStepToViewDetails: true,
 
-  // Execution chat
   playbookInspector: true,
   playbookRun: true,
   askPlaybookInspector: true,
@@ -138,4 +128,3 @@ export const executionKeys = {
   discussPlaybookExecution: true,
   itKnowsStepsEventsErrors: true,
 } as const;
-
