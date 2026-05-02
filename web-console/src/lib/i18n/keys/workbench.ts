@@ -1,8 +1,3 @@
-/**
- * Workbench-related i18n message keys
- * Workbench interface, chat, file analysis, research
- */
-
 export const workbenchKeys = {
   workbench: true,
   startChat: true,

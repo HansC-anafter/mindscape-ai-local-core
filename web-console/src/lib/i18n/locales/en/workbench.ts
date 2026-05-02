@@ -1,11 +1,6 @@
-/**
- * workbench i18n messages (English)
- */
 import type { MessageKey } from '../../keys';
 
 export const workbenchEn = {
-
-  // Workbench
   workbench: 'Workbench',
   mindscapeAIWorkbench: 'Mindscape AI Workbench',
   currentContext: 'Current Context',
@@ -66,8 +61,6 @@ export const workbenchEn = {
   primaryProject: 'Primary Project',
   defaultPlaybook: 'Default Playbook',
   locale: 'Locale',
-
-  // Execution failure diagnostics
   failureType: 'Failure Type',
   failureReason: 'Failure Reason',
   diagnosticInfo: 'Diagnostic Info',
@@ -75,8 +68,6 @@ export const workbenchEn = {
   lastStep: 'Last Step',
   trackExecution: 'Track Execution',
   noExecutionSteps: 'No execution steps found - Playbook may not have started',
-
-  // Workspace Modes
   workspaceMode: 'Workspace Mode',
   activePlaybook: 'Active Playbook',
   noActivePlaybook: 'No Active',
@@ -89,8 +80,6 @@ export const workbenchEn = {
   modePlanningDescription: 'Today checklist, weekly highlights, long-term Intent progress',
   clearMode: 'Clear mode',
   clear: 'Clear',
-
-  // Research Mode
   researchLiteratureSummary: 'Literature Summary',
   researchLiteratureSummaryDescription: 'Automatically generate literature summary from uploaded files',
   generateSummary: 'Generate Summary',
@@ -100,8 +89,6 @@ export const workbenchEn = {
   obsidianVaultIntegration: 'Obsidian Vault Integration',
   obsidianVaultIntegrationDescription: 'Sync files to Obsidian vault',
   syncToObsidian: 'Sync to Obsidian',
-
-  // Publishing Mode
   publishingVersionTree: 'Version Tree',
   publishingVersionTreeDescription: 'View and manage content version history',
   viewVersions: 'View Versions',
@@ -114,8 +101,6 @@ export const workbenchEn = {
   publishingI18nCheck: 'i18n Check',
   publishingI18nCheckDescription: 'Check multilingual translation completeness',
   checkI18n: 'Check i18n',
-
-  // Planning Mode
   planningTodayChecklist: 'Today Checklist',
   planningTodayChecklistDescription: 'View and manage today\'s todos',
   viewChecklist: 'View Checklist',
@@ -125,8 +110,6 @@ export const workbenchEn = {
   planningLongTermIntent: 'Long-term Intent Progress',
   planningLongTermIntentDescription: 'Track long-term goals and project progress',
   viewIntentProgress: 'View Progress',
-
-  // Multi-AI Collaboration
   multiAICollaborationTitle: 'Already previewed this file',
   fileReceived: 'Received',
   pages: 'pages',
@@ -182,8 +165,6 @@ export const workbenchEn = {
   autoSuggestEnabled: 'Auto-suggest enabled',
   connected: 'Connected',
   notConnected: 'Not Connected',
-
-  // Workspace errors
   workspaceCreateFailed: 'Failed to create workspace',
   workspaceFileAnalysisFailed: 'File analysis failed',
   workspaceSendMessageFailed: 'Failed to send message',
@@ -198,8 +179,6 @@ export const workbenchEn = {
   workspaceDelete: 'Delete Workspace',
   workspaceDeleteFailed: 'Failed to delete workspace',
   workspaceDeleteConfirm: 'Are you sure you want to delete workspace "{workspaceName}"? This action cannot be undone and all associated data will be permanently deleted.',
-
-  // Welcome messages (from backend i18n)
   'welcome.new_workspace': 'Welcome to "{workspace_title}" workspace!\n\nI can help you: execute Playbooks, manage tasks, answer questions, analyze work patterns.\n\nQuick start: tell me what you want to accomplish, or click suggestions below.\n\nSuggestion: first-time users should complete "Mindscape" cold-start tasks.',
   'welcome.returning_workspace': 'Welcome back to "{workspace_title}" workspace!\n\nI can help you execute Playbooks, manage projects, answer questions, analyze patterns.\n\nTell me what you want to do, or click suggestions below!',
   'welcome.fallback': 'Welcome to "{workspace_title}" workspace! I can help you execute Playbooks, manage tasks, answer questions, and more.',
@@ -209,7 +188,7 @@ export const workbenchEn = {
   'suggestions.execute_playbook': 'Execute {playbook_name}',
   'suggestion.run_playbook_cta': 'Run Playbook',
   'suggestion.create_intent_card_title': 'Create Intent Card',
-  'suggestion.create_intent_card_titl': 'Create Intent Card', // typo fallback
+  'suggestion.create_intent_card_titl': 'Create Intent Card',
   'suggestion.create_intent_card_description': 'Start tracking your long-term goals and tasks',
   meetingObjectActionCompleted: 'Object action completed and linked into the meeting graph.',
   meetingObjectActionNoClosure: 'Object action finished without a completed closure.',

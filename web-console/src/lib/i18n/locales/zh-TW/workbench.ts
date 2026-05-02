@@ -1,11 +1,6 @@
-/**
- * workbench i18n messages (Traditional Chinese)
- */
 import type { MessageKey } from '../../keys';
 
 export const workbenchZhTW = {
-
-  // Workbench
   workbench: '工作台',
   mindscapeAIWorkbench: '默默 AI 工作台',
   currentContext: '當前 Context',
@@ -61,8 +56,6 @@ export const workbenchZhTW = {
   primaryProject: 'Primary Project',
   defaultPlaybook: 'Default Playbook',
   locale: 'Locale',
-
-  // Execution failure diagnostics
   failureType: '失敗類型',
   failureReason: '失敗原因',
   diagnosticInfo: '診斷信息',
@@ -70,8 +63,6 @@ export const workbenchZhTW = {
   lastStep: '最後步驟',
   trackExecution: '追蹤調度',
   noExecutionSteps: '未找到執行步驟 - Playbook 可能未啟動或卡在初始化階段',
-
-  // Workspace Modes
   workspaceMode: '工作區模式',
   activePlaybook: '正在使用工作劇本',
   noActivePlaybook: '無活動中',
@@ -84,8 +75,6 @@ export const workbenchZhTW = {
   modePlanningDescription: '今日 checklist、本週重點、長期 Intent 進度',
   clearMode: '清除模式',
   clear: '清除',
-
-  // Research Mode
   researchLiteratureSummary: '文獻摘要',
   researchLiteratureSummaryDescription: '自動生成上傳文件的文獻摘要',
   generateSummary: '生成摘要',
@@ -95,8 +84,6 @@ export const workbenchZhTW = {
   obsidianVaultIntegration: 'Obsidian Vault 整合',
   obsidianVaultIntegrationDescription: '將文件同步到 Obsidian vault',
   syncToObsidian: '同步到 Obsidian',
-
-  // Publishing Mode
   publishingVersionTree: '版本樹',
   publishingVersionTreeDescription: '查看和管理內容版本歷史',
   viewVersions: '查看版本',
@@ -109,8 +96,6 @@ export const workbenchZhTW = {
   publishingI18nCheck: 'i18n 檢查',
   publishingI18nCheckDescription: '檢查多語系翻譯完整性',
   checkI18n: '檢查 i18n',
-
-  // Planning Mode
   planningTodayChecklist: '今日 Checklist',
   planningTodayChecklistDescription: '查看和管理今日待辦事項',
   viewChecklist: '查看 Checklist',
@@ -120,8 +105,6 @@ export const workbenchZhTW = {
   planningLongTermIntent: '長期 Intent 進度',
   planningLongTermIntentDescription: '追蹤長期目標和專案進度',
   viewIntentProgress: '查看進度',
-
-  // Multi-AI Collaboration
   multiAICollaborationTitle: '已預覽此文件',
   fileReceived: '已接收',
   pages: '頁',
@@ -177,8 +160,6 @@ export const workbenchZhTW = {
   autoSuggestEnabled: '已啟用自動建議',
   connected: '已連線',
   notConnected: '未連線',
-
-  // Workspace errors
   workspaceCreateFailed: '建立工作區失敗',
   workspaceFileAnalysisFailed: '文件分析失敗',
   workspaceSendMessageFailed: '發送訊息失敗',
@@ -193,8 +174,6 @@ export const workbenchZhTW = {
   workspaceDelete: '刪除工作區',
   workspaceDeleteFailed: '刪除工作區失敗',
   workspaceDeleteConfirm: '確定要刪除工作區「{workspaceName}」嗎？此操作無法復原，所有相關資料都會被永久刪除。',
-
-  // Welcome messages (from backend i18n)
   'welcome.new_workspace': '歡迎來到「{workspace_title}」工作區！\n\n我可以協助您：執行 Playbook、管理任務、回答問題、分析工作模式。\n\n快速開始：直接告訴我您想完成的任務，或點擊下方建議。\n\n建議：首次使用建議先完成「心智空間」冷啟動任務。',
   'welcome.returning_workspace': '歡迎回到「{workspace_title}」工作區！\n\n我可以協助您執行 Playbook、管理專案任務、回答問題、分析工作模式。\n\n直接告訴我您想做什麼，或點擊下方建議快速開始！',
   'welcome.fallback': '歡迎來到「{workspace_title}」工作區！我可以協助您執行 Playbook、管理任務、回答問題等。',
@@ -209,7 +188,7 @@ export const workbenchZhTW = {
   'suggestions.execute_playbook': '執行 {playbook_name}',
   'suggestion.run_playbook_cta': '執行',
   'suggestion.create_intent_card_title': '建立意圖卡',
-  'suggestion.create_intent_card_titl': '建立意圖卡', // typo fallback
+  'suggestion.create_intent_card_titl': '建立意圖卡',
   'suggestion.create_intent_card_description': '開始追蹤你的長期目標和任務',
   meetingObjectActionCompleted: '物件操作已完成，並已連結到 meeting graph。',
   meetingObjectActionNoClosure: '物件操作已結束，但沒有完成 closure。',

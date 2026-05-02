@@ -1,11 +1,6 @@
-/**
- * Workbench i18n messages (Japanese)
- * Workbench, Workspace errors, Workspace Modes, Multi-AI Collaboration
- */
 import type { MessageKey } from '../../keys';
 
 export const workbenchJa = {
-  // Workbench
   workbench: 'ワークベンチ',
   mindscapeAIWorkbench: 'Mindscape AI ワークベンチ',
   currentContext: '現在のコンテキスト',
@@ -61,8 +56,6 @@ export const workbenchJa = {
   primaryProject: 'プライマリプロジェクト',
   defaultPlaybook: 'デフォルトプレイブック',
   locale: 'ロケール',
-
-  // Workspace Modes
   workspaceMode: 'ワークスペースモード',
   activePlaybook: '使用中のプレイブック',
   noActivePlaybook: 'アクティブなし',
@@ -75,8 +68,6 @@ export const workbenchJa = {
   modePlanningDescription: '今日のチェックリスト、今週の重点、長期意図の進捗',
   clearMode: 'モードをクリア',
   clear: 'クリア',
-
-  // Research Mode
   researchLiteratureSummary: '文献要約',
   researchLiteratureSummaryDescription: 'アップロードしたファイルから文献要約を自動生成',
   generateSummary: '要約を生成',
@@ -86,8 +77,6 @@ export const workbenchJa = {
   obsidianVaultIntegration: 'Obsidian Vault 統合',
   obsidianVaultIntegrationDescription: 'ファイルを Obsidian vault に同期',
   syncToObsidian: 'Obsidian に同期',
-
-  // Publishing Mode
   publishingVersionTree: 'バージョン履歴',
   publishingVersionTreeDescription: 'コンテンツのバージョン履歴を表示および管理',
   viewVersions: 'バージョンを表示',
@@ -100,8 +89,6 @@ export const workbenchJa = {
   publishingI18nCheck: 'i18n チェック',
   publishingI18nCheckDescription: '多言語翻訳の完全性をチェック',
   checkI18n: 'i18n をチェック',
-
-  // Planning Mode
   planningTodayChecklist: '今日のチェックリスト',
   planningTodayChecklistDescription: '今日のタスクを表示および管理',
   viewChecklist: 'チェックリストを表示',
@@ -111,8 +98,6 @@ export const workbenchJa = {
   planningLongTermIntent: '長期意図の進捗',
   planningLongTermIntentDescription: '長期目標とプロジェクトの進捗を追跡',
   viewIntentProgress: '進捗を表示',
-
-  // Multi-AI Collaboration
   multiAICollaborationTitle: 'このファイルは既にプレビュー済み',
   fileReceived: '受信済み',
   pages: 'ページ',
@@ -150,8 +135,6 @@ export const workbenchJa = {
   execute: '実行',
   connected: '接続済み',
   notConnected: '未接続',
-
-  // Workspace errors
   workspaceCreateFailed: 'ワークスペースの作成に失敗しました',
   workspaceFileAnalysisFailed: 'ファイル分析に失敗しました',
   workspaceSendMessageFailed: 'メッセージの送信に失敗しました',
@@ -165,8 +148,6 @@ export const workbenchJa = {
   workspaceDelete: 'ワークスペースを削除',
   workspaceDeleteFailed: 'ワークスペースの削除に失敗しました',
   workspaceDeleteConfirm: 'ワークスペース「{workspaceName}」を削除しますか？この操作は元に戻せず、すべてのデータが永久に削除されます。',
-
-  // Welcome messages (from backend i18n)
   'welcome.new_workspace': '「{workspace_title}」ワークスペースへようこそ！\n\nお手伝いできること：Playbook 実行、タスク管理、質問回答、作業パターン分析。\n\nクイックスタート：完了したいタスクを直接教えるか、以下の提案をクリック。\n\n提案：初回利用時は「Mindscape」コールドスタートタスクを完了してください。',
   'welcome.returning_workspace': '「{workspace_title}」ワークスペースへおかえりなさい！\n\nPlaybook 実行、プロジェクト管理、質問回答、作業パターン分析をお手伝いします。\n\n完了したいタスクを直接教えるか、以下の提案をクリック！',
   'welcome.fallback': '「{workspace_title}」ワークスペースへようこそ！Playbook 実行、タスク管理、質問回答などお手伝いします。',
@@ -176,7 +157,7 @@ export const workbenchJa = {
   'suggestions.execute_playbook': '{playbook_name} を実行',
   'suggestion.run_playbook_cta': 'プレイブックを実行',
   'suggestion.create_intent_card_title': '意図カードを作成',
-  'suggestion.create_intent_card_titl': '意図カードを作成', // typo fallback
+  'suggestion.create_intent_card_titl': '意図カードを作成',
   'suggestion.create_intent_card_description': '長期目標やタスクの追跡を開始',
   meetingObjectActionCompleted: 'オブジェクト操作が完了し、meeting graph にリンクされました。',
   meetingObjectActionNoClosure: 'オブジェクト操作は終了しましたが、closure は完了していません。',
