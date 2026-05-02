@@ -1,11 +1,6 @@
-/**
- * Navigation i18n messages
- * Navigation menu items and routes
- */
 import type { MessageKey } from '../keys';
 
 export const navigationZhTW = {
-  // Navigation
   navWorkspaces: '工作區',
   workspace: '工作區',
   backToWorkspaces: '返回工作區列表',
@@ -25,7 +20,6 @@ export const navigationZhTW = {
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const navigationEn = {
-  // Navigation
   navWorkspaces: 'Workspaces',
   workspace: 'Workspace',
   backToWorkspaces: 'Back to Workspaces',

@@ -1,12 +1,6 @@
-/**
- * Common i18n messages
- * Shared across all modules
- */
-
 import type { MessageKey } from '../keys';
 
 export const commonZhTW = {
-  // Status
   status: '狀態',
   statusActive: '進行中',
   statusCompleted: '已完成',
@@ -16,13 +10,11 @@ export const commonZhTW = {
   statusPaused: '已暫停',
   statusArchived: '已封存',
 
-  // Priority
   priorityLow: '低',
   priorityMedium: '中',
   priorityHigh: '高',
   priorityCritical: '緊急',
 
-  // Actions
   save: '儲存',
   cancel: '取消',
   delete: '刪除',
@@ -39,7 +31,6 @@ export const commonZhTW = {
   sourceIntent: '來源 Intent',
   noOutcomes: '尚無成果',
 
-  // Common
   loading: '載入中...',
   saving: '儲存中...',
   error: '發生錯誤',
@@ -56,7 +47,6 @@ export const commonZhTW = {
   retryArtifactCreation: '重試創建產物',
   llmConfidenceScore: 'LLM 分析置信度: {confidence} (範圍: 0~1)',
 
-  // Pending Tasks
   intentBasedOnAISuggestion: '基於 AI 推測的意圖：',
   editIntentLabel: '編輯意圖標籤',
   backgroundExecution: '背景執行',
@@ -66,7 +56,6 @@ export const commonZhTW = {
   confidence: '信心：',
   executionSuccessUpdating: '執行成功，正在更新...',
 
-  // Background Tasks
   disabled: '已停用',
   runningNormally: '正常運行',
   executionFailed: '執行失敗',
@@ -106,7 +95,6 @@ export const commonZhTW = {
   requiredToolsNotSupported: '所需工具不支援',
   nextStep: '下一步',
   startedAt: '開始時間',
-  // Tool Status Labels
   statusNotConfigured: '未配置',
   statusNotConnected: '未連接',
   statusConnected: '已連接',
@@ -115,7 +103,6 @@ export const commonZhTW = {
   statusLocalMode: '本地模式',
   statusNotSupported: '不支援',
 
-  // Sidebar Tabs
   tabScheduling: '調度',
   tabOutcomes: '成果',
   tabBackgroundTasks: '背景任務',
@@ -133,7 +120,6 @@ export const commonZhTW = {
   systemTools: '系統工具',
   systemTool: '系統工具',
 
-  // Copy actions
   copyAll: '複製全部',
   copyAllMessages: '複製所有訊息',
   copyMessage: '複製訊息',
@@ -143,7 +129,6 @@ export const commonZhTW = {
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const commonEn = {
-  // Status
   status: 'Status',
   statusActive: 'Active',
   statusCompleted: 'Completed',
@@ -153,13 +138,11 @@ export const commonEn = {
   statusPaused: 'Paused',
   statusArchived: 'Archived',
 
-  // Priority
   priorityLow: 'Low',
   priorityMedium: 'Medium',
   priorityHigh: 'High',
   priorityCritical: 'Critical',
 
-  // Actions
   save: 'Save',
   cancel: 'Cancel',
   delete: 'Delete',
@@ -175,7 +158,6 @@ export const commonEn = {
   sourceIntent: 'Source Intent',
   noOutcomes: 'No outcomes yet',
 
-  // Common
   loading: 'Loading...',
   saving: 'Saving...',
   error: 'Error',
@@ -192,7 +174,6 @@ export const commonEn = {
   retryArtifactCreation: 'Retry artifact creation',
   llmConfidenceScore: 'LLM Analysis Confidence: {confidence} (range: 0~1)',
 
-  // Pending Tasks
   intentBasedOnAISuggestion: 'Intent based on AI suggestion:',
   editIntentLabel: 'Edit intent label',
   backgroundExecution: 'Background Execution',
@@ -202,7 +183,6 @@ export const commonEn = {
   confidence: 'Confidence:',
   executionSuccessUpdating: 'Execution successful, updating...',
 
-  // Background Tasks
   disabled: 'Disabled',
   runningNormally: 'Running Normally',
   executionFailed: 'Execution Failed',
@@ -240,7 +220,6 @@ export const commonEn = {
   unsupported: 'Unsupported',
   toolsNeedConfiguration: 'Tools need configuration',
   requiredToolsNotSupported: 'Required tools not supported',
-  // Tool Status Labels
   statusNotConfigured: 'Not configured',
   statusNotConnected: 'Not connected',
   statusConnected: 'Connected',
@@ -251,7 +230,6 @@ export const commonEn = {
   nextStep: 'Next Step',
   startedAt: 'Started At',
 
-  // Sidebar Tabs
   tabScheduling: 'Scheduling',
   tabOutcomes: 'Outcomes',
   tabBackgroundTasks: 'Background Tasks',
@@ -264,7 +242,6 @@ export const commonEn = {
   systemTools: 'System Tools',
   systemTool: 'System Tool',
 
-  // Copy actions
   copyAll: 'Copy All',
   copyAllMessages: 'Copy All Messages',
   copyMessage: 'Copy Message',
@@ -272,7 +249,6 @@ export const commonEn = {
   user: 'User',
   assistant: 'Assistant',
 
-  // Artifacts
   artifactsProduced: 'Produced',
   noArtifactsYet: 'No artifacts yet',
   view: 'View',
@@ -284,7 +260,6 @@ export const commonEn = {
   usingPort: 'Using port',
   noPreviewAvailable: 'No preview available',
 
-  // Execution
   executionStartedButNoId: 'Execution started but failed to get execution ID',
   restartExecutionFailed: 'Failed to restart execution',
   restartExecutionFailedRetry: 'Failed to restart execution. Please try again.',

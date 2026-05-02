@@ -1,11 +1,6 @@
-/**
- * System Management i18n messages
- * System Management, System Health
- */
 import type { MessageKey } from '../keys';
 
 export const systemZhTW = {
-  // System Management
   systemManagement: '系統管理與整合',
   serviceStatus: '服務狀態',
   systemManagementDescription: '管理工具、能力註冊、連接與系統整合',
@@ -54,7 +49,6 @@ export const systemZhTW = {
   discoveryMethodPlugin: 'Plugin',
   discoveryMethodFallback: 'Fallback',
 
-  // System Health
   systemHealthStatus: '系統狀態檢查',
   systemHealthNormal: '系統狀態正常',
   systemStatusNormal: '系統狀態正常',
@@ -71,7 +65,6 @@ export const systemZhTW = {
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const systemEn = {
-  // System Management
   systemManagement: 'System Management & Integration',
   serviceStatus: 'Service Status',
   systemManagementDescription: 'Manage tools, capability registration, connections, and system integrations',
@@ -120,7 +113,6 @@ export const systemEn = {
   discoveryMethodPlugin: 'Plugin',
   discoveryMethodFallback: 'Fallback',
 
-  // System Health
   systemHealthStatus: 'System Health Check',
   systemHealthNormal: 'System Status Normal',
   systemStatusNormal: 'System Status Normal',

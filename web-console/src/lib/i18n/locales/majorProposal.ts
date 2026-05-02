@@ -1,11 +1,6 @@
-/**
- * Major Proposal i18n messages
- * Major proposal errors and UI strings
- */
 import type { MessageKey } from '../keys';
 
 export const majorProposalZhTW = {
-  // Major Proposal errors
   majorProposalDraftGenerated: '章節草稿已生成！',
   majorProposalGenerateFailed: '生成失敗：{error}',
   majorProposalAssembleFailed: '組裝失敗：{error}',
@@ -39,7 +34,6 @@ export const majorProposalZhTW = {
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const majorProposalEn = {
-  // Major Proposal errors
   majorProposalDraftGenerated: 'Chapter draft generated!',
   majorProposalGenerateFailed: 'Generation failed: {error}',
   majorProposalAssembleFailed: 'Assembly failed: {error}',

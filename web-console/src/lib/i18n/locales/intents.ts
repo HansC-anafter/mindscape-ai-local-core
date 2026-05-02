@@ -1,11 +1,6 @@
-/**
- * Intents i18n messages
- * Intent cards and long-term goals
- */
 import type { MessageKey } from '../keys';
 
 export const intentsZhTW = {
-  // Intents
   intents: '意圖卡',
   intentsDescription: '追蹤你的長線目標與專案',
   intentTitle: '標題',
@@ -21,7 +16,6 @@ export const intentsZhTW = {
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const intentsEn = {
-  // Intents
   intents: 'Intent Cards',
   intentsDescription: 'Track your long-term goals and projects',
   intentTitle: 'Title',

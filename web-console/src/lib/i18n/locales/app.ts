@@ -1,11 +1,6 @@
-/**
- * App-level i18n messages
- * Application name, subtitle, core concepts
- */
 import type { MessageKey } from '../keys';
 
 export const appZhTW = {
-  // App
   appName: 'Mindscape AI',
   appSubtitle: '個人 AI 團隊工作台',
   appWorkstation: 'Mindscape AI 工作站',
@@ -13,7 +8,6 @@ export const appZhTW = {
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const appEn = {
-  // App
   appName: 'Mindscape AI',
   appSubtitle: 'Personal AI Team Console',
   appWorkstation: 'Mindscape AI Workstation',

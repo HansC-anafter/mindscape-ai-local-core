@@ -1,11 +1,6 @@
-/**
- * Profile i18n messages
- * User profile and preferences
- */
 import type { MessageKey } from '../keys';
 
 export const profileZhTW = {
-  // Profile
   profile: '自我設定',
   profileDescription: '定義你是誰、你的角色與偏好',
   name: '姓名',
@@ -19,7 +14,6 @@ export const profileZhTW = {
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const profileEn = {
-  // Profile
   profile: 'Profile',
   profileDescription: 'Define who you are, your roles, and preferences',
   name: 'Name',

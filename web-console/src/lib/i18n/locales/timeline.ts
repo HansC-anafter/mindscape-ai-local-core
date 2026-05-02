@@ -1,11 +1,6 @@
-/**
- * Timeline i18n messages
- * Timeline and event display
- */
 import type { MessageKey } from '../keys';
 
 export const timelineZhTW = {
-  // Timeline
   timeline: 'Timeline',
   timelineContentPlaceholder: 'Timeline content will be displayed here',
   viewFullTimeline: 'View Full Timeline',
@@ -14,7 +9,6 @@ export const timelineZhTW = {
   timelineToolCall: '工具调用',
   timelineWorkspaceCreated: '工作区创建',
 
-  // Timeline Panel Sections
   timelineRunning: '執行中',
   timelinePendingConfirmation: '待確認',
   timelineArchived: '已存檔',
@@ -23,7 +17,6 @@ export const timelineZhTW = {
   noPendingConfirmations: '目前沒有待確認的步驟',
   noArchivedExecutions: '目前沒有已存檔的執行',
 
-  // Execution Console
   executionAISuggested: '(AI 推測，執行中仍可更改)',
   executionRequiresConfirmation: '需要確認',
   executionSummary: '執行摘要',
@@ -37,7 +30,6 @@ export const timelineZhTW = {
 } as const satisfies Partial<Record<MessageKey, string>>;
 
 export const timelineEn = {
-  // Timeline
   timeline: 'Timeline',
   timelineContentPlaceholder: 'Timeline content will be displayed here',
   viewFullTimeline: 'View Full Timeline',
@@ -46,7 +38,6 @@ export const timelineEn = {
   timelineToolCall: 'Tool Call',
   timelineWorkspaceCreated: 'Workspace Created',
 
-  // Timeline Panel Sections
   timelineRunning: 'Running',
   timelinePendingConfirmation: 'Pending Confirmation',
   timelineArchived: 'Archived',
@@ -55,7 +46,6 @@ export const timelineEn = {
   noPendingConfirmations: 'No steps pending confirmation',
   noArchivedExecutions: 'No archived executions',
 
-  // Execution Console
   executionAISuggested: '(AI suggested, can still be changed during execution)',
   executionRequiresConfirmation: 'Requires Confirmation',
   executionSummary: 'Execution Summary',
