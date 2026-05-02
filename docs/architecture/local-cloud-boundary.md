@@ -58,13 +58,15 @@ Capability internals are not the same thing as Local Core architecture. A capabi
 
 ## Connector Boundary
 
-The repository includes connector surfaces for cloud synchronization, remote execution callbacks, external agents, and MCP-compatible tool exposure.
+The repository includes connector-facing surfaces for synchronization, remote execution callbacks, external agents, and MCP-compatible tool exposure.
 
 Connector code should be treated as adapters around Local Core:
 
 - inbound connectors can submit or resume local work
 - outbound connectors can report status, receipts, or events
 - neither direction should require changing the core local workspace model for one cloud platform
+
+Implementation details for Docker-ignored connector services, cloud provider adapters, callback payloads, and remote protocols are not part of the public Local Core documentation scope. Public docs may name the adapter boundary only when the description remains independent of cloud-owned implementation behavior.
 
 ## Public Documentation Rule
 
