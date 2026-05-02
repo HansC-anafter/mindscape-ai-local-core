@@ -1,8 +1,3 @@
-/**
- * Playbook metadata (Traditional Chinese)
- * Playbook names, descriptions, and tags for display
- */
-
 export const playbookMetadataZhTW = {
   daily_planning: {
     name: '每日整理 & 優先級',
@@ -160,4 +155,3 @@ export const playbookMetadataZhTW = {
     tags: ['youtube', '影片', '腳本', '內容創作'],
   },
 } as const;
-

@@ -1,8 +1,3 @@
-/**
- * Playbook metadata (Japanese)
- * Playbook names, descriptions, and tags for display
- */
-
 export const playbookMetadataJa = {
   daily_planning: {
     name: '日次整理と優先順位付け',
@@ -130,4 +125,3 @@ export const playbookMetadataJa = {
     tags: ['執筆', 'コピーライティング', 'マーケティング', 'コンテンツ'],
   },
 } as const;
-

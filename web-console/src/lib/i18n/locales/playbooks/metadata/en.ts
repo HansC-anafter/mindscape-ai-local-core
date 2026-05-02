@@ -1,8 +1,3 @@
-/**
- * Playbook metadata (English)
- * Playbook names, descriptions, and tags for display
- */
-
 export const playbookMetadataEn = {
   daily_planning: {
     name: 'Daily Planning & Prioritization',
@@ -130,4 +125,3 @@ export const playbookMetadataEn = {
     tags: ['writing', 'copywriting', 'marketing', 'content'],
   },
 } as const;
-
