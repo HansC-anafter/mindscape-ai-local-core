@@ -37,17 +37,17 @@ These routes support inspection and lifecycle transitions for governed local sta
 
 ## Mind-Lens
 
-Mind-Lens is the interpretation and viewpoint layer used by Local Core. It is represented by graph routes, effective lens resolution, workspace overrides, session overrides, receipts, previews, changesets, snapshots, packages, evidence, drift reports, and chat support.
+Mind-Lens is the interpretation and viewpoint layer used by Local Core. It is represented by local graph state, effective lens resolution, override layers, execution evidence, and review surfaces.
 
-The graph route is mounted at `/api/v1/mind-lens/graph`. The unified lens route is mounted at `/api/v1/mindscape/lens`.
+Lens routes are local API surfaces, but this page is not an endpoint reference.
 
 Current lens behavior includes:
 
-- graph nodes, edges, profiles, active lens lookup, and workspace binding
-- effective lens resolution with global profile, workspace override, and session override layers
+- graph state, profiles, active lens lookup, and workspace binding
+- effective lens resolution across global profile, workspace override, and session override layers
 - workspace and session override management
-- lens receipts by execution ID
-- preview, changeset, snapshot, package, evidence, drift, and chat services
+- execution evidence and receipt surfaces
+- review, packaging, drift, and chat support as lens operations
 
 ## Execution Injection
 
