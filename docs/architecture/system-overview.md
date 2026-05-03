@@ -24,7 +24,7 @@ Workspace UI / API / external surface
 
 The workspace host is the primary local container for user-visible work. It owns workspace CRUD, workspace files, activity, tasks, workbench surfaces, runtime metadata, object runtime routes, governance routes, and workspace group compatibility surfaces.
 
-The public contract is local-first: users can run the workspace host without depending on a cloud control plane.
+The public contract is local-first: users can run the workspace host without depending on an external control plane.
 
 ### Governance Context
 
@@ -64,7 +64,7 @@ Capability authoring details and per-capability service implementations are not 
 
 The repository includes local connector surfaces such as external connector services, remote execution callback routes, external agent adapters, and an MCP gateway package. These surfaces should be described as optional integration points.
 
-They do not make the local workspace dependent on a cloud product.
+They do not make the local workspace dependent on an external product boundary.
 
 ## Public Boundary
 
@@ -79,8 +79,8 @@ Local Core owns:
 
 Local Core should not be documented as owning:
 
-- a cloud product's tenant lifecycle
-- billing, SaaS plans, or account administration
+- external account or tenant lifecycle
+- external billing, subscription plans, or account administration
 - provider-native runtime payloads as canonical memory
 - installed capability internals as core architecture
 - per-capability service implementations
