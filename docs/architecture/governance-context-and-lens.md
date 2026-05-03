@@ -14,7 +14,7 @@ The governance context read model compiles workspace state into a structured pac
 - governed memory and goal context
 - optional schedule or meeting metadata
 
-The output is split into a governance context block and a selected memory packet. This keeps policy and memory selection visible as execution input, not hidden inside prompt text.
+The output is split into a governance context block and a selected memory packet. This keeps policy and memory selection visible as execution input, not hidden inside private assembly layers.
 
 ## Policy and Preflight
 
@@ -27,7 +27,7 @@ Local Core includes governance services for:
 - agent preflight checks for risky task descriptions, high-risk skills, sandbox boundaries, and resource limits
 - governance decision recording
 
-These services are local policy and review surfaces. They should not be documented as a cloud account policy system.
+These services are local policy and review surfaces. They should not be documented as an external account policy system.
 
 ## Workspace Governance Surfaces
 
@@ -48,11 +48,11 @@ Current lens behavior includes:
 - execution evidence and receipt surfaces
 - review and packaging support as host-managed lens operations
 
-## Execution Injection
+## Execution Context Injection
 
-Meeting orchestration resolves an effective lens for prompt injection and stores lens hash metadata where available. Dispatch can also carry lens context into per-phase agent execution. Memory writeback can attach lens receipts and lens patches as evidence.
+Meeting orchestration resolves an effective lens for execution context injection and stores lens hash metadata where available. Dispatch can also carry lens context into per-phase agent execution. Memory writeback can attach lens receipts and lens patches as evidence.
 
-Lens state should be described as user-controlled execution context. It is not a provider prompt template dump and it is not a replacement for policy checks.
+Lens state should be described as user-controlled execution context. It is not a provider-native template dump and it is not a replacement for policy checks.
 
 ## Public Boundary
 
@@ -60,10 +60,10 @@ Local Core owns local governance context compilation, policy checks, preflight c
 
 Local Core does not publicly own:
 
-- cloud account policy administration
+- external account policy administration
 - provider-native policy payloads
-- private prompt templates as public contracts
+- private execution templates as public contracts
 - unrestricted mutation of governed memory
 - installed capability internals that only consume governance context
 
-Public governance documentation should describe the local control plane, evidence surfaces, and execution context boundaries. It should not publish internal policy migration notes, private risk tables, or unreleased provider-specific schemas.
+Public governance documentation should describe the local governance boundary, evidence surfaces, and execution context boundaries. It should not publish internal policy migration notes, private risk tables, or unreleased provider-specific schemas.
