@@ -12,31 +12,25 @@ Each corpus entry has a stable tool or playbook identifier, display name, descri
 
 ## Embedding Store
 
-Tool retrieval uses a PostgreSQL pgvector table named `tool_embeddings`. The table stores one row per indexed identifier and embedding model, with a unique `(tool_id, embedding_model)` constraint.
+Tool retrieval uses a PostgreSQL pgvector-backed embedding store for local tool and playbook discovery.
 
-Each row can carry:
+Indexed entries can carry:
 
 - tool or playbook identifier
 - display name and description
 - category
 - capability identifier
-- embedding vector, model name, and embedding dimension
+- embedding model metadata
 - affordance metadata
-- generated text vector used by PostgreSQL lexical search
+- lexical search metadata
 
-The generated text vector supports lexical search alongside vector similarity. Affordance metadata lets retrieval find playbooks by declared resource needs when the caller has structured asset types instead of only a natural language query.
+Lexical metadata supports keyword search alongside vector similarity. Affordance metadata lets retrieval find playbooks by declared resource needs when the caller has structured asset types instead of only a natural language query.
 
 ## Model Selection and Indexing
 
-The active embedding model is resolved in this order:
+The active embedding model is resolved from local system settings, environment overrides, discovered local embedding models, and configured fallback settings.
 
-- explicit local system setting for the Ollama embedding model
-- `OLLAMA_EMBED_MODEL` environment override
-- discovered Ollama embedding models, preferring `bge-m3` and then `nomic-embed-text`
-- generic embedding model setting
-- `text-embedding-3-small` fallback
-
-At post-ready startup, Local Core can warm the shared retrieval corpus after the API is ready. The warm-up path ensures the embedding table exists, checks which available embedding models have stale or missing rows, and indexes only the stale models. If multi-model indexing fails completely, the refresh path falls back to the single-model indexing path.
+At post-ready startup, Local Core can warm the shared retrieval corpus after the API is ready. The warm-up path ensures the embedding store exists, checks for stale or missing rows, and refreshes only the stale retrieval data.
 
 This keeps tool retrieval out of the API bind path while still allowing the retrieval corpus to refresh after local capabilities or playbooks change.
 
@@ -44,15 +38,7 @@ This keeps tool retrieval out of the API bind path while still allowing the retr
 
 The primary retrieval helper accepts a query, a result limit, and an optional workspace ID. It uses a short process-level cache keyed by normalized query, workspace ID, and result limit to avoid repeated embedding calls within a turn.
 
-On a cache miss, retrieval calls multi-model Reciprocal Rank Fusion search. That search:
-
-- embeds the query with the primary model
-- discovers which embedding models have indexed rows
-- falls back to single-model search when there is only one indexed model
-- re-embeds the query per indexed model when needed
-- searches each model-specific vector space
-- runs PostgreSQL lexical search as an additional ranked path
-- fuses vector and lexical ranked lists with Reciprocal Rank Fusion
+On a cache miss, retrieval combines vector similarity with PostgreSQL lexical search and falls back to the available indexed model set. The search path is an implementation detail; the public contract is that callers receive bounded, ranked local tool or playbook candidates.
 
 The retrieval status is reported as hit, miss, or error. Callers are expected to fall back to bounded defaults or installed manifest scans when retrieval misses or errors.
 
@@ -84,7 +70,7 @@ The dedicated retrieval endpoint returns matched tool identifiers, matched capab
 
 ## Public Boundary
 
-Local Core owns local tool and playbook indexing, pgvector-backed retrieval, lexical search fusion, short-lived retrieval caching, workspace resource bindings, prompt inventory construction, and filtered tool discovery.
+Local Core owns local tool and playbook indexing, pgvector-backed retrieval, lexical search support, short-lived retrieval caching, workspace resource bindings, prompt inventory construction, and filtered tool discovery.
 
 Local Core does not publicly own:
 
