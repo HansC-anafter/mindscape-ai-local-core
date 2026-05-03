@@ -42,6 +42,10 @@ function createIgReferenceProjection() {
         target_ref: performanceDirectionSummary.ref,
         required_roles: ['target'],
         priority: 10,
+        metadata: {
+          recommended_pack: 'ig',
+          recommended_playbook: 'visual_audit',
+        },
       },
     ],
     metadata: {
@@ -80,6 +84,10 @@ function createPerformanceDirectionProjection() {
         },
         required_roles: [],
         priority: 10,
+        metadata: {
+          recommended_pack: 'performance_direction',
+          recommended_playbook: 'generate_reels_asset',
+        },
       },
     ],
     metadata: {

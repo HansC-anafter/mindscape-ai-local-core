@@ -23,7 +23,7 @@ describe('AOLMeetingBottomShell mention references', () => {
       />,
     );
 
-    expect(await screen.findByRole('option', { name: 'ig / Visual Audit' })).toBeInTheDocument();
+    await screen.findByTestId('meeting-pack-tool-select');
     const input = screen.getByLabelText('Meeting instruction');
 
     fireEvent.change(input, { target: { value: 'Use @' } });
@@ -151,13 +151,13 @@ describe('AOLMeetingBottomShell mention references', () => {
 
     fireEvent.click(screen.getByTestId('meeting-command-submit'));
 
-    expect(await screen.findAllByText(/exec-invoked/)).not.toHaveLength(0);
+    expect(await screen.findAllByText(/task-meeting/)).not.toHaveLength(0);
     const commandCall = vi.mocked(global.fetch).mock.calls.find(([url]) =>
       String(url).includes('/meetings/mtg_global/commands'),
     );
     expect(commandCall).toBeDefined();
     const commandBody = JSON.parse(String(commandCall?.[1]?.body || '{}'));
-    expect(commandBody.metadata.dispatch_mode).toBe('route_object_action');
+    expect(commandBody.metadata.dispatch_mode).toBe('route_meeting_orchestration');
     expect(commandBody.context_objects).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ role: 'source' }),

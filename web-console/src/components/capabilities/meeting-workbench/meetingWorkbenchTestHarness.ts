@@ -94,12 +94,22 @@ export function installAOLMeetingBottomShellTestHarness() {
         const omitDispatchResult = requestBody?.intent_text === 'No dispatch result fixture';
         const routeObjectAction = requestBody?.metadata?.dispatch_mode === 'route_object_action';
         const routePlaybook = requestBody?.metadata?.dispatch_mode === 'route_playbook';
+        const routeMeetingOrchestration = requestBody?.metadata?.dispatch_mode === 'route_meeting_orchestration';
         const routeChat = requestBody?.metadata?.dispatch_mode === 'route_chat';
+        const acceptedTaskId = routeObjectAction
+          ? 'exec-invoked'
+          : routePlaybook
+            ? 'exec-playbook'
+            : routeMeetingOrchestration
+              ? 'task-meeting'
+              : routeChat
+                ? 'cmd-ledger-global'
+                : undefined;
         return new Response(JSON.stringify({
           workspace_id: 'ws-global',
           meeting_id: 'mtg_global',
           command_id: 'cmd-ledger-global',
-          status: routeObjectAction ? 'completed' : 'accepted',
+          status: routeObjectAction || routeMeetingOrchestration ? 'completed' : 'accepted',
           command: {
             command_id: 'cmd-ledger-global',
             workspace_id: 'ws-global',
@@ -111,14 +121,8 @@ export function installAOLMeetingBottomShellTestHarness() {
             context_objects: [],
             expected_outputs: [],
             write_mode: 'recommendation_only',
-            status: routeObjectAction ? 'completed' : 'accepted',
-            accepted_task_id: routeObjectAction
-              ? 'exec-invoked'
-              : routePlaybook
-                ? 'exec-playbook'
-                : routeChat
-                  ? 'cmd-ledger-global'
-                  : undefined,
+            status: routeObjectAction || routeMeetingOrchestration ? 'completed' : 'accepted',
+            accepted_task_id: acceptedTaskId,
             metadata: {},
             created_at: '2026-04-27T01:01:00Z',
             updated_at: '2026-04-27T01:01:00Z',
@@ -145,6 +149,26 @@ export function installAOLMeetingBottomShellTestHarness() {
                     },
                   },
                 }
+                : routeMeetingOrchestration
+                  ? {
+                    meeting_orchestration: {
+                      status: 'completed',
+                      task_ir_id: 'task-meeting',
+                      artifact_landing_status: 'pending',
+                      request_contract_aol_metadata: {
+                        selected_guidance_ids: requestBody?.metadata?.selected_guidance_ids || [],
+                        candidate_playbooks: requestBody?.requested_action?.playbook_code
+                          ? [
+                            {
+                              source: 'selected_pack_tool',
+                              pack_code: requestBody?.requested_action?.pack_code,
+                              playbook_code: requestBody?.requested_action?.playbook_code,
+                            },
+                          ]
+                          : [],
+                      },
+                    },
+                  }
                 : routeChat
                   ? {
                     chat: {

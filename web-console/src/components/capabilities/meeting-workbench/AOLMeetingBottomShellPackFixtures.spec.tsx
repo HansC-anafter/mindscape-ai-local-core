@@ -47,7 +47,7 @@ describe('AOLMeetingBottomShell product pack fixtures', () => {
     );
 
     const guidanceStep = await screen.findByTestId('meeting-work-step-guidance');
-    fireEvent.click(within(guidanceStep).getAllByText('Director framing')[0]);
+    fireEvent.click((await within(guidanceStep).findAllByText('Director framing'))[0]);
 
     const input = screen.getByLabelText('Meeting instruction');
     expect(input).toHaveValue('Draft a shot plan for @object:ref_global before generating assets.');
@@ -79,9 +79,9 @@ describe('AOLMeetingBottomShell product pack fixtures', () => {
 
     fireEvent.click(screen.getByTestId('meeting-command-submit'));
 
-    expect(await screen.findByText('Task ID: exec-playbook')).toBeInTheDocument();
+    expect(await screen.findByText('Task ID: task-meeting · Artifacts: pending')).toBeInTheDocument();
     const commandBody = readLastCommandPostBody();
-    expect(commandBody.metadata?.dispatch_mode).toBe('route_playbook');
+    expect(commandBody.metadata?.dispatch_mode).toBe('route_meeting_orchestration');
     expect(commandBody.requested_action?.playbook_code).toBe('visual_audit');
     expect(commandBody.context_objects).toEqual(
       expect.arrayContaining([

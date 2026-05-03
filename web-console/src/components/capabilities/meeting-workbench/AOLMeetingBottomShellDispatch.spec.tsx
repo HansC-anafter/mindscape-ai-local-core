@@ -24,9 +24,7 @@ describe('AOLMeetingBottomShell dispatch and session switching', () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole('option', { name: 'ig / Visual Audit' })).toBeInTheDocument();
-    });
+    await screen.findByTestId('meeting-pack-tool-select');
 
     fireEvent.change(screen.getByLabelText('Meeting instruction'), {
       target: {
@@ -36,13 +34,13 @@ describe('AOLMeetingBottomShell dispatch and session switching', () => {
     });
     fireEvent.click(screen.getByTestId('meeting-command-submit'));
 
-    await screen.findByText('Task ID: exec-playbook');
+    await screen.findByText('Task ID: task-meeting · Artifacts: pending');
     const commandCall = vi.mocked(global.fetch).mock.calls.find(([url]) =>
       String(url).includes('/meetings/mtg_global/commands'),
     );
     expect(commandCall).toBeDefined();
     const commandBody = JSON.parse(String(commandCall?.[1]?.body || '{}'));
-    expect(commandBody.metadata.dispatch_mode).toBe('route_playbook');
+    expect(commandBody.metadata.dispatch_mode).toBe('route_meeting_orchestration');
     expect(commandBody.requested_action.parameters.object_action_entries).toEqual([
       expect.objectContaining({
         role: 'source',
@@ -167,14 +165,14 @@ describe('AOLMeetingBottomShell dispatch and session switching', () => {
 
     expect(screen.getAllByText('Analyze this reference').length).toBeGreaterThan(0);
     expect(screen.getByTestId('meeting-console-drawer')).toBeInTheDocument();
-    expect(await screen.findByText('Task ID: cmd-ledger-global')).toBeInTheDocument();
+    expect(await screen.findByText('Task ID: task-meeting · Artifacts: pending')).toBeInTheDocument();
     expect(await screen.findByTestId('meeting-session-notification')).toHaveAttribute('data-tone', 'info');
     window.removeEventListener(MEETING_COMMAND_LEDGER_UPDATED_EVENT, handleCommandLedgerEvent);
     expect(commandLedgerEvents).toContainEqual({
       workspaceId: 'ws-global',
       meetingId: 'mtg_global',
       commandId: 'cmd-ledger-global',
-      status: 'accepted',
+      status: 'completed',
     });
     expect(global.fetch).toHaveBeenCalledWith(
       'http://api.test/api/v1/workspaces/ws-global/meetings/mtg_global/commands',
@@ -187,7 +185,7 @@ describe('AOLMeetingBottomShell dispatch and session switching', () => {
       String(url).includes('/meetings/mtg_global/commands'),
     );
     const commandBody = JSON.parse(String(commandCall?.[1]?.body || '{}'));
-    expect(commandBody.metadata.dispatch_mode).toBe('route_chat');
+    expect(commandBody.metadata.dispatch_mode).toBe('route_meeting_orchestration');
     expect(commandBody.metadata.action_parameters.command_id).toBeUndefined();
     expect(commandBody.metadata.action_parameters.thread_id).toBe('mtg_global');
     expect(vi.mocked(global.fetch).mock.calls.some(([url]) => String(url).includes('/chat'))).toBe(false);
@@ -214,7 +212,7 @@ describe('AOLMeetingBottomShell dispatch and session switching', () => {
     );
 
     const guidanceStep = await screen.findByTestId('meeting-work-step-guidance');
-    fireEvent.click(within(guidanceStep).getAllByText('Director framing')[0]);
+    fireEvent.click((await within(guidanceStep).findAllByText('Director framing'))[0]);
     expect(screen.getByLabelText('Meeting instruction')).toHaveValue(
       'Draft a shot plan for @object:ref_global before generating assets.',
     );
@@ -278,9 +276,7 @@ describe('AOLMeetingBottomShell dispatch and session switching', () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole('option', { name: 'ig / Visual Audit' })).toBeInTheDocument();
-    });
+    await screen.findByTestId('meeting-pack-tool-select');
 
     fireEvent.change(screen.getByTestId('meeting-pack-tool-select'), {
       target: { value: 'visual_audit' },
@@ -290,7 +286,7 @@ describe('AOLMeetingBottomShell dispatch and session switching', () => {
     });
     fireEvent.click(screen.getByTestId('meeting-command-submit'));
 
-    await screen.findByText('Task ID: exec-playbook');
+    await screen.findByText('Task ID: task-meeting · Artifacts: pending');
     const commandCall = vi.mocked(global.fetch).mock.calls.find(([url]) =>
       String(url).includes('/meetings/mtg_global/commands'),
     );
@@ -301,7 +297,7 @@ describe('AOLMeetingBottomShell dispatch and session switching', () => {
       }),
     );
     const commandBody = JSON.parse(String(commandCall?.[1]?.body || '{}'));
-    expect(commandBody.metadata.dispatch_mode).toBe('route_playbook');
+    expect(commandBody.metadata.dispatch_mode).toBe('route_meeting_orchestration');
     expect(commandBody.requested_action.parameters.thread_id).toBe('mtg_global');
     expect(commandBody.requested_action.parameters.instruction).toBe('Prepare the visual reference set');
     const chatCall = vi.mocked(global.fetch).mock.calls.find(([url]) => String(url).includes('/chat'));
