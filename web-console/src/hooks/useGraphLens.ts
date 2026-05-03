@@ -1,6 +1,6 @@
 import { useSigma } from '@react-sigma/core';
 import { useCallback } from 'react';
-import { TYPE_COLORS } from '@/lib/mock-graph-data';
+import { TYPE_COLORS } from '@/lib/graph-colors';
 
 export function useGraphLens() {
   const sigma = useSigma();
@@ -37,4 +37,3 @@ export function useGraphLens() {
 
   return { applyLens };
 }
-
