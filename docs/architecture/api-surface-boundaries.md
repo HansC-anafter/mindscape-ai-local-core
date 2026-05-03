@@ -12,24 +12,20 @@ The public boundary is the registration pattern and route families, not every pr
 
 ## Core Local Route Families
 
-Local Core route families include:
+Local Core route families include host surfaces for:
 
-- workspace routes under `/api/v1/workspaces`
-- workspace group routes under `/api/v1/workspace-groups`
-- playbook routes under `/api/v1/playbooks`
-- tool routes under the tool router family
-- supporting workspace, retrieval, configuration, and integration routes
-- system settings routes under `/api/v1/system-settings`
-- settings extension routes under `/api/v1/settings`
-- runtime environment and workspace runtime configuration routes
-- vector database and vector search routes
-- capability hosting and activation routes
+- workspace and workspace group state
+- playbook and tool coordination
+- retrieval, configuration, and integration adapters
+- settings and runtime configuration
+- vector-backed retrieval and review
+- capability hosting and activation
 
 These route families are Local Core host surfaces. Their public documentation should focus on stable contracts and boundaries, not provider payloads or capability implementation details.
 
 ## Workspace Runtime Routes
 
-The workspace router is mounted at `/api/v1/workspaces` and aggregates the local workspace lifecycle, files, activity, tasks, workbench state, health, meeting context, object runtime, profile, runtime configuration, pinned state, and governance surfaces.
+Workspace-scoped routes aggregate local workspace lifecycle, workbench state, task activity, health, meeting context, object runtime, runtime configuration, and governance surfaces.
 
 Workspace routes are the main local runtime surface. Public documentation may describe workspace-scoped state, object runtime behavior, meeting graph access, governance review surfaces, and runtime configuration boundaries.
 
@@ -37,37 +33,37 @@ Public documentation must not expose local user data, workspace seed data, runti
 
 ## Object, Runtime, and Settings Routes
 
-Object runtime routes are workspace-scoped. They expose bounded object catalog, selection, synchronization, action, materialization, meeting attachment, and graph projection behavior through Local Core host contracts.
+Object runtime routes are workspace-scoped. They expose bounded object discovery, selection, indexing, and host-mediated object operations through Local Core contracts.
 
-Runtime environment routes and workspace runtime configuration routes describe available local runtime choices and workspace-level runtime configuration. Settings extension routes expose console-facing sections discovered from built-in definitions and installed local surfaces.
+Runtime environment routes and workspace runtime configuration routes describe local runtime choices and workspace-level runtime configuration. Settings extension routes expose host-owned configuration sections.
 
 These routes are safe to document as host contracts. Capability-owned object schemas, resolver internals, materializer internals, and provider credentials remain outside the public Local Core scope.
 
 ## Governance, Lens, and Memory Routes
 
-Workspace governance routes are mounted under the workspace router. They expose governed memory review surfaces, memory health, memory impact analysis, decisions, cost monitoring, and governance metrics.
+Workspace governance routes expose governed memory review, health, impact, decision, and metrics surfaces.
 
-Lens routes expose local lens schemas, instances, runtime resolution, effective lens selection, overrides, review artifacts, package lifecycle, and evidence surfaces.
+Lens routes expose local lens definition, runtime resolution, review, and evidence surfaces.
 
 Vector routes support semantic retrieval and vector database configuration. Public documentation may describe these as governed retrieval and review surfaces. It must not present raw provider payload dumps, private receipt internals, or unrestricted memory export as stable public APIs.
 
 ## Playbook and Tool Routes
 
-Playbook routes are mounted under `/api/v1/playbooks` and aggregate playbook discovery, lifecycle, variants, intent support, tool binding, resource binding, and fork behavior.
+Playbook routes aggregate playbook discovery, intent support, tool binding, resource binding, and host lifecycle behavior.
 
-Tool routes aggregate tool status, OAuth and connection management, execution, registration, retrieval, filtered selection, slot mappings, registry behavior, and adapter boundaries.
+Tool routes aggregate tool availability, connection state, execution coordination, retrieval, filtered selection, registry behavior, and adapter boundaries.
 
 Public documentation may describe playbooks and tools as local execution interfaces. It must not document capability-owned playbook specs, provider-native credentials, or per-provider private payloads as Local Core architecture.
 
 ## Meeting, Dispatch, and Handoff Routes
 
-Meeting session routes are workspace-scoped. Agent dispatch routes include WebSocket and REST polling surfaces for agent-side task dispatch. Handoff bundle routes support signed handoff payload lifecycle operations.
+Meeting session routes are workspace-scoped. Agent dispatch routes provide bounded task dispatch surfaces. Handoff bundle routes support host-mediated handoff intake and review.
 
 MCP bridge and device-node routes are optional integration surfaces. They let Local Core accept or expose local work through sidecar and connector processes, but they do not make those connectors Local Core ownership.
 
 ## Capability API Loading
 
-Capability API routes can be seeded, activated, or loaded by the capability API loader and feature-package registry. This is a host mechanism.
+Capability API routes can be activated or loaded through host mechanisms. This is a Local Core host boundary, not a per-capability API release or router authoring guide.
 
 Public Local Core docs may describe the host loader, activation policy, and boundary rules. They must not document individual capability routers, services, UI paths, provider payloads, or generated runtime artifacts as Local Core public APIs.
 
