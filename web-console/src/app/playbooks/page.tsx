@@ -69,6 +69,12 @@ function extractCapabilityCode(playbook: Playbook): string | null {
   return null;
 }
 
+function getPlaybookBadge(playbook: Playbook): string {
+  const source = playbook.playbook_code || playbook.name || 'PB';
+  const badge = source.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase();
+  return badge || 'PB';
+}
+
 export default function PlaybooksPage() {
   const [locale] = useLocale();
   const router = useRouter();
@@ -237,7 +243,7 @@ export default function PlaybooksPage() {
             body: JSON.stringify({
               title: workspaceTitle,
               description: `Workspace for ${playbook.name}`,
-              execution_mode: 'hybrid'  // 預設為混合模式（邊做邊聊）
+              execution_mode: 'hybrid'
             })
           }
         );
@@ -330,12 +336,12 @@ export default function PlaybooksPage() {
               {t('playbooksTitle' as any)}
             </h1>
 
-            {/* Workflow Steps Badge — hidden below xl */}
+            {/* Workflow Steps Badge - hidden below xl */}
             <div className="hidden xl:flex items-center gap-2 text-xs text-secondary dark:text-gray-400 bg-gradient-to-r from-accent-10 to-surface-secondary dark:from-blue-900/20 dark:to-gray-800/20 rounded-lg px-3 py-1.5 border border-accent/30 dark:border-blue-800 whitespace-nowrap">
               <span>{t('playbookStepMindscape' as any)}</span>
-              <span className="text-tertiary dark:text-gray-500">→</span>
+              <span className="text-tertiary dark:text-gray-500">&gt;</span>
               <span>{t('playbookStepTools' as any)}</span>
-              <span className="text-tertiary dark:text-gray-500">→</span>
+              <span className="text-tertiary dark:text-gray-500">&gt;</span>
               <span>{t('playbookStepMembers' as any)}</span>
             </div>
 
@@ -469,7 +475,9 @@ export default function PlaybooksPage() {
                             {/* Top row: Icon, Scope/Template badge, System Playbook, Test badge, Favorite */}
                             <div className="flex items-center justify-between mb-3">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-3xl">{playbook.icon || '📋'}</span>
+                                <span className="text-sm font-semibold tracking-wide px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                                  {getPlaybookBadge(playbook)}
+                                </span>
                                 {playbook.scope && (
                                   <span className={`text-xs px-2 py-1 rounded ${playbook.scope === 'system'
                                     ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
@@ -494,7 +502,7 @@ export default function PlaybooksPage() {
                                 )}
                                 {supportedTestPlaybooks.has(playbook.playbook_code) && (
                                   <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded flex items-center gap-1">
-                                    🧪 {t('hasTest' as any)}
+                                    Test {t('hasTest' as any)}
                                   </span>
                                 )}
                               </div>

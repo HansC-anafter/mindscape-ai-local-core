@@ -4,28 +4,22 @@
 
 @layer base {
   :root {
-    /* Default light mode theme - Original design */
     --color-scrollbar-thumb: rgba(168, 85, 247, 0.4);
     --color-scrollbar-thumb-hover: rgba(168, 85, 247, 0.6);
     --color-scrollbar-track: transparent;
 
-    /* Visual rhythm elevation variables - three layers */
-    /* Layer 1: Message bubbles (highest contrast) */
     --elevation-message: 0 2px 8px rgba(0, 0, 0, 0.1);
     --bg-message-user: rgba(99, 102, 241, 0.1);
     --bg-message-assistant: #ffffff;
 
-    /* Layer 2: Suggestion chips / Intent Cards (medium contrast) */
     --elevation-card: 0 1px 4px rgba(0, 0, 0, 0.05);
     --bg-suggestion: #f9fafb;
     --bg-intent: #f3f4f6;
 
-    /* Layer 3: List rows (lowest contrast) */
     --elevation-row: none;
     --bg-row: transparent;
     --bg-row-hover: #f9fafb;
 
-    /* Color system variables - Default light mode */
     --color-surface: #ffffff;
     --color-surface-secondary: #f9fafb;
     --color-surface-accent: #f3f4f6;
@@ -46,16 +40,12 @@
   }
 }
 
-/* Warm theme preset - Must be outside @layer to ensure proper specificity */
-/* Based on design system: Background #F7EFE0, Primary #864809 */
-/* Use html.theme-warm for higher specificity than :root */
 html.theme-warm,
 .theme-warm {
   --color-scrollbar-thumb: rgba(134, 72, 9, 0.3);
   --color-scrollbar-thumb-hover: rgba(134, 72, 9, 0.5);
   --color-scrollbar-track: transparent;
 
-  /* Visual rhythm elevation variables - three layers */
   --elevation-message: 0 2px 8px rgba(0, 0, 0, 0.08);
   --bg-message-user: rgba(134, 72, 9, 0.1);
   --bg-message-assistant: #ffffff;
@@ -68,7 +58,6 @@ html.theme-warm,
   --bg-row: transparent;
   --bg-row-hover: #fcf6e8;
 
-  /* Color system variables - Warm Day Mode Design System */
   --color-surface: #f7efe0;
   --color-surface-secondary: #fcf6e8;
   --color-surface-accent: #ffffff;
@@ -89,7 +78,6 @@ html.theme-warm,
 }
 
 @layer base {
-  /* Override Tailwind default colors in warm theme */
   .theme-warm .bg-gray-50,
   .theme-warm .bg-gray-100 {
     background-color: var(--color-surface) !important;
@@ -99,18 +87,14 @@ html.theme-warm,
     background-color: var(--color-surface-accent) !important;
   }
 
-  /* Cards should use surface-secondary for warm background */
   .theme-warm .bg-surface-accent {
-    /* Keep as is for dialogs/modals, but cards should use bg-surface-secondary */
   }
 
-  /* Ensure bg-surface-secondary uses warm theme color */
   html.theme-warm .bg-surface-secondary,
   .theme-warm .bg-surface-secondary {
     background-color: var(--color-surface-secondary) !important;
   }
 
-  /* Ensure tertiary color is available */
   html.theme-warm .bg-tertiary,
   .theme-warm .bg-tertiary {
     background-color: var(--color-tertiary) !important;
@@ -119,7 +103,6 @@ html.theme-warm,
   .theme-warm .bg-gray-900,
   .theme-warm .bg-gray-800,
   .theme-warm .bg-gray-700 {
-    /* Keep dark mode colors as is */
   }
 
   .theme-warm .text-gray-900,
@@ -138,11 +121,7 @@ html.theme-warm,
   }
 }
 
-/* Hover states must be outside @layer base for higher specificity */
-/* Tailwind generates hover classes as .hover\:bg-tertiary which compiles to .hover\:bg-tertiary:hover */
-/* Use @layer utilities to ensure proper priority over Tailwind's generated classes */
 @layer utilities {
-  /* Direct match for Tailwind's generated hover classes - escaped colon */
   html.theme-warm .hover\:bg-tertiary:hover,
   .theme-warm .hover\:bg-tertiary:hover {
     background-color: var(--color-tertiary) !important;
@@ -153,7 +132,6 @@ html.theme-warm,
     background-color: var(--color-tertiary) !important;
   }
 
-  /* More specific selectors for better matching */
   html.theme-warm button.hover\:bg-surface-secondary:hover,
   html.theme-warm div.hover\:bg-surface-secondary:hover,
   html.theme-warm a.hover\:bg-surface-secondary:hover,
@@ -173,8 +151,6 @@ html.theme-warm,
   }
 }
 
-/* Fallback: Use attribute selector for elements with hover classes in their className */
-/* This is more reliable as it matches the actual class attribute value */
 html.theme-warm [class*="hover:bg-tertiary"]:hover,
 .theme-warm [class*="hover:bg-tertiary"]:hover {
   background-color: var(--color-tertiary) !important;
@@ -185,7 +161,6 @@ html.theme-warm [class*="hover:bg-surface-secondary"]:hover,
   background-color: var(--color-tertiary) !important;
 }
 
-/* Even more aggressive: target any element with these classes on hover */
 html.theme-warm *[class*="hover:bg-tertiary"]:hover,
 .theme-warm *[class*="hover:bg-tertiary"]:hover {
   background-color: var(--color-tertiary) !important;
@@ -199,12 +174,10 @@ html.theme-warm *[class*="hover:bg-surface-secondary"]:hover,
 
 @layer base {
   .dark {
-    /* Theme color variables for dark mode */
     --color-scrollbar-thumb: rgba(196, 181, 253, 0.5);
     --color-scrollbar-thumb-hover: rgba(196, 181, 253, 0.7);
     --color-scrollbar-track: transparent;
 
-    /* Visual rhythm elevation variables - dark mode */
     --elevation-message: 0 2px 8px rgba(0, 0, 0, 0.3);
     --bg-message-user: rgba(99, 102, 241, 0.2);
     --bg-message-assistant: #1f2937;
@@ -217,7 +190,6 @@ html.theme-warm *[class*="hover:bg-surface-secondary"]:hover,
     --bg-row: transparent;
     --bg-row-hover: #111827;
 
-    /* Color system variables - dark mode */
     --color-surface: #1f2937;
     --color-surface-secondary: #111827;
     --color-surface-accent: #374151;
@@ -235,7 +207,6 @@ html.theme-warm *[class*="hover:bg-surface-secondary"]:hover,
     --color-danger-10: rgba(248, 113, 113, 0.2);
   }
 
-  /* Global scrollbar styling */
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--color-scrollbar-thumb) var(--color-scrollbar-track);
@@ -282,7 +253,6 @@ html.theme-warm *[class*="hover:bg-surface-secondary"]:hover,
     animation: slideDown 0.5s ease-in-out;
   }
 
-  /* 雷射字效果動畫 */
   @keyframes laserSweep {
     0%, 100% {
       background-position: -200% 0;
@@ -314,7 +284,6 @@ html.theme-warm *[class*="hover:bg-surface-secondary"]:hover,
     }
   }
 
-  /* Progress bar animation for running tasks */
   @keyframes progressBar {
     0% {
       width: 0%;
@@ -334,7 +303,6 @@ html.theme-warm *[class*="hover:bg-surface-secondary"]:hover,
     animation: progressBar 2s ease-in-out infinite;
   }
 
-  /* Progress bar shimmer effect */
   @keyframes shimmer {
     0% {
       transform: translateX(-100%);
@@ -348,7 +316,6 @@ html.theme-warm *[class*="hover:bg-surface-secondary"]:hover,
     animation: shimmer 2s linear infinite;
   }
 
-  /* Laser scan border for active meetings */
   .meeting-laser-border {
     position: relative;
     overflow: hidden;

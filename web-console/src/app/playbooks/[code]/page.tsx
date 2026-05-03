@@ -1,18 +1,16 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Header from '../../../components/Header';
 import PlaybookChat from '../../../components/PlaybookChat';
 import { t, useLocale } from '../../../lib/i18n';
-import PlaybookInfo from '../../../components/playbook/PlaybookInfo';
 import VersionSelector from '../../../components/playbook/VersionSelector';
 import PlaybookTabs from '../../../components/playbook/PlaybookTabs';
 import CopyVariantModal from '../../../components/playbook/CopyVariantModal';
 import LLMDrawer from '../../../components/playbook/LLMDrawer';
 import PlaybookDiscoveryChat from '../../../components/playbook/PlaybookDiscoveryChat';
-import PlaybookUsageStats from '../../../components/playbook/PlaybookUsageStats';
 import RelatedPlaybooksSidebar from '../../../components/playbooks/RelatedPlaybooksSidebar';
 
 import { getApiBaseUrl } from '../../../lib/api-url';
@@ -74,6 +72,12 @@ interface PlaybookListItem {
   icon?: string;
   tags?: string[];
   capability_code?: string;
+}
+
+function getPlaybookBadge(playbookCode: string, name?: string): string {
+  const source = playbookCode || name || 'PB';
+  const badge = source.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase();
+  return badge || 'PB';
 }
 
 export default function PlaybookDetailPage() {
@@ -153,26 +157,7 @@ export default function PlaybookDetailPage() {
     }
   }, [playbookCode]);
 
-  useEffect(() => {
-    if (playbookCode) {
-      loadPlaybook();
-      loadVariants();
-      loadPlaybookList();
-    }
-  }, [playbookCode, locale]);
-
-  // Poll for execution status updates every 5 seconds
-  useEffect(() => {
-    if (!playbookCode || loading) return; // Don't poll while initial loading
-
-    const interval = setInterval(() => {
-      loadPlaybookStatus();
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [playbookCode, locale, loading]);
-
-  const loadPlaybookList = async () => {
+  const loadPlaybookList = useCallback(async () => {
     try {
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
       const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
@@ -194,9 +179,9 @@ export default function PlaybookDetailPage() {
     } catch (err) {
       console.debug('Failed to load playbook list:', err);
     }
-  };
+  }, [locale]);
 
-  const loadPlaybook = async (showLoading = true) => {
+  const loadPlaybook = useCallback(async (showLoading = true) => {
     try {
       if (showLoading) {
         setLoading(true);
@@ -220,7 +205,6 @@ export default function PlaybookDetailPage() {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          const errorText = await response.text();
           throw new Error(`Failed to load playbook: ${response.status} ${response.statusText}`);
         }
 
@@ -293,16 +277,16 @@ export default function PlaybookDetailPage() {
           errorMessage = err.message;
         }
         setError(errorMessage);
-        setLoading(false); // Ensure loading is set to false on error
+        setLoading(false);
       }
     } finally {
       if (showLoading) {
         setLoading(false);
       }
     }
-  };
+  }, [locale, playbookCode]);
 
-  const loadPlaybookStatus = async () => {
+  const loadPlaybookStatus = useCallback(async () => {
     try {
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
       const targetLanguage = locale === 'en' ? 'en' : locale === 'ja' ? 'ja' : 'zh-TW';
@@ -335,7 +319,7 @@ export default function PlaybookDetailPage() {
     } catch (err) {
       console.debug('Failed to update execution status:', err);
     }
-  };
+  }, [locale, playbookCode]);
 
   const toggleFavorite = async () => {
     try {
@@ -369,7 +353,7 @@ export default function PlaybookDetailPage() {
     }
   };
 
-  const loadVariants = async () => {
+  const loadVariants = useCallback(async () => {
     try {
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
       const response = await fetch(
@@ -389,7 +373,7 @@ export default function PlaybookDetailPage() {
       console.debug('Variants endpoint not available:', err);
       setVariants([]);
     }
-  };
+  }, [playbookCode]);
 
   const handleCopySystemVersion = async (variantName: string, variantDescription: string) => {
     try {
@@ -414,7 +398,7 @@ export default function PlaybookDetailPage() {
     }
   };
 
-  const handleOptimize = async () => {
+  const handleOptimize = useCallback(async () => {
     try {
       setOptimizationLoading(true);
       const apiUrl = API_URL.startsWith('http') ? API_URL : '';
@@ -437,14 +421,32 @@ export default function PlaybookDetailPage() {
     } finally {
       setOptimizationLoading(false);
     }
-  };
+  }, [playbookCode]);
+
+  useEffect(() => {
+    if (playbookCode) {
+      loadPlaybook();
+      loadVariants();
+      loadPlaybookList();
+    }
+  }, [playbookCode, loadPlaybook, loadVariants, loadPlaybookList]);
+
+  useEffect(() => {
+    if (!playbookCode || loading) return;
+
+    const interval = setInterval(() => {
+      loadPlaybookStatus();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [playbookCode, loading, loadPlaybookStatus]);
 
   useEffect(() => {
     if (playbookCode && showOptimizeModal) {
       handleOptimize();
       loadVariants();
     }
-  }, [playbookCode, showOptimizeModal]);
+  }, [playbookCode, showOptimizeModal, handleOptimize, loadVariants]);
 
   const handleExecutePlaybook = async () => {
     if (!playbook) return;
@@ -473,7 +475,7 @@ export default function PlaybookDetailPage() {
             description: `Workspace for executing ${playbookName}`,
             default_playbook_id: playbookCode,
             default_locale: targetLanguage,
-            execution_mode: 'hybrid'  // 預設為混合模式（邊做邊聊）
+            execution_mode: 'hybrid'
           })
         }
       );
@@ -552,7 +554,7 @@ export default function PlaybookDetailPage() {
                   }}
                   className="mt-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
                 >
-                  重試
+                  {t('retry' as any)}
                 </button>
               </div>
             )}
@@ -661,12 +663,14 @@ export default function PlaybookDetailPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{playbookName}</h1>
-                      {playbook.metadata.icon && <span className="text-3xl">{playbook.metadata.icon}</span>}
+                      <span className="text-sm font-semibold tracking-wide px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                        {getPlaybookBadge(playbook.metadata.playbook_code, playbook.metadata.name)}
+                      </span>
                       <button
                         onClick={toggleFavorite}
-                        className="text-2xl hover:scale-110 transition-transform flex-shrink-0"
+                        className="px-2 py-1 text-xs border border-default dark:border-gray-600 rounded hover:bg-tertiary dark:hover:bg-gray-700 transition-colors flex-shrink-0"
                       >
-                        {isFavorite ? '⭐' : '☆'}
+                        {isFavorite ? t('favorites' as any) : t('save' as any)}
                       </button>
                     </div>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{playbookDescription}</p>
@@ -746,7 +750,7 @@ export default function PlaybookDetailPage() {
                   }}
                   className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-2xl"
                 >
-                  ×
+                  {t('close' as any)}
                 </button>
               </div>
 
@@ -828,7 +832,7 @@ export default function PlaybookDetailPage() {
                   onClick={() => setShowNotesModal(false)}
                   className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-2xl"
                 >
-                  ×
+                  {t('close' as any)}
                 </button>
               </div>
               <textarea

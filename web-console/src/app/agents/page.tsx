@@ -192,7 +192,7 @@ export default function AgentsPage() {
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{t('mindscapeHint' as any)}</p>
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
             <p className="text-sm text-blue-800 dark:text-blue-300">
-              <strong>💡 {t('hint' as any)}：</strong> {t('selectAIRole' as any)} {t('drawRoleCardDescription' as any)}，或直接從下方選擇一個 AI 成員開始。
+              <strong>{t('hint' as any)}:</strong> {t('selectAIRole' as any)} {t('drawRoleCardDescription' as any)}, or choose an AI member below.
             </p>
           </div>
         </div>
@@ -232,7 +232,9 @@ export default function AgentsPage() {
             <div className="mb-8 bg-white dark:bg-gray-800 shadow rounded-lg p-6">
               <div className="flex items-start justify-between mb-6">
                 <div className="flex items-center">
-                  <span className="text-4xl mr-4">{role.icon}</span>
+                  <span className="mr-4 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-blue-50 text-sm font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                    {role.id.slice(0, 2).toUpperCase()}
+                  </span>
                   <div>
                     <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{localized.name}</h2>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{localized.description}</p>
@@ -267,7 +269,7 @@ export default function AgentsPage() {
 
               <div className="mb-6 bg-gray-50 dark:bg-gray-800/20 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                 <div className="flex items-start">
-                  <span className="text-xl mr-3">🧠</span>
+                  <span className="text-sm font-semibold mr-3 text-gray-500 dark:text-gray-400">MS</span>
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-300 mb-1">
                       {t('memberMindscape' as any)}
@@ -276,7 +278,7 @@ export default function AgentsPage() {
                       {t('primaryMindscape' as any)}: <span className="font-medium">{t('defaultMindscape' as any)}</span>{t('switchable' as any)}
                     </p>
                     <p className="text-xs text-gray-600 dark:text-gray-400">
-                      {t('memberPreferences' as any)}：{t('memberPreferencesDescription' as any)}
+                      {t('memberPreferences' as any)}: {t('memberPreferencesDescription' as any)}
                     </p>
                   </div>
                 </div>
@@ -307,7 +309,7 @@ export default function AgentsPage() {
               {role.aiTeamMembers && role.aiTeamMembers.length > 0 && (
                 <div className="mb-6 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                   <div className="flex items-start">
-                    <span className="text-xl mr-3">👥</span>
+                    <span className="text-sm font-semibold mr-3 text-gray-500 dark:text-gray-400">TEAM</span>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
                         {role.aiTeamTitleKey ? (t as any)(role.aiTeamTitleKey) : (t as any)('aiTeamBehindThisMember')}
@@ -320,7 +322,7 @@ export default function AgentsPage() {
                       <ul className="space-y-2">
                         {role.aiTeamMembers.map((memberKey, index) => (
                           <li key={index} className="text-sm text-gray-700 dark:text-gray-300 flex items-start">
-                            <span className="mr-2">•</span>
+                            <span className="mr-2">-</span>
                             <span>{(t as any)(memberKey)}</span>
                           </li>
                         ))}
@@ -333,7 +335,7 @@ export default function AgentsPage() {
               {(role.id === 'content_editor' || role.id === 'seo_consultant' || role.id === 'project_manager') && (
                 <div className="mb-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
                   <div className="flex items-start">
-                    <span className="text-xl mr-3">💡</span>
+                    <span className="text-sm font-semibold mr-3 text-blue-700 dark:text-blue-300">INFO</span>
                     <div className="flex-1">
                       <p className="text-sm text-blue-900 dark:text-blue-300 font-medium mb-1">
                         {t('wantToHandleWordPressNotion' as any)}
@@ -345,7 +347,7 @@ export default function AgentsPage() {
                         href="/settings"
                         className="inline-block px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white text-sm rounded-md hover:bg-blue-700 dark:hover:bg-blue-600"
                       >
-                        {t('goToToolSettings' as any)} →
+                        {t('goToToolSettings' as any)}
                       </Link>
                     </div>
                   </div>
@@ -357,7 +359,7 @@ export default function AgentsPage() {
                   {t('suggestedTasks' as any)}
                 </label>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                  {t('selectPlaybookFirst' as any)}：{t('selectPlaybookFirstDescription' as any)}
+                  {t('selectPlaybookFirst' as any)}: {t('selectPlaybookFirstDescription' as any)}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {localized.suggestedTasks.map((taskText, index) => (
@@ -391,7 +393,7 @@ export default function AgentsPage() {
                     href="/settings"
                     className="text-sm font-medium text-yellow-800 dark:text-yellow-300 underline hover:text-yellow-900 dark:hover:text-yellow-200"
                   >
-                    {t('goToSettingsConfigure' as any)} →
+                    {t('goToSettingsConfigure' as any)}
                   </a>
                 </div>
               </div>
@@ -522,7 +524,7 @@ export default function AgentsPage() {
                       href="/settings"
                       className="text-sm font-medium text-red-800 dark:text-red-300 underline hover:text-red-900 dark:hover:text-red-200"
                     >
-                      {t('goToSettings' as any)} →
+                      {t('goToSettings' as any)}
                     </a>
                   </div>
                 )}
@@ -558,7 +560,7 @@ export default function AgentsPage() {
                   href={`/playbooks/${code}`}
                   className="block text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
                 >
-                  → {code}
+                  {code}
                 </Link>
               ))}
             </div>
@@ -570,7 +572,7 @@ export default function AgentsPage() {
 
         <div className="mt-8 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
           <p className="text-sm text-blue-800 dark:text-blue-300">
-            <strong>{t('hint' as any)}：</strong> {t('settingsHint' as any)}
+            <strong>{t('hint' as any)}:</strong> {t('settingsHint' as any)}
           </p>
         </div>
       </main>

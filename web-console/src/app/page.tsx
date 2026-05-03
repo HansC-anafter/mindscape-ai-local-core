@@ -1,35 +1,24 @@
 'use client';
 
 import './page.css';
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getApiBaseUrl } from '../lib/api-url';
 
 const API_URL = getApiBaseUrl();
+const PROFILE_ID = 'default-user';
 
 type BootState = 'loading' | 'first-time' | 'redirect';
 
 export default function Home() {
   const router = useRouter();
-  const profileId = 'default-user';
   const apiUrl = API_URL.startsWith('http') ? API_URL : '';
   const [bootState, setBootState] = useState<BootState>('loading');
   const [fadeIn, setFadeIn] = useState(false);
 
-  useEffect(() => {
-    checkOnboardingStatus();
-  }, []);
-
-  useEffect(() => {
-    if (bootState !== 'loading') {
-      // trigger entrance animation
-      requestAnimationFrame(() => setFadeIn(true));
-    }
-  }, [bootState]);
-
-  const checkOnboardingStatus = async () => {
+  const checkOnboardingStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/api/v1/mindscape/onboarding/status?user_id=${profileId}`);
+      const res = await fetch(`${apiUrl}/api/v1/mindscape/onboarding/status?user_id=${PROFILE_ID}`);
       if (res.ok) {
         const data = await res.json();
         const state = data.onboarding_state;
@@ -37,10 +26,10 @@ export default function Home() {
         const isOnboarding = state?.is_onboarding === true && !hasState;
 
         if (hasState && !isOnboarding) {
-          // Returning user → redirect to first workspace
+          // Returning user: redirect to first workspace
           setBootState('redirect');
           try {
-            const wsRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+            const wsRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${PROFILE_ID}&limit=1`);
             if (wsRes.ok) {
               const workspaces = await wsRes.json();
               if (workspaces.length > 0) {
@@ -51,24 +40,37 @@ export default function Home() {
           } catch { /* fall through */ }
           router.replace('/workspaces');
         } else {
-          // First-time user → show welcome
+          // First-time user: show welcome
           setBootState('first-time');
         }
       } else {
-        // API error → show welcome as fallback
+        // API error: show welcome as fallback
         setBootState('first-time');
       }
     } catch {
       setBootState('first-time');
     }
-  };
+  }, [apiUrl, router]);
+
+  useEffect(() => {
+    checkOnboardingStatus();
+  }, [checkOnboardingStatus]);
+
+  useEffect(() => {
+    if (bootState !== 'loading') {
+      // trigger entrance animation
+      requestAnimationFrame(() => setFadeIn(true));
+    }
+  }, [bootState]);
 
   // --- Loading state ---
   if (bootState === 'loading' || bootState === 'redirect') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-950 to-slate-900">
         <div className="text-center">
-          <div className="text-6xl mb-4 animate-bounce">🍄</div>
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/10 text-2xl font-semibold text-white animate-pulse">
+            MS
+          </div>
           <p className="text-purple-300/80 text-sm animate-pulse">
             {bootState === 'redirect' ? 'Entering workspace...' : 'Loading...'}
           </p>
@@ -92,8 +94,8 @@ export default function Home() {
       >
         {/* Logo */}
         <div className="mb-8">
-          <div className="text-8xl mb-2 drop-shadow-2xl" style={{ filter: 'drop-shadow(0 0 30px rgba(168,85,247,0.4))' }}>
-            🍄
+          <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-white/10 text-3xl font-semibold text-white drop-shadow-2xl" style={{ filter: 'drop-shadow(0 0 30px rgba(168,85,247,0.4))' }}>
+            MS
           </div>
         </div>
 
@@ -108,7 +110,7 @@ export default function Home() {
         {/* Feature cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-3xl w-full mb-12">
           <FeatureCard
-            icon="🧠"
+            icon="ID"
             title="Self Introduction"
             description="Tell AI who you are and what you're working on"
             step={1}
@@ -116,7 +118,7 @@ export default function Home() {
             fadeIn={fadeIn}
           />
           <FeatureCard
-            icon="🎯"
+            icon="GOAL"
             title="First Project"
             description="Set your first long-term goal for AI to track"
             step={2}
@@ -124,7 +126,7 @@ export default function Home() {
             fadeIn={fadeIn}
           />
           <FeatureCard
-            icon="⚡"
+            icon="FLOW"
             title="Work Rhythm"
             description="Configure your preferred workflow and tools"
             step={3}
@@ -152,7 +154,7 @@ export default function Home() {
         <button
           onClick={async () => {
             try {
-              const wsRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+              const wsRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${PROFILE_ID}&limit=1`);
               if (wsRes.ok) {
                 const workspaces = await wsRes.json();
                 if (workspaces.length > 0) {
@@ -165,7 +167,7 @@ export default function Home() {
           }}
           className="mt-4 text-sm text-purple-400/60 hover:text-purple-300 transition-colors"
         >
-          Skip to workspace →
+          Skip to workspace
         </button>
 
         {/* Version */}
@@ -203,7 +205,7 @@ function FeatureCard({
       <div className="absolute top-3 right-3 text-xs text-purple-400/40 font-mono">
         STEP {step}
       </div>
-      <div className="text-3xl mb-3">{icon}</div>
+      <div className="mb-3 inline-flex min-h-8 min-w-8 items-center justify-center rounded bg-white/10 px-2 py-1 text-sm font-semibold text-purple-100">{icon}</div>
       <h3 className="text-white font-semibold mb-1.5">{title}</h3>
       <p className="text-sm text-purple-200/60 leading-relaxed">{description}</p>
     </div>
