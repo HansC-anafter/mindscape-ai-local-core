@@ -121,6 +121,7 @@ export function buildObjectGraphNodes(
         proposal_ref: card.proposal_ref,
         target_ref: card.target_ref,
         required_roles: card.required_roles,
+        guidance_metadata: card.metadata,
         owner_pack: projection.ref.owner_pack,
         object_kind: projection.ref.object_kind,
         object_id: projection.ref.object_id,

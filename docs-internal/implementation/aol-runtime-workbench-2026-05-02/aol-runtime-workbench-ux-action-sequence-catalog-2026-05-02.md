@@ -167,22 +167,24 @@ Each action below uses the same sequence columns. `Asset landing` is `none` when
 | `OBJECT_SELECT_MISSING_ROLE` | P0 Target | Fill a role required by guidance. | Click a missing-role placeholder such as `Missing target`. | Mention picker or object targeting opens with the required role preselected. | No dispatch until object attach and command submit. | none | `Select object for missing role`. |
 | `OBJECT_SELECT_IN_CANVAS` | Existing/P0 Target | Inspect an object node already visible in the flow. | Click object node in Semantic Flow Canvas. | Same selection state as Outliner; inspector updates. | None unless lazy data fetch is needed. | none | none. |
 
-### 3. Pack Surface And IG Reference Actions
+### 3. Pack Surface Object Actions
+
+These are generic AOL Runtime Workbench actions. Pack-specific objects such as reference images, storyboard scenes, proposals, generated assets, source accounts, characters, or any later installed object kind must enter through these generic actions. Do not add pack-specific action ids to this canonical catalog.
 
 | Action ID | Status | User intent | UX/UI operation | AOL session feedback | Meeting execution | Asset landing | AOL session notification |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `IG_REFERENCE_CARD_SELECT` | Existing/P0 Target | Inspect one IG reference. | Click card body. | Pack surface selection changes; if AOL session is open, object candidate can become current focus. | None. | none | none. |
-| `IG_REFERENCE_MULTI_SELECT_TOGGLE` | Existing/P0 Target | Build a set of source references. | Toggle card checkbox. | Pack selection count updates; AOL session may offer bulk attach/template suggestions. | None until attach/template/submit. | none | none. |
-| `IG_REFERENCE_OPEN_AOL_ACTIONS` | Existing/P0 Target | Use this reference inside AOL. | Click small AOL/object affordance on the card. | AOL Runtime Workbench opens Meeting Workbench view with `@ig.reference:{id}` as candidate/focus. | None until attach or command submit. | none | `Reference ready for session`. |
-| `IG_REFERENCE_INSERT_MENTION` | P0 Target/Pack-Owned | Reference this IG image in a command. | Click insert mention from card menu or guidance. | Command Dock receives `@ig.reference:{id}`. | None until submit. | none | Draft updated. |
-| `IG_REFERENCE_ATTACH_SOURCE` | P0 Target/Pack-Owned | Use this reference as a session source. | Click attach/pin from card menu or Object Tool with role `Source`. | Outliner shows the reference under `Sources`; guidance recomputes. | Session attach/update call. | session object metadata | `IG reference attached as source`. |
-| `IG_REFERENCE_OPEN_SOURCE_ACCOUNT` | Existing/Pack-Owned | Inspect the source account. | Click source account link. | Owner/pack surface opens account context; AOL session remains unchanged. | None. | none | none. |
-| `IG_REFERENCE_OPEN_SOURCE_POST` | Existing/Pack-Owned | Inspect provenance post. | Click source post/permalink link. | External or owner detail opens; provenance remains available in Relations. | None. | none | none. |
-| `IG_REFERENCE_PREVIEW_SCENE_TEMPLATE` | Existing -> P0 Target | Turn a reference into a scene preview instruction. | Existing quick preview affordance becomes `Insert command template`. | Command Dock receives template such as `/stage @ig.reference:{id} as source for @target`. | None until submit. | none | Draft updated with missing target warning if needed. |
-| `IG_REFERENCE_CREATE_TRAINING_CANDIDATE_TEMPLATE` | Existing -> P0 Target | Create a training candidate from the reference. | Existing add-seed/training affordance becomes template insertion in active command. | Dock shows `/stage @ig.reference:{id} as source` or pack-defined template. | Submit creates command ledger row and pack runtime execution. | staged artifact/proposal depending write mode | Accepted/running/completed or needs-review notification. |
-| `IG_REFERENCE_REGISTER_SOURCE_SEED_TEMPLATE` | Existing -> P0 Target | Queue or register a source account seed. | Existing batch-pin/register behavior becomes command template when inside AOL session. | Dock receives a command with source account mention/bounded ref. | Submit dispatches through command API to IG pack tool/playbook. | task/proposal/pack-owned artifact | `Seed registration staged` or `Review required`. |
-| `IG_REFERENCE_MORE_MENU` | Existing/P0 Target | Access secondary pack actions without cluttering card. | Open card more menu. | Menu offers owner detail, insert mention, attach/pin, and templates only. | None until command submit. | none | none. |
-| `IG_REFERENCE_GUIDANCE_REFRESH` | P0 Target/Pack-Owned | Ask what this reference can do in the session. | Select reference, open Inspector `Guidance`, or attach reference. | Guidance cards show templates, missing context, warnings, and suggested mentions. | Calls pack-owned guidance tool/playbook if stale. | none | `Guidance refreshed` only on explicit refresh or error. |
+| `PACK_OBJECT_CARD_SELECT` | Existing/P0 Target | Inspect one pack-owned object. | Click object card body in a pack surface. | Pack surface selection changes; if AOL session is open, object candidate can become current focus. | None. | none | none. |
+| `PACK_OBJECT_MULTI_SELECT_TOGGLE` | Existing/P0 Target | Build a set of source or evidence objects. | Toggle object card checkbox. | Pack selection count updates; AOL session may offer bulk attach/template suggestions. | None until attach/template/submit. | none | none. |
+| `PACK_OBJECT_OPEN_AOL` | Existing/P0 Target | Use this object inside AOL. | Click small AOL/object affordance on the card. | AOL Runtime Workbench opens Meeting Workbench view with `@owner.kind:id` as candidate/focus. | None until attach or command submit. | none | `Object ready for session`. |
+| `PACK_OBJECT_INSERT_MENTION` | P0 Target/Pack-Owned | Reference this object in a command. | Click insert mention from card menu or guidance. | Command Dock receives `@owner.kind:id`. | None until submit. | none | Draft updated. |
+| `PACK_OBJECT_ATTACH_SOURCE` | P0 Target/Pack-Owned | Use this object as a session source. | Click attach/pin from card menu or Object Tool with role `Source`. | Outliner shows the object under `Sources`; guidance recomputes. | Session attach/update call. | session object metadata | `Source attached`. |
+| `PACK_OBJECT_OPEN_OWNER_CONTEXT` | Existing/Pack-Owned | Inspect owner-pack context. | Click owner detail or related-context link. | Owner/pack surface opens context; AOL session remains unchanged. | None. | none | none. |
+| `PACK_OBJECT_OPEN_PROVENANCE` | Existing/Pack-Owned | Inspect provenance for this object. | Click provenance/source link. | External or owner detail opens; provenance remains available in Relations. | None. | none | none. |
+| `PACK_OBJECT_INSERT_PREVIEW_TEMPLATE` | Existing -> P0 Target | Turn selected object into a preview/staging instruction. | Existing quick preview affordance becomes `Insert command template`. | Command Dock receives pack-owned template using `@owner.kind:id` and required target roles. | None until submit. | none | Draft updated with missing target warning if needed. |
+| `PACK_OBJECT_INSERT_CANDIDATE_TEMPLATE` | Existing -> P0 Target | Create or stage a candidate workflow from the object. | Existing pack affordance becomes template insertion in active command. | Dock shows a pack-defined template with selected object mention and write-mode hints. | Submit creates command ledger row and enters meeting-led orchestration. | staged artifact/proposal depending write mode | Accepted/running/completed or needs-review notification. |
+| `PACK_OBJECT_INSERT_BATCH_TEMPLATE` | Existing -> P0 Target | Queue or register a batch/source workflow. | Existing batch/register behavior becomes command template when inside AOL session. | Dock receives a command with bounded refs supplied by the owner pack. | Submit creates command ledger row and enters meeting-led orchestration. | task/proposal/pack-owned artifact | `Batch workflow staged` or `Review required`. |
+| `PACK_OBJECT_MORE_MENU` | Existing/P0 Target | Access secondary pack actions without cluttering card. | Open card more menu. | Menu offers owner detail, insert mention, attach/pin, and templates only. | None until command submit. | none | none. |
+| `PACK_OBJECT_GUIDANCE_REFRESH` | P0 Target/Pack-Owned | Ask what this object can do in the session. | Select object, open Inspector `Guidance`, or attach object. | Guidance cards show templates, missing context, warnings, and suggested mentions. | Calls pack-owned guidance tool/playbook if stale. | none | `Guidance refreshed` only on explicit refresh or error. |
 
 ### 4. Command Dock And Command Ledger Actions
 
@@ -194,7 +196,9 @@ Each action below uses the same sequence columns. `Asset landing` is `none` when
 | `COMMAND_SELECT_PACK_TOOL` | Existing/P0 Target | Override auto-routing only when necessary. | Use pack tool dropdown. | Selected tool appears as secondary routing hint. | Submitted envelope includes requested action metadata. | none until submit | none. |
 | `COMMAND_INSERT_TEMPLATE` | P0 Target | Use a suggested operation without hidden dispatch. | Click template from Guidance, Actions, card menu, or command suggestions. | Dock fills slash verb, mentions, expected output, and write mode hints. | None until submit. | none | Draft updated. |
 | `COMMAND_EDIT_TEMPLATE` | P0 Target | Adjust target/source/review text before execution. | Edit the inserted template. | Parser revalidates mentions and missing roles. | None. | none | none. |
-| `COMMAND_SUBMIT` | Existing -> P0 Target | Execute the instruction through meeting runtime. | Click Send or press Enter. | Optimistic draft becomes pending; backend returns accepted ledger row or validation errors. | POST `MeetingCommandEnvelope`; server resolves mentions, persists command row, dispatches runtime. | command ledger row; later runtime outputs | `Command accepted`, then running/completed/failed/review notifications. |
+| `COMMAND_SUBMIT` | Existing -> P0 Target | Execute the instruction through meeting-led orchestration. | Click Send or press Enter. | Optimistic draft becomes pending; backend returns accepted ledger row or validation errors. | POST `MeetingCommandEnvelope`; server resolves mentions, persists command row, builds `HandoffIn`, enters `MeetingEngine.run()`, produces ActionIntent/TaskIR, and dispatches runtime. | command ledger row; TaskIR; later artifacts/proposals/review routes | `Command accepted`, then planning/dispatched/asset-landed/review/completed/failed notifications. |
+| `COMMAND_SUBMIT_CROSS_PACK_OBJECT_WORKFLOW` | P0 Target | Use objects from one or more packs to produce a downstream artifact/proposal through meeting orchestration. | Type or insert a command containing `@owner.kind:id` refs; submit from Command Dock. | Ledger row shows `route_meeting_orchestration`; canvas selects the command and shows pending orchestration proof. | MeetingEngine receives AOL context attachments, evaluates generic guidance/playbook candidates, creates TaskIR, and dispatches selected pack execution. | artifact/proposal DB row plus file path/storage ref when output is materialized | Notification includes same `meeting_id`, `command_id`, and `task_ir_id`; final state is completed, needs review, or failed with proof. |
+| `COMMAND_SUBMIT_PACK_OBJECT_GUIDANCE_DISCUSSION` | P0 Target | Discuss or refine a pack-owned object through the meeting graph. | Insert `@owner.kind:id` or select object guidance; submit from Command Dock. | Canvas shows object context, guidance, command, and planning state in the same meeting. | MeetingEngine turns the discussion into ActionIntent/TaskIR and routes guidance/tool calls without local-core pack-specific branching. | guidance/proposal/artifact row when generated or staged | Notification reports guidance result, review need, asset landing, or failure under the same meeting session. |
 | `COMMAND_BLOCKED_RUNTIME` | P0 Target | Understand why command cannot run. | Try Send while runtime is unavailable or required refs unresolved. | Send is blocked with clear reason; draft remains editable. | No dispatch. | none | `Blocked: runtime unavailable` or validation reason. |
 | `COMMAND_RETRY_FAILED` | P0 Target | Re-run a failed command with same or edited context. | Click retry on failed ledger row. | New draft is created from failed command; original remains immutable. | Submit creates new command row linked to previous id. | new command row, possible artifacts | `Retry accepted` after submit. |
 | `COMMAND_SUPERSEDE_DRAFT` | P0 Target | Replace an obsolete draft. | Edit or discard draft after a newer command exists. | Old draft row marked superseded locally/server-side when persisted. | Optional command store update. | command ledger metadata | `Draft superseded` only if persisted. |
@@ -208,6 +212,8 @@ Each action below uses the same sequence columns. `Asset landing` is `none` when
 | `CANVAS_SELECT_OBJECT_NODE` | Existing/P0 Target | Inspect object role and downstream impact. | Click `Object` node. | Object becomes selection; Outliner and Inspector synchronize. | May refresh bounded object graph. | none | none. |
 | `CANVAS_SELECT_GUIDANCE_NODE` | P0 Target/Pack-Owned | Understand AI-suggested next steps. | Click `Guidance` or `Next` node. | Inspector opens Guidance, shows reason, required roles, templates, warnings, and no auto-dispatch. | Fetch pack-owned guidance state if stale. | none | none. |
 | `CANVAS_SELECT_COMMAND_NODE` | Existing/P0 Target | Inspect an instruction and its runtime path. | Click `Command` node. | Ledger row selection syncs; inspector shows command summary/runtime. | Fetch command proof if not loaded. | none | none. |
+| `CANVAS_SELECT_REQUEST_CONTRACT_NODE` | P0 Target | Verify what context MeetingEngine received. | Click `RequestContract` node in the selected command path. | Inspector Runtime opens AOL metadata, context attachments, playbook hints, and write mode. | Reads MeetingEngine contract proof from command/orchestration metadata. | none | none. |
+| `CANVAS_SELECT_TASKIR_NODE` | P0 Target | Verify what executable plan MeetingEngine produced. | Click `TaskIR` node in the selected command path. | Inspector Runtime opens `task_ir_id`, status, dispatch chain, and linked command id. | Fetch command proof, execution graph, and TaskIR persistence evidence. | none | none. |
 | `CANVAS_SELECT_RUN_NODE` | Existing/P0 Target | Inspect tool/executor run. | Click `Run` node. | Inspector Runtime opens with executor/task ids. | Fetch execution details/events. | none | none. |
 | `CANVAS_SELECT_OUTCOME_NODE` | Existing/P0 Target | Inspect result summary. | Click `Outcome` node. | Inspector Summary opens outcome details and provenance. | Fetch linked artifact/proposal ids. | none | none. |
 | `CANVAS_SELECT_ARTIFACT_NODE` | Existing/P0 Target | Open generated asset. | Click `Artifact` node. | Inspector shows artifact preview, provenance, and owner link. | Fetch artifact metadata/content preview. | none | none. |
@@ -233,6 +239,8 @@ Each action below uses the same sequence columns. `Asset landing` is `none` when
 | `INSPECTOR_OPEN_RELATIONS` | Existing/P0 Target | Inspect bounded object relations. | Click `Relations` tab. | Relation kind, direction, target title/status, and expandable flag render. | Calls `/object-graph/project` if stale. | none | `Relations unavailable` only on error. |
 | `INSPECTOR_SELECT_RELATION_TARGET` | P0 Target | Move focus to a related object. | Click expandable relation target. | If first-class target, selection moves; if bounded display target, detail stays read-only. | Fetch relation target projection if expandable. | none | none or `Target is display-only`. |
 | `INSPECTOR_OPEN_RUNTIME` | Existing/P0 Target | See executor, status, and ids. | Click `Runtime` tab. | Shows executor/runtime, command status, task/execution ids. | Fetch runtime status if stale. | none | none. |
+| `INSPECTOR_OPEN_ORCHESTRATION_PROOF` | P0 Target | Verify the command went through MeetingEngine instead of direct dispatch. | Select command, request-contract, TaskIR, run, artifact, or review node and open `Runtime`. | Shows `dispatch_mode=route_meeting_orchestration`, `meeting_id`, `command_id`, `task_ir_id`, request-contract AOL metadata, candidate playbook hints, dispatch status, and asset/proposal ids. | Reads command response metadata, meeting execution graph, events, and artifacts. | none | none. |
+| `INSPECTOR_OPEN_ASSET_FILE_PROOF` | P0 Target | Verify a generated output landed in DB and file path. | Select an Artifact/Proposal node and open `Summary` or `Runtime`. | Shows artifact id, thread id, task id, storage ref, resolved file path, and degraded proof if missing. | Fetches `/artifacts?thread_id={meeting_id}` and linked execution proof. | none | `Asset proof unavailable` only when required proof is missing. |
 | `INSPECTOR_OPEN_TRACE` | Existing/Advanced | Inspect raw replay events. | Click advanced `Trace` tab. | Trace events and filters become visible. | Fetch trace payload if needed. | none | none. |
 | `INSPECTOR_OPEN_RAW` | Existing/Advanced | Inspect JSON/debug payload. | Click advanced `Raw` tab. | Raw JSON appears behind advanced view. | Fetch raw payload if needed. | none | none. |
 | `INSPECTOR_CLOSE` | Existing/P0 Target | Give canvas more room. | Click close inspector or rail active tab. | Inspector collapses; selection remains. | None. | none | none. |
@@ -243,7 +251,7 @@ These are user-visible runtime transitions. Some are triggered by backend events
 
 | Action ID | Status | User intent | UX/UI operation | AOL session feedback | Meeting execution | Asset landing | AOL session notification |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `EXECUTION_ACCEPTED` | P0 Target | Know the command was accepted. | User submits command; backend accepts. | Ledger row status becomes `accepted`; canvas creates command node. | Command row persisted and dispatch begins. | command ledger row | `Command accepted`. |
+| `EXECUTION_ACCEPTED` | P0 Target | Know the command was accepted. | User submits command; backend accepts. | Ledger row status becomes `accepted`; canvas creates command node. | Command row persisted with `dispatch_mode=route_meeting_orchestration`; MeetingEngine orchestration begins. | command ledger row | `Command accepted`. |
 | `EXECUTION_RUNNING` | Existing -> P0 Target | Track work in progress. | Runtime emits running/update event. | Canvas highlights `command -> run`; Runtime tab shows executor/task id. | Tool/playbook/external agent is running. | task/execution pointer | `Command running`. |
 | `EXECUTION_PROGRESS` | P0 Target | See intermediate progress without raw trace. | Runtime emits progress event. | Ledger row or run node updates compact progress/status. | Existing event stream or polling updates projection. | task/execution metadata | Optional progress notification for long tasks only. |
 | `EXECUTION_TOOL_RESULT` | Existing -> P0 Target | Inspect returned tool data. | Runtime completes a tool step. | Outcome node appears with provenance. | Tool result attaches to command proof. | staged runtime output | none unless user action needed. |
@@ -282,26 +290,26 @@ These are user-visible runtime transitions. Some are triggered by backend events
 
 ## Canonical End-To-End Walkthroughs
 
-### Flow A: Use IG Reference As Source For A Target Scene
+### Flow A: Use Pack Object As Source For A Target Object
 
 | Step | Sequence |
 | --- | --- |
-| Intent | User wants to use an IG reference as style/source material for a target scene. |
-| UX/UI operation | User opens IG reference AOL affordance, attaches it as `Source`, inserts or accepts `/stage @ig.reference:{id} as source for @target`. |
-| AOL feedback | Object Outliner shows the reference under `Sources`; Command Dock highlights missing `@target` until provided. |
-| Meeting execution | User submits; backend persists `MeetingCommandEnvelope`; runtime dispatches pack guidance/generation path. |
+| Intent | User wants to use a pack-owned object as source material for a target object. |
+| UX/UI operation | User opens pack object AOL affordance, attaches it as `Source`, inserts or accepts a pack-owned command template containing `@owner.kind:id` and a required target role. |
+| AOL feedback | Object Outliner shows the object under `Sources`; Command Dock highlights missing target until provided. |
+| Meeting execution | User submits; backend persists `MeetingCommandEnvelope`; MeetingEngine receives AOL context attachments, produces ActionIntent/TaskIR, and dispatches the selected runtime path. |
 | Asset landing | Runtime creates staged output or proposal linked to command id, source ref, and target ref. |
 | Notification | AOL session shows accepted/running/completed or needs-review; canvas shows `source -> command -> run -> proposal/artifact`. |
 
-### Flow B: Create Training Candidate From IG Reference
+### Flow B: Create Candidate Workflow From Pack Object
 
 | Step | Sequence |
 | --- | --- |
-| Intent | User wants the reference promoted into a training-candidate workflow. |
-| UX/UI operation | User selects reference, opens Inspector Guidance, inserts `create training candidate` template, edits notes, submits. |
+| Intent | User wants the selected pack object promoted into a candidate workflow. |
+| UX/UI operation | User selects object, opens Inspector Guidance, inserts pack-owned candidate template, edits notes, submits. |
 | AOL feedback | Ledger row appears; canvas focuses `command -> run`; Inspector Runtime shows executor/task id. |
-| Meeting execution | Command route resolves `@ig.reference:{id}`, validates workspace, dispatches IG pack tool/playbook. |
-| Asset landing | IG pack persists training candidate as first-class export or bounded proposal according to target policy. |
+| Meeting execution | Command route resolves `@owner.kind:id`, validates workspace, enters MeetingEngine orchestration, and dispatches owner-pack tool/playbook through generic runtime contract. |
+| Asset landing | Owner pack persists candidate output as first-class export or bounded proposal according to target policy. |
 | Notification | Session receives `Asset landed` or `Review required`; Outliner `Outputs` updates. |
 
 ### Flow C: Review And Promote A Generated Proposal
@@ -328,7 +336,7 @@ These are user-visible runtime transitions. Some are triggered by backend events
 
 ## Pack-Origin UX/UI User Intent Examples
 
-These examples start from a visible pack workbench interaction. Each flow enters the same site-wide AOL Runtime Shell, shows the AOL Runtime Workbench product surface, and selects the Meeting Workbench view rather than creating a pack-private meeting UI.
+These examples start from a visible pack workbench interaction. Each flow enters the same site-wide AOL Runtime Shell, shows the AOL Runtime Workbench product surface, and selects the Meeting Workbench view rather than creating a pack-private meeting UI. These rows are validation examples only; they are not local-core runtime action ids, not local-core UI enums, and not pack-specific branches in the AOL Runtime Shell.
 
 ### IG Workbench Origins
 

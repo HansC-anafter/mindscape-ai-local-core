@@ -972,6 +972,12 @@ class MeetingEngine(
                 item for item in context_attachments if isinstance(item, dict)
             ]
 
+        handoff_metadata = getattr(handoff_in, "metadata", None)
+        if isinstance(handoff_metadata, dict):
+            addressable_object_layer = handoff_metadata.get("addressable_object_layer")
+            if isinstance(addressable_object_layer, dict) and addressable_object_layer:
+                metadata["addressable_object_layer"] = dict(addressable_object_layer)
+
         human_instructions = getattr(handoff_in, "human_instructions", None)
         if isinstance(human_instructions, str) and human_instructions.strip():
             metadata["human_instructions"] = human_instructions.strip()

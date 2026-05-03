@@ -1,5 +1,5 @@
 import type { MeetingNode, MeetingPackTool } from './meetingWorkbenchTypes';
-import { readString } from './meetingWorkbenchUtils';
+import { isRecord, readString } from './meetingWorkbenchUtils';
 
 export function applyGuidanceCommandDraft({
   node,
@@ -23,9 +23,20 @@ export function applyGuidanceCommandDraft({
   }
 
   onCommandDraft(commandTemplate);
-  const ownerPack = readString(node?.metadata?.owner_pack);
-  const projectedTool = ownerPack
-    ? packTools.find((tool) => tool.id === ownerPack || tool.capabilityCode === ownerPack)
+  const guidanceMetadata = isRecord(node?.metadata?.guidance_metadata)
+    ? node?.metadata?.guidance_metadata
+    : null;
+  const recommendedPack = readString(guidanceMetadata?.recommended_pack);
+  const recommendedPlaybook = readString(guidanceMetadata?.recommended_playbook);
+  const projectedTool = recommendedPlaybook || recommendedPack
+    ? packTools.find((tool) => {
+      const qualifiedId = tool.capabilityCode ? `${tool.capabilityCode}.${tool.id}` : tool.id;
+      return (
+        tool.id === recommendedPlaybook ||
+        qualifiedId === recommendedPlaybook ||
+        (tool.capabilityCode === recommendedPack && (!recommendedPlaybook || tool.id === recommendedPlaybook))
+      );
+    })
     : null;
   if (projectedTool) {
     onPackToolSelect(projectedTool.id);

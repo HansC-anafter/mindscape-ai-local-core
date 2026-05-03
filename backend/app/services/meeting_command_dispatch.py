@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import BackgroundTasks
 
 from backend.app.models.meeting_command import (
@@ -35,9 +37,61 @@ def requested_affordance_verb(canonical: MeetingCommandEnvelope) -> str | None:
     return None
 
 
+def explicit_direct_override(canonical: MeetingCommandEnvelope) -> bool:
+    return canonical.metadata.get("explicit_override") is True
+
+
+def _has_selected_guidance(canonical: MeetingCommandEnvelope) -> bool:
+    metadata = canonical.metadata or {}
+    action_parameters = metadata.get("action_parameters")
+    if not isinstance(action_parameters, dict):
+        action_parameters = {}
+    return any(
+        value not in (None, "", [], {})
+        for value in (
+            metadata.get("selected_guidance_id"),
+            metadata.get("selected_guidance_ids"),
+            metadata.get("selected_guidance_metadata"),
+            metadata.get("selected_guidance_cards"),
+            action_parameters.get("selected_guidance_id"),
+            action_parameters.get("selected_guidance_ids"),
+            action_parameters.get("selected_guidance_metadata"),
+            action_parameters.get("selected_guidance_cards"),
+        )
+    )
+
+
+def _has_action_entries(canonical: MeetingCommandEnvelope) -> bool:
+    action_parameters = metadata_action_parameters(canonical)
+    entries = action_parameters.get("object_action_entries")
+    return isinstance(entries, list) and bool(entries)
+
+
+def should_route_meeting_orchestration(canonical: MeetingCommandEnvelope) -> bool:
+    dispatch_mode = canonical.metadata.get("dispatch_mode")
+    if dispatch_mode == "route_meeting_orchestration":
+        return True
+    if dispatch_mode in {"route_object_action", "route_playbook"} and explicit_direct_override(canonical):
+        return False
+    if canonical.context_objects:
+        return True
+    if canonical.meeting_mentions:
+        return True
+    if canonical.requested_action and canonical.requested_action.playbook_code:
+        return True
+    if canonical.metadata.get("selected_pack_tool_id"):
+        return True
+    if _has_selected_guidance(canonical):
+        return True
+    if _has_action_entries(canonical):
+        return True
+    return False
+
+
 def should_route_object_action(canonical: MeetingCommandEnvelope) -> bool:
     return (
         canonical.metadata.get("dispatch_mode") == "route_object_action"
+        and explicit_direct_override(canonical)
         and len(canonical.context_objects) >= 2
         and not (canonical.requested_action and canonical.requested_action.playbook_code)
     )
@@ -46,6 +100,7 @@ def should_route_object_action(canonical: MeetingCommandEnvelope) -> bool:
 def should_route_playbook(canonical: MeetingCommandEnvelope) -> bool:
     return (
         canonical.metadata.get("dispatch_mode") == "route_playbook"
+        and explicit_direct_override(canonical)
         and canonical.requested_action is not None
         and bool(canonical.requested_action.playbook_code)
     )
@@ -54,8 +109,61 @@ def should_route_playbook(canonical: MeetingCommandEnvelope) -> bool:
 def should_route_chat(canonical: MeetingCommandEnvelope) -> bool:
     return (
         canonical.metadata.get("dispatch_mode") == "route_chat"
+        and not should_route_meeting_orchestration(canonical)
         and not (canonical.requested_action and canonical.requested_action.playbook_code)
     )
+
+
+async def dispatch_meeting_orchestration_for_command(
+    *,
+    command: MeetingCommandRecord,
+    canonical: MeetingCommandEnvelope,
+    session: Any,
+    workspace: Workspace,
+    store: Any,
+    session_store: Any,
+    workspace_id: str,
+) -> tuple[MeetingCommandRecord, dict]:
+    from backend.app.services.object_runtime.aol_meeting_orchestration_bridge import (
+        AOLMeetingOrchestrationBridge,
+    )
+    from backend.app.services.orchestration.meeting.meeting_engine_runner import (
+        MeetingEngineRunner,
+    )
+
+    command.status = MeetingCommandStatus.RUNNING
+    command.metadata = {
+        **command.metadata,
+        "dispatch_status": "running",
+        "dispatch_mode": "route_meeting_orchestration",
+    }
+    bridge = AOLMeetingOrchestrationBridge()
+    handoff_in = await bridge.build_handoff_in(
+        command=command,
+        canonical=canonical,
+        session=session,
+        workspace_id=workspace_id,
+    )
+    runner = MeetingEngineRunner(store=store, session_store=session_store)
+    runner_result = await runner.run_meeting_orchestration(
+        session=session,
+        workspace=workspace,
+        message=command_instruction(canonical),
+        handoff_in=handoff_in,
+        command=command,
+    )
+    command.accepted_task_id = runner_result.get("task_ir_id")
+    command.status = (
+        MeetingCommandStatus.COMPLETED
+        if runner_result.get("status") == "completed"
+        else MeetingCommandStatus.FAILED
+    )
+    command.metadata = {
+        **command.metadata,
+        "dispatch_status": runner_result.get("status", "failed"),
+        "meeting_orchestration": runner_result,
+    }
+    return command, {"meeting_orchestration": runner_result}
 
 
 async def dispatch_object_action_for_command(

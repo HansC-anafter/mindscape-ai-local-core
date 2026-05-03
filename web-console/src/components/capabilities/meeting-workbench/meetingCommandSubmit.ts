@@ -22,6 +22,27 @@ import {
 import type { MeetingMentionItem, MeetingNode, MeetingPackTool, MeetingTranslate } from './meetingWorkbenchTypes';
 import { isRecord, readString } from './meetingWorkbenchUtils';
 
+function buildSelectedGuidanceObjectRef(node: MeetingNode | null): Record<string, unknown> | null {
+  const metadata = node?.metadata;
+  if (!isRecord(metadata)) {
+    return null;
+  }
+  const uri = readString(metadata.object_uri);
+  const ownerPack = readString(metadata.owner_pack);
+  const objectKind = readString(metadata.object_kind);
+  const objectId = readString(metadata.object_id);
+  if (!uri || !ownerPack || !objectKind || !objectId) {
+    return null;
+  }
+  return {
+    uri,
+    owner_pack: ownerPack,
+    object_kind: objectKind,
+    object_id: objectId,
+    source_surface: 'selected_guidance',
+  };
+}
+
 interface CreateMeetingCommandSubmitHandlerArgs {
   command: string;
   activeMeetingId: string | null;
@@ -81,6 +102,28 @@ export function createMeetingCommandSubmitHandler({
           }) ?? null
         : null) ?? packTools.find((tool) => tool.id === selectedPackToolId) ?? null;
     const objectActionEntries = buildObjectActionPlanEntries(effectiveSummary?.ref, meetingMentionRefs);
+    const selectedGuidanceMetadata = isRecord(selectedNode?.metadata?.guidance_metadata)
+      ? selectedNode?.metadata?.guidance_metadata
+      : null;
+    const selectedGuidanceId = readString(selectedNode?.metadata?.guidance_id);
+    const selectedGuidanceObjectRef = buildSelectedGuidanceObjectRef(selectedNode);
+    const selectedGuidanceCard = selectedGuidanceId || selectedGuidanceMetadata
+      ? {
+          id: selectedGuidanceId || null,
+          title: selectedNode?.title,
+          intent: readString(selectedNode?.metadata?.guidance_intent) || null,
+          command_template: readString(selectedNode?.metadata?.command_template) || null,
+          required_roles: Array.isArray(selectedNode?.metadata?.required_roles)
+            ? selectedNode?.metadata?.required_roles
+            : [],
+          target_ref: selectedNode?.metadata?.target_ref || null,
+          review_routes: Array.isArray(selectedNode?.metadata?.review_routes)
+            ? selectedNode?.metadata?.review_routes
+            : [],
+          metadata: selectedGuidanceMetadata || {},
+          object_ref: selectedGuidanceObjectRef,
+        }
+      : null;
     const missingRequiredRoles = getMissingCommandContextRoles(
       getGuidanceRequiredRoles(selectedNode),
       objectActionEntries,
@@ -117,6 +160,11 @@ export function createMeetingCommandSubmitHandler({
       target_storyboard_scenes: meetingMentionRefs.filter(isStoryboardSceneReference),
       character_refs: meetingMentionRefs.filter(isCharacterReference),
       object_action_entries: objectActionEntries,
+      selected_guidance_id: selectedGuidanceId || null,
+      selected_guidance_ids: selectedGuidanceId ? [selectedGuidanceId] : [],
+      selected_guidance_metadata: selectedGuidanceMetadata,
+      selected_guidance_cards: selectedGuidanceCard ? [selectedGuidanceCard] : [],
+      selected_guidance_object_ref: selectedGuidanceObjectRef,
     };
 
     setLocalTasks((current) => [...current, nextNode]);
@@ -166,6 +214,44 @@ export function createMeetingCommandSubmitHandler({
       const routeOwnedChat = isRecord(commandLedger.dispatchResult?.chat)
         ? commandLedger.dispatchResult.chat
         : null;
+      const routeOwnedMeetingOrchestration = isRecord(commandLedger.dispatchResult?.meeting_orchestration)
+        ? commandLedger.dispatchResult.meeting_orchestration
+        : null;
+      if (routeOwnedMeetingOrchestration) {
+        const taskId = readString(routeOwnedMeetingOrchestration.task_ir_id);
+        const landingStatus = readString(routeOwnedMeetingOrchestration.artifact_landing_status);
+        const runnerStatus = readString(routeOwnedMeetingOrchestration.status);
+        const output = [
+          taskId ? `Task ID: ${taskId}` : '',
+          landingStatus ? `Artifacts: ${landingStatus}` : '',
+        ].filter(Boolean).join(' · ') || t('meetingWorkbenchNotificationAwaitingRuntime');
+        setLocalTasks((current) =>
+          current.map((node) =>
+            node.id === nextNodeId
+              ? {
+                  ...node,
+                  detail: runnerStatus === 'failed'
+                    ? t('meetingWorkbenchNotificationCommandFailed')
+                    : t('meetingWorkbenchNotificationCommandAccepted'),
+                  status: runnerStatus === 'failed' ? 'error' : 'ready',
+                  output,
+                }
+              : node,
+          ),
+        );
+        window.dispatchEvent(new CustomEvent('workspace-task-updated'));
+        dispatchMeetingSessionNotification({
+          workspaceId,
+          meetingId: activeMeetingId,
+          commandId: commandLedger.commandId,
+          tone: runnerStatus === 'failed' ? 'error' : 'info',
+          title: runnerStatus === 'failed'
+            ? t('meetingWorkbenchNotificationCommandFailed')
+            : t('meetingWorkbenchNotificationCommandAccepted'),
+          message: taskId || t('meetingWorkbenchNotificationAwaitingRuntime'),
+        });
+        return;
+      }
       if (routeOwnedObjectAction) {
         setLocalTasks((current) =>
           current.map((node) =>

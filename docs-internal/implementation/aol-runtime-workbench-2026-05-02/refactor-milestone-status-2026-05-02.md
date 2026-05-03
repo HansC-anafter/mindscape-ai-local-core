@@ -9,8 +9,9 @@ Scope: first-stage behavior-preserving refactor plus the first second-stage AOL 
 | 層級 | 定義 | 當前狀態 |
 | --- | --- | --- |
 | 第一階段重構里程碑 | 完成八個 P0 local-core 檔案的相容優先拆分，保持 route path、frontend export、測試契約不破壞，並讓第二階段產品 UX 可以在穩定模組邊界上開展。 | 可關閉；八個 P0 目標與 Object Runtime service shim 均已拆到低於 500 行，route path、model import、frontend legacy export 與 backend monkeypatch contract 均保留。 |
-| Command Ledger 產品 gate | 後端 command row 成為 command dock、graph canvas、AOL session feedback 的權威意圖帳本；direct dispatch 只能是 legacy/debug fallback。 | 已有 P0 seed；仍需完整四編輯器 UX 串接與產品 gate 驗收。 |
-| 第二階段 UX/UI 里程碑 | AOL Runtime Workbench 以使用者前端體驗為中心，完成 Context Bar、Object Outliner、Semantic Flow Canvas、Inspector、Command Dock/Ledger 的可產品化布局與交互閉環。 | 本輪 product slice 可進入收尾查驗；Work-view selected subgraph、Command Ledger strip、role-bearing Object Outliner、Context Bar role/missing-context chips、Inspector selected-guidance focus、Command Dock i18n chrome、guidance required-role validation、AOL session notification、IG/PD product fixture gate 均已落地。 |
+| Command Ledger 產品 gate | 後端 command row 成為 command dock、graph canvas、AOL session feedback 的權威意圖帳本；direct dispatch 只能是 legacy/debug fallback。 | 已有 ledger seed，但 P0 主入口仍未接 `MeetingEngine.run()`；`route_object_action`、`route_playbook`、`route_chat` 目前只能視為 transitional route-owned dispatch，不得宣稱完成 meeting-led orchestration。 |
+| AOL 到 MeetingEngine 編排橋接 P0 | AOL command、object refs、graph guidance、relations、pack affordances 必須轉成 `HandoffIn` / `RequestContract`，並由 MeetingEngine 根據任務目的產生 ActionIntent / TaskIR / dispatch / review trace。 | 新增為 blocker；未完成前，IG/PD E2E 只能算 object runtime 與 shell product slice smoke，不能算 meeting-led workflow E2E。計劃文件：`aol-to-meeting-engine-orchestration-bridge-implementation-plan-2026-05-03.md`。 |
+| 第二階段 UX/UI 里程碑 | AOL Runtime Workbench 以使用者前端體驗為中心，完成 Context Bar、Object Outliner、Semantic Flow Canvas、Inspector、Command Dock/Ledger 的可產品化布局與交互閉環。 | UI product slice 已落地多個前端體驗面，但收尾驗收必須等待 AOL 到 MeetingEngine 編排橋接 P0；否則只能證明 shell/ledger/projection/materializer 工作，不能證明最初設計的 meeting-guided workflow。 |
 | Checkpoint | 單一拆檔、hook/component/service extraction、spec split、line gate 更新。 | 只能作為里程碑內部證據，不得單獨當成里程碑。 |
 
 ## 1. Problem list

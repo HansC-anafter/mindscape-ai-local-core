@@ -15,16 +15,19 @@ from backend.app.models.meeting_command import (
     MeetingCommandStatus,
 )
 from backend.app.models.workspace import Workspace
-from backend.app.routes.workspace_dependencies import get_orchestrator, get_workspace
+from backend.app.routes.workspace_dependencies import get_orchestrator, get_store, get_workspace
 from backend.app.services.conversation_orchestrator import ConversationOrchestrator
 from backend.app.services.meeting_command_dispatch import (
     dispatch_chat_for_command as _dispatch_chat_for_command,
+    dispatch_meeting_orchestration_for_command as _dispatch_meeting_orchestration_for_command,
     dispatch_object_action_for_command as _dispatch_object_action_for_command,
     dispatch_playbook_for_command as _dispatch_playbook_for_command,
     should_route_chat as _should_route_chat,
+    should_route_meeting_orchestration as _should_route_meeting_orchestration,
     should_route_object_action as _should_route_object_action,
     should_route_playbook as _should_route_playbook,
 )
+from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.meeting_command_parser import (
     MeetingCommandNormalizationError,
     canonicalize_meeting_command_envelope,
@@ -111,6 +114,7 @@ async def submit_meeting_command(
     meeting_id: str = Path(..., description="Meeting/session ID"),
     workspace: Workspace = Depends(get_workspace),
     orchestrator: ConversationOrchestrator = Depends(get_orchestrator),
+    mindscape_store: MindscapeStore = Depends(get_store),
     background_tasks: BackgroundTasks = None,
 ) -> MeetingCommandAcceptResponse:
     """Persist a server-canonical command envelope as a ledger row."""
@@ -157,10 +161,36 @@ async def submit_meeting_command(
         created_at=now,
         updated_at=now,
     )
-    store = _get_meeting_command_store()
-    saved = store.save(command)
+    command_store = _get_meeting_command_store()
+    saved = command_store.save(command)
     dispatch_result = None
-    if _should_route_object_action(canonical):
+    session_store = _get_meeting_session_store()
+    if _should_route_meeting_orchestration(canonical):
+        try:
+            command, dispatch_result = await _dispatch_meeting_orchestration_for_command(
+                command=saved,
+                canonical=canonical,
+                session=session,
+                workspace=workspace,
+                store=mindscape_store,
+                session_store=session_store,
+                workspace_id=workspace_id,
+            )
+        except Exception as exc:
+            command = saved.model_copy(
+                update={
+                    "status": MeetingCommandStatus.FAILED,
+                    "metadata": {
+                        **saved.metadata,
+                        "dispatch_status": "failed",
+                        "dispatch_error": str(exc),
+                    },
+                }
+            )
+            saved = command_store.save(command)
+            raise
+        saved = command_store.save(command)
+    elif _should_route_object_action(canonical):
         try:
             command, dispatch_result = await _dispatch_object_action_for_command(
                 command=saved,
@@ -179,9 +209,9 @@ async def submit_meeting_command(
                     },
                 }
             )
-            saved = store.save(command)
+            saved = command_store.save(command)
             raise
-        saved = store.save(command)
+        saved = command_store.save(command)
     elif _should_route_playbook(canonical):
         try:
             command, dispatch_result = await _dispatch_playbook_for_command(
@@ -202,9 +232,9 @@ async def submit_meeting_command(
                     },
                 }
             )
-            saved = store.save(command)
+            saved = command_store.save(command)
             raise
-        saved = store.save(command)
+        saved = command_store.save(command)
     elif _should_route_chat(canonical):
         try:
             command, dispatch_result = await _dispatch_chat_for_command(
@@ -226,9 +256,9 @@ async def submit_meeting_command(
                     },
                 }
             )
-            saved = store.save(command)
+            saved = command_store.save(command)
             raise
-        saved = store.save(command)
+        saved = command_store.save(command)
     return MeetingCommandAcceptResponse(
         workspace_id=workspace_id,
         meeting_id=meeting_id,

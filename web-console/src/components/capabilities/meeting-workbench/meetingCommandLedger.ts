@@ -54,6 +54,15 @@ export async function submitMeetingCommandEnvelope({
   selectedPackTool,
   actionParameters = {},
 }: SubmitMeetingCommandEnvelopeArgs): Promise<MeetingCommandLedgerAcceptance> {
+  const hasSelectedGuidance = Boolean(
+    actionParameters.selected_guidance_id ||
+    actionParameters.selected_guidance_metadata ||
+    actionParameters.selected_guidance_cards,
+  );
+  const dispatchMode =
+    objectActionEntries.length > 0 || mentionRefs.length > 0 || selectedPackTool !== null || hasSelectedGuidance
+      ? 'route_meeting_orchestration'
+      : 'route_chat';
   const payload = await postApiJson(
     apiUrl,
     `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}/commands`,
@@ -83,13 +92,13 @@ export async function submitMeetingCommandEnvelope({
       meeting_mentions: mentionRefs,
       metadata: {
         raw_intent_text: command,
-        dispatch_mode:
-          selectedPackTool
-            ? 'route_playbook'
-            : objectActionEntries.length >= 2
-              ? 'route_object_action'
-              : 'route_chat',
+        dispatch_mode: dispatchMode,
         selected_pack_tool_id: selectedPackTool?.id || null,
+        selected_guidance_id: actionParameters.selected_guidance_id || null,
+        selected_guidance_ids: actionParameters.selected_guidance_ids || null,
+        selected_guidance_metadata: actionParameters.selected_guidance_metadata || null,
+        selected_guidance_cards: actionParameters.selected_guidance_cards || null,
+        selected_guidance_object_ref: actionParameters.selected_guidance_object_ref || null,
         action_parameters: actionParameters,
       },
     },
