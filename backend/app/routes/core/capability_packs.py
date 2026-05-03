@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
 import logging
 import os
 import json
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -56,6 +58,8 @@ def _load_manifest_file(manifest_path: Path) -> Optional[Dict[str, Any]]:
 
 _pack_yaml_cache = None
 _pack_yaml_cache_time = 0
+_pack_yaml_cache_lock = threading.Lock()
+_PACK_YAML_CACHE_TTL_SECONDS = 60
 
 _PACK_SOURCE_PRIORITY = {
     "legacy_pack_yaml": 1,
@@ -161,19 +165,16 @@ def _map_runtime_manifest(
             mapped[key] = value
     return mapped
 
-def _scan_pack_yaml_files(base_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
-    """Scan all installed capabilities and return their manifest data.
-    Results are cached for 60 seconds to avoid filesystem latency.
-    """
-    global _pack_yaml_cache, _pack_yaml_cache_time
-    import time
-    if (
-        base_dir is None
-        and _pack_yaml_cache is not None
-        and (time.time() - _pack_yaml_cache_time < 60)
-    ):
-        return _pack_yaml_cache
 
+def _is_pack_yaml_cache_fresh(now: Optional[float] = None) -> bool:
+    if _pack_yaml_cache is None:
+        return False
+    now = time.time() if now is None else now
+    return (now - _pack_yaml_cache_time) < _PACK_YAML_CACHE_TTL_SECONDS
+
+
+def _scan_pack_yaml_files_uncached(base_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Scan all installed capabilities and return their manifest data."""
     packs_by_id: Dict[str, Dict[str, Any]] = {}
 
     # Get packs directory
@@ -283,11 +284,27 @@ def _scan_pack_yaml_files(base_dir: Optional[Path] = None) -> List[Dict[str, Any
                 _merge_pack_meta(existing, meta_mapped) if existing else meta_mapped
             )
 
-    packs = list(packs_by_id.values())
-    if base_dir == Path(__file__).parent.parent.parent.parent:
+    return list(packs_by_id.values())
+
+
+def _scan_pack_yaml_files(base_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Scan all installed capabilities and return their manifest data.
+    Results are cached for 60 seconds to avoid repeated filesystem scans.
+    """
+    global _pack_yaml_cache, _pack_yaml_cache_time
+    if base_dir is not None:
+        return _scan_pack_yaml_files_uncached(base_dir)
+
+    if _is_pack_yaml_cache_fresh():
+        return _pack_yaml_cache
+
+    with _pack_yaml_cache_lock:
+        if _is_pack_yaml_cache_fresh():
+            return _pack_yaml_cache
+        packs = _scan_pack_yaml_files_uncached()
         _pack_yaml_cache = packs
         _pack_yaml_cache_time = time.time()
-    return packs
+        return packs
 
 
 def _get_installed_pack_ids() -> set:
@@ -659,19 +676,18 @@ def list_installed_capabilities():
     Returns list of installed packs with their metadata.
     This endpoint is used by the frontend to display installed capabilities.
     """
-    import time
     t0 = time.time()
-    print(f"[{t0:.3f}] list_installed_capabilities - Start")
+    logger.debug("list_installed_capabilities started")
     try:
         # Get all packs
         pack_metas = _scan_pack_yaml_files()
         t1 = time.time()
-        print(f"[{t1:.3f}] list_installed_capabilities - Scanned YAML (in {t1-t0:.3f}s)")
+        logger.debug("Scanned capability manifests in %.3fs", t1 - t0)
 
         # Get installed pack IDs
         installed_ids = _get_installed_pack_ids()
         t2 = time.time()
-        print(f"[{t2:.3f}] list_installed_capabilities - Got installed IDs (in {t2-t1:.3f}s)")
+        logger.debug("Loaded installed pack IDs in %.3fs", t2 - t1)
 
         # Filter to only installed packs and format response
         installed_capabilities = []
@@ -695,8 +711,8 @@ def list_installed_capabilities():
                 )
 
         t3 = time.time()
-        print(f"[{t3:.3f}] list_installed_capabilities - Mapped response (in {t3-t2:.3f}s)")
-        print(f"[{t3:.3f}] list_installed_capabilities - Returning JSON (total {t3-t0:.3f}s)")
+        logger.debug("Mapped installed capabilities in %.3fs", t3 - t2)
+        logger.debug("Returning installed capabilities in %.3fs", t3 - t0)
         return JSONResponse(content=installed_capabilities)
     except Exception as e:
         logger.error(f"Failed to list installed capabilities: {e}", exc_info=True)
