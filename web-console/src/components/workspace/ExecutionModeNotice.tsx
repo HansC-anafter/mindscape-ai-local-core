@@ -10,13 +10,6 @@ interface ExecutionModeNoticeProps {
   expectedArtifacts?: string[];
 }
 
-/**
- * ExecutionModeNotice Component
- * Displays a notice about the current execution mode.
- *
- * @param executionMode The current execution mode.
- * @param expectedArtifacts Optional array of expected artifact types.
- */
 export function ExecutionModeNotice({
   executionMode,
   expectedArtifacts,
@@ -46,7 +39,7 @@ export function ExecutionModeNotice({
                 ? 'Meeting mode enabled'
                 : 'Hybrid mode enabled'}
           </span>
-          <span className="mx-2">·</span>
+          <span className="mx-2">-</span>
           <span className="opacity-80">
             {executionMode === 'execution'
               ? 'AI will prioritize executing actions and producing artifacts, rather than just conversing'
@@ -57,7 +50,7 @@ export function ExecutionModeNotice({
           </span>
           {expectedArtifacts && expectedArtifacts.length > 0 && (
             <>
-              <span className="mx-2">·</span>
+              <span className="mx-2">-</span>
               <span className="opacity-80">Expected artifacts: {expectedArtifacts.join(', ').toUpperCase()}</span>
             </>
           )}

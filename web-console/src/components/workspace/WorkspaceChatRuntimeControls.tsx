@@ -245,7 +245,7 @@ export function WorkspaceChatRuntimeControls({
             </div>
             <div className="mt-2 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
               {selectedRuntimeStatusLabel}
-              {selectedAgent?.reason ? ` · ${selectedAgent.reason}` : ''}
+              {selectedAgent?.reason ? ` - ${selectedAgent.reason}` : ''}
             </div>
             {currentChatModel ? (
               <div className="mt-2 text-[11px] leading-5 text-slate-600 dark:text-slate-300">
@@ -378,7 +378,7 @@ export function WorkspaceChatRuntimeControls({
             <>
               {currentChatModel ? (
                 <span className="truncate">
-                  ✓ {currentChatModel}
+                  Model: {currentChatModel}
                 </span>
               ) : null}
               {contextTokenCount !== null ? (

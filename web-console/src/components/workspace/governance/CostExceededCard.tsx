@@ -9,10 +9,6 @@ interface CostExceededCardProps {
   onAction?: (cardId: string, actionType: string) => void;
 }
 
-/**
- * Cost exceeded governance decision card
- * Displays cost limit information and downgrade suggestions
- */
 export function CostExceededCard({
   card,
   currentUserId,
@@ -134,4 +130,3 @@ export function CostExceededCard({
     </div>
   );
 }
-

@@ -16,10 +16,6 @@ interface GovernanceStatusIndicatorProps {
   compact?: boolean;
 }
 
-/**
- * Governance status indicator component
- * Displays the status of each governance layer check
- */
 export function GovernanceStatusIndicator({
   layers,
   onViewDetails,
@@ -154,4 +150,3 @@ export function GovernanceStatusIndicator({
     </div>
   );
 }
-

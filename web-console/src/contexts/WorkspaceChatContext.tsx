@@ -11,25 +11,14 @@ export interface WorkspaceChatProviderProps {
   children: ReactNode;
   workspaceId: string;
   apiUrl?: string;
-  threadId?: string | null;  // 🆕 Current conversation thread ID
+  threadId?: string | null;
 }
 
-/**
- * Combined provider for all WorkspaceChat contexts.
- *
- * Provides a single entry point for wrapping components with all necessary contexts.
- * Contexts are nested in the following order (outer to inner):
- * 1. MessagesProvider - Messages and execution state
- * 2. UIStateProvider - UI state (input, streaming, etc.)
- * 3. ScrollStateProvider - Scroll state
- * 4. WorkspaceMetadataProvider - Workspace metadata
- * 5. WorkspaceRefsProvider - Refs (stable references)
- */
 export function WorkspaceChatProvider({
   children,
   workspaceId,
   apiUrl = '',
-  threadId,  // 🆕
+  threadId,
 }: WorkspaceChatProviderProps) {
   return (
     <MessagesProvider workspaceId={workspaceId} apiUrl={apiUrl} threadId={threadId}>
@@ -43,4 +32,3 @@ export function WorkspaceChatProvider({
     </MessagesProvider>
   );
 }
-

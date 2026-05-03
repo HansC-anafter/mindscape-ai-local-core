@@ -20,24 +20,24 @@ const modeConfig: Record<ExecutionMode, {
   description: string;
 }> = {
   qa: {
-    label: '對話優先',
-    icon: '💬',
-    description: '對話優先：討論為主',
+    label: 'Chat First',
+    icon: 'CHAT',
+    description: 'Chat first: discussion-focused',
   },
   execution: {
-    label: '執行優先',
-    icon: '⚡',
-    description: '執行優先：行動為主',
+    label: 'Execution First',
+    icon: 'RUN',
+    description: 'Execution first: action-focused',
   },
   hybrid: {
-    label: '邊做邊聊',
-    icon: '🤝',
-    description: '邊做邊聊：邊聊邊執行，平衡對話與動作',
+    label: 'Hybrid',
+    icon: 'HYB',
+    description: 'Chat and execute in balance',
   },
   meeting: {
-    label: '會議模式',
-    icon: '🧭',
-    description: '多代理會議：聚焦決策、收斂與行動項',
+    label: 'Meeting Mode',
+    icon: 'MTG',
+    description: 'Multi-agent meeting focused on decisions and action items',
   },
 };
 
@@ -49,30 +49,28 @@ const priorityConfig: Record<ExecutionPriority, {
   description: string;
 }> = {
   low: {
-    label: '低',
-    indicator: '▽',
-    description: '高信心(>=0.9)才自動執行',
+    label: 'Low',
+    indicator: 'L',
+    description: 'Only auto-execute with high confidence (>=0.9)',
   },
   medium: {
-    label: '中',
-    indicator: '◇',
-    description: '中等信心(>=0.8)觸發',
+    label: 'Medium',
+    indicator: 'M',
+    description: 'Trigger with medium confidence (>=0.8)',
   },
   high: {
-    label: '高',
-    indicator: '△',
-    description: '較積極(>=0.6)觸發',
+    label: 'High',
+    indicator: 'H',
+    description: 'More active trigger threshold (>=0.6)',
   },
 };
 
-// Map enum priority to slider numeric value (0.5 - 1.0)
 const priorityToValue = (p: ExecutionPriority): number => {
   if (p === 'high') return 1.0;
   if (p === 'medium') return 0.8;
   return 0.6;
 };
 
-// Map slider numeric value back to enum (thresholds chosen to keep backward compatibility)
 const valueToPriority = (v: number): ExecutionPriority => {
   if (v >= 0.9) return 'high';
   if (v >= 0.7) return 'medium';
@@ -91,7 +89,6 @@ export default function ExecutionModeSelector({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [priorityValue, setPriorityValue] = useState<number>(priorityToValue(priority));
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -103,25 +100,15 @@ export default function ExecutionModeSelector({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Sync slider with external priority
   useEffect(() => {
     setPriorityValue(priorityToValue(priority));
   }, [priority]);
-
-  // Close dropdown when mode changes externally (e.g., from workspace update)
-  useEffect(() => {
-    if (isOpen) {
-      // Optionally close dropdown when mode changes, or keep it open
-      // For now, keep it open to allow smooth transitions
-    }
-  }, [mode, priority]);
 
   const currentMode = modeConfig[mode];
   const currentPriority = priorityConfig[priority];
 
   return (
     <div className="relative" ref={dropdownRef}>
-      {/* Trigger button */}
       <button
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
@@ -139,7 +126,6 @@ export default function ExecutionModeSelector({
         }}
         title={currentMode.description}
       >
-        {/* Priority numeric value + indicator */}
         <span className="text-[11px] font-semibold text-purple-700 dark:text-purple-300">
           {priorityValue.toFixed(1)}
         </span>
@@ -151,19 +137,16 @@ export default function ExecutionModeSelector({
         </span>
         <span className="text-gray-600 dark:text-gray-400">AI Team</span>
         <span className="text-gray-700 dark:text-gray-300">{currentMode.label}</span>
-        {/* More prominent dropdown indicator */}
-        <span className="ml-auto text-gray-500 dark:text-gray-400 text-[10px] font-bold">▼</span>
+        <span className="ml-auto text-gray-500 dark:text-gray-400 text-[10px] font-bold">{isOpen ? '-' : '+'}</span>
       </button>
 
-      {/* Dropdown menu */}
       {isOpen && (
         <div
           className="absolute top-full left-0 mt-1 z-50 min-w-[200px] bg-surface-secondary dark:bg-gray-800 rounded-lg shadow-lg border border-default dark:border-gray-700 py-2"
           style={{ animation: 'fadeIn 0.15s ease' }}
         >
-          {/* Mode section */}
           <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-            模式
+            Mode
           </div>
           {selectableModes.map((m) => (
             <button
@@ -181,18 +164,16 @@ export default function ExecutionModeSelector({
             >
               <span>{modeConfig[m].icon}</span>
               <span>{modeConfig[m].label}</span>
-              {mode === m && <span className="ml-auto">✓</span>}
+              {mode === m && <span className="ml-auto">Selected</span>}
             </button>
           ))}
 
-          {/* Divider */}
           <div className="my-2 border-t border-gray-100 dark:border-gray-700" />
 
-          {/* Meeting toggle */}
           <div className="px-3 py-1.5 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-sm">🧭</span>
-              <span className="text-sm text-gray-700 dark:text-gray-300">會議引擎</span>
+              <span className="text-sm">MTG</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">Meeting Engine</span>
             </div>
             <button
               onClick={() => onMeetingToggle?.(!meetingEnabled)}
@@ -214,12 +195,10 @@ export default function ExecutionModeSelector({
             </button>
           </div>
 
-          {/* Divider */}
           <div className="my-2 border-t border-gray-100 dark:border-gray-700" />
 
-          {/* Priority section */}
           <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-            <span>任務自動觸發（信心度）</span>
+            <span>Task Auto Trigger (Confidence)</span>
             <span className="text-purple-700 dark:text-purple-300 text-[11px] font-bold">
               {priorityValue.toFixed(1)}
             </span>
@@ -249,7 +228,7 @@ export default function ExecutionModeSelector({
               ))}
             </div>
             <div className="mt-1 text-xs text-purple-700 dark:text-purple-300 font-medium">
-              {priorityValue.toFixed(1)} ・ {priorityConfig[valueToPriority(priorityValue)].label}
+              {priorityValue.toFixed(1)} - {priorityConfig[valueToPriority(priorityValue)].label}
             </div>
           </div>
         </div>

@@ -47,8 +47,6 @@ function isLikelyOptimisticDuplicate(optimistic: ChatMessage, incoming: ChatMess
     return true;
   }
 
-  // Assistant optimistic text is often streamed and may be truncated
-  // when SSE final message arrives; allow prefix/contain matching.
   const minLen = 20;
   if (a.length >= minLen && b.length >= minLen) {
     return a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
@@ -116,7 +114,7 @@ export interface MessagesState {
   loadingMore: boolean;
   loadMore: () => Promise<void>;
   reloadMessages: () => Promise<void>;
-  sseConnected: boolean;  // 🆕 SSE connection status
+  sseConnected: boolean;
 
   executionState: ExecutionUIState;
   pipelineStage: PipelineStage | null;
@@ -127,7 +125,6 @@ export interface MessagesState {
   handlePause: (executionId: string) => void;
   handleCancel: (executionId: string) => void;
 
-  // Meeting real-time streaming
   streamingText: string;
   isStreaming: boolean;
 }
@@ -147,10 +144,8 @@ export function MessagesProvider({
   apiUrl = '',
   threadId
 }: MessagesProviderProps) {
-  // HTTP-based initial load
   const chatEvents = useChatEvents(workspaceId, apiUrl, { threadId });
 
-  // 🆕 SSE-based real-time stream
   const messageStream = useMessageStream(workspaceId, apiUrl, { threadId, enabled: true });
 
   const executionStateHook = useExecutionState(workspaceId, apiUrl);
@@ -179,28 +174,20 @@ export function MessagesProvider({
     isStreaming,
   } = messageStream;
 
-  // 🆕 Mark initial messages as seen to prevent duplicates from SSE
   useEffect(() => {
     if (initialMessages.length > 0) {
       markManyAsSeen(initialMessages.map(m => m.id));
     }
   }, [initialMessages, markManyAsSeen]);
 
-  // 🆕 Clear streamed messages when doing a full reload
   useEffect(() => {
     if (messagesLoading) {
       clearStreamedMessages();
     }
   }, [messagesLoading, clearStreamedMessages]);
 
-  // 🆕 Merge initial messages with SSE streamed messages
   const messages = useMemo(() => {
-    const merged = mergeInitialAndStreamedMessages(initialMessages, streamedMessages);
-    const newCount = merged.length - initialMessages.length;
-    if (newCount > 0) {
-      console.log(`[MessagesContext] Merging ${newCount} new SSE messages`);
-    }
-    return merged;
+    return mergeInitialAndStreamedMessages(initialMessages, streamedMessages);
   }, [initialMessages, streamedMessages]);
 
   const executionStateHookResult = executionStateHook || {} as ExecutionUIState;
@@ -210,11 +197,11 @@ export function MessagesProvider({
     ...execState
   } = executionStateHookResult;
 
-  const executionState: ExecutionUIState = {
+  const executionState: ExecutionUIState = useMemo(() => ({
     ...execState,
     executionTree: executionTree || [],
     pipelineStage: pipelineStage || null,
-  } as ExecutionUIState;
+  } as ExecutionUIState), [execState, executionTree, pipelineStage]);
 
   const {
     currentExecution: currentExec,
@@ -236,7 +223,7 @@ export function MessagesProvider({
       loadingMore,
       loadMore,
       reloadMessages,
-      sseConnected,  // 🆕
+      sseConnected,
 
       executionState,
       pipelineStage: pipelineStage || null,
@@ -247,7 +234,6 @@ export function MessagesProvider({
       handlePause,
       handleCancel,
 
-      // Meeting real-time streaming
       streamingText,
       isStreaming,
     }),
@@ -264,7 +250,7 @@ export function MessagesProvider({
       loadMore,
       reloadMessages,
       sseConnected,
-      execState,
+      executionState,
       pipelineStage,
       executionTree,
       currentExec,
@@ -286,4 +272,3 @@ export function useMessages() {
   }
   return context;
 }
-

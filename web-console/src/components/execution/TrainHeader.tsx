@@ -25,11 +25,11 @@ interface TrainHeaderProps {
 
 function getStatusIcon(status: ExecutionStep['status']): string {
   switch (status) {
-    case 'completed': return '✅';
-    case 'in_progress': return '🔄';
-    case 'pending': return '⏳';
-    case 'error': return '❌';
-    default: return '○';
+    case 'completed': return 'DONE';
+    case 'in_progress': return 'RUN';
+    case 'pending': return 'WAIT';
+    case 'error': return 'ERR';
+    default: return 'IDLE';
   }
 }
 
@@ -46,10 +46,8 @@ export default function TrainHeader({
   const pathname = usePathname();
   const router = useRouter();
 
-  // Check if we're on an execution page
   const isExecutionPage = pathname?.includes('/executions/');
 
-  // Handle back to workspace
   const handleBackToWorkspace = () => {
     if (onBackToWorkspace) {
       onBackToWorkspace();
@@ -60,7 +58,6 @@ export default function TrainHeader({
 
   return (
     <div className="train-header relative w-full h-12 overflow-hidden" style={{ background: 'rgba(139, 92, 246, 0.03)' }}>
-      {/* Progress bar background */}
       {isExecuting && (
         <div
           className="absolute top-0 left-0 h-full transition-all duration-400 ease-out"
@@ -72,14 +69,12 @@ export default function TrainHeader({
         />
       )}
 
-      {/* Foreground content */}
       <div className="relative z-10 flex items-center h-full px-4 gap-0 overflow-x-auto">
-        {/* Back to workspace button - shown on execution pages */}
         {isExecutionPage && (workspaceId || onBackToWorkspace) && (
           <button
             onClick={handleBackToWorkspace}
             className="flex items-center gap-1.5 px-2 py-1 text-sm text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-100 hover:bg-surface-secondary dark:hover:bg-gray-800 rounded transition-colors flex-shrink-0 mr-2"
-            title="回到 Workspace Chat"
+            title="Back to Workspace Chat"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -88,7 +83,6 @@ export default function TrainHeader({
           </button>
         )}
 
-        {/* Workspace title */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={onWorkspaceNameEdit}
@@ -99,7 +93,7 @@ export default function TrainHeader({
             </h1>
             {onWorkspaceNameEdit && (
               <span className="opacity-0 group-hover:opacity-100 text-tertiary dark:text-gray-500 text-xs transition-opacity">
-                ✏️
+                Edit
               </span>
             )}
           </button>
@@ -108,9 +102,8 @@ export default function TrainHeader({
           )}
         </div>
 
-        {/* Connector + Task wagons */}
         {steps.length > 0 && (
-          <span className="mx-2 text-sm flex-shrink-0" style={{ color: 'rgba(139, 92, 246, 0.3)' }}>━━</span>
+          <span className="mx-2 text-sm flex-shrink-0" style={{ color: 'rgba(139, 92, 246, 0.3)' }}>--</span>
         )}
 
         {steps.map((step, i) => (
@@ -135,12 +128,11 @@ export default function TrainHeader({
               <span className="text-sm">{step.icon}</span>
             </div>
             {i < steps.length - 1 && (
-              <span className="mx-2 text-sm flex-shrink-0" style={{ color: 'rgba(139, 92, 246, 0.3)' }}>━━</span>
+              <span className="mx-2 text-sm flex-shrink-0" style={{ color: 'rgba(139, 92, 246, 0.3)' }}>--</span>
             )}
           </React.Fragment>
         ))}
 
-        {/* Completion mark */}
         {progress === 100 && steps.length > 0 && (
           <span
             className="ml-3 text-sm flex-shrink-0"
@@ -149,12 +141,11 @@ export default function TrainHeader({
               animation: 'fadeIn 0.5s ease'
             }}
           >
-            ✨ 完成！
+            Complete
           </span>
         )}
       </div>
 
-      {/* Animations */}
       <style jsx>{`
         @keyframes slideIn {
           from { opacity: 0; transform: translateX(-12px); }
@@ -168,4 +159,3 @@ export default function TrainHeader({
     </div>
   );
 }
-

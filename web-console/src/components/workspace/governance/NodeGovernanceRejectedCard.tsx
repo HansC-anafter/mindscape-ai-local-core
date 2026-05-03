@@ -9,10 +9,6 @@ interface NodeGovernanceRejectedCardProps {
   onAction?: (cardId: string, actionType: string) => void;
 }
 
-/**
- * Node governance rejected decision card
- * Displays rejection reason and affected playbooks
- */
 export function NodeGovernanceRejectedCard({
   card,
   currentUserId,
@@ -117,4 +113,3 @@ export function NodeGovernanceRejectedCard({
     </div>
   );
 }
-

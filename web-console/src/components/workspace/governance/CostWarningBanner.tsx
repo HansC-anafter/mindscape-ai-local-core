@@ -11,10 +11,6 @@ interface CostWarningBannerProps {
   onViewDetails?: () => void;
 }
 
-/**
- * Cost warning banner component
- * Displays cost warnings when usage approaches quota
- */
 export function CostWarningBanner({
   currentUsage,
   quota,
@@ -77,4 +73,3 @@ export function CostWarningBanner({
     </div>
   );
 }
-

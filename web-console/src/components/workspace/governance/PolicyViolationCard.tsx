@@ -9,10 +9,6 @@ interface PolicyViolationCardProps {
   onAction?: (cardId: string, actionType: string) => void;
 }
 
-/**
- * Policy violation governance decision card
- * Displays policy violation details and permission request options
- */
 export function PolicyViolationCard({
   card,
   currentUserId,
@@ -112,4 +108,3 @@ export function PolicyViolationCard({
     </div>
   );
 }
-

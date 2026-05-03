@@ -86,8 +86,8 @@ export function CurrentExecutionBar({
 
   const hasProject = !!execution.projectId;
   const tooltipText = hasProject
-    ? '點擊高亮項目'
-    : '此執行未關聯項目';
+    ? 'Click to highlight the project'
+    : 'This execution is not linked to a project';
 
   return (
     <div className="current-execution-bar">
@@ -129,9 +129,9 @@ export function CurrentExecutionBar({
         <button
           className="action-link view-details-button"
           onClick={onViewDetail}
-          title="查看執行詳情"
+          title="View execution details"
         >
-          {t('viewDetails' as any) || 'View Details'} →
+          {t('viewDetails' as any) || 'View Details'} &gt;
         </button>
         {execution.status === 'running' && (
           <>
@@ -147,4 +147,3 @@ export function CurrentExecutionBar({
     </div>
   );
 }
-

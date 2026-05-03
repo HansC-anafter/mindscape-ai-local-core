@@ -165,7 +165,7 @@ export default function ExecutionOverviewCard({
             }}
             className="px-2 py-1.5 text-xs font-medium text-primary dark:text-gray-300 bg-surface-secondary dark:bg-gray-800 rounded-md hover:bg-surface-accent dark:hover:bg-gray-700 transition-colors"
           >
-            ⋯
+            More
           </button>
 
           {showDropdown && (
@@ -241,4 +241,3 @@ export default function ExecutionOverviewCard({
     </div>
   );
 }
-

@@ -105,8 +105,8 @@ export default function ThinkingContext({
     <div className="thinking-context mb-3">
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-xs font-semibold text-secondary dark:text-gray-400 flex items-center gap-1">
-          <span>🧠</span>
-          <span>思考脈絡</span>
+          <span>THK</span>
+          <span>Thinking Context</span>
           {(isTypingPipeline || isTypingSummary) && (
             <span className="ml-1 w-1.5 h-3 bg-purple-500 animate-pulse" />
           )}
@@ -127,7 +127,7 @@ export default function ThinkingContext({
               <span className="w-1 h-1 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
               <span className="w-1 h-1 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
             </span>
-            <span className="ml-2">AI 正在思考中...</span>
+            <span className="ml-2">AI is thinking...</span>
           </div>
         ) : (
           <>
@@ -155,7 +155,7 @@ export default function ThinkingContext({
                   onClick={onViewFullPlan}
                   className="text-[10px] text-purple-600 dark:text-purple-400 hover:underline"
                 >
-                  查看完整計畫
+                  View Full Plan
                 </button>
               </div>
             )}

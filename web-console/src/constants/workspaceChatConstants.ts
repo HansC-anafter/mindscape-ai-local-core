@@ -1,7 +1,3 @@
-/**
- * Constants for WorkspaceChat component.
- */
-
 export const SCROLL_DEBOUNCE_MS = 100;
 
 export const SCROLL_TO_BOTTOM_DELAY_MS = 100;
@@ -29,4 +25,3 @@ export const DEFAULT_PROFILE_ID = 'default-user';
 export const MESSAGES_INITIAL_LIMIT = 200;
 
 export const MESSAGES_LOAD_MORE_LIMIT = 100;
-

@@ -196,7 +196,7 @@ export function EventTimeline({
               </div>
               {item.clickable && (
                 <div className="text-xs text-blue-600 dark:text-blue-400 flex-shrink-0">
-                  View →
+                  View &gt;
                 </div>
               )}
             </div>

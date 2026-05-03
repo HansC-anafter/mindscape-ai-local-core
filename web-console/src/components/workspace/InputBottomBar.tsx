@@ -16,26 +16,6 @@ interface InputBottomBarProps {
   llmConfigured: boolean | null;
 }
 
-/**
- * InputBottomBar Component
- * Displays the bottom bar of the input area with copy button, model selector, and action buttons.
- *
- * @param messagesCount Number of messages in the conversation.
- * @param copiedAll Whether all messages have been copied.
- * @param onCopyAll Callback function when copy all button is clicked.
- * @param currentChatModel Currently selected chat model.
- * @param availableChatModels Array of available chat models.
- * @param contextTokenCount Current context token count.
- * @param onModelChange Callback function when model is changed.
- * @param onFileUpload Callback function when file upload button is clicked.
- * @param onSend Callback function when send button is clicked.
- * @param isLoading Whether a message is being sent.
- * @param canSend Whether the send button should be enabled.
- * @param llmConfigured Whether LLM is configured.
- * @param availableAgents Array of available external agents (unified for all workspaces).
- * @param currentAgent Currently selected external agent ID (null = Mindscape LLM).
- * @param onAgentChange Callback function when agent is changed.
- */
 export function InputBottomBar({
   messagesCount,
   copiedAll,
@@ -51,7 +31,6 @@ export function InputBottomBar({
   return (
     <div className="flex items-center justify-between px-4 pb-3 pt-2 border-t border-gray-200/30 dark:border-gray-700/30">
       <div className="flex min-w-0 items-center gap-2">
-        {/* Copy all messages button */}
         {showCopyAll && messagesCount > 0 && (
           <button
             onClick={onCopyAll}
@@ -81,7 +60,6 @@ export function InputBottomBar({
         {leadingContent}
       </div>
 
-      {/* Right: Action buttons */}
       <div className="flex items-center gap-2">
         <button
           type="button"

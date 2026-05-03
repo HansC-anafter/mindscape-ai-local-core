@@ -253,7 +253,7 @@ export function DecisionCard({
             onClick={handleExpand}
             className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1"
           >
-            <span>{isExpanded ? '▼' : '▶'}</span>
+            <span>{isExpanded ? '-' : '+'}</span>
             <span>{isExpanded ? 'Collapse' : 'View Details'}</span>
           </button>
 
@@ -304,4 +304,3 @@ export function DecisionCard({
     </div>
   );
 }
-

@@ -6,7 +6,7 @@ import { useT } from '@/lib/i18n';
 export interface Artifact {
   id: string;
   name: string;
-  type: string;  // 'docx', 'xlsx', 'pptx', etc.
+  type: string;
   createdAt?: string;
   url?: string;
 }
@@ -21,17 +21,17 @@ interface ArtifactsListProps {
 }
 
 const typeIcons: Record<string, string> = {
-  docx: '📝',
-  doc: '📝',
-  xlsx: '📊',
-  xls: '📊',
-  pptx: '📊',
-  ppt: '📊',
-  pdf: '📄',
-  md: '📋',
-  txt: '📋',
-  json: '🔧',
-  default: '📁',
+  docx: 'DOC',
+  doc: 'DOC',
+  xlsx: 'XLS',
+  xls: 'XLS',
+  pptx: 'PPT',
+  ppt: 'PPT',
+  pdf: 'PDF',
+  md: 'MD',
+  txt: 'TXT',
+  json: 'JSON',
+  default: 'FILE',
 };
 
 function getTypeIcon(type: string): string {
@@ -48,25 +48,12 @@ export default function ArtifactsList({
 }: ArtifactsListProps) {
   const t = useT();
 
-  // Debug logging
-  console.log('[ArtifactsList] Rendered with props:', {
-    artifactsCount: artifacts.length,
-    hasOnView: !!onView,
-    hasOnDownload: !!onDownload,
-    hasOnViewSandbox: !!onViewSandbox,
-    sandboxId,
-    onViewType: typeof onView,
-    onViewFunction: onView?.toString().substring(0, 100),
-  });
-
   if (artifacts.length === 0) {
-    // Don't render anything when there are no artifacts to save space
     return null;
   }
 
   return (
     <div className="artifacts-list mb-3">
-      {/* Latest Artifact Highlight - Always visible when available */}
       {latestArtifact && (
         <div
           className="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/30 border-l-4 border-yellow-500 dark:border-yellow-400 rounded-r cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/40 transition-colors shadow-sm"
@@ -75,7 +62,7 @@ export default function ArtifactsList({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <span className="text-sm font-semibold text-yellow-700 dark:text-yellow-300 flex-shrink-0">
-                🆕 {t('latestArtifact' as any) || 'Latest'} →
+                {t('latestArtifact' as any) || 'Latest'} &gt;
               </span>
               <span className="text-sm text-gray-800 dark:text-gray-200 truncate font-medium">
                 {latestArtifact.name}
@@ -90,7 +77,7 @@ export default function ArtifactsList({
 
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-400 flex items-center gap-1">
-          <span>📦 {t('stepArtifacts' as any) || 'Step Artifacts'}</span>
+          <span>{t('stepArtifacts' as any) || 'Step Artifacts'}</span>
           <span className="text-[10px] text-gray-400 ml-1">({artifacts.length})</span>
         </h4>
         {onViewSandbox && sandboxId && (
@@ -98,7 +85,7 @@ export default function ArtifactsList({
             onClick={() => onViewSandbox(sandboxId)}
             className="text-[10px] text-accent dark:text-blue-400 hover:underline"
           >
-            {t('viewInSandbox' as any) || 'View in Sandbox'} →
+            {t('viewInSandbox' as any) || 'View in Sandbox'} &gt;
           </button>
         )}
       </div>
@@ -116,27 +103,15 @@ export default function ArtifactsList({
               </span>
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
-              {(() => {
-                console.log('[ArtifactsList] Rendering buttons for artifact:', {
-                  artifactId: artifact.id,
-                  artifactName: artifact.name,
-                  hasOnView: !!onView,
-                  onViewValue: onView,
-                });
-                return null;
-              })()}
-              {onView ? (
+              {onView && (
                 <button
                   onClick={() => {
-                    console.log('[ArtifactsList] View button clicked for artifact:', artifact);
                     onView(artifact);
                   }}
                   className="text-[10px] text-purple-600 dark:text-purple-400 hover:underline px-1"
                 >
                   {t('view' as any) || 'View'}
                 </button>
-              ) : (
-                <span className="text-[10px] text-red-500">NO ONVIEW</span>
               )}
               {onDownload && (
                 <button
@@ -164,4 +139,3 @@ export default function ArtifactsList({
     </div>
   );
 }
-

@@ -22,11 +22,10 @@ export function InputDialog({ title, fields, onSubmit, onCancel }: InputDialogPr
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate required fields
     const newErrors: Record<string, string> = {};
     fields.forEach(field => {
       if (field.required && !values[field.key]?.trim()) {
-        newErrors[field.key] = `${field.label} 是必填项`;
+        newErrors[field.key] = `${field.label} is required`;
       }
     });
 
@@ -40,7 +39,6 @@ export function InputDialog({ title, fields, onSubmit, onCancel }: InputDialogPr
 
   const handleChange = (key: string, value: string) => {
     setValues(prev => ({ ...prev, [key]: value }));
-    // Clear error when user starts typing
     if (errors[key]) {
       setErrors(prev => {
         const next = { ...prev };
@@ -84,8 +82,6 @@ export function InputDialog({ title, fields, onSubmit, onCancel }: InputDialogPr
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      // For file inputs, we'll store the file name
-                      // In a real implementation, you might want to upload the file first
                       handleChange(field.key, file.name);
                     }
                   }}
@@ -120,13 +116,13 @@ export function InputDialog({ title, fields, onSubmit, onCancel }: InputDialogPr
               onClick={onCancel}
               className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
-              取消
+              Cancel
             </button>
             <button
               type="submit"
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-blue-700 rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
             >
-              提交
+              Submit
             </button>
           </div>
         </form>
@@ -134,4 +130,3 @@ export function InputDialog({ title, fields, onSubmit, onCancel }: InputDialogPr
     </div>
   );
 }
-

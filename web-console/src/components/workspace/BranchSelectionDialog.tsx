@@ -41,7 +41,7 @@ export function BranchSelectionDialog({
             {title}
           </h3>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            请选择其中一个执行方案继续
+            Select one execution plan to continue.
           </p>
         </div>
 
@@ -74,13 +74,13 @@ export function BranchSelectionDialog({
                         <span className="font-medium text-gray-900 dark:text-gray-100">
                           {alt.playbook_code}
                         </span>
-                        {isRecommended && (
+                          {isRecommended && (
                           <span className="text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 rounded">
-                            推荐
+                            Recommended
                           </span>
                         )}
                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                          置信度: {(alt.confidence * 100).toFixed(0)}%
+                          Confidence: {(alt.confidence * 100).toFixed(0)}%
                         </span>
                       </div>
                       <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
@@ -88,8 +88,8 @@ export function BranchSelectionDialog({
                       </p>
                       {alt.differences && alt.differences.length > 0 && (
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          <span className="font-medium">差异点：</span>
-                          {alt.differences.join('、')}
+                          <span className="font-medium">Differences: </span>
+                          {alt.differences.join(', ')}
                         </div>
                       )}
                     </div>
@@ -105,14 +105,14 @@ export function BranchSelectionDialog({
               onClick={onCancel}
               className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
-              取消
+              Cancel
             </button>
             <button
               type="submit"
               disabled={!selected}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-blue-700 rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              选择并继续
+              Select and Continue
             </button>
           </div>
         </form>
@@ -120,4 +120,3 @@ export function BranchSelectionDialog({
     </div>
   );
 }
-

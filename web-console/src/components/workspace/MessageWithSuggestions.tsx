@@ -37,14 +37,11 @@ export function MessageWithSuggestions({
   const handleConfirmProject = async () => {
     if (!projectAssignment?.project_id || !workspaceId) return;
 
-    // TODO: Send confirmation to backend
-    // For now, just mark as confirmed in UI
     setProjectConfirmed(true);
     setShowProjectSelector(false);
   };
 
   const handleCreateNewProject = async () => {
-    // TODO: Create new project or navigate to project creation
     setShowProjectSelector(false);
   };
 
@@ -52,7 +49,6 @@ export function MessageWithSuggestions({
     setShowProjectSelector(true);
   };
 
-  // Determine chip style based on confidence
   const getChipStyle = () => {
     if (!projectAssignment) return 'normal';
     if (projectAssignment.confidence >= 0.8) return 'normal';
@@ -61,33 +57,34 @@ export function MessageWithSuggestions({
   };
 
   const chipStyle = getChipStyle();
+  const projectTitle = projectAssignment?.candidates?.[0]?.project?.title ||
+    projectAssignment?.project_title ||
+    'the current project';
 
   return (
     <div className="message-with-suggestions">
-      {/* Project Assignment Confirmation Prompt (assistive mode) */}
       {projectAssignment?.requires_ui_confirmation && !projectConfirmed && (
         <div className="mb-2 px-3 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
           <div className="text-sm font-medium text-yellow-900 dark:text-yellow-100 mb-2">
-            這次是延續「{projectAssignment.candidates?.[0]?.project?.title || projectAssignment.project_title || '現有專案'}」，還是要開始新的專案？
+            Continue {projectTitle} or start a new project?
           </div>
           <div className="flex gap-2">
             <button
               onClick={handleConfirmProject}
               className="px-3 py-1 text-xs bg-yellow-600 hover:bg-yellow-700 text-white rounded transition-colors"
             >
-              延續現有專案
+              Continue Current Project
             </button>
             <button
               onClick={handleCreateNewProject}
               className="px-3 py-1 text-xs bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded transition-colors"
             >
-              開始新專案
+              Start New Project
             </button>
           </div>
         </div>
       )}
 
-      {/* Project Chip - Display current project */}
       {projectAssignment?.project_id && (
         <div className={`mb-2 px-2 py-1 text-xs rounded transition-colors ${chipStyle === 'normal'
             ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
@@ -97,17 +94,17 @@ export function MessageWithSuggestions({
           }`}>
           <div className="flex items-center justify-between gap-2">
             <span>
-              正在為：{projectAssignment.project_title ||
+              Working on: {projectAssignment.project_title ||
                 projectAssignment.candidates?.[0]?.project?.title ||
-                projectAssignment.project_id} 工作
+                projectAssignment.project_id}
             </span>
             {chipStyle !== 'warning' && (
               <button
                 onClick={handleChangeProject}
                 className="text-xs underline hover:no-underline opacity-70 hover:opacity-100"
-                title="更改專案"
+                title="Change project"
               >
-                更改
+                Change
               </button>
             )}
           </div>
@@ -137,4 +134,3 @@ export function MessageWithSuggestions({
     </div>
   );
 }
-

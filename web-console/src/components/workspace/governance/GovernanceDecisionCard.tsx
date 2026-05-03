@@ -13,10 +13,6 @@ interface GovernanceDecisionCardProps {
   onAction?: (cardId: string, actionType: string) => void;
 }
 
-/**
- * Unified governance decision card component
- * Routes to specific governance card components based on governance_type
- */
 export function GovernanceDecisionCard({
   card,
   currentUserId,
@@ -45,4 +41,3 @@ export function GovernanceDecisionCard({
       return null;
   }
 }
-

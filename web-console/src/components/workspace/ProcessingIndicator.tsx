@@ -10,15 +10,6 @@ interface ProcessingIndicatorProps {
   pipelineStage?: string | null;
 }
 
-/**
- * ProcessingIndicator Component
- * Displays a processing indicator when messages are being loaded or streamed.
- *
- * @param visible Whether the indicator should be visible.
- * @param isStreaming Whether the message is currently streaming.
- * @param firstChunkReceived Whether the first chunk of the streaming message has been received.
- * @param pipelineStage Optional pipeline stage information string.
- */
 export function ProcessingIndicator({
   visible,
   isStreaming,
@@ -82,4 +73,3 @@ export function ProcessingIndicator({
     </div>
   );
 }
-

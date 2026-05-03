@@ -31,7 +31,7 @@ interface PlaybookGroup {
     completed: number;
     failed: number;
   };
-  projectId?: string;  // Solution 1 & 2: Add project attribution info
+  projectId?: string;
   projectName?: string;
 }
 
@@ -60,13 +60,8 @@ export default function ExecutionSidebar({
 
   useEffect(() => {
     const loadData = async () => {
-      // Don't reset loading state if we already have data (preserve content when switching tabs)
-      if (playbookGroups.length === 0) {
-        setLoading(true);
-      }
+      setLoading(true);
       try {
-        // If projectId is provided, load project-specific data
-        // Only use projectId if it's not empty string
         if (projectId && projectId.trim() !== '') {
           const [projectResponse, executionTreeResponse] = await Promise.all([
             fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/projects/${projectId}`).catch(() => null),
@@ -80,13 +75,9 @@ export default function ExecutionSidebar({
 
           if (executionTreeResponse?.ok) {
             const treeData = await executionTreeResponse.json();
-            // Check if response contains error (e.g., "Project not found")
             if (treeData.detail) {
-              console.warn('[ExecutionSidebar] execution-tree API returned error:', treeData.detail);
-              // If project not found, fallback to workspace-level API
-              // Don't set playbookGroups to empty, keep existing state
+              return;
             } else if (treeData.playbookGroups && Array.isArray(treeData.playbookGroups) && treeData.playbookGroups.length > 0) {
-              // Collect all executions, sort by global time, assign global runNumber
               const allExecutions: Array<{ exec: any; group: any }> = [];
               treeData.playbookGroups.forEach((group: any) => {
                 if (group.executions && group.executions.length > 0) {
@@ -96,37 +87,28 @@ export default function ExecutionSidebar({
                 }
               });
 
-              // Sort by global execution time (earliest first)
               allExecutions.sort((a, b) => {
                 const timeA = toTimestampMs(a.exec.started_at || a.exec.created_at) ?? 0;
                 const timeB = toTimestampMs(b.exec.started_at || b.exec.created_at) ?? 0;
                 return timeA - timeB;
               });
 
-              // Assign global continuous runNumber (1, 2, 3...)
               allExecutions.forEach((item, index) => {
                 item.exec.runNumber = index + 1;
               });
 
-              // Solution 1 & 2: Process playbookGroups, extract and save project info for each playbook
-              // Convert execution-tree API data to ExecutionSummary format
               const processedGroups = treeData.playbookGroups.map((group: any) => {
-                // Extract project_id and project_name from executions
                 let groupProjectId: string | undefined;
                 let groupProjectName: string | undefined;
 
-                // Convert executions to ExecutionSummary format
                 const executionSummaries: ExecutionSummary[] = [];
                 if (group.executions && group.executions.length > 0) {
-                  // Extract project info from the first execution (assume all executions in same playbook belong to same project)
                   const firstExec = group.executions[0];
                   groupProjectId = firstExec.project_id || firstExec.execution_context?.project_id;
                   groupProjectName = firstExec.project_name || firstExec.execution_context?.project_name;
 
-                  // Convert each execution to ExecutionSummary format
                   group.executions.forEach((exec: any) => {
                     const status = exec.status?.toLowerCase() || 'queued';
-                    // Only create currentStep if we have valid step information
                     const currentStepIndex = exec.current_step_index;
                     const currentStepName = exec.current_step_name;
                     const currentStep = (currentStepIndex !== null && currentStepIndex !== undefined) ? {
@@ -147,13 +129,11 @@ export default function ExecutionSidebar({
                     });
                   });
 
-                  // Sort by execution time (earliest first), keeping global runNumber
                   executionSummaries.sort((a, b) => {
                     return (toTimestampMs(a.startedAt) ?? 0) - (toTimestampMs(b.startedAt) ?? 0);
                   });
                 }
 
-                // If API returns project info directly, use it
                 if (group.project_id) {
                   groupProjectId = group.project_id;
                 }
@@ -174,36 +154,26 @@ export default function ExecutionSidebar({
               setPlaybookGroups(processedGroups);
             }
           } else if (executionTreeResponse && !executionTreeResponse.ok) {
-            // execution-tree API returned error (e.g., 404 Project not found)
-            console.warn('[ExecutionSidebar] execution-tree API failed:', executionTreeResponse.status, executionTreeResponse.statusText);
-            // Fallback to workspace-level API if projectId was invalid
-            // This will be handled by the else block below
           }
         } else {
-          // Fallback: Load all workspace executions if no projectId
           try {
-            // Optimization: use /tasks endpoint (which we patched to strip heavy results)
-            // instead of /executions (which might return huge payloads).
             const execResponse = await fetch(
               `${apiUrl}/api/v1/workspaces/${workspaceId}/tasks?limit=50&task_type=execution&include_completed=true`
             );
             if (execResponse.ok) {
               const execData = await execResponse.json();
-              const executions = execData.tasks || []; // /tasks endpoint returns 'tasks' array
+              const executions = execData.tasks || [];
 
-              // First, collect all executions and assign global runNumber
               const allExecutionsWithData = executions.map((exec: any) => ({
                 exec,
                 playbookCode: exec.playbook_code || exec.pack_id || 'unknown',
                 startedAt: exec.started_at || exec.created_at || new Date().toISOString()
               }));
 
-              // Sort all executions by global time (earliest first)
               allExecutionsWithData.sort((a: { exec: any; playbookCode: string; startedAt: string }, b: { exec: any; playbookCode: string; startedAt: string }) => {
                 return (toTimestampMs(a.startedAt) ?? 0) - (toTimestampMs(b.startedAt) ?? 0);
               });
 
-              // Assign global continuous runNumber (1, 2, 3...)
               allExecutionsWithData.forEach((item: { exec: any; playbookCode: string; startedAt: string }, index: number) => {
                 item.exec._globalRunNumber = index + 1;
               });
@@ -212,7 +182,6 @@ export default function ExecutionSidebar({
               allExecutionsWithData.forEach(({ exec }: { exec: any }) => {
                 const playbookCode = exec.playbook_code || exec.pack_id || 'unknown';
                 if (!groupMap.has(playbookCode)) {
-                  // Solution 1 & 2: Extract project info from execution
                   const execProjectId = exec.project_id || exec.execution_context?.project_id;
                   const execProjectName = exec.project_name || exec.execution_context?.project_name;
 
@@ -227,7 +196,6 @@ export default function ExecutionSidebar({
                 }
                 const group = groupMap.get(playbookCode)!;
                 const status = exec.status?.toLowerCase() || 'queued';
-                // Only create currentStep if we have valid step information
                 const currentStepIndex = exec.current_step_index;
                 const currentStepName = exec.current_step_name;
                 const currentStep = (currentStepIndex !== null && currentStepIndex !== undefined) ? {
@@ -238,7 +206,7 @@ export default function ExecutionSidebar({
 
                 group.executions.push({
                   executionId: exec.execution_id,
-                  runNumber: exec._globalRunNumber, // Use global runNumber
+                  runNumber: exec._globalRunNumber,
                   status: status as any,
                   startedAt: exec.started_at || exec.created_at || new Date().toISOString(),
                   currentStep,
@@ -246,7 +214,6 @@ export default function ExecutionSidebar({
                   playbookCode,
                   playbookName: exec.playbook_title || playbookCode
                 });
-                // Update stats
                 if (status === 'running') group.stats.running++;
                 else if (status === 'paused') group.stats.paused++;
                 else if (status === 'queued') group.stats.queued++;
@@ -254,7 +221,6 @@ export default function ExecutionSidebar({
                 else if (status === 'failed') group.stats.failed++;
               });
 
-              // For each playbook group, sort executions by time (to maintain order within group)
               groupMap.forEach((group) => {
                 group.executions.sort((a, b) => {
                   return (toTimestampMs(a.startedAt) ?? 0) - (toTimestampMs(b.startedAt) ?? 0);
@@ -264,13 +230,10 @@ export default function ExecutionSidebar({
               setPlaybookGroups(Array.from(groupMap.values()));
               setProjectName('All Executions');
             }
-          } catch (err) {
-            console.error('Failed to load workspace executions:', err);
+          } catch {
           }
         }
-      } catch (err) {
-        console.error('Failed to load execution sidebar data:', err);
-        // Keep existing state on error, don't clear playbookGroups
+      } catch {
       } finally {
         setLoading(false);
       }
@@ -279,19 +242,15 @@ export default function ExecutionSidebar({
     loadData();
   }, [projectId, workspaceId, apiUrl]);
 
-  // Solution 2: If projectId provided, filter to show only playbooks belonging to that project
   const projectFilteredGroups = projectId
     ? playbookGroups.filter(group => {
-      // If playbook has projectId, show only matching ones
       if (group.projectId) {
         return group.projectId === projectId;
       }
-      // If no projectId info, assume it belongs to current project (backward compatibility)
       return true;
     })
     : playbookGroups;
 
-  // Then apply status filter
   const filteredGroups = projectFilteredGroups.map(group => ({
     ...group,
     executions: filterStatus === 'all'
@@ -310,22 +269,20 @@ export default function ExecutionSidebar({
       })
   })).filter(group => group.executions.length > 0)
     .sort((a, b) => {
-      // Define playbook execution order (earlier steps first, deployment last)
       const playbookOrder: { [key: string]: number } = {
         'obsidian_vault_organize': 1,
         'cis_mind_identity': 2,
-        'cis_visual_identity': 2.5, // Can run concurrently with cis_mind_identity
+        'cis_visual_identity': 2.5,
         'site_spec_generation': 3,
         'style_system_gen': 4,
         'component_library_gen': 5,
         'multi_page_assembly': 6,
-        'site_deploy_gcp_vm': 999, // Last step - deployment should be at the end
+        'site_deploy_gcp_vm': 999,
       };
 
       const orderA = playbookOrder[a.playbookCode] || 100;
       const orderB = playbookOrder[b.playbookCode] || 100;
 
-      // Sort by playbook order (logical execution sequence)
       return orderA - orderB;
     });
 
@@ -349,14 +306,13 @@ export default function ExecutionSidebar({
 
   return (
     <div className="w-full h-full flex flex-col bg-surface-secondary dark:bg-gray-900">
-      {/* Quick Filters */}
       <div className="p-3 border-b dark:border-gray-700">
         <div className="flex flex-wrap gap-1.5">
           {[
             { key: 'all', label: (t('all' as any) as string) || 'All', icon: '' },
-            { key: 'waiting', label: (t('waiting' as any) as string) || 'Waiting', icon: '⏸️' },
-            { key: 'running', label: t('running' as any) || 'Running', icon: '🔄' },
-            { key: 'failed', label: t('failed' as any) || 'Failed', icon: '❌' }
+            { key: 'waiting', label: (t('waiting' as any) as string) || 'Waiting', icon: 'WAIT' },
+            { key: 'running', label: t('running' as any) || 'Running', icon: 'RUN' },
+            { key: 'failed', label: t('failed' as any) || 'Failed', icon: 'ERR' }
           ].map(filter => (
             <button
               key={filter.key}
@@ -373,7 +329,6 @@ export default function ExecutionSidebar({
         </div>
       </div>
 
-      {/* Playbook Groups */}
       <div className="flex-1 overflow-y-auto">
         {filteredGroups.length === 0 ? (
           <div className="p-4 text-sm text-secondary dark:text-gray-400 text-center">
@@ -391,28 +346,27 @@ export default function ExecutionSidebar({
         )}
       </div>
 
-      {/* Global Stats */}
       {(globalStats.totalRunning > 0 || globalStats.totalPaused > 0 || globalStats.totalQueued > 0) && (
         <div className="p-3 border-t dark:border-gray-700 bg-surface-secondary dark:bg-gray-800">
           <div className="text-xs font-semibold text-primary dark:text-gray-300 mb-2">
-            📊 {(t('concurrentStatus' as any) as string) || 'Concurrent Status'}
+            {(t('concurrentStatus' as any) as string) || 'Concurrent Status'}
           </div>
           <div className="space-y-1">
             {globalStats.totalRunning > 0 && (
               <div className="flex items-center justify-between text-xs">
-                <span className="text-secondary dark:text-gray-400">🔄 {t('running' as any) || 'Running'}</span>
+                <span className="text-secondary dark:text-gray-400">RUN {t('running' as any) || 'Running'}</span>
                 <span className="font-medium text-primary dark:text-gray-100">{globalStats.totalRunning}</span>
               </div>
             )}
             {globalStats.totalPaused > 0 && (
               <div className="flex items-center justify-between text-xs">
-                <span className="text-secondary dark:text-gray-400">⏸️ {(t('waitingConfirmation' as any) as string) || 'Waiting'}</span>
+                <span className="text-secondary dark:text-gray-400">WAIT {(t('waitingConfirmation' as any) as string) || 'Waiting'}</span>
                 <span className="font-medium text-primary dark:text-gray-100">{globalStats.totalPaused}</span>
               </div>
             )}
             {globalStats.totalQueued > 0 && (
               <div className="flex items-center justify-between text-xs">
-                <span className="text-secondary dark:text-gray-400">⏳ {(t('queued' as any) as string) || 'Queued'}</span>
+                <span className="text-secondary dark:text-gray-400">QUE {(t('queued' as any) as string) || 'Queued'}</span>
                 <span className="font-medium text-primary dark:text-gray-100">{globalStats.totalQueued}</span>
               </div>
             )}
@@ -446,25 +400,25 @@ function PlaybookExecutionGroup({
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-xs">{expanded ? '▼' : '▶'}</span>
+            <span className="text-xs">{expanded ? '-' : '+'}</span>
             <span className="text-sm font-medium text-primary dark:text-gray-100 truncate">
               {group.playbookName}
             </span>
             {hasConcurrent && (
               <span className="text-xs text-accent dark:text-blue-400" title={`${concurrentRunning} concurrent`}>
-                🔄 ×{concurrentRunning}
+                RUN x{concurrentRunning}
               </span>
             )}
           </div>
           <div className="flex items-center gap-1">
             {group.stats.paused > 0 && (
               <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300">
-                ⏸️ {group.stats.paused}
+                WAIT {group.stats.paused}
               </span>
             )}
             {group.stats.queued > 0 && (
               <span className="text-xs px-1.5 py-0.5 rounded bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300">
-                ⏳ {group.stats.queued}
+                QUE {group.stats.queued}
               </span>
             )}
           </div>
@@ -475,8 +429,6 @@ function PlaybookExecutionGroup({
         <div className="bg-surface-secondary dark:bg-gray-800/50">
           {group.executions
             .sort((a, b) => {
-              // For executions of the same playbook, sort by start time (earliest first)
-              // This shows the execution sequence in chronological order
               return (toTimestampMs(a.startedAt) ?? 0) - (toTimestampMs(b.startedAt) ?? 0);
             })
             .map((execution, index) => (
@@ -501,11 +453,11 @@ interface ExecutionItemProps {
 
 function ExecutionItem({ execution, isSelected, onClick }: ExecutionItemProps) {
   const statusIcons = {
-    queued: '⏳',
-    running: '🔄',
-    paused: '⏸️',
-    completed: '✅',
-    failed: '❌'
+    queued: 'QUE',
+    running: 'RUN',
+    paused: 'WAIT',
+    completed: 'DONE',
+    failed: 'ERR'
   };
 
   const formatTime = (timeStr: string) => {
@@ -530,23 +482,18 @@ function ExecutionItem({ execution, isSelected, onClick }: ExecutionItemProps) {
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs font-medium text-primary dark:text-gray-100">
           {(() => {
-            // Try to get playbook name from multiple sources
-            // Priority: playbookName > i18n metadata > playbookCode > runNumber
             if (execution.playbookName && execution.playbookName !== 'unknown') {
               return execution.playbookName;
             }
 
-            // Try i18n metadata
             if (execution.playbookCode) {
-              const playbookName = getPlaybookMetadata(execution.playbookCode, 'name', 'zh-TW');
+              const playbookName = getPlaybookMetadata(execution.playbookCode, 'name', 'en');
               if (playbookName) {
                 return playbookName;
               }
-              // Fallback to playbookCode if metadata not found
               return execution.playbookCode;
             }
 
-            // Last resort: show runNumber
             return `[#${execution.runNumber}]`;
           })()}
         </span>
@@ -555,20 +502,20 @@ function ExecutionItem({ execution, isSelected, onClick }: ExecutionItemProps) {
       </div>
       <div className="text-xs text-secondary dark:text-gray-400">
         {execution.status === 'completed' ? (
-          <span>└─ {execution.totalSteps}/{execution.totalSteps} steps completed</span>
+          <span>- {execution.totalSteps}/{execution.totalSteps} steps completed</span>
         ) : execution.status === 'failed' ? (
-          <span>└─ Step {execution.currentStep?.index || 0}: Failed</span>
+          <span>- Step {execution.currentStep?.index || 0}: Failed</span>
         ) : execution.currentStep ? (
           <span>
-            └─ Step {execution.currentStep.index}/{execution.totalSteps}: {execution.currentStep.name}
+            - Step {execution.currentStep.index}/{execution.totalSteps}: {execution.currentStep.name}
           </span>
         ) : (
-          <span>└─ Step ?/{execution.totalSteps}: Loading...</span>
+          <span>- Step ?/{execution.totalSteps}: Loading...</span>
         )}
       </div>
       {execution.currentStep?.status === 'waiting_confirmation' && (
         <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-          ⚠️ Needs confirmation
+          Warning: Needs confirmation
         </div>
       )}
       {['running', 'paused'].includes(execution.status) && (

@@ -42,7 +42,7 @@ export function DataPromptCard({
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-blue-600 dark:text-blue-400 text-sm font-medium">
-              {taskTitle ? `任務「${taskTitle}」需要補充資料` : '需要補充資料'}
+              {taskTitle ? `Task "${taskTitle}" needs more data` : 'More data needed'}
             </span>
           </div>
           <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
@@ -56,7 +56,7 @@ export function DataPromptCard({
                   onClick={onFileUpload}
                   className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
                 >
-                  上傳檔案
+                  Upload File
                 </button>
               ) : null}
               {dataType === 'text' || dataType === 'both' ? (
@@ -64,7 +64,7 @@ export function DataPromptCard({
                   onClick={() => setShowTextInput(true)}
                   className="px-3 py-1.5 text-xs font-medium bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-blue-600 dark:text-blue-400 border border-blue-300 dark:border-blue-700 rounded transition-colors"
                 >
-                  輸入文字
+                  Enter Text
                 </button>
               ) : null}
             </div>
@@ -75,7 +75,7 @@ export function DataPromptCard({
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="請輸入補充的資料..."
+                placeholder="Enter the additional data..."
                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 resize-none"
                 rows={3}
                 autoFocus
@@ -86,7 +86,7 @@ export function DataPromptCard({
                   disabled={!inputText.trim()}
                   className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded transition-colors"
                 >
-                  發送
+                  Send
                 </button>
                 <button
                   onClick={() => {
@@ -95,7 +95,7 @@ export function DataPromptCard({
                   }}
                   className="px-3 py-1.5 text-xs font-medium bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded transition-colors"
                 >
-                  取消
+                  Cancel
                 </button>
               </div>
             </div>
@@ -106,16 +106,15 @@ export function DataPromptCard({
           <button
             onClick={onDismiss}
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-            title="關閉提示"
+            title="Close prompt"
           >
-            ✕
+            Close
           </button>
         )}
       </div>
     </div>
   );
 }
-
 
 
 

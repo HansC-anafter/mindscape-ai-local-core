@@ -25,18 +25,6 @@ interface MessagesContainerProps {
   onViewDetail?: () => void;
 }
 
-/**
- * MessagesContainer Component
- * Container for displaying messages, execution tree, and related UI elements.
- *
- * @param workspaceId The workspace ID.
- * @param apiUrl The base API URL.
- * @param executionMode Optional execution mode.
- * @param expectedArtifacts Optional array of expected artifact types.
- * @param onExecuteSuggestion Optional callback for executing suggestions.
- * @param currentExecution Optional current execution data.
- * @param onViewDetail Optional callback for viewing execution details.
- */
 export function MessagesContainer({
   workspaceId,
   apiUrl,
@@ -155,7 +143,6 @@ export function MessagesContainer({
         </div>
       )}
 
-      {/* Meeting real-time streaming text */}
       {meetingIsStreaming && meetingStreamingText && (
         <div className="space-y-2 pb-2">
           <div className="flex justify-start px-4">
@@ -173,7 +160,6 @@ export function MessagesContainer({
         </div>
       )}
 
-      {/* Thinking / Processing indicator */}
       <ProcessingIndicator
         visible={isStreaming || !!pipelineStage}
         isStreaming={isStreaming}
@@ -209,4 +195,3 @@ export function MessagesContainer({
     </div>
   );
 }
-

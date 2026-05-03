@@ -10,10 +10,6 @@ interface PreflightFailedCardProps {
   onAction?: (cardId: string, actionType: string, data?: Record<string, any>) => void;
 }
 
-/**
- * Preflight failed governance decision card
- * Displays missing inputs and allows user to provide them
- */
 export function PreflightFailedCard({
   card,
   currentUserId,
@@ -166,4 +162,3 @@ export function PreflightFailedCard({
     </>
   );
 }
-

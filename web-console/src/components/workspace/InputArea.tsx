@@ -23,17 +23,6 @@ interface InputAreaProps {
   onFilesChanged?: (files: any[], analyzingFiles: Set<string>, analyzeFile: (file: any) => Promise<any>, clearFiles: () => void) => void;
 }
 
-/**
- * InputArea Component
- * Container for the input area including textarea, file upload, and bottom bar.
- *
- * @param workspaceId The workspace ID.
- * @param apiUrl The base API URL.
- * @param onSend Callback function when send button is clicked.
- * @param onFileAnalyzed Optional callback when file is analyzed.
- * @param isLoading Whether a message is being sent.
- * @param canSend Whether the send button should be enabled.
- */
 export function InputArea({
   workspaceId,
   apiUrl,
@@ -66,7 +55,6 @@ export function InputArea({
     removeFile,
   } = fileHandling;
 
-  // Expose file state to parent so it can include file IDs in sendMessage
   useEffect(() => {
     onFilesChanged?.(uploadedFiles, analyzingFiles, handleAnalyzeFile, clearFiles);
   }, [uploadedFiles, analyzingFiles, handleAnalyzeFile, clearFiles, onFilesChanged]);
@@ -98,7 +86,7 @@ export function InputArea({
             href="/settings"
             className="text-sm text-blue-600 hover:text-blue-800 underline"
           >
-            {t('goToSettings' as any)} →
+            {t('goToSettings' as any)} &gt;
           </a>
         </div>
       )}

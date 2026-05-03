@@ -8,13 +8,6 @@ interface ErrorDisplayProps {
   onRetry?: () => void;
 }
 
-/**
- * ErrorDisplay Component
- * Displays error messages with optional retry functionality.
- *
- * @param error The error message to display.
- * @param onRetry Optional callback function for retry action.
- */
 export function ErrorDisplay({ error, onRetry }: ErrorDisplayProps) {
   if (!error) {
     return null;
@@ -35,4 +28,3 @@ export function ErrorDisplay({ error, onRetry }: ErrorDisplayProps) {
     </div>
   );
 }
-

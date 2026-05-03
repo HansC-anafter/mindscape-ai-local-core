@@ -7,12 +7,6 @@ interface LLMNotConfiguredOverlayProps {
   visible: boolean;
 }
 
-/**
- * LLMNotConfiguredOverlay Component
- * Displays an overlay when LLM is not configured.
- *
- * @param visible Whether the overlay should be visible.
- */
 export function LLMNotConfiguredOverlay({ visible }: LLMNotConfiguredOverlayProps) {
   if (!visible) {
     return null;
@@ -38,7 +32,7 @@ export function LLMNotConfiguredOverlay({ visible }: LLMNotConfiguredOverlayProp
               href="/settings"
               className="text-sm text-blue-600 hover:text-blue-800 underline"
             >
-              {t('goToSettings' as any)} →
+              {t('goToSettings' as any)} &gt;
             </a>
           </div>
         </div>
@@ -46,4 +40,3 @@ export function LLMNotConfiguredOverlay({ visible }: LLMNotConfiguredOverlayProp
     </div>
   );
 }
-

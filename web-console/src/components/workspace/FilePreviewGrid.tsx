@@ -9,14 +9,6 @@ interface FilePreviewGridProps {
   formatFileSize?: (bytes: number) => string;
 }
 
-/**
- * FilePreviewGrid Component
- * Displays a grid of file previews with status indicators and remove functionality.
- *
- * @param files Array of uploaded files to display.
- * @param onRemove Callback function when a file is removed.
- * @param formatFileSize Optional function to format file size.
- */
 export function FilePreviewGrid({
   files,
   onRemove,
@@ -61,7 +53,6 @@ export function FilePreviewGrid({
               </div>
             )}
 
-            {/* Status indicator overlay */}
             <div className="absolute top-0.5 right-0.5 z-10">
               {file.analysisStatus === 'analyzing' && (
                 <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin bg-white dark:bg-gray-800 shadow-sm" />
@@ -85,7 +76,6 @@ export function FilePreviewGrid({
               )}
             </div>
 
-            {/* Remove button - shown on hover */}
             <button
               type="button"
               onClick={(e) => {
@@ -101,7 +91,6 @@ export function FilePreviewGrid({
               </svg>
             </button>
 
-            {/* File info tooltip on hover */}
             <div className="absolute bottom-0 left-0 right-0 bg-black/75 text-white text-[8px] px-0.5 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity truncate">
               {file.name} ({formatSize(file.size)})
             </div>
@@ -111,4 +100,3 @@ export function FilePreviewGrid({
     </div>
   );
 }
-

@@ -16,15 +16,6 @@ interface ExecutionContextProviderProps {
   context?: ExecutionContext;
 }
 
-/**
- * ExecutionContextProvider - Provides ExecutionContext to the component tree
- *
- * This provider makes ExecutionContext available to all child components
- * via the useExecutionContext() hook.
- *
- * In local mode, it creates a default context with mode: "local".
- * In cloud mode, the context should be provided via props (with cloud tags).
- */
 export function ExecutionContextProvider({
   children,
   workspaceId,
@@ -40,11 +31,6 @@ export function ExecutionContextProvider({
   );
 }
 
-/**
- * useExecutionContext - Hook to access ExecutionContext
- *
- * @throws Error if used outside ExecutionContextProvider
- */
 export function useExecutionContext(): ExecutionContext {
   const contextValue = useContext(ExecutionContextContext);
 
@@ -54,4 +40,3 @@ export function useExecutionContext(): ExecutionContext {
 
   return contextValue.context;
 }
-
