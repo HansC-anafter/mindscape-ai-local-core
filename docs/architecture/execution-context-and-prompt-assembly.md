@@ -42,7 +42,7 @@ Validation and parameter transformation remain separate concerns. The context ob
 Prompt assembly in Local Core is runtime composition, not a public prompt template specification. The current implementation has two major assembly paths:
 
 - workspace QA and planning context built by the conversation context builder
-- meeting deliberation prompts built by the meeting engine prompt layer
+- meeting execution assembly text built by the meeting engine
 
 The conversation context builder can assemble:
 
@@ -57,7 +57,7 @@ The conversation context builder can assemble:
 - semantic memory hits from vector search
 - relevant tool context
 
-The meeting prompt layer can assemble:
+The meeting assembly path can assemble:
 
 - project context
 - workspace asset map
@@ -70,11 +70,11 @@ The meeting prompt layer can assemble:
 - workflow evidence
 - workspace context as reference material
 
-These sections are context inputs. They do not publish private role directives, provider payloads, or internal prompt text as a stable public contract.
+These sections are context inputs. They do not publish private role directives, provider payloads, or private assembly text as a stable public contract.
 
 ## Tool Context
 
-Tool context is discovered before prompt assembly when possible. Meeting orchestration can pre-fetch relevant tools from agenda items and the user request. The prompt layer then builds the tool inventory in this order:
+Tool context is discovered before assembly when possible. Meeting orchestration can pre-fetch relevant tools from agenda items and the user request. The assembly path then builds the tool inventory in this order:
 
 - explicit workspace tool bindings, optionally ordered by matching RAG hits
 - RAG-discovered tools when no explicit bindings exist
@@ -92,15 +92,15 @@ This keeps memory context tied to governance and lens selection instead of treat
 
 ## Public Boundary
 
-Local Core owns local context carriers, meeting execution snapshots, task execution context metadata, parameter adapter context, executor selection context, prompt context assembly, tool context discovery, and governance-aware memory injection.
+Local Core owns local context carriers, meeting execution snapshots, task execution context metadata, parameter adapter context, executor selection context, execution context assembly, tool context discovery, and governance-aware memory injection.
 
 Local Core does not publicly own:
 
-- private prompt text or role instructions
+- private assembly text or role instructions
 - provider-native request payloads
 - external account lifecycle
 - unrestricted raw memory export
 - installed capability implementation internals
-- old design-stage prompt compiler specifications
+- old design-stage assembly compiler specifications
 
-Public documentation should describe stable context boundaries and assembly responsibilities. Internal prompt wording, migration notes, experimental compiler layers, and provider-specific payloads remain withheld.
+Public documentation should describe stable context boundaries and assembly responsibilities. Private assembly wording, migration notes, experimental compiler layers, and provider-specific payloads remain withheld.
