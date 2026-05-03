@@ -1,6 +1,6 @@
 # Local and Cloud Boundary
 
-Mindscape AI Local Core is the local-first runtime boundary. It can connect to external control planes and execution systems, but its public architecture should not be rewritten around any one cloud deployment.
+Mindscape AI Local Core is the local-first runtime boundary. It can connect to external control planes and execution systems, but its public architecture must not be rewritten around any one cloud deployment.
 
 This document defines the released public boundary for the current repository state.
 
@@ -8,43 +8,42 @@ This document defines the released public boundary for the current repository st
 
 Local Core owns local governance, local workspace state, local orchestration, local execution state, capability hosting boundaries, and local artifacts.
 
-Cloud systems may coordinate, provision, meter, or route work, but they must remain integration peers or control-plane callers. They must not become the source of truth for Local Core's internal architecture.
+External systems may coordinate or route work, but they remain integration peers or control-plane callers. They must not become the source of truth for Local Core's internal architecture.
 
 ## What Local Core Owns
 
 Local Core owns:
 
 - workspace runtime and workspace-scoped state
-- local workspace groups and group compatibility views
+- local workspace grouping surfaces
 - intent, governance, lens, and memory services
 - meeting orchestration and TaskIR compilation
 - TaskIR persistence and dispatch state
 - playbook execution and local tool execution
 - capability hosting interfaces, activation state, and runtime shells
 - sandboxed local artifacts
-- optional connector services that call out or accept callbacks
+- optional connector adapter surfaces
 
-## What Cloud Systems May Own
+## What External Systems May Own
 
-Cloud systems may own:
+External systems may own non-local responsibilities such as:
 
-- cloud account and tenant lifecycle
-- organization-level policy and billing
-- cloud-hosted deployment, scheduling, and distribution
+- account, organization, or billing lifecycle
+- hosted deployment, scheduling, or distribution
 - remote execution infrastructure
 - cross-device coordination
 - external messaging or publishing channels
 
-Cloud-owned concerns can appear in Local Core as compatibility fields, connector parameters, callback payloads, or adapter metadata. Their presence does not make them Local Core ownership.
+External concerns can appear in Local Core as compatibility metadata or adapter parameters. Their presence does not make them Local Core ownership.
 
 ## Compatibility Fields Are Not Ownership
 
-The current repository includes compatibility fields and headers used by cloud or integration envelopes, including tenant-like and group-like identifiers in some models, routes, migrations, playbook inputs, and frontend context types.
+The current repository includes compatibility fields and headers used by cloud or integration envelopes.
 
 That is an integration reality, not a public ownership transfer. Public documentation must distinguish:
 
 - local runtime ownership
-- cloud compatibility metadata
+- external compatibility metadata
 - provider-specific payloads
 - capability-specific data models
 
@@ -58,22 +57,22 @@ Capability internals are not the same thing as Local Core architecture. A capabi
 
 ## Connector Boundary
 
-The repository includes connector-facing surfaces for synchronization, remote execution callbacks, external agents, and MCP-compatible tool exposure.
+The repository includes connector-facing surfaces for synchronization, remote execution, external agent coordination, and MCP-compatible tool exposure.
 
 Connector code should be treated as adapters around Local Core:
 
-- inbound connectors can submit or resume local work
-- outbound connectors can report status, receipts, or events
-- neither direction should require changing the core local workspace model for one cloud platform
+- inbound connectors can submit or resume local work through host contracts
+- outbound connectors can report bounded status, receipts, or events
+- neither direction should require changing the core local workspace model for one external platform
 
-Implementation details for Docker-ignored connector services, cloud provider adapters, callback payloads, and remote protocols are not part of the public Local Core documentation scope. Public docs may name the adapter boundary only when the description remains independent of cloud-owned implementation behavior.
+Implementation details for Docker-ignored connector services, provider adapters, callback payloads, and remote protocols are not part of the public Local Core documentation scope. Public docs may name the adapter boundary only when the description remains independent of external implementation behavior.
 
 ## Public Documentation Rule
 
 When releasing public documentation:
 
 - describe Local Core as local-first and connector-capable
-- keep cloud-specific account, tenant, billing, and provider details out of Local Core architecture pages
+- keep account, tenant, billing, and provider details out of Local Core architecture pages
 - treat compatibility fields as adapter metadata unless a stable Local Core contract says otherwise
 - do not publish cloud implementation notes as Local Core architecture
 - do not publish installed capability internals as Local Core architecture
