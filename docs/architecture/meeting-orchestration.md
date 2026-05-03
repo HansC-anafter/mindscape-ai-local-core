@@ -6,24 +6,24 @@ This page describes the released public architecture scope for the current repos
 
 ## Meeting Engine
 
-The meeting engine is a bounded multi-role orchestrator. It composes modules for events, governance, prompt inputs, action extraction, generation, dispatch helpers, TaskIR compilation, session lifecycle, and tool discovery.
+The meeting engine is a bounded orchestrator. It composes local context preparation, governance, action extraction, TaskIR compilation, dispatch coordination, session lifecycle, and tool discovery.
 
 The public pipeline can be described as:
 
 - context and tool preparation
-- request contract compilation and deliberation
+- request contract compilation and governed deliberation
 - action intent extraction
 - policy and dispatch gate checks
-- TaskIR compilation, task decomposition when allowed, and DAG dispatch
+- TaskIR compilation and bounded dispatch
 - final minutes, session close, inspection metadata, and writeback hooks
 
 This makes meeting orchestration a control layer around execution, not a chat transcript renderer.
 
 ## Meeting Session Lifecycle
 
-Meeting session helpers create or reuse active sessions by workspace, thread, project, and optional explicit session ID. They can append agenda items, extract `HandoffIn` payloads, build an execution launcher, persist compiled TaskIR, and close the session with minutes and dispatch state.
+Meeting session helpers create or reuse active sessions by local workspace context. They can append agenda items, prepare execution context, persist compiled TaskIR, and close the session with minutes and dispatch state.
 
-Meeting sessions carry metadata for selected memory packets, workflow evidence diagnostics, policy gate results, execution IDs, dispatch results, and writeback inputs.
+Meeting sessions carry bounded metadata for memory selection, workflow evidence, gate results, execution state, dispatch results, and writeback inputs.
 
 ## Context Assembly
 
@@ -47,9 +47,9 @@ After policy gating, the dispatch gate evaluates action intents with supervision
 
 ## Task Decomposition
 
-For dispatchable work, the meeting pipeline can run a task decomposer between action intents and TaskIR execution. The decomposer creates a PhaseIR DAG grounded in available playbooks and tools. It can also extend the plan after a dispatch wave when downstream results require additional phases.
+For dispatchable work, the meeting pipeline can run task decomposition between action intents and TaskIR execution. Decomposition produces bounded PhaseIR structure grounded in available local execution surfaces and may extend a plan when downstream results require it.
 
-The decomposer is skipped when deterministic playbook routes must stay atomic, when action items are plan-only with no actuator, or when policy fallback needs preserved replacement intents.
+Decomposition is a local orchestration detail. Public documentation should describe the boundary, not the private skip heuristics or route shaping rules.
 
 ## Finalization and Writeback
 
