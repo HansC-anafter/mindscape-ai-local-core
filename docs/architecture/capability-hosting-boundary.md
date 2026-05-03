@@ -22,7 +22,7 @@ Capability-owned material includes:
 - per-capability backend service code
 - per-capability frontend UI implementation
 - provider-specific schemas, payloads, adapters, and credentials
-- capability-specific playbook specs and prompt material
+- capability-specific playbook specs and private assembly material
 - capability-specific storage models and migrations
 - capability-specific business rules, validation rules, and execution details
 
@@ -34,9 +34,9 @@ The repository guardrails reinforce this boundary.
 
 The Git ignore rules exclude local data, generated artifacts, credentials, runtime bundles, installed capability directories, installed playbook directories, capability-installed model directories, and internal material.
 
-The Docker build ignore rules exclude capability installation locations, cloud playbook locations, provider and sync service mirrors, internal material, local data, logs, environment files, and temporary files from the local image context.
+The Docker build ignore rules exclude capability installation locations, external playbook locations, provider and sync service mirrors, internal material, local data, logs, environment files, and temporary files from the local image context.
 
-The CI guardrails protect capability boundaries, cloud component leakage, cloud function leakage, route conflicts, manifest validity, import path validity, router prefix validity, and root-level script boundaries.
+The CI guardrails protect capability boundaries, external component leakage, remote-function leakage, route conflicts, manifest validity, import path validity, router prefix validity, and root-level script boundaries.
 
 Anything blocked by these guardrails is not eligible for public Local Core documentation by default. It must remain internal unless it is deliberately promoted into a stable Local Core contract and no longer depends on ignored or CI-protected implementation material.
 
@@ -57,7 +57,7 @@ Public Local Core docs must not document:
 - ignored local data, uploads, logs, backups, or environment files
 - internal reports, work plans, debug notes, implementation histories, and testing logs
 - provider-native credentials, request payloads, or private account setup
-- cloud-specific business features as if they were Local Core ownership
+- external business features as if they were Local Core ownership
 - capability-specific UI, playbook, schema, migration, or storage internals
 
 If a candidate public page depends on ignored, Docker-ignored, or CI-protected paths, the page stays withheld. The public version can only describe the stable host boundary that is already represented by Local Core contracts.

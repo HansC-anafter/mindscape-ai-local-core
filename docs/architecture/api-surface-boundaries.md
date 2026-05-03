@@ -74,7 +74,7 @@ The following API material remains withheld by default:
 - unreleased endpoint references
 - route examples that depend on capability internals
 - provider-native payload schemas
-- cloud-only business features
+- external-only business features
 - private connector callback payloads
 - ignored runtime data, backups, uploads, logs, and environment files
 - internal reports, debug notes, implementation histories, and testing logs
@@ -90,8 +90,8 @@ Local Core does not publicly own:
 - individual capability service implementations
 - capability-owned schemas or storage internals
 - provider-specific credentials or payloads
-- cloud account, billing, or tenant lifecycle
-- private prompt or handler internals
+- external account, billing, or tenant lifecycle
+- private assembly or handler internals
 - ignored or CI-protected implementation paths
 
 Public API documentation should stay at the host-contract level unless a specific endpoint reference has been separately verified, stabilized, and cleared for external release.
