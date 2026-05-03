@@ -43,7 +43,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'basic',
     label: 'basicSettings',
-    icon: '📋',
+    icon: 'SET',
     tab: 'basic',
     children: [
       {
@@ -94,12 +94,18 @@ const navigationItems: NavigationItem[] = [
         tab: 'basic',
         section: 'port-configuration',
       },
+      {
+        id: 'runtime-backup',
+        label: 'localRuntimeBackup',
+        tab: 'basic',
+        section: 'runtime-backup',
+      },
     ],
   },
   {
     id: 'credentials',
     label: 'credentialsAndOAuth',
-    icon: '🔐',
+    icon: 'AUTH',
     tab: 'credentials',
     children: [
       {
@@ -119,13 +125,13 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'mindscape',
     label: 'mindscapeConfiguration',
-    icon: '🧠',
+    icon: 'MS',
     tab: 'mindscape',
   },
   {
     id: 'ai-team-governance',
     label: 'aiTeamGovernance',
-    icon: '🤖',
+    icon: 'AI',
     tab: 'ai-team-governance',
     children: [
       {
@@ -164,13 +170,13 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'runtime',
     label: 'runtimeEnvironments',
-    icon: '⚙️',
+    icon: 'RUN',
     tab: 'runtime',
   },
   {
     id: 'tools',
     label: 'toolsAndIntegrations',
-    icon: '🔧',
+    icon: 'TOOL',
     tab: 'tools',
     children: [
       {
@@ -276,7 +282,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'social_media',
     label: 'socialMediaIntegration',
-    icon: '📱',
+    icon: 'SOC',
     tab: 'social_media',
     children: [
       {
@@ -320,7 +326,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'localization',
     label: 'localization',
-    icon: '🌐',
+    icon: 'I18N',
     tab: 'localization',
     children: [
       {
@@ -340,7 +346,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'governance',
     label: 'governance',
-    icon: '🛡️',
+    icon: 'GOV',
     tab: 'governance',
     children: [
       {
@@ -378,7 +384,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'packs_status',
     label: 'capabilityPacks',
-    icon: '📦',
+    icon: 'PACK',
     tab: 'packs_status',
     children: [
       {
@@ -398,7 +404,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'service_status',
     label: 'serviceStatus',
-    icon: '📊',
+    icon: 'OPS',
     tab: 'service_status',
   },
 ];

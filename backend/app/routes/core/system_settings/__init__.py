@@ -14,6 +14,7 @@ from . import (
     embedding_migrations,
     env_vars,
     system_control,
+    backups,
     governance,
     ports,
     files,
@@ -34,6 +35,7 @@ router.include_router(obsidian.router)
 router.include_router(embedding_migrations.router)
 router.include_router(env_vars.router)
 router.include_router(system_control.router)
+router.include_router(backups.router)
 router.include_router(ports.router)  # Port configuration routes
 router.include_router(files.router)  # File system utility routes
 router.include_router(

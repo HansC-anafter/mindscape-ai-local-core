@@ -19,6 +19,7 @@ import { ThemePresetSettings } from './panels/ThemePresetSettings';
 import { CloudExtensionSettings } from './panels/CloudExtensionSettings';
 import { UnsplashFingerprintsSettings } from './panels/UnsplashFingerprintsSettings';
 import { PortConfigurationSettings } from './panels/PortConfigurationSettings';
+import { RuntimeBackupSettings } from './panels/RuntimeBackupSettings';
 
 interface BasicSettingsPanelProps {
   activeSection?: string;
@@ -67,11 +68,9 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
 
   // Render specific section based on activeSection
   const renderSection = () => {
-    if (!activeSection) {
-      return null;
-    }
+    const section = activeSection || 'backend-mode';
 
-    switch (activeSection) {
+    switch (section) {
       case 'backend-mode':
         return (
           <div className="space-y-6">
@@ -176,10 +175,21 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
           </div>
         );
 
+      case 'runtime-backup':
+        return (
+          <div className="space-y-6">
+            <RuntimeBackupSettings />
+          </div>
+        );
+
       default:
         return null;
     }
   };
+
+  if (activeSection === 'runtime-backup') {
+    return <RuntimeBackupSettings />;
+  }
 
   const isStandalone = activeSection && ['models-and-quota', 'api-quota', 'embedding', 'llm-chat', 'model-routing-registry'].includes(activeSection);
 
