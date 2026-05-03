@@ -250,7 +250,7 @@ export default function PlaybookLibrarySidebar({
           className="w-full text-left px-2 py-1.5 text-xs font-semibold text-primary dark:text-gray-300 mb-2 flex items-center justify-between"
         >
           <span>{t('advancedFilters' as any)}</span>
-          <span>{showAdvancedFilters ? '▼' : '▶'}</span>
+          <span>{showAdvancedFilters ? '-' : '+'}</span>
         </button>
 
         {showAdvancedFilters && (
@@ -315,4 +315,3 @@ export default function PlaybookLibrarySidebar({
     </div>
   );
 }
-

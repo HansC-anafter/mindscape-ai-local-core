@@ -1,13 +1,3 @@
-/**
- * PlaybookRegistry - Frontend registry for playbook UI components and layouts
- *
- * This registry manages playbook UI components and layout configurations
- * that are loaded from independent playbook repositories.
- *
- * Backend PlaybookRegistry (Python) handles playbook.json/playbook.md definitions.
- * This Frontend PlaybookRegistry (TypeScript) handles UI components and layouts.
- */
-
 import type { ComponentType } from 'react';
 
 export interface UILayoutConfig {
@@ -44,27 +34,13 @@ export interface PlaybookPackage {
   };
 }
 
-/**
- * PlaybookRegistry - Registry for playbook UI components
- */
 export class PlaybookRegistry {
   private playbooks: Map<string, PlaybookPackage> = new Map();
 
-  /**
-   * Register a playbook package
-   */
   register(playbook: PlaybookPackage): void {
-    if (this.playbooks.has(playbook.playbookCode)) {
-      console.warn(
-        `Playbook ${playbook.playbookCode} is already registered. Overwriting...`
-      );
-    }
     this.playbooks.set(playbook.playbookCode, playbook);
   }
 
-  /**
-   * Register a single component for a playbook
-   */
   registerComponent(
     playbookCode: string,
     componentName: string,
@@ -72,10 +48,9 @@ export class PlaybookRegistry {
   ): void {
     let playbook = this.playbooks.get(playbookCode);
     if (!playbook) {
-      // Create a minimal playbook package if not exists
       playbook = {
         playbookCode,
-        version: '0.0.0', // Default version for dynamically loaded components
+        version: '0.0.0',
         components: {},
       };
       this.playbooks.set(playbookCode, playbook);
@@ -88,31 +63,19 @@ export class PlaybookRegistry {
     playbook.components[componentName] = component;
   }
 
-  /**
-   * Get a playbook package by code
-   */
   get(playbookCode: string): PlaybookPackage | undefined {
     return this.playbooks.get(playbookCode);
   }
 
-  /**
-   * List all registered playbooks
-   */
   list(): PlaybookPackage[] {
     return Array.from(this.playbooks.values());
   }
 
-  /**
-   * Get UI layout config for a playbook
-   */
   getUILayout(playbookCode: string): UILayoutConfig | undefined {
     const playbook = this.get(playbookCode);
     return playbook?.uiLayout;
   }
 
-  /**
-   * Get a component by playbook code and component name
-   */
   getComponent(
     playbookCode: string,
     componentName: string
@@ -121,18 +84,11 @@ export class PlaybookRegistry {
     return playbook?.components?.[componentName];
   }
 
-  /**
-   * Check if a playbook is registered
-   */
   has(playbookCode: string): boolean {
     return this.playbooks.has(playbookCode);
   }
 
-  /**
-   * Unregister a playbook
-   */
   unregister(playbookCode: string): boolean {
     return this.playbooks.delete(playbookCode);
   }
 }
-

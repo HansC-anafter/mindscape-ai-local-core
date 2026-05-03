@@ -42,7 +42,9 @@ export default function VersionSelector({
                 onChange={() => onVersionChange('system')}
                 className="w-4 h-4"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">系統版本（v{systemVersion}）</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                {t('systemVersionLabel', { version: systemVersion })}
+              </span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer opacity-50">
               <input
@@ -93,11 +95,13 @@ export default function VersionSelector({
                 onChange={() => onVersionChange('system')}
                 className="w-4 h-4"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">系統版本（v{systemVersion}）</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                {t('systemVersionLabel', { version: systemVersion })}
+              </span>
             </label>
             <div className="flex items-center gap-2 ml-auto">
               <button
-                onClick={() => {/* TODO: Show diff */ }}
+                onClick={() => {}}
                 className="px-3 py-1.5 text-xs text-primary dark:text-gray-300 hover:text-primary dark:hover:text-gray-100 border border-default dark:border-gray-600 rounded hover:bg-surface-secondary dark:hover:bg-gray-700 bg-surface-accent dark:bg-gray-800"
               >
                 {t('viewDiff' as any)}

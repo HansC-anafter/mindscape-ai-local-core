@@ -62,7 +62,7 @@ export default function SandboxFileTree({
                 }`}
                 style={{ paddingLeft: `${level * 16 + 8}px` }}
               >
-                <span className="mr-2">📄</span>
+                <span className="mr-2">FILE</span>
                 {name}
               </div>
             );
@@ -70,7 +70,7 @@ export default function SandboxFileTree({
             return (
               <div key={fullPath} style={{ paddingLeft: `${level * 16}px` }}>
                 <div className="px-2 py-1 text-sm font-medium text-gray-600 dark:text-gray-400">
-                  <span className="mr-2">📁</span>
+                  <span className="mr-2">DIR</span>
                   {name}
                 </div>
                 {renderTree(value, fullPath, level + 1)}
@@ -95,4 +95,3 @@ export default function SandboxFileTree({
     </div>
   );
 }
-

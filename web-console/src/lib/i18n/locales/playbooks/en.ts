@@ -149,6 +149,11 @@ export const playbooksEn = {
   sourceSystemVersion: 'Source: System Version v{version}',
   clickExecuteButton: 'Click the "Execute" button below to start using this Playbook',
   youDontHavePersonalVersion: 'You don\'t have a personal version yet. Let LLM help you generate one:',
+  llmDrawerTitle: 'Discuss your use case with the assistant',
+  llmDrawerIntroMessage: 'This Playbook is the standard system version. I can help generate a personal version based on your workflow. The original system version will not be modified. Describe the scenario you want to use it for, which steps feel unnecessary or too detailed, and any personal checks you need to add.',
+  llmDrawerSuggestionsReady: 'I generated {count} optimization suggestions from your request. Review the preview panel and select the changes to apply.',
+  llmDrawerSuggestionsFailed: 'Unable to get optimization suggestions: {error}',
+  acceptChangesCreatePersonalVersion: 'Accept Changes and Create Personal Version',
   changePreview: 'Change Preview',
   afterStartingConversation: 'After starting the conversation, optimization suggestions will appear here',
   variantName: 'Variant Name',
@@ -218,4 +223,3 @@ export const playbooksEn = {
   suggestedQuestionUsageStatus: 'How is this playbook used?',
   thinking: 'Thinking...',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

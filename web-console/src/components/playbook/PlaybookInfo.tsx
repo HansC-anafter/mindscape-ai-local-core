@@ -1,10 +1,16 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useLocale, t } from '../../lib/i18n';
+import { t } from '../../lib/i18n';
 import { getApiBaseUrl } from '../../lib/api-url';
 
 const API_URL = getApiBaseUrl();
+
+function getPlaybookBadge(playbookCode: string, name?: string): string {
+  const source = playbookCode || name || 'PB';
+  const badge = source.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase();
+  return badge || 'PB';
+}
 
 interface PlaybookInfoProps {
   playbook: {
@@ -28,7 +34,6 @@ export default function PlaybookInfo({
   onToggleFavorite,
   profileId = 'test-user'
 }: PlaybookInfoProps) {
-  const [locale] = useLocale();
   const playbookCode = playbook.metadata.playbook_code;
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -179,7 +184,9 @@ export default function PlaybookInfo({
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
-            <span className="text-4xl">{playbook.metadata.icon || '📋'}</span>
+            <span className="text-sm font-semibold tracking-wide px-2 py-1 rounded bg-gray-100 text-gray-700">
+              {getPlaybookBadge(playbook.metadata.playbook_code, playbook.metadata.name)}
+            </span>
             <h1 className="text-3xl font-bold text-gray-900">
               {localizedName}
             </h1>
@@ -207,9 +214,9 @@ export default function PlaybookInfo({
           </button>
           <button
             onClick={onToggleFavorite}
-            className="text-3xl hover:scale-110 transition-transform"
+            className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 transition-colors"
           >
-            {isFavorite ? '⭐' : '☆'}
+            {isFavorite ? t('favorites' as any) : t('save' as any)}
           </button>
         </div>
       </div>
@@ -251,7 +258,7 @@ export default function PlaybookInfo({
                 <p className="text-sm font-medium mb-2">{t('selectedFiles' as any)}</p>
                 <ul className="text-sm text-gray-600 space-y-1">
                   {uploadedFiles.map((file, idx) => (
-                    <li key={idx}>• {file.name} ({(file.size / 1024).toFixed(1)} KB)</li>
+                    <li key={idx}>- {file.name} ({(file.size / 1024).toFixed(1)} KB)</li>
                   ))}
                 </ul>
               </div>

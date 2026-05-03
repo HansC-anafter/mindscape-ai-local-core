@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Sandbox,
   SandboxFile,
@@ -53,42 +53,7 @@ export default function SandboxViewer({
   const [error, setError] = useState<string | null>(null);
   const [showDeployModal, setShowDeployModal] = useState(false);
 
-  useEffect(() => {
-    loadSandbox();
-  }, [workspaceId, sandboxId]);
-
-  useEffect(() => {
-    if (sandbox) {
-      loadFiles();
-      loadVersions();
-    }
-  }, [sandbox, currentVersion]);
-
-  // Set initial file when files are loaded and initialFile is provided
-  useEffect(() => {
-    if (initialFile && files.length > 0) {
-      // Check if the initial file exists in the files list
-      // Try exact match first, then try endsWith match
-      const exactMatch = files.find(f => f.path === initialFile);
-      if (exactMatch) {
-        setSelectedFile(initialFile);
-      } else {
-        // Try to find file that ends with the initial file path
-        const endsWithMatch = files.find(f => f.path.endsWith(initialFile) || initialFile.endsWith(f.path));
-        if (endsWithMatch) {
-          setSelectedFile(endsWithMatch.path);
-        }
-      }
-    }
-  }, [initialFile, files]);
-
-  useEffect(() => {
-    if (selectedFile && sandbox) {
-      loadFileContent(selectedFile);
-    }
-  }, [selectedFile, currentVersion, sandbox]);
-
-  const loadSandbox = async () => {
+  const loadSandbox = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -100,9 +65,9 @@ export default function SandboxViewer({
     } finally {
       setLoading(false);
     }
-  };
+  }, [workspaceId, sandboxId]);
 
-  const loadFiles = async () => {
+  const loadFiles = useCallback(async () => {
     try {
       const data = await listSandboxFiles(
         workspaceId,
@@ -111,12 +76,11 @@ export default function SandboxViewer({
         currentVersion || undefined
       );
       setFiles(data);
-    } catch (err) {
-      console.error('Failed to load files:', err);
+    } catch {
     }
-  };
+  }, [workspaceId, sandboxId, currentVersion]);
 
-  const loadFileContent = async (filePath: string) => {
+  const loadFileContent = useCallback(async (filePath: string) => {
     try {
       const data = await getSandboxFileContent(
         workspaceId,
@@ -125,20 +89,49 @@ export default function SandboxViewer({
         currentVersion || undefined
       );
       setFileContent(data);
-    } catch (err) {
-      console.error('Failed to load file content:', err);
+    } catch {
       setFileContent(null);
     }
-  };
+  }, [workspaceId, sandboxId, currentVersion]);
 
-  const loadVersions = async () => {
+  const loadVersions = useCallback(async () => {
     try {
       const data = await listVersions(workspaceId, sandboxId);
       setVersions(data);
-    } catch (err) {
-      console.error('Failed to load versions:', err);
+    } catch {
     }
-  };
+  }, [workspaceId, sandboxId]);
+
+  useEffect(() => {
+    if (initialFile && files.length > 0) {
+      const exactMatch = files.find(f => f.path === initialFile);
+      if (exactMatch) {
+        setSelectedFile(initialFile);
+      } else {
+        const endsWithMatch = files.find(f => f.path.endsWith(initialFile) || initialFile.endsWith(f.path));
+        if (endsWithMatch) {
+          setSelectedFile(endsWithMatch.path);
+        }
+      }
+    }
+  }, [initialFile, files]);
+
+  useEffect(() => {
+    loadSandbox();
+  }, [loadSandbox]);
+
+  useEffect(() => {
+    if (sandbox) {
+      loadFiles();
+      loadVersions();
+    }
+  }, [sandbox, currentVersion, loadFiles, loadVersions]);
+
+  useEffect(() => {
+    if (selectedFile && sandbox) {
+      loadFileContent(selectedFile);
+    }
+  }, [selectedFile, currentVersion, sandbox, loadFileContent]);
 
   const handleFileSelect = (filePath: string) => {
     setSelectedFile(filePath);
@@ -191,7 +184,7 @@ export default function SandboxViewer({
             className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
             title="Open in new window (persists when switching playbooks)"
           >
-            ↗️ New Window
+            New Window
           </button>
           <button
             onClick={() => setShowDeployModal(true)}
@@ -323,4 +316,3 @@ export default function SandboxViewer({
     </div>
   );
 }
-

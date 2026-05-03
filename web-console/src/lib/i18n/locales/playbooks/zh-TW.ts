@@ -149,6 +149,11 @@ export const playbooksZhTW = {
   sourceSystemVersion: '來源：系統版 v{version}',
   clickExecuteButton: '點擊下方的「執行」按鈕開始使用此 Playbook',
   youDontHavePersonalVersion: '你還沒有個人版本，可以讓 LLM 幫你生成：',
+  llmDrawerTitle: '與助手討論你的使用情境',
+  llmDrawerIntroMessage: '這份 Playbook 是系統標準版，我會根據你的習慣幫你生成一份個人版本，原始系統版不會被修改。你可以描述目前要用在什麼場景、哪些步驟多餘或太細，以及是否有一定要加上的個人檢查項。',
+  llmDrawerSuggestionsReady: '根據你的需求，我為你生成了 {count} 個優化建議。請在右側預覽區查看並選擇要應用的建議。',
+  llmDrawerSuggestionsFailed: '獲取優化建議時出錯：{error}',
+  acceptChangesCreatePersonalVersion: '接受變更並建立個人版本',
   changePreview: '變更預覽',
   afterStartingConversation: '開始對話後，優化建議會顯示在這裡',
   variantName: '版本名稱',
@@ -218,4 +223,3 @@ export const playbooksZhTW = {
   suggestedQuestionUsageStatus: '這個 playbook 使用狀況怎麼樣？',
   thinking: '思考中...',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

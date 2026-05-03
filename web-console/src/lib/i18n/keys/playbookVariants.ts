@@ -12,6 +12,11 @@ export const playbookVariantsKeys = {
   readjustWithLLM: true,
   readjust: true,
   viewDiff: true,
+  llmDrawerTitle: true,
+  llmDrawerIntroMessage: true,
+  llmDrawerSuggestionsReady: true,
+  llmDrawerSuggestionsFailed: true,
+  acceptChangesCreatePersonalVersion: true,
   changePreview: true,
   afterStartingConversation: true,
   tellMeYourNeeds: true,
@@ -31,4 +36,3 @@ export const playbookVariantsKeys = {
   testError: true,
   uploadAndTest: true,
 } as const;
-

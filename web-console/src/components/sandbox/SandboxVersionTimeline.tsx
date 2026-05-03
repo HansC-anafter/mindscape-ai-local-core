@@ -28,8 +28,7 @@ export default function SandboxVersionTimeline({
         try {
           const data = await getVersionMetadata(workspaceId, sandboxId, version);
           metadata[version] = data;
-        } catch (err) {
-          console.error(`Failed to load metadata for ${version}:`, err);
+        } catch {
         }
       }
       setVersionMetadata(metadata);
@@ -66,9 +65,9 @@ export default function SandboxVersionTimeline({
                 </div>
                 {metadata && (
                   <div className="text-xs text-gray-500 mt-1">
-                    {metadata.file_count} files • {metadata.total_size} bytes
+                    {metadata.file_count} files - {metadata.total_size} bytes
                     {metadata.created_at && (
-                      <span> • {formatLocalDateTime(metadata.created_at)}</span>
+                      <span> - {formatLocalDateTime(metadata.created_at)}</span>
                     )}
                   </div>
                 )}
@@ -80,4 +79,3 @@ export default function SandboxVersionTimeline({
     </div>
   );
 }
-

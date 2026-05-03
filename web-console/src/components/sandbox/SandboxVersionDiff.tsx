@@ -35,8 +35,7 @@ export default function SandboxVersionDiff({
 
         setFromFiles(fromPaths);
         setToFiles(toPaths);
-      } catch (err) {
-        console.error('Failed to load files:', err);
+      } catch {
       } finally {
         setLoading(false);
       }
@@ -61,8 +60,7 @@ export default function SandboxVersionDiff({
 
         setFromContent(from?.content || '');
         setToContent(to?.content || '');
-      } catch (err) {
-        console.error('Failed to load file content:', err);
+      } catch {
       }
     };
 
@@ -160,4 +158,3 @@ export default function SandboxVersionDiff({
     </div>
   );
 }
-

@@ -184,7 +184,7 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
                         </div>
                       )}
                       <span className="text-xs text-secondary dark:text-gray-400">
-                        {isExpanded ? '▼' : '▶'}
+                        {isExpanded ? '-' : '+'}
                       </span>
                     </div>
                   </button>
@@ -234,4 +234,3 @@ export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsP
     </div>
   );
 }
-

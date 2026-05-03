@@ -31,6 +31,12 @@ function extractCapabilityCode(playbook: Playbook): string | null {
   return null;
 }
 
+function getPlaybookBadge(playbook: Playbook): string {
+  const source = playbook.playbook_code || playbook.name || 'PB';
+  const badge = source.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase();
+  return badge || 'PB';
+}
+
 interface RelatedPlaybooksSidebarProps {
   currentPlaybook: Playbook;
   allPlaybooks: Playbook[];
@@ -91,7 +97,9 @@ export default function RelatedPlaybooksSidebar({
                 className="block p-2 rounded-lg transition-colors hover:bg-tertiary dark:hover:bg-gray-800 border border-transparent"
               >
                 <div className="flex items-start gap-2">
-                  {pb.icon && <span className="text-sm flex-shrink-0">{pb.icon}</span>}
+                  <span className="text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 flex-shrink-0">
+                    {getPlaybookBadge(pb)}
+                  </span>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium truncate text-gray-900 dark:text-gray-100">
                       {pb.name}
@@ -122,7 +130,9 @@ export default function RelatedPlaybooksSidebar({
                 className="block p-2 rounded-lg transition-colors hover:bg-tertiary dark:hover:bg-gray-800 border border-transparent"
               >
                 <div className="flex items-start gap-2">
-                  {pb.icon && <span className="text-sm flex-shrink-0">{pb.icon}</span>}
+                  <span className="text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 flex-shrink-0">
+                    {getPlaybookBadge(pb)}
+                  </span>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium truncate text-gray-900 dark:text-gray-100">
                       {pb.name}
@@ -153,7 +163,9 @@ export default function RelatedPlaybooksSidebar({
                 className="block p-2 rounded-lg transition-colors hover:bg-tertiary dark:hover:bg-gray-800 border border-transparent"
               >
                 <div className="flex items-start gap-2">
-                  {pb.icon && <span className="text-sm flex-shrink-0">{pb.icon}</span>}
+                  <span className="text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 flex-shrink-0">
+                    {getPlaybookBadge(pb)}
+                  </span>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium truncate text-gray-900 dark:text-gray-100">
                       {pb.name}
@@ -174,4 +186,3 @@ export default function RelatedPlaybooksSidebar({
     </div>
   );
 }
-

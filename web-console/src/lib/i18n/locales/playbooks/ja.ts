@@ -149,6 +149,11 @@ export const playbooksJa = {
   sourceSystemVersion: 'ソース：システムバージョン v{version}',
   clickExecuteButton: '下の「実行」ボタンをクリックして、このプレイブックの使用を開始してください',
   youDontHavePersonalVersion: 'まだ個人バージョンがありません。LLM に生成を依頼できます：',
+  llmDrawerTitle: 'アシスタントと使用状況を相談',
+  llmDrawerIntroMessage: 'この Playbook は標準システム版です。あなたのワークフローに合わせた個人バージョンの生成を支援できます。元のシステム版は変更されません。利用したい場面、不要または細かすぎる手順、追加したい個人チェック項目を説明してください。',
+  llmDrawerSuggestionsReady: 'リクエストに基づいて {count} 件の最適化提案を生成しました。プレビューパネルを確認し、適用する変更を選択してください。',
+  llmDrawerSuggestionsFailed: '最適化提案を取得できませんでした：{error}',
+  acceptChangesCreatePersonalVersion: '変更を適用して個人バージョンを作成',
   changePreview: '変更プレビュー',
   afterStartingConversation: '会話を開始すると、最適化提案がここに表示されます',
   variantName: 'バリアント名',
@@ -168,4 +173,3 @@ export const playbooksJa = {
   executionFailedWithError: '実行失敗：{error}',
   times: '回',
 } as const satisfies Partial<Record<MessageKey, string>>;
-

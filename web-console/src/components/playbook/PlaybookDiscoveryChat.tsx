@@ -28,6 +28,12 @@ interface PlaybookDiscoveryChatProps {
   currentPlaybookCode?: string;
 }
 
+function getPlaybookBadge(playbook: { playbook_code?: string; name?: string }): string {
+  const source = playbook.playbook_code || playbook.name || 'PB';
+  const badge = source.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase();
+  return badge || 'PB';
+}
+
 export default function PlaybookDiscoveryChat({
   onPlaybookSelect,
   selectedCapability,
@@ -66,7 +72,7 @@ export default function PlaybookDiscoveryChat({
     }
 
     return baseQuestions.slice(0, 4);
-  }, [selectedCapability, currentPlaybookCode, t]);
+  }, [selectedCapability, currentPlaybookCode]);
 
   useEffect(() => {
     scrollToBottom();
@@ -113,7 +119,7 @@ export default function PlaybookDiscoveryChat({
         if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
           content += '\n\n' + t('recommendedPlaybooks' as any) + '\n';
           data.recommended_playbooks.forEach((pb: any, index: number) => {
-            content += `\n${index + 1}. ${pb.icon || '📋'} ${pb.name}`;
+            content += `\n${index + 1}. ${getPlaybookBadge(pb)} ${pb.name}`;
           });
         }
 
@@ -186,7 +192,9 @@ export default function PlaybookDiscoveryChat({
                     className="w-full text-left p-2 bg-surface-secondary dark:bg-gray-800 border border-default dark:border-gray-700 rounded-lg hover:border-accent dark:hover:border-blue-600 hover:bg-accent-10 dark:hover:bg-blue-900/20 transition-colors"
                   >
                     <div className="flex items-start gap-2">
-                      {pb.icon && <span className="text-lg flex-shrink-0">{pb.icon}</span>}
+                      <span className="text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 flex-shrink-0">
+                        {getPlaybookBadge(pb)}
+                      </span>
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
                           {pb.name}
@@ -252,7 +260,7 @@ export default function PlaybookDiscoveryChat({
                       if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
                         content += '\n\n' + t('recommendedPlaybooks' as any) + '\n';
                         data.recommended_playbooks.forEach((pb: any, index: number) => {
-                          content += `\n${index + 1}. ${pb.icon || '📋'} ${pb.name}`;
+                          content += `\n${index + 1}. ${getPlaybookBadge(pb)} ${pb.name}`;
                         });
                       }
 
@@ -310,4 +318,3 @@ export default function PlaybookDiscoveryChat({
     </div>
   );
 }
-

@@ -38,14 +38,9 @@ export default function LLMDrawer({
 
   useEffect(() => {
     if (isOpen && messages.length === 0) {
-      // Initialize with system message
       setMessages([{
         role: 'assistant',
-        content: `這份 Playbook 是系統標準版，我會根據你的習慣幫你生成一份*個人版本*，原始系統版不會被修改。你可以描述：
-
-* 你目前要用在什麼場景？
-* 哪些步驟你覺得多餘或太細？
-* 有沒有一定要加上的個人檢查項？`
+        content: t('llmDrawerIntroMessage' as any)
       }]);
     }
   }, [isOpen, messages.length]);
@@ -79,7 +74,7 @@ export default function LLMDrawer({
 
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `根據你的需求，我為你生成了 ${newSuggestions.length} 個優化建議。請在右側預覽區查看並選擇要應用的建議。`
+          content: t('llmDrawerSuggestionsReady' as any, { count: String(newSuggestions.length) })
         }]);
       } else {
         throw new Error('Failed to get suggestions');
@@ -87,7 +82,7 @@ export default function LLMDrawer({
     } catch (err: any) {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `抱歉，獲取優化建議時出錯：${err.message}`
+        content: t('llmDrawerSuggestionsFailed' as any, { error: err.message })
       }]);
     } finally {
       setLoading(false);
@@ -153,12 +148,12 @@ export default function LLMDrawer({
       {/* Drawer */}
       <div className="bg-surface-secondary w-full max-w-6xl ml-auto h-full flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-default">
-          <h2 className="text-xl font-semibold text-gray-900">與助手討論你的使用情境</h2>
+          <h2 className="text-xl font-semibold text-gray-900">{t('llmDrawerTitle' as any)}</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-2xl"
+            className="text-xs text-gray-400 hover:text-gray-600"
           >
-            ×
+            {t('close' as any)}
           </button>
         </div>
 
@@ -185,7 +180,7 @@ export default function LLMDrawer({
               {loading && (
                 <div className="flex justify-start">
                   <div className="bg-gray-100 rounded-lg p-3">
-                    <p className="text-sm text-gray-600">正在分析...</p>
+                    <p className="text-sm text-gray-600">{t('analyzingPatterns' as any)}</p>
                   </div>
                 </div>
               )}
@@ -249,7 +244,7 @@ export default function LLMDrawer({
                           <p className="text-xs text-gray-600 mt-1">{suggestion.description}</p>
                           {suggestion.step_number && (
                             <span className="inline-block mt-2 px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded">
-                              步驟 {suggestion.step_number}
+                              {t('step' as any)} {suggestion.step_number}
                             </span>
                           )}
                         </div>
@@ -306,14 +301,14 @@ export default function LLMDrawer({
                     onClick={onClose}
                     className="flex-1 px-3 py-2 text-sm text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
                   >
-                    取消
+                    {t('cancel' as any)}
                   </button>
                   <button
                     onClick={handleCreateVariant}
                     disabled={!variantName.trim() || selectedSuggestions.size === 0}
                     className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
                   >
-                    接受變更並建立個人版本
+                    {t('acceptChangesCreatePersonalVersion' as any)}
                   </button>
                 </div>
               </div>

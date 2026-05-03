@@ -1,8 +1,3 @@
-/**
- * Sandbox API Client
- * Provides API functions for sandbox management, file operations, and version control
- */
-
 import { getApiBaseUrl } from './api-url';
 
 const API_URL = getApiBaseUrl();
@@ -46,9 +41,6 @@ export interface CreateVersionRequest {
   source_version?: string;
 }
 
-/**
- * List all sandboxes in workspace
- */
 export async function listSandboxes(
   workspaceId: string,
   sandboxType?: string
@@ -67,9 +59,6 @@ export async function listSandboxes(
   return await response.json();
 }
 
-/**
- * Create a new sandbox
- */
 export async function createSandbox(
   workspaceId: string,
   request: CreateSandboxRequest
@@ -91,9 +80,6 @@ export async function createSandbox(
   return await response.json();
 }
 
-/**
- * Get sandbox details
- */
 export async function getSandbox(
   workspaceId: string,
   sandboxId: string
@@ -107,9 +93,6 @@ export async function getSandbox(
   return await response.json();
 }
 
-/**
- * Delete sandbox
- */
 export async function deleteSandbox(
   workspaceId: string,
   sandboxId: string
@@ -126,9 +109,6 @@ export async function deleteSandbox(
   }
 }
 
-/**
- * List files in sandbox
- */
 export async function listSandboxFiles(
   workspaceId: string,
   sandboxId: string,
@@ -153,9 +133,6 @@ export async function listSandboxFiles(
   return await response.json();
 }
 
-/**
- * Get file content
- */
 export async function getSandboxFileContent(
   workspaceId: string,
   sandboxId: string,
@@ -176,9 +153,6 @@ export async function getSandboxFileContent(
   return await response.json();
 }
 
-/**
- * Create a new version
- */
 export async function createVersion(
   workspaceId: string,
   sandboxId: string,
@@ -201,9 +175,6 @@ export async function createVersion(
   return await response.json();
 }
 
-/**
- * List all versions
- */
 export async function listVersions(
   workspaceId: string,
   sandboxId: string
@@ -217,9 +188,6 @@ export async function listVersions(
   return await response.json();
 }
 
-/**
- * Get version metadata
- */
 export async function getVersionMetadata(
   workspaceId: string,
   sandboxId: string,
@@ -234,9 +202,6 @@ export async function getVersionMetadata(
   return await response.json();
 }
 
-/**
- * Get sandbox by project ID
- */
 export async function getSandboxByProject(
   workspaceId: string,
   projectId: string
@@ -274,15 +239,6 @@ export interface EnsurePreviewResult {
   port_conflict?: boolean;
 }
 
-/**
- * Ensure preview is ready (one-click preview setup)
- *
- * This is the main entry point for preview. It will:
- * 1. Find or create a web_page sandbox
- * 2. Sync workspace files to sandbox
- * 3. Initialize Next.js template if needed
- * 4. Start preview server
- */
 export async function ensurePreviewReady(
   workspaceId: string,
   projectId?: string,
@@ -375,4 +331,3 @@ export async function getPreviewServerStatus(
   }
   return response.json();
 }
-

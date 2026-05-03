@@ -54,14 +54,14 @@ export default function SandboxFilePreview({
           <div className="flex items-center gap-2">
             <div className="text-xs text-gray-500">
               {file.size} bytes
-              {file.modified && ` • Modified: ${formatLocalDateTime(new Date(file.modified * 1000).toISOString())}`}
+              {file.modified && ` - Modified: ${formatLocalDateTime(new Date(file.modified * 1000).toISOString())}`}
             </div>
             <button
               onClick={handleDownload}
               className="px-2 py-1 text-xs bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
               title="Download file"
             >
-              ⬇ Download
+              Download
             </button>
           </div>
         </div>
@@ -74,4 +74,3 @@ export default function SandboxFilePreview({
     </div>
   );
 }
-

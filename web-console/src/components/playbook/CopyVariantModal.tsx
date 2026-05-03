@@ -38,9 +38,9 @@ export default function CopyVariantModal({
           <h2 className="text-xl font-semibold text-primary dark:text-gray-100">{t('createMyVersion' as any)}</h2>
           <button
             onClick={onClose}
-            className="text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-300 text-2xl"
+            className="text-xs text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-300"
           >
-            ×
+            {t('close' as any)}
           </button>
         </div>
 
@@ -88,13 +88,13 @@ export default function CopyVariantModal({
             onClick={onClose}
             className="flex-1 px-4 py-2 text-sm text-primary dark:text-gray-300 hover:text-primary dark:hover:text-gray-100 border border-default dark:border-gray-600 rounded-md hover:bg-surface-secondary dark:hover:bg-gray-700"
           >
-            取消
+            {t('cancel' as any)}
           </button>
           <button
             onClick={handleSubmit}
             className="flex-1 px-4 py-2 text-sm bg-accent dark:bg-blue-600 text-white rounded-md hover:bg-accent/90 dark:hover:bg-blue-700"
           >
-            建立
+            {t('create' as any)}
           </button>
         </div>
       </div>

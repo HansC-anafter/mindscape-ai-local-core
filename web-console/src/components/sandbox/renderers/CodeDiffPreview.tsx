@@ -18,7 +18,7 @@ export default function CodeDiffPreview({
     <div className="code-diff-preview h-full overflow-auto p-4">
       <div className="mb-4 text-sm text-gray-600 dark:text-gray-400">
         {fromVersion && toVersion ? (
-          <span>Comparing {fromVersion} → {toVersion}</span>
+          <span>Comparing {fromVersion} to {toVersion}</span>
         ) : (
           <span>Code diff preview</span>
         )}
@@ -29,4 +29,3 @@ export default function CodeDiffPreview({
     </div>
   );
 }
-
