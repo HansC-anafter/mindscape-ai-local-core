@@ -13,7 +13,7 @@ Local Core owns:
 - capability discovery and activation state needed by the local runtime
 - capability runtime shells exposed through the local workspace
 - settings extension discovery for already installed local surfaces
-- tool, playbook, object, and artifact interfaces that are promoted into stable Local Core contracts
+- tool, playbook, object, and artifact host interfaces that are promoted into stable Local Core contracts
 - policy, dispatch, and executor gates that decide whether a requested action can run
 - local routing and registry surfaces that keep the host aware of installed capabilities
 
@@ -32,11 +32,11 @@ Public Local Core documentation may describe the host interface, but it must not
 
 The repository guardrails reinforce this boundary.
 
-The Git ignore rules exclude local data, generated artifacts, internal documentation, internal scripts, credentials, runtime bundles, installed capability directories, installed playbook directories, and capability-installed model directories.
+The Git ignore rules exclude local data, generated artifacts, credentials, runtime bundles, installed capability directories, installed playbook directories, capability-installed model directories, and internal material.
 
-The Docker build ignore rules exclude capability installation locations, cloud playbook locations, cloud provider and sync service directories, internal documentation, internal scripts, local data, logs, environment files, and temporary files from the local image context.
+The Docker build ignore rules exclude capability installation locations, cloud playbook locations, provider and sync service mirrors, internal material, local data, logs, environment files, and temporary files from the local image context.
 
-The CI guardrails check for protected capability file changes, cloud component leakage, cloud function leakage, route conflicts, manifest validity, import path validity, router prefix validity, and root-level script boundary violations.
+The CI guardrails protect capability boundaries, cloud component leakage, cloud function leakage, route conflicts, manifest validity, import path validity, router prefix validity, and root-level script boundaries.
 
 Anything blocked by these guardrails is not eligible for public Local Core documentation by default. It must remain internal unless it is deliberately promoted into a stable Local Core contract and no longer depends on ignored or CI-protected implementation material.
 
@@ -46,9 +46,9 @@ Public Local Core docs may document:
 
 - capability hosting contracts
 - runtime shell behavior
-- stable route, registry, object, tool, and playbook interfaces
+- stable host registry, object, tool, and playbook interfaces
 - dispatch and policy boundaries
-- host-level lifecycle, activation, and observability behavior
+- host-level activation state and guardrail behavior
 
 Public Local Core docs must not document:
 
@@ -66,6 +66,6 @@ If a candidate public page depends on ignored, Docker-ignored, or CI-protected p
 
 Local Core owns capability hosting boundaries, not capability internals.
 
-This means Local Core can document how installed capabilities are discovered, surfaced, gated, routed, and invoked through stable host contracts. It must not document the inside of each capability as part of the Local Core public architecture.
+This means Local Core can document how installed capabilities are discovered, surfaced, gated, and invoked through stable host contracts. It must not document the inside of each capability as part of the Local Core public architecture.
 
 The safe default is to withhold. A capability detail is only public when it has been promoted into a stable Local Core contract and verified against the current repository.
