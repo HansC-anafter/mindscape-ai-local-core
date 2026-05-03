@@ -53,6 +53,32 @@ def build_status_payload_from_row(
     }
 
 
+def attach_runner_resource_snapshot(
+    payload: Optional[Dict[str, Any]],
+    heartbeats: list[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Attach runner resource telemetry without deriving task progress from it."""
+    if not payload:
+        return payload
+    ctx = payload.get("execution_context")
+    if not isinstance(ctx, dict):
+        return payload
+    runner_id = str(ctx.get("runner_id") or "").strip()
+    if not runner_id:
+        return payload
+    for heartbeat in heartbeats or []:
+        if str(heartbeat.get("runner_id") or "").strip() != runner_id:
+            continue
+        snapshot = heartbeat.get("resource_snapshot")
+        if isinstance(snapshot, dict):
+            ctx["runner_resource_snapshot"] = snapshot
+        heartbeat_at = heartbeat.get("heartbeat_at")
+        if heartbeat_at and not ctx.get("runner_heartbeat_at"):
+            ctx["runner_heartbeat_at"] = heartbeat_at
+        break
+    return payload
+
+
 def load_execution_status_payload(tasks_store, execution_id: str):
     """Load a lightweight execution status payload from the tasks table."""
     with tasks_store.get_connection() as conn:
@@ -81,7 +107,17 @@ def load_execution_status_payload(tasks_store, execution_id: str):
             ),
             {"execution_id": execution_id},
         ).fetchone()
-    return build_status_payload_from_row(row, execution_id=execution_id)
+    payload = build_status_payload_from_row(row, execution_id=execution_id)
+    if payload:
+        try:
+            heartbeats = tasks_store.list_runner_heartbeats(
+                max_age_seconds=300,
+                limit=100,
+            )
+        except Exception:
+            heartbeats = []
+        payload = attach_runner_resource_snapshot(payload, heartbeats)
+    return payload
 
 
 def parse_status_filter(status_filter: Optional[str]) -> list[str]:

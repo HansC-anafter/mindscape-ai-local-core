@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 from backend.app.routes.core.execution_query_helpers import (
+    attach_runner_resource_snapshot,
     build_status_payload_from_row,
     load_global_execution_rows,
     parse_execution_context,
@@ -31,6 +32,36 @@ def test_build_status_payload_from_row_trims_heavy_execution_context_keys():
             "foo": 1,
         },
     }
+
+
+def test_attach_runner_resource_snapshot_matches_runner_id():
+    payload = {
+        "execution_id": "exec-1",
+        "task_status": "running",
+        "execution_context": {"runner_id": "runner-1"},
+    }
+
+    result = attach_runner_resource_snapshot(
+        payload,
+        [
+            {
+                "runner_id": "runner-2",
+                "resource_snapshot": {"admission": {"state": "normal"}},
+            },
+            {
+                "runner_id": "runner-1",
+                "heartbeat_at": "2026-05-03T01:00:00+00:00",
+                "resource_snapshot": {
+                    "admission": {"state": "soft_defer"},
+                    "memory": {"working_set_ratio": 0.81},
+                },
+            },
+        ],
+    )
+
+    ctx = result["execution_context"]
+    assert ctx["runner_resource_snapshot"]["admission"]["state"] == "soft_defer"
+    assert ctx["runner_heartbeat_at"] == "2026-05-03T01:00:00+00:00"
 
 
 def test_parse_status_filter_normalizes_values():

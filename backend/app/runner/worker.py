@@ -45,6 +45,11 @@ from backend.app.runner.concurrency import (
     _is_ig_playbook,
 )
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
+from backend.app.runner.resource_pressure import (
+    build_runner_resource_snapshot,
+    is_browser_resource_profile,
+    should_defer_browser_claim,
+)
 from backend.app.runner.reaper import (
     _request_watchdog_abort_for_no_progress_tasks,
     _reap_stale_running_tasks,
@@ -475,6 +480,7 @@ async def run_forever() -> None:
     max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
     configured_poll_batch_limit = _env_int("LOCAL_CORE_RUNNER_POLL_BATCH_LIMIT", 0)
     runner_id = _runner_id()
+    os.environ["LOCAL_CORE_RUNNER_ID"] = runner_id
     visibility_timeout_sec = _env_int("LOCAL_CORE_RUNNER_VISIBILITY_TIMEOUT_SECONDS", 180)
     runner_profile = resolve_runner_profile_from_env(default_max_inflight=max_inflight)
     max_inflight = runner_profile.max_inflight
@@ -538,6 +544,8 @@ async def run_forever() -> None:
     inflight: set[asyncio.Task] = set()
     reap_interval_seconds = _env_int("LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS", 60)
     dep_checker = DependencyChecker(cache_ttl=5.0)
+    is_browser_runner = is_browser_resource_profile(runner_profile)
+    next_resource_defer_log_at = 0.0
 
     # Kick the bridge once on startup without blocking the main heartbeat/dequeue
     # loop. The maintenance path can scan queues and DB state; if it stalls, the
@@ -570,6 +578,16 @@ async def run_forever() -> None:
     )
 
     while True:
+        resource_snapshot = None
+        try:
+            resource_snapshot = build_runner_resource_snapshot(
+                profile_code=runner_profile.profile_code,
+                inflight=len(inflight),
+                max_inflight=max_inflight,
+            )
+        except Exception:
+            resource_snapshot = None
+
         # Runner liveness heartbeat via shared PostgreSQL.
         try:
             tasks_store.upsert_runner_heartbeat(
@@ -577,6 +595,7 @@ async def run_forever() -> None:
                 profile_code=runner_profile.profile_code,
                 hostname=socket.gethostname(),
                 inflight=len(inflight),
+                resource_snapshot=resource_snapshot,
             )
         except Exception:
             pass
@@ -633,6 +652,41 @@ async def run_forever() -> None:
         if capacity.saturated:
             await asyncio.sleep(poll_interval_ms / 1000)
             continue
+
+        if is_browser_runner:
+            try:
+                resource_snapshot = build_runner_resource_snapshot(
+                    profile_code=runner_profile.profile_code,
+                    inflight=len(inflight),
+                    max_inflight=capacity.max_inflight,
+                    available_slots=capacity.available_slots,
+                )
+            except Exception:
+                resource_snapshot = None
+            if should_defer_browser_claim(resource_snapshot):
+                now_loop = asyncio.get_event_loop().time()
+                if now_loop >= next_resource_defer_log_at:
+                    admission = (
+                        resource_snapshot.get("admission", {})
+                        if isinstance(resource_snapshot, dict)
+                        else {}
+                    )
+                    memory = (
+                        resource_snapshot.get("memory", {})
+                        if isinstance(resource_snapshot, dict)
+                        else {}
+                    )
+                    logger.warning(
+                        "Browser runner resource admission deferred "
+                        "profile=%s state=%s reasons=%s memory_working_set_ratio=%s",
+                        runner_profile.profile_code,
+                        admission.get("state"),
+                        admission.get("reasons"),
+                        memory.get("working_set_ratio"),
+                    )
+                    next_resource_defer_log_at = now_loop + 30.0
+                await asyncio.sleep(poll_interval_ms / 1000)
+                continue
 
         # ── 1. Redis Queue Dequeue ──
         # Blocking Pop from pending to processing (ZSET). This wait completely replaces DB polling.

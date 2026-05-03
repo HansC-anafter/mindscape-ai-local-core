@@ -27,6 +27,11 @@ from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueu
 
 from backend.app.runner.concurrency import _build_inputs, _resolve_lock_keys
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
+from backend.app.runner.resource_pressure import (
+    build_runner_resource_snapshot,
+    classify_subprocess_resource_failure,
+    resource_failure_retry_delay_seconds,
+)
 from backend.app.runner.utils import _env_int, _utc_now
 
 logger = logging.getLogger(__name__)
@@ -325,6 +330,12 @@ def _child_execute_playbook(payload: Dict[str, Any]) -> None:
     freeze runner heartbeats/lock renew threads.
     """
     os.environ["LOCAL_CORE_RUNNER_PROCESS"] = "1"
+    runner_id = str(payload.get("runner_id") or "").strip()
+    task_id = str(payload.get("task_id") or "").strip()
+    if runner_id:
+        os.environ["LOCAL_CORE_RUNNER_ID"] = runner_id
+    if task_id:
+        os.environ["LOCAL_CORE_TASK_ID"] = task_id
     try:
         _initialize_capability_packages_for_runner()
     except Exception:
@@ -426,6 +437,10 @@ async def _mark_task_failed(
     runner_id: str,
     msg: str,
     redis_queue: Optional[RedisRunnerQueueStore] = None,
+    *,
+    retry_delay_sec: int = 15,
+    resource_pressure_source: Optional[str] = None,
+    resource_snapshot: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Mark a task as FAILED, increment retry_count, and NACK or Deadletter via Redis."""
     max_attempts = _env_int("LOCAL_CORE_RUNNER_MAX_ATTEMPTS", 3)
@@ -446,7 +461,13 @@ async def _mark_task_failed(
             ctxf["error"] = msg
             ctxf["runner_id"] = runner_id
             ctxf["failed_at"] = _utc_now().isoformat()
-            
+            if resource_pressure_source:
+                ctxf["resource_pressure"] = True
+                ctxf["resource_pressure_source"] = resource_pressure_source
+                ctxf["resource_retry_delay_sec"] = max(15, int(retry_delay_sec or 15))
+                if isinstance(resource_snapshot, dict):
+                    ctxf["resource_snapshot"] = resource_snapshot
+
             is_deadletter = retry_count >= max_attempts
 
             # For terminal deadletters, change status to FAILED.
@@ -495,7 +516,10 @@ async def _mark_task_failed(
                     await redis_queue.ack_task(task_id)  # Clean up from processing
                 else:
                     logger.warning(f"Task {task_id} failed transiently (attempt {retry_count}). NACKing to delayed queue.")
-                    await redis_queue.nack_task_to_delayed(task_id, delay_sec=15)
+                    await redis_queue.nack_task_to_delayed(
+                        task_id,
+                        delay_sec=max(15, int(retry_delay_sec or 15)),
+                    )
     except Exception as e:
         logger.error(f"Failed to mark task {task_id} as failed: {e}", exc_info=True)
 
@@ -846,6 +870,8 @@ async def _run_single_task(
         os.close(result_fd)
 
         payload = {
+            "runner_id": runner_id,
+            "task_id": task.id,
             "playbook_code": task.pack_id,
             "task_type": task.task_type or "playbook_execution",
             "tool_name": (ctx.get("tool_name") if isinstance(ctx, dict) else None),
@@ -1013,7 +1039,28 @@ async def _run_single_task(
             exitcode = await exec_task
             if exitcode != 0:
                 msg = _build_subprocess_failure_message(result_file, exitcode)
-                await _mark_task_failed(tasks_store, task.id, runner_id, msg, redis_queue)
+                resource_source = classify_subprocess_resource_failure(exitcode, msg)
+                resource_snapshot = None
+                retry_delay_sec = 15
+                if resource_source:
+                    retry_delay_sec = resource_failure_retry_delay_seconds()
+                    try:
+                        resource_snapshot = build_runner_resource_snapshot(
+                            profile_code=os.environ.get("LOCAL_CORE_RUNNER_PROFILE"),
+                            inflight=1,
+                        )
+                    except Exception:
+                        resource_snapshot = None
+                await _mark_task_failed(
+                    tasks_store,
+                    task.id,
+                    runner_id,
+                    msg,
+                    redis_queue,
+                    retry_delay_sec=retry_delay_sec,
+                    resource_pressure_source=resource_source,
+                    resource_snapshot=resource_snapshot,
+                )
             else:
                 await _mark_task_succeeded(tasks_store, task.id, runner_id, result_file, redis_queue)
     finally:
