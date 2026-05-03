@@ -197,6 +197,7 @@ class DbFallbackMixin:
                         result_future,
                         600.0,
                         context_label="db-consumer",
+                        ack_timeout_status="failed",
                     )
 
                     if consumer_result.get("status") != "timeout":

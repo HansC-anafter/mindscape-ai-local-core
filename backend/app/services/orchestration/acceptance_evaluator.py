@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-_PREVIEW_SUCCESS_STATUSES = {"completed", "preview_done", "succeeded", "success", "done"}
+_ACCEPTANCE_SUCCESS_STATUSES = {"completed", "succeeded", "success", "done"}
 
 
 @dataclass
@@ -278,41 +278,7 @@ class AcceptanceEvaluator:
         if isinstance(acceptance_evidence, dict) and acceptance_evidence:
             return dict(acceptance_evidence)
 
-        compatibility_evidence = parsed_output.get("pd_storyboard_evidence")
-        if isinstance(compatibility_evidence, dict) and compatibility_evidence:
-            normalized = dict(compatibility_evidence)
-            normalized.setdefault("evidence_kind", "storyboard_preview")
-            return normalized
-
-        resolved_outputs = parsed_output.get("resolved_outputs")
-        if not isinstance(resolved_outputs, dict):
-            return None
-        if not any(
-            key in resolved_outputs
-            for key in ("storyboard", "selected_scene_package_selector")
-        ):
-            return None
-
-        normalized = {"evidence_kind": "storyboard_preview"}
-        for field_name in (
-            "session_id",
-            "storyboard",
-            "storyboard_id",
-            "source_type",
-            "run_id",
-            "status",
-            "timeline_items_synced",
-            "selected_scene_package_selector",
-        ):
-            value = resolved_outputs.get(field_name)
-            if self._has_material_value(value):
-                normalized[field_name] = value
-
-        storyboard = normalized.get("storyboard")
-        if isinstance(storyboard, dict) and storyboard.get("storyboard_id"):
-            normalized.setdefault("storyboard_id", storyboard["storyboard_id"])
-
-        return normalized if len(normalized) > 1 else None
+        return None
 
     def _check_acceptance_evidence(
         self,
@@ -323,35 +289,22 @@ class AcceptanceEvaluator:
         if not evidence:
             return None
 
-        evidence_kind = str(evidence.get("evidence_kind") or "").strip() or "unknown"
-        if evidence_kind != "storyboard_preview":
-            return {
-                "test": "acceptance_evidence",
-                "passed": True,
-                "detail": f"unsupported evidence_kind={evidence_kind} (auto-pass)",
-            }
-
         missing_fields: List[str] = []
-        storyboard = evidence.get("storyboard")
-        storyboard_id = str(evidence.get("storyboard_id") or "").strip()
-        if not storyboard_id and isinstance(storyboard, dict):
-            storyboard_id = str(storyboard.get("storyboard_id") or "").strip()
-        if not storyboard_id:
-            missing_fields.append("storyboard_id")
-
-        for field_name in ("session_id", "run_id", "status"):
-            value = evidence.get(field_name)
-            if not isinstance(value, str) or not value.strip():
-                missing_fields.append(field_name)
+        evidence_kind = str(evidence.get("evidence_kind") or "").strip()
+        if not evidence_kind:
+            missing_fields.append("evidence_kind")
 
         status = str(evidence.get("status") or "").strip().lower()
-        timeline_items_synced = evidence.get("timeline_items_synced")
-        if status and status not in _PREVIEW_SUCCESS_STATUSES:
+        if not status:
+            missing_fields.append("status")
+        elif status not in _ACCEPTANCE_SUCCESS_STATUSES:
             missing_fields.append("terminal_success_status")
-        if not isinstance(timeline_items_synced, (int, float)) or isinstance(
-            timeline_items_synced, bool
-        ) or timeline_items_synced < 0:
-            missing_fields.append("timeline_items_synced")
+
+        if not any(
+            self._has_material_value(evidence.get(field_name))
+            for field_name in ("run_id", "artifact_id", "execution_id")
+        ):
+            missing_fields.append("run_id|artifact_id|execution_id")
 
         if missing_fields:
             return {
@@ -365,8 +318,8 @@ class AcceptanceEvaluator:
             "test": "acceptance_evidence",
             "passed": True,
             "detail": (
-                f"kind={evidence_kind} session={evidence['session_id']} "
-                f"storyboard={storyboard_id} run={evidence['run_id']} "
-                f"status={evidence['status']}"
+                f"kind={evidence_kind} status={evidence['status']} "
+                "locator="
+                f"{evidence.get('run_id') or evidence.get('artifact_id') or evidence.get('execution_id')}"
             ),
         }

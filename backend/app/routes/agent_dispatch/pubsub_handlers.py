@@ -6,6 +6,7 @@ Routes inbound worker-to-worker messages and relays WS activity
 origin worker.
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -18,6 +19,37 @@ logger = logging.getLogger(__name__)
 
 class PubSubHandlersMixin:
     """Mixin: pub/sub envelope routing and event handlers."""
+
+    async def _fail_pubsub_dispatch_if_unacked_after_deadline(
+        self,
+        *,
+        execution_id: str,
+        workspace_id: str,
+        origin_worker_id: str,
+        client_id: str,
+    ) -> None:
+        ack_deadline = max(0.05, float(getattr(self, "ACK_DEADLINE_SECONDS", 30.0)))
+        await asyncio.sleep(ack_deadline)
+
+        inflight = self._inflight.get(execution_id)
+        if not inflight or inflight.acked:
+            return
+
+        self._inflight.pop(execution_id, None)
+        await self._publish_pubsub_message(
+            origin_worker_id,
+            {
+                "type": "dispatch_failed",
+                "execution_id": execution_id,
+                "error": (
+                    f"Worker {self._ensure_worker_identity()} sent dispatch to "
+                    f"client {client_id} for workspace {workspace_id}, but no "
+                    f"client ACK arrived within {ack_deadline:.0f}s"
+                ),
+                "retry_transport": "db_polling",
+                "error_code": "agent_dispatch_ack_timeout",
+            },
+        )
 
     async def _relay_to_origin_worker(
         self,
@@ -106,13 +138,13 @@ class PubSubHandlersMixin:
 
         try:
             await client.websocket.send_text(json.dumps(payload))
-            await self._publish_pubsub_message(
-                origin_worker_id,
-                {
-                    "type": "dispatch_ack",
-                    "execution_id": execution_id,
-                    "client_id": client.client_id,
-                },
+            asyncio.create_task(
+                self._fail_pubsub_dispatch_if_unacked_after_deadline(
+                    execution_id=execution_id,
+                    workspace_id=workspace_id,
+                    origin_worker_id=origin_worker_id,
+                    client_id=client.client_id,
+                )
             )
             logger.info(
                 "[AgentWS] Pub/sub dispatched %s to local client %s " "(origin=%s)",

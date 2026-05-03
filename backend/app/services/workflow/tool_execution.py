@@ -68,7 +68,10 @@ def normalize_tool_result(
     tool_result: Any,
 ) -> Any:
     """Convert tool error payloads into workflow exceptions."""
-    if isinstance(tool_result, dict) and _is_error_status(tool_result.get("status")):
+    if isinstance(tool_result, dict) and (
+        _is_error_status(tool_result.get("status"))
+        or tool_result.get("success") is False
+    ):
         error_msg = tool_result.get("error", "Unknown tool error")
         if tool_result.get("recoverable"):
             raise RecoverableStepError(

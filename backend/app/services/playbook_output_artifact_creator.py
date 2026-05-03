@@ -144,6 +144,23 @@ def get_nested_value(data: Any, path: str) -> Any:
     return current
 
 
+def _serialize_artifact_file_content(source_data: Any) -> str:
+    if isinstance(source_data, dict):
+        data_to_write = source_data.get("content") if "content" in source_data else source_data
+    else:
+        data_to_write = source_data
+
+    if isinstance(data_to_write, str):
+        return data_to_write
+    if isinstance(data_to_write, bytes):
+        return data_to_write.decode("utf-8")
+    if isinstance(data_to_write, (dict, list)):
+        import json
+
+        return json.dumps(data_to_write, ensure_ascii=False, indent=2)
+    return str(data_to_write)
+
+
 class PlaybookOutputArtifactCreator:
     """Creates artifacts from playbook output_artifacts definitions"""
 
@@ -200,8 +217,8 @@ class PlaybookOutputArtifactCreator:
             ),
         }
 
-        logger.error(
-            f"🔍 create_artifacts_from_playbook_outputs: execution_context={execution_context}, sandbox_id={execution_context.get('sandbox_id') if execution_context else None}"
+        logger.debug(
+            f"create_artifacts_from_playbook_outputs: execution_context={execution_context}, sandbox_id={execution_context.get('sandbox_id') if execution_context else None}"
         )
         for artifact_def in output_artifacts:
             try:
@@ -496,7 +513,7 @@ class PlaybookOutputArtifactCreator:
             "file_name_template", "{{title}}.tsx"
         )
         logger.info(
-            f"🔍 _write_artifact_to_file: artifact.id={artifact.id}, "
+            f"_write_artifact_to_file: artifact.id={artifact.id}, "
             f"file_name_template='{file_name_template}', "
             f"artifact.title='{artifact.title}', "
             f"enhanced_context.artifact.title='{enhanced_context['artifact']['title']}', "
@@ -525,36 +542,19 @@ class PlaybookOutputArtifactCreator:
         if content_template:
             file_content = resolve_template(content_template, enhanced_context)
         else:
-            source_data = artifact.content
-            import json
-
-            # Handle different data structures
-            if isinstance(source_data, dict):
-                # If source_data has a 'content' key, use that; otherwise use the whole dict
-                if "content" in source_data:
-                    data_to_write = source_data["content"]
-                else:
-                    data_to_write = source_data
-                # Serialize to JSON with proper formatting
-                file_content = json.dumps(data_to_write, ensure_ascii=False, indent=2)
-            elif isinstance(source_data, list):
-                # Direct list - serialize as JSON array
-                file_content = json.dumps(source_data, ensure_ascii=False, indent=2)
-            else:
-                # Other types - convert to string
-                file_content = str(source_data)
+            file_content = _serialize_artifact_file_content(artifact.content)
 
         # Get encoding
         encoding = file_write_config.get("encoding", "utf-8")
 
         # Check if sandbox_id exists - if so, write to sandbox instead of artifacts directory
         sandbox_id = execution_context.get("sandbox_id") if execution_context else None
-        logger.error(
-            f"🔍 _write_artifact_to_file: sandbox_id={sandbox_id}, execution_context={execution_context}, artifact.id={artifact.id}"
+        logger.debug(
+            f"_write_artifact_to_file: sandbox_id={sandbox_id}, execution_context={execution_context}, artifact.id={artifact.id}"
         )
         if sandbox_id:
-            logger.error(
-                f"🔍 _write_artifact_to_file: Attempting to write to sandbox {sandbox_id}"
+            logger.debug(
+                f"_write_artifact_to_file: Attempting to write to sandbox {sandbox_id}"
             )
             try:
                 from backend.app.services.sandbox.sandbox_manager import SandboxManager
@@ -567,10 +567,10 @@ class PlaybookOutputArtifactCreator:
                 if sandbox:
                     # Write to sandbox using relative file path
                     logger.info(
-                        f"🔍 Writing file to sandbox {sandbox_id}: {relative_file_path}"
+                        f"Writing file to sandbox {sandbox_id}: {relative_file_path}"
                     )
                     success = await sandbox.write_file(relative_file_path, file_content)
-                    logger.info(f"🔍 sandbox.write_file result: success={success}")
+                    logger.info(f"sandbox.write_file result: success={success}")
                     if success:
                         # Get sandbox base path for actual_file_path
                         # Sandbox files are stored in storage.base_path / "current" / relative_file_path
@@ -750,7 +750,7 @@ class PlaybookOutputArtifactCreator:
         # Resolve file name template
         resolved_file_name = resolve_template(artifact_file_name, context)
         logger.info(
-            f"🔍 _resolve_storage_path: artifact_file_name='{artifact_file_name}', "
+            f"_resolve_storage_path: artifact_file_name='{artifact_file_name}', "
             f"resolved_file_name='{resolved_file_name}', "
             f"context.artifact.title='{context.get('artifact', {}).get('title')}', "
             f"context.title='{context.get('title')}'"
@@ -772,8 +772,7 @@ class PlaybookOutputArtifactCreator:
 
         elif playbook_scope in ("system", "tenant", "profile"):
             # Shared resource: use shared storage
-            # For Phase 1, we'll use a shared storage base path
-            # This should be configured via environment variable or system settings
+            # Shared resources use a configurable storage base path.
             shared_storage_base = os.getenv(
                 "SHARED_STORAGE_BASE_PATH",
                 "/app/data/shared",  # Default shared storage path
@@ -904,6 +903,10 @@ class PlaybookOutputArtifactCreator:
             Resolved value
         """
         if isinstance(value, dict):
+            if set(value.keys()) == {"value_from"} and isinstance(
+                value.get("value_from"), str
+            ):
+                return get_nested_value(context, value["value_from"])
             return {
                 k: self._resolve_metadata_recursive(v, context)
                 for k, v in value.items()

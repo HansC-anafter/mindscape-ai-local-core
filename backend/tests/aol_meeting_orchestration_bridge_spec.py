@@ -46,7 +46,7 @@ def _command() -> MeetingCommandRecord:
 @pytest.mark.asyncio
 async def test_bridge_projects_aol_refs_and_carries_guidance_metadata(monkeypatch):
     source_ref = _ref("ig", "reference", "ref_123")
-    target_ref = _ref("performance_direction", "storyboard", "pd_session_1")
+    target_ref = _ref("creative_direction", "storyboard", "storyboard_session_1")
     calls = []
 
     async def _fake_project_object_graph(request, workspace_id):
@@ -66,8 +66,8 @@ async def test_bridge_projects_aol_refs_and_carries_guidance_metadata(monkeypatc
                             id="graph-guidance",
                             title="Graph guidance",
                             metadata={
-                                "recommended_pack": "performance_direction",
-                                "recommended_playbook": "generate_reels_asset",
+                                "recommended_pack": "creative_direction",
+                                "recommended_playbook": "generate_review_asset",
                             },
                         )
                     ],
@@ -148,7 +148,7 @@ async def test_bridge_projects_aol_refs_and_carries_guidance_metadata(monkeypatc
     } >= {
         ("selected_pack_tool", "ig", "visual_audit"),
         ("selected_guidance", "ig", "visual_audit"),
-        ("graph_guidance", "performance_direction", "generate_reels_asset"),
+        ("graph_guidance", "creative_direction", "generate_review_asset"),
     }
     assert any(
         attachment.get("role") == "guidance"
@@ -156,6 +156,13 @@ async def test_bridge_projects_aol_refs_and_carries_guidance_metadata(monkeypatc
         for attachment in handoff.context_attachments
     )
     assert handoff.governance_constraints["addressable_object_layer"] == aol_metadata
+    assert handoff.playbook_requests is not None
+    assert handoff.playbook_requests[0]["playbook_code"] == "visual_audit"
+    assert handoff.playbook_requests[0]["request_contract_source"] == "requested_action"
+    assert (
+        handoff.playbook_requests[0]["input_params"]["addressable_object_layer"]
+        == aol_metadata
+    )
 
 
 @pytest.mark.asyncio
@@ -178,8 +185,8 @@ async def test_bridge_skips_graph_projection_when_only_guidance_metadata_is_sele
             metadata={
                 "selected_guidance_id": "guidance-only",
                 "selected_guidance_metadata": {
-                    "recommended_pack": "performance_direction",
-                    "recommended_playbook": "generate_reels_asset",
+                    "recommended_pack": "creative_direction",
+                    "recommended_playbook": "generate_review_asset",
                 },
             },
         ),
@@ -193,8 +200,8 @@ async def test_bridge_skips_graph_projection_when_only_guidance_metadata_is_sele
     assert aol_metadata["candidate_playbooks"] == [
         {
             "source": "selected_guidance",
-            "pack_code": "performance_direction",
-            "playbook_code": "generate_reels_asset",
+            "pack_code": "creative_direction",
+            "playbook_code": "generate_review_asset",
             "guidance_id": "guidance-only",
             "object_ref": {},
             "confidence": "hint",
@@ -202,3 +209,4 @@ async def test_bridge_skips_graph_projection_when_only_guidance_metadata_is_sele
         }
     ]
     assert handoff.context_attachments[0]["role"] == "guidance"
+    assert handoff.playbook_requests is None

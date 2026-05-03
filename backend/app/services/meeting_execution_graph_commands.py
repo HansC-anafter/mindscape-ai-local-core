@@ -86,6 +86,7 @@ def project_command_ledger_graph(
         )
         command_node_id = f"command-{_safe_id(command_id)}"
         metadata = _as_dict(getattr(command, "metadata", {}))
+        meeting_orchestration = _as_dict(metadata.get("meeting_orchestration"))
         action_plan_id = _read_string(metadata.get("action_plan_id"))
         if action_plan_id:
             projection.plan_command_node_ids[action_plan_id] = command_node_id
@@ -116,7 +117,17 @@ def project_command_ledger_graph(
                     "requested_action": requested_action,
                     "write_mode": getattr(command, "write_mode", None),
                     "ledger_status": ledger_status,
+                    "dispatch_status": metadata.get("dispatch_status"),
+                    "dispatch_mode": metadata.get("dispatch_mode"),
                     "accepted_task_id": getattr(command, "accepted_task_id", None),
+                    "meeting_orchestration": meeting_orchestration,
+                    "meeting_orchestration_status": meeting_orchestration.get("status"),
+                    "meeting_orchestration_error_code": meeting_orchestration.get("error_code"),
+                    "task_ir_id": meeting_orchestration.get("task_ir_id"),
+                    "artifact_landing_status": meeting_orchestration.get("artifact_landing_status"),
+                    "request_contract_aol_metadata": meeting_orchestration.get(
+                        "request_contract_aol_metadata"
+                    ),
                     "updated_at": getattr(command, "updated_at", None),
                     "projection_source": "command_ledger",
                 },

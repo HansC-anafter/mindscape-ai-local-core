@@ -44,6 +44,28 @@ def build_dispatch_payload(
     deliverable_targets = inputs.get("deliverable_targets")
     if not isinstance(deliverable_targets, list):
         deliverable_targets = []
+    aol_metadata = {}
+    for candidate in (
+        agent_cfg.get("addressable_object_layer"),
+        inputs.get("addressable_object_layer"),
+        (inputs.get("ir_provenance") or {}).get("addressable_object_layer")
+        if isinstance(inputs.get("ir_provenance"), dict)
+        else None,
+    ):
+        if isinstance(candidate, dict) and candidate:
+            aol_metadata = dict(candidate)
+            break
+    meeting_command_id = (
+        agent_cfg.get("meeting_command_id")
+        or agent_cfg.get("command_id")
+        or inputs.get("meeting_command_id")
+        or inputs.get("command_id")
+        or aol_metadata.get("command_id")
+    )
+    if isinstance(meeting_command_id, str):
+        meeting_command_id = meeting_command_id.strip()
+    else:
+        meeting_command_id = ""
 
     payload = {
         "execution_id": execution_id,
@@ -63,6 +85,7 @@ def build_dispatch_payload(
             "conversation_context": agent_cfg.get("conversation_context", ""),
             "thread_id": agent_cfg.get("thread_id", ""),
             "meeting_session_id": agent_cfg.get("meeting_session_id", ""),
+            "meeting_command_id": meeting_command_id,
             "uploaded_files": agent_cfg.get("uploaded_files", []),
             "recommended_pack_codes": agent_cfg.get("recommended_pack_codes", []),
             "file_hint": agent_cfg.get("file_hint", ""),
@@ -99,6 +122,15 @@ def build_dispatch_payload(
         payload["meeting_session_id"] = cleaned_session_id
         payload["context"]["meeting_session_id"] = cleaned_session_id
         payload["metadata"]["meeting_session_id"] = cleaned_session_id
+
+    if meeting_command_id:
+        payload["meeting_command_id"] = meeting_command_id
+        payload["context"]["meeting_command_id"] = meeting_command_id
+        payload["metadata"]["meeting_command_id"] = meeting_command_id
+        payload["metadata"]["command_id"] = meeting_command_id
+    if aol_metadata:
+        payload["context"]["addressable_object_layer"] = aol_metadata
+        payload["metadata"]["addressable_object_layer"] = aol_metadata
 
     return payload
 

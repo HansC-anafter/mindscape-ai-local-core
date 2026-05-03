@@ -275,9 +275,6 @@ class TaskResultLandingService:
             result_json=result_json if isinstance(result_json, dict) else {},
             task=task,
         )
-        pd_storyboard_evidence = self._extract_pd_storyboard_evidence(
-            acceptance_evidence=acceptance_evidence,
-        )
         workflow_failure = self._extract_workflow_failure(
             result_data=result_data,
             execution_context=execution_context,
@@ -317,11 +314,10 @@ class TaskResultLandingService:
                     existing_metadata=getattr(existing, "metadata", None),
                     project_id=project_id,
                     has_attachments=len(written_attachments) > 0,
-                    landing_metadata=landing_metadata,
-                    deliverable_identity=deliverable_identity,
-                    acceptance_evidence=acceptance_evidence,
-                    pd_storyboard_evidence=pd_storyboard_evidence,
-                )
+                        landing_metadata=landing_metadata,
+                        deliverable_identity=deliverable_identity,
+                        acceptance_evidence=acceptance_evidence,
+                    )
                 update_kwargs = {
                     "summary": summary[:2000] if summary else existing.summary,
                     "metadata": updated_metadata,
@@ -355,7 +351,6 @@ class TaskResultLandingService:
                         landing_metadata=landing_metadata,
                         deliverable_identity=deliverable_identity,
                         acceptance_evidence=acceptance_evidence,
-                        pd_storyboard_evidence=pd_storyboard_evidence,
                     ),
                 )
                 self._artifacts_store.create_artifact(artifact)
@@ -387,7 +382,6 @@ class TaskResultLandingService:
                         landing_metadata=landing_metadata,
                         deliverable_identity=deliverable_identity,
                         acceptance_evidence=acceptance_evidence,
-                        pd_storyboard_evidence=pd_storyboard_evidence,
                     ),
                     completed_at=landed_at,
                     error=workflow_failure,
@@ -947,7 +941,6 @@ class TaskResultLandingService:
         landing_metadata: Dict[str, Any],
         deliverable_identity: Dict[str, Any],
         acceptance_evidence: Dict[str, Any],
-        pd_storyboard_evidence: Dict[str, Any],
     ) -> Dict[str, Any]:
         metadata = dict(existing_metadata or {})
         metadata["source"] = metadata.get("source") or "task_runner"
@@ -975,8 +968,6 @@ class TaskResultLandingService:
             metadata["attachment_filenames"] = list(attachment_filenames)
         if acceptance_evidence:
             metadata["acceptance_evidence"] = dict(acceptance_evidence)
-        if pd_storyboard_evidence:
-            metadata["pd_storyboard_evidence"] = dict(pd_storyboard_evidence)
         return metadata
 
     @staticmethod
@@ -991,7 +982,6 @@ class TaskResultLandingService:
         landing_metadata: Dict[str, Any],
         deliverable_identity: Dict[str, Any],
         acceptance_evidence: Dict[str, Any],
-        pd_storyboard_evidence: Dict[str, Any],
     ) -> Dict[str, Any]:
         result_payload = dict(existing_result or {})
         result_payload.update(
@@ -1021,8 +1011,6 @@ class TaskResultLandingService:
             result_payload["attachment_filenames"] = list(attachment_filenames)
         if acceptance_evidence:
             result_payload["acceptance_evidence"] = dict(acceptance_evidence)
-        if pd_storyboard_evidence:
-            result_payload["pd_storyboard_evidence"] = dict(pd_storyboard_evidence)
         return result_payload
 
     @staticmethod
@@ -1057,22 +1045,6 @@ class TaskResultLandingService:
                 if TaskResultLandingService._has_material_value(value):
                     return value
         return None
-
-    @staticmethod
-    def _summarize_storyboard(storyboard: Any) -> Optional[Dict[str, Any]]:
-        if not isinstance(storyboard, dict) or not storyboard:
-            return None
-        scenes = storyboard.get("scenes")
-        summary = {
-            "storyboard_id": str(storyboard.get("storyboard_id") or "").strip(),
-            "workspace_id": str(storyboard.get("workspace_id") or "").strip(),
-            "scene_count": len(scenes) if isinstance(scenes, list) else 0,
-        }
-        return {
-            key: value
-            for key, value in summary.items()
-            if value not in ("", None)
-        }
 
     @staticmethod
     def _extract_acceptance_evidence(
@@ -1110,104 +1082,20 @@ class TaskResultLandingService:
             task_result if isinstance(task_result, dict) else {},
             task_metadata if isinstance(task_metadata, dict) else {},
         ]
-        playbook_code = (
-            task_pack_id
-            or str(
-                TaskResultLandingService._first_nested_value(
-                    roots,
-                    [
-                        "playbook_code",
-                        "metadata.playbook_code",
-                        "execution.playbook_code",
-                    ],
-                )
-                or ""
-            ).strip()
-        )
-        evidence: Dict[str, Any] = {"evidence_kind": "storyboard_preview"}
-        if playbook_code:
-            evidence["playbook_code"] = playbook_code
-        session_id = TaskResultLandingService._first_nested_value(
+        evidence = TaskResultLandingService._first_nested_value(
             roots,
             [
-                "outputs.session_id",
-                "session_id",
-                "metadata.inputs.session_id",
-                "context.inputs.session_id",
+                "outputs.acceptance_evidence",
+                "acceptance_evidence",
+                "metadata.acceptance_evidence",
             ],
         )
-        if isinstance(session_id, str) and session_id.strip():
-            evidence["session_id"] = session_id.strip()
-
-        storyboard = TaskResultLandingService._first_nested_value(
-            roots,
-            [
-                "outputs.storyboard",
-                "storyboard",
-                "step.generate_storyboard.storyboard",
-            ],
-        )
-        storyboard_summary = TaskResultLandingService._summarize_storyboard(storyboard)
-        if storyboard_summary:
-            evidence["storyboard"] = storyboard_summary
-            storyboard_id = str(storyboard_summary.get("storyboard_id") or "").strip()
-            if storyboard_id:
-                evidence["storyboard_id"] = storyboard_id
-
-        for field_name, paths in (
-            ("source_type", ["outputs.source_type", "source_type", "step.generate_storyboard.source_type"]),
-            ("run_id", ["outputs.run_id", "run_id", "step.execute_storyboard_preview.run_id"]),
-            ("status", ["outputs.status", "status", "step.execute_storyboard_preview.status"]),
-            (
-                "timeline_items_synced",
-                [
-                    "outputs.timeline_items_synced",
-                    "timeline_items_synced",
-                    "step.execute_storyboard_preview.timeline_items_synced",
-                ],
-            ),
-            (
-                "selected_scene_package_selector",
-                [
-                    "outputs.selected_scene_package_selector",
-                    "selected_scene_package_selector",
-                    "step.resolve_scene_package_selector.selected_scene_package_selector",
-                ],
-            ),
-        ):
-            value = TaskResultLandingService._first_nested_value(roots, paths)
-            if not TaskResultLandingService._has_material_value(value):
-                continue
-            evidence[field_name] = value
-
-        return (
-            evidence
-            if any(
-                key in evidence
-                for key in (
-                    "storyboard_id",
-                    "run_id",
-                    "status",
-                    "selected_scene_package_selector",
-                )
-            )
-            else {}
-        )
-
-    @staticmethod
-    def _extract_pd_storyboard_evidence(
-        *,
-        acceptance_evidence: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        if not isinstance(acceptance_evidence, dict) or not acceptance_evidence:
+        if not isinstance(evidence, dict) or not evidence:
             return {}
-        if acceptance_evidence.get("evidence_kind") != "storyboard_preview":
-            return {}
-        return {
-            key: value
-            for key, value in acceptance_evidence.items()
-            if key != "evidence_kind"
-        }
+        evidence = dict(evidence)
+        if task_pack_id and not evidence.get("playbook_code"):
+            evidence["playbook_code"] = task_pack_id
+        return evidence
 
     @staticmethod
     def _extract_workflow_failure(

@@ -320,6 +320,13 @@ class MeetingEngine(
         # S2: Playbook cache + RequestContract compile
         await self._stage_compile_contract(user_message, handoff_in=handoff_in)
 
+        direct_result = await self._stage_explicit_playbook_direct_dispatch(
+            user_message=user_message,
+            handoff_in=handoff_in,
+        )
+        if direct_result is not None:
+            return direct_result
+
         # S3: Multi-round deliberation
         decision, planner_proposals, critic_notes, converged = (
             await self._stage_deliberation(user_message)
@@ -361,6 +368,76 @@ class MeetingEngine(
     # ------------------------------------------------------------------ #
     # Pipeline stage methods (extracted from run())                        #
     # ------------------------------------------------------------------ #
+
+    async def _stage_explicit_playbook_direct_dispatch(
+        self,
+        *,
+        user_message: str,
+        handoff_in: Optional[Any] = None,
+    ) -> Optional[MeetingResult]:
+        """Dispatch explicit requested-action playbooks without a planner turn."""
+        direct_requests = self._explicit_requested_action_playbook_requests()
+        if not direct_requests:
+            return None
+
+        if self.session.metadata is None:
+            self.session.metadata = {}
+        self.session.metadata["explicit_playbook_direct_dispatch"] = {
+            "source": "requested_action",
+            "playbook_codes": [
+                item.get("playbook_code")
+                for item in direct_requests
+                if item.get("playbook_code")
+            ],
+        }
+
+        self._start_session()
+        decision = self._render_explicit_playbook_direct_decision(direct_requests)
+        action_intents, action_items = self._stage_policy_gate_and_emit(
+            action_items=[],
+            action_intents=[],
+        )
+        compiled_ir, dispatch_result = await self._stage_decompose_and_dispatch(
+            decision=decision,
+            action_intents=action_intents,
+            action_items=action_items,
+            handoff_in=handoff_in,
+        )
+        return self._stage_finalize(
+            user_message=user_message,
+            decision=decision,
+            critic_notes=[],
+            action_items=action_items,
+            converged=True,
+            compiled_ir=compiled_ir,
+            dispatch_result=dispatch_result,
+        )
+
+    def _explicit_requested_action_playbook_requests(self) -> List[Dict[str, Any]]:
+        contract = self._get_request_contract_metadata()
+        requests = self._extract_request_contract_playbook_requests(contract)
+        return [
+            item
+            for item in requests
+            if str(item.get("request_contract_source") or "").strip()
+            == "requested_action"
+        ]
+
+    @staticmethod
+    def _render_explicit_playbook_direct_decision(
+        requests: List[Dict[str, Any]],
+    ) -> str:
+        playbook_codes = [
+            str(item.get("playbook_code") or "").strip()
+            for item in requests
+            if str(item.get("playbook_code") or "").strip()
+        ]
+        if not playbook_codes:
+            return "Execute the explicit requested playbook route."
+        return (
+            "Execute explicit requested playbook route(s): "
+            + ", ".join(playbook_codes)
+        )
 
     async def _stage_agenda_and_rag(self, user_message: str) -> None:
         """S1: Agenda decomposition + RAG tool pre-fetch."""

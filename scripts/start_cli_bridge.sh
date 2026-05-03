@@ -32,6 +32,14 @@ SURFACE="${MINDSCAPE_SURFACE:-gemini_cli}"
 ALL_MODE=false
 CURL_CONNECT_TIMEOUT="${MINDSCAPE_BRIDGE_CURL_CONNECT_TIMEOUT:-3}"
 CURL_MAX_TIME="${MINDSCAPE_BRIDGE_CURL_MAX_TIME:-5}"
+WORKSPACE_REMOVAL_GRACE_POLLS="${MINDSCAPE_BRIDGE_WORKSPACE_REMOVAL_GRACE_POLLS:-12}"
+PINNED_WORKSPACE_IDS="${MINDSCAPE_BRIDGE_PINNED_WORKSPACE_IDS:-${MINDSCAPE_WORKSPACE_ID:-}}"
+
+case "$WORKSPACE_REMOVAL_GRACE_POLLS" in
+    ''|*[!0-9]*)
+        WORKSPACE_REMOVAL_GRACE_POLLS=12
+        ;;
+esac
 
 # Colors
 RED='\033[0;31m'
@@ -417,6 +425,10 @@ if [[ "$ALL_MODE" == "true" ]]; then
     log_info "Starting bridge with workspace watcher..."
     log_info "Surface:   $SURFACE"
     log_info "Runtime:   ${MINDSCAPE_CLI_RUNTIME_CMD:-${GEMINI_CLI_RUNTIME_CMD:-surface-native}}"
+    log_info "Removal grace polls: $WORKSPACE_REMOVAL_GRACE_POLLS"
+    if [[ -n "$PINNED_WORKSPACE_IDS" ]]; then
+        log_info "Pinned workspace ids: $PINNED_WORKSPACE_IDS"
+    fi
     echo ""
     log_info "Press Ctrl+C to stop all bridges"
     echo ""
@@ -424,6 +436,8 @@ if [[ "$ALL_MODE" == "true" ]]; then
     # Indexed arrays for macOS bash 3.2 compatibility (no associative arrays)
     RUNNING_WS_IDS=()
     RUNNING_PIDS=()
+    MISSING_WS_IDS=()
+    MISSING_COUNTS=()
 
     # Helper: find index of a workspace ID in RUNNING_WS_IDS
     find_ws_index() {
@@ -436,6 +450,61 @@ if [[ "$ALL_MODE" == "true" ]]; then
             fi
         done
         echo "-1"
+        return 0
+    }
+
+    find_missing_index() {
+        local target="$1"
+        local i
+        for i in "${!MISSING_WS_IDS[@]}"; do
+            if [[ "${MISSING_WS_IDS[$i]}" == "$target" ]]; then
+                echo "$i"
+                return 0
+            fi
+        done
+        echo "-1"
+        return 0
+    }
+
+    clear_missing_count() {
+        local ws_id="$1"
+        local idx
+        idx="$(find_missing_index "$ws_id" 2>/dev/null || echo "-1")"
+        if [[ "$idx" == "-1" ]]; then
+            return 0
+        fi
+        unset 'MISSING_WS_IDS['"$idx"']'
+        unset 'MISSING_COUNTS['"$idx"']'
+        MISSING_WS_IDS=("${MISSING_WS_IDS[@]}")
+        MISSING_COUNTS=("${MISSING_COUNTS[@]}")
+    }
+
+    increment_missing_count() {
+        local ws_id="$1"
+        local idx
+        local count
+        idx="$(find_missing_index "$ws_id" 2>/dev/null || echo "-1")"
+        if [[ "$idx" == "-1" ]]; then
+            MISSING_WS_IDS+=("$ws_id")
+            MISSING_COUNTS+=(1)
+            echo "1"
+            return 0
+        fi
+        count="${MISSING_COUNTS[$idx]:-0}"
+        count=$((count + 1))
+        MISSING_COUNTS[$idx]="$count"
+        echo "$count"
+    }
+
+    workspace_is_pinned() {
+        local ws_id="$1"
+        local pinned
+        local pinned_csv="${PINNED_WORKSPACE_IDS//,/ }"
+        for pinned in $pinned_csv; do
+            if [[ "$pinned" == "$ws_id" ]]; then
+                return 0
+            fi
+        done
         return 1
     }
 
@@ -525,6 +594,7 @@ if [[ "$ALL_MODE" == "true" ]]; then
         # 3. Spawn bridges for NEW workspaces
         while IFS= read -r ws_id; do
             [[ -z "$ws_id" ]] && continue
+            clear_missing_count "$ws_id"
             idx=$(find_ws_index "$ws_id" 2>/dev/null || echo "-1")
             if [[ "$idx" == "-1" ]]; then
                 log_info "New workspace discovered: $ws_id"
@@ -537,6 +607,15 @@ if [[ "$ALL_MODE" == "true" ]]; then
         for i in "${!RUNNING_WS_IDS[@]}"; do
             local_ws="${RUNNING_WS_IDS[$i]}"
             if ! echo "$CURRENT_WS_IDS" | grep -q "^${local_ws}$"; then
+                if workspace_is_pinned "$local_ws"; then
+                    log_warn "Workspace $local_ws missing from workspace list but pinned; keeping bridge PID ${RUNNING_PIDS[$i]}"
+                    continue
+                fi
+                missing_count="$(increment_missing_count "$local_ws")"
+                if [[ "$missing_count" -lt "$WORKSPACE_REMOVAL_GRACE_POLLS" ]]; then
+                    log_warn "Workspace $local_ws missing from workspace list ($missing_count/$WORKSPACE_REMOVAL_GRACE_POLLS); keeping bridge PID ${RUNNING_PIDS[$i]}"
+                    continue
+                fi
                 REMOVE_INDICES+=("$i")
             fi
         done
@@ -544,6 +623,7 @@ if [[ "$ALL_MODE" == "true" ]]; then
             for i in "${REMOVE_INDICES[@]}"; do
                 log_info "Workspace removed: ${RUNNING_WS_IDS[$i]}, stopping bridge PID ${RUNNING_PIDS[$i]}"
                 kill "${RUNNING_PIDS[$i]}" 2>/dev/null || true
+                clear_missing_count "${RUNNING_WS_IDS[$i]}"
                 unset 'RUNNING_PIDS['"$i"']'
                 unset 'RUNNING_WS_IDS['"$i"']'
             done

@@ -577,6 +577,25 @@ class MessageHandlersMixin:
             )
 
         try:
+            from backend.app.services.meeting_command_status_sync import (
+                sync_meeting_command_from_agent_result,
+            )
+
+            await asyncio.to_thread(
+                sync_meeting_command_from_agent_result,
+                execution_id=execution_id,
+                result=result,
+                governance_result=governance_result,
+                status=result_status,
+            )
+        except Exception:
+            logger.debug(
+                "[AgentWS] Meeting command late-result sync skipped for %s",
+                execution_id,
+                exc_info=True,
+            )
+
+        try:
             meeting_session_id = self._resolve_meeting_session_id_for_result(
                 persisted_task=persisted_task,
                 inflight=inflight,

@@ -190,6 +190,74 @@ async def test_pubsub_disconnect_falls_back_to_db_transport():
 
 
 @pytest.mark.asyncio
+async def test_pubsub_dispatch_waits_for_real_client_ack_before_considering_active():
+    origin = AgentDispatchManager()
+    owner = AgentDispatchManager()
+    _wire_pubsub(origin, owner)
+    origin.ACK_DEADLINE_SECONDS = 0.01
+    origin.WAIT_SLICE_SECONDS = 0.01
+    owner.ACK_DEADLINE_SECONDS = 0.01
+    owner.WAIT_SLICE_SECONDS = 0.01
+
+    websocket = _FakeWebSocket()
+    client = AgentClient(
+        websocket=websocket,
+        client_id="client-1",
+        workspace_id="ws-1",
+        surface_type="codex_cli",
+        authenticated=True,
+    )
+    owner._clients["ws-1"]["client-1"] = client
+
+    origin._db_get_dispatch_target = lambda workspace_id, client_id=None, surface_type=None: {
+        "workspace_id": workspace_id,
+        "client_id": "client-1",
+        "worker_instance_id": "owner-worker",
+        "worker_pid": 200,
+        "surface_type": "codex_cli",
+    }
+
+    fallback_calls = []
+
+    async def fake_db_fallback(
+        workspace_id: str,
+        message,
+        execution_id: str,
+        timeout: float = 600.0,
+    ):
+        fallback_calls.append((workspace_id, execution_id))
+        return {
+            "execution_id": execution_id,
+            "status": "completed",
+            "output": "db-fallback-after-missing-client-ack",
+        }
+
+    origin._cross_worker_dispatch_via_db = fake_db_fallback
+
+    dispatch_task = asyncio.create_task(
+        origin.dispatch_and_wait(
+            workspace_id="ws-1",
+            message={
+                "type": "dispatch",
+                "workspace_id": "ws-1",
+                "agent_id": "codex_cli",
+                "task": "requires real client ack",
+            },
+            execution_id="exec-missing-client-ack",
+            timeout=1.0,
+        )
+    )
+
+    await _wait_until(lambda: bool(websocket.messages))
+    result = await dispatch_task
+
+    assert result["status"] == "completed"
+    assert result["output"] == "db-fallback-after-missing-client-ack"
+    assert fallback_calls == [("ws-1", "exec-missing-client-ack")]
+    assert "exec-missing-client-ack" not in owner._inflight
+
+
+@pytest.mark.asyncio
 async def test_local_ack_timeout_evicts_stale_client_and_retries_shared_transport():
     manager = AgentDispatchManager()
     manager.ACK_DEADLINE_SECONDS = 0.01

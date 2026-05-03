@@ -209,6 +209,17 @@ class PostgresArtifactsStore(PostgresStoreBase):
                 return None
             return self._row_to_artifact(row)
 
+    def list_by_execution_id(self, execution_id: str) -> List[Artifact]:
+        """List all artifacts for an execution_id, ordered by most recent first."""
+        with self.get_connection() as conn:
+            query = text(
+                "SELECT * FROM artifacts WHERE execution_id = :execution_id "
+                "ORDER BY updated_at DESC"
+            )
+            result = conn.execute(query, {"execution_id": execution_id})
+            rows = result.fetchall()
+            return [self._row_to_artifact(row) for row in rows]
+
     def list_artifacts_by_workspace(
         self, workspace_id: str, limit: Optional[int] = None, offset: int = 0
     ) -> List[Artifact]:

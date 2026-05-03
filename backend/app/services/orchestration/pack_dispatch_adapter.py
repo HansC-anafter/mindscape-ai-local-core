@@ -255,9 +255,6 @@ class PackDispatchAdapter:
         )
         if acceptance_evidence:
             sidecar["acceptance_evidence"] = acceptance_evidence
-        pd_storyboard_evidence = self._build_pd_storyboard_evidence(acceptance_evidence)
-        if pd_storyboard_evidence:
-            sidecar["pd_storyboard_evidence"] = pd_storyboard_evidence
 
         logger.debug(
             "PackDispatchAdapter.parse_result: playbook=%s hash=%s",
@@ -444,37 +441,16 @@ class PackDispatchAdapter:
         """Reduce resolved output values into provenance-safe summaries."""
         if not PackDispatchAdapter._has_material_value(value):
             return None
-        if output_name == "storyboard" and isinstance(value, dict):
-            scenes = value.get("scenes")
-            return {
-                "storyboard_id": str(value.get("storyboard_id") or "").strip(),
-                "workspace_id": str(value.get("workspace_id") or "").strip(),
-                "scene_count": len(scenes) if isinstance(scenes, list) else 0,
-            }
-        if output_name == "selected_scene_package_selector" and isinstance(value, dict):
-            return {
-                field_name: value[field_name]
-                for field_name in (
-                    "artifact_id",
-                    "package_id",
-                    "scene_scope",
-                    "variant_id",
-                    "provider",
-                    "generation_mode",
-                    "status",
-                )
-                if value.get(field_name) not in (None, "", [], {})
-            }
+        if output_name == "acceptance_evidence" and isinstance(value, dict):
+            return dict(value)
         if isinstance(value, dict):
             filtered = {
                 field_name: value[field_name]
                 for field_name in (
                     "session_id",
-                    "storyboard_id",
                     "run_id",
                     "status",
                     "source_type",
-                    "timeline_items_synced",
                 )
                 if value.get(field_name) not in (None, "", [], {})
             }
@@ -497,78 +473,24 @@ class PackDispatchAdapter:
             if isinstance(resolved_outputs, dict)
             else {}
         )
-        evidence: Dict[str, Any] = {
-            "evidence_kind": "storyboard_preview",
-        }
-        if playbook_code:
-            evidence["playbook_code"] = playbook_code
-
-        evidence_indicators = {
-            key
-            for key in ("storyboard", "selected_scene_package_selector", "run_id", "status")
-            if PackDispatchAdapter._has_material_value(resolved_outputs.get(key))
-        }
-        if not evidence_indicators:
-            return {}
-
-        session_id = resolved_outputs.get("session_id")
-        if not isinstance(session_id, str) or not session_id.strip():
-            session_id = PackDispatchAdapter._first_value(
+        direct = resolved_outputs.get("acceptance_evidence")
+        if isinstance(direct, dict) and direct:
+            evidence = dict(direct)
+        else:
+            direct = PackDispatchAdapter._first_value(
                 result_data,
                 [
-                    "outputs.session_id",
-                    "session_id",
-                    "metadata.inputs.session_id",
-                    "context.inputs.session_id",
+                    "outputs.acceptance_evidence",
+                    "acceptance_evidence",
+                    "metadata.acceptance_evidence",
+                    "result_json.outputs.acceptance_evidence",
+                    "result_json.acceptance_evidence",
                 ],
             )
-        if isinstance(session_id, str) and session_id.strip():
-            evidence["session_id"] = session_id.strip()
-
-        storyboard_summary = resolved_outputs.get("storyboard")
-        if isinstance(storyboard_summary, dict) and storyboard_summary:
-            evidence["storyboard"] = storyboard_summary
-            storyboard_id = str(storyboard_summary.get("storyboard_id") or "").strip()
-            if storyboard_id:
-                evidence["storyboard_id"] = storyboard_id
-
-        source_type = resolved_outputs.get("source_type")
-        if isinstance(source_type, str) and source_type.strip():
-            evidence["source_type"] = source_type.strip()
-
-        run_id = resolved_outputs.get("run_id")
-        if isinstance(run_id, str) and run_id.strip():
-            evidence["run_id"] = run_id.strip()
-
-        status = resolved_outputs.get("status")
-        if isinstance(status, str) and status.strip():
-            evidence["status"] = status.strip()
-
-        timeline_items_synced = resolved_outputs.get("timeline_items_synced")
-        if isinstance(timeline_items_synced, (int, float)) and not isinstance(
-            timeline_items_synced, bool
-        ):
-            evidence["timeline_items_synced"] = timeline_items_synced
-
-        selector_summary = resolved_outputs.get("selected_scene_package_selector")
-        if isinstance(selector_summary, dict) and selector_summary:
-            evidence["selected_scene_package_selector"] = selector_summary
-
+            evidence = dict(direct) if isinstance(direct, dict) and direct else {}
+        if evidence and playbook_code and not evidence.get("playbook_code"):
+            evidence["playbook_code"] = playbook_code
         return evidence
-
-    @staticmethod
-    def _build_pd_storyboard_evidence(
-        acceptance_evidence: Optional[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        if not isinstance(acceptance_evidence, dict) or not acceptance_evidence:
-            return {}
-        if acceptance_evidence.get("evidence_kind") != "storyboard_preview":
-            return {}
-        return {
-            key: value
-            for key, value in acceptance_evidence.items()
-            if key != "evidence_kind"
-        }
 
     @staticmethod
     def _first_value(data: Dict[str, Any], paths: List[str]) -> Any:

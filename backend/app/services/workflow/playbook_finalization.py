@@ -68,6 +68,7 @@ async def load_playbook_metadata(
     except Exception as exc:
         logger.warning("Failed to load output_artifacts from JSON file: %s", exc)
 
+    playbook_metadata.setdefault("playbook_code", playbook_code)
     return playbook_metadata
 
 
@@ -80,6 +81,8 @@ async def maybe_create_output_artifacts(
     execution_id: Optional[str],
     workspace_id: Optional[str],
     sandbox_id: Optional[str],
+    thread_id: Optional[str] = None,
+    task_id: Optional[str] = None,
     load_playbook_metadata_fn: Optional[Callable[..., Awaitable[Dict[str, Any]]]] = None,
     create_artifacts_fn: Optional[Callable[..., Awaitable[Any]]] = None,
 ) -> None:
@@ -113,6 +116,15 @@ async def maybe_create_output_artifacts(
             create_artifacts_fn = artifact_creator.create_artifacts_from_playbook_outputs
 
         execution_context = {"execution_id": execution_id}
+        resolved_thread_id = thread_id
+        if not resolved_thread_id and isinstance(playbook_inputs, dict):
+            resolved_thread_id = playbook_inputs.get(
+                "meeting_session_id"
+            ) or playbook_inputs.get("thread_id")
+        if resolved_thread_id:
+            execution_context["thread_id"] = resolved_thread_id
+        if task_id:
+            execution_context["task_id"] = task_id
         if sandbox_id:
             execution_context["sandbox_id"] = sandbox_id
             logger.info(
@@ -244,6 +256,15 @@ async def finalize_playbook_execution(
     update_task_execution_context_fn: Optional[Callable[..., bool]] = None,
 ) -> Dict[str, Any]:
     """Run completion-time side effects and build the final result."""
+    artifact_thread_id = None
+    artifact_task_id = None
+    if isinstance(playbook_inputs, dict):
+        artifact_thread_id = playbook_inputs.get("meeting_session_id") or playbook_inputs.get(
+            "thread_id"
+        )
+        artifact_task_id = playbook_inputs.get("task_id") or playbook_inputs.get(
+            "task_ir_id"
+        )
     await maybe_create_output_artifacts(
         store=store,
         playbook_json=playbook_json,
@@ -252,6 +273,8 @@ async def finalize_playbook_execution(
         execution_id=execution_id,
         workspace_id=workspace_id,
         sandbox_id=sandbox_id,
+        thread_id=artifact_thread_id,
+        task_id=artifact_task_id,
         load_playbook_metadata_fn=load_playbook_metadata_fn,
         create_artifacts_fn=create_artifacts_fn,
     )

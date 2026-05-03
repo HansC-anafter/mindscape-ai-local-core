@@ -217,6 +217,10 @@ class PlaybookJson(BaseModel):
     outputs: Dict[str, PlaybookOutput] = Field(
         ..., description="Playbook output definitions"
     )
+    output_artifacts: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Optional artifact materialization definitions for workflow outputs.",
+    )
     execution_profile: Optional[Dict[str, Any]] = Field(
         None,
         description="Execution profile for runtime selection.",

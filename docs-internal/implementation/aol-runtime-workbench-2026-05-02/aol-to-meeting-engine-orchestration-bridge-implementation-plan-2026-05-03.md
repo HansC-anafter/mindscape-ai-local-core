@@ -13,11 +13,19 @@
 
 | Gate | 計劃列入 | 目前已實作 | 完成驗收證據 |
 |---|---:|---:|---|
-| 跨 pack object refs → MeetingEngine → downstream artifact/proposal E2E：`@owner.kind:{sourceA}`、`@owner.kind:{sourceB}` 進 `route_meeting_orchestration`，由 `MeetingEngine.run()` 產生 TaskIR 與 pack dispatch | true | true | Source implementation and targeted tests pass. Live installed-pack E2E still requires runtime readiness: `GET /health` is degraded and `GET /api/v1/capability-packs/` timed out on 2026-05-03. Do not claim IG refs → PD storyboard completed until API/DB evidence exists. |
-| Pack-owned object discussion → MeetingEngine guidance E2E：`@owner.kind:{object_id}` 進 `route_meeting_orchestration`，由 MeetingEngine 產生 guidance/action/review 節點 | true | true | Source implementation and frontend/backend targeted tests pass. Live graph/ledger/session notification evidence must still be captured on a ready runtime. PD scene discussion remains an installed-pack validation fixture, not a local-core enum. |
-| 資產入庫：storyboard/proposal/artifact 必須寫入 artifacts DB，而不是只存在 pack response 或前端 fixture | true | false | `PostgresArtifactsStore.create_artifact()` 或既有 artifact creation path 寫入 `artifacts` row；`GET /api/v1/workspaces/{workspace_id}/artifacts?thread_id={meeting_id}` 能查到對應 artifact |
-| 資產入檔：artifact 必須帶可解析 file path，而不是只在 DB metadata 放空殼 | true | false | artifact response 的 `file_path` 來自 `metadata.actual_file_path`、`metadata.file_path` 或 `storage_ref`，且 runtime verification 必須證明該檔案存在 |
-| UX/UI 編排補全：AOL runtime graph 繼承既有 Workbench 骨架，但必須補出 MeetingEngine 編排狀態，不得只沿用 direct dispatch UI | true | true | Command Dock now sends `route_meeting_orchestration` for AOL refs / selected pack / selected guidance, carries guidance metadata, and handles `dispatch_result.meeting_orchestration` without route-owned false failure. Full graph/inspector proof for `Intent -> Context Attachments -> RequestContract -> ActionIntent -> TaskIR -> Dispatch -> Artifact/Proposal -> Review/Next` still needs live runtime evidence. |
+| 跨 pack object refs → MeetingEngine → downstream dispatch transport：`@owner.kind:{sourceA}`、`@owner.kind:{sourceB}` 進 `route_meeting_orchestration`，由 `MeetingEngine.run()` 產生 TaskIR 與 pack dispatch | true | true | Fresh post-restart E2E `cmd_aol_real_e2e_files_20260504_021_tasklineage` proves selected IG refs enter `route_meeting_orchestration`, MeetingEngine persists request-contract AOL metadata, produces TaskIR `task_f385ff20d3364399`, dispatches `performance_direction/pd_storyboard_gen`, and returns `artifact_landing_status=landed` with three concrete output file paths. Evidence file: `docs-internal/implementation/aol-runtime-workbench-2026-05-02/aol-real-file-e2e-evidence-2026-05-04.md`. |
+| 原始指令 #2：用多個 IG refs 構思一組 `90s reels` 分鏡 | true | true | `_021` manifest verifies `scene_count=9`, `total_duration_sec=90`, selected source refs `codex_aol_e2e_ref_a_20260503` / `codex_aol_e2e_ref_b_20260503`, and `render_profile.profile_id=pd_vertical_reels_storyboard`. |
+| 原始指令 #2：完成分鏡圖製作，且 storyboard image / frame artifacts 入庫入檔 | true | true | `_021` produced a contact-sheet SVG image artifact plus per-scene `scene_manifest.storyboard_frame` entries. DB/file evidence: image artifact `42e2c149-3c1e-42eb-aa58-d472437a55af`, proposal `18420a74-86c5-4853-923a-1753c8ca8bb9`, manifest `632f963a-a209-4a7e-b478-da165f2da2a2`; `file` identifies the SVG as `SVG Scalable Vector Graphics image`, proposal as UTF-8 text, manifest as JSON data. |
+| Pack-owned object discussion → MeetingEngine guidance E2E：`@owner.kind:{object_id}` 進 `route_meeting_orchestration`，由 MeetingEngine 產生 guidance/action/review 節點，並可在 PD pack 內逐分鏡討論 | true | true | `_021` proves pack-owned per-scene review carriers: every scene has `meeting_discussion_prompt`, `decision_items`, `review_candidates`, and `approval_state=needs_review`. This run does not claim a human completed the review decisions; it proves the AOL/Meeting/PD artifact carrier needed for per-scene discussion. |
+| 資產入庫：storyboard/proposal/artifact 必須寫入 artifacts DB，而不是只存在 pack response 或前端 fixture | true | true | `_021` execution `7ba39e58-e19f-4113-b8db-5547558e26bd` produced three artifacts table rows. All rows have `thread_id=0f2463d0-2f22-4016-9b5d-cb3b389eb8d1`, `task_id=task_f385ff20d3364399`, `metadata.acceptance_evidence`, `metadata.pd_storyboard_evidence`, and `metadata.provenance.eval_summary.passed=true`. |
+| 資產入檔：artifact 必須帶可解析 file path，而不是只在 DB metadata 放空殼 | true | true | `_021` command response and DB rows include `metadata.actual_file_path` for contact-sheet SVG, proposal Markdown, and manifest JSON under `/app/data/sandboxes/.../current/artifacts/pd_storyboard_gen/7ba39e58-e19f-4113-b8db-5547558e26bd/`; host `file` and `xxd` checks verify real SVG/Markdown/JSON bytes. |
+| UX/UI 編排補全：AOL runtime graph 繼承既有 Workbench 骨架，但必須補出 MeetingEngine 編排狀態，不得只沿用 direct dispatch UI | true | true | Backend API now returns `dispatch_result.meeting_orchestration`; frontend targeted vitest passed: `meetingCommandLedger.spec.ts`, `AOLMeetingBottomShellDispatch.spec.tsx`, `AOLMeetingBottomShellLayout.spec.tsx`, `meetingGraphProjection.spec.ts` = 4 files / 26 tests. Live data lane evidence: `GET /artifacts?thread_id=0f2463d0-2f22-4016-9b5d-cb3b389eb8d1&limit=3` returns the `_021` contact-sheet/proposal/manifest artifacts. |
+| workspace `codex_cli` host bridge 常駐與自動復活 | true | true | 2026-05-04 runtime audit found LaunchAgent `ai.mindscape.cli-bridge` loaded, then fixed `start_cli_bridge.sh` workspace-removal debounce and bash helper handling. Controlled kill test: PID `18082` was killed; watcher logged `Bridge PID 18082 ... died, will respawn` and started PID `21617`, which connected and registered. Evidence file: `docs-internal/implementation/aol-runtime-workbench-2026-05-02/aol-host-bridge-runtime-evidence-2026-05-04.md`. |
+| local-core runtime 不得硬寫 PD/pack-specific storyboard evidence 規則 | true | true | Core runtime search `rg -n "pd_storyboard_evidence|storyboard_preview|selected_scene_package_selector" backend/app/services backend/app/models backend/tests` returned no matches. Pack-specific `pd_storyboard_evidence` and `storyboard_preview` evidence is emitted by `capabilities/performance_direction` and only carried through generic artifact metadata. |
+
+### 0.0.1 本次查驗新增缺口：PD storyboard URL identity
+
+2026-05-04 查驗結論：PD 目前沒有對「各別 storyboard instance」設計唯一 project URL。現況只有 session-scoped workbench route `/workspaces/{workspace_id}/capabilities/performance_direction/sessions/{session_id}`、latest canonical storyboard API `/api/v1/capabilities/performance_direction/sessions/{session_id}/storyboard`、以及 proposal review route。`_021` 落檔 manifest 的 `storyboard_id=sb_a75480dadd93` 沒有 `canonical_storyboard_route`；artifacts DB rows 也沒有可指向該 storyboard instance 的 `navigate_to`。因此不得把「per-storyboard unique project URL」列為已完成能力；後續若要補，應由 PD pack / web-console route 層新增 `storyboard_id` identity route 或 query contract，local-core 只保存 generic artifact/thread/task metadata，不得加入 PD-specific URL 規則。
 
 本文件是 2026-05-03 的 P0 修正計劃。目的不是新增 IG/PD 業務邏輯，而是把 AOL Runtime Shell 的 command、object refs、graph guidance、relations、pack affordances 轉成 MeetingEngine 編排契約，讓 MeetingEngine 成為任務目的理解、跨 pack workflow 組裝、ActionIntent、TaskIR、dispatch、memory、review trace 的中樞。
 
@@ -29,7 +37,17 @@
 
 2026-05-03 補全修訂：本版新增 selected guidance carrier、frontend orchestration response contract、MeetingEngine runner dependency map、session metadata persistence、artifact DB/file landing path、runtime readiness gate、以及外部內容平台/agent orchestration 對齊 gate。若這些 gate 未完成，不得把本計劃標為可開工 P0。
 
-2026-05-03 實作收尾狀態：local-core source path 已落地 `AOLMeetingOrchestrationBridge`、`MeetingEngineRunner`、command ledger `route_meeting_orchestration` routing、`handoff_in.metadata["addressable_object_layer"]` merge、selected guidance metadata carrier、frontend `meeting_orchestration` response handling，以及 explicit direct-route override gate。Targeted backend/frontend tests pass. Live runtime evidence remains blocked: health is degraded because LLM/OCR are unavailable, and `GET /api/v1/capability-packs/` timed out after 10s；因此不得宣稱 IG/PD installed-pack E2E、artifact DB row、file landing 已完成，只能宣稱 source implementation closed。
+2026-05-03 實作收尾狀態：local-core source path 已落地 `AOLMeetingOrchestrationBridge`、`MeetingEngineRunner`、command ledger `route_meeting_orchestration` routing、`handoff_in.metadata["addressable_object_layer"]` merge、selected guidance metadata carrier、frontend `meeting_orchestration` response handling、TaskIR artifact DB landing、downstream dispatch artifact reconciliation、Ollama health readiness、optional OCR health semantics、bounded MeetingEngine command timeout、cross-worker agent dispatch ACK deadline/fallback、late external-agent result correlation、graph command orchestration metadata projection，以及 explicit direct-route override gate。Verification rerun: `git diff --check` clean；targeted backend pytest suite `34 passed, 163 warnings`；targeted web-console vitest suite `4 passed, 17 tests passed`；post-fix runner/timeout/reconciliation subset `6 passed, 156 warnings`。
+
+Live control/execution backend 已重啟並載入本輪修正：`GET http://localhost:8220/healthz` returns `{"status":"ok","backend_role":"control","reload_enabled":true}`；`GET http://localhost:8200/healthz` returns `{"status":"ok","backend_role":"execution","reload_enabled":false}`；Docker reports `mindscape-ai-local-core-backend` and `mindscape-ai-local-core-backend-control` healthy。`GET http://localhost:8220/health` reports `status=healthy`, `llm_configured=true`, `llm_available=true`, `llm_provider=ollama`, `ocr_service=disabled`, `issues=[]`。`GET http://localhost:8220/api/v1/capability-packs/` proves `ig` and `performance_direction` are installed/enabled and validation succeeded；`GET http://localhost:8200/api/v1/mcp/agent/status` proves target workspace `bac7ce63-e768-454d-96f3-3a00e8e1df69` has authenticated `codex_cli-bac7ce63-e768-454d-96f3-3a00e8e1df69-43b0a0a4a97a`。
+
+Live smoke result is intentionally split: command `cmd_aol_late_reconcile_smoke_20260503` proves MeetingEngine completed with `task_ir_id=task_69b1be657f794276`, `request_contract_aol_metadata_persisted=true`, and downstream dispatch result `{total:5, succeeded:5, failed:0}`. The same historical row also shows top-level `status=failed` because an internal `pd_scene_dispatch_status` task later demoted the parent command after orchestration completed. This demotion is now fixed by rejecting internal phase/playbook task sync when its runtime id does not match the parent MeetingEngine command `accepted_task_id`; regression coverage is in `backend/tests/meeting_command_status_sync_spec.py`。
+
+Post-audit correction for live E2E: command `cmd_aol_fresh_e2e_artifact_reconcile_20260503_2305` returned `status=completed`, `dispatch_status=completed`, `task_ir_id=task_eb9ad4e646e24f47`, `artifact_landing_status=landed`, `artifact_db_ids=["46ec0f7f-acaf-45c8-a4e8-e65fc14bfff0"]`, `artifact_file_paths=["/app/backend/data/workspaces/多平台內容一鍵生成/artifacts/60a3f8af-50d3-4988-9f23-779eb539ab37"]`, `dispatch_total=4`, `dispatch_succeeded=4`, `dispatch_failed=0`, and the request-contract AOL metadata preserves both IG refs plus selected guidance. This is transport/orchestration and task-result-wrapper landing evidence only. The actual intended deliverable did **not** land: `result.json` contains `steps.pd_storyboard_gen.status=error` and `Step generate_storyboard required output 'storyboard' (field='storyboard') not found in tool result`; the directory contains only `result.json` and `summary.md`. At that point final storyboard/proposal E2E remained open; the next 2026-05-04 closure paragraph supersedes this historical failed-deliverable status. Full line-by-line audit record is landed at `docs-internal/implementation/aol-runtime-workbench-2026-05-02/aol-to-meeting-engine-orchestration-bridge-audit-record-2026-05-04.md`.
+
+2026-05-04 final closure: command `cmd_aol_real_e2e_files_20260504_021_tasklineage` supersedes `_014`, `_018`, `_019`, and `_020` as the current acceptance record. It returned `status=completed`, `dispatch_status=completed`, `task_ir_id=task_f385ff20d3364399`, downstream execution id `7ba39e58-e19f-4113-b8db-5547558e26bd`, `artifact_landing_status=landed`, three artifact DB ids, and three concrete file paths: contact-sheet SVG, proposal Markdown, and storyboard manifest JSON. DB rows now carry `thread_id=0f2463d0-2f22-4016-9b5d-cb3b389eb8d1` and `task_id=task_f385ff20d3364399`; content verification confirms 9 scenes, 90 seconds total, per-scene frame metadata, per-scene discussion/review carriers, and `render_profile.profile_id=pd_vertical_reels_storyboard`. Evidence is recorded in `docs-internal/implementation/aol-runtime-workbench-2026-05-02/aol-real-file-e2e-evidence-2026-05-04.md`.
+
+Latest verification after `_021`: local artifact lineage pytest subset `7 passed, 144 warnings`; frontend meeting-workbench vitest subset `4 files / 26 tests passed`; Performance Direction pack tests `187 passed, 49 warnings`; local-core and cloud `git diff --check` clean; modified Python modules `py_compile` clean; control/execution healthz both return `status=ok`.
 
 本次修訂落入以下十一個不可跳過的 gate：
 
@@ -165,7 +183,29 @@ E28. meeting artifact emitter 目前主要把 pack producer 結果追加到 `tas
 
 E29. repo 已有 playbook output artifact DB creation path，可作為 P0 artifact landing 對接點之一。Source: `backend/app/services/playbook_output_artifact_creator.py:L147-L168`。
 
-E30. live runtime evidence 不穩定：Docker containers 可見 backend/control/frontend/postgres healthy，但 `curl -m 3 http://localhost:8220/health` 與 `curl -m 10 http://localhost:8220/api/v1/capability-packs/` 在本次查驗 timeout。宣稱 E2E 前必須先恢復 control-plane API readiness。
+E30. live control/execution readiness 已恢復。Command: `curl -sS -m 8 http://localhost:8220/healthz`; Output: `{"status":"ok","backend_role":"control","reload_enabled":true}`。Command: `curl -sS -m 8 http://localhost:8200/healthz`; Output: `{"status":"ok","backend_role":"execution","reload_enabled":false}`。Command: `docker ps --filter name=mindscape-ai-local-core-backend --format '{{.Names}} {{.Status}}'`; Output includes `mindscape-ai-local-core-backend Up ... (healthy)` and `mindscape-ai-local-core-backend-control Up ... (healthy)`。
+
+E31. live health check currently reports Ollama ready and OCR intentionally disabled, not warning. Command: `curl -sS -m 10 http://localhost:8220/health | jq '{status, llm_configured, llm_available, llm_provider, ocr_service:(.components.ocr_service // .ocr_service), issues}'`。Output: `{"status":"healthy","llm_configured":true,"llm_available":true,"llm_provider":"ollama","ocr_service":"disabled","issues":[]}`。
+
+E32. live capability registry currently has `ig` and `performance_direction` installed/enabled/validated. Command: `curl -sS -m 10 http://localhost:8220/api/v1/capability-packs/ | jq '[.[] | select(.id == "ig" or .id == "performance_direction") | {id, enabled, installed, validation:(.validation.state // .validation.status // null), playbook_count:(.playbooks | length), tool_count:(.tools | length)}]'`。Output: `ig` has `enabled=true`, `installed=true`, `validation=succeeded`, `playbook_count=28`, `tool_count=38`; `performance_direction` has `enabled=true`, `installed=true`, `validation=succeeded`, `playbook_count=15`, `tool_count=26`。
+
+E33. live execution plane currently has an authenticated `codex_cli` client for the test workspace. Command: `curl -sS -m 10 http://localhost:8200/api/v1/mcp/agent/status`。Output includes workspace `bac7ce63-e768-454d-96f3-3a00e8e1df69` with client `codex_cli-bac7ce63-e768-454d-96f3-3a00e8e1df69-43b0a0a4a97a`, `authenticated=true`, `pending_count=0`。
+
+E34. live command `cmd_aol_late_reconcile_smoke_20260503` reached MeetingEngine and downstream PD phases. Command: `curl -sS -m 10 'http://localhost:8220/api/v1/workspaces/bac7ce63-e768-454d-96f3-3a00e8e1df69/meetings/0f2463d0-2f22-4016-9b5d-cb3b389eb8d1/commands'`。Output for that command includes `metadata.meeting_orchestration.status="completed"`, `task_ir_id="task_69b1be657f794276"`, `request_contract_aol_metadata_persisted=true`, and `dispatch_result` with `total=5`, `succeeded=5`, `failed=0`。
+
+E35. the same historical live command also proves an already-fixed demotion bug: top-level command `status="failed"` and `metadata.dispatch_status="failed"` came from internal task `runtime_task.pack_id="pd_scene_dispatch_status"` despite `meeting_orchestration.status="completed"`。Fix: `backend/app/services/meeting_command_status_sync.py:L222-L228` rejects internal phase/playbook sync when runtime id does not match `command.accepted_task_id` for MeetingEngine-owned commands. Regression: `backend/tests/meeting_command_status_sync_spec.py:L97-L136`。
+
+E36. live artifact DB/file landing for the IG→PD smoke is still not proven. Command: `curl -sS -m 10 'http://localhost:8220/api/v1/workspaces/bac7ce63-e768-454d-96f3-3a00e8e1df69/artifacts?thread_id=0f2463d0-2f22-4016-9b5d-cb3b389eb8d1'`。Output: `{"artifacts":[],"total":0,"limit":100,"offset":0}`。
+
+E36a. post-fix live E2E artifact landing is proven at command level and session-thread artifact API level. Command `cmd_aol_fresh_e2e_artifact_reconcile_20260503_2305` returns `status="completed"`, `accepted_task_id="task_eb9ad4e646e24f47"`, `metadata.meeting_orchestration.status="completed"`, `artifact_landing_status="landed"`, `artifact_db_ids=["46ec0f7f-acaf-45c8-a4e8-e65fc14bfff0"]`, `artifact_file_paths=["/app/backend/data/workspaces/多平台內容一鍵生成/artifacts/60a3f8af-50d3-4988-9f23-779eb539ab37"]`, and downstream dispatch result `total=4`, `succeeded=4`, `failed=0`。Artifact API command: `curl -sS -m 10 'http://localhost:8220/api/v1/workspaces/bac7ce63-e768-454d-96f3-3a00e8e1df69/artifacts?thread_id=aol-e2e-timeout-20260503'` returns artifact `46ec0f7f-acaf-45c8-a4e8-e65fc14bfff0` with execution id `60a3f8af-50d3-4988-9f23-779eb539ab37` and the same file path. File proof: `docker exec mindscape-ai-local-core-backend-control sh -lc 'test -d "/app/backend/data/workspaces/多平台內容一鍵生成/artifacts/60a3f8af-50d3-4988-9f23-779eb539ab37" && echo exists:60a3f8af'` outputs `exists:60a3f8af`。
+
+E37. command timeout semantics now avoid false artifact failure. Source: `backend/app/services/meeting_command_dispatch.py:L146-L175` returns `artifact_landing_status="pending"`, `late_result_possible=true`, and `error_code="meeting_orchestration_timeout"`；test source: `backend/tests/meeting_command_dispatch_timeout_spec.py:L28-L94`。
+
+E38. cross-worker dispatch no longer treats websocket send as task ACK. Source: `backend/app/routes/agent_dispatch/pubsub_handlers.py:L23-L52` publishes `agent_dispatch_ack_timeout` when no client ACK arrives, and `backend/app/routes/agent_dispatch/pubsub_handlers.py:L139-L148` only schedules the deadline after socket send instead of emitting a false ACK. Source: `backend/app/routes/agent_dispatch/cross_worker.py:L40-L78` converts ACK deadline expiry to bounded retry/timeout results.
+
+E39. late external-agent result correlation now carries command and AOL metadata through transport. Source: `backend/app/services/orchestration/dispatch_orchestrator.py:L968-L1024` extracts/apply meeting command transport context; `backend/app/services/external_agents/core/polling_adapter.py:L47-L134` writes `meeting_command_id` and `addressable_object_layer` into payload context/metadata; `backend/app/routes/agent_dispatch/message_handlers.py:L557-L590` runs best-effort command reconciliation after WS result landing; `backend/app/services/meeting_command_status_sync.py:L268-L386` updates command ledger from late agent results.
+
+E40. 2026-05-03 external web snapshot supports the product direction. OpenAI Agents SDK documents mixed LLM/code orchestration and handoffs; LangGraph documents persistence/durable execution, checkpoints, human-in-the-loop and fault tolerance; MCP architecture documents host/client/server separation with tools/resources; YouTube reused-content policy and April 30, 2026 Instagram aggregator reporting both point toward provenance, meaningful transformation, and avoiding low-effort repost/template output.
 
 ## 3. Proposed changes
 
@@ -368,6 +408,8 @@ class MeetingEngineRunner:
     "artifact_ids": list[str],
     "artifact_file_paths": list[str],
     "artifact_landing_status": "landed" | "pending" | "not_landed" | "not_requested" | "failed",
+    "artifact_db_ids": [...],
+    "artifact_db_errors": [...],
     "request_contract_aol_metadata": dict,
     "request_contract_aol_metadata_persisted": bool,
 }
@@ -393,7 +435,7 @@ Resolves Problems 2 and 4.
 - command lifecycle 必須從 accepted/running/completed/failed 與 meeting runtime result 對齊，不得只用 direct pack task status 判斷。
 - `HandoffIn.metadata["addressable_object_layer"]` 必須由 MeetingEngine metadata merge path 寫入 `session.metadata["request_contract"]["addressable_object_layer"]`；驗收來源固定為 API、DB、log evidence。
 - runner 必須在 `MeetingEngine.run()` 後呼叫 `persist_meeting_task_ir(meeting_result.task_ir)`，再呼叫 `session_store.update(session)` 持久化 request-contract AOL metadata 與 capability artifact producer session updates。
-- runner 必須回傳 artifact landing summary：`task_ir_artifacts`、`artifact_ids`、`artifact_file_paths`、`artifact_landing_status`。沒有 DB row 或 file path 時只能是 `pending` / `not_landed`，不得標 `completed`。
+- runner 必須回傳 artifact landing summary：`task_ir_artifacts`、`artifact_ids`、`artifact_file_paths`、`artifact_db_ids`、`artifact_db_errors`、`artifact_landing_status`。沒有 DB row 或 file path 時只能是 `pending` / `not_landed`，不得標 `completed`。
 
 `dispatch_meeting_orchestration_for_command()` 回傳固定 shape：
 
@@ -515,7 +557,7 @@ P0 的「完成分鏡圖製作」不得只停在 TaskIR 或 pack response。落�
 
 必要插入點：
 
-- `backend/app/services/orchestration/meeting/meeting_engine_runner.py`：整理 `meeting_result.task_ir.artifacts`、pack dispatch result、session metadata updates，輸出 `artifact_landing_status`。
+- `backend/app/services/orchestration/meeting/meeting_engine_runner.py`：整理 `meeting_result.task_ir.artifacts`、透過 `MindscapeStore.artifacts.create_artifact()` 落 DB、保留 file path/storage ref、更新 session metadata，輸出 `artifact_db_ids` / `artifact_db_errors` / `artifact_landing_status`。
 - `backend/app/services/playbook_output_artifact_creator.py` 或既有 task-result landing path：若 dispatch result 包含 output artifacts，必須建立 artifacts DB row。
 - `backend/app/routes/core/artifacts.py` 或 artifact list API：Verification SOP 必須查同一 `meeting_id` / `thread_id` 下可見 artifact。
 
@@ -535,11 +577,16 @@ P0 不需要追逐單一平台 API，但必須避免產品方向與 2025-2026 �
 - 內容社區方向正在降低 mass-produced、reused、low-variation content 的分發與商業化價值。IG refs -> PD storyboard/reels E2E 必須把 refs 當 visual evidence 與創作素材，不得把 pack guidance 寫成模板化批量生成。
 - Verification 必須檢查 output metadata 是否保留 source refs、director rationale、human review route、proposal/revision state。缺少這些欄位時，只能標 `requires_review` 或 `pending_context`。
 
+2026-05-03 補查結論：本計劃沒有與主流網路社區環境脫節，但必須把「trace/persistence/review/provenance」當作產品完成條件，而不是報告附註。OpenAI Agents SDK 的 orchestration/handoff、LangGraph 的 durable execution/checkpoint、人機審核、MCP 的 host/tools/resources 分層，都支持 local-core 作為 generic host、pack 作為 affordance provider、MeetingEngine 作為可追溯 workflow spine。內容平台側，YouTube reused content policy 與 2026-04-30 Instagram 對 aggregator/reposted photo/carousel reach 的收緊，要求 IG refs -> PD storyboard/reels 不能只是搬運素材或低差異模板；必須輸出 source refs、創作判斷、material transformation、human review route。
+
 外部參考快照：
 
 - OpenAI Agents SDK multi-agent orchestration: `https://openai.github.io/openai-agents-js/guides/multi-agent/`
+- OpenAI Agents SDK Python agent orchestration: `https://openai.github.io/openai-agents-python/multi_agent/`
 - LangGraph persistence / durable workflow: `https://docs.langchain.com/oss/javascript/langgraph/persistence`
+- LangGraph durable execution: `https://docs.langchain.com/oss/python/langgraph/durable-execution`
 - Model Context Protocol host/tools/resources architecture: `https://modelcontextprotocol.io/docs/learn/architecture`
+- Model Context Protocol specification architecture: `https://modelcontextprotocol.io/specification/2025-06-18/architecture`
 - YouTube reused / repetitive content monetization policy: `https://support.google.com/youtube/answer/1311392`
 - Instagram 2026 original-content / aggregator reach reporting: `https://techcrunch.com/2026/04/30/instagram-restricts-reach-of-content-aggregators-in-new-crackdown/`
 
@@ -673,10 +720,10 @@ P0 不需要追逐單一平台 API，但必須避免產品方向與 2025-2026 �
    - Prevents regressions for Problems 3, 4, and 6.
 
 3. **RequestContract merge tests**
-   - Target: `backend/tests/test_meeting_engine_request_contract_aol_metadata.py`。
+   - Target: `backend/tests/meeting_engine_request_contract_aol_metadata_spec.py`。
    - Scenario: bridge-generated `HandoffIn` enters MeetingEngine。
    - Assertions: `metadata.context_attachments` and `session.metadata["request_contract"]["addressable_object_layer"]` appear in meeting request-contract metadata; selected guidance metadata is preserved; `metadata.playbook_requests` remains empty for guidance-only AOL bridge handoff; no pack-specific hardcoding is required。
-   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/test_meeting_engine_request_contract_aol_metadata.py`。
+   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/meeting_engine_request_contract_aol_metadata_spec.py`。
    - Prevents regressions for Problem 4.
 
 4. **MeetingEngine runner tests**
@@ -687,17 +734,21 @@ P0 不需要追逐單一平台 API，但必須避免產品方向與 2025-2026 �
    - Prevents regressions for Problems 2 and 4.
 
 5. **Frontend dispatch tests**
-   - Target: `web-console/src/components/capabilities/meeting-workbench/AOLMeetingBottomShellDispatch.spec.tsx`、`web-console/src/components/capabilities/meeting-workbench/AOLMeetingBottomShellMentions.spec.tsx`、`web-console/src/components/capabilities/meeting-workbench/AOLMeetingBottomShellPackFixtures.spec.tsx`。
+   - Target: `web-console/src/components/capabilities/meeting-workbench/meetingCommandLedger.spec.ts`、`web-console/src/components/capabilities/meeting-workbench/AOLMeetingBottomShellDispatch.spec.tsx`、`web-console/src/components/capabilities/meeting-workbench/AOLMeetingBottomShellMentions.spec.tsx`、`web-console/src/components/capabilities/meeting-workbench/AOLMeetingBottomShellPackFixtures.spec.tsx`。
    - Scenario: object refs, selected guidance, IG guidance command, ordinary pure chat。
    - Assertions: AOL/object/guidance/selected pack tool commands post `route_meeting_orchestration`; pure chat posts `route_chat`; no P0 frontend test expects `route_playbook` or `route_object_action`; `card.metadata.recommended_pack/recommended_playbook` is preserved; `meeting_orchestration` response updates task and notification; plain text containing email/social `@` remains chat unless parser extracted AOL refs。
-   - Command: `./node_modules/.bin/vitest run web-console/src/components/capabilities/meeting-workbench/AOLMeetingBottomShellDispatch.spec.tsx web-console/src/components/capabilities/meeting-workbench/AOLMeetingBottomShellMentions.spec.tsx web-console/src/components/capabilities/meeting-workbench/AOLMeetingBottomShellPackFixtures.spec.tsx`。
+   - Command:
+     ```bash
+     cd /Users/shock/Projects_local/workspace/mindscape-ai-local-core/web-console
+     ./node_modules/.bin/vitest run src/components/capabilities/meeting-workbench/meetingCommandLedger.spec.ts src/components/capabilities/meeting-workbench/AOLMeetingBottomShellDispatch.spec.tsx src/components/capabilities/meeting-workbench/AOLMeetingBottomShellMentions.spec.tsx src/components/capabilities/meeting-workbench/AOLMeetingBottomShellPackFixtures.spec.tsx --config vitest.config.ts
+     ```
    - Prevents regressions for Problems 1, 2, and 6.
 
 6. **IG/PD product fixture gate**
-   - Target: `backend/tests/test_ig_pd_meeting_orchestration_e2e.py`。
+   - Target: manual live smoke SOP in this document plus future automation. There is currently no `backend/tests/test_ig_pd_meeting_orchestration_e2e.py` file in repo; do not cite that missing file as runnable evidence.
    - Scenario: IG reference guidance inserts command with source refs; PD scene discussion inserts scene ref。
    - Assertions: no frontend direct `/chat`, no direct `/object-actions/invoke` for default path, command row contains orchestration route, backend evidence shows MeetingEngine run, selected guidance metadata survives into request contract, artifact status is truthful, and originality/review metadata is present。
-   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/test_ig_pd_meeting_orchestration_e2e.py`。
+   - Command: use Verification SOP steps 0, 1, 5, 7, and 8 against a fresh post-restart command id. Expected current result is allowed to be `artifact_landing_status=pending` only if artifact DB/file output is absent; it is not allowed to claim final storyboard/proposal completion without artifact rows.
    - Prevents regressions for Problem 6.
 
 7. **Boundary tests**
@@ -710,16 +761,79 @@ P0 不需要追逐單一平台 API，但必須避免產品方向與 2025-2026 �
 8. **Artifact landing tests**
    - Target: `backend/tests/meeting_engine_runner_spec.py` and the artifact landing service tests chosen during implementation。
    - Scenario: MeetingEngine returns TaskIR artifacts and pack dispatch result with output artifacts。
-   - Assertions: runner reports `artifact_landing_status` truthfully; DB artifact row is created when output artifact payload is sufficient; missing file path produces `pending` / `not_landed` instead of `completed`。
-   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/meeting_engine_runner_spec.py -k artifact_landing`。
+   - Assertions: runner reports `artifact_landing_status` truthfully; DB artifact row is created when output artifact payload is sufficient; missing artifact store or missing file path produces `pending` / `not_landed` instead of `completed`。
+   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/meeting_engine_runner_spec.py -k artifact`。
    - Prevents false asset 入庫/入檔 claims.
 
-## 6. Risks / open questions
+9. **External agent transport ACK tests**
+   - Target: `backend/tests/routes/test_agent_dispatch_pubsub.py`。
+   - Scenario: cross-worker WS dispatch writes to the socket but the host client never sends the real task ACK。
+   - Assertions: pub/sub dispatch does not treat socket write as task ACK; missing client ACK triggers bounded `agent_dispatch_ack_timeout` fallback instead of waiting for the whole MeetingEngine command timeout。
+   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/routes/test_agent_dispatch_pubsub.py backend/tests/routes/agent_dispatch/test_db_fallback.py backend/tests/services/external_agents/test_host_bridge_runtime_adapter.py`。
+   - Prevents false runtime availability and hidden external-agent hangs.
+
+10. **Command timeout and late-result reconciliation tests**
+   - Target: `backend/tests/meeting_command_dispatch_timeout_spec.py` and `backend/tests/meeting_command_status_sync_spec.py`。
+   - Scenario: MeetingEngine command exceeds bounded command timeout; later WS/governance result lands with `meeting_command_id`; internal phase task carries the same command id after parent orchestration completed。
+   - Assertions: timeout returns `meeting_orchestration_timeout`, `artifact_landing_status=pending`, `late_result_possible=true`; late result can recover a timed-out command and attach artifact ids/paths; internal phase tasks cannot demote the parent MeetingEngine command unless their runtime id matches `command.accepted_task_id`。
+   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/meeting_command_dispatch_timeout_spec.py backend/tests/meeting_command_status_sync_spec.py`。
+   - Prevents hidden hangs, false artifact failure, and parent-command demotion regressions.
+
+11. **Graph command orchestration projection tests**
+   - Target: `backend/tests/meeting_execution_graph_commands_spec.py`。
+   - Scenario: command ledger rows contain MeetingEngine orchestration metadata, AOL request-contract metadata, timeout status, and artifact landing status。
+   - Assertions: graph command nodes preserve `dispatch_mode`, `dispatch_status`, `meeting_orchestration_error_code`, `artifact_landing_status`, and request-contract AOL metadata for inspector/runtime proof。
+   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/meeting_execution_graph_commands_spec.py`。
+   - Prevents UI/runtime graph proof regressions.
+
+12. **System health readiness tests**
+   - Target: `backend/tests/system_health_checker_ollama_spec.py`。
+   - Scenario: Ollama reports model tags; OCR service URL is unset and not required。
+   - Assertions: Ollama health uses `/api/tags`, recognizes `ollama/qwen2.5:7b`, and optional OCR reports disabled without making the system unhealthy。
+   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/system_health_checker_ollama_spec.py`。
+   - Prevents runtime readiness false negatives.
+
+13. **External dispatch payload correlation tests**
+   - Target: `backend/tests/services/external_agents/test_dispatch_payload_auth_scope.py`。
+   - Scenario: MeetingEngine downstream external-agent dispatch carries meeting command and AOL metadata through runtime payload context/metadata。
+   - Assertions: payload includes `meeting_command_id`, `command_id`, `addressable_object_layer`, auth/source workspace scope, deliverable path/name/targets, and thread/session context。
+   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/services/external_agents/test_dispatch_payload_auth_scope.py`。
+   - Prevents late-result reconciliation from losing command correlation.
+
+## 6. Live E2E evidence update - 2026-05-04
+
+The latest verified transport and real-file landing evidence is recorded in:
+
+- `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/docs-internal/implementation/aol-runtime-workbench-2026-05-02/aol-real-file-e2e-evidence-2026-05-04.md`
+- `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/docs-internal/implementation/aol-runtime-workbench-2026-05-02/aol-host-bridge-runtime-evidence-2026-05-04.md`
+
+Current verified status:
+
+- Command-ledger E2E `cmd_aol_real_e2e_files_20260504_021_tasklineage` completed through `route_meeting_orchestration`, MeetingEngine, downstream `performance_direction/pd_storyboard_gen` dispatch, artifact reconciliation, and command response.
+- The command response returned `artifact_landing_status=landed`, TaskIR id `task_f385ff20d3364399`, downstream execution id `7ba39e58-e19f-4113-b8db-5547558e26bd`, and artifact DB ids:
+  - `42e2c149-3c1e-42eb-aa58-d472437a55af` for contact-sheet SVG
+  - `18420a74-86c5-4853-923a-1753c8ca8bb9` for proposal Markdown
+  - `632f963a-a209-4a7e-b478-da165f2da2a2` for storyboard manifest JSON
+- The files exist on the host runtime data volume under `/Volumes/OWC Ultra 4T/mindscape-ai-local-core-runtime/data/sandboxes/.../current/artifacts/pd_storyboard_gen/7ba39e58-e19f-4113-b8db-5547558e26bd/`.
+- The `artifacts` DB table contains all three rows with `thread_id=0f2463d0-2f22-4016-9b5d-cb3b389eb8d1`, `task_id=task_f385ff20d3364399`, `metadata.actual_file_path`, `metadata.acceptance_evidence`, `metadata.pd_storyboard_evidence`, and `metadata.provenance.eval_summary.passed=true`.
+- Content verification confirms storyboard id `sb_a75480dadd93`, direction session `ds_f4ae71893782`, command id `cmd_aol_real_e2e_files_20260504_021_tasklineage`, and selected AOL source refs `codex_aol_e2e_ref_a_20260503` / `codex_aol_e2e_ref_b_20260503`.
+- Product content gate now passes for this fixture: `scene_count=9`, `total_duration_sec=90`, `all_have_frames=true`, `all_need_review=true`, `all_have_discussion_prompt=true`, `all_have_decision_items=true`, `all_have_review_candidates=true`, and `render_profile=pd_vertical_reels_storyboard`.
+- Meeting asset lane data path is live: `GET /api/v1/workspaces/bac7ce63-e768-454d-96f3-3a00e8e1df69/artifacts?thread_id=0f2463d0-2f22-4016-9b5d-cb3b389eb8d1&limit=3` returned the `_021` contact-sheet/proposal/manifest set. Response `total=9` includes older `_019` and `_020` rows sharing the same meeting thread.
+- Core runtime pack-rule exclusion is verified: `rg -n "pd_storyboard_evidence|storyboard_preview|selected_scene_package_selector" backend/app/services backend/app/models backend/tests` returned no matches. PD-specific evidence is pack-owned and carried through generic artifact metadata only.
+- Targeted frontend verification passed: `./node_modules/.bin/vitest run src/components/capabilities/meeting-workbench/meetingCommandLedger.spec.ts src/components/capabilities/meeting-workbench/AOLMeetingBottomShellDispatch.spec.tsx src/components/capabilities/meeting-workbench/AOLMeetingBottomShellLayout.spec.tsx src/components/capabilities/meeting-workbench/meetingGraphProjection.spec.ts` returned 4 files / 26 tests passed.
+- Host bridge persistence evidence confirms LaunchAgent `ai.mindscape.cli-bridge` is loaded and target `codex_cli` bridge is under the launchd supervisor. After controlled kill of target PID `18082`, watcher logged `died, will respawn` and started PID `21617`, which connected and registered.
+
+Current remaining scope:
+
+- Closed for the tested IG refs -> MeetingEngine -> downstream PD storyboard fixture: transport, 90 秒 reels storyboard proposal, SVG storyboard image/contact sheet, proposal/manifest/contact-sheet DB rows, concrete files, TaskIR/thread lineage, and per-scene review carriers.
+- Not claimed by this run: final rendered video or raster production frames beyond the SVG contact sheet, live human decision resolution for each scene, or exhaustive coverage for every future pack/object fixture.
+
+## 7. Risks / open questions
 
 1. **MeetingEngine construction duplication risk**：`MeetingEngineRunner` is the only place allowed to construct `MeetingEngine` for command-ledger orchestration. Code review must reject `MeetingEngine(` added to `meeting_commands.py` or `meeting_command_dispatch.py`。
 2. **Guidance hint vs hard route semantics**：P0 bridge stores selected pack tool and `recommended_playbook` under `candidate_playbooks` only. Code review must reject bridge output that writes these hints into `HandoffIn.playbook_requests`。
 3. **Attach materialization compatibility**：backend direct materialization remains outside P0 product route. E2E acceptance must reject outputs produced only by `dispatch_object_action_for_command()`。
-4. **Runtime evidence gap**：this plan is source-code-evidence based. Before declaring implementation complete, run API or DB checks against the live local runtime to prove the running instance uses `route_meeting_orchestration` and MeetingEngine evidence appears in command rows.
+4. **Runtime evidence scope risk**：current closure evidence is command `cmd_aol_real_e2e_files_20260504_021_tasklineage`. API/DB/filesystem checks prove the running instance uses `route_meeting_orchestration`, MeetingEngine AOL metadata persists, downstream dispatch completes, and command-level artifact ids/file paths resolve to contact-sheet/proposal/manifest DB rows plus real files. This does not prove final video/raster production frames, live human decision resolution, or every future pack fixture; those still need separate fresh runtime evidence.
 5. **Memory/writeback scope**：P0 acceptance requires command-to-engine-to-task dispatch evidence. This P0 does not modify MeetingEngine finalize code。
 6. **RequestContract model churn risk**：P0 must not add `RequestContract.metadata`。AOL metadata storage path is fixed at `session.metadata["request_contract"]["addressable_object_layer"]`。
 7. **Pack install boundary risk**：IG/PD source changes must happen in cloud source and be installed through `.mindpack`; editing installed local-core payload invalidates verification。
@@ -729,3 +843,4 @@ P0 不需要追逐單一平台 API，但必須避免產品方向與 2025-2026 �
 11. **Session metadata persistence risk**：只改 in-memory `session.metadata` 會讓 API/DB evidence 查不到 request-contract AOL carrier。Runner tests must spy/assert `session_store.update(session)`。
 12. **Artifact false completion risk**：TaskIR artifact reference、pack response、proposal metadata 都不能單獨證明入庫入檔。E2E status must distinguish `landed`、`pending`、`not_landed`、`not_requested`。
 13. **Community originality risk**：IG refs -> reels/storyboard output 若沒有 source evidence、director rationale、review/proposal state，容易變成低差異模板化生成。Completion criteria must require provenance and review trace。
+14. **Historical failed row interpretation risk**：`cmd_aol_late_reconcile_smoke_20260503` is a useful evidence row for MeetingEngine completion and for the now-fixed internal-task demotion bug, but its top-level failed status was produced before the demotion fix was loaded. Do not use that historical parent status as the current acceptance result; rerun a fresh command after restart for release evidence.

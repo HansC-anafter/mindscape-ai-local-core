@@ -35,15 +35,12 @@ class HandoffRegistryStore:
         task_ir_id: str,
         phase_id: str,
         attempt_number: int = 1,
-    ) -> bool:
-        """Register a dispatch attempt — returns True on success.
+    ) -> Optional[bool]:
+        """Register a dispatch attempt.
 
-        If the ``idempotency_key`` already exists (unique constraint
-        violation), returns **False**.
-
-        On any other unexpected DB error the method also returns **False**
-        (fail-close) and logs an error so that the dispatch is blocked
-        rather than silently duplicated.
+        Returns True on success, False only when the idempotency key is an
+        explicit duplicate, and None when the registry is unavailable or hits an
+        unexpected DB error. Callers should fail open on None.
         """
         try:
             from app.database.engine import SessionLocalCore
@@ -52,9 +49,9 @@ class HandoffRegistryStore:
             if SessionLocalCore is None:
                 logger.error(
                     "HandoffRegistry: SessionLocalCore is None — "
-                    "DB not configured; blocking dispatch (fail-close)"
+                    "DB not configured; allowing dispatch without registry"
                 )
-                return False
+                return None
 
             session = SessionLocalCore()
             try:
@@ -81,29 +78,28 @@ class HandoffRegistryStore:
                         idempotency_key,
                     )
                     return False
-                # Any other DB error → fail-close to prevent duplicate dispatch
                 logger.error(
                     "HandoffRegistry: unexpected DB error for key=%s — "
-                    "blocking dispatch (fail-close): %s",
+                    "allowing dispatch without registry: %s",
                     idempotency_key,
                     exc,
                 )
-                return False
+                return None
             finally:
                 session.close()
         except ImportError as exc:
             logger.error(
-                "HandoffRegistry: import failed — blocking dispatch (fail-close): %s",
+                "HandoffRegistry: import failed — allowing dispatch without registry: %s",
                 exc,
             )
-            return False
+            return None
         except Exception as exc:
             logger.error(
                 "HandoffRegistry: session setup failed — "
-                "blocking dispatch (fail-close): %s",
+                "allowing dispatch without registry: %s",
                 exc,
             )
-            return False
+            return None
 
     def update_status(
         self,
@@ -200,4 +196,3 @@ class HandoffRegistryStore:
             logger.warning(
                 "HandoffRegistry: mark_completed setup failed: %s", exc
             )
-

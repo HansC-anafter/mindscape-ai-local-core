@@ -158,6 +158,112 @@ def _candidate_from_guidance_card(card: Dict[str, Any], *, source: str) -> Optio
     }
 
 
+def _normalize_explicit_playbook_request(
+    raw: Any,
+    *,
+    workspace_id: str,
+    command: MeetingCommandRecord,
+    context_attachments: List[Dict[str, Any]],
+    aol_metadata: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    data = _as_dict(raw)
+    playbook_code = _clean_str(data.get("playbook_code"))
+    if not playbook_code:
+        return None
+
+    input_params = _as_dict(data.get("input_params"))
+    input_params.setdefault("workspace_id", workspace_id)
+    input_params.setdefault("meeting_session_id", command.meeting_id)
+    input_params.setdefault("task", command.intent_text)
+    input_params.setdefault("human_instructions", command.intent_text)
+    input_params.setdefault("addressable_object_layer", aol_metadata)
+    if context_attachments:
+        input_params.setdefault("context_attachments", context_attachments)
+
+    request: Dict[str, Any] = {
+        "title": _clean_str(data.get("title")) or playbook_code,
+        "description": _clean_str(data.get("description")) or command.intent_text,
+        "playbook_code": playbook_code,
+        "engine": _clean_str(data.get("engine")) or f"playbook:{playbook_code}",
+        "priority": _clean_str(data.get("priority")) or "high",
+        "intent_id": _clean_str(data.get("intent_id")) or f"PB_{playbook_code}",
+        "input_params": input_params,
+        "target_workspace_id": _clean_str(data.get("target_workspace_id")) or workspace_id,
+        "preserve_atomic_playbook": data.get("preserve_atomic_playbook", True) is not False,
+        "request_contract_source": _clean_str(data.get("request_contract_source"))
+        or "explicit_playbook_request",
+    }
+
+    for field_name in (
+        "replace_existing_playbook_codes",
+        "replace_existing_codes",
+        "handled_deliverable_ids",
+        "deliverable_ids",
+        "capability_profile",
+        "requested_output_type",
+    ):
+        value = data.get(field_name)
+        if value not in (None, "", [], {}):
+            request[field_name] = value
+    return request
+
+
+def _collect_explicit_playbook_requests(
+    *,
+    metadata: Dict[str, Any],
+    action_parameters: Dict[str, Any],
+    requested_action: Any,
+    workspace_id: str,
+    command: MeetingCommandRecord,
+    context_attachments: List[Dict[str, Any]],
+    aol_metadata: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    raw_requests: List[Any] = []
+    for container in (metadata, action_parameters):
+        for key in ("playbook_requests", "atomic_playbook_requests"):
+            value = container.get(key)
+            if isinstance(value, list):
+                raw_requests.extend(value)
+        for key in ("playbook_request", "atomic_playbook_request"):
+            value = container.get(key)
+            if isinstance(value, dict):
+                raw_requests.append(value)
+
+    if requested_action and requested_action.playbook_code:
+        verb = _clean_str(getattr(requested_action, "verb", None)) or ""
+        if verb in {"execute_playbook", "run_playbook", "invoke_playbook"}:
+            raw_requests.append(
+                {
+                    "playbook_code": requested_action.playbook_code,
+                    "input_params": dict(getattr(requested_action, "parameters", None) or {}),
+                    "target_workspace_id": workspace_id,
+                    "request_contract_source": "requested_action",
+                }
+            )
+
+    normalized: List[Dict[str, Any]] = []
+    seen = set()
+    for raw in raw_requests:
+        request = _normalize_explicit_playbook_request(
+            raw,
+            workspace_id=workspace_id,
+            command=command,
+            context_attachments=context_attachments,
+            aol_metadata=aol_metadata,
+        )
+        if not request:
+            continue
+        key = (
+            str(request.get("playbook_code") or "").strip(),
+            str(request.get("intent_id") or "").strip(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(request)
+    return normalized
+
+
 class AOLMeetingOrchestrationBridge:
     """Build generic MeetingEngine handoffs from AOL command context."""
 
@@ -339,6 +445,16 @@ class AOLMeetingOrchestrationBridge:
         if existing_session_aol:
             aol_metadata["session_addressable_object_layer"] = existing_session_aol
 
+        playbook_requests = _collect_explicit_playbook_requests(
+            metadata=metadata,
+            action_parameters=action_parameters,
+            requested_action=requested,
+            workspace_id=workspace_id,
+            command=command,
+            context_attachments=context_attachments,
+            aol_metadata=aol_metadata,
+        )
+
         return HandoffIn(
             handoff_id=f"aol_cmd_{command.command_id}_{uuid.uuid4().hex[:8]}",
             workspace_id=workspace_id,
@@ -347,5 +463,6 @@ class AOLMeetingOrchestrationBridge:
             governance_constraints={"addressable_object_layer": aol_metadata},
             context_attachments=context_attachments,
             human_instructions=metadata.get("raw_intent_text") or command.intent_text,
+            playbook_requests=playbook_requests or None,
             metadata={"addressable_object_layer": aol_metadata},
         )

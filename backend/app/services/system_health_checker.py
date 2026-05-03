@@ -7,7 +7,10 @@ Checks system health status including:
 - Tool connections (WordPress, Obsidian, Notion, etc.)
 """
 
+import json
 import logging
+import os
+import urllib.request
 from typing import Dict, Any, List, Optional
 from enum import Enum
 
@@ -65,6 +68,113 @@ class SystemHealthChecker:
         # Use cached global tool registry to avoid overhead on every health check
         self.tool_registry = tool_registry or get_tool_registry()
         self.backend_manager = backend_manager or BackendManager(config_store=self.config_store)
+
+    @staticmethod
+    def _normalize_ollama_model_name(model_name: Optional[str]) -> str:
+        if not model_name:
+            return ""
+        normalized = str(model_name).strip()
+        if normalized.startswith("ollama/"):
+            normalized = normalized.split("/", 1)[1]
+        return normalized
+
+    def _check_ollama_configuration(
+        self,
+        base_url: Optional[str],
+        model_name: Optional[str],
+        issues: List[HealthIssue],
+    ) -> Dict[str, Any]:
+        resolved_base_url = (base_url or "").strip().rstrip("/")
+        if not resolved_base_url:
+            issues.append(HealthIssue(
+                issue_type="ollama_not_configured",
+                severity=HealthIssueSeverity.WARNING,
+                message="Ollama base URL is not configured. Local LLM features may be unavailable.",
+                action_url="/settings?tab=llm",
+            ))
+            return {
+                "configured": False,
+                "provider": "ollama",
+                "available": False,
+            }
+
+        try:
+            with urllib.request.urlopen(
+                f"{resolved_base_url}/api/tags",
+                timeout=5,
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            logger.warning("Ollama health check failed: %s", exc)
+            issues.append(HealthIssue(
+                issue_type="ollama_unavailable",
+                severity=HealthIssueSeverity.WARNING,
+                message=f"Ollama is unavailable at {resolved_base_url}: {exc}",
+                action_url="/settings?tab=llm",
+            ))
+            return {
+                "configured": True,
+                "provider": "ollama",
+                "available": False,
+            }
+
+        models = payload.get("models", []) if isinstance(payload, dict) else []
+        available_model_names = {
+            str(value).strip()
+            for model in models
+            if isinstance(model, dict)
+            for value in (model.get("name"), model.get("model"))
+            if value
+        }
+        normalized_model_name = self._normalize_ollama_model_name(model_name)
+        if normalized_model_name and normalized_model_name not in available_model_names:
+            issues.append(HealthIssue(
+                issue_type="ollama_model_missing",
+                severity=HealthIssueSeverity.WARNING,
+                message=(
+                    f"Ollama model '{normalized_model_name}' is not installed at "
+                    f"{resolved_base_url}. Local LLM features may be unavailable."
+                ),
+                action_url="/settings?tab=llm",
+            ))
+            return {
+                "configured": True,
+                "provider": "ollama",
+                "available": False,
+                "model": normalized_model_name,
+            }
+
+        return {
+            "configured": True,
+            "provider": "ollama",
+            "available": bool(available_model_names),
+            "model": normalized_model_name,
+        }
+
+    @staticmethod
+    def _ocr_service_required() -> bool:
+        raw = os.getenv("OCR_SERVICE_REQUIRED", "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _ocr_service_is_default_optional(ocr_client: Any) -> bool:
+        if os.getenv("OCR_SERVICE_URL"):
+            return False
+        service_url = str(getattr(ocr_client, "service_url", "") or "").rstrip("/")
+        return service_url == "http://ocr-service:8001"
+
+    def _optional_ocr_disabled_response(self, ocr_client: Any) -> Optional[Dict[str, Any]]:
+        if self._ocr_service_required():
+            return None
+        if not self._ocr_service_is_default_optional(ocr_client):
+            return None
+        return {
+            "status": "disabled",
+            "available": False,
+            "required": False,
+            "service": "ocr-service",
+            "reason": "OCR service is optional and no OCR_SERVICE_URL is configured.",
+        }
 
     async def check_workspace_health(
         self,
@@ -151,7 +261,7 @@ class SystemHealthChecker:
                     model_name = str(resolved_route.model_name)
                     provider = resolved_route.provider or "openai"
 
-                    # Get API key or Vertex AI configuration
+                    # Get API key, local endpoint, or Vertex AI configuration.
                     if provider == "openai":
                         api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
                         # Fallback: read from SystemSettingsStore (where the UI saves it)
@@ -187,11 +297,34 @@ class SystemHealthChecker:
                             vertex_ai_project_id.value
                         )
                         api_key = None  # Vertex AI doesn't use API key
+                    elif provider == "ollama":
+                        try:
+                            ollama_setting = settings_store.get_setting("ollama_base_url")
+                            ollama_base_url = ollama_setting.value if ollama_setting else None
+                        except Exception:
+                            ollama_base_url = None
+                        ollama_base_url = (
+                            ollama_base_url
+                            or os.getenv("OLLAMA_BASE_URL")
+                            or os.getenv("OLLAMA_HOST")
+                            or "http://localhost:11434"
+                        )
+                        ollama_status = self._check_ollama_configuration(
+                            ollama_base_url,
+                            model_name,
+                            issues,
+                        )
+                        configured = ollama_status["configured"]
+                        available = ollama_status["available"]
+                        api_key = None
+                        vertex_ai_configured = False
                     else:
                         api_key = None
                         vertex_ai_configured = False
 
-                    if api_key or vertex_ai_configured:
+                    if provider == "ollama":
+                        pass
+                    elif api_key or vertex_ai_configured:
                         # Test connection with a simple API call
                         try:
                             if provider == "openai":
@@ -510,6 +643,9 @@ class SystemHealthChecker:
                     "service": health_data.get("service", "ocr-service")
                 }
             else:
+                optional_disabled = self._optional_ocr_disabled_response(ocr_client)
+                if optional_disabled:
+                    return optional_disabled
                 issues.append(HealthIssue(
                     issue_type="ocr_service_unhealthy",
                     severity=HealthIssueSeverity.WARNING,
@@ -523,6 +659,11 @@ class SystemHealthChecker:
                 }
         except Exception as e:
             logger.warning(f"OCR service health check failed: {e}")
+            optional_disabled = self._optional_ocr_disabled_response(
+                locals().get("ocr_client")
+            )
+            if optional_disabled:
+                return optional_disabled
             issues.append(HealthIssue(
                 issue_type="ocr_service_unavailable",
                 severity=HealthIssueSeverity.WARNING,

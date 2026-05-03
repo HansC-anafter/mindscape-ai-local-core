@@ -137,6 +137,25 @@ class ArtifactsStore(StoreBase):
             rows = cursor.fetchall()
             return [self._row_to_artifact(row) for row in rows]
 
+    def list_by_execution_id(self, execution_id: str) -> List[Artifact]:
+        """
+        List all artifacts for a playbook execution.
+
+        Args:
+            execution_id: Playbook execution ID
+
+        Returns:
+            List of artifacts for the execution, ordered by updated_at DESC
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM artifacts WHERE execution_id = ? ORDER BY updated_at DESC",
+                (execution_id,),
+            )
+            rows = cursor.fetchall()
+            return [self._row_to_artifact(row) for row in rows]
+
     def list_artifacts_by_playbook(
         self, workspace_id: str, playbook_code: str
     ) -> List[Artifact]:

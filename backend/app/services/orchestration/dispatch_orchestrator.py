@@ -347,7 +347,7 @@ class DispatchOrchestrator:
                 phase_id=attempt.phase_id,
                 attempt_number=attempt.attempt_number,
             )
-            if not registered:
+            if registered is False:
                 attempt.mark_skipped("duplicate_dispatch_intercepted")
                 logger.warning(
                     "Dispatch for %s blocked by idempotency guard (key=%s)",
@@ -355,6 +355,12 @@ class DispatchOrchestrator:
                     attempt.idempotency_key,
                 )
                 return {"status": "skipped", "reason": "idempotency_conflict"}
+            if registered is None:
+                logger.warning(
+                    "Dispatch for %s proceeding without idempotency registry (key=%s)",
+                    phase.id,
+                    attempt.idempotency_key,
+                )
 
         # G1: Inject upstream phase results into downstream phase
         if phase.depends_on:
@@ -616,6 +622,7 @@ class DispatchOrchestrator:
         extra_params = action_item.get("input_params")
         if isinstance(extra_params, dict):
             inputs.update(extra_params)
+        self._apply_meeting_command_transport_context(inputs)
 
         # Apply spec-aware field mapping through PackDispatchAdapter.
         if self._pack_dispatch_adapter:
@@ -633,6 +640,7 @@ class DispatchOrchestrator:
                 logger.warning(
                     "PackDispatchAdapter.prepare_handoff failed (non-fatal): %s", exc
                 )
+        self._apply_meeting_command_transport_context(inputs)
 
         # v3.1: Resolve per-agent model from capability_profile
         _cap_profile = action_item.get("capability_profile")
@@ -800,6 +808,7 @@ class DispatchOrchestrator:
             inputs["thread_id"] = getattr(self.session, "thread_id", None)
         if getattr(self.session, "id", None) and "meeting_session_id" not in inputs:
             inputs["meeting_session_id"] = getattr(self.session, "id", None)
+        meeting_command_context = self._apply_meeting_command_transport_context(inputs)
 
         model_override = self._resolve_capability_profile_model(action_item)
         conversation_context = self._build_agent_conversation_context(
@@ -818,8 +827,10 @@ class DispatchOrchestrator:
             "project_id": self.project_id,
             "conversation_context": conversation_context,
             "inputs": inputs,
+            "ir_provenance": ir_provenance,
             "file_hint": inputs.get("deliverable_path") or "",
         }
+        context_overrides.update(meeting_command_context)
         try:
             from backend.app.services.executor_route_context import (
                 build_executor_route_context,
@@ -959,6 +970,64 @@ class DispatchOrchestrator:
         )
         self._attempts[phase.id] = attempt
         return attempt
+
+    def _meeting_command_transport_context(self) -> Dict[str, Any]:
+        """Extract command-ledger correlation from the active MeetingEngine session."""
+
+        metadata = getattr(self.session, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+        request_contract = metadata.get("request_contract")
+        if not isinstance(request_contract, dict):
+            request_contract = {}
+
+        aol_metadata: Dict[str, Any] = {}
+        for candidate in (
+            request_contract.get("addressable_object_layer"),
+            (
+                request_contract.get("governance_constraints") or {}
+            ).get("addressable_object_layer")
+            if isinstance(request_contract.get("governance_constraints"), dict)
+            else None,
+            metadata.get("addressable_object_layer"),
+        ):
+            if isinstance(candidate, dict) and candidate:
+                aol_metadata = dict(candidate)
+                break
+
+        command_id = (
+            aol_metadata.get("command_id")
+            or request_contract.get("meeting_command_id")
+            or request_contract.get("command_id")
+            or metadata.get("meeting_command_id")
+            or metadata.get("command_id")
+        )
+        if isinstance(command_id, str):
+            command_id = command_id.strip()
+        else:
+            command_id = ""
+
+        context: Dict[str, Any] = {}
+        if command_id:
+            context["meeting_command_id"] = command_id
+            context["command_id"] = command_id
+        if aol_metadata:
+            context["addressable_object_layer"] = aol_metadata
+        return context
+
+    def _apply_meeting_command_transport_context(
+        self,
+        inputs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        context = self._meeting_command_transport_context()
+        command_id = context.get("meeting_command_id")
+        if command_id:
+            inputs.setdefault("meeting_command_id", command_id)
+            inputs.setdefault("command_id", command_id)
+        aol_metadata = context.get("addressable_object_layer")
+        if isinstance(aol_metadata, dict) and aol_metadata:
+            inputs.setdefault("addressable_object_layer", aol_metadata)
+        return context
 
     async def _load_workspace(self, workspace_id: str) -> Any:
         if not workspace_id:

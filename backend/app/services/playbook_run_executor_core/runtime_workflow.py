@@ -140,6 +140,80 @@ def _extract_sandbox_id(runtime_result: Any) -> Optional[str]:
     return None
 
 
+async def maybe_create_runtime_output_artifacts(
+    *,
+    playbook_run: Any,
+    normalized_inputs: Dict[str, Any],
+    runtime_result: Any,
+    execution_id: str,
+    workspace_id: Optional[str],
+    sandbox_id: Optional[str],
+    store: Any,
+    create_output_artifacts_fn: Optional[Callable[..., Any]] = None,
+) -> None:
+    """Create file-backed output artifacts for runtime workflow completions."""
+    if not (execution_id and workspace_id and store):
+        return
+
+    playbook_json = getattr(playbook_run, "playbook_json", None)
+    if playbook_json is None:
+        return
+
+    step_outputs_payload, _outputs_payload = _extract_step_and_output_payloads(
+        runtime_result
+    )
+    if not step_outputs_payload:
+        return
+
+    if create_output_artifacts_fn is None:
+        from backend.app.services.workflow.playbook_finalization import (
+            maybe_create_output_artifacts,
+        )
+
+        create_output_artifacts_fn = maybe_create_output_artifacts
+
+    artifact_thread_id = normalized_inputs.get(
+        "meeting_session_id"
+    ) or normalized_inputs.get(
+        "thread_id"
+    )
+    artifact_task_id = normalized_inputs.get("task_id") or normalized_inputs.get(
+        "task_ir_id"
+    )
+    try:
+        from backend.app.services.stores.tasks_store import TasksStore
+
+        existing_task = TasksStore().get_task_by_execution_id(execution_id)
+        artifact_task_id = (
+            getattr(existing_task, "id", None) if existing_task else artifact_task_id
+        )
+    except Exception:
+        logger.debug(
+            "PlaybookRunExecutor: Could not resolve task id for output artifacts %s",
+            execution_id,
+            exc_info=True,
+        )
+
+    try:
+        await create_output_artifacts_fn(
+            store=store,
+            playbook_json=playbook_json,
+            playbook_inputs=normalized_inputs,
+            step_outputs=step_outputs_payload,
+            execution_id=execution_id,
+            workspace_id=workspace_id,
+            sandbox_id=sandbox_id,
+            thread_id=artifact_thread_id,
+            task_id=artifact_task_id,
+        )
+    except Exception:
+        logger.warning(
+            "PlaybookRunExecutor: Runtime output artifact creation failed for %s",
+            execution_id,
+            exc_info=True,
+        )
+
+
 def _land_runtime_result(
     *,
     workspace_id: Optional[str],
@@ -668,6 +742,21 @@ async def execute_runtime_workflow(
                 playbook_run=playbook_run,
                 context=exec_context,
                 inputs=normalized_inputs,
+            )
+            sandbox_id = _extract_sandbox_id(runtime_result)
+            store = (
+                getattr(executor, "store", None)
+                or getattr(getattr(executor, "workflow_orchestrator", None), "store", None)
+                or getattr(getattr(executor, "playbook_service", None), "store", None)
+            )
+            await maybe_create_runtime_output_artifacts(
+                playbook_run=playbook_run,
+                normalized_inputs=normalized_inputs,
+                runtime_result=runtime_result,
+                execution_id=execution_id,
+                workspace_id=workspace_id,
+                sandbox_id=sandbox_id,
+                store=store,
             )
             metadata = getattr(runtime_result, "metadata", None) or {}
             steps = metadata.get("steps", {}) if isinstance(metadata, dict) else {}

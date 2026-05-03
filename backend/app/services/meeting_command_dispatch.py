@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
 from typing import Any
 
 from fastapi import BackgroundTasks
@@ -17,6 +20,23 @@ from backend.app.models.object_runtime import (
 )
 from backend.app.models.workspace import Workspace, WorkspaceChatRequest
 from backend.app.services.conversation_orchestrator import ConversationOrchestrator
+
+logger = logging.getLogger(__name__)
+
+
+def meeting_orchestration_timeout_seconds(
+    canonical: MeetingCommandEnvelope | None = None,
+) -> float:
+    metadata = canonical.metadata if canonical is not None else {}
+    raw_value = (
+        metadata.get("meeting_orchestration_timeout_seconds")
+        or metadata.get("orchestration_timeout_seconds")
+        or os.environ.get("MEETING_COMMAND_ORCHESTRATION_TIMEOUT_SECONDS", "120")
+    )
+    try:
+        return min(600.0, max(5.0, float(raw_value)))
+    except (TypeError, ValueError):
+        return 120.0
 
 
 def command_instruction(canonical: MeetingCommandEnvelope) -> str:
@@ -114,6 +134,47 @@ def should_route_chat(canonical: MeetingCommandEnvelope) -> bool:
     )
 
 
+def _request_contract_aol_metadata(session: Any) -> dict:
+    metadata = getattr(session, "metadata", None) or {}
+    request_contract = metadata.get("request_contract")
+    if not isinstance(request_contract, dict):
+        return {}
+    aol_metadata = request_contract.get("addressable_object_layer")
+    return dict(aol_metadata) if isinstance(aol_metadata, dict) else {}
+
+
+def _meeting_orchestration_timeout_result(
+    *,
+    session: Any,
+    command: MeetingCommandRecord,
+    timeout_seconds: float,
+) -> dict:
+    return {
+        "status": "failed",
+        "session_id": getattr(session, "id", command.meeting_id),
+        "task_ir_id": None,
+        "event_ids": [],
+        "minutes_md": "",
+        "completion_status": "failed",
+        "dispatch_result": None,
+        "task_ir_artifacts": [],
+        "artifact_ids": [],
+        "artifact_file_paths": [],
+        "artifact_db_ids": [],
+        "artifact_db_errors": [],
+        "artifact_landing_status": "pending",
+        "late_result_possible": True,
+        "timeout_seconds": timeout_seconds,
+        "request_contract_aol_metadata": _request_contract_aol_metadata(session),
+        "request_contract_aol_metadata_persisted": False,
+        "error_code": "meeting_orchestration_timeout",
+        "error": (
+            "MeetingEngine orchestration timed out after "
+            f"{timeout_seconds:.0f} seconds."
+        ),
+    }
+
+
 async def dispatch_meeting_orchestration_for_command(
     *,
     command: MeetingCommandRecord,
@@ -145,13 +206,29 @@ async def dispatch_meeting_orchestration_for_command(
         workspace_id=workspace_id,
     )
     runner = MeetingEngineRunner(store=store, session_store=session_store)
-    runner_result = await runner.run_meeting_orchestration(
-        session=session,
-        workspace=workspace,
-        message=command_instruction(canonical),
-        handoff_in=handoff_in,
-        command=command,
-    )
+    timeout_seconds = meeting_orchestration_timeout_seconds(canonical)
+    try:
+        runner_result = await asyncio.wait_for(
+            runner.run_meeting_orchestration(
+                session=session,
+                workspace=workspace,
+                message=command_instruction(canonical),
+                handoff_in=handoff_in,
+                command=command,
+            ),
+            timeout=timeout_seconds,
+        )
+    except TimeoutError:
+        logger.warning(
+            "Meeting command orchestration timed out for %s after %.0fs",
+            command.command_id,
+            timeout_seconds,
+        )
+        runner_result = _meeting_orchestration_timeout_result(
+            session=session,
+            command=command,
+            timeout_seconds=timeout_seconds,
+        )
     command.accepted_task_id = runner_result.get("task_ir_id")
     command.status = (
         MeetingCommandStatus.COMPLETED

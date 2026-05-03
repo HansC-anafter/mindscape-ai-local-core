@@ -43,18 +43,40 @@ class CrossWorkerMixin(
         result_future: asyncio.Future,
         timeout: float,
         context_label: str,
+        ack_timeout_status: str = "timeout",
+        ack_timeout_retry_transport: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Wait for a task result while treating progress as activity."""
+        ack_deadline = max(0.05, float(getattr(self, "ACK_DEADLINE_SECONDS", 30.0)))
+        wait_slice = max(0.05, float(getattr(self, "WAIT_SLICE_SECONDS", 30.0)))
+        dispatch_time = time.monotonic()
         last_activity = time.monotonic()
 
         while True:
             try:
                 return await asyncio.wait_for(
                     asyncio.shield(result_future),
-                    timeout=30.0,
+                    timeout=min(30.0, wait_slice),
                 )
             except asyncio.TimeoutError:
                 inflight = self._inflight.get(execution_id)
+                if inflight and not inflight.acked:
+                    elapsed = time.monotonic() - dispatch_time
+                    if elapsed > ack_deadline:
+                        self._inflight.pop(execution_id, None)
+                        result = {
+                            "execution_id": execution_id,
+                            "status": ack_timeout_status,
+                            "error": (
+                                f"No client ACK after {elapsed:.0f}s "
+                                f"({context_label})"
+                            ),
+                            "error_code": "agent_dispatch_ack_timeout",
+                        }
+                        if ack_timeout_retry_transport:
+                            result["retry_transport"] = ack_timeout_retry_transport
+                        return result
+
                 if inflight and inflight.last_progress_at > last_activity:
                     last_activity = inflight.last_progress_at
 
@@ -134,6 +156,8 @@ class CrossWorkerMixin(
             result_future,
             timeout,
             context_label="redis-pubsub",
+            ack_timeout_status="retry_db",
+            ack_timeout_retry_transport="db_polling",
         )
         if result.get("status") == "retry_db":
             return None
