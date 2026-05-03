@@ -13,11 +13,11 @@
 
 | Gate | 計劃列入 | 目前已實作 | 完成驗收證據 |
 |---|---:|---:|---|
-| 跨 pack object refs → MeetingEngine → downstream artifact/proposal E2E：`@owner.kind:{sourceA}`、`@owner.kind:{sourceB}` 進 `route_meeting_orchestration`，由 `MeetingEngine.run()` 產生 TaskIR 與 pack dispatch | true | false | API response 必須含 `dispatch_result.meeting_orchestration.task_ir_id`；DB/API 必須能查到同一 `meeting_id` 的 command row、request-contract AOL metadata、TaskIR、artifact/proposal；IG refs → PD storyboard 只能作為 installed-pack 驗收樣本，不是 local-core enum |
-| Pack-owned object discussion → MeetingEngine guidance E2E：`@owner.kind:{object_id}` 進 `route_meeting_orchestration`，由 MeetingEngine 產生 guidance/action/review 節點 | true | false | API response 必須含 `dispatch_result.meeting_orchestration.task_ir_id`；graph/ledger/session notification 必須落在同一 `meeting_id`；PD scene discussion 只能作為 installed-pack 驗收樣本，不是 local-core enum |
+| 跨 pack object refs → MeetingEngine → downstream artifact/proposal E2E：`@owner.kind:{sourceA}`、`@owner.kind:{sourceB}` 進 `route_meeting_orchestration`，由 `MeetingEngine.run()` 產生 TaskIR 與 pack dispatch | true | true | Source implementation and targeted tests pass. Live installed-pack E2E still requires runtime readiness: `GET /health` is degraded and `GET /api/v1/capability-packs/` timed out on 2026-05-03. Do not claim IG refs → PD storyboard completed until API/DB evidence exists. |
+| Pack-owned object discussion → MeetingEngine guidance E2E：`@owner.kind:{object_id}` 進 `route_meeting_orchestration`，由 MeetingEngine 產生 guidance/action/review 節點 | true | true | Source implementation and frontend/backend targeted tests pass. Live graph/ledger/session notification evidence must still be captured on a ready runtime. PD scene discussion remains an installed-pack validation fixture, not a local-core enum. |
 | 資產入庫：storyboard/proposal/artifact 必須寫入 artifacts DB，而不是只存在 pack response 或前端 fixture | true | false | `PostgresArtifactsStore.create_artifact()` 或既有 artifact creation path 寫入 `artifacts` row；`GET /api/v1/workspaces/{workspace_id}/artifacts?thread_id={meeting_id}` 能查到對應 artifact |
 | 資產入檔：artifact 必須帶可解析 file path，而不是只在 DB metadata 放空殼 | true | false | artifact response 的 `file_path` 來自 `metadata.actual_file_path`、`metadata.file_path` 或 `storage_ref`，且 runtime verification 必須證明該檔案存在 |
-| UX/UI 編排補全：AOL runtime graph 繼承既有 Workbench 骨架，但必須補出 MeetingEngine 編排狀態，不得只沿用 direct dispatch UI | true | false | Work view 必須顯示 `Intent -> Context Attachments -> RequestContract -> ActionIntent -> TaskIR -> Dispatch -> Artifact/Proposal -> Review/Next` 的節點或 inspector proof；Command Dock 必須送 `route_meeting_orchestration`；notification 必須對應同一 `meeting_id`、`command_id`、`task_ir_id` |
+| UX/UI 編排補全：AOL runtime graph 繼承既有 Workbench 骨架，但必須補出 MeetingEngine 編排狀態，不得只沿用 direct dispatch UI | true | true | Command Dock now sends `route_meeting_orchestration` for AOL refs / selected pack / selected guidance, carries guidance metadata, and handles `dispatch_result.meeting_orchestration` without route-owned false failure. Full graph/inspector proof for `Intent -> Context Attachments -> RequestContract -> ActionIntent -> TaskIR -> Dispatch -> Artifact/Proposal -> Review/Next` still needs live runtime evidence. |
 
 本文件是 2026-05-03 的 P0 修正計劃。目的不是新增 IG/PD 業務邏輯，而是把 AOL Runtime Shell 的 command、object refs、graph guidance、relations、pack affordances 轉成 MeetingEngine 編排契約，讓 MeetingEngine 成為任務目的理解、跨 pack workflow 組裝、ActionIntent、TaskIR、dispatch、memory、review trace 的中樞。
 
@@ -28,6 +28,8 @@
 本次查驗後的狀態：本版將 P0 收斂為單一產品實作路徑，所有 change block 必須對應到唯一檔案、唯一函式/class、唯一資料 carrier、唯一驗收命令。
 
 2026-05-03 補全修訂：本版新增 selected guidance carrier、frontend orchestration response contract、MeetingEngine runner dependency map、session metadata persistence、artifact DB/file landing path、runtime readiness gate、以及外部內容平台/agent orchestration 對齊 gate。若這些 gate 未完成，不得把本計劃標為可開工 P0。
+
+2026-05-03 實作收尾狀態：local-core source path 已落地 `AOLMeetingOrchestrationBridge`、`MeetingEngineRunner`、command ledger `route_meeting_orchestration` routing、`handoff_in.metadata["addressable_object_layer"]` merge、selected guidance metadata carrier、frontend `meeting_orchestration` response handling，以及 explicit direct-route override gate。Targeted backend/frontend tests pass. Live runtime evidence remains blocked: health is degraded because LLM/OCR are unavailable, and `GET /api/v1/capability-packs/` timed out after 10s；因此不得宣稱 IG/PD installed-pack E2E、artifact DB row、file landing 已完成，只能宣稱 source implementation closed。
 
 本次修訂落入以下十一個不可跳過的 gate：
 
@@ -573,7 +575,7 @@ P0 不需要追逐單一平台 API，但必須避免產品方向與 2025-2026 �
 2. **Bridge builds HandoffIn from AOL context**
    - Command:
      ```bash
-     /Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/test_aol_meeting_orchestration_bridge.py
+     /Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/aol_meeting_orchestration_bridge_spec.py
      ```
    - Expected: `HandoffIn.context_attachments` contains role-bearing object refs, projections, selected guidance metadata, guidance hints, relation proof, and review routes; `HandoffIn.metadata["addressable_object_layer"]` contains command/session carrier fields; `candidate_playbooks` contains recommended playbook hints; `HandoffIn.playbook_requests` is `None`。
    - Fail: object refs are lost, `card.metadata` is dropped, guidance becomes hard route without explicit override, or IG/PD-specific logic appears in local-core。
@@ -582,7 +584,7 @@ P0 不需要追逐單一平台 API，但必須避免產品方向與 2025-2026 �
 3. **MeetingEngine runner persists TaskIR and request metadata**
    - Command:
      ```bash
-     /Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/test_meeting_engine_runner.py
+     /Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/meeting_engine_runner_spec.py
      ```
    - Expected: `MeetingEngine.run()` is called once; `task_ir_id == meeting_result.task_ir.task_id`; `persist_meeting_task_ir()` is called; `session_store.update(session)` persists `session.metadata["request_contract"]["addressable_object_layer"]`; runner returns artifact landing summary。
    - Fail: runner returns `compiled_task_ir_id`, does not persist TaskIR, drops AOL metadata carrier, or marks artifact landing complete without DB/file evidence。
@@ -664,10 +666,10 @@ P0 不需要追逐單一平台 API，但必須避免產品方向與 2025-2026 �
    - Prevents regressions for Problems 1, 2, and 4.
 
 2. **Bridge unit tests**
-   - Target: `backend/tests/test_aol_meeting_orchestration_bridge.py`。
+   - Target: `backend/tests/aol_meeting_orchestration_bridge_spec.py`。
    - Scenario: source refs, target refs, attach metadata, selected guidance metadata, graph guidance recommended playbook, required roles, review routes, and guidance-only command with no object refs。
    - Assertions: `HandoffIn.context_attachments` preserves roles/projections/guidance/review routes and selected `card.metadata`; recommended playbook appears only under `HandoffIn.metadata["addressable_object_layer"]["candidate_playbooks"]`; `HandoffIn.playbook_requests` is empty or `None`; empty object refs do not call `project_object_graph(objects=[])`。
-   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/test_aol_meeting_orchestration_bridge.py`。
+   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/aol_meeting_orchestration_bridge_spec.py`。
    - Prevents regressions for Problems 3, 4, and 6.
 
 3. **RequestContract merge tests**
@@ -678,10 +680,10 @@ P0 不需要追逐單一平台 API，但必須避免產品方向與 2025-2026 �
    - Prevents regressions for Problem 4.
 
 4. **MeetingEngine runner tests**
-   - Target: `backend/tests/test_meeting_engine_runner.py`。
+   - Target: `backend/tests/meeting_engine_runner_spec.py`。
    - Scenario: runner receives a test meeting session, message, and bridge-generated `HandoffIn`。
    - Assertions: calls `MeetingEngine.run()` with `handoff_in`; persists `task_ir_id = meeting_result.task_ir.task_id`; calls `session_store.update(session)`; returns normalized orchestration evidence, artifact landing summary, and dependency failure metadata when runtime profile/execution launcher cannot be resolved。
-   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/test_meeting_engine_runner.py`。
+   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/meeting_engine_runner_spec.py`。
    - Prevents regressions for Problems 2 and 4.
 
 5. **Frontend dispatch tests**
@@ -706,10 +708,10 @@ P0 不需要追逐單一平台 API，但必須避免產品方向與 2025-2026 �
    - Prevents boundary regressions.
 
 8. **Artifact landing tests**
-   - Target: `backend/tests/test_meeting_engine_runner.py` and the artifact landing service tests chosen during implementation。
+   - Target: `backend/tests/meeting_engine_runner_spec.py` and the artifact landing service tests chosen during implementation。
    - Scenario: MeetingEngine returns TaskIR artifacts and pack dispatch result with output artifacts。
    - Assertions: runner reports `artifact_landing_status` truthfully; DB artifact row is created when output artifact payload is sufficient; missing file path produces `pending` / `not_landed` instead of `completed`。
-   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/test_meeting_engine_runner.py -k artifact_landing`。
+   - Command: `/Users/shock/Projects_local/workspace/mindscape-ai-local-core/.venv/bin/python -m pytest backend/tests/meeting_engine_runner_spec.py -k artifact_landing`。
    - Prevents false asset 入庫/入檔 claims.
 
 ## 6. Risks / open questions
