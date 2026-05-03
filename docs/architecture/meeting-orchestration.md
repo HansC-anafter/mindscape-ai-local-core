@@ -30,14 +30,14 @@ Meeting sessions carry bounded metadata for memory selection, workflow evidence,
 The meeting engine assembles context from:
 
 - workspace and project state
-- runtime profile and route decision
+- runtime profile and local routing decision
 - effective lens state and active intent IDs
 - project context and workspace group asset maps
 - workflow evidence context
 - available playbooks and tools
 - uploaded files and conversation state
 
-The prompt layer is one consumer of this context. The same context also feeds policy, action extraction, TaskIR compilation, dispatch, memory writeback, and inspection surfaces.
+Private assembly paths are one consumer of this context. The same context also feeds policy, action extraction, TaskIR compilation, dispatch, memory writeback, and inspection surfaces.
 
 ## Policy Gate and Dispatch Gate
 
@@ -49,13 +49,13 @@ After policy gating, the dispatch gate evaluates action intents with supervision
 
 For dispatchable work, the meeting pipeline can run task decomposition between action intents and TaskIR execution. Decomposition produces bounded PhaseIR structure grounded in available local execution surfaces and may extend a plan when downstream results require it.
 
-Decomposition is a local orchestration detail. Public documentation should describe the boundary, not the private skip heuristics or route shaping rules.
+Decomposition is a local orchestration detail. Public documentation should describe the boundary, not private decomposition heuristics or routing rules.
 
 ## Finalization and Writeback
 
 Finalization renders meeting minutes, closes the session, emits user-visible meeting output, and records inspection metadata. The session close path can trigger memory writeback through the meeting writeback orchestrator described in the governed memory fabric.
 
-Public documentation should treat meeting orchestration as a governed execution convergence layer. It should not expose internal prompts, private role instructions, private validation transcripts, or provider-specific execution payloads.
+Public documentation should treat meeting orchestration as a governed execution convergence layer. It should not expose private prompt text, private role instructions, private validation transcripts, or provider-specific execution payloads.
 
 ## Public Boundary
 
@@ -64,9 +64,9 @@ Local Core owns meeting sessions, meeting orchestration, agenda decomposition, r
 Local Core does not publicly own:
 
 - provider-native conversation formats
-- private deliberation prompts
+- private deliberation prompt text
 - external runtime implementation details
-- cloud scheduling or billing workflows
+- external scheduling or billing workflows
 - installed capability internals invoked by a meeting result
 
-Public meeting documentation should describe stable local orchestration behavior and leave private prompt, provider, and capability implementation details withheld.
+Public meeting documentation should describe stable local orchestration behavior and leave private assembly, provider, and capability implementation details withheld.
