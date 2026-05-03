@@ -8,30 +8,30 @@ This page describes the released public architecture scope for the current repos
 
 TaskIR stores:
 
-- task identity, workspace identity, actor identity, and intent instance identity
+- task, workspace, actor, and intent identity
 - current phase and task status
 - ordered or DAG-shaped PhaseIR entries
 - produced artifact references
-- structured execution metadata for local execution, compatibility, and governance context
+- structured execution metadata for local execution and governance context
 - checkpoint snapshots and update payloads
 
-PhaseIR stores phase identity, status, dependencies, target workspace, selected actuator information, input parameters, dispatch attempt references, timing, and rollback metadata.
+PhaseIR stores bounded phase identity, status, dependency, target, actuator, input, attempt, timing, and rollback metadata.
 
 TaskIR can compute executable phases from dependency state, add artifacts, update phase status, lower phases into an actuation plan, and create or restore checkpoints.
 
 ## Governance Metadata
 
-TaskIR metadata can carry a typed governance context with goals, constraints, acceptance criteria, lens and memory references, handoff provenance, human instructions, context attachments, and requested output type.
+TaskIR metadata can carry typed governance context such as goals, constraints, acceptance criteria, lens and memory references, provenance, human instructions, context attachments, and requested output type.
 
-Meeting compilation builds this metadata from `HandoffIn` when present, or from a compiled request contract when available.
+Meeting compilation builds this metadata from handoff input or a compiled request contract when available.
 
 ## Meeting to TaskIR
 
-The meeting IR compiler turns action intents or legacy action items into TaskIR phases. With action intents, phase IDs match intent IDs and dependencies pass through directly. With legacy action items, the compiler preserves backward compatibility and can create sequential fallback phases.
+The meeting IR compiler turns action intents or compatibility action items into TaskIR phases while preserving dependencies when possible.
 
-If no phase exists, the compiler creates a decision phase so the meeting outcome remains representable.
+If no executable phase exists, the compiler preserves the meeting outcome as a representable decision phase.
 
-Requested capability artifacts can be emitted into TaskIR during compilation when the current session and action inputs request them.
+Requested artifacts can be emitted into TaskIR during compilation when the current session and action inputs request them.
 
 ## Dispatch Orchestrator
 
@@ -44,7 +44,7 @@ The dispatch orchestrator walks the TaskIR graph:
 - write compatibility projections for existing task queries
 - allow bounded plan extension when downstream results require it
 
-Dispatch results include aggregate status, succeeded, failed, skipped, involved workspaces, attempts, and per-phase results.
+Dispatch results provide bounded aggregate and per-phase execution state.
 
 ## Dispatch Targets
 
@@ -55,17 +55,17 @@ Dispatch can route phases to:
 - workspace agent runtimes
 - planned task projections when no actuator is available
 
-Dispatch can also apply target workspace routing, upstream phase result injection, lens context injection, idempotency guards, capability profile resolution, and IR provenance snapshots.
+Dispatch can also apply workspace routing, upstream result injection, lens context injection, idempotency guards, and provenance snapshots.
 
 ## Handoff Intake
 
-The handoff bundle route can receive and compile signed handoff payloads into local TaskIR. The compile path verifies the bundle, extracts a `HandoffIn`, resolves workspace context, obtains an ingress route decision, runs meeting compilation, and persists TaskIR.
+The handoff bundle route can receive and compile signed handoff payloads into local TaskIR. The compile path validates the bundle, resolves local workspace context, runs meeting compilation, and persists TaskIR.
 
 This is a cross-boundary intake surface. It should be documented as a local compile path, not as ownership of any external control plane.
 
 ## Persistence and Replay
 
-TaskIR can be persisted through the PostgreSQL TaskIR store with replace semantics after meeting compilation. Handoff handling and execution adapters can load TaskIR, update phases, create updates, and continue execution across playbooks, skills, MCP-style handoff surfaces, and planned local tasks.
+TaskIR can be persisted through the PostgreSQL TaskIR store after meeting compilation. Handoff handling and execution paths can load TaskIR, update phases, create updates, and continue execution across local playbooks, tools, handoff surfaces, and planned tasks.
 
 Public documentation should describe the stable TaskIR shape and dispatch responsibility. It should not publish internal prompt formats, private provider payloads, or low-level adapter implementation plans.
 
