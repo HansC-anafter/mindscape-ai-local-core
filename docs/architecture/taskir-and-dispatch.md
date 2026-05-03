@@ -67,7 +67,7 @@ This is a cross-boundary intake surface. It should be documented as a local comp
 
 TaskIR can be persisted through the PostgreSQL TaskIR store after meeting compilation. Handoff handling and execution paths can load TaskIR, update phases, create bounded updates, and continue execution across local playbooks, tools, handoff intake, and planned tasks.
 
-Public documentation should describe the stable TaskIR shape and dispatch responsibility. It should not publish internal prompt formats, private provider payloads, or low-level adapter implementation plans.
+Public documentation should describe the stable TaskIR shape and dispatch responsibility. It should not publish private assembly formats, private provider payloads, or low-level adapter implementation plans.
 
 ## Public Boundary
 
@@ -77,7 +77,7 @@ Local Core does not publicly own:
 
 - external executor internals
 - provider-specific payload schemas
-- cloud tenant or billing workflow state
+- external tenant or billing workflow state
 - private adapter transport details
 - installed capability implementation internals
 
