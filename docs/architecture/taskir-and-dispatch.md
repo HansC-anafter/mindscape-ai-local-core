@@ -12,16 +12,16 @@ TaskIR stores:
 - current phase and task status
 - ordered or DAG-shaped PhaseIR entries
 - produced artifact references
-- structured execution metadata for intent, execution, cloud compatibility, and governance context
+- structured execution metadata for local execution, compatibility, and governance context
 - checkpoint snapshots and update payloads
 
-PhaseIR stores phase identity, status, preferred engine, actual executor, dependencies, target workspace, asset references, tool name, input parameters, dispatch attempt IDs, capability profile, timing, and rollback fields.
+PhaseIR stores phase identity, status, dependencies, target workspace, selected actuator information, input parameters, dispatch attempt references, timing, and rollback metadata.
 
 TaskIR can compute executable phases from dependency state, add artifacts, update phase status, lower phases into an actuation plan, and create or restore checkpoints.
 
 ## Governance Metadata
 
-TaskIR metadata can carry a typed governance context with goals, non-goals, deliverables, constraints, acceptance tests, risk notes, lens snapshot references, memory references, handoff IDs, trace IDs, human instructions, context attachments, and requested output type.
+TaskIR metadata can carry a typed governance context with goals, constraints, acceptance criteria, lens and memory references, handoff provenance, human instructions, context attachments, and requested output type.
 
 Meeting compilation builds this metadata from `HandoffIn` when present, or from a compiled request contract when available.
 
@@ -35,15 +35,14 @@ Requested capability artifacts can be emitted into TaskIR during compilation whe
 
 ## Dispatch Orchestrator
 
-The dispatch orchestrator walks the TaskIR DAG:
+The dispatch orchestrator walks the TaskIR graph:
 
-- build dependency graph and in-degree counts from PhaseIR dependencies
-- dispatch all ready phases concurrently
-- skip downstream phases when upstream dependencies fail under the default policy
-- create and track PhaseAttempt records
-- publish dispatch activity events
-- write projections for backward-compatible task queries
-- allow a supervisor callback to inject new phases after a dispatch wave
+- resolve ready phases from dependency state
+- dispatch ready phases through local playbook, tool, or runtime paths
+- track phase attempts and dispatch activity
+- skip or preserve downstream phases according to failure policy
+- write compatibility projections for existing task queries
+- allow bounded plan extension when downstream results require it
 
 Dispatch results include aggregate status, succeeded, failed, skipped, involved workspaces, attempts, and per-phase results.
 
@@ -56,11 +55,11 @@ Dispatch can route phases to:
 - workspace agent runtimes
 - planned task projections when no actuator is available
 
-Dispatch can also apply target workspace routing, upstream phase result injection, lens context injection, idempotency guards, playbook alias rescue, model override resolution through capability profiles, and IR provenance snapshots.
+Dispatch can also apply target workspace routing, upstream phase result injection, lens context injection, idempotency guards, capability profile resolution, and IR provenance snapshots.
 
 ## Handoff Intake
 
-The handoff bundle route can package, verify, intake, and compile signed handoff payloads. The compile path verifies the bundle, extracts a `HandoffIn`, resolves workspace context, obtains an ingress route decision, runs meeting compilation, and persists TaskIR.
+The handoff bundle route can receive and compile signed handoff payloads into local TaskIR. The compile path verifies the bundle, extracts a `HandoffIn`, resolves workspace context, obtains an ingress route decision, runs meeting compilation, and persists TaskIR.
 
 This is a cross-boundary intake surface. It should be documented as a local compile path, not as ownership of any external control plane.
 
