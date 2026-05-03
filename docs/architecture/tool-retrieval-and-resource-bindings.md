@@ -36,7 +36,7 @@ Callers are expected to fall back to bounded defaults or installed manifest scan
 
 Workspace resource bindings are the workspace overlay for shared resources. A binding can attach a playbook, tool, data source, or asset to a workspace with an access mode and local overrides.
 
-For tools, explicit `TOOL` bindings are the strongest signal. When a workspace has explicit tool bindings, the retrieval helper filters semantic matches to that allowlist. Prompt context assembly can also append explicitly bound tools that semantic retrieval did not surface, so manually bound tools remain visible to the workspace.
+For tools, explicit `TOOL` bindings are the strongest signal. When a workspace has explicit tool bindings, the retrieval helper filters semantic matches to that allowlist. Context assembly can also append explicitly bound tools that semantic retrieval did not surface, so manually bound tools remain visible to the workspace.
 
 The public boundary is that bindings describe workspace-local availability and overrides. They do not grant unrestricted execution. Execution still passes through policy gates, dispatch gates, runtime availability checks, and executor-specific validation.
 
@@ -44,7 +44,7 @@ The public boundary is that bindings describe workspace-local availability and o
 
 Workspace chat context can request relevant tools for the current message and inject an `Available Tools` section when matches or explicit bindings exist.
 
-Meeting orchestration pre-fetches relevant tools from agenda items and the user request. The meeting prompt layer then builds tool inventory in this order:
+Meeting orchestration pre-fetches relevant tools from agenda items and the user request. The private meeting assembly path then builds tool inventory in this order:
 
 - explicit workspace tool bindings, with matching retrieval hits shown first when available
 - retrieval hits when there are no explicit tool bindings
@@ -60,7 +60,7 @@ The dedicated retrieval surface is a discovery and filtering aid, not an executi
 
 ## Public Boundary
 
-Local Core owns local tool and playbook indexing, pgvector-backed retrieval, lexical search support, short-lived retrieval caching, workspace resource bindings, prompt inventory construction, and filtered tool discovery.
+Local Core owns local tool and playbook indexing, pgvector-backed retrieval, lexical search support, short-lived retrieval caching, workspace resource bindings, context inventory construction, and filtered tool discovery.
 
 Local Core does not publicly own:
 
