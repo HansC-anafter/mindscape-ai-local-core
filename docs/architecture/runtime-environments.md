@@ -4,7 +4,7 @@ Mindscape AI Local Core hosts runtime surfaces through a local-first registry, w
 
 ## Runtime Registry
 
-Local Core exposes a runtime environment registry at `/api/v1/runtime-environments`. The registry combines built-in runtime definitions with user-defined runtime records and stores runtime metadata such as name, icon, configuration URL, authentication type, dispatch support, cell support, and dispatch recommendation flags.
+Local Core exposes a runtime environment registry at `/api/v1/runtime-environments`. The registry combines built-in runtime definitions with user-defined runtime records and stores metadata needed by the local console and dispatch layers.
 
 The registry is a local management surface. It does not make an external runtime the owner of Local Core workspace state.
 
@@ -14,7 +14,7 @@ Runtime authentication is handled through local services and routes:
 
 - `/api/v1/runtime-oauth` starts and completes OAuth flows for configured runtime providers.
 - `/api/v1/runtime-proxy` forwards approved runtime configuration requests after checking access and injecting the selected runtime authentication headers.
-- Runtime auth configuration is resolved through stored runtime configuration, system settings, and environment fallback where supported.
+- Runtime auth configuration is resolved through local configuration and supported fallback settings.
 
 These routes let Local Core connect to external runtimes without exposing runtime secrets directly to the frontend.
 
@@ -34,22 +34,15 @@ Workspace runtime configuration can carry compatibility metadata for external sy
 
 The Addressable Object Layer runtime is implemented as workspace-scoped routes and frontend shell components. It gives installed capability surfaces a common way to expose concrete objects, selections, meeting context, materialization, and graph projections.
 
-The backend runtime includes routes for:
+The backend runtime covers object catalog discovery, object indexing and search, selection resolution, object actions, meeting attachment, materialization coordination, and bounded graph projection. These are host contracts; capability-owned object schemas and materializer internals remain outside public Local Core scope.
 
-- object catalog discovery
-- object instance indexing, sync, search, read, and mention completion
-- object relation indexing and relation search
-- UI selection resolution into stable object references
-- contextual object action planning, invocation, and closure
-- object attachment into meeting sessions
-- materialization of object outcomes through owner capability backends
-- object graph projection with persisted relation fallback
-
-The frontend includes the addressable-object host provider, host shell components, and meeting bottom shell surfaces that let workspace capability pages participate in object targeting and meeting attachment flows.
+The frontend includes the addressable-object host provider, host shell components, and meeting surfaces that let workspace capability pages participate in object targeting and meeting attachment flows.
 
 ## Optional Runtime Adapters
 
-The repository also contains optional connector surfaces for cloud coordination, remote execution callbacks, external agent adapters, and MCP-compatible tool exposure. These adapters sit around Local Core and should be described as integration points, not as core ownership boundaries.
+The repository also contains optional adapter-facing surfaces for external coordination, remote execution callbacks, external agent adapters, and MCP-compatible tool exposure. These adapters sit around Local Core and should be described as integration points, not as core ownership boundaries.
+
+Adapter implementation details, callback schemas, provider payloads, and Docker-ignored connector services remain outside the public runtime documentation scope.
 
 ## Public Boundary
 
