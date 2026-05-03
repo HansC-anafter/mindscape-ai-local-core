@@ -29,7 +29,7 @@ interface UseToolsReturn {
 const getDefaultToolStatus = (): ToolStatus => ({
   status: 'not_configured',
   label: t('statusNotConfigured'),
-  icon: '⚠️',
+  icon: 'WARN',
 });
 
 export function useTools(): UseToolsReturn {
@@ -162,7 +162,7 @@ export function useTools(): UseToolsReturn {
       cleanupStatus();
       cleanupConfig();
     };
-  }, [loadTools, loadVectorDBConfig, loadToolsStatus, loadVectorDBHealthStatus]);
+  }, [loadTools, loadVectorDBConfig, loadToolsStatus, loadVectorDBHealthStatus, loadUnsplashConfig]);
 
   const testConnection = useCallback(
     async (connectionId: string) => {
@@ -203,13 +203,13 @@ export function useTools(): UseToolsReturn {
       }>('/api/v1/vector-db/test');
 
       const details = [
-        `✅ Successfully connected to ${result.database || 'PostgreSQL'}`,
+        `Connected to ${result.database || 'PostgreSQL'}`,
         result.pgvector_installed
-          ? `✅ pgvector installed (version ${result.pgvector_version || 'unknown'})`
-          : '❌ pgvector extension not found',
+          ? `pgvector installed (version ${result.pgvector_version || 'unknown'})`
+          : 'pgvector extension not found',
         result.dimension_check
-          ? `✅ Main collections dimension = ${result.dimension} (compatible with current embedding model)`
-          : result.dimension_error || '⚠️ Dimension check failed',
+          ? `Main collections dimension = ${result.dimension} (compatible with current embedding model)`
+          : result.dimension_error || 'Dimension check failed',
       ]
         .filter(Boolean)
         .join('\n');
@@ -231,38 +231,38 @@ export function useTools(): UseToolsReturn {
         // Priority: health check > tools status API > config
         if (vectorDBConnected !== null) {
           if (vectorDBConnected) {
-            return { status: 'connected', label: t('statusConnected'), icon: '✅' };
+            return { status: 'connected', label: t('statusConnected'), icon: 'OK' };
           } else {
-            return { status: 'not_configured', label: t('statusNotConnected'), icon: '⚠️' };
+            return { status: 'not_configured', label: t('statusNotConnected'), icon: 'WARN' };
           }
         }
         // Fallback to tools status API
         const statusInfo = toolsStatus[toolType];
         if (statusInfo) {
           if (statusInfo.status === 'connected') {
-            return { status: 'connected', label: t('statusConnected'), icon: '✅' };
+            return { status: 'connected', label: t('statusConnected'), icon: 'OK' };
           } else if (statusInfo.status === 'registered_but_not_connected') {
-            return { status: 'registered_but_not_connected', label: t('statusNotConnected'), icon: '⚠️' };
+            return { status: 'registered_but_not_connected', label: t('statusNotConnected'), icon: 'WARN' };
           } else if (statusInfo.status === 'unavailable') {
-            return { status: 'unavailable', label: t('statusNotSupported'), icon: '🔴' };
+            return { status: 'unavailable', label: t('statusNotSupported'), icon: 'ERR' };
           }
         }
         // Fallback to config-based status
         if (!vectorDBConfig) {
-          return { status: 'not_configured', label: t('statusNotConfigured'), icon: '⚠️' };
+          return { status: 'not_configured', label: t('statusNotConfigured'), icon: 'WARN' };
         }
         if (vectorDBConfig.enabled) {
-          return { status: 'connected', label: t('statusEnabled'), icon: '✅' };
+          return { status: 'connected', label: t('statusEnabled'), icon: 'OK' };
         }
-        return { status: 'inactive', label: t('statusDisabled'), icon: '🔌' };
+        return { status: 'inactive', label: t('statusDisabled'), icon: 'OFF' };
       }
 
       // For Unsplash, check workspace settings
       if (toolType === 'unsplash') {
         if (unsplashConfigured === true) {
-          return { status: 'connected', label: t('statusConnected'), icon: '✅' };
+          return { status: 'connected', label: t('statusConnected'), icon: 'OK' };
         } else if (unsplashConfigured === false) {
-          return { status: 'not_configured', label: t('statusNotConfigured'), icon: '⚠️' };
+          return { status: 'not_configured', label: t('statusNotConfigured'), icon: 'WARN' };
         }
         return getDefaultToolStatus();
       }
@@ -271,26 +271,26 @@ export function useTools(): UseToolsReturn {
       const statusInfo = toolsStatus[toolType];
       if (statusInfo) {
         if (statusInfo.status === 'connected') {
-          return { status: 'connected', label: t('statusConnected'), icon: '✅' };
+          return { status: 'connected', label: t('statusConnected'), icon: 'OK' };
         } else if (statusInfo.status === 'registered_but_not_connected') {
-          return { status: 'registered_but_not_connected', label: t('statusNotConnected'), icon: '⚠️' };
+          return { status: 'registered_but_not_connected', label: t('statusNotConnected'), icon: 'WARN' };
         } else if (statusInfo.status === 'unavailable') {
-          return { status: 'unavailable', label: t('statusNotSupported'), icon: '🔴' };
+          return { status: 'unavailable', label: t('statusNotSupported'), icon: 'ERR' };
         }
       }
 
       if (toolType === 'obsidian') {
-        return { status: 'local', label: t('statusLocalMode'), icon: '🔌' };
+        return { status: 'local', label: t('statusLocalMode'), icon: 'LOCAL' };
       }
 
       const conn = connections.find((c) => c.tool_type === toolType);
       if (!conn) {
-        return { status: 'not_configured', label: t('statusNotConfigured'), icon: '⚠️' };
+        return { status: 'not_configured', label: t('statusNotConfigured'), icon: 'WARN' };
       }
       if (conn.enabled) {
-        return { status: 'connected', label: t('statusConnected'), icon: '✅' };
+        return { status: 'connected', label: t('statusConnected'), icon: 'OK' };
       }
-      return { status: 'inactive', label: t('statusDisabled'), icon: '🔌' };
+      return { status: 'inactive', label: t('statusDisabled'), icon: 'OFF' };
     },
     [connections, vectorDBConfig, toolsStatus, vectorDBConnected, unsplashConfigured]
   );
@@ -299,7 +299,7 @@ export function useTools(): UseToolsReturn {
     (toolType: string): ToolStatus => {
       const status = getToolStatus(toolType);
       if (toolType === 'wordpress') {
-        return { ...status, label: t('statusLocalMode'), icon: '🔌' };
+        return { ...status, label: t('statusLocalMode'), icon: 'LOCAL' };
       }
       return status;
     },

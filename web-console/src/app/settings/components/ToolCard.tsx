@@ -102,12 +102,12 @@ export function ToolCard({
                   <div className="mt-2 space-y-1">
                     {extraInfo.configuredWorkspaces !== undefined && extraInfo.totalWorkspaces !== undefined && (
                       <p className="text-xs text-green-600 dark:text-green-400 font-medium">
-                        ✓ 已配置 {extraInfo.configuredWorkspaces}/{extraInfo.totalWorkspaces} 個 Workspace
+                        Configured workspaces: {extraInfo.configuredWorkspaces}/{extraInfo.totalWorkspaces}
                       </p>
                     )}
                     {extraInfo.statusText && (
                       <p className="text-xs text-gray-400 dark:text-gray-500">
-                        狀態：{extraInfo.statusText}
+                        Status: {extraInfo.statusText}
                       </p>
                     )}
                   </div>

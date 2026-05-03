@@ -177,13 +177,13 @@ export function ServiceStatusPanel() {
     switch (status) {
       case 'healthy':
       case 'ok':
-        return '✓';
+        return 'OK';
       case 'unhealthy':
       case 'warning':
-        return '⚠';
+        return 'WARN';
       case 'unavailable':
       case 'error':
-        return '✗';
+        return 'ERR';
       default:
         return '?';
     }
@@ -294,7 +294,7 @@ export function ServiceStatusPanel() {
             <span className={`text-2xl mr-2 ${
               healthStatus.overall_status === 'healthy' ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'
             }`}>
-              {healthStatus.overall_status === 'healthy' ? '✓' : '⚠'}
+              {healthStatus.overall_status === 'healthy' ? 'OK' : 'WARN'}
             </span>
             <div>
               <p className="font-medium text-gray-900 dark:text-gray-100">
@@ -341,7 +341,7 @@ export function ServiceStatusPanel() {
                 ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border-green-200 dark:border-green-800'
                 : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800'
             }`}>
-              {healthStatus?.llm_available ? `✓ ${t('configured' as any)}` : `✗ ${t('notConfigured' as any)}`}
+              {healthStatus?.llm_available ? t('configured' as any) : t('notConfigured' as any)}
             </span>
           </div>
           {healthStatus?.llm_provider && (
@@ -359,7 +359,7 @@ export function ServiceStatusPanel() {
                 ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border-green-200 dark:border-green-800'
                 : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800'
             }`}>
-              {healthStatus?.vector_db_connected ? `✓ ${t('connected' as any)}` : `⚠ ${t('notConnected' as any)}`}
+              {healthStatus?.vector_db_connected ? t('connected' as any) : t('notConnected' as any)}
             </span>
           </div>
         </div>

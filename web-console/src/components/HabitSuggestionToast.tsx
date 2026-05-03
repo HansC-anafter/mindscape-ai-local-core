@@ -1,11 +1,11 @@
 /**
  * Habit Suggestion Toast Component
- * 顯示習慣建議的 Toast 通知，提供確認/拒絕按鈕
  */
 
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { ChevronLeft, ChevronRight, Lightbulb, X } from 'lucide-react';
 import { t } from '../lib/i18n';
 import { getCandidates, confirmCandidate, rejectCandidate, type HabitCandidateResponse } from '../lib/habits-api';
 
@@ -13,8 +13,8 @@ interface HabitSuggestionToastProps {
   profileId: string;
   onConfirm?: (candidateId: string) => void;
   onReject?: (candidateId: string) => void;
-  autoShow?: boolean; // 是否自動顯示（當有新的候選時）
-  checkInterval?: number; // 檢查間隔（毫秒），預設 30 秒
+  autoShow?: boolean;
+  checkInterval?: number;
 }
 
 export default function HabitSuggestionToast({
@@ -22,21 +22,21 @@ export default function HabitSuggestionToast({
   onConfirm,
   onReject,
   autoShow = true,
-  checkInterval = 30000, // 30 秒
+  checkInterval = 30000,
 }: HabitSuggestionToastProps) {
   const [candidates, setCandidates] = useState<HabitCandidateResponse[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [visible, setVisible] = useState(false);
 
-  // 載入候選習慣
+  // Load pending habit candidates.
   const loadCandidates = async () => {
     try {
       setLoading(true);
       const data = await getCandidates(profileId, 'pending', 10);
       setCandidates(data);
 
-      // 如果有新的候選且 autoShow 為 true，顯示第一個
+      // Show the first pending candidate when auto-show is enabled.
       if (data.length > 0 && autoShow && !visible) {
         setCurrentIndex(0);
         setVisible(true);
@@ -48,7 +48,7 @@ export default function HabitSuggestionToast({
     }
   };
 
-  // 初始載入和定期檢查
+  // Load once and then poll on the configured interval.
   useEffect(() => {
     loadCandidates();
 
@@ -58,7 +58,7 @@ export default function HabitSuggestionToast({
     }
   }, [profileId, autoShow, checkInterval]);
 
-  // 處理確認
+  // Confirm the current suggestion.
   const handleConfirm = async () => {
     const candidate = candidates[currentIndex];
     if (!candidate) return;
@@ -67,11 +67,11 @@ export default function HabitSuggestionToast({
       setLoading(true);
       await confirmCandidate(candidate.candidate.id, profileId);
 
-      // 從列表中移除
+      // Remove the accepted candidate from the list.
       const newCandidates = candidates.filter((_, idx) => idx !== currentIndex);
       setCandidates(newCandidates);
 
-      // 如果有下一個，顯示下一個；否則隱藏
+      // Show the next candidate if any remain.
       if (newCandidates.length > 0) {
         setCurrentIndex(Math.min(currentIndex, newCandidates.length - 1));
       } else {
@@ -81,16 +81,15 @@ export default function HabitSuggestionToast({
 
       onConfirm?.(candidate.candidate.id);
 
-      // 顯示成功訊息
       alert(t('habitConfirmSuccess' as any));
     } catch (error: any) {
-      alert(`確認失敗：${error.message}`);
+      alert(`Confirm failed: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // 處理拒絕
+  // Reject the current suggestion.
   const handleReject = async () => {
     const candidate = candidates[currentIndex];
     if (!candidate) return;
@@ -99,11 +98,11 @@ export default function HabitSuggestionToast({
       setLoading(true);
       await rejectCandidate(candidate.candidate.id, profileId);
 
-      // 從列表中移除
+      // Remove the rejected candidate from the list.
       const newCandidates = candidates.filter((_, idx) => idx !== currentIndex);
       setCandidates(newCandidates);
 
-      // 如果有下一個，顯示下一個；否則隱藏
+      // Show the next candidate if any remain.
       if (newCandidates.length > 0) {
         setCurrentIndex(Math.min(currentIndex, newCandidates.length - 1));
       } else {
@@ -113,21 +112,18 @@ export default function HabitSuggestionToast({
 
       onReject?.(candidate.candidate.id);
 
-      // 顯示成功訊息
       alert(t('habitRejectSuccess' as any));
     } catch (error: any) {
-      alert(`拒絕失敗：${error.message}`);
+      alert(`Reject failed: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // 處理關閉
   const handleClose = () => {
     setVisible(false);
   };
 
-  // 處理下一個
   const handleNext = () => {
     if (currentIndex < candidates.length - 1) {
       setCurrentIndex(currentIndex + 1);
@@ -136,7 +132,6 @@ export default function HabitSuggestionToast({
     }
   };
 
-  // 處理上一個
   const handlePrevious = () => {
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
@@ -153,12 +148,12 @@ export default function HabitSuggestionToast({
   }
 
   const habitKeyDisplay: Record<string, string> = {
-    language: t('language' as any) || '語言',
-    communication_style: '溝通風格',
-    response_length: '回應長度',
+    language: t('language' as any) || 'Language',
+    communication_style: 'Communication Style',
+    response_length: 'Response Length',
     executor_runtime_type: 'Preferred agent type',
-    tool_usage: '工具使用',
-    playbook_usage: 'Playbook 使用',
+    tool_usage: 'Tool Usage',
+    playbook_usage: 'Playbook Usage',
   };
 
   const habitKey = habitKeyDisplay[candidate.candidate.habit_key] || candidate.candidate.habit_key;
@@ -175,7 +170,7 @@ export default function HabitSuggestionToast({
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center space-x-2">
-            <span className="text-2xl">💡</span>
+            <Lightbulb className="h-5 w-5 text-gray-600" aria-hidden="true" />
             <h3 className="text-lg font-semibold text-gray-900">
               {t('habitSuggestions' as any)}
             </h3>
@@ -185,7 +180,7 @@ export default function HabitSuggestionToast({
             className="text-gray-400 hover:text-gray-600 transition-colors"
             aria-label="Close"
           >
-            ✕
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
@@ -229,14 +224,20 @@ export default function HabitSuggestionToast({
               disabled={currentIndex === 0}
               className="text-gray-600 hover:text-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed"
             >
-              ← 上一個
+              <span className="inline-flex items-center gap-1">
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                Previous
+              </span>
             </button>
             <button
               onClick={handleNext}
               disabled={currentIndex === candidates.length - 1}
               className="text-gray-600 hover:text-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed"
             >
-              下一個 →
+              <span className="inline-flex items-center gap-1">
+                Next
+                <ChevronRight className="h-4 w-4" aria-hidden="true" />
+              </span>
             </button>
           </div>
         )}

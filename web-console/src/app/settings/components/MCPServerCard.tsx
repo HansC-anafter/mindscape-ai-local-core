@@ -28,11 +28,11 @@ export function MCPServerCard({ server, onRefresh, onEdit, onDelete }: MCPServer
 
   const getStatus = () => {
     if (server.status === 'connected') {
-      return { status: 'connected' as const, label: t('connected' as any) || 'Connected', icon: '✅' };
+      return { status: 'connected' as const, label: t('connected' as any) || 'Connected' };
     } else if (server.status === 'error') {
-      return { status: 'unavailable' as const, label: t('error' as any) || 'Error', icon: '❌' };
+      return { status: 'unavailable' as const, label: t('error' as any) || 'Error' };
     } else {
-      return { status: 'not_configured' as const, label: t('disconnected' as any) || 'Disconnected', icon: '⚪' };
+      return { status: 'not_configured' as const, label: t('disconnected' as any) || 'Disconnected' };
     }
   };
 
@@ -55,7 +55,9 @@ export function MCPServerCard({ server, onRefresh, onEdit, onDelete }: MCPServer
     <Card hover className="flex flex-col h-full">
       <div className="flex items-start mb-4 flex-shrink-0">
         <div className="flex items-start space-x-3 flex-1 min-w-0">
-          <span className="text-2xl flex-shrink-0">🔌</span>
+          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded bg-gray-100 text-xs font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+            MCP
+          </span>
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1.5 leading-tight">{server.name}</h3>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
@@ -128,4 +130,3 @@ export function MCPServerCard({ server, onRefresh, onEdit, onDelete }: MCPServer
     </Card>
   );
 }
-

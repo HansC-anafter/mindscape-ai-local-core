@@ -60,18 +60,19 @@ export default function SettingsPage() {
       resolvedTab = 'basic';
     }
 
-    if (resolvedTab) {
-      setActiveTab(resolvedTab);
-    }
+    const nextTab = resolvedTab || 'basic';
+    setActiveTab(nextTab);
 
     if (sectionParam) {
       setActiveSection(sectionParam === 'oauth' ? 'oauth-integrations' : sectionParam);
-    } else if (tabParam === 'basic' && !sectionParam) {
+    } else if (nextTab === 'basic') {
       setActiveSection('backend-mode');
-    } else if (resolvedTab === 'credentials' && !sectionParam) {
+    } else if (nextTab === 'credentials') {
       setActiveSection('service-credentials');
-    } else if (tabParam === 'packs_status' && !sectionParam) {
+    } else if (nextTab === 'packs_status') {
       setActiveSection('packages');
+    } else {
+      setActiveSection(undefined);
     }
 
     setActiveProvider(providerParam || undefined);

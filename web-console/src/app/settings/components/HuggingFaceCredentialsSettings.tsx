@@ -38,7 +38,7 @@ export function HuggingFaceCredentialsSettings() {
       setConfig(data);
       setApiKey('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '載入 Hugging Face 憑證失敗');
+      setError(err instanceof Error ? err.message : 'Failed to load Hugging Face credentials');
     } finally {
       setLoading(false);
     }
@@ -47,7 +47,7 @@ export function HuggingFaceCredentialsSettings() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!apiKey.trim()) {
-      setError('請輸入 Hugging Face access token');
+      setError('Enter a Hugging Face access token');
       return;
     }
     try {
@@ -58,7 +58,7 @@ export function HuggingFaceCredentialsSettings() {
         '/api/v1/system-settings/huggingface-auth',
         { api_key: apiKey.trim() }
       );
-      setSuccess(response.message || 'Hugging Face 存取憑證已儲存');
+      setSuccess(response.message || 'Hugging Face access token saved');
       setConfig((prev) => ({
         ...prev,
         api_key_configured: true,
@@ -67,7 +67,7 @@ export function HuggingFaceCredentialsSettings() {
       }));
       setApiKey('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '儲存 Hugging Face 憑證失敗');
+      setError(err instanceof Error ? err.message : 'Failed to save Hugging Face credentials');
     } finally {
       setSaving(false);
     }
@@ -82,7 +82,7 @@ export function HuggingFaceCredentialsSettings() {
         '/api/v1/system-settings/huggingface-auth',
         { clear: true }
       );
-      setSuccess(response.message || 'Hugging Face 存取憑證已清除');
+      setSuccess(response.message || 'Hugging Face access token cleared');
       setConfig({
         api_key_configured: false,
         api_key: '',
@@ -91,7 +91,7 @@ export function HuggingFaceCredentialsSettings() {
       });
       setApiKey('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '清除 Hugging Face 憑證失敗');
+      setError(err instanceof Error ? err.message : 'Failed to clear Hugging Face credentials');
     } finally {
       setClearing(false);
     }
@@ -151,8 +151,8 @@ export function HuggingFaceCredentialsSettings() {
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={
                 config.api_key_configured
-                  ? (t('huggingFaceAccessTokenPlaceholderConfigured' as any) || '***（已配置，輸入新值以更新）')
-                  : (t('huggingFaceAccessTokenPlaceholder' as any) || '輸入 Hugging Face access token')
+                  ? (t('huggingFaceAccessTokenPlaceholderConfigured' as any) || '*** (configured; enter a new value to update)')
+                  : (t('huggingFaceAccessTokenPlaceholder' as any) || 'Enter Hugging Face access token')
               }
               className="w-full px-3 py-2 border border-default dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 bg-surface-accent dark:bg-gray-900 text-primary dark:text-gray-100"
             />
@@ -167,7 +167,7 @@ export function HuggingFaceCredentialsSettings() {
               disabled={saving}
               className="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800 disabled:opacity-50"
             >
-              {saving ? (t('saving' as any) || '儲存中...') : (t('saveCredential' as any) || '儲存憑證')}
+              {saving ? (t('saving' as any) || 'Saving...') : (t('saveCredential' as any) || 'Save Credential')}
             </button>
             <button
               type="button"
@@ -175,7 +175,7 @@ export function HuggingFaceCredentialsSettings() {
               disabled={clearing || !config.api_key_configured}
               className="px-4 py-2 border border-default dark:border-gray-600 rounded-md text-primary dark:text-gray-200 hover:bg-surface-accent dark:hover:bg-gray-700 disabled:opacity-50"
             >
-              {clearing ? (t('clearingCredential' as any) || '清除中...') : (t('clearCredential' as any) || '清除憑證')}
+              {clearing ? (t('clearingCredential' as any) || 'Clearing...') : (t('clearCredential' as any) || 'Clear Credential')}
             </button>
           </div>
         </form>
@@ -183,37 +183,37 @@ export function HuggingFaceCredentialsSettings() {
 
       <div className="rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/20 p-4">
         <div className="text-sm font-medium text-primary dark:text-gray-100 mb-2">
-          操作指引
+          Operating Guide
         </div>
         <div className="space-y-2 text-sm text-secondary dark:text-gray-400">
           <p>
-            這份 Hugging Face access token 會供 Hugging Face 模型拉取，以及 LAF / ComfyUI 相關權重同步共用。
+            This Hugging Face access token is used for Hugging Face model downloads and shared LAF / ComfyUI weight synchronization.
           </p>
           <p>
-            如果你的 ComfyUI 不是安裝在預設位置，請前往
+            If your ComfyUI installation is not in the default location, open
             {' '}
             <Link
               href="/settings?tab=runtime"
               className="text-blue-700 dark:text-blue-300 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200"
             >
-              執行環境
+              Runtime Environments
             </Link>
             {' '}
-            後點擊 `ComfyUI Local` 卡片進入管理彈窗，指定安裝路徑，避免 preview / render runtime 讀到錯的本機路徑。
+            and select the `ComfyUI Local` card to set the installation path. This keeps preview and render runtimes from reading the wrong local path.
           </p>
           <p>
-            如果你要管理 Hugging Face 模型清單，請前往
+            To manage the Hugging Face model catalog, open
             {' '}
             <Link
               href="/settings?tab=basic&section=models-and-quota"
               className="text-blue-700 dark:text-blue-300 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200"
             >
-              基礎設定 &gt; 模型與配額
+              Basic Settings &gt; Models and Quota
             </Link>
-            。
+            .
           </p>
           <p>
-            如果你還沒有建立 token，可先前往
+            If you have not created a token yet, open
             {' '}
             <a
               href="https://huggingface.co/settings/tokens"
@@ -224,7 +224,7 @@ export function HuggingFaceCredentialsSettings() {
               Hugging Face Access Tokens
             </a>
             {' '}
-            建立後再回來貼上。
+            and paste the token here after creating it.
           </p>
         </div>
       </div>

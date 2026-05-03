@@ -65,7 +65,7 @@ export function CloudPublishPanel() {
         }
       }
     } catch (error) {
-      console.error('載入發佈服務配置失敗:', error);
+      console.error('Failed to load publish service config:', error);
     }
   };
 
@@ -73,9 +73,8 @@ export function CloudPublishPanel() {
     try {
       setLoading(true);
       const apiUrl = getApiBaseUrl();
-      const profileId = 'default-profile'; // TODO: Get from auth context
+      const profileId = 'default-profile';
 
-      // 載入所有發佈目標工具連接
       const response = await fetch(`${apiUrl}/api/v1/tools/connections?profile_id=${profileId}&tool_type=publish_dropbox,publish_google_drive,publish_private_cloud,publish_custom`);
       if (response.ok) {
         const connections = await response.json();
@@ -94,7 +93,7 @@ export function CloudPublishPanel() {
         setPublishTargets(targets);
       }
     } catch (error) {
-      console.error('載入發佈目標失敗:', error);
+      console.error('Failed to load publish targets:', error);
     } finally {
       setLoading(false);
     }
@@ -112,7 +111,7 @@ export function CloudPublishPanel() {
     } catch (error) {
       setTestResult({
         success: false,
-        message: `測試失敗: ${error instanceof Error ? error.message : '未知錯誤'}`
+        message: `Test failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       });
     } finally {
       setTesting(false);
@@ -136,10 +135,10 @@ export function CloudPublishPanel() {
         setTestResult(null);
       } else {
         const error = await response.json();
-        alert(`儲存失敗: ${error.detail || '未知錯誤'}`);
+        alert(`Save failed: ${error.detail || 'Unknown error'}`);
       }
     } catch (error) {
-      alert(`儲存失敗: ${error instanceof Error ? error.message : '未知錯誤'}`);
+      alert(`Save failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setSaving(false);
     }
@@ -184,14 +183,13 @@ export function CloudPublishPanel() {
         <div className="space-y-6">
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-              雲端發佈
+              Publish Service
             </h2>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              將 Playbook 和 Capability 發佈到雲端服務。配置發佈服務的 API 端點和認證資訊。
+              Configure a provider-neutral API endpoint and credentials for publishing playbooks and capability packs.
             </p>
           </div>
 
-          {/* 發佈服務配置狀態 */}
           <div className="border rounded-lg p-4 space-y-3">
             {config ? (
               <>
@@ -199,14 +197,14 @@ export function CloudPublishPanel() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h3 className="font-medium text-gray-900 dark:text-gray-100">
-                        發佈服務
+                        Publish service
                       </h3>
                       <span className={`px-2 py-1 text-xs rounded ${
                         config.enabled
                           ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
                           : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400'
                       }`}>
-                        {config.enabled ? '已啟用' : '已禁用'}
+                        {config.enabled ? 'Enabled' : 'Disabled'}
                       </span>
                     </div>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
@@ -225,7 +223,7 @@ export function CloudPublishPanel() {
                     onClick={() => setShowConfigModal(true)}
                     className="px-3 py-1.5 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
                   >
-                    編輯配置
+                    Edit config
                   </button>
                   <button
                     type="button"
@@ -233,7 +231,7 @@ export function CloudPublishPanel() {
                     disabled={testing}
                     className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {testing ? '測試中...' : '測試連接'}
+                    {testing ? 'Testing...' : 'Test connection'}
                   </button>
                 </div>
                 {testResult && (
@@ -249,14 +247,14 @@ export function CloudPublishPanel() {
             ) : (
               <div className="text-center py-8">
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                  尚未配置發佈服務
+                  Publish service is not configured.
                 </p>
                 <button
                   type="button"
                   onClick={() => setShowConfigModal(true)}
                   className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700"
                 >
-                  配置發佈服務
+                  Configure publish service
                 </button>
               </div>
             )}
@@ -264,42 +262,40 @@ export function CloudPublishPanel() {
         </div>
       </Card>
 
-      {/* 配置說明 */}
       <Card>
         <div className="space-y-4">
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-              關於發佈服務
+              About Publish Service
             </h2>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              發佈服務負責處理 Playbook 和 Capability 的打包、上傳和註冊。您可以配置任何符合標準的發佈服務 API。
+              The publish service handles packaging, upload, and registration for playbooks and capability packs. Any compatible publish API can be configured.
             </p>
           </div>
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 space-y-2">
             <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-              發佈目標類型：
+              Publish target types:
             </h3>
             <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1 list-disc list-inside">
-              <li><strong>Dropbox</strong>：發佈到 Dropbox 文件夾</li>
-              <li><strong>Google Drive</strong>：發佈到 Google Drive 文件夾</li>
-              <li><strong>Private Cloud</strong>：發佈到自託管雲端服務</li>
-              <li><strong>自定義發佈服務</strong>：配置自定義的發佈服務 API</li>
+              <li><strong>Dropbox</strong>: publish to a Dropbox folder</li>
+              <li><strong>Google Drive</strong>: publish to a Google Drive folder</li>
+              <li><strong>Private Cloud</strong>: publish to a self-hosted service</li>
+              <li><strong>Custom Publish Service</strong>: configure a custom publish API</li>
             </ul>
             <p className="text-xs text-gray-500 dark:text-gray-500 mt-3">
-              提示：發佈目標在「能力包管理」→「發佈目標」中配置和管理
+              Publish targets are configured and managed from the capability pack publish target settings.
             </p>
           </div>
         </div>
       </Card>
 
-      {/* 配置對話框 */}
       <BaseModal
         isOpen={showConfigModal}
         onClose={() => {
           setShowConfigModal(false);
           handleReset();
         }}
-        title="配置發佈服務"
+        title="Configure publish service"
         maxWidth="max-w-2xl"
       >
         <div className="space-y-4">
@@ -311,7 +307,7 @@ export function CloudPublishPanel() {
               type="text"
               value={formData.api_url}
               onChange={(e) => setFormData({ ...formData, api_url: e.target.value })}
-              placeholder="https://api.mindscape-ai-cloud.com"
+              placeholder="https://publish.example.com"
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
           </div>
@@ -324,14 +320,14 @@ export function CloudPublishPanel() {
               type="password"
               value={formData.api_key}
               onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
-              placeholder="輸入 API Key"
+              placeholder="Enter API key"
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Provider ID（可選）
+              Provider ID (optional)
             </label>
             <input
               type="text"
@@ -344,7 +340,7 @@ export function CloudPublishPanel() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Storage Backend（可選）
+              Storage Backend (optional)
             </label>
             <select
               value={formData.storage_backend}
@@ -366,7 +362,7 @@ export function CloudPublishPanel() {
               className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
             />
             <label htmlFor="enabled" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-              啟用發佈服務
+              Enable publish service
             </label>
           </div>
 
@@ -387,7 +383,7 @@ export function CloudPublishPanel() {
               disabled={saving || !formData.api_url || !formData.api_key}
               className="px-4 py-2 text-sm bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50"
             >
-              {saving ? '儲存中...' : '儲存'}
+              {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </div>

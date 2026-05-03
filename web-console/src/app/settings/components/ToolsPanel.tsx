@@ -40,19 +40,19 @@ const getSystemTools = (t: (...args: any[]) => string): Array<{
       toolType: 'local_files',
       name: 'Local File System',
       description: t('toolLocalFilesDescription' as any),
-      icon: '💾',
+      icon: 'FS',
     },
     {
       toolType: 'vector_db',
       name: 'Vector Database (PostgreSQL / pgvector)',
       description: t('toolVectorDBDescription' as any),
-      icon: '🗄️',
+      icon: 'DB',
     },
     {
       toolType: 'obsidian',
       name: 'Obsidian',
       description: t('toolObsidianDescription' as any),
-      icon: '📚',
+      icon: 'OBS',
     },
   ];
 
@@ -68,55 +68,55 @@ const getExternalSaaSTools = (t: (...args: any[]) => string): Array<{
       toolType: 'wordpress',
       name: 'WordPress',
       description: t('toolWordPressDescription' as any),
-      icon: '🌐',
+      icon: 'WP',
     },
     {
       toolType: 'notion',
       name: 'Notion',
       description: t('toolNotionDescription' as any),
-      icon: '📝',
+      icon: 'NT',
     },
     {
       toolType: 'google_drive',
       name: 'Google Drive',
       description: t('toolGoogleDriveDescription' as any),
-      icon: '📁',
+      icon: 'GD',
     },
     {
       toolType: 'canva',
       name: 'Canva',
       description: t('toolCanvaDescription' as any),
-      icon: '🎨',
+      icon: 'CV',
     },
     {
       toolType: 'slack',
       name: 'Slack',
       description: t('toolSlackDescription' as any),
-      icon: '💬',
+      icon: 'SL',
     },
     {
       toolType: 'airtable',
       name: 'Airtable',
       description: t('toolAirtableDescription' as any),
-      icon: '📊',
+      icon: 'AT',
     },
     {
       toolType: 'google_sheets',
       name: 'Google Sheets',
       description: t('toolGoogleSheetsDescription' as any),
-      icon: '📈',
+      icon: 'GS',
     },
     {
       toolType: 'github',
       name: 'GitHub',
       description: t('toolGitHubDescription' as any),
-      icon: '💻',
+      icon: 'GH',
     },
     {
       toolType: 'unsplash',
       name: 'Unsplash',
-      description: '連接 Unsplash 以搜尋和取得高品質攝影作品，用於生成 Visual Lens',
-      icon: '📷',
+      description: 'Connect Unsplash to search and retrieve high-quality photography for Visual Lens generation',
+      icon: 'US',
     },
   ];
 
@@ -175,7 +175,7 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
   const loadUnsplashStats = async () => {
     try {
       const apiUrl = getApiBaseUrl();
-      const ownerUserId = 'default-user'; // TODO: Get from auth context
+      const ownerUserId = 'default-user';
       const workspacesResponse = await fetch(
         `${apiUrl}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=100`
       );
@@ -215,7 +215,7 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
             if (currentConfigResponse.ok) {
               const currentConfig = await currentConfigResponse.json();
               if (currentConfig.configured) {
-                statusText = `當前 Workspace: ${currentConfig.status || 'active'}`;
+                statusText = `Current workspace: ${currentConfig.status || 'active'}`;
               }
             }
           } catch {
@@ -323,7 +323,7 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
               const status = getToolStatus(tool.toolType);
               const isLocal = tool.toolType === 'local_files';
               const localStatus = isLocal
-                ? { status: 'local' as const, label: 'Local mode', icon: '🔌' }
+                ? { status: 'local' as const, label: 'Local mode', icon: '' }
                 : status;
 
               return (

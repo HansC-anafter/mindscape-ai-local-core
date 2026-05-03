@@ -152,9 +152,9 @@ export function GoogleOAuthSettings() {
       }>('/api/v1/system-settings/google-oauth/test', testPayload);
 
       if (testData.success && testData.valid) {
-        setTestResult(`✅ ${testData.message}${testData.warnings?.length ? `\n⚠️ ${testData.warnings.join(', ')}` : ''}`);
+        setTestResult(`Success: ${testData.message}${testData.warnings?.length ? `\nWarning: ${testData.warnings.join(', ')}` : ''}`);
       } else {
-        setTestResult(`❌ ${testData.message}${testData.errors?.length ? `\n${testData.errors.join(', ')}` : ''}`);
+        setTestResult(`Error: ${testData.message}${testData.errors?.length ? `\n${testData.errors.join(', ')}` : ''}`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('failedToTestOAuthConfiguration' as any));
@@ -283,7 +283,7 @@ export function GoogleOAuthSettings() {
               : 'text-gray-500 dark:text-gray-400'
           }`}>
             {config.is_configured && form.client_id
-              ? `✓ ${t('googleClientIDDescription' as any)}`
+              ? t('googleClientIDDescription' as any)
               : t('googleClientIDDescription' as any)}
           </p>
         </div>
@@ -427,7 +427,7 @@ export function GoogleOAuthSettings() {
 
         {testResult && (
           <InlineAlert
-            type={testResult.startsWith('✅') ? 'success' : 'error'}
+            type={testResult.startsWith('Success:') ? 'success' : 'error'}
             message={testResult}
             onDismiss={() => setTestResult(null)}
             className="whitespace-pre-line"

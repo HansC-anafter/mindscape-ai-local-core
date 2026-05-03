@@ -115,7 +115,7 @@ export default function SystemStatusCard({
             href="/settings?tab=llm"
             className="text-[10px] text-blue-600 hover:text-blue-800 underline"
           >
-            {t('goToSettings' as any)} →
+            {t('goToSettings' as any)} &gt;
           </Link>
         </div>
       )}

@@ -139,25 +139,25 @@ export const SettingsConfigAssistant = forwardRef<SettingsConfigAssistantHandle,
 
         case 'tools':
           if (currentSection === 'third-party-workflow') {
-            content = '您正在設定第三方工作流程整合頁面。';
-            suggestions.push('這些整合可以讓 AI 自動處理重複任務');
-            suggestions.push('通常需要技術夥伴協助設定外部服務');
-            suggestions.push('如果只有本機環境，可以先略過這些設定');
+            content = 'You are configuring third-party workflow integrations.';
+            suggestions.push('These integrations can let AI automate repeatable tasks');
+            suggestions.push('They usually require external service setup or technical partner support');
+            suggestions.push('You can skip them if you only need the local environment');
           } else if (currentSection === 'developer-integrations') {
-            content = '您正在設定開發者整合頁面。';
-            suggestions.push('這些工具需要外部環境或技術協作');
-            suggestions.push('適合有工程師或服務商協助的團隊');
-            suggestions.push('一般使用者可以先略過');
+            content = 'You are configuring developer integrations.';
+            suggestions.push('These tools require external environments or technical coordination');
+            suggestions.push('They are best for teams with engineering or service provider support');
+            suggestions.push('General users can skip them for now');
           } else if (currentSection === 'general-integrations') {
-            content = '您正在設定一般整合頁面。';
-            suggestions.push('這些是常用的工具整合');
-            suggestions.push('在本地核心模式下即可正常使用');
-            suggestions.push('建議從這些開始設定');
+            content = 'You are configuring general integrations.';
+            suggestions.push('These are commonly used tool integrations');
+            suggestions.push('They work in local-core mode');
+            suggestions.push('Start with these integrations first');
           } else if (currentSection === 'system-tools') {
-            content = '您正在設定系統工具頁面。';
-            suggestions.push('這些是系統級的本地工具');
-            suggestions.push('包含向量資料庫、本地檔案系統等');
-            suggestions.push('建議優先設定這些基礎工具');
+            content = 'You are configuring system tools.';
+            suggestions.push('These are local system-level tools');
+            suggestions.push('They include vector database and local filesystem access');
+            suggestions.push('Configure these foundation tools first');
           } else {
             content = t('configAssistantToolsTab' as any) || 'You are on the Tools & Integrations page.';
             suggestions.push(t('configAssistantToolsSuggestion1') || 'Connect external tools (WordPress, Google Drive, etc.)');
@@ -186,20 +186,20 @@ export const SettingsConfigAssistant = forwardRef<SettingsConfigAssistantHandle,
 
         case 'ai-team-governance':
           if (currentSection === 'install-agents') {
-            content = '您正在瀏覽可安裝的 AI Agent 列表。';
-            suggestions.push('點擊「安裝」按鈕，我會幫您檢測必要的 CLI 工具');
-            suggestions.push('我可以引導您完成 Agent 的安裝和配置');
-            suggestions.push('詢問我任何關於 Agent 能力和風險的問題');
+            content = 'You are browsing installable AI agents.';
+            suggestions.push('Click Install and I can check the required CLI tools');
+            suggestions.push('I can guide agent installation and configuration');
+            suggestions.push('Ask me about agent capabilities and risk labels');
           } else if (currentSection === 'model-policy') {
-            content = '您正在設定 AI 模型使用政策。';
-            suggestions.push('限制特定 Agent 可使用的模型');
-            suggestions.push('設定成本上限和使用配額');
-            suggestions.push('配置模型存取權限');
+            content = 'You are configuring AI model usage policy.';
+            suggestions.push('Limit which models specific agents can use');
+            suggestions.push('Set cost caps and usage quotas');
+            suggestions.push('Configure model access permissions');
           } else {
-            content = 'AI 團隊治理讓您管理外部 AI Agent 的安裝和權限。';
-            suggestions.push('瀏覽可安裝的 Agent');
-            suggestions.push('設定模型使用政策');
-            suggestions.push('管理 Agent 權限和風險標籤');
+            content = 'AI team governance lets you manage external AI agent installation and permissions.';
+            suggestions.push('Browse installable agents');
+            suggestions.push('Set model usage policy');
+            suggestions.push('Manage agent permissions and risk labels');
           }
           break;
 
@@ -229,7 +229,7 @@ export const SettingsConfigAssistant = forwardRef<SettingsConfigAssistantHandle,
       }
 
       if (issues.length > 0) {
-        content += `\n\n${t('configAssistantDetectedIssues' as any) || '⚠️ Detected issues'}: ${issues.join(', ')}`;
+        content += `\n\n${t('configAssistantDetectedIssues' as any) || 'Detected issues'}: ${issues.join(', ')}`;
       }
 
       if (actions.length === 0 && currentTab !== 'packs_status') {
@@ -241,7 +241,7 @@ export const SettingsConfigAssistant = forwardRef<SettingsConfigAssistantHandle,
       }
 
       return { content, actions: actions.length > 0 ? actions : undefined };
-    }, []);
+    }, [currentSection]);
 
     useEffect(() => {
       const welcome = generateWelcomeMessage(context, currentTab);

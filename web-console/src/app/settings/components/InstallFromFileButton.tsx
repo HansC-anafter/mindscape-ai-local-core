@@ -202,12 +202,12 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
           {roleMappings.length > 0 && (
             <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
               <p className="text-sm font-medium text-blue-900 mb-2">
-                ✅ {t('rolesAddedCapabilities' as any)}
+                {t('rolesAddedCapabilities' as any)}
               </p>
               <ul className="space-y-1">
                 {roleMappings.map((mapping, idx) => (
                   <li key={idx} className="text-sm text-blue-800">
-                    • <strong>{mapping.role_id}</strong>: {mapping.brief_label} - {mapping.blurb}
+                    - <strong>{mapping.role_id}</strong>: {mapping.brief_label} - {mapping.blurb}
                     {mapping.is_fallback && (
                       <span className="ml-2 text-xs text-blue-600">({t('temporarilyStoredInDefaultRole' as any)})</span>
                     )}
@@ -216,7 +216,7 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
               </ul>
               {installResult?.has_fallback_mapping && (
                 <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                  💡 {t('capabilityStoredInDefaultAssistant' as any)}
+                  {t('capabilityStoredInDefaultAssistant' as any)}
                 </div>
               )}
             </div>
@@ -224,7 +224,7 @@ export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps)
           {installResult?.has_fallback_mapping && roleMappings.length === 0 && (
             <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
               <p className="text-sm font-medium text-yellow-900 mb-2">
-                💡 {t('capabilityStoredInDefaultAssistantTitle' as any)}
+                {t('capabilityStoredInDefaultAssistantTitle' as any)}
               </p>
               <p className="text-xs text-yellow-800">
                 {t('capabilityAssignedToDefaultAssistant' as any)}

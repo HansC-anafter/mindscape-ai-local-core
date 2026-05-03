@@ -9,7 +9,7 @@ export function SocialMediaPanel({ activeProvider }: { activeProvider?: string }
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Check if we should show configuration page (only when explicitly clicking "配置" button)
+  // Check if we should show the configuration page after an explicit configure action.
   // Sub-menu clicks should only show overview with anchor
   const shouldShowConfig = searchParams?.get('configure' as any) === '1' && activeProvider;
 
@@ -28,4 +28,3 @@ export function SocialMediaPanel({ activeProvider }: { activeProvider?: string }
 
   return <SocialMediaOverview onNavigate={handleNavigate} />;
 }
-

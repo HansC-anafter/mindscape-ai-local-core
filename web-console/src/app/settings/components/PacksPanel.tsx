@@ -89,7 +89,7 @@ export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
     return (
       <div className="text-center py-12 text-gray-500 dark:text-gray-400">
         <p>{t('capabilityPacks' as any)}</p>
-        <p className="text-sm mt-2">{t('selectPacksSection' as any) || '請選擇能力套裝或能力包'}</p>
+        <p className="text-sm mt-2">{t('selectPacksSection' as any) || 'Select a capability suite or package'}</p>
       </div>
     );
   }
@@ -119,12 +119,12 @@ export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
         >
           {suitesLoading ? (
             <div className="text-center py-12">
-              <p className="text-gray-500 dark:text-gray-400 text-sm">載入中...</p>
+              <p className="text-gray-500 dark:text-gray-400 text-sm">Loading...</p>
             </div>
           ) : suites.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-gray-500 dark:text-gray-400 text-sm">無可用能力套裝</p>
-              <p className="text-gray-400 dark:text-gray-500 text-xs mt-2">能力套裝從共享層載入</p>
+              <p className="text-gray-500 dark:text-gray-400 text-sm">No capability suites are available</p>
+              <p className="text-gray-400 dark:text-gray-500 text-xs mt-2">Capability suites load from the shared layer</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -158,7 +158,7 @@ export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
         >
           {packsLoading ? (
             <div className="text-center py-12">
-              <p className="text-gray-500 dark:text-gray-400 text-sm">載入中...</p>
+              <p className="text-gray-500 dark:text-gray-400 text-sm">Loading...</p>
             </div>
           ) : (
             <>

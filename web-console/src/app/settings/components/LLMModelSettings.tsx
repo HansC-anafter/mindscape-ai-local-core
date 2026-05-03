@@ -71,12 +71,12 @@ export function LLMModelSettings() {
       }>('/api/v1/system-settings/llm-models/test-chat');
 
       if (result.success) {
-        setChatTestResult(`✅ ${result.message}`);
+        setChatTestResult(`Success: ${result.message}`);
       } else {
-        setChatTestResult(`❌ ${result.message}`);
+        setChatTestResult(`Error: ${result.message}`);
       }
     } catch (err) {
-      setChatTestResult(`❌ ${t('testFailedWithError' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setChatTestResult(`Error: ${t('testFailedWithError' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setTestingChat(false);
     }
@@ -95,12 +95,12 @@ export function LLMModelSettings() {
       }>('/api/v1/system-settings/llm-models/test-embedding');
 
       if (result.success) {
-        setEmbeddingTestResult(`✅ ${result.message}`);
+        setEmbeddingTestResult(`Success: ${result.message}`);
       } else {
-        setEmbeddingTestResult(`❌ ${result.message}`);
+        setEmbeddingTestResult(`Error: ${result.message}`);
       }
     } catch (err) {
-      setEmbeddingTestResult(`❌ ${t('testFailedWithError' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setEmbeddingTestResult(`Error: ${t('testFailedWithError' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setTestingEmbedding(false);
     }
@@ -160,7 +160,7 @@ export function LLMModelSettings() {
         </div>
 
         {chatTestResult && (
-          <div className={`mb-3 p-2 rounded text-sm ${chatTestResult.startsWith('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+          <div className={`mb-3 p-2 rounded text-sm ${chatTestResult.startsWith('Success:') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
             {chatTestResult}
           </div>
         )}
@@ -177,7 +177,7 @@ export function LLMModelSettings() {
         >
           {settings.available_chat_models.map((model) => (
             <option key={model.model_name} value={model.model_name}>
-              {model.model_name} {model.is_latest && '⭐'} {model.is_recommended && '✨'} {model.is_deprecated && `(${t('deprecated' as any)})`} - {model.description}
+              {model.model_name} {model.is_latest && '(Latest)'} {model.is_recommended && '(Recommended)'} {model.is_deprecated && `(${t('deprecated' as any)})`} - {model.description}
             </option>
           ))}
         </select>
@@ -207,7 +207,7 @@ export function LLMModelSettings() {
         </div>
 
         {embeddingTestResult && (
-          <div className={`mb-3 p-2 rounded text-sm ${embeddingTestResult.startsWith('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+          <div className={`mb-3 p-2 rounded text-sm ${embeddingTestResult.startsWith('Success:') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
             {embeddingTestResult}
           </div>
         )}
@@ -224,7 +224,7 @@ export function LLMModelSettings() {
         >
           {settings.available_embedding_models.map((model) => (
             <option key={model.model_name} value={model.model_name}>
-              {model.model_name} {model.is_latest && '⭐'} {model.is_recommended && '✨'} - {model.description}
+              {model.model_name} {model.is_latest && '(Latest)'} {model.is_recommended && '(Recommended)'} - {model.description}
             </option>
           ))}
         </select>
