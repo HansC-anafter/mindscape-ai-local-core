@@ -29,37 +29,32 @@ export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTar
       case 'publish_dropbox':
         return {
           name: 'Dropbox',
-          defaultName: 'Dropbox 發佈',
-          description: '發佈到 Dropbox 文件夾',
-          icon: '📦',
+          defaultName: 'Dropbox Publish',
+          description: 'Publish to a Dropbox folder',
         };
       case 'publish_google_drive':
         return {
           name: 'Google Drive',
-          defaultName: 'Google Drive 發佈',
-          description: '發佈到 Google Drive 文件夾',
-          icon: '☁️',
+          defaultName: 'Google Drive Publish',
+          description: 'Publish to a Google Drive folder',
         };
       case 'publish_private_cloud':
         return {
           name: 'Private Cloud',
-          defaultName: '私有雲端發佈',
-          description: '發佈到自託管雲端服務',
-          icon: '🏢',
+          defaultName: 'Private Cloud Publish',
+          description: 'Publish to a self-hosted cloud service',
         };
       case 'publish_custom':
         return {
-          name: '自定義發佈服務',
-          defaultName: '自定義發佈服務',
-          description: '配置自定義的發佈服務 API',
-          icon: '🔧',
+          name: 'Custom Publish Service',
+          defaultName: 'Custom Publish Service',
+          description: 'Configure a custom publish service API',
         };
       default:
         return {
-          name: '發佈目標',
-          defaultName: '發佈目標',
-          description: '配置發佈目標',
-          icon: '📤',
+          name: 'Publish Target',
+          defaultName: 'Publish Target',
+          description: 'Configure a publish target',
         };
     }
   };
@@ -70,9 +65,9 @@ export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTar
     try {
       setSaving(true);
       const apiUrl = getApiBaseUrl();
-      const profileId = 'default-profile'; // TODO: Get from auth context
+      const profileId = 'default-profile';
 
-      // 創建工具連接
+      // Create the tool connection.
       const connectionResponse = await fetch(`${apiUrl}/api/v1/tools/connections?profile_id=${profileId}`, {
         method: 'POST',
         headers: {
@@ -96,10 +91,10 @@ export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTar
 
       if (!connectionResponse.ok) {
         const error = await connectionResponse.json();
-        throw new Error(error.detail || '創建連接失敗');
+        throw new Error(error.detail || 'Failed to create connection');
       }
 
-      // 同時更新發佈服務配置（用於向後兼容）
+      // Keep legacy publish-service configuration in sync.
       if (formData.api_url) {
         await fetch(`${apiUrl}/api/v1/publish-service/config`, {
           method: 'PUT',
@@ -120,7 +115,7 @@ export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTar
       onSuccess();
       onClose();
     } catch (error) {
-      alert(`配置失敗: ${error instanceof Error ? error.message : '未知錯誤'}`);
+      alert(`Configuration failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setSaving(false);
     }
@@ -130,13 +125,13 @@ export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTar
     <BaseModal
       isOpen={true}
       onClose={onClose}
-      title={`配置 ${toolInfo.name}`}
+      title={`Configure ${toolInfo.name}`}
       maxWidth="max-w-2xl"
     >
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            名稱
+            Name
           </label>
           <input
             type="text"
@@ -149,7 +144,7 @@ export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTar
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            描述
+            Description
           </label>
           <input
             type="text"
@@ -183,7 +178,7 @@ export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTar
                 type="password"
                 value={formData.api_key}
                 onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
-                placeholder="輸入 API Key"
+                placeholder="Enter API key"
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
             </div>
@@ -207,7 +202,7 @@ export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTar
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                目標文件夾路徑
+                Target Folder Path
               </label>
               <input
                 type="text"
@@ -237,7 +232,7 @@ export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTar
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                目標文件夾 ID
+                Target Folder ID
               </label>
               <input
                 type="text"
@@ -297,7 +292,7 @@ export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTar
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Provider ID（可選）
+            Provider ID (optional)
           </label>
           <input
             type="text"
@@ -322,11 +317,10 @@ export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTar
             disabled={saving || (toolType === 'publish_custom' && (!formData.api_url || !formData.api_key)) || (toolType !== 'publish_custom' && !formData.api_key)}
             className="px-4 py-2 text-sm bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50"
           >
-            {saving ? '儲存中...' : '儲存'}
+            {saving ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>
     </BaseModal>
   );
 }
-

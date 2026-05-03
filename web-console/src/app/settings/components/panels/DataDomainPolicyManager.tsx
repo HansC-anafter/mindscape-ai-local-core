@@ -103,7 +103,7 @@ export function DataDomainPolicyManager({
                     onClick={() => handleRemoveSensitiveDomain(domain)}
                     className="hover:text-yellow-900 dark:hover:text-yellow-100"
                   >
-                    ×
+                    x
                   </button>
                 </span>
               ))}
@@ -149,7 +149,7 @@ export function DataDomainPolicyManager({
                     onClick={() => handleRemoveForbiddenDomain(domain)}
                     className="hover:text-red-900 dark:hover:text-red-100"
                   >
-                    ×
+                    x
                   </button>
                 </span>
               ))}
@@ -164,4 +164,3 @@ export function DataDomainPolicyManager({
     </div>
   );
 }
-

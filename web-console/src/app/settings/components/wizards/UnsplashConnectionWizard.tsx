@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { t } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
@@ -53,21 +53,11 @@ export function UnsplashConnectionWizard({
     application_id?: string;
   } | null>(null);
 
-  useEffect(() => {
-    loadWorkspaces();
-  }, []);
-
-  useEffect(() => {
-    if (workspaceId) {
-      loadCurrentConfig();
-    }
-  }, [workspaceId]);
-
-  const loadWorkspaces = async () => {
+  const loadWorkspaces = useCallback(async () => {
     setLoadingWorkspaces(true);
     try {
       const apiUrl = getApiBaseUrl();
-      const ownerUserId = 'default-user'; // TODO: Get from auth context
+      const ownerUserId = 'default-user';
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=50`,
         {
@@ -121,9 +111,9 @@ export function UnsplashConnectionWizard({
     } finally {
       setLoadingWorkspaces(false);
     }
-  };
+  }, [workspaceId]);
 
-  const loadCurrentConfig = async () => {
+  const loadCurrentConfig = useCallback(async () => {
     if (!workspaceId) return;
 
     try {
@@ -138,7 +128,17 @@ export function UnsplashConnectionWizard({
     } catch (err) {
       console.error('Failed to load Unsplash config:', err);
     }
-  };
+  }, [workspaceId]);
+
+  useEffect(() => {
+    loadWorkspaces();
+  }, [loadWorkspaces]);
+
+  useEffect(() => {
+    if (workspaceId) {
+      loadCurrentConfig();
+    }
+  }, [workspaceId, loadCurrentConfig]);
 
   const handleSave = async () => {
     if (!workspaceId) {
@@ -172,12 +172,12 @@ export function UnsplashConnectionWizard({
         throw new Error(errorData.detail || 'Failed to save Unsplash configuration');
       }
 
-      setSuccess('Unsplash API Key 配置成功');
+      setSuccess('Unsplash API key configured successfully');
       setTimeout(() => {
         onSuccess();
       }, 1500);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '配置失敗';
+      const errorMessage = err instanceof Error ? err.message : 'Configuration failed';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -190,7 +190,7 @@ export function UnsplashConnectionWizard({
       return;
     }
 
-    if (!confirm('確定要刪除 Unsplash 配置嗎？')) {
+    if (!confirm('Delete the Unsplash configuration?')) {
       return;
     }
 
@@ -212,14 +212,14 @@ export function UnsplashConnectionWizard({
         throw new Error(errorData.detail || 'Failed to delete Unsplash configuration');
       }
 
-      setSuccess('Unsplash 配置已刪除');
+      setSuccess('Unsplash configuration deleted');
       setCurrentConfig({ configured: false });
       setForm({ application_id: '', access_key: '', secret_key: '' });
       setTimeout(() => {
         onSuccess();
       }, 1500);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '刪除失敗';
+      const errorMessage = err instanceof Error ? err.message : 'Delete failed';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -234,7 +234,7 @@ export function UnsplashConnectionWizard({
           disabled={loading}
           className="px-4 py-2 text-red-600 dark:text-red-400 border border-red-300 dark:border-red-600 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          刪除配置
+          Delete configuration
         </button>
       )}
       <button
@@ -248,14 +248,14 @@ export function UnsplashConnectionWizard({
         disabled={loading || !workspaceId || !form.application_id.trim() || !form.access_key.trim()}
         className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {loading ? '儲存中...' : currentConfig?.configured ? '更新配置' : '儲存配置'}
+        {loading ? 'Saving...' : currentConfig?.configured ? 'Update configuration' : 'Save configuration'}
       </button>
     </>
   );
 
   return (
     <WizardShell
-      title="配置 Unsplash"
+      title="Configure Unsplash"
       onClose={onClose}
       error={error}
       success={success}
@@ -264,14 +264,14 @@ export function UnsplashConnectionWizard({
       <div className="space-y-6">
         <div>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Unsplash 是一個免費的圖片平台，提供高品質的攝影作品。配置 API Key 後，可以使用 Unsplash 圖片來生成 Visual Lens。
+            Unsplash provides high-quality photography. Configure an API key to use Unsplash images for Visual Lens generation.
           </p>
 
           {/* Workspace Selector */}
           {workspaces.length > 1 && (
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                選擇 Workspace <span className="text-red-500">*</span>
+                Select workspace <span className="text-red-500">*</span>
               </label>
               <select
                 value={selectedWorkspaceId}
@@ -279,16 +279,16 @@ export function UnsplashConnectionWizard({
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-400"
                 disabled={loadingWorkspaces}
               >
-                <option value="">請選擇 Workspace</option>
+                <option value="">Select a workspace</option>
                 {workspaces.map((ws) => (
                   <option key={ws.id} value={ws.id}>
                     {ws.title} {ws.description ? `(${ws.description})` : ''}
-                    {ws.unsplashConfigured ? ` - ✓ 已配置${ws.unsplashStatus ? ` [${ws.unsplashStatus}]` : ''}` : ''}
+                    {ws.unsplashConfigured ? ` - Configured${ws.unsplashStatus ? ` [${ws.unsplashStatus}]` : ''}` : ''}
                   </option>
                 ))}
               </select>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                每個 Workspace 可以配置獨立的 Unsplash API Key
+                Each workspace can have its own Unsplash API key.
               </p>
             </div>
           )}
@@ -304,7 +304,7 @@ export function UnsplashConnectionWizard({
           {!workspaceId && workspaces.length === 0 && !loadingWorkspaces && (
             <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded">
               <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                ⚠️ 無法獲取 Workspace 列表。請確保您已登入並有權限訪問 Workspace。
+                Unable to load the workspace list. Make sure you are signed in and have access to the workspace.
               </p>
             </div>
           )}
@@ -312,10 +312,10 @@ export function UnsplashConnectionWizard({
           {currentConfig?.configured && (
             <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded">
               <p className="text-sm text-green-700 dark:text-green-300">
-                ✓ 已配置（狀態：{currentConfig.status || 'active'}）
+                Configured (status: {currentConfig.status || 'active'})
                 {currentConfig.configured_at && (
                   <span className="text-xs ml-2">
-                    配置時間：{new Date(currentConfig.configured_at).toLocaleString('zh-TW')}
+                    Configured at: {new Date(currentConfig.configured_at).toLocaleString()}
                   </span>
                 )}
               </p>
@@ -331,7 +331,7 @@ export function UnsplashConnectionWizard({
             type="text"
             value={form.application_id}
             onChange={(e) => setForm({ ...form, application_id: e.target.value })}
-            placeholder="輸入您的 Unsplash Application ID"
+            placeholder="Enter your Unsplash Application ID"
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-400"
           />
         </div>
@@ -344,27 +344,27 @@ export function UnsplashConnectionWizard({
             type="password"
             value={form.access_key}
             onChange={(e) => setForm({ ...form, access_key: e.target.value })}
-            placeholder="輸入您的 Unsplash Access Key"
+            placeholder="Enter your Unsplash Access Key"
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-400"
           />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Secret Key <span className="text-gray-400 text-xs">(選填，用於 OAuth)</span>
+            Secret Key <span className="text-gray-400 text-xs">(optional, used for OAuth)</span>
           </label>
           <input
             type="password"
             value={form.secret_key}
             onChange={(e) => setForm({ ...form, secret_key: e.target.value })}
-            placeholder="輸入您的 Unsplash Secret Key（選填）"
+            placeholder="Enter your Unsplash Secret Key (optional)"
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-400"
           />
         </div>
 
         <div className="mt-2">
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            您可以在{' '}
+            You can create and retrieve these credentials from{' '}
             <a
               href="https://unsplash.com/developers"
               target="_blank"
@@ -373,23 +373,21 @@ export function UnsplashConnectionWizard({
             >
               Unsplash Developers
             </a>{' '}
-            申請並取得這些憑證
           </p>
         </div>
 
         <div className="p-4 bg-accent-10 dark:bg-blue-900/20 border border-accent/30 dark:border-blue-800 rounded">
           <h4 className="text-sm font-medium text-accent dark:text-blue-300 mb-2">
-            重要提示
+            Important notes
           </h4>
           <ul className="text-xs text-accent dark:text-blue-200 space-y-1 list-disc list-inside">
-            <li>API Key 將儲存在 Workspace Settings 中</li>
-            <li>使用 Unsplash 圖片時，必須遵守 Unsplash 的使用條款</li>
-            <li>必須回報圖片下載（系統會自動處理）</li>
-            <li>必須顯示攝影師資訊（系統會自動處理）</li>
+            <li>API keys are stored in workspace settings.</li>
+            <li>Using Unsplash images must comply with the Unsplash terms.</li>
+            <li>Image downloads must be reported; the system handles this automatically.</li>
+            <li>Photographer attribution must be shown; the system handles this automatically.</li>
           </ul>
         </div>
       </div>
     </WizardShell>
   );
 }
-

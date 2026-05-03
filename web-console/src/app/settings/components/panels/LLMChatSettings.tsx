@@ -101,12 +101,12 @@ export function LLMChatSettings() {
       });
 
       if (result.success) {
-        setInstallStatus(`✅ ${t('modelInstallStarted' as any)}`);
+        setInstallStatus(`Success: ${t('modelInstallStarted' as any) || 'Model installation started'}`);
       } else {
-        setInstallStatus(`❌ ${t('modelInstallFailed' as any)}: ${result.message}`);
+        setInstallStatus(`Error: ${t('modelInstallFailed' as any) || 'Model installation failed'}: ${result.message}`);
       }
     } catch (err) {
-      setInstallStatus(`❌ ${t('modelInstallFailed' as any)}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setInstallStatus(`Error: ${t('modelInstallFailed' as any) || 'Model installation failed'}: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setInstalling(false);
     }
@@ -125,9 +125,9 @@ export function LLMChatSettings() {
       {error && <InlineAlert type="error" message={error} onDismiss={() => setError(null)} />}
 
       <div>
-        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">{t('llmChatModel' as any) || 'LLM 推理與對話'}</h3>
+        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">{t('llmChatModel' as any) || 'LLM Reasoning and Chat'}</h3>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          {t('llmChatModelDescription' as any) || '配置用於推理和對話的 LLM 模型'}
+          {t('llmChatModelDescription' as any) || 'Configure the LLM model used for reasoning and chat'}
           {settings.chat_model && (
             <span className="ml-2">
               {t('currentModel' as any)}: <strong>{settings.chat_model.model_name}</strong> ({settings.chat_model.provider})
@@ -154,11 +154,11 @@ export function LLMChatSettings() {
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          {t('selectChatModel' as any) || '選擇 Chat 模型'}
+          {t('selectChatModel' as any) || 'Select Chat Model'}
         </label>
         {enabledChatModels.length === 0 ? (
           <div className="p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-sm text-gray-500 dark:text-gray-400">
-            {t('noEnabledModels' as any) || '沒有已啟用的 Chat 模型。請在「模型與配額」中啟用至少一個模型。'}
+            {t('noEnabledModels' as any) || 'No chat models are enabled. Enable at least one model in Models and Quota.'}
           </div>
         ) : (
           <select
@@ -187,7 +187,9 @@ export function LLMChatSettings() {
           className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
         >
           <div className="flex items-center gap-2">
-            <span className="text-xl">🦙</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded bg-blue-100 text-xs font-semibold text-blue-800 dark:bg-blue-800 dark:text-blue-100">
+              OL
+            </span>
             <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
               {t('ollamaSetup' as any) || 'Ollama Setup Guide'}
             </span>
@@ -228,7 +230,7 @@ export function LLMChatSettings() {
                   </button>
                 </div>
                 {installStatus && (
-                  <div className={`text-xs p-2 rounded ${installStatus.includes('❌') ? 'bg-red-50 text-red-800' : 'bg-green-50 text-green-800'}`}>
+                  <div className={`text-xs p-2 rounded ${installStatus.startsWith('Error:') ? 'bg-red-50 text-red-800' : 'bg-green-50 text-green-800'}`}>
                     {installStatus}
                   </div>
                 )}
@@ -268,4 +270,3 @@ export function LLMChatSettings() {
     </div>
   );
 }
-

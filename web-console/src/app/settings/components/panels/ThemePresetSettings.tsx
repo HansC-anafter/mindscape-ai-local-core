@@ -102,10 +102,10 @@ export function ThemePresetSettings({ onPresetChange }: ThemePresetSettingsProps
     <div className="space-y-4">
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          {t('themePreset' as any) || '主題風格'}
+          {t('themePreset' as any) || 'Theme preset'}
         </label>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          {t('themePresetDescription' as any) || '選擇日間模式的主題風格。此設定僅在日間模式生效。'}
+          {t('themePresetDescription' as any) || 'Choose the light mode theme preset. This setting only applies in light mode.'}
         </p>
 
         <div className="space-y-3">
@@ -141,4 +141,3 @@ export function ThemePresetSettings({ onPresetChange }: ThemePresetSettingsProps
     </div>
   );
 }
-

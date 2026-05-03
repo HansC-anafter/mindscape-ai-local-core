@@ -25,7 +25,7 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [configUrl, setConfigUrl] = useState('');
-  const [icon, setIcon] = useState('🔗');
+  const [icon, setIcon] = useState('link');
   const [authType, setAuthType] = useState<'api_key' | 'oauth2' | 'none'>('none');
   const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
@@ -34,12 +34,12 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
     e.preventDefault();
 
     if (!name.trim()) {
-      showNotification('error', 'Runtime 名稱是必填項');
+      showNotification('error', 'Runtime name is required');
       return;
     }
 
     if (!configUrl.trim()) {
-      showNotification('error', '配置頁面 URL 是必填項');
+      showNotification('error', 'Configuration page URL is required');
       return;
     }
 
@@ -47,7 +47,7 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
     try {
       new URL(configUrl);
     } catch {
-      showNotification('error', '請輸入有效的 URL');
+      showNotification('error', 'Enter a valid URL');
       return;
     }
 
@@ -67,7 +67,7 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
           name: name.trim(),
           description: description.trim() || undefined,
           config_url: configUrl.trim(),
-          icon: icon.trim() || '🔗',
+          icon: icon.trim() || 'link',
           auth_type: authType,
           auth_config: Object.keys(authConfig).length > 0 ? authConfig : undefined,
         }),
@@ -79,14 +79,14 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
       }
 
       const newRuntime = await response.json();
-      showNotification('success', `Runtime "${name}" 已成功添加`);
+      showNotification('success', `Runtime "${name}" added successfully`);
       onSuccess(newRuntime);
 
       // Reset form
       setName('');
       setDescription('');
       setConfigUrl('');
-      setIcon('🔗');
+      setIcon('link');
       setAuthType('none');
       setApiKey('');
       onClose();
@@ -102,13 +102,13 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
     <BaseModal
       isOpen={isOpen}
       onClose={onClose}
-      title="添加 Runtime 環境"
+      title="Add Runtime Environment"
       maxWidth="max-w-2xl"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-            Runtime 名稱 *
+            Runtime Name *
           </label>
           <input
             type="text"
@@ -122,12 +122,12 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
 
         <div>
           <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-            描述
+            Description
           </label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="描述這個 Runtime 環境的用途"
+            placeholder="Describe what this runtime environment is used for"
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             rows={3}
           />
@@ -135,7 +135,7 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
 
         <div>
           <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-            配置頁面 URL *
+            Configuration Page URL *
           </label>
           <input
             type="url"
@@ -146,22 +146,22 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
             required
           />
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            配置頁面將通過 iframe 嵌入到此界面
+            The configuration page will be embedded in this interface through an iframe.
           </p>
         </div>
 
         <div>
           <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-            認證方式
+            Authentication Type
           </label>
           <select
             value={authType}
             onChange={(e) => setAuthType(e.target.value as 'api_key' | 'oauth2' | 'none')}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           >
-            <option value="none">無認證</option>
+            <option value="none">No Authentication</option>
             <option value="api_key">API Key</option>
-            <option value="oauth2">OAuth2 (未來支持)</option>
+            <option value="oauth2">OAuth2 (coming soon)</option>
           </select>
         </div>
 
@@ -174,7 +174,7 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="輸入 API Key"
+              placeholder="Enter API key"
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               required={authType === 'api_key'}
             />
@@ -183,13 +183,13 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
 
         <div>
           <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-            圖標（可選）
+            Icon (optional)
           </label>
           <input
             type="text"
             value={icon}
             onChange={(e) => setIcon(e.target.value)}
-            placeholder="🔗"
+            placeholder="link"
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           />
         </div>
@@ -201,18 +201,17 @@ export function AddRuntimeModal({ isOpen, onClose, onSuccess }: AddRuntimeModalP
             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
             disabled={saving}
           >
-            取消
+            Cancel
           </button>
           <button
             type="submit"
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={saving}
           >
-            {saving ? '添加中...' : '添加'}
+            {saving ? 'Adding...' : 'Add'}
           </button>
         </div>
       </form>
     </BaseModal>
   );
 }
-

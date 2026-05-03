@@ -9,9 +9,9 @@ interface LanguagePreferencesSettingsProps {
 }
 
 const SUPPORTED_LANGUAGES = [
-  { value: 'zh-TW', label: '繁體中文' },
+  { value: 'zh-TW', label: 'Chinese (Traditional)' },
   { value: 'en', label: 'English' },
-  { value: 'ja', label: '日本語' },
+  { value: 'ja', label: 'Japanese' },
 ];
 
 export function LanguagePreferencesSettings({ onLanguageChange }: LanguagePreferencesSettingsProps) {
@@ -77,10 +77,10 @@ export function LanguagePreferencesSettings({ onLanguageChange }: LanguagePrefer
     <div className="space-y-4">
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          {t('languagePreference' as any) || '語言偏好'}
+          {t('languagePreference' as any) || 'Language preference'}
         </label>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          {t('languagePreferenceDescription' as any) || '設定系統預設語言，新建立的 Workspace 將使用此語言設定'}
+          {t('languagePreferenceDescription' as any) || 'Set the default system language for newly created workspaces'}
         </p>
 
         {error && (
@@ -115,4 +115,3 @@ export function LanguagePreferencesSettings({ onLanguageChange }: LanguagePrefer
     </div>
   );
 }
-

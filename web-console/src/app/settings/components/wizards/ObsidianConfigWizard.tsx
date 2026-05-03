@@ -86,7 +86,7 @@ export function ObsidianConfigWizard({
     try {
       const result = await settingsApi.post<{ valid: boolean; message: string; vaults: any[] }>('/api/v1/system-settings/obsidian/test', form);
       if (result.valid) {
-        setTestResult(`${t('testResults' as any)}:\n\n✅ ${result.message}\n\n${result.vaults.map(v => `- ${v.path}: ${v.valid ? 'Valid' : 'Invalid'}`).join('\n')}`);
+        setTestResult(`${t('testResults' as any)}:\n\n${result.message}\n\n${result.vaults.map(v => `- ${v.path}: ${v.valid ? 'Valid' : 'Invalid'}`).join('\n')}`);
       } else {
         setError(`${t('testFailed' as any)}: ${result.message}`);
       }
@@ -180,7 +180,7 @@ export function ObsidianConfigWizard({
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('obsidianConfig' as any)}</h2>
           <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
-            ✕
+            x
           </button>
         </div>
 
@@ -261,7 +261,7 @@ export function ObsidianConfigWizard({
                     onClick={() => removeIncludeFolder(folder)}
                     className="ml-2 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
                   >
-                    ×
+                    x
                   </button>
                 </span>
               ))}
@@ -304,7 +304,7 @@ export function ObsidianConfigWizard({
                     onClick={() => removeExcludeFolder(folder)}
                     className="ml-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300"
                   >
-                    ×
+                    x
                   </button>
                 </span>
               ))}
@@ -347,7 +347,7 @@ export function ObsidianConfigWizard({
                     onClick={() => removeTag(tag)}
                     className="ml-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300"
                   >
-                    ×
+                    x
                   </button>
                 </span>
               ))}
@@ -405,7 +405,6 @@ export function ObsidianConfigWizard({
     </div>
   );
 }
-
 
 
 

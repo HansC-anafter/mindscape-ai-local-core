@@ -146,7 +146,7 @@ export function WordPressConnectionWizard({
           placeholder="xxxx xxxx xxxx xxxx"
         />
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          WordPress Admin → Users → Profile → Application Passwords
+          WordPress Admin &gt; Users &gt; Profile &gt; Application Passwords
         </p>
       </div>
     </WizardShell>

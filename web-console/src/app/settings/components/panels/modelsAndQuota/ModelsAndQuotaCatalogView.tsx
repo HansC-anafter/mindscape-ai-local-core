@@ -102,7 +102,7 @@ export function ModelsAndQuotaCatalogView({
                         <div className="text-xs text-gray-500 dark:text-gray-400">
                           {model.provider}
                           {model.model_type === 'embedding' && model.dimensions && (
-                            <span> • {model.dimensions}d</span>
+                            <span> - {model.dimensions}d</span>
                           )}
                         </div>
                       </div>

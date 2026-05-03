@@ -201,10 +201,10 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
 
   const renderStep1 = () => {
     const popularProviders = [
-      { id: 'openai', name: 'OpenAI', description: t('openaiMCPDescription' as any) || 'Access OpenAI models and capabilities', icon: '🤖' },
-      { id: 'anthropic', name: 'Anthropic', description: t('anthropicMCPDescription' as any) || 'Access Anthropic Claude models', icon: '🧠' },
-      { id: 'github', name: 'GitHub', description: t('githubMCPDescription' as any) || 'Access GitHub repositories, issues, pull requests', icon: '🐙' },
-      { id: 'google', name: 'Google', description: t('googleMCPDescription' as any) || 'Access Google services and APIs', icon: '🔍' },
+      { id: 'openai', name: 'OpenAI', description: t('openaiMCPDescription' as any) || 'Access OpenAI models and capabilities', icon: 'OA' },
+      { id: 'anthropic', name: 'Anthropic', description: t('anthropicMCPDescription' as any) || 'Access Anthropic Claude models', icon: 'AN' },
+      { id: 'github', name: 'GitHub', description: t('githubMCPDescription' as any) || 'Access GitHub repositories, issues, pull requests', icon: 'GH' },
+      { id: 'google', name: 'Google', description: t('googleMCPDescription' as any) || 'Access Google services and APIs', icon: 'GO' },
     ];
 
     return (
@@ -605,4 +605,3 @@ export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }:
     </WizardShell>
   );
 }
-

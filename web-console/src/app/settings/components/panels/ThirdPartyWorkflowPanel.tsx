@@ -30,25 +30,25 @@ const WORKFLOW_PLATFORMS: Array<{
     id: 'zapier',
     name: 'Zapier',
     description: 'Automate workflows between apps and services',
-    icon: '⚡',
+    icon: 'ZP',
   },
   {
     id: 'n8n',
     name: 'n8n',
     description: 'Open-source workflow automation tool',
-    icon: '🔄',
+    icon: 'N8',
   },
   {
     id: 'make',
     name: 'Make',
     description: 'Visual automation platform (formerly Integromat)',
-    icon: '🎨',
+    icon: 'MK',
   },
   {
     id: 'custom',
     name: 'Custom Workflow',
     description: 'Configure a custom workflow integration',
-    icon: '🔧',
+    icon: 'CW',
   },
 ];
 
@@ -64,7 +64,7 @@ export function ThirdPartyWorkflowPanel({ activeProvider }: ThirdPartyWorkflowPa
       setSelectedPlatform(activeProvider);
       setShowWizard(true);
     }
-  }, [activeProvider]);
+  }, [activeProvider, selectedPlatform]);
 
   const handleAddWorkflow = (platform?: string) => {
     setSelectedPlatform(platform);
@@ -141,8 +141,8 @@ export function ThirdPartyWorkflowPanel({ activeProvider }: ThirdPartyWorkflowPa
                     {connection && (
                       <p className="text-xs text-gray-400 mt-2">
                         {connection.status === 'connected'
-                          ? `✅ ${t('connected' as any) || 'Connected'}`
-                          : `⚪ ${t('notConnected' as any) || 'Not connected'}`}
+                          ? t('connected' as any) || 'Connected'
+                          : t('notConnected' as any) || 'Not connected'}
                       </p>
                     )}
                   </div>
@@ -155,4 +155,3 @@ export function ThirdPartyWorkflowPanel({ activeProvider }: ThirdPartyWorkflowPa
     </Section>
   );
 }
-

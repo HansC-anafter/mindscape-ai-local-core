@@ -22,9 +22,9 @@ export function APIAndQuotaSettings({
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">{t('apiAndQuota' as any) || 'API 與配額'}</h3>
+        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">{t('apiAndQuota' as any) || 'API and Quota'}</h3>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          {t('apiAndQuotaDescription' as any) || '配置 LLM API 金鑰和管理使用配額'}
+          {t('apiAndQuotaDescription' as any) || 'Configure LLM API keys and manage usage quotas'}
         </p>
       </div>
 
@@ -104,13 +104,12 @@ export function APIAndQuotaSettings({
         </div>
 
         <div className="border-t dark:border-gray-700 pt-4">
-          <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">{t('quotaUsage' as any) || '配額使用情況'}</h4>
+          <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">{t('quotaUsage' as any) || 'Quota Usage'}</h4>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            {t('quotaUsageDescription' as any) || '配額管理功能即將推出'}
+            {t('quotaUsageDescription' as any) || 'Quota management is coming soon'}
           </p>
         </div>
       </div>
     </div>
   );
 }
-

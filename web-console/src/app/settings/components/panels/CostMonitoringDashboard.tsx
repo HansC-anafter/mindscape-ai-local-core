@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { t } from '../../../../lib/i18n';
 import { Card } from '../Card';
 import { InlineAlert } from '../InlineAlert';
@@ -31,17 +31,7 @@ export function CostMonitoringDashboard() {
   const [data, setData] = useState<CostMonitoringData | null>(null);
   const [period, setPeriod] = useState<'day' | 'month'>('day');
 
-  useEffect(() => {
-    if (!workspaceId) {
-      setError('Workspace ID not available');
-      setLoading(false);
-      return;
-    }
-
-    loadCostData();
-  }, [workspaceId, period]);
-
-  const loadCostData = async () => {
+  const loadCostData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -67,7 +57,17 @@ export function CostMonitoringDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [workspaceId, period]);
+
+  useEffect(() => {
+    if (!workspaceId) {
+      setError('Workspace ID not available');
+      setLoading(false);
+      return;
+    }
+
+    loadCostData();
+  }, [workspaceId, loadCostData]);
 
   if (loading) {
     return (
@@ -263,4 +263,3 @@ export function CostMonitoringDashboard() {
     </Card>
   );
 }
-

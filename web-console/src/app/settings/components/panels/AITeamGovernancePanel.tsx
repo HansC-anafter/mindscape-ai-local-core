@@ -20,7 +20,6 @@ interface AgentDefinition {
     name: string;
     icon: string;
     description: string;
-    descriptionZh: string;
     status: 'available' | 'installed' | 'coming-soon' | 'built-in';
     riskTags: RiskTag[];
     requirements: string[];
@@ -34,108 +33,101 @@ const AVAILABLE_AGENTS: AgentDefinition[] = [
     {
         id: 'mindscape-core',
         name: 'Mindscape Core',
-        icon: '🧠',
-        description: 'Built-in Mindscape AI execution engine with Playbook support',
-        descriptionZh: 'Mindscape 內建執行引擎，支援 Playbook、Tool 調用、多模型切換',
+        icon: 'MS',
+        description: 'Built-in Mindscape AI execution engine with playbook, tool-calling, and model-routing support',
         status: 'built-in',
         riskTags: [
-            { label: '系統內建', color: 'green' },
-            { label: 'Governance 完整控制', color: 'green' },
-            { label: '60+ 內建 Tool', color: 'green' },
+            { label: 'Built in', color: 'green' },
+            { label: 'Governance controlled', color: 'green' },
+            { label: 'Built-in tool access', color: 'green' },
         ],
-        requirements: ['已內建'],
-        features: ['Playbook 執行', 'Tool 調用', '模型切換', '對話記憶', '工作流編排'],
+        requirements: ['Built in'],
+        features: ['Playbook execution', 'Tool calling', 'Model routing', 'Conversation memory', 'Workflow orchestration'],
     },
     {
         id: 'openclaw',
         name: 'OpenClaw',
-        icon: '🔥',
+        icon: 'OC',
         description: 'Lightweight local CLI Agent for quick tasks',
-        descriptionZh: '輕量級本地 CLI Agent，適合快速任務執行',
         status: 'installed',
         riskTags: [
-            { label: '沙箱隔離', color: 'green' },
-            { label: '僅本地執行', color: 'green' },
+            { label: 'Sandbox isolated', color: 'green' },
+            { label: 'Local only', color: 'green' },
         ],
         requirements: ['Python 3.10+', 'pip'],
-        features: ['Shell 執行', '文件操作', '程式碼生成'],
+        features: ['Shell execution', 'File operations', 'Code generation'],
     },
     {
         id: 'langgraph',
         name: 'LangGraph',
-        icon: '🦜',
+        icon: 'LG',
         description: 'LangChain Graph Agent for complex workflows',
-        descriptionZh: 'LangChain 的 Graph Agent，適合複雜工作流',
         status: 'available',
         riskTags: [
-            { label: '需要 API Key', color: 'yellow' },
-            { label: '可連網', color: 'yellow' },
-            { label: 'Tool 調用', color: 'orange' },
+            { label: 'API key required', color: 'yellow' },
+            { label: 'Network capable', color: 'yellow' },
+            { label: 'Tool calling', color: 'orange' },
         ],
         requirements: ['Python 3.10+', 'Docker'],
-        features: ['多步驟推理', '狀態管理', 'Tool 調用'],
+        features: ['Multi-step reasoning', 'State management', 'Tool calling'],
     },
     {
         id: 'crewai',
         name: 'CrewAI',
-        icon: '🚢',
+        icon: 'CA',
         description: 'Multi-agent collaboration framework',
-        descriptionZh: '多 Agent 協作框架，適合團隊任務分工',
         status: 'available',
         riskTags: [
-            { label: '多 Agent 互動', color: 'yellow' },
-            { label: '需要 API Key', color: 'yellow' },
-            { label: '任務委派', color: 'orange' },
+            { label: 'Multi-agent interaction', color: 'yellow' },
+            { label: 'API key required', color: 'yellow' },
+            { label: 'Task delegation', color: 'orange' },
         ],
         requirements: ['Python 3.10+', 'Docker'],
-        features: ['角色分工', '任務委派', '協作執行'],
+        features: ['Role assignment', 'Task delegation', 'Collaborative execution'],
     },
     {
         id: 'autogpt',
         name: 'AutoGPT',
-        icon: '🤖',
+        icon: 'AG',
         description: 'Autonomous task execution agent',
-        descriptionZh: '自主任務執行 Agent，適合長時間自動化',
         status: 'available',
         riskTags: [
-            { label: '自主決策', color: 'red' },
-            { label: '可長時運行', color: 'orange' },
-            { label: '網路搜尋', color: 'yellow' },
-            { label: '文件讀寫', color: 'orange' },
+            { label: 'Autonomous decisions', color: 'red' },
+            { label: 'Long-running execution', color: 'orange' },
+            { label: 'Network search', color: 'yellow' },
+            { label: 'File read/write', color: 'orange' },
         ],
         requirements: ['Python 3.10+', 'Docker', 'Redis'],
-        features: ['自主規劃', '記憶管理', '網路搜尋'],
+        features: ['Autonomous planning', 'Memory management', 'Network search'],
     },
     {
         id: 'open-interpreter',
         name: 'Open Interpreter',
-        icon: '🔧',
+        icon: 'OI',
         description: 'Code execution agent with natural language',
-        descriptionZh: '自然語言程式碼執行 Agent',
         status: 'available',
         riskTags: [
-            { label: '任意程式碼執行', color: 'red' },
-            { label: '系統存取', color: 'red' },
-            { label: '無沙箱', color: 'red' },
+            { label: 'Arbitrary code execution', color: 'red' },
+            { label: 'System access', color: 'red' },
+            { label: 'No sandbox', color: 'red' },
         ],
         requirements: ['Python 3.10+'],
-        features: ['程式碼執行', '多語言支援', 'REPL 模式'],
+        features: ['Code execution', 'Multi-language support', 'REPL mode'],
     },
     {
         id: 'claude-computer-use',
         name: 'Claude Computer Use',
-        icon: '🧠',
+        icon: 'CU',
         description: 'Anthropic computer use capabilities',
-        descriptionZh: 'Anthropic 電腦使用能力',
         status: 'coming-soon',
         riskTags: [
-            { label: 'GUI 控制', color: 'red' },
-            { label: '滑鼠鍵盤操作', color: 'red' },
-            { label: '螢幕擷取', color: 'orange' },
-            { label: '需要 Anthropic API', color: 'yellow' },
+            { label: 'GUI control', color: 'red' },
+            { label: 'Mouse and keyboard input', color: 'red' },
+            { label: 'Screen capture', color: 'orange' },
+            { label: 'Anthropic API required', color: 'yellow' },
         ],
         requirements: ['Docker', 'Anthropic API'],
-        features: ['滑鼠控制', '螢幕識別', 'GUI 操作'],
+        features: ['Mouse control', 'Screen recognition', 'GUI operations'],
     },
 ];
 
@@ -169,7 +161,7 @@ export function AgentMarketplace({ onInstall, onConfigure, onSendToAssistant }: 
     // Chat-First: Trigger assistant chat instead of direct installation
     const handleInstall = (agentId: string, agentName: string) => {
         if (onSendToAssistant) {
-            onSendToAssistant(`幫我安裝 ${agentName}`);
+            onSendToAssistant(`Help me install ${agentName}`);
         } else {
             // Fallback: call original onInstall if no assistant available
             onInstall?.(agentId);
@@ -179,7 +171,7 @@ export function AgentMarketplace({ onInstall, onConfigure, onSendToAssistant }: 
     // Chat-First: Trigger assistant chat for configuration
     const handleConfigure = (agentId: string, agentName: string) => {
         if (onSendToAssistant) {
-            onSendToAssistant(`幫我配置 ${agentName}`);
+            onSendToAssistant(`Help me configure ${agentName}`);
         } else {
             onConfigure?.(agentId);
         }
@@ -188,7 +180,7 @@ export function AgentMarketplace({ onInstall, onConfigure, onSendToAssistant }: 
     // Chat-First: View settings via assistant
     const handleViewSettings = (agentName: string) => {
         if (onSendToAssistant) {
-            onSendToAssistant(`顯示 ${agentName} 的設定`);
+            onSendToAssistant(`Show settings for ${agentName}`);
         }
     };
 
@@ -196,10 +188,10 @@ export function AgentMarketplace({ onInstall, onConfigure, onSendToAssistant }: 
         <div className="space-y-6">
             <div>
                 <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-                    {t('installAgents' as any) || '安裝 AI 代理'}
+                    {t('installAgents' as any) || 'Install AI Agents'}
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                    {t('installAgentsDescription' as any) || '瀏覽並安裝常見的 AI Agent 框架'}
+                    {t('installAgentsDescription' as any) || 'Browse and install common AI agent frameworks'}
                 </p>
             </div>
 
@@ -212,37 +204,39 @@ export function AgentMarketplace({ onInstall, onConfigure, onSendToAssistant }: 
                         {/* Header */}
                         <div className="flex items-start justify-between mb-2">
                             <div className="flex items-center gap-2">
-                                <span className="text-2xl">{agent.icon}</span>
+                                <span className="flex h-8 w-8 items-center justify-center rounded bg-gray-100 text-xs font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                    {agent.icon}
+                                </span>
                                 <h4 className="font-medium text-gray-900 dark:text-gray-100">
                                     {agent.name}
                                 </h4>
                             </div>
                             {agent.status === 'installed' && (
                                 <span className="text-xs px-2 py-1 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 rounded">
-                                    ✓ 已安裝
+                                    Installed
                                 </span>
                             )}
                             {agent.status === 'built-in' && (
                                 <span className="text-xs px-2 py-1 bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 rounded">
-                                    ⚙️ 系統內建
+                                    Built in
                                 </span>
                             )}
                             {agent.status === 'coming-soon' && (
                                 <span className="text-xs px-2 py-1 bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 rounded">
-                                    即將推出
+                                    Coming soon
                                 </span>
                             )}
                         </div>
 
                         {/* Description */}
                         <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                            {agent.descriptionZh}
+                            {agent.description}
                         </p>
 
                         {/* Risk Tags Block */}
                         <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg mb-3">
                             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                                {agent.status === 'built-in' ? '✅ 安全特性' : '⚠️ 風險標籤'}
+                                {agent.status === 'built-in' ? 'Safety Features' : 'Risk Tags'}
                             </div>
                             <div className="flex flex-wrap gap-1">
                                 {agent.riskTags.map((tag, idx) => (
@@ -270,7 +264,7 @@ export function AgentMarketplace({ onInstall, onConfigure, onSendToAssistant }: 
 
                         {/* Requirements */}
                         <div className="text-xs text-gray-500 dark:text-gray-500 mb-3">
-                            需求: {agent.requirements.join(', ')}
+                            Requirements: {agent.requirements.join(', ')}
                         </div>
 
                         {/* Actions */}
@@ -280,14 +274,14 @@ export function AgentMarketplace({ onInstall, onConfigure, onSendToAssistant }: 
                                     onClick={() => onConfigure?.(agent.id)}
                                     className="flex-1 px-3 py-1.5 text-sm border border-purple-400 text-purple-600 dark:border-purple-500 dark:text-purple-300 rounded hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors"
                                 >
-                                    查看設定
+                                    View Settings
                                 </button>
                             ) : agent.status === 'installed' ? (
                                 <button
                                     onClick={() => handleConfigure(agent.id, agent.name)}
                                     className="flex-1 px-3 py-1.5 text-sm border border-accent text-accent dark:border-purple-500 dark:text-purple-300 rounded hover:bg-accent-10 dark:hover:bg-purple-900/30 transition-colors"
                                 >
-                                    配置
+                                    Configure
                                 </button>
                             ) : agent.status === 'available' ? (
                                 <button
@@ -295,14 +289,14 @@ export function AgentMarketplace({ onInstall, onConfigure, onSendToAssistant }: 
                                     disabled={installing === agent.id}
                                     className="flex-1 px-3 py-1.5 text-sm bg-accent text-white dark:bg-purple-600 rounded hover:bg-accent-hover dark:hover:bg-purple-700 transition-colors disabled:opacity-50"
                                 >
-                                    {installing === agent.id ? '安裝中...' : '安裝'}
+                                    {installing === agent.id ? 'Installing...' : 'Install'}
                                 </button>
                             ) : (
                                 <button
                                     disabled
                                     className="flex-1 px-3 py-1.5 text-sm bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-500 rounded cursor-not-allowed"
                                 >
-                                    即將推出
+                                    Coming soon
                                 </button>
                             )}
                         </div>
@@ -323,17 +317,17 @@ export function InstalledAgentsList() {
         <div className="space-y-6">
             <div>
                 <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-                    {t('installedAgents' as any) || '已安裝代理'}
+                    {t('installedAgents' as any) || 'Installed Agents'}
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                    {t('installedAgentsDescription' as any) || '管理已安裝的 AI 代理和檢視狀態'}
+                    {t('installedAgentsDescription' as any) || 'Manage installed AI agents and inspect their status'}
                 </p>
             </div>
 
             {installedAgents.length === 0 ? (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                    <p className="text-sm">尚未安裝任何 AI 代理</p>
-                    <p className="text-xs mt-1">前往「安裝 AI 代理」開始安裝</p>
+                    <p className="text-sm">No AI agents are installed yet</p>
+                    <p className="text-xs mt-1">Open Install AI Agents to get started</p>
                 </div>
             ) : (
                 <div className="space-y-3">
@@ -343,22 +337,24 @@ export function InstalledAgentsList() {
                             className="flex items-center justify-between p-4 border dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800"
                         >
                             <div className="flex items-center gap-3">
-                                <span className="text-2xl">{agent.icon}</span>
+                                <span className="flex h-8 w-8 items-center justify-center rounded bg-gray-100 text-xs font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                    {agent.icon}
+                                </span>
                                 <div>
                                     <h4 className="font-medium text-gray-900 dark:text-gray-100">
                                         {agent.name}
                                     </h4>
                                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                                        {agent.descriptionZh}
+                                        {agent.description}
                                     </p>
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
                                 <span className="text-xs px-2 py-1 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 rounded">
-                                    運行中
+                                    Running
                                 </span>
                                 <button className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                                    配置
+                                    Configure
                                 </button>
                             </div>
                         </div>
@@ -408,11 +404,11 @@ export function AITeamGovernancePanel({ activeSection, onSendToAssistant }: AITe
 function ModelPolicySettings() {
     const [allowedProviders, setAllowedProviders] = React.useState<string[]>(['ollama', 'llama-cpp']);
     const providers = [
-        { id: 'ollama', name: 'Ollama', type: 'local', icon: '🦙' },
-        { id: 'llama-cpp', name: 'llama.cpp', type: 'local', icon: '🔧' },
-        { id: 'openai', name: 'OpenAI', type: 'cloud', icon: '🤖' },
-        { id: 'anthropic', name: 'Anthropic', type: 'cloud', icon: '🧠' },
-        { id: 'vertex-ai', name: 'Vertex AI', type: 'cloud', icon: '☁️' },
+        { id: 'ollama', name: 'Ollama', type: 'local', icon: 'OL' },
+        { id: 'llama-cpp', name: 'llama.cpp', type: 'local', icon: 'LC' },
+        { id: 'openai', name: 'OpenAI', type: 'cloud', icon: 'OA' },
+        { id: 'anthropic', name: 'Anthropic', type: 'cloud', icon: 'AN' },
+        { id: 'vertex-ai', name: 'Vertex AI', type: 'cloud', icon: 'VX' },
     ];
 
     const toggleProvider = (id: string) => {
@@ -429,28 +425,27 @@ function ModelPolicySettings() {
         <div className="space-y-6">
             <div>
                 <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-                    {t('modelPolicy' as any) || '模型政策'}
+                    {t('modelPolicy' as any) || 'Model Policy'}
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                    {t('modelPolicyDescription' as any) || '設定允許使用的模型提供者（白名單），限制本地或雲端模型'}
+                    {t('modelPolicyDescription' as any) || 'Configure the allowlist of model providers available to external agents.'}
                 </p>
             </div>
 
             {isLocalOnly && (
                 <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                     <div className="flex items-center gap-2 text-green-800 dark:text-green-300">
-                        <span>🔒</span>
-                        <span className="text-sm font-medium">本地模式已啟用</span>
+                        <span className="text-sm font-medium">Local-only mode is enabled</span>
                     </div>
                     <p className="text-xs text-green-700 dark:text-green-400 mt-1">
-                        外部 Agent 只能使用本地模型，無法存取雲端 API
+                        External agents can only use local models and cannot access cloud model APIs.
                     </p>
                 </div>
             )}
 
             <div className="space-y-2">
                 <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-                    本地模型提供者
+                    Local Model Providers
                 </h4>
                 {providers.filter(p => p.type === 'local').map(provider => (
                     <label
@@ -458,7 +453,9 @@ function ModelPolicySettings() {
                         className="flex items-center justify-between p-3 border dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
                     >
                         <div className="flex items-center gap-2">
-                            <span className="text-lg">{provider.icon}</span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded bg-gray-100 text-xs font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                {provider.icon}
+                            </span>
                             <span className="text-sm text-gray-900 dark:text-gray-100">{provider.name}</span>
                         </div>
                         <input
@@ -473,7 +470,7 @@ function ModelPolicySettings() {
 
             <div className="space-y-2">
                 <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-                    雲端模型提供者
+                    Cloud Model Providers
                 </h4>
                 {providers.filter(p => p.type === 'cloud').map(provider => (
                     <label
@@ -481,10 +478,12 @@ function ModelPolicySettings() {
                         className="flex items-center justify-between p-3 border dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
                     >
                         <div className="flex items-center gap-2">
-                            <span className="text-lg">{provider.icon}</span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded bg-gray-100 text-xs font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                {provider.icon}
+                            </span>
                             <span className="text-sm text-gray-900 dark:text-gray-100">{provider.name}</span>
                             <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 rounded">
-                                雲端
+                                Cloud
                             </span>
                         </div>
                         <input
@@ -499,7 +498,7 @@ function ModelPolicySettings() {
 
             <div className="pt-4 border-t dark:border-gray-700">
                 <button className="px-4 py-2 bg-accent text-white rounded hover:bg-accent-hover transition-colors">
-                    儲存設定
+                    Save Settings
                 </button>
             </div>
         </div>
@@ -533,10 +532,10 @@ function NetworkPolicySettings() {
         <div className="space-y-6">
             <div>
                 <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-                    {t('networkPolicy' as any) || '網路政策'}
+                    {t('networkPolicy' as any) || 'Network Policy'}
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                    {t('networkPolicyDescription' as any) || '設定 Agent 可存取的外部網路端點（白名單）'}
+                    {t('networkPolicyDescription' as any) || 'Configure the external network endpoints agents are allowed to access.'}
                 </p>
             </div>
 
@@ -545,14 +544,14 @@ function NetworkPolicySettings() {
                     type="text"
                     value={newHost}
                     onChange={(e) => setNewHost(e.target.value)}
-                    placeholder="例如: api.example.com"
+                    placeholder="Example: api.example.com"
                     className="flex-1 px-3 py-2 text-sm border dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                 />
                 <button
                     onClick={addHost}
                     className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors"
                 >
-                    新增
+                    Add
                 </button>
             </div>
 
@@ -567,7 +566,7 @@ function NetworkPolicySettings() {
                             onClick={() => removeHost(host)}
                             className="text-sm text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
                         >
-                            移除
+                            Remove
                         </button>
                     </div>
                 ))}
@@ -575,7 +574,7 @@ function NetworkPolicySettings() {
 
             <div className="pt-4 border-t dark:border-gray-700">
                 <button className="px-4 py-2 bg-accent text-white rounded hover:bg-accent-hover transition-colors">
-                    儲存設定
+                    Save Settings
                 </button>
             </div>
         </div>
@@ -588,9 +587,9 @@ function NetworkPolicySettings() {
 function SecretsPolicySettings() {
     const [allowedApis, setAllowedApis] = React.useState<string[]>([]);
     const apis = [
-        { id: 'api.openai.com', name: 'OpenAI API', icon: '🤖' },
-        { id: 'api.anthropic.com', name: 'Anthropic API', icon: '🧠' },
-        { id: 'generativelanguage.googleapis.com', name: 'Google AI API', icon: '☁️' },
+        { id: 'api.openai.com', name: 'OpenAI API', icon: 'OA' },
+        { id: 'api.anthropic.com', name: 'Anthropic API', icon: 'AN' },
+        { id: 'generativelanguage.googleapis.com', name: 'Google AI API', icon: 'GA' },
     ];
 
     const toggleApi = (id: string) => {
@@ -603,20 +602,19 @@ function SecretsPolicySettings() {
         <div className="space-y-6">
             <div>
                 <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-                    {t('secretsPolicy' as any) || '憑證政策'}
+                    {t('secretsPolicy' as any) || 'Secrets Policy'}
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                    {t('secretsPolicyDescription' as any) || '設定可注入憑證的 API 端點，控制外部服務存取'}
+                    {t('secretsPolicyDescription' as any) || 'Configure which API endpoints may receive injected credentials.'}
                 </p>
             </div>
 
             <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
                 <div className="flex items-center gap-2 text-yellow-800 dark:text-yellow-300">
-                    <span>⚠️</span>
-                    <span className="text-sm font-medium">安全提示</span>
+                    <span className="text-sm font-medium">Security Notice</span>
                 </div>
                 <p className="text-xs text-yellow-700 dark:text-yellow-400 mt-1">
-                    啟用的 API 端點將允許外部 Agent 使用對應的 API 憑證。請謹慎選擇。
+                    Enabled API endpoints allow external agents to use the corresponding API credentials. Choose carefully.
                 </p>
             </div>
 
@@ -627,7 +625,9 @@ function SecretsPolicySettings() {
                         className="flex items-center justify-between p-3 border dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
                     >
                         <div className="flex items-center gap-2">
-                            <span className="text-lg">{api.icon}</span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded bg-gray-100 text-xs font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                {api.icon}
+                            </span>
                             <div>
                                 <span className="text-sm text-gray-900 dark:text-gray-100">{api.name}</span>
                                 <p className="text-xs text-gray-500 dark:text-gray-400">{api.id}</p>
@@ -646,18 +646,17 @@ function SecretsPolicySettings() {
             {allowedApis.length === 0 && (
                 <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                     <div className="flex items-center gap-2 text-green-800 dark:text-green-300">
-                        <span>🔒</span>
-                        <span className="text-sm font-medium">隔離模式</span>
+                        <span className="text-sm font-medium">Isolated Mode</span>
                     </div>
                     <p className="text-xs text-green-700 dark:text-green-400 mt-1">
-                        目前未允許任何 API 憑證注入，外部 Agent 無法存取任何雲端服務
+                        No API credential injection is currently allowed, so external agents cannot access cloud services.
                     </p>
                 </div>
             )}
 
             <div className="pt-4 border-t dark:border-gray-700">
                 <button className="px-4 py-2 bg-accent text-white rounded hover:bg-accent-hover transition-colors">
-                    儲存設定
+                    Save Settings
                 </button>
             </div>
         </div>

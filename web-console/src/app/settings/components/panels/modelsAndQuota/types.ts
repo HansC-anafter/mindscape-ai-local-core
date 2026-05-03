@@ -41,12 +41,12 @@ export type DeploymentScope = 'local' | 'cloud';
 export type CatalogCategory = 'runtime-cli' | 'local-deployed' | 'api';
 
 export const CHAT_PROFILES = [
-  { key: 'fast', label: '快速 (Fast)', description: 'Facilitator / 快速回應' },
-  { key: 'standard', label: '標準 (Standard)', description: '一般對話 / 預設路徑' },
-  { key: 'precise', label: '精確 (Precise)', description: 'Planner / Critic / 深度推理' },
-  { key: 'safe_write', label: '安全寫入 (Safe)', description: 'Program Synthesizer' },
+  { key: 'fast', label: 'Fast', description: 'Facilitator / quick responses' },
+  { key: 'standard', label: 'Standard', description: 'General chat / default path' },
+  { key: 'precise', label: 'Precise', description: 'Planner / critic / deep reasoning' },
+  { key: 'safe_write', label: 'Safe Write', description: 'Program synthesizer' },
 ] as const;
 
 export const MULTIMODAL_PROFILES = [
-  { key: 'vision', label: '視覺 (Vision)', description: '多模態影像分析' },
+  { key: 'vision', label: 'Vision', description: 'Multimodal image analysis' },
 ] as const;

@@ -37,7 +37,7 @@ export function HuggingFaceDiscoveryModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-[560px] max-h-[80vh] flex flex-col border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">新增 HuggingFace 模型</h3>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Add Hugging Face Model</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-lg">
             Close
           </button>
@@ -45,7 +45,7 @@ export function HuggingFaceDiscoveryModal({
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">類型:</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">Type:</span>
             {(['chat', 'multimodal', 'embedding'] as const).map((modelType) => (
               <button
                 key={modelType}
@@ -64,7 +64,7 @@ export function HuggingFaceDiscoveryModal({
           <div className="flex gap-2">
             <input
               type="text"
-              placeholder="搜尋 HF 模型（如 Qwen, Llama, Mistral...）"
+              placeholder="Search HF models, e.g. Qwen, Llama, Mistral..."
               value={hfSearchQuery}
               onChange={(event) => onSetSearchQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -79,14 +79,14 @@ export function HuggingFaceDiscoveryModal({
               disabled={hfLoading}
               className="px-4 py-2 text-sm font-medium rounded-md bg-accent text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
-              {hfLoading ? '搜尋中...' : '搜尋'}
+              {hfLoading ? 'Searching...' : 'Search'}
             </button>
           </div>
 
           <div className="flex gap-2">
             <input
               type="text"
-              placeholder="或直接輸入 Repo ID（如 Qwen/Qwen2-VL-9B-Instruct）"
+              placeholder="Or enter a repo ID directly, e.g. Qwen/Qwen2-VL-9B-Instruct"
               value={customRepoId}
               onChange={(event) => onSetCustomRepoId(event.target.value)}
               className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-accent/50"
@@ -96,13 +96,13 @@ export function HuggingFaceDiscoveryModal({
               disabled={!customRepoId.trim() || hfRegistering === customRepoId}
               className="px-4 py-2 text-sm font-medium rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
             >
-              {hfRegistering === customRepoId ? '註冊中...' : '直接註冊'}
+              {hfRegistering === customRepoId ? 'Registering...' : 'Register Directly'}
             </button>
           </div>
 
           {hfResults.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs text-gray-500 dark:text-gray-400">找到 {hfResults.length} 個模型：</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Found {hfResults.length} models:</p>
               {hfResults.map((result) => (
                 <div
                   key={result.model_id}
@@ -133,7 +133,7 @@ export function HuggingFaceDiscoveryModal({
                     disabled={hfRegistering === result.model_id}
                     className="ml-3 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:opacity-90 disabled:opacity-50 transition-opacity whitespace-nowrap"
                   >
-                    {hfRegistering === result.model_id ? '註冊中...' : '加入'}
+                    {hfRegistering === result.model_id ? 'Registering...' : 'Add'}
                   </button>
                 </div>
               ))}

@@ -64,17 +64,17 @@ export function ModelsAndQuotaPanel() {
         `/api/v1/system-settings/models/${modelId}`
       );
       if (result.success) {
-        showNotification('success', '模型已移除');
+        showNotification('success', 'Model removed');
         setModels(prev => prev.filter(m => String(m.id) !== String(modelId)));
         if (selectedModel && String(selectedModel.id) === String(modelId)) {
           setSelectedModel(null);
           setConfigCard(null);
         }
       } else {
-        showNotification('error', result.message || '移除失敗');
+        showNotification('error', result.message || 'Remove failed');
       }
     } catch (err) {
-      showNotification('error', `移除失敗: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      showNotification('error', `Remove failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, [selectedModel]);
 
@@ -87,7 +87,7 @@ export function ModelsAndQuotaPanel() {
         local: data.profile_model_bindings?.local || {},
         cloud: data.profile_model_bindings?.cloud || {},
       });
-    } catch { /* silent — routing tab will show defaults */ }
+    } catch { /* silent - routing tab will show defaults */ }
   }, []);
 
   const saveProfileBindings = async (updated: Record<DeploymentScope, Record<string, string>>) => {

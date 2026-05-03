@@ -74,7 +74,7 @@ interface EmbeddingMigration {
 }
 
 // ---------------------------------------------------------------------------
-// OllamaToolEmbeddingSection — manages the ollama_embed_model system setting
+// OllamaToolEmbeddingSection manages the ollama_embed_model system setting
 // distinct from the knowledge-base embedding model above.
 // ---------------------------------------------------------------------------
 export function OllamaToolEmbeddingSection() {
@@ -146,8 +146,8 @@ export function OllamaToolEmbeddingSection() {
       setTestResult({
         ok,
         message: ok
-          ? `✓ Tool RAG 搜尋正常 · 模型: ${model} · ${(res as any).match_count} 筆結果`
-          : `搜尋返回異常 status=${(res as any).status}`,
+          ? `Success: Tool RAG search is healthy. Model: ${model}. Matches: ${(res as any).match_count}`
+          : `Warning: search returned unexpected status=${(res as any).status}`,
       });
     } catch (e) {
       setTestResult({ ok: false, message: e instanceof Error ? e.message : 'Test failed' });
@@ -160,18 +160,18 @@ export function OllamaToolEmbeddingSection() {
     <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
       <div className="mb-3">
         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-          工具 RAG Embedding 模型
+          Tool RAG Embedding Model
         </h3>
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          用於工具能力索引（Tool RAG）的本地 Ollama embed 模型，與知識庫 embedding 獨立設定。
-          留空則啟動時自動選擇（優先 <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">bge-m3</code>）。
+          Local Ollama embedding model used for Tool RAG indexing. This setting is independent from the knowledge-base embedding model.
+          Leave it empty to auto-select on startup, preferring <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">bge-m3</code>.
         </p>
       </div>
 
       {error && <InlineAlert type="error" message={error} onDismiss={() => setError(null)} />}
 
       {loading ? (
-        <div className="text-xs text-gray-400 py-2">載入中...</div>
+        <div className="text-xs text-gray-400 py-2">Loading...</div>
       ) : (
         <div className="space-y-3">
           <div className="flex items-center gap-3">
@@ -183,21 +183,21 @@ export function OllamaToolEmbeddingSection() {
                          focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-gray-500
                          bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 disabled:opacity-50"
             >
-              <option value="">自動選擇（推薦）</option>
+              <option value="">Auto-select (recommended)</option>
               {availableModels.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
-            {saving && <span className="text-xs text-gray-400">儲存中...</span>}
+            {saving && <span className="text-xs text-gray-400">Saving...</span>}
           </div>
 
           {currentModel ? (
             <div className="text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-2 py-1 rounded border border-green-200 dark:border-green-800">
-              已固定模型：<strong>{currentModel}</strong>
+              Pinned model: <strong>{currentModel}</strong>
             </div>
           ) : (
             <div className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">
-              自動選擇模式 — 啟動時從 Ollama 選 bge-m3 &gt; nomic-embed-text
+              Auto-select mode: startup selects bge-m3 before nomic-embed-text from Ollama.
             </div>
           )}
 
@@ -209,7 +209,7 @@ export function OllamaToolEmbeddingSection() {
                          hover:bg-accent/90 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed
                          transition-colors"
             >
-              {testing ? '搜尋測試中...' : '測試 Tool RAG 搜尋'}
+              {testing ? 'Testing search...' : 'Test Tool RAG Search'}
             </button>
           </div>
 
@@ -418,7 +418,7 @@ export function EmbeddingSettings() {
     <div className="space-y-4">
       {error && <InlineAlert type="error" message={error} onDismiss={() => setError(null)} />}
 
-      {/* ── Knowledge-base embedding header ──────────────────────────────── */}
+      {/* Knowledge-base embedding header */}
       <div>
         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">{t('embeddingModel' as any)}</h3>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
@@ -451,7 +451,6 @@ export function EmbeddingSettings() {
       {previousModel && previousModel.metadata && !showMigrationPrompt && (
         <div className="mb-4 p-4 border border-green-300 dark:border-green-700 rounded-lg bg-green-50 dark:bg-green-900/20">
           <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 text-green-600 dark:text-green-400 text-xl">✓</div>
             <div className="flex-1">
               <h4 className="text-sm font-semibold text-green-900 dark:text-green-200 mb-2">Embedding Status</h4>
               {previousModel.metadata.new_model && (
@@ -602,7 +601,7 @@ export function EmbeddingSettings() {
         <div className="mb-4 p-4 border border-accent/30 dark:border-blue-700 rounded-lg bg-accent-10 dark:bg-blue-900/20">
           <div className="flex items-start gap-3">
             <div className="flex-shrink-0 text-accent dark:text-blue-400 text-xl">
-              {migration.status === 'running' ? '…' : migration.status === 'completed' ? '✓' : migration.status === 'failed' ? '✗' : '○'}
+              {migration.status === 'running' ? 'Running' : migration.status === 'completed' ? 'Done' : migration.status === 'failed' ? 'Failed' : 'Pending'}
             </div>
             <div className="flex-1">
               <h4 className="text-sm font-semibold text-accent dark:text-blue-200 mb-2">Re-embedding in Progress</h4>
@@ -634,11 +633,11 @@ export function EmbeddingSettings() {
       {/* Knowledge-base model selector */}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          {t('selectEmbeddingModel' as any) || '選擇知識庫 Embedding 模型'}
+          {t('selectEmbeddingModel' as any) || 'Select Knowledge-Base Embedding Model'}
         </label>
         {enabledEmbeddingModels.length === 0 ? (
           <div className="p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-sm text-gray-500 dark:text-gray-400">
-            {t('noEnabledModels' as any) || '沒有已啟用的 Embedding 模型。請在「模型與配額」中啟用至少一個模型。'}
+            {t('noEnabledModels' as any) || 'No embedding models are enabled. Enable at least one model in Models and Quota.'}
           </div>
         ) : (
           <select
@@ -658,7 +657,7 @@ export function EmbeddingSettings() {
         )}
       </div>
 
-      {/* ── Tool RAG Embedding — separate from knowledge-base embedding ───── */}
+      {/* Tool RAG Embedding - separate from knowledge-base embedding */}
       <OllamaToolEmbeddingSection />
     </div>
   );

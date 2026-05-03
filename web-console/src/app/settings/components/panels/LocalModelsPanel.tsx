@@ -32,11 +32,11 @@ interface DiskUsage {
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string; icon: string }> = {
-    not_downloaded: { label: 'Not Downloaded', color: 'text-gray-500', icon: '⏳' },
-    downloading: { label: 'Downloading...', color: 'text-blue-500', icon: '↓' },
-    downloaded: { label: 'Downloaded', color: 'text-yellow-500', icon: '✓' },
-    verified: { label: 'Ready', color: 'text-green-500', icon: '✓' },
-    corrupted: { label: 'Corrupted', color: 'text-red-500', icon: '⚠' },
+    not_downloaded: { label: 'Not Downloaded', color: 'text-gray-500', icon: 'WAIT' },
+    downloading: { label: 'Downloading...', color: 'text-blue-500', icon: 'GET' },
+    downloaded: { label: 'Downloaded', color: 'text-yellow-500', icon: 'DONE' },
+    verified: { label: 'Ready', color: 'text-green-500', icon: 'OK' },
+    corrupted: { label: 'Corrupted', color: 'text-red-500', icon: 'ERR' },
 };
 
 export function LocalModelsPanel() {
@@ -188,9 +188,9 @@ export function LocalModelsPanel() {
                                     </div>
                                     <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                                         <span>Size: {formatBytes(model.size_bytes)}</span>
-                                        <span className="mx-2">•</span>
+                                        <span className="mx-2">-</span>
                                         <span>License: {model.license_spdx}</span>
-                                        <span className="mx-2">•</span>
+                                        <span className="mx-2">-</span>
                                         <span>Min VRAM: {model.hardware_min_vram_gb} GB</span>
                                     </div>
                                     {model.local_path && (
@@ -263,7 +263,7 @@ export function LocalModelsPanel() {
             {/* Info */}
             <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                 <div className="flex items-start gap-2">
-                    <span className="text-blue-500">ℹ</span>
+                    <span className="text-blue-500">i</span>
                     <div className="text-sm text-blue-700 dark:text-blue-300">
                         <p className="font-medium">About Local Models</p>
                         <p className="mt-1">

@@ -70,13 +70,13 @@ export function VectorDBConnectionWizard({
     try {
       const result = await settingsApi.post<VectorDBTestResult>('/api/v1/vector-db/test', form);
       const details = [
-        `✅ Successfully connected to ${result.database || 'PostgreSQL'}`,
+        `Connected to ${result.database || 'PostgreSQL'}`,
         result.pgvector_installed
-          ? `✅ pgvector installed (version ${result.pgvector_version || 'unknown'})`
-          : '❌ pgvector extension not found',
+          ? `pgvector installed (version ${result.pgvector_version || 'unknown'})`
+          : 'pgvector extension not found',
         result.dimension_check
-          ? `✅ Main collections dimension = ${result.dimension} (compatible with current embedding model)`
-          : result.dimension_error || '⚠️ Dimension check failed',
+          ? `Main collections dimension = ${result.dimension} (compatible with current embedding model)`
+          : result.dimension_error || 'Dimension check failed',
       ]
         .filter(Boolean)
         .join('\n');
@@ -96,7 +96,7 @@ export function VectorDBConnectionWizard({
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('vectorDBConfig' as any)}</h2>
           <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
-            ✕
+            x
           </button>
         </div>
 

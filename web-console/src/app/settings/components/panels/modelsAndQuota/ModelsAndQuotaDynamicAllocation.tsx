@@ -36,13 +36,13 @@ export function ModelsAndQuotaDynamicAllocation({
 
   return (
     <div className="flex-1">
-      <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">動態分配</h3>
+      <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">Dynamic Allocation</h3>
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-        設定每個能力等級使用的模型。留空則使用系統預設 Chat 模型。變更即時儲存。
+        Set the model used by each capability level. Empty values use the system default chat model. Changes are saved immediately.
       </p>
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-gray-500 dark:text-gray-400">執行目標</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">Execution Target</span>
           <button
             onClick={() => onDeploymentScopeChange('local')}
             data-filter-button="dynamic-local"
@@ -52,7 +52,7 @@ export function ModelsAndQuotaDynamicAllocation({
                 : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
             }`}
           >
-            本地開發
+            Local Development
           </button>
           <button
             onClick={() => onDeploymentScopeChange('cloud')}
@@ -63,18 +63,18 @@ export function ModelsAndQuotaDynamicAllocation({
                 : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
             }`}
           >
-            雲端 VM
+            Cloud VM
           </button>
         </div>
         <div className="text-xs text-gray-400 dark:text-gray-500">
-          目前編輯：
+          Editing:
           <span className="ml-1 font-medium text-gray-600 dark:text-gray-300">
-            {deploymentScope === 'local' ? '本地開發' : '雲端 VM'}
+            {deploymentScope === 'local' ? 'Local Development' : 'Cloud VM'}
           </span>
           <span className="ml-2">
             {deploymentScope === 'local'
-              ? '工作站與本地 runtime 使用這組模型綁定'
-              : 'Remote executor / GPU VM 預設使用這組模型綁定'}
+              ? 'Workstation and local runtimes use these model bindings.'
+              : 'Remote executor / GPU VM uses these model bindings by default.'}
           </span>
         </div>
         {profiles.map(({ description, key, label }) => (
@@ -102,7 +102,7 @@ export function ModelsAndQuotaDynamicAllocation({
               disabled={profileSaving}
               className="w-56 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 disabled:opacity-50"
             >
-              <option value="">預設: 系統 Chat 模型</option>
+              <option value="">Default: system chat model</option>
               {options.map((model) => (
                 <option key={model.model_name} value={model.model_name}>
                   {model.display_name || model.model_name}

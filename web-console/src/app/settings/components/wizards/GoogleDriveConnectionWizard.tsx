@@ -238,8 +238,8 @@ export function GoogleDriveConnectionWizard({
               </h3>
               <div className="mt-2 text-sm text-blue-700 dark:text-blue-300">
                 <p>
-                  Click "Authorize with Google" to securely connect your Google Drive account.
-                  You'll be redirected to Google to grant read-only access to your Drive files.
+                  Click &quot;Authorize with Google&quot; to securely connect your Google Drive account.
+                  You&apos;ll be redirected to Google to grant read-only access to your Drive files.
                 </p>
                 <p className="mt-2">
                   <strong className="font-semibold">Scopes requested:</strong> Google Drive (read-only)

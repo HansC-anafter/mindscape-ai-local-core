@@ -543,7 +543,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
                 type="password"
                 value={oauthConfig.client_secret}
                 onChange={(e) => setOauthConfig({ ...oauthConfig, client_secret: e.target.value })}
-                placeholder={connection?.config?.client_secret ? '•••••••• (configured)' : 'Enter OAuth Client Secret'}
+                placeholder={connection?.config?.client_secret ? '******** (configured)' : 'Enter OAuth Client Secret'}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
               {connection?.config?.client_secret && !oauthConfig.client_secret && (
@@ -631,7 +631,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
                   type="password"
                   value={remoteConfig.api_token}
                   onChange={(e) => setRemoteConfig({ ...remoteConfig, api_token: e.target.value })}
-                  placeholder={connection?.config && 'api_token' in connection.config ? '•••••••• (configured)' : t('cloudRemoteToolsApiTokenPlaceholder' as any)}
+                  placeholder={connection?.config && 'api_token' in connection.config ? '******** (configured)' : t('cloudRemoteToolsApiTokenPlaceholder' as any)}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">

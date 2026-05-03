@@ -267,7 +267,7 @@ export function ModelRouteRegistryPanel() {
             </button>
             {reconcileResult && (
               <div className="text-sm text-secondary dark:text-gray-400">
-                {t('modelRouteRegistryReconciled' as any)} {reconcileResult.updated_pack_count} · {t('modelRouteRegistryRuntimeReconciled' as any)} {reconcileResult.updated_runtime_count}
+                {t('modelRouteRegistryReconciled' as any)} {reconcileResult.updated_pack_count} - {t('modelRouteRegistryRuntimeReconciled' as any)} {reconcileResult.updated_runtime_count}
               </div>
             )}
           </div>
@@ -485,7 +485,7 @@ export function ModelRouteRegistryPanel() {
                     )}
                   </div>
                   <div className="mt-2 text-xs text-secondary dark:text-gray-400">
-                    live={entry.live_slot_count} · stored={entry.stored_slot_count}
+                    live={entry.live_slot_count} - stored={entry.stored_slot_count}
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {entry.slot_kinds.map((kind) => (
@@ -554,7 +554,7 @@ export function ModelRouteRegistryPanel() {
                 </div>
                 {typeof runtime.stored_slot_count === 'number' && (
                   <div className="mt-2 text-xs text-secondary dark:text-gray-400">
-                    live={runtime.slot_count} · stored={runtime.stored_slot_count}
+                    live={runtime.slot_count} - stored={runtime.stored_slot_count}
                   </div>
                 )}
                 <div className="mt-3 space-y-3">

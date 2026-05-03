@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { Card } from '../Card';
 import { settingsApi } from '../../utils/settingsApi';
 import { showNotification } from '../../hooks/useSettingsNotification';
@@ -33,53 +33,13 @@ export function PortConfigurationSettings() {
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [validating, setValidating] = useState(false);
 
-  useEffect(() => {
-    loadConfig();
-  }, []);
-
-  // Reload config and persist scope when scope fields change
-  useEffect(() => {
-    if (originalConfig) {
-      const scopeChanged =
-        (originalConfig.cluster !== config.cluster) ||
-        (originalConfig.environment !== config.environment) ||
-        (originalConfig.site !== config.site);
-
-      if (scopeChanged && !loading) {
-        if (typeof window !== 'undefined') {
-          try {
-            const scope = {
-              cluster: config.cluster,
-              environment: config.environment,
-              site: config.site,
-            };
-            localStorage.setItem('port_config_scope', JSON.stringify(scope));
-
-            if ((window as any).__PORT_CONFIG_SCOPE__) {
-              (window as any).__PORT_CONFIG_SCOPE__ = scope;
-            }
-          } catch (e) {
-            // Ignore localStorage errors
-          }
-        }
-
-        loadConfig({
-          cluster: config.cluster,
-          environment: config.environment,
-          site: config.site,
-        });
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.cluster, config.environment, config.site]);
-
-  const loadConfig = async (scopeOverride?: { cluster?: string; environment?: string; site?: string }) => {
+  const loadConfig = useCallback(async (scopeOverride?: { cluster?: string; environment?: string; site?: string }) => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      const cluster = scopeOverride?.cluster ?? config.cluster;
-      const environment = scopeOverride?.environment ?? config.environment;
-      const site = scopeOverride?.site ?? config.site;
+      const cluster = scopeOverride?.cluster;
+      const environment = scopeOverride?.environment;
+      const site = scopeOverride?.site;
 
       if (cluster) params?.append('cluster', cluster);
       if (environment) params?.append('environment', environment);
@@ -137,7 +97,46 @@ export function PortConfigurationSettings() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
+
+  // Reload config and persist scope when scope fields change
+  useEffect(() => {
+    if (originalConfig) {
+      const scopeChanged =
+        (originalConfig.cluster !== config.cluster) ||
+        (originalConfig.environment !== config.environment) ||
+        (originalConfig.site !== config.site);
+
+      if (scopeChanged && !loading) {
+        if (typeof window !== 'undefined') {
+          try {
+            const scope = {
+              cluster: config.cluster,
+              environment: config.environment,
+              site: config.site,
+            };
+            localStorage.setItem('port_config_scope', JSON.stringify(scope));
+
+            if ((window as any).__PORT_CONFIG_SCOPE__) {
+              (window as any).__PORT_CONFIG_SCOPE__ = scope;
+            }
+          } catch (e) {
+            // Ignore localStorage errors
+          }
+        }
+
+        loadConfig({
+          cluster: config.cluster,
+          environment: config.environment,
+          site: config.site,
+        });
+      }
+    }
+  }, [config.cluster, config.environment, config.site, loadConfig, loading, originalConfig]);
 
   const validateConfig = async () => {
     try {
@@ -360,7 +359,7 @@ export function PortConfigurationSettings() {
         <div>
           <label className="block text-sm font-medium mb-2">
             {t('postgresPort' as any)}
-            <span className="text-red-500 ml-1">⚠️</span>
+            <span className="text-red-500 ml-1">(confirm)</span>
           </label>
           <input
             type="number"

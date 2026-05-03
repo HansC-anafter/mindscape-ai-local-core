@@ -154,7 +154,7 @@ export function DirectorySelectionSection({
                 `}
               >
                 <span className="truncate">{commonDir.label}</span>
-                {isSelected && <span className="text-gray-600 dark:text-gray-300">✓</span>}
+                {isSelected && <span className="text-gray-600 dark:text-gray-300">Selected</span>}
               </button>
             );
           })}
@@ -197,7 +197,6 @@ export function DirectorySelectionSection({
               directories.length > 0 &&
               directories[0]?.path === savedStorageBasePath && (
                 <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
-                  <span>✓</span>
                   {t('configured' as any)}
                 </span>
               )}
@@ -300,7 +299,7 @@ export function DirectorySelectionSection({
                     className="px-2 py-1 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm"
                     title="Remove"
                   >
-                    ×
+                    x
                   </button>
                 )}
               </div>

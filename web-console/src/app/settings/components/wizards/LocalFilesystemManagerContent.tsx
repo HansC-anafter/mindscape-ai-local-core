@@ -627,7 +627,7 @@ export function LocalFilesystemManagerContent({
             <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{workspaceMode ? t('configureWorkspaceStoragePath' as any) : t('localFileSystemConfig' as any)}</h2>
             {onClose && (
               <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
-                ×
+                x
               </button>
             )}
           </div>
@@ -876,10 +876,10 @@ export function LocalFilesystemManagerContent({
                         return (
                           <div key={dirIdx} className="flex items-center space-x-2">
                             {isEnabled && (
-                              <span className="text-green-600 dark:text-green-400 text-sm font-semibold" title={t('enabled' as any)}>✓</span>
+                              <span className="text-green-600 dark:text-green-400 text-sm font-semibold" title={t('enabled' as any)}>ON</span>
                             )}
                             {!isEnabled && (
-                              <span className="text-gray-400 dark:text-gray-500 text-sm" title={t('disabled' as any)}>✗</span>
+                              <span className="text-gray-400 dark:text-gray-500 text-sm" title={t('disabled' as any)}>OFF</span>
                             )}
                             <span className="text-xs text-gray-600 dark:text-gray-400 flex-1 font-mono">{dir}</span>
                           </div>

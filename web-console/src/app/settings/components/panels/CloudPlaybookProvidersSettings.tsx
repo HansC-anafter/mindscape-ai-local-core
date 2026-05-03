@@ -277,7 +277,7 @@ export function CloudPlaybookProvidersSettings() {
       if (result.success) {
         const installedCount = result.installed?.length || 0;
         const installedNames = result.installed?.map((p: any) => p.pack_code || p.code).join(', ') || '';
-        const notificationMessage = `✅ 成功安裝 ${installedCount} 個 pack${installedCount > 1 ? 's' : ''}${installedNames ? `: ${installedNames}` : ''}`;
+        const notificationMessage = `Installed ${installedCount} pack${installedCount === 1 ? '' : 's'}${installedNames ? `: ${installedNames}` : ''}`;
         showNotification('success', notificationMessage);
         try {
           await loadPacks(providerId);
@@ -286,7 +286,7 @@ export function CloudPlaybookProvidersSettings() {
         }
       } else {
         const errorMsg = result.message || result.detail || 'Failed to install packs';
-        showNotification('error', `❌ 安裝失敗: ${errorMsg}`);
+        showNotification('error', `Install failed: ${errorMsg}`);
       }
     } catch (error: any) {
       console.error('Failed to install packs:', error);
@@ -446,7 +446,7 @@ export function CloudPlaybookProvidersSettings() {
                                         </h5>
                                         {pack.installed && (
                                           <span className="px-2 py-0.5 text-xs rounded bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                                            {t('installed' as any) || '已安裝'}
+                                            {t('installed' as any) || 'Installed'}
                                           </span>
                                         )}
                                       </div>
@@ -667,4 +667,3 @@ export function CloudPlaybookProvidersSettings() {
     </div>
   );
 }
-

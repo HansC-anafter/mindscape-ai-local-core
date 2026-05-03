@@ -290,7 +290,7 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
             // Mark packs as installed (check both code and pack_ref)
             packsList.forEach((pack: Pack) => {
               const packId = pack.code;
-              const packRefId = pack.pack_ref?.split(':' as any)[1]?.split('@' as any)[0]; // Extract code from pack_ref like "mindscape-ai:yogacoach@1.0.0"
+              const packRefId = pack.pack_ref?.split(':' as any)[1]?.split('@' as any)[0]; // Extract code from pack_ref like "provider:pack@1.0.0"
               pack.installed = installedIds.has(packId) || installedIds.has(packRefId || '');
             });
           }
@@ -336,7 +336,7 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
       if (result.success) {
         const installedCount = result.installed?.length || 0;
         const installedNames = result.installed?.map((p: any) => p.pack_code || p.code).join(', ') || '';
-        const notificationMessage = `✅ 成功安裝 ${installedCount} 個 pack${installedCount > 1 ? 's' : ''}${installedNames ? `: ${installedNames}` : ''}`;
+        const notificationMessage = `Installed ${installedCount} pack${installedCount > 1 ? 's' : ''}${installedNames ? `: ${installedNames}` : ''}`;
         showNotification('success', notificationMessage);
         // Reload packs to refresh the list and show installed status
         // Note: loadPacks failure is non-critical, don't block on it
@@ -348,7 +348,7 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
         }
       } else {
         const errorMsg = result.message || result.detail || 'Failed to install packs';
-        showNotification('error', `❌ 安裝失敗: ${errorMsg}`);
+        showNotification('error', `Install failed: ${errorMsg}`);
       }
     } catch (error: any) {
       console.error('Failed to install packs:', error);
@@ -544,7 +544,7 @@ export function CloudExtensionSettings({ activeSection }: CloudExtensionSettings
                                         </h5>
                                         {pack.installed && (
                                           <span className="px-2 py-0.5 text-xs rounded bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                                            {t('installed' as any) || '已安裝'}
+                                            {t('installed' as any) || 'Installed'}
                                           </span>
                                         )}
                                       </div>

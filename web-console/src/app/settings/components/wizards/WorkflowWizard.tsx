@@ -33,10 +33,10 @@ export function WorkflowWizard({ platform, onClose, onSuccess }: WorkflowWizardP
   const [success, setSuccess] = useState<string | null>(null);
 
   const platforms = [
-    { id: 'zapier' as const, name: 'Zapier', description: 'Automate workflows between apps', icon: '⚡' },
-    { id: 'n8n' as const, name: 'n8n', description: 'Open-source workflow automation', icon: '🔄' },
-    { id: 'make' as const, name: 'Make', description: 'Visual automation platform', icon: '🎨' },
-    { id: 'custom' as const, name: 'Custom', description: 'Custom workflow integration', icon: '🔧' },
+    { id: 'zapier' as const, name: 'Zapier', description: 'Automate workflows between apps', icon: 'ZP' },
+    { id: 'n8n' as const, name: 'n8n', description: 'Open-source workflow automation', icon: 'N8' },
+    { id: 'make' as const, name: 'Make', description: 'Visual automation platform', icon: 'MK' },
+    { id: 'custom' as const, name: 'Custom', description: 'Custom workflow integration', icon: 'CW' },
   ];
 
   const handlePlatformSelect = (platformId: 'zapier' | 'n8n' | 'make' | 'custom') => {

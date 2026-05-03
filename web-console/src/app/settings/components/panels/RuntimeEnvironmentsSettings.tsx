@@ -23,7 +23,7 @@ try {
     'sync'
   );
 } catch {
-  // Capabilities directory empty or missing — provide no-op fallback
+  // Capabilities directory empty or missing; provide no-op fallback
   rawCapabilityComponentsContext = Object.assign(
     (() => ({})) as any,
     { keys: () => [] as string[], resolve: (k: string) => k, id: '' }
@@ -231,9 +231,9 @@ export function RuntimeEnvironmentsSettings() {
 
       try {
         const moduleLoader = capabilityComponentsContext(contextKey);
-        const module = typeof moduleLoader === 'function' ? await moduleLoader() : await moduleLoader;
+        const loadedModule = typeof moduleLoader === 'function' ? await moduleLoader() : await moduleLoader;
         return {
-          default: (module[panel.export || 'default'] || module.default) as React.ComponentType<RuntimeSettingsExtensionProps>,
+          default: (loadedModule[panel.export || 'default'] || loadedModule.default) as React.ComponentType<RuntimeSettingsExtensionProps>,
         };
       } catch (error) {
         console.error('Failed to load runtime settings component:', panel.componentCode, 'from', contextKey, error);
@@ -292,7 +292,7 @@ export function RuntimeEnvironmentsSettings() {
             icon: 'check',
           };
         case 'pending':
-          return { status: 'not_configured' as const, label: 'Connecting...', icon: '⌛' };
+          return { status: 'not_configured' as const, label: 'Connecting...', icon: 'pending' };
         case 'error':
           return { status: 'inactive' as const, label: 'Auth Error', icon: 'cross' };
         case 'disconnected':
@@ -417,7 +417,7 @@ export function RuntimeEnvironmentsSettings() {
             onClose={() => setSelectedRuntime(null)}
             title={
               isGcaLocal
-                ? 'GCA Auth — OAuth Credentials'
+                ? 'GCA Auth - OAuth Credentials'
                 : runtimeModalPanel
                   ? runtimeModalPanel.title
                   : (runtime?.name || t('runtimeConfiguration' as any) || 'Runtime Configuration')
@@ -661,7 +661,7 @@ function SiteHubSettingsForm({
           placeholder="openseo-basic-anafter-co-an-after-ux-..."
         />
         <p className="mt-1 text-xs text-gray-400">
-          From Site-Hub Console → Channel settings
+          From Site-Hub Console &gt; Channel settings
         </p>
       </div>
 
@@ -676,7 +676,7 @@ function SiteHubSettingsForm({
           placeholder="UUID of the ChainAgent"
         />
         <p className="mt-1 text-xs text-gray-400">
-          Required for fetching channels — find in Site-Hub Console
+          Required for fetching channels - find in Site-Hub Console
         </p>
       </div>
 
@@ -732,7 +732,7 @@ function GeminiCliSettingsForm({
   onSave: () => void;
   onCancel: () => void;
 }) {
-  const MASKED_SECRET = '••••••••';
+  const MASKED_SECRET = '********';
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [secretConfigured, setSecretConfigured] = useState(false);
@@ -845,11 +845,11 @@ function GeminiCliSettingsForm({
         />
         {secretConfigured ? (
           <p className="mt-1 text-xs text-green-600 dark:text-green-400">
-            ✓ Already configured — leave blank to keep existing value
+            Already configured - leave blank to keep existing value
           </p>
         ) : (
           <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-            ⚠ Not configured — enter the GOCSPX-xxx secret
+            Not configured - enter the GOCSPX-xxx secret
           </p>
         )}
       </div>

@@ -29,25 +29,25 @@ interface ModelsAndQuotaToolbarProps {
 
 function getPanelDescription(modelTypeFilter: ModelTypeFilter): string {
   if (modelTypeFilter === 'chat') {
-    return '設定與管理負責對話推理的大型語言模型';
+    return 'Configure and manage large language models used for chat reasoning.';
   }
   if (modelTypeFilter === 'multimodal') {
-    return '管理多模態模型（支援圖片、音訊等輸入）';
+    return 'Manage multimodal models for image, audio, and other inputs.';
   }
   if (modelTypeFilter === 'embedding') {
-    return '管理知識庫與記憶向量化模型';
+    return 'Manage vectorization models used by knowledge and memory features.';
   }
-  return '配置工具調用的相關設定';
+  return 'Configure settings related to tool calling.';
 }
 
 function getCatalogDescription(catalogCategory: CatalogCategory): string {
   if (catalogCategory === 'runtime-cli') {
-    return 'CLI 與本機開發工具的憑證與模型設定';
+    return 'Credentials and model settings for CLI and local development tools.';
   }
   if (catalogCategory === 'local-deployed') {
-    return '管理本地 runtime 可直接拉起的模型';
+    return 'Models that local runtimes can launch directly.';
   }
-  return '管理各種雲端或第三方 API 模型';
+  return 'Cloud and third-party API models.';
 }
 
 function getTabClass(active: boolean): string {
@@ -88,7 +88,7 @@ export function ModelsAndQuotaToolbar({
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-3">
         <div className="xl:max-w-sm shrink-0">
           <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-            {t('modelsAndQuota' as any) || '模型與配額'}
+            {t('modelsAndQuota' as any) || 'Models and Quota'}
           </h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed max-w-sm">
             {getPanelDescription(modelTypeFilter)}
@@ -101,21 +101,21 @@ export function ModelsAndQuotaToolbar({
             <span className={getBadgeClass(modelTypeFilter === 'chat')}>{chatCount}</span>
           </button>
           <button onClick={() => onSwitchTab('embedding')} className={getTabClass(modelTypeFilter === 'embedding')}>
-            知識與記憶
+            Knowledge and Memory
             <span className={getBadgeClass(modelTypeFilter === 'embedding')}>{embeddingCount}</span>
           </button>
           <button
             onClick={() => onSwitchTab('multimodal')}
             className={getTabClass(modelTypeFilter === 'multimodal')}
           >
-            多模態
+            Multimodal
             <span className={getBadgeClass(modelTypeFilter === 'multimodal')}>{multimodalCount}</span>
           </button>
           <button
             onClick={() => onSwitchTab('tool-calling')}
             className={getTabClass(modelTypeFilter === 'tool-calling')}
           >
-            工具調用
+            Tool Calling
           </button>
         </div>
       </div>
@@ -145,7 +145,7 @@ export function ModelsAndQuotaToolbar({
                   : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
               }`}
             >
-              本地部署模型
+              Local Deployed Models
             </button>
             <button
               onClick={() => onCatalogCategoryChange('api')}
@@ -156,7 +156,7 @@ export function ModelsAndQuotaToolbar({
                   : 'bg-surface-accent dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600 hover:bg-surface-secondary dark:hover:bg-gray-600'
               }`}
             >
-              API 模型
+              API Models
             </button>
             <span className="text-xs text-gray-400 dark:text-gray-500">
               {getCatalogDescription(catalogCategory)}
@@ -206,7 +206,7 @@ export function ModelsAndQuotaToolbar({
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 border border-transparent'
               }`}
             >
-              模型清單
+              Model Catalog
             </button>
             <button
               onClick={() => onSubTabChange('dynamic')}
@@ -216,7 +216,7 @@ export function ModelsAndQuotaToolbar({
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 border border-transparent'
               }`}
             >
-              動態分配
+              Dynamic Allocation
             </button>
           </div>
           {subTab === 'models' && catalogCategory !== 'runtime-cli' && (
@@ -233,7 +233,7 @@ export function ModelsAndQuotaToolbar({
                 data-filter-button="add-model"
                 className="px-3 py-1.5 text-sm font-medium rounded-md transition-colors border bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700 hover:bg-orange-100 dark:hover:bg-orange-900/40 whitespace-nowrap"
               >
-                新增模型
+                Add Model
               </button>
             </div>
           )}
@@ -254,7 +254,7 @@ export function ModelsAndQuotaToolbar({
             data-filter-button="add-model"
             className="px-3 py-1.5 text-sm font-medium rounded-md transition-colors border bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700 hover:bg-orange-100 dark:hover:bg-orange-900/40 whitespace-nowrap"
           >
-            新增模型
+            Add Model
           </button>
         </div>
       )}

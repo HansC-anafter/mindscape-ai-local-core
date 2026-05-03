@@ -69,7 +69,7 @@ export function PlaybookBlacklistManager({
                 onClick={() => handleRemove(playbook)}
                 className="hover:text-red-900 dark:hover:text-red-100"
               >
-                ×
+                x
               </button>
             </span>
           ))}
@@ -82,4 +82,3 @@ export function PlaybookBlacklistManager({
     </div>
   );
 }
-

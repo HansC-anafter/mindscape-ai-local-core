@@ -39,7 +39,7 @@ export function MCPServerPanel({ activeProvider }: MCPServerPanelProps) {
       setSelectedProvider(activeProvider);
       setShowWizard(true);
     }
-  }, [activeProvider]);
+  }, [activeProvider, selectedProvider]);
 
   const loadServers = async () => {
     setLoading(true);
@@ -171,4 +171,3 @@ export function MCPServerPanel({ activeProvider }: MCPServerPanelProps) {
     </Section>
   );
 }
-
