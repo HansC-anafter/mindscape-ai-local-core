@@ -8,7 +8,7 @@ This document defines the released public boundary for the current repository st
 
 Local Core owns local governance, local workspace state, local orchestration, local execution state, capability hosting boundaries, and local artifacts.
 
-External systems may coordinate or route work, but they remain integration peers or control-plane callers. They must not become the source of truth for Local Core's internal architecture.
+External systems may coordinate or route work, but they remain integration peers or control-plane callers. They must not become the source of truth for Local Core architecture.
 
 ## What Local Core Owns
 
@@ -81,4 +81,4 @@ When releasing public documentation:
 
 ## Current Release Scope
 
-This page is a boundary statement, not an API reference. It does not release external connector protocol details, remote execution callback schemas, internal authoring contracts, or external tenant implementation notes.
+This page is a boundary statement, not an API reference. It does not release external connector protocol details, remote execution callback schemas, private authoring contracts, or external tenant implementation notes.

@@ -66,9 +66,9 @@ Local Core does not publicly own:
 
 - provider-native tool payloads
 - external account setup or credential lifecycle
-- private prompt text
+- private assembly text
 - unrestricted execution authorization
 - installed capability implementation internals
-- internal authoring guides or historical implementation plans
+- private authoring guides or historical implementation plans
 
-Public documentation should describe stable retrieval and binding responsibilities. Internal authoring workflows, private manifests, dated work logs, private validation material, and migration notes remain withheld.
+Public documentation should describe stable retrieval and binding responsibilities. Private authoring workflows, private manifests, dated work logs, private validation material, and migration notes remain withheld.

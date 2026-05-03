@@ -134,7 +134,7 @@ Capability host landmarks:
 - `backend/app/services/manifest_validator.py`
 - `backend/app/services/install_integrity.py`
 
-These files are host-boundary landmarks only. Public Local Core documentation must still avoid per-capability backend service code, frontend UI implementation details, capability-specific schemas, migrations, prompt material, and generated runtime artifacts.
+These files are host-boundary landmarks only. Public Local Core documentation must still avoid per-capability backend service code, frontend UI implementation details, capability-specific schemas, migrations, private assembly material, and generated runtime artifacts.
 
 ## Reading Rule
 

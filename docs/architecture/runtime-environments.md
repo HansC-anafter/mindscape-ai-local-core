@@ -52,4 +52,4 @@ Local Core does not publicly own:
 - installed capability implementation details
 - connector-specific callback schemas
 
-Public runtime documentation should describe stable local contracts and adapter boundaries. It should not publish internal migration notes, unreleased setup flows, provider secrets, or capability implementation plans.
+Public runtime documentation should describe stable local contracts and adapter boundaries. It should not publish private migration notes, unreleased setup flows, provider secrets, or capability implementation plans.

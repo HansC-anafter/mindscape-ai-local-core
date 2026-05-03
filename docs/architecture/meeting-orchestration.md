@@ -55,7 +55,7 @@ Decomposition is a local orchestration detail. Public documentation should descr
 
 Finalization renders meeting minutes, closes the session, emits user-visible meeting output, and records inspection metadata. The session close path can trigger memory writeback through the meeting writeback orchestrator described in the governed memory fabric.
 
-Public documentation should treat meeting orchestration as a governed execution convergence layer. It should not expose private prompt text, private role instructions, private validation transcripts, or provider-specific execution payloads.
+Public documentation should treat meeting orchestration as a governed execution convergence layer. It should not expose private assembly text, private role instructions, private validation transcripts, or provider-specific execution payloads.
 
 ## Public Boundary
 
@@ -64,7 +64,7 @@ Local Core owns meeting sessions, meeting orchestration, agenda decomposition, r
 Local Core does not publicly own:
 
 - provider-native conversation formats
-- private deliberation prompt text
+- private deliberation assembly text
 - external runtime implementation details
 - external scheduling or billing workflows
 - installed capability internals invoked by a meeting result
