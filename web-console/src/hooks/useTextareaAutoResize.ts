@@ -9,14 +9,6 @@ interface UseTextareaAutoResizeOptions {
   enabled?: boolean;
 }
 
-/**
- * useTextareaAutoResize Hook
- * Automatically adjusts textarea height based on content.
- *
- * @param textareaRef Reference to the textarea element.
- * @param value The current value of the textarea.
- * @param options Optional configuration options.
- */
 export function useTextareaAutoResize(
   textareaRef: RefObject<HTMLTextAreaElement>,
   value: string,
@@ -55,4 +47,3 @@ export function useTextareaAutoResize(
     adjustHeight,
   };
 }
-

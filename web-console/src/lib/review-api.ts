@@ -1,8 +1,3 @@
-/**
- * Review Suggestion API Client
- * 提供回顧建議相關的 API 調用函數
- */
-
 import { getApiBaseUrl } from './api-url';
 
 const API_URL = getApiBaseUrl();
@@ -20,16 +15,13 @@ export interface ReviewSuggestionResponse {
 
 export interface ReviewPreferences {
   cadence: 'manual' | 'weekly' | 'monthly';
-  day_of_week: number; // 0=Mon ... 6=Sun
-  day_of_month: number; // 1-31
-  time_of_day: string; // e.g., "21:00"
+  day_of_week: number;
+  day_of_month: number;
+  time_of_day: string;
   min_entries: number;
   min_insight_events: number;
 }
 
-/**
- * 取得回顧建議
- */
 export async function getReviewSuggestion(
   profileId: string
 ): Promise<ReviewSuggestion | null> {
@@ -43,9 +35,6 @@ export async function getReviewSuggestion(
   return data.suggestion;
 }
 
-/**
- * 記錄回顧已完成
- */
 export async function recordReviewCompleted(
   profileId: string,
   reviewTime?: string

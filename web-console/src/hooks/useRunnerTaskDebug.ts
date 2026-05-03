@@ -3,10 +3,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useExecutionStream } from '@/hooks/useExecutionStream';
 
-/**
- * Debug info parsed from SSE progress events.
- * Generic fields applicable to all runner tasks.
- */
 export interface RunnerDebugInfo {
   status: string | null;
   progress: Record<string, any> | null;
@@ -29,10 +25,6 @@ const EMPTY_DEBUG: RunnerDebugInfo = {
   isConnected: false,
 };
 
-/**
- * Hook that wraps useExecutionStream to provide parsed runner debug info.
- * Subscribes to SSE stream and extracts generic runner fields.
- */
 export function useRunnerTaskDebug(
   executionId: string | null | undefined,
   workspaceId: string,

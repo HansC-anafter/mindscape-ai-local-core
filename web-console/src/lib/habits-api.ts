@@ -1,8 +1,3 @@
-/**
- * Habit Learning API Client
- * 提供習慣學習相關的 API 調用函數
- */
-
 import { getApiBaseUrl } from './api-url';
 
 const API_URL = getApiBaseUrl();
@@ -53,9 +48,6 @@ export interface HabitMetrics {
   is_habit_suggestions_enabled?: boolean;
 }
 
-/**
- * 取得候選習慣列表
- */
 export async function getCandidates(
   profileId: string,
   status?: 'pending' | 'confirmed' | 'rejected',
@@ -76,9 +68,6 @@ export async function getCandidates(
   return response.json();
 }
 
-/**
- * 取得單個候選習慣
- */
 export async function getCandidate(
   candidateId: string,
   profileId: string
@@ -92,9 +81,6 @@ export async function getCandidate(
   return response.json();
 }
 
-/**
- * 確認候選習慣
- */
 export async function confirmCandidate(
   candidateId: string,
   profileId: string,
@@ -115,9 +101,6 @@ export async function confirmCandidate(
   return response.json();
 }
 
-/**
- * 拒絕候選習慣
- */
 export async function rejectCandidate(
   candidateId: string,
   profileId: string,
@@ -138,9 +121,6 @@ export async function rejectCandidate(
   return response.json();
 }
 
-/**
- * 回滾候選習慣
- */
 export async function rollbackCandidate(
   candidateId: string,
   profileId: string
@@ -158,9 +138,6 @@ export async function rollbackCandidate(
   return response.json();
 }
 
-/**
- * 取得審計記錄
- */
 export async function getAuditLogs(
   profileId: string,
   candidateId?: string,
@@ -181,9 +158,6 @@ export async function getAuditLogs(
   return response.json();
 }
 
-/**
- * 取得統計資訊
- */
 export async function getMetrics(profileId: string): Promise<HabitMetrics> {
   const response = await fetch(
     `${API_URL}/api/v1/habits/metrics?profile_id=${profileId}`

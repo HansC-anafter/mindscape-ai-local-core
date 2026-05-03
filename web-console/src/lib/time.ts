@@ -1,11 +1,3 @@
-/**
- * Unified server timestamp utilities.
- * Rule: all server timestamps are UTC. Naive strings are treated as UTC.
- */
-
-/**
- * Parse a server timestamp (UTC or naive) into a Date.
- */
 export function parseServerTimestamp(value?: string | null): Date | null {
   if (!value) return null;
   const s = value.trim();
@@ -17,25 +9,16 @@ export function parseServerTimestamp(value?: string | null): Date | null {
   return Number.isFinite(d.getTime()) ? d : null;
 }
 
-/**
- * Format timestamp as localized date-time.
- */
 export function formatLocalDateTime(value?: string | null): string {
   const d = parseServerTimestamp(value);
-  return d ? d.toLocaleString() : "—";
+  return d ? d.toLocaleString() : 'N/A';
 }
 
-/**
- * Format timestamp as localized time.
- */
 export function formatLocalTime(value?: string | null): string {
   const d = parseServerTimestamp(value);
-  return d ? d.toLocaleTimeString() : "—";
+  return d ? d.toLocaleTimeString() : 'N/A';
 }
 
-/**
- * Minutes elapsed since timestamp.
- */
 export function minutesAgo(value?: string | null): number | null {
   const t = parseServerTimestamp(value)?.getTime();
   if (!Number.isFinite(t)) return null;
@@ -45,9 +28,6 @@ export function minutesAgo(value?: string | null): number | null {
   return Math.floor(diffMs / 60000);
 }
 
-/**
- * Timestamp as epoch milliseconds.
- */
 export function toTimestampMs(value?: string | null): number | null {
   const t = parseServerTimestamp(value)?.getTime();
   return Number.isFinite(t) ? (t as number) : null;

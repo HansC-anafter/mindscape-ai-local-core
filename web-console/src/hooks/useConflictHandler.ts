@@ -14,14 +14,6 @@ export interface ConflictResponse {
   error?: string;
 }
 
-/**
- * Hook for handling file conflicts when saving artifacts
- *
- * When a backend API returns a conflict response, this hook will:
- * 1. Detect the conflict
- * 2. Show a confirmation dialog
- * 3. Retry the operation with force=true if user confirms
- */
 export function useConflictHandler() {
   const [conflictDialog, setConflictDialog] = useState<{
     isOpen: boolean;
@@ -31,11 +23,7 @@ export function useConflictHandler() {
     onUseNewVersion?: () => void;
   } | null>(null);
 
-  /**
-   * Check if a response indicates a conflict
-   */
   const detectConflict = useCallback((response: any): ConflictInfo | null => {
-    // Check for conflict in response.conflict (priority check)
     if (response?.conflict?.hasConflict) {
       return {
         hasConflict: true,
@@ -45,9 +33,7 @@ export function useConflictHandler() {
       };
     }
 
-    // Check for conflict in response (directly check if response has conflict field)
     if (response?.conflict && typeof response.conflict === 'object') {
-      // If conflict object exists but no hasConflict, check other markers
       if (response.conflict.file_exists || response.conflict.force_required) {
         return {
           hasConflict: true,
@@ -58,7 +44,6 @@ export function useConflictHandler() {
       }
     }
 
-    // Check for conflict in error response
     if (response?.error && response.error.includes('conflict')) {
       return {
         hasConflict: true,
@@ -66,7 +51,6 @@ export function useConflictHandler() {
       };
     }
 
-    // Check for HTTP 409 Conflict status
     if (response?.status === 409) {
       return {
         hasConflict: true,
@@ -77,15 +61,6 @@ export function useConflictHandler() {
     return null;
   }, []);
 
-  /**
-   * Handle a response that may contain a conflict
-   *
-   * @param response - The API response
-   * @param retryWithForce - Function to retry the operation with force=true
-   * @param onSuccess - Callback when operation succeeds without conflict
-   * @param onError - Callback when operation fails
-   * @param onUseNewVersion - Optional callback when user chooses to use new version
-   */
   const handleConflict = useCallback(
     async (
       response: any,
@@ -97,7 +72,6 @@ export function useConflictHandler() {
       const conflict = detectConflict(response);
 
       if (conflict) {
-        // Show confirmation dialog
         setConflictDialog({
           isOpen: true,
           conflict,
@@ -137,7 +111,6 @@ export function useConflictHandler() {
           } : undefined
         });
       } else {
-        // No conflict, proceed normally
         if (onSuccess) {
           onSuccess(response);
         }
@@ -146,9 +119,6 @@ export function useConflictHandler() {
     [detectConflict]
   );
 
-  /**
-   * Close the conflict dialog
-   */
   const closeConflictDialog = useCallback(() => {
     setConflictDialog(null);
   }, []);
@@ -160,4 +130,3 @@ export function useConflictHandler() {
     detectConflict
   };
 }
-

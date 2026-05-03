@@ -1,9 +1,3 @@
-/**
- * Check if error is a network or timeout error.
- *
- * @param error - Error to check
- * @returns True if error is network/timeout related
- */
 export function isNetworkError(error: any): boolean {
   if (!error) return false;
 
@@ -20,12 +14,6 @@ export function isNetworkError(error: any): boolean {
   return false;
 }
 
-/**
- * Check if error is a Content-Length mismatch error.
- *
- * @param error - Error to check
- * @returns True if error is Content-Length mismatch
- */
 export function isContentLengthError(error: any): boolean {
   if (!error) return false;
 
@@ -36,13 +24,6 @@ export function isContentLengthError(error: any): boolean {
   return false;
 }
 
-/**
- * Get user-friendly error message from error object.
- *
- * @param error - Error object
- * @param fallback - Fallback message
- * @returns User-friendly error message
- */
 export function getErrorMessage(error: any, fallback: string = 'An error occurred'): string {
   if (!error) return fallback;
 
@@ -55,13 +36,6 @@ export function getErrorMessage(error: any, fallback: string = 'An error occurre
   return fallback;
 }
 
-/**
- * Check if error should be retried.
- *
- * @param error - Error to check
- * @returns True if error should be retried
- */
 export function shouldRetryError(error: any): boolean {
   return isNetworkError(error) || isContentLengthError(error);
 }
-

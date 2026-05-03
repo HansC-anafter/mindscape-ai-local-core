@@ -1,29 +1,12 @@
 type EventHandler = (data: any) => void;
 type HandlerId = string;
 
-/**
- * Event bus for managing global custom events.
- *
- * Provides a centralized event management mechanism with support for:
- * - Event subscription and unsubscription
- * - Debouncing per event-handler combination
- * - Error isolation between handlers
- * - Cleanup mechanisms
- */
 class EventBus {
   private handlers: Map<string, Map<HandlerId, EventHandler>> = new Map();
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
   private handlerIdCounter = 0;
   private handlerIdMap: WeakMap<EventHandler, HandlerId> = new WeakMap();
 
-  /**
-   * Subscribe to an event.
-   *
-   * @param event - Event name
-   * @param handler - Event handler function
-   * @param debounceMs - Optional debounce time in milliseconds
-   * @returns Unsubscribe function
-   */
   subscribe(event: string, handler: EventHandler, debounceMs?: number): () => void {
     if (!this.handlers.has(event)) {
       this.handlers.set(event, new Map());
@@ -52,34 +35,18 @@ class EventBus {
     };
   }
 
-  /**
-   * Emit an event to all subscribed handlers.
-   *
-   * @param event - Event name
-   * @param data - Event data
-   */
   emit(event: string, data: any) {
     const handlers = this.handlers.get(event);
     if (handlers) {
       handlers.forEach(handler => {
         try {
           handler(data);
-        } catch (error) {
-          console.error(`[EventBus] Error in handler for event "${event}":`, error);
+        } catch {
         }
       });
     }
   }
 
-  /**
-   * Debounce wrapper for event handlers.
-   *
-   * @param event - Event name
-   * @param handlerId - Handler unique ID
-   * @param fn - Original handler function
-   * @param ms - Debounce time in milliseconds
-   * @returns Debounced handler function
-   */
   private debounce(
     event: string,
     handlerId: HandlerId,
@@ -97,8 +64,7 @@ class EventBus {
       const newTimer = setTimeout(() => {
         try {
           fn(data);
-        } catch (error) {
-          console.error(`[EventBus] Error in debounced handler for event "${event}":`, error);
+        } catch {
         } finally {
           this.debounceTimers.delete(timerKey);
         }
@@ -108,20 +74,12 @@ class EventBus {
     };
   }
 
-  /**
-   * Clear all subscriptions and timers.
-   */
   clear() {
     this.handlers.clear();
     this.debounceTimers.forEach(timer => clearTimeout(timer));
     this.debounceTimers.clear();
   }
 
-  /**
-   * Clear all subscriptions for a specific event.
-   *
-   * @param event - Event name
-   */
   clearEvent(event: string) {
     const handlers = this.handlers.get(event);
     if (handlers) {
@@ -140,10 +98,6 @@ class EventBus {
 
 export const eventBus = new EventBus();
 
-/**
- * Adapter layer: Listen to window custom events and forward to EventBus.
- * This allows existing code using window.dispatchEvent to work with EventBus.
- */
 if (typeof window !== 'undefined') {
   const eventNames = [
     'continue-conversation',
@@ -159,4 +113,3 @@ if (typeof window !== 'undefined') {
     }) as EventListener);
   });
 }
-

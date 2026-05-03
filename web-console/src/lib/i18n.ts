@@ -2,11 +2,8 @@
  * Internationalization (i18n) utilities
  * Supports Traditional Chinese (zh-TW), English (en), and Japanese (ja)
  *
- * ✅ MIGRATION COMPLETE ✅
  * Messages are now organized in modular structure under i18n/locales/
  * All modules have been created and aggregated in i18n/locales/index.ts
- *
- * See docs-internal/implementation/I18N_REFACTOR_MIGRATION_GUIDE.md for details.
  */
 
 import React from 'react';

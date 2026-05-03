@@ -13,9 +13,6 @@ export interface ScrollManagementOptions {
   enabled?: boolean;
 }
 
-/**
- * Debounce function implementation.
- */
 function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
@@ -41,21 +38,6 @@ function debounce<T extends (...args: any[]) => any>(
   return debounced;
 }
 
-/**
- * Hook for managing scroll behavior in messages container.
- *
- * Provides:
- * - Auto-scroll to bottom when new messages arrive
- * - User scroll detection
- * - Scroll-to-bottom button visibility
- * - Initial load scroll handling
- *
- * Uses split contexts (useMessages, useScrollState, useWorkspaceRefs) to avoid
- * unnecessary re-renders and uses useLatest to stabilize options.
- *
- * @param options - Optional configuration (threshold, debounce time, enabled flag)
- * @returns Scroll management functions and state
- */
 export function useScrollManagement(options?: ScrollManagementOptions) {
   const { messages } = useMessages();
   const {
@@ -87,7 +69,6 @@ export function useScrollManagement(options?: ScrollManagementOptions) {
 
       if (force) {
         jumpToBottom();
-        // Follow-up frame to catch any late layout shifts
         requestAnimationFrame(jumpToBottom);
         setAutoScroll(true);
         setUserScrolled(false);
@@ -148,12 +129,8 @@ export function useScrollManagement(options?: ScrollManagementOptions) {
     if (isInitialLoad && messages.length > 0) {
       setIsInitialLoad(false);
 
-      // Scroll to bottom using rAF loop to guarantee the DOM has
-      // finished layout.  We scroll on every frame for ~500ms so
-      // that late-arriving content (images, markdown, lazy chunks)
-      // doesn't leave us stranded in the middle.
       let frames = 0;
-      const maxFrames = 30; // ~500ms at 60fps
+      const maxFrames = 30;
       const scrollLoop = () => {
         if (messagesScrollRef.current) {
           messagesScrollRef.current.scrollTop = messagesScrollRef.current.scrollHeight;
@@ -174,4 +151,3 @@ export function useScrollManagement(options?: ScrollManagementOptions) {
     userScrolled,
   };
 }
-

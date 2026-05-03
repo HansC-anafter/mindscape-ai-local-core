@@ -13,14 +13,6 @@ interface UseLLMConfigurationOptions {
   onError?: (error: Error) => void;
 }
 
-/**
- * useLLMConfiguration Hook
- * Manages LLM configuration status checking using LLMConfigService.
- *
- * @param apiUrl The base API URL for the LLM configuration endpoint.
- * @param options Optional configuration options.
- * @returns An object containing configuration status and control functions.
- */
 export function useLLMConfiguration(
   apiUrl: string,
   options?: UseLLMConfigurationOptions
@@ -45,7 +37,6 @@ export function useLLMConfiguration(
       return;
     }
 
-    // Cancel previous request if any
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -76,7 +67,6 @@ export function useLLMConfiguration(
         return;
       }
 
-      // Don't set error for aborted requests
       if (err.name === 'AbortError') {
         setIsChecking(false);
         return;
@@ -90,7 +80,6 @@ export function useLLMConfiguration(
     }
   }, [apiUrl, workspaceId, profileId, timeout, enabled, setLlmConfigured, onSuccess, onError]);
 
-  // Initial check on mount or when dependencies change
   useEffect(() => {
     if (enabled && apiUrl) {
       checkConfiguration();
@@ -111,4 +100,3 @@ export function useLLMConfiguration(
     checkConfiguration,
   };
 }
-

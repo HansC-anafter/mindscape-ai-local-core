@@ -24,16 +24,6 @@ export interface ChatModelData {
   [key: string]: any;
 }
 
-/**
- * Service for managing LLM configuration and chat model data.
- *
- * Provides:
- * - Multi-dimensional caching (by apiUrl, workspaceId, profileId)
- * - Authentication header support
- * - Timeout and abort signal handling
- * - Error fallback to cached values
- * - Cache invalidation and cleanup mechanisms
- */
 class LLMConfigService {
   private configCache: Map<string, CacheEntry<boolean>> = new Map();
   private modelCache: Map<string, CacheEntry<ChatModelData>> = new Map();
@@ -45,13 +35,6 @@ class LLMConfigService {
     return `${apiUrl}:${workspaceId || 'default'}:${profileId || 'default-user'}`;
   }
 
-  /**
-   * Check LLM configuration availability.
-   *
-   * @param apiUrl - API base URL
-   * @param options - Request options
-   * @returns Promise resolving to configuration availability status
-   */
   async checkLLMConfiguration(
     apiUrl: string,
     options: RequestOptions = {}
@@ -110,22 +93,13 @@ class LLMConfigService {
       clearTimeout(timeoutId);
 
       if (error.name === 'AbortError' && cached) {
-        console.warn('[LLMConfigService] Request timeout, using cached value');
         return cached.data;
       }
 
-      console.error('[LLMConfigService] Failed to check LLM configuration:', error);
       throw error;
     }
   }
 
-  /**
-   * Load chat model data.
-   *
-   * @param apiUrl - API base URL
-   * @param options - Request options
-   * @returns Promise resolving to chat model data
-   */
   async loadChatModel(
     apiUrl: string,
     options: RequestOptions = {}
@@ -200,29 +174,17 @@ class LLMConfigService {
     } catch (error: any) {
       clearTimeout(timeoutId);
 
-      // Handle AbortError gracefully - this is normal when component unmounts
       if (error.name === 'AbortError') {
         if (cached) {
-          console.warn('[LLMConfigService] Request aborted, using cached value');
           return cached.data;
         }
-        // Silently handle abort when no cache - component is likely unmounting
-        // Don't log as error, just re-throw to let caller handle (useChatModel already handles this)
         throw error;
       }
 
-      console.error('[LLMConfigService] Failed to load chat model:', error);
       throw error;
     }
   }
 
-  /**
-   * Invalidate cache for specific dimensions or all cache.
-   *
-   * @param apiUrl - Optional API URL (if provided, only invalidate for this URL)
-   * @param workspaceId - Optional workspace ID (if provided, only invalidate for this workspace)
-   * @param profileId - Optional profile ID (if provided, only invalidate for this profile)
-   */
   invalidateCache(apiUrl?: string, workspaceId?: string, profileId?: string) {
     if (apiUrl) {
       const cacheKey = this.getCacheKey(apiUrl, workspaceId, profileId);
@@ -234,9 +196,6 @@ class LLMConfigService {
     }
   }
 
-  /**
-   * Clean up expired cache entries.
-   */
   cleanupExpiredCache() {
     const now = Date.now();
 

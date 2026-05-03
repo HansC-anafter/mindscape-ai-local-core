@@ -1,9 +1,3 @@
-/**
- * usePlaybookLeftSidebar - Hook to get left sidebar config for a playbook
- *
- * Returns left sidebar configuration from registered playbook package.
- */
-
 import { useState, useEffect } from 'react';
 import { getPlaybookRegistry } from '@/playbook';
 
@@ -38,4 +32,3 @@ export function usePlaybookLeftSidebar(playbookCode: string | null) {
 
   return { config, loading };
 }
-

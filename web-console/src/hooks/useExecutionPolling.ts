@@ -1,23 +1,8 @@
 'use client';
 
-/**
- * useExecutionPolling — unified SSE-first hook with optional polling fallback
- *
- * State machine:
- *   [*] → SSE_Active (hook mount + SSE enabled)
- *   SSE_Active → Polling_Fallback (only if enablePollingFallback=true, onerror(CLOSED) or watchdog timeout)
- *   Polling_Fallback → SSE_Active (SSE reconnect succeeds, onopen)
- *   SSE_Active → [*] (hook unmount)
- *   Polling_Fallback → [*] (hook unmount)
- *
- * When SSE is connected, polling is disabled — only SSE-driven refreshes fire.
- * Polling fallback is opt-in (`enablePollingFallback`) and disabled by default.
- */
-
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useExecutionStream, streamManager } from './useExecutionStream';
 
-// Module-level concurrency limiter for fetch-based polling
 let inflightCount = 0;
 const MAX_INFLIGHT = 3;
 const waitQueue: (() => void)[] = [];
@@ -36,30 +21,19 @@ async function throttledFetch(url: string, init?: RequestInit): Promise<Response
 }
 
 export interface UseExecutionPollingOptions {
-    /** Execution ID to track — null/undefined = disabled */
     executionId: string | null | undefined;
-    /** Workspace ID */
     workspaceId: string;
-    /** API base URL (e.g. NEXT_PUBLIC_API_URL) */
     apiUrl: string;
-    /** Called on every SSE event or poll result */
     onUpdate: (data: any) => void;
-    /** Polling interval in ms when SSE is disconnected. Default: 10_000 */
     pollIntervalMs?: number;
-    /** Enable SSE streaming. Default: true */
     enableSSE?: boolean;
-    /** Enable setInterval polling fallback when SSE disconnects. Default: false */
     enablePollingFallback?: boolean;
-    /** Minimum gap between SSE-triggered refreshes (debounce). Default: 1_200 */
     sseDebounceMs?: number;
-    /** Custom refresh function. If not provided, polling/refresh is skipped. */
     pollFn?: () => Promise<void> | void;
 }
 
 export interface UseExecutionPollingReturn {
-    /** Whether SSE is currently connected (reactive React state, triggers re-render) */
     sseConnected: boolean;
-    /** Manually trigger a refresh */
     refresh: () => void;
 }
 
@@ -78,17 +52,14 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
 
     const [sseConnected, setSseConnected] = useState(false);
 
-    // Refs for latest callbacks (avoid unnecessary re-effects)
     const onUpdateRef = useRef(onUpdate);
     const pollFnRef = useRef(pollFn);
     useEffect(() => { onUpdateRef.current = onUpdate; }, [onUpdate]);
     useEffect(() => { pollFnRef.current = pollFn; }, [pollFn]);
 
-    // SSE debounce
     const sseRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastSseRefreshAtRef = useRef<number>(0);
 
-    // Cleanup debounce timer on unmount
     useEffect(() => {
         return () => {
             if (sseRefreshTimerRef.current) {
@@ -98,12 +69,9 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         };
     }, []);
 
-    // SSE event handler — debounced
     const handleSSEEvent = useCallback((data: any) => {
-        // Always call onUpdate for the SSE data
         onUpdateRef.current?.(data);
 
-        // Debounced refresh via pollFn (if provided)
         if (!pollFnRef.current) return;
 
         const now = Date.now();
@@ -124,7 +92,6 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         }, delay);
     }, [sseDebounceMs]);
 
-    // Wire up SSE stream
     useExecutionStream(
         enableSSE ? executionId : null,
         workspaceId,
@@ -132,17 +99,14 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         handleSSEEvent
     );
 
-    // Reactive SSE connection state via onConnectionChange callback
     useEffect(() => {
         if (!executionId || !enableSSE) {
             setSseConnected(false);
             return;
         }
 
-        // Set initial state from streamManager
         setSseConnected(streamManager.isConnected(executionId));
 
-        // Subscribe to connection state changes
         const unsubscribe = streamManager.onConnectionChange(executionId, (connected) => {
             setSseConnected(connected);
         });
@@ -150,20 +114,17 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         return unsubscribe;
     }, [executionId, enableSSE]);
 
-    // Manual refresh
     const refresh = useCallback(() => {
         pollFnRef.current?.();
     }, []);
 
-    // Polling fallback — only active when SSE is NOT connected
     useEffect(() => {
         if (!executionId) return;
         if (!enablePollingFallback) return;
-        if (sseConnected && enableSSE) return; // SSE active, no polling needed
+        if (sseConnected && enableSSE) return;
 
         if (!pollFnRef.current) return;
 
-        // Immediate poll on entering fallback
         pollFnRef.current();
 
         const t = setInterval(() => {

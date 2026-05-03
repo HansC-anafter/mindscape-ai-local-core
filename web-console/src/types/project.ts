@@ -1,10 +1,3 @@
-/**
- * Project type definitions for workspace-based projects
- *
- * A Project represents a specific work item within a Workspace - a concrete deliverable
- * such as a web page, book, course, or campaign.
- */
-
 export interface Project {
   id: string;
   type: string;
@@ -28,7 +21,6 @@ export interface ProjectSuggestion {
   initial_spec_md?: string;
   confidence?: number;
 }
-
 
 
 

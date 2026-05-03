@@ -13,16 +13,6 @@ export interface KeyboardShortcutOptions {
   target?: HTMLElement | Window;
 }
 
-/**
- * Hook for handling keyboard shortcuts.
- *
- * Supports:
- * - Cmd/Ctrl + Shift + C: Copy all messages
- * - Cmd/Ctrl + C: Copy selected message (if not in input field)
- *
- * @param handlers - Keyboard shortcut handlers
- * @param options - Optional configuration (enabled flag, target element)
- */
 export function useKeyboardShortcuts(
   handlers: KeyboardShortcutHandlers,
   options?: KeyboardShortcutOptions
@@ -70,11 +60,6 @@ export function useKeyboardShortcuts(
   }, [latestHandlers, latestOptions, latestOptions.current?.enabled, latestOptions.current?.target]);
 }
 
-/**
- * Get the ID of the currently selected message.
- *
- * @returns Message ID if a message is selected, null otherwise
- */
 function getSelectedMessageId(): string | null {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) {
@@ -98,4 +83,3 @@ function getSelectedMessageId(): string | null {
 
   return null;
 }
-

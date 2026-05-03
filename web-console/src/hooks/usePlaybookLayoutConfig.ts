@@ -1,9 +1,3 @@
-/**
- * usePlaybookLayoutConfig - Hook to get UI layout config for a playbook
- *
- * Loads UI layout configuration from registered playbook package.
- */
-
 import { useState, useEffect } from 'react';
 import { getPlaybookRegistry, UILayoutConfig } from '@/playbook';
 
@@ -56,4 +50,3 @@ function getDefaultLayout(playbookCode: string): PlaybookLayoutConfig {
     }
   };
 }
-

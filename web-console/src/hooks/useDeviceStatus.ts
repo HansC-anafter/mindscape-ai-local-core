@@ -2,9 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-/**
- * Device connection info from dispatch manager status API.
- */
 export interface DeviceInfo {
     deviceId: string;
     totalClients: number;
@@ -13,7 +10,7 @@ export interface DeviceInfo {
     pendingTasks: number;
     bridgeControls: number;
     isLocal: boolean;
-    lastSeen: number; // Unix timestamp ms
+    lastSeen: number;
 }
 
 interface DispatchStatus {
@@ -40,16 +37,10 @@ interface DispatchStatus {
 }
 
 interface UseDeviceStatusOptions {
-    /** Polling interval in milliseconds (default: 10000) */
     pollInterval?: number;
-    /** Whether to enable polling (default: true) */
     enabled?: boolean;
 }
 
-/**
- * Hook that polls the dispatch manager status endpoint and returns
- * structured device connection information.
- */
 export function useDeviceStatus(
     apiUrl: string,
     options: UseDeviceStatusOptions = {},
@@ -94,10 +85,8 @@ export function useDeviceStatus(
     useEffect(() => {
         if (!enabled) return;
 
-        // Fetch immediately
         fetchStatus();
 
-        // Set up polling
         timerRef.current = setInterval(fetchStatus, pollInterval);
 
         return () => {

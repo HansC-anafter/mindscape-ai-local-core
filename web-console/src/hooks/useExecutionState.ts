@@ -40,20 +40,16 @@ export interface PipelineStage {
 }
 
 export interface ExecutionUIState {
-  // Train progress bar
   trainSteps: ExecutionStep[];
   overallProgress: number;
   isExecuting: boolean;
 
-  // Thinking context
   thinkingSummary?: string;
   thinkingContext: ThinkingStep[];
   pipelineStage?: PipelineStage | null;
 
-  // Run ID for lifecycle management
   currentRunId: string | null;
 
-  // AI Team members
   aiTeamMembers: Array<{
     id: string;
     name: string;
@@ -63,19 +59,14 @@ export interface ExecutionUIState {
     status: 'pending' | 'in_progress' | 'completed' | 'error';
   }>;
 
-  // Produced artifacts
   producedArtifacts: ProducedArtifact[];
 
-  // Current task
   currentTaskMessage?: string;
 
-  // Error state
   errorMessage?: string;
 
-  // Execution tree (left sidebar)
   executionTree: TreeStep[];
 
-  // Thinking timeline (left sidebar)
   thinkingTimeline: TimelineEntry[];
 }
 
@@ -110,11 +101,9 @@ const initialState: ExecutionUIState = {
 
 export function useExecutionState(workspaceId: string, apiUrl: string = '') {
   const [state, setState] = useState<ExecutionUIState>(initialState);
-  const eventSourceRef = useRef<EventSource | null>(null);
   const throttleRef = useRef<NodeJS.Timeout | null>(null);
   const pendingThinkingSteps = useRef<string[]>([]);
 
-  // Calculate overall progress based on step statuses
   const calculateProgress = useCallback((steps: ExecutionStep[]): number => {
     if (steps.length === 0) return 0;
 
@@ -125,7 +114,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
     return Math.round(((completed + inProgressWeight) / steps.length) * 100);
   }, []);
 
-  // Throttled thinking step handler (100ms)
   const addThinkingStep = useCallback((step: string) => {
     pendingThinkingSteps.current.push(step);
 
@@ -149,7 +137,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
     }, 100);
   }, []);
 
-  // Handle SSE event
   const handleEvent = useCallback((event: SSEEvent) => {
     switch (event.type) {
       case 'thinking_start':
@@ -173,13 +160,12 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
         setState(prev => {
           const newRunId = event.plan.id || `plan-${Date.now()}`;
 
-          // Check if this is a new run or same run
           const isNewRun = newRunId !== prev.currentRunId;
 
           const newSteps: ExecutionStep[] = event.plan.steps.map(s => ({
             id: s.id,
             name: s.name,
-            icon: s.icon || '📋',
+            icon: s.icon || 'DOC',
             status: (s.status as ExecutionStep['status']) || 'pending',
           }));
 
@@ -192,28 +178,25 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           const newTimelineEntry: TimelineEntry = {
             id: `plan-${Date.now()}`,
             timestamp: new Date().toISOString(),
-            summary: event.plan.summary || `執行計畫：${event.plan.steps.length} 個步驟`,
+            summary: event.plan.summary || `Execution plan: ${event.plan.steps.length} steps`,
             stepCount: event.plan.steps.length,
             status: 'in_progress',
           };
 
-          // Map AI team members if present, otherwise keep existing ones for same run
           const aiTeamMembers = (event.plan.ai_team_members && event.plan.ai_team_members.length > 0)
             ? event.plan.ai_team_members.map((m: any) => ({
               id: m.pack_id || m.id,
               name: m.name || m.pack_id,
               name_zh: m.name_zh,
               role: m.role || '',
-              icon: m.icon || '🤖',
+              icon: m.icon || 'AI',
               status: 'pending' as const
             }))
-            : (isNewRun ? [] : prev.aiTeamMembers); // Reset for new run, keep for same run
+            : (isNewRun ? [] : prev.aiTeamMembers);
 
           const newState = {
             ...prev,
             currentRunId: newRunId,
-            // Don't reset pipelineStage here - keep existing stage if it's for the same run
-            // Only reset if it's a new run
             pipelineStage: isNewRun ? null : prev.pipelineStage,
             aiTeamMembers: aiTeamMembers,
             trainSteps: newSteps,
@@ -222,7 +205,7 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
             executionTree: treeSteps,
             thinkingTimeline: isNewRun
               ? [newTimelineEntry, ...prev.thinkingTimeline].slice(0, 10)
-              : prev.thinkingTimeline, // Only add timeline entry for new runs
+              : prev.thinkingTimeline,
           };
 
           return newState;
@@ -231,11 +214,7 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
 
       case 'pipeline_stage':
         setState(prev => {
-          // Allow meeting stage events (no run_id) to always pass through
           if (event.run_id && event.run_id !== prev.currentRunId && prev.currentRunId !== null) {
-            if (process.env.NODE_ENV === 'development') {
-              console.warn(`[useExecutionState] Ignoring pipeline_stage event with mismatched run_id: ${event.run_id} (current: ${prev.currentRunId})`);
-            }
             return prev;
           }
 
@@ -318,7 +297,7 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
               ...prev,
               pipelineStage: {
                 stage: 'execution_start',
-                message: '執行完成',
+                message: 'Execution completed',
                 streaming: false
               }
             };
@@ -343,7 +322,7 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
               ...prev,
               pipelineStage: {
                 stage: 'execution_error',
-                message: event.error || '執行失敗',
+                message: event.error || 'Execution failed',
                 streaming: false
               }
             };
@@ -454,7 +433,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
 
       case 'artifact_created':
         setState(prev => {
-          // Update timeline with artifact count
           const updatedTimeline = prev.thinkingTimeline.map((entry, idx) =>
             idx === 0
               ? { ...entry, artifactCount: (entry.artifactCount || 0) + 1 }
@@ -470,7 +448,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
 
       case 'execution_complete':
         setState(prev => {
-          // Mark latest timeline entry as completed
           const updatedTimeline = prev.thinkingTimeline.map((entry, idx) =>
             idx === 0 ? { ...entry, status: 'completed' as const } : entry
           );
@@ -486,29 +463,24 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
     }
   }, [addThinkingStep, calculateProgress]);
 
-  // Reset state
   const resetState = useCallback(() => {
     setState(initialState);
   }, []);
 
-  // Manual trigger for testing (simulate events)
   const simulateExecution = useCallback((steps: Array<{ id: string; name: string; icon: string }>) => {
-    // Simulate thinking_start
     handleEvent({ type: 'thinking_start' });
 
-    // Simulate execution_plan after 500ms
     setTimeout(() => {
       handleEvent({
         type: 'execution_plan',
         plan: {
-          summary: `本次執行：${steps.length} 個步驟`,
+          summary: `This execution: ${steps.length} steps`,
           steps: steps.map(s => ({ ...s, status: 'pending' })),
         },
       });
     }, 500);
   }, [handleEvent]);
 
-  // Listen for custom events from workspace chat
   useEffect(() => {
     const handleExecutionEvent = (e: CustomEvent) => {
       if (e.detail && e.detail.type) {
@@ -516,7 +488,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
       }
     };
 
-    // Clear pipelineStage when assistant message arrives via SSE
     const handleClearPipeline = () => {
       setState(prev => prev.pipelineStage ? { ...prev, pipelineStage: null } : prev);
     };
@@ -529,66 +500,48 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
     };
   }, [handleEvent]);
 
-  // Load execution state from backend on mount
   useEffect(() => {
     if (!workspaceId || apiUrl == null) return;
 
     const loadExecutionState = async () => {
       try {
-        // Get latest execution plan events
         const eventsResponse = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/events?event_types=execution_plan&limit=10`
         );
 
         if (!eventsResponse.ok) {
-          console.warn('[useExecutionState] Failed to load execution plan events');
           return;
         }
 
         const eventsData = await eventsResponse.json();
         const executionPlanEvents = eventsData.events || [];
 
-        console.log('[useExecutionState] Loaded execution plan events:', executionPlanEvents.length);
-
         if (executionPlanEvents.length === 0) {
-          console.log('[useExecutionState] No execution plan events found');
           return;
         }
 
-        // Get the most recent execution plan event
         const latestPlanEvent = executionPlanEvents[0];
         const planPayload = latestPlanEvent.payload;
 
-        console.log('[useExecutionState] Latest plan payload:', {
-          hasSteps: !!planPayload?.steps,
-          stepsCount: planPayload?.steps?.length || 0,
-          hasAiTeamMembers: !!planPayload?.ai_team_members,
-          aiTeamMembersCount: planPayload?.ai_team_members?.length || 0
-        });
-
         if (!planPayload || !planPayload.steps) {
-          console.log('[useExecutionState] No plan payload or steps found');
           return;
         }
 
-        // Restore execution tree from the plan
         const treeSteps: TreeStep[] = (planPayload.steps || []).map((s: any) => ({
           id: s.step_id || s.id || `step-${Math.random().toString(36).substr(2, 9)}`,
           name: s.intent || s.name || 'Unknown Step',
           status: (s.status as TreeStep['status']) || 'pending',
         }));
 
-        // Restore train steps
         const trainSteps: ExecutionStep[] = (planPayload.steps || []).map((s: any) => ({
           id: s.step_id || s.id || `step-${Math.random().toString(36).substr(2, 9)}`,
           name: s.intent || s.name || 'Unknown Step',
-          icon: s.artifacts?.[0] === 'pptx' ? '📊' :
-            s.artifacts?.[0] === 'xlsx' ? '📊' :
-              s.artifacts?.[0] === 'docx' ? '📝' : '📋',
+          icon: s.artifacts?.[0] === 'pptx' ? 'PPT' :
+            s.artifacts?.[0] === 'xlsx' ? 'XLS' :
+              s.artifacts?.[0] === 'docx' ? 'DOC' : 'DOC',
           status: (s.status as ExecutionStep['status']) || 'pending',
         }));
 
-        // Create timeline entry
         const timelineEntry: TimelineEntry = {
           id: `plan-${latestPlanEvent.id}`,
           timestamp: latestPlanEvent.timestamp || new Date().toISOString(),
@@ -597,11 +550,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           status: 'completed' as const,
         };
 
-        // Check if there's a running execution to determine status
-        // Also collect AI team members from all running and recent playbook executions
-        // Check if there's a running execution to determine status
-        // Also collect AI team members from all running and recent playbook executions
-        // Optimization: Use /tasks instead of /executions-with-steps to avoid huge payloads
         const executionsResponse = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/tasks?limit=20&task_type=execution`
         );
@@ -614,7 +562,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           const tasksData = await executionsResponse.json();
           const tasks = tasksData.tasks || [];
 
-          // Map tasks to execution format locally for status check
           const allExecutions = tasks.map((t: any) => ({
             execution_id: t.id,
             status: t.status,
@@ -627,7 +574,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
             e.status === 'running' || e.status === 'pending' || e.status === 'queued'
           );
 
-          // Collect playbook codes from all running executions
           activeExecutions.forEach((execution: any) => {
             const playbookCode = execution.playbook_code || execution.task?.execution_context?.playbook_code;
             if (playbookCode) {
@@ -635,12 +581,10 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
             }
           });
 
-          // Also collect playbook codes from recent executions (last 5, including completed)
-          // This ensures we show AI team even when executions are completed but still relevant
           const recentExecutions = allExecutions
             .filter((e: any) => {
               const playbookCode = e.playbook_code || e.task?.execution_context?.playbook_code;
-              return playbookCode && playbookCode !== 'execution_status_query'; // Exclude system playbooks
+              return playbookCode && playbookCode !== 'execution_status_query';
             })
             .slice(0, 5);
 
@@ -655,10 +599,8 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
             isExecuting = true;
             timelineEntry.status = 'in_progress';
 
-            // Update step statuses from execution steps if available
             const execution = activeExecutions[0];
             if (execution.steps && execution.steps.length > 0) {
-              // Update tree steps with actual execution status
               treeSteps.forEach(step => {
                 const execStep = execution.steps.find((s: any) =>
                   (s.step_name === step.name || s.id === step.id)
@@ -670,7 +612,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
                 }
               });
 
-              // Update train steps with actual execution status
               trainSteps.forEach(step => {
                 const execStep = execution.steps.find((s: any) =>
                   (s.step_name === step.name || s.id === step.id)
@@ -685,7 +626,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           }
         }
 
-        // Build timeline from all execution plan events
         const timelineEntries: TimelineEntry[] = executionPlanEvents
           .slice(0, 10)
           .map((event: any) => {
@@ -699,7 +639,6 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
             };
           });
 
-        // Calculate progress
         const completed = trainSteps.filter(s => s.status === 'completed').length;
         const inProgress = trainSteps.find(s => s.status === 'in_progress');
         const inProgressWeight = inProgress ? 0.5 : 0;
@@ -707,31 +646,21 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           ? Math.round(((completed + inProgressWeight) / trainSteps.length) * 100)
           : 0;
 
-        // Restore AI team members from plan payload
         let aiTeamMembers = (planPayload.ai_team_members && planPayload.ai_team_members.length > 0)
           ? planPayload.ai_team_members.map((m: any) => ({
             id: m.pack_id || m.id,
             name: m.name || m.pack_id,
             name_zh: m.name_zh,
             role: m.role || '',
-            icon: m.icon || '🤖',
+            icon: m.icon || 'AI',
             status: 'pending' as const
           }))
           : [];
 
-        // Also collect AI team members from all running and recent playbook executions
-        // This ensures we show AI team even when the latest execution_plan doesn't have members
-        // Use recent playbook codes if no running ones (to show AI team from recent executions)
         const playbookCodesToFetch = runningPlaybookCodes.size > 0 ? runningPlaybookCodes : recentPlaybookCodes;
         if (playbookCodesToFetch.size > 0) {
           try {
-            // Fetch AI team members for playbooks from backend API
             const playbookCodesArray = Array.from(playbookCodesToFetch);
-            console.log('[useExecutionState] Fetching AI team members for playbooks:', {
-              running: Array.from(runningPlaybookCodes),
-              recent: Array.from(recentPlaybookCodes),
-              toFetch: playbookCodesArray
-            });
 
             const membersResponse = await fetch(
               `${apiUrl}/api/v1/workspaces/${workspaceId}/ai-team-members?playbook_codes=${playbookCodesArray.join(',')}`
@@ -744,34 +673,21 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
                 name: m.name || m.pack_id,
                 name_zh: m.name_zh,
                 role: m.role || '',
-                icon: m.icon || '🤖',
+                icon: m.icon || 'AI',
                 status: 'in_progress' as const
               }));
 
-              // Merge with existing members, avoiding duplicates
               const existingIds = new Set(aiTeamMembers.map((m: any) => m.id));
               executionMembers.forEach((member: any) => {
                 if (!existingIds.has(member.id)) {
                   aiTeamMembers.push(member);
                 }
               });
-
-              console.log('[useExecutionState] Added AI team members from running executions:', executionMembers.length);
             }
-          } catch (err) {
-            console.warn('[useExecutionState] Failed to get AI team members from running executions:', err);
+          } catch {
           }
         }
 
-        console.log('[useExecutionState] Restored AI team members:', {
-          fromPlan: planPayload.ai_team_members?.length || 0,
-          fromRunningExecutions: runningPlaybookCodes.size,
-          fromRecentExecutions: recentPlaybookCodes.size,
-          total: aiTeamMembers.length,
-          members: aiTeamMembers
-        });
-
-        // Restore state
         setState(prev => ({
           ...prev,
           trainSteps,
@@ -783,23 +699,17 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
           aiTeamMembers,
         }));
 
-      } catch (err) {
-        console.error('[useExecutionState] Failed to load execution state:', err);
+      } catch {
       }
     };
 
     loadExecutionState();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, apiUrl]);
 
-  // Cleanup
   useEffect(() => {
     return () => {
       if (throttleRef.current) {
         clearTimeout(throttleRef.current);
-      }
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
       }
     };
   }, []);
@@ -813,4 +723,3 @@ export function useExecutionState(workspaceId: string, apiUrl: string = '') {
 }
 
 export default useExecutionState;
-

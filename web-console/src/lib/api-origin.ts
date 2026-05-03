@@ -42,7 +42,6 @@ function isBrowserInternalHostname(hostname: string): boolean {
     return true;
   }
 
-  // Docker/K8s-style service names and other bare internal hosts are not browser-resolvable.
   return !normalized.includes('.');
 }
 
@@ -63,8 +62,6 @@ export function shouldUseSameOriginProxyForBrowser(configuredUrl?: string): bool
   }
 }
 
-// Backward-compatible helper for older callers that normalized a browser-facing
-// base URL before building request paths.
 export function normalizeBrowserReachableUrl(configuredUrl?: string): string {
   const normalized = String(configuredUrl || '').trim();
   if (!normalized) {

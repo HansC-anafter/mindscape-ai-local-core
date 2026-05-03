@@ -21,14 +21,6 @@ interface UseChatModelOptions {
   onError?: (error: Error) => void;
 }
 
-/**
- * useChatModel Hook
- * Manages chat model loading and selection using LLMConfigService and useEnabledModels.
- *
- * @param apiUrl The base API URL for the LLM models endpoint.
- * @param options Optional configuration options.
- * @returns An object containing model information and control functions.
- */
 export function useChatModel(
   apiUrl: string,
   options?: UseChatModelOptions
@@ -65,12 +57,10 @@ export function useChatModel(
       return;
     }
 
-    // Prevent duplicate loads for the same API URL
     if (loadedKeyRef.current === requestKey || !isMountedRef.current) {
       return;
     }
 
-    // Cancel previous request if any
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -93,12 +83,10 @@ export function useChatModel(
         return;
       }
 
-      // Set current model if available
       if (data.chat_model) {
         setCurrentChatModel(data.chat_model.model_name);
       }
 
-      // Set available models from enabled models only (respects user's toggle settings)
       if (!modelsLoading) {
         setAvailableChatModels(
           enabledChatModels.map(m => ({
@@ -108,7 +96,6 @@ export function useChatModel(
         );
       }
 
-      // Mark as loaded only on success
       loadedKeyRef.current = requestKey;
       setIsLoading(false);
       onSuccess?.(data.chat_model || null);
@@ -117,27 +104,23 @@ export function useChatModel(
         return;
       }
 
-      // Don't retry for aborted requests
       if (err.name === 'AbortError') {
         setIsLoading(false);
         return;
       }
 
-      // Handle Content-Length mismatch and network errors with retry
       const isContentLengthError =
         err?.message?.includes('Content-Length') ||
         err?.message?.includes('ERR_CONTENT_LENGTH_MISMATCH') ||
         (err?.name === 'TypeError' && err?.message?.includes('Failed to fetch'));
 
       if (isContentLengthError && retryCount < maxRetries) {
-        // Retry after a delay
         setTimeout(() => {
           loadModel(retryCount + 1);
         }, retryDelay * (retryCount + 1));
         return;
       }
 
-      // Only set error if not a retry attempt or final failure
       if (retryCount === 0 || retryCount >= maxRetries) {
         const error = err instanceof Error ? err : new Error(String(err));
         setError(error);
@@ -162,7 +145,6 @@ export function useChatModel(
     onError,
   ]);
 
-  // Update available models when enabledChatModels changes
   useEffect(() => {
     if (enabledChatModels.length > 0 && !modelsLoading) {
       setAvailableChatModels(
@@ -174,11 +156,9 @@ export function useChatModel(
     }
   }, [enabledChatModels, modelsLoading, setAvailableChatModels]);
 
-  // Initial load on mount or when dependencies change
   useEffect(() => {
     isMountedRef.current = true;
     if (enabled && apiUrl) {
-      // Reset loaded flag when API URL changes
       if (loadedKeyRef.current !== requestKey) {
         loadedKeyRef.current = null;
       }

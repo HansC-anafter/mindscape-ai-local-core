@@ -1,26 +1,22 @@
-// AI Roles Configuration
-// Represents AI agents as professional identities, not task categories
-// This aligns with the user's mental model: "Who can help me?" instead of "What should I do?"
-
 export interface AIRole {
   id: string;
-  nameKey: string; // i18n key for professional title
+  nameKey: string;
   icon: string;
-  descriptionKey: string; // i18n key for description
-  agentType: 'planner' | 'writer' | 'coach' | 'coder' | 'visual_design_partner'; // Backend agent type mapping
-  suggestedTasksKeys: string[]; // i18n keys for common task templates
-  playbooks?: string[]; // Associated playbooks
-  categories?: string[]; // Role categories for filtering
-  aiTeamMembers?: string[]; // AI team members behind this role (for detail page)
-  aiTeamTitleKey?: string; // i18n key for AI team title
-  aiTeamDescriptionKey?: string; // i18n key for AI team description
+  descriptionKey: string;
+  agentType: 'planner' | 'writer' | 'coach' | 'coder' | 'visual_design_partner';
+  suggestedTasksKeys: string[];
+  playbooks?: string[];
+  categories?: string[];
+  aiTeamMembers?: string[];
+  aiTeamTitleKey?: string;
+  aiTeamDescriptionKey?: string;
 }
 
 export const AI_ROLES: AIRole[] = [
   {
     id: 'product_designer',
     nameKey: 'roleProductDesigner',
-    icon: '🎨',
+    icon: 'PD',
     descriptionKey: 'roleProductDesignerDescription',
     agentType: 'planner',
     suggestedTasksKeys: [
@@ -35,7 +31,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'writing_partner',
     nameKey: 'roleWritingPartner',
-    icon: '✍️',
+    icon: 'WP',
     descriptionKey: 'roleWritingPartnerDescription',
     agentType: 'writer',
     suggestedTasksKeys: [
@@ -50,7 +46,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'learning_coach',
     nameKey: 'roleLearningCoach',
-    icon: '🎓',
+    icon: 'LC',
     descriptionKey: 'roleLearningCoachDescription',
     agentType: 'planner',
     suggestedTasksKeys: [
@@ -65,7 +61,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'emotional_coach',
     nameKey: 'roleEmotionalCoach',
-    icon: '🧠',
+    icon: 'EC',
     descriptionKey: 'roleEmotionalCoachDescription',
     agentType: 'coach',
     suggestedTasksKeys: [
@@ -80,7 +76,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'project_manager',
     nameKey: 'roleProjectManager',
-    icon: '📦',
+    icon: 'PM',
     descriptionKey: 'roleProjectManagerDescription',
     agentType: 'planner',
     suggestedTasksKeys: [
@@ -95,7 +91,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'daily_organizer',
     nameKey: 'roleDailyOrganizer',
-    icon: '🗓️',
+    icon: 'DO',
     descriptionKey: 'roleDailyOrganizerDescription',
     agentType: 'planner',
     suggestedTasksKeys: [
@@ -110,7 +106,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'seo_consultant',
     nameKey: 'roleSEOConsultant',
-    icon: '🔍',
+    icon: 'SEO',
     descriptionKey: 'roleSEOConsultantDescription',
     agentType: 'planner',
     suggestedTasksKeys: [
@@ -125,7 +121,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'content_editor',
     nameKey: 'roleContentEditor',
-    icon: '✏️',
+    icon: 'CE',
     descriptionKey: 'roleContentEditorDescription',
     agentType: 'writer',
     suggestedTasksKeys: [
@@ -140,7 +136,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'research_assistant',
     nameKey: 'roleResearchAssistant',
-    icon: '📚',
+    icon: 'RA',
     descriptionKey: 'roleResearchAssistantDescription',
     agentType: 'planner',
     suggestedTasksKeys: [
@@ -155,7 +151,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'code_reviewer',
     nameKey: 'roleCodeReviewer',
-    icon: '💻',
+    icon: 'CR',
     descriptionKey: 'roleCodeReviewerDescription',
     agentType: 'coder',
     suggestedTasksKeys: [
@@ -170,7 +166,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'data_analyst',
     nameKey: 'roleDataAnalyst',
-    icon: '📊',
+    icon: 'DA',
     descriptionKey: 'roleDataAnalystDescription',
     agentType: 'planner',
     suggestedTasksKeys: [
@@ -185,7 +181,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'business_strategist',
     nameKey: 'roleBusinessStrategist',
-    icon: '🎯',
+    icon: 'BS',
     descriptionKey: 'roleBusinessStrategistDescription',
     agentType: 'planner',
     suggestedTasksKeys: [
@@ -200,7 +196,7 @@ export const AI_ROLES: AIRole[] = [
   {
     id: 'course_production_partner',
     nameKey: 'roleCourseProductionPartner',
-    icon: '🎬',
+    icon: 'CP',
     descriptionKey: 'roleCourseProductionPartnerDescription',
     agentType: 'planner',
     suggestedTasksKeys: [
@@ -224,17 +220,14 @@ export const AI_ROLES: AIRole[] = [
   },
 ];
 
-// Get role by ID
 export function getRoleById(id: string): AIRole | undefined {
   return AI_ROLES.find(role => role.id === id);
 }
 
-// Get roles by agent type
 export function getRolesByAgentType(agentType: string): AIRole[] {
   return AI_ROLES.filter(role => role.agentType === agentType);
 }
 
-// Get localized role data
 export function getLocalizedRole(role: AIRole, t: (key: any) => string): {
   name: string;
   description: string;
@@ -246,5 +239,3 @@ export function getLocalizedRole(role: AIRole, t: (key: any) => string): {
     suggestedTasks: role.suggestedTasksKeys.map(key => t(key)),
   };
 }
-
-

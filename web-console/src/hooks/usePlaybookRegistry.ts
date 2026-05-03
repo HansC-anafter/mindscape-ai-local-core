@@ -1,10 +1,3 @@
-/**
- * usePlaybookRegistry - Hook to initialize and access PlaybookRegistry
- *
- * Ensures PlaybookRegistry is initialized and playbooks are loaded.
- * This hook should be used in components that need to access playbook information.
- */
-
 import { useEffect, useState } from 'react';
 import { getPlaybookRegistry, loadInstalledPlaybooks } from '@/playbook';
 import { useExecutionContext } from '@/contexts/ExecutionContextContext';
@@ -15,12 +8,6 @@ interface UsePlaybookRegistryResult {
   error: Error | null;
 }
 
-/**
- * Hook to initialize and access PlaybookRegistry
- *
- * Automatically loads installed playbooks on mount.
- * Uses ExecutionContext to determine Local/Cloud mode.
- */
 export function usePlaybookRegistry(): UsePlaybookRegistryResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -61,4 +48,3 @@ export function usePlaybookRegistry(): UsePlaybookRegistryResult {
     error
   };
 }
-

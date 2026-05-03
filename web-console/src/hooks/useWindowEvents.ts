@@ -17,15 +17,6 @@ export interface WindowEventOptions {
   enabled?: boolean;
 }
 
-/**
- * Hook for subscribing to window-level custom events via EventBus.
- *
- * Uses useLatest to stabilize handlers and options, preventing unnecessary
- * re-subscriptions when handlers/options objects change on each render.
- *
- * @param handlers - Event handlers object
- * @param options - Optional configuration (debounce times, enabled flag)
- */
 export function useWindowEvents(
   handlers: WindowEventHandlers,
   options?: WindowEventOptions
@@ -100,4 +91,3 @@ export function useWindowEvents(
     };
   }, [latestHandlers, latestOptions, latestOptions.current?.enabled]);
 }
-
