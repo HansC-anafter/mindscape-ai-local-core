@@ -1,28 +1,14 @@
 'use client';
 
-/**
- * GraphHistoryPanel - Display graph changelog history
- *
- * Shows the version-controlled history of graph changes with undo support.
- */
-
 import React, { useState, useCallback } from 'react';
 import { useGraphHistory, undoChange, HistoryEntry } from '@/lib/graph-changelog-api';
 import { parseServerTimestamp } from '@/lib/time';
-
-// ============================================================================
-// Icons
-// ============================================================================
 
 const UndoIcon = () => (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
     </svg>
 );
-
-// ============================================================================
-// Sub-components
-// ============================================================================
 
 interface HistoryItemProps {
     entry: HistoryEntry;
@@ -32,12 +18,12 @@ interface HistoryItemProps {
 
 function HistoryItem({ entry, onUndo, isUndoing }: HistoryItemProps) {
     const operationLabels: Record<string, string> = {
-        create_node: '建立節點',
-        update_node: '更新節點',
-        delete_node: '刪除節點',
-        create_edge: '建立連接',
-        delete_edge: '刪除連接',
-        update_overlay: '更新覆蓋層',
+        create_node: 'Create Node',
+        update_node: 'Update Node',
+        delete_node: 'Delete Node',
+        create_edge: 'Create Edge',
+        delete_edge: 'Delete Edge',
+        update_overlay: 'Update Overlay',
     };
 
     const statusColors: Record<string, string> = {
@@ -48,10 +34,10 @@ function HistoryItem({ entry, onUndo, isUndoing }: HistoryItemProps) {
     };
 
     const actorIcons: Record<string, string> = {
-        llm: '🤖',
-        user: '👤',
-        system: '⚙️',
-        playbook: '📋',
+        llm: 'AI',
+        user: 'USR',
+        system: 'SYS',
+        playbook: 'PB',
     };
 
     const canUndo = entry.status === 'applied';
@@ -59,7 +45,7 @@ function HistoryItem({ entry, onUndo, isUndoing }: HistoryItemProps) {
         if (!dateStr) return '';
         const date = parseServerTimestamp(dateStr);
         if (!date) return '';
-        return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+        return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     };
 
     return (
@@ -69,7 +55,7 @@ function HistoryItem({ entry, onUndo, isUndoing }: HistoryItemProps) {
         `}>
             <div className="flex items-center gap-2 flex-1 min-w-0">
                 <span className="text-xs text-gray-400 w-8">v{entry.version}</span>
-                <span>{actorIcons[entry.actor] || '❓'}</span>
+                <span className="text-xs text-gray-500 w-8">{actorIcons[entry.actor] || 'UNK'}</span>
                 <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-700 truncate">
                         {operationLabels[entry.operation] || entry.operation}
@@ -91,7 +77,7 @@ function HistoryItem({ entry, onUndo, isUndoing }: HistoryItemProps) {
                         onClick={onUndo}
                         disabled={isUndoing}
                         className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-50"
-                        title="撤銷"
+                        title="Undo"
                     >
                         <UndoIcon />
                     </button>
@@ -100,10 +86,6 @@ function HistoryItem({ entry, onUndo, isUndoing }: HistoryItemProps) {
         </div>
     );
 }
-
-// ============================================================================
-// Main Component
-// ============================================================================
 
 export interface GraphHistoryPanelProps {
     workspaceId: string;
@@ -130,8 +112,7 @@ export function GraphHistoryPanel({
             await undoChange(changeId);
             await refresh();
             onUndoComplete?.();
-        } catch (error) {
-            console.error('Failed to undo change:', error);
+        } catch {
         } finally {
             setUndoingId(null);
         }
@@ -139,10 +120,9 @@ export function GraphHistoryPanel({
 
     return (
         <div className={`flex flex-col h-full bg-white ${className}`}>
-            {/* Header */}
             <div className="flex items-center justify-between p-3 border-b sticky top-0 bg-white z-10">
                 <div className="flex items-center gap-2">
-                    <h3 className="font-medium text-gray-900">變更歷史</h3>
+                    <h3 className="font-medium text-gray-900">Change History</h3>
                     <span className="text-xs text-gray-500">
                         v{currentVersion}
                     </span>
@@ -151,11 +131,10 @@ export function GraphHistoryPanel({
                     onClick={() => refresh()}
                     className="text-xs text-gray-500 hover:text-gray-700"
                 >
-                    重新整理
+                    Refresh
                 </button>
             </div>
 
-            {/* History List */}
             <div className="flex-1 overflow-y-auto">
                 {isLoading ? (
                     <div className="flex items-center justify-center h-20">
@@ -163,11 +142,11 @@ export function GraphHistoryPanel({
                     </div>
                 ) : isError ? (
                     <div className="text-center text-red-500 text-sm p-4">
-                        載入失敗
+                        Failed to load
                     </div>
                 ) : history.length === 0 ? (
                     <div className="text-center text-gray-500 text-sm p-4">
-                        尚無歷史記錄
+                        No history records
                     </div>
                 ) : (
                     history.map(entry => (

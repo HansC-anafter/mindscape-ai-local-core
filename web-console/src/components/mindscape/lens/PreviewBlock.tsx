@@ -35,8 +35,7 @@ export function PreviewBlock({
         session_id: sessionId,
       });
       setPreviewResult(result);
-    } catch (error) {
-      console.error('Failed to generate preview:', error);
+    } catch {
       alert('Failed to generate preview');
     } finally {
       setIsGenerating(false);
@@ -46,18 +45,18 @@ export function PreviewBlock({
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">輸入文字</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Input Text</label>
         <textarea
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           rows={4}
-          placeholder="輸入要預覽的文字..."
+          placeholder="Enter text to preview..."
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">預覽類型</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Preview Type</label>
         <select
           value={previewType}
           onChange={(e) => setPreviewType(e.target.value as 'rewrite' | 'section_pack')}
@@ -73,7 +72,7 @@ export function PreviewBlock({
         disabled={isGenerating || !inputText.trim()}
         className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
       >
-        {isGenerating ? '生成中...' : '生成預覽'}
+        {isGenerating ? 'Generating...' : 'Generate Preview'}
       </button>
 
       {previewResult && (
@@ -82,10 +81,10 @@ export function PreviewBlock({
             <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 shadow-sm">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-semibold text-gray-700">Base Output</div>
-                <span className="text-xs px-2 py-1 bg-gray-200 text-gray-600 rounded">原始</span>
+                <span className="text-xs px-2 py-1 bg-gray-200 text-gray-600 rounded">Original</span>
               </div>
               <div className="text-sm text-gray-900 whitespace-pre-wrap max-h-64 overflow-y-auto">
-                {previewResult.base_output || '(無輸出)'}
+                {previewResult.base_output || '(No output)'}
               </div>
             </div>
             <div className="bg-blue-50 rounded-lg p-4 border border-blue-200 shadow-sm">
@@ -94,25 +93,23 @@ export function PreviewBlock({
                 <span className="text-xs px-2 py-1 bg-blue-200 text-blue-700 rounded">Lens</span>
               </div>
               <div className="text-sm text-gray-900 whitespace-pre-wrap max-h-64 overflow-y-auto">
-                {previewResult.lens_output || '(無輸出)'}
+                {previewResult.lens_output || '(No output)'}
               </div>
             </div>
           </div>
 
           <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200 shadow-sm">
             <div className="flex items-center mb-2">
-              <span className="text-lg mr-2">📊</span>
-              <div className="text-sm font-semibold text-yellow-700">差異摘要</div>
+              <div className="text-sm font-semibold text-yellow-700">Difference Summary</div>
             </div>
-            <div className="text-sm text-yellow-800">{previewResult.diff_summary || '無明顯差異'}</div>
+            <div className="text-sm text-yellow-800">{previewResult.diff_summary || 'No clear difference'}</div>
           </div>
 
           {previewResult.triggered_nodes.length > 0 && (
             <div className="bg-green-50 rounded-lg p-4 border border-green-200 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center">
-                  <span className="text-lg mr-2">✨</span>
-                  <div className="text-sm font-semibold text-green-700">觸發的節點</div>
+                  <div className="text-sm font-semibold text-green-700">Triggered Nodes</div>
                 </div>
                 <span className="text-xs px-2 py-1 bg-green-200 text-green-700 rounded font-medium">
                   {previewResult.triggered_nodes.length}
@@ -146,4 +143,3 @@ export function PreviewBlock({
     </div>
   );
 }
-

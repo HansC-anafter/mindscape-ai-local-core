@@ -10,7 +10,7 @@ interface ScopeIndicatorProps {
 export function ScopeIndicator({ effectiveLens }: ScopeIndicatorProps) {
   if (!effectiveLens) {
     return (
-      <div className="text-xs text-gray-500">無有效 Lens</div>
+      <div className="text-xs text-gray-500">No active Lens</div>
     );
   }
 
@@ -19,58 +19,53 @@ export function ScopeIndicator({ effectiveLens }: ScopeIndicatorProps) {
 
   return (
     <div className="space-y-2">
-      <div className="text-xs font-medium text-gray-700">套用範圍</div>
+      <div className="text-xs font-medium text-gray-700">Applied Scope</div>
 
       <div className="space-y-1">
-        {/* Global Scope */}
         <div className="flex items-center space-x-2">
           <div className="flex items-center">
-            <span className="text-xs text-gray-600">🌐</span>
-            <span className="text-xs text-gray-700 ml-1">全域</span>
+            <span className="text-xs text-gray-600">GLOBAL</span>
+            <span className="text-xs text-gray-700 ml-1">Global</span>
           </div>
           {!hasWorkspaceOverride && !hasSessionOverride && (
-            <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">預設</span>
+            <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">Default</span>
           )}
         </div>
 
-        {/* Workspace Override */}
         {hasWorkspaceOverride && (
           <div className="flex items-center space-x-2">
             <div className="flex items-center">
-              <span className="text-xs text-gray-600">📁</span>
-              <span className="text-xs text-gray-700 ml-1">Workspace 覆寫</span>
+              <span className="text-xs text-gray-600">WORK</span>
+              <span className="text-xs text-gray-700 ml-1">Workspace Override</span>
             </div>
             <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded">
-              {effectiveLens.workspace_override_count} 個節點
+              {effectiveLens.workspace_override_count} nodes
             </span>
           </div>
         )}
 
-        {/* Session Override */}
         {hasSessionOverride && (
           <div className="flex items-center space-x-2">
             <div className="flex items-center">
-              <span className="text-xs text-gray-600">🧪</span>
-              <span className="text-xs text-gray-700 ml-1">Session 實驗</span>
+              <span className="text-xs text-gray-600">SESSION</span>
+              <span className="text-xs text-gray-700 ml-1">Session Experiment</span>
             </div>
             <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">
-              {effectiveLens.session_override_count} 個節點
+              {effectiveLens.session_override_count} nodes
             </span>
           </div>
         )}
       </div>
 
-      {/* Summary */}
       {hasWorkspaceOverride || hasSessionOverride ? (
         <div className="text-xs text-gray-500 italic">
-          當前使用三層疊加配置
+          Three-layer overlay is active
         </div>
       ) : (
         <div className="text-xs text-gray-500 italic">
-          使用全域預設配置
+          Global default is active
         </div>
       )}
     </div>
   );
 }
-

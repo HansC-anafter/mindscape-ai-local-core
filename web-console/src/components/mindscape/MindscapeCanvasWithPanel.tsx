@@ -1,27 +1,15 @@
 'use client';
 
-/**
- * MindscapeCanvasWithPanel - Canvas with integrated side panel
- *
- * Combines the TLDraw canvas with the GraphSidePanel for
- * managing pending changes and viewing history.
- */
-
 import React, { useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { GraphSidePanel } from './GraphSidePanel';
-import { useMindscapeGraph, MindscapeNode, MindscapeEdge } from '@/lib/mindscape-graph-api';
-import { usePendingChanges, PendingChange } from '@/lib/graph-changelog-api';
+import { useMindscapeGraph } from '@/lib/mindscape-graph-api';
+import { usePendingChanges } from '@/lib/graph-changelog-api';
 
-// Dynamic import of MindscapeCanvas to avoid SSR issues
 const MindscapeCanvas = dynamic(
     () => import('./MindscapeCanvas'),
     { ssr: false }
 );
-
-// ============================================================================
-// Types
-// ============================================================================
 
 export interface MindscapeCanvasWithPanelProps {
     workspaceId?: string;
@@ -31,10 +19,6 @@ export interface MindscapeCanvasWithPanelProps {
     defaultSidePanelCollapsed?: boolean;
 }
 
-// ============================================================================
-// Main Component
-// ============================================================================
-
 export function MindscapeCanvasWithPanel({
     workspaceId,
     workspaceGroupId,
@@ -43,26 +27,17 @@ export function MindscapeCanvasWithPanel({
     defaultSidePanelCollapsed = false,
 }: MindscapeCanvasWithPanelProps) {
     const [isSidePanelCollapsed, setIsSidePanelCollapsed] = useState(defaultSidePanelCollapsed);
-    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-    // Fetch graph data
     const { refresh: refreshGraph } = useMindscapeGraph({
         workspaceId,
         workspaceGroupId,
         enabled: !!(workspaceId || workspaceGroupId),
     });
 
-    // Handle node selection
-    const handleNodeSelect = useCallback((node: MindscapeNode | null) => {
-        setSelectedNodeId(node?.id ?? null);
-    }, []);
-
-    // Handle graph updates from side panel
     const handleGraphUpdated = useCallback(() => {
         refreshGraph();
     }, [refreshGraph]);
 
-    // Toggle side panel
     const toggleSidePanel = useCallback(() => {
         setIsSidePanelCollapsed(prev => !prev);
     }, []);
@@ -71,16 +46,13 @@ export function MindscapeCanvasWithPanel({
 
     return (
         <div className={`flex h-full ${className}`}>
-            {/* Main Canvas Area */}
             <div className="flex-1 relative">
                 <MindscapeCanvas
                     workspaceId={workspaceId || ''}
                     workspaceGroupId={workspaceGroupId}
-                    onNodeSelect={handleNodeSelect}
                     className="w-full h-full"
                 />
 
-                {/* Floating badge for pending changes (when panel is collapsed) */}
                 {showSidePanel && isSidePanelCollapsed && (
                     <PendingBadge
                         workspaceId={effectiveWorkspaceId}
@@ -89,7 +61,6 @@ export function MindscapeCanvasWithPanel({
                 )}
             </div>
 
-            {/* Side Panel */}
             {showSidePanel && (
                 <GraphSidePanel
                     workspaceId={effectiveWorkspaceId}
@@ -102,10 +73,6 @@ export function MindscapeCanvasWithPanel({
         </div>
     );
 }
-
-// ============================================================================
-// Helper Components
-// ============================================================================
 
 interface PendingBadgeProps {
     workspaceId: string;

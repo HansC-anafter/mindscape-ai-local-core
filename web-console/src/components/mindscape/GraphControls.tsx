@@ -10,9 +10,9 @@ interface GraphControlsProps {
 
 export function GraphControls({ activeLens, onLensChange }: GraphControlsProps) {
   const lensOptions = [
-    { value: 'all', label: t('graphLensAll' as any), icon: '🌐' },
-    { value: 'direction', label: t('graphLensDirection' as any), icon: '🧭' },
-    { value: 'action', label: t('graphLensAction' as any), icon: '⚡' },
+    { value: 'all', label: t('graphLensAll' as any), icon: 'ALL' },
+    { value: 'direction', label: t('graphLensDirection' as any), icon: 'DIR' },
+    { value: 'action', label: t('graphLensAction' as any), icon: 'ACT' },
   ] as const;
 
   return (
@@ -36,4 +36,3 @@ export function GraphControls({ activeLens, onLensChange }: GraphControlsProps) 
     </div>
   );
 }
-

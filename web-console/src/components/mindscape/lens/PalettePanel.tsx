@@ -6,8 +6,6 @@ import { GraphView } from './GraphView';
 import { MatrixView } from './MatrixView';
 import type { EffectiveLens, LensNodeState } from '@/lib/lens-api';
 
-// Use GraphView instead of GraphViewEnhanced to avoid WebGL SSR issues
-// GraphViewEnhanced requires WebGL which causes SSR errors
 const GraphViewEnhanced = dynamic(() => import('./GraphViewEnhanced').then(mod => ({ default: mod.GraphViewEnhanced })), {
   ssr: false,
   loading: () => <div className="h-full flex items-center justify-center text-gray-500">Loading graph...</div>
@@ -35,16 +33,13 @@ export function PalettePanel({
   onNodeSelect,
   onNodeHover,
 }: PalettePanelProps) {
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [useEnhancedGraph, setUseEnhancedGraph] = useState(true);
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all');
 
   const handleNodeHover = (nodeId: string | null) => {
-    setHoveredNode(nodeId);
     onNodeHover?.(nodeId);
   };
 
-  // Filter nodes by scope
   const filteredNodes = effectiveLens
     ? effectiveLens.nodes.filter((node) => {
         if (scopeFilter === 'all') return true;
@@ -62,7 +57,6 @@ export function PalettePanel({
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 h-full flex flex-col">
-      {/* Header with View Mode Toggle and Scope Filter */}
       <div className="p-4 border-b border-gray-200 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900">Graph / Matrix</h2>
@@ -89,9 +83,8 @@ export function PalettePanel({
             </button>
           </div>
         </div>
-        {/* Scope Filter */}
         <div className="flex items-center space-x-2">
-          <span className="text-xs text-gray-600 font-medium">套用範圍：</span>
+          <span className="text-xs text-gray-600 font-medium">Applied Scope:</span>
           <div className="flex space-x-1">
             <button
               onClick={() => setScopeFilter('all')}
@@ -101,7 +94,7 @@ export function PalettePanel({
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              全部
+              All
             </button>
             <button
               onClick={() => setScopeFilter('global')}
@@ -140,7 +133,6 @@ export function PalettePanel({
         </div>
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-hidden">
         {viewMode === 'graph' ? (
           useEnhancedGraph ? (
@@ -169,13 +161,12 @@ export function PalettePanel({
         )}
       </div>
 
-      {/* Footer Info */}
       <div className="p-2 border-t border-gray-200 bg-gray-50 flex items-center justify-between text-xs text-gray-600">
         <span>
           {viewMode === 'graph' ? (
-            '只讀模式：可選取、hover，不可改狀態'
+            'Read-only mode: select and hover only'
           ) : (
-            '編輯模式：可調整節點狀態（OFF/KEEP/EMPHASIZE）'
+            'Edit mode: adjust node state (OFF/KEEP/EMPHASIZE)'
           )}
         </span>
         {viewMode === 'graph' && (
@@ -183,11 +174,10 @@ export function PalettePanel({
             onClick={() => setUseEnhancedGraph(!useEnhancedGraph)}
             className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded text-xs"
           >
-            {useEnhancedGraph ? '切換到列表視圖' : '切換到圖形視圖'}
+            {useEnhancedGraph ? 'Switch to List View' : 'Switch to Graph View'}
           </button>
         )}
       </div>
     </div>
   );
 }
-

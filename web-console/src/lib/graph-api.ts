@@ -1,33 +1,19 @@
-/**
- * Graph API client for Mind-Lens Graph feature
- * Uses SWR for data fetching and caching
- */
-
 import useSWR from 'swr';
 import { getApiBaseUrl } from './api-url';
 
 const API_BASE = getApiBaseUrl();
 
 const fetcher = async (url: string) => {
-  console.log('[fetcher] Fetching URL:', url);
   const res = await fetch(url);
-  console.log('[fetcher] Response status:', res.status, res.statusText);
   if (!res.ok) {
     const errorText = await res.text().catch(() => 'Unknown error');
-    console.error('[fetcher] Error response:', errorText);
     const error = new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
     (error as any).status = res.status;
     (error as any).response = errorText;
     throw error;
   }
-  const data = await res.json();
-  console.log('[fetcher] Response data:', data);
-  return data;
+  return res.json();
 };
-
-// ============================================================================
-// Types
-// ============================================================================
 
 export interface GraphNode {
   id: string;
@@ -140,10 +126,6 @@ export interface ProfileSummary {
   };
 }
 
-// ============================================================================
-// Hooks
-// ============================================================================
-
 export function useGraphNodes(params?: {
   category?: 'direction' | 'action';
   node_type?: string;
@@ -195,20 +177,12 @@ export function useGraphEdges(params?: {
 
 export function useFullGraph(workspaceId?: string) {
   const queryParams = new URLSearchParams();
-  queryParams.append('profile_id', 'default-user'); // Add profile_id for v0 MVP
+  queryParams.append('profile_id', 'default-user');
   if (workspaceId) queryParams.append('workspace_id', workspaceId);
 
   const url = `${API_BASE}/api/v1/mind-lens/graph/full?${queryParams.toString()}`;
 
   const { data, error, isLoading, mutate } = useSWR<{ nodes: GraphNode[]; edges: GraphEdge[] }>(url, fetcher);
-
-  // Debug logging
-  console.log('[useFullGraph] URL:', url);
-  console.log('[useFullGraph] Data:', data);
-  console.log('[useFullGraph] Error:', error);
-  console.log('[useFullGraph] IsLoading:', isLoading);
-  console.log('[useFullGraph] Nodes count:', data?.nodes?.length ?? 0);
-  console.log('[useFullGraph] Edges count:', data?.edges?.length ?? 0);
 
   return {
     nodes: data?.nodes ?? [],
@@ -250,10 +224,6 @@ export function useProfileSummary() {
     refresh: mutate,
   };
 }
-
-// ============================================================================
-// Mutations
-// ============================================================================
 
 export async function createNode(node: GraphNodeCreate): Promise<GraphNode> {
   const res = await fetch(`${API_BASE}/api/v1/mind-lens/graph/nodes`, {
@@ -322,10 +292,6 @@ export async function deleteEdge(edgeId: string): Promise<void> {
   }
 }
 
-// ============================================================================
-// Playbook Links
-// ============================================================================
-
 export async function linkNodeToPlaybook(
   nodeId: string,
   playbookCode: string,
@@ -362,10 +328,6 @@ export async function unlinkNodeFromPlaybook(nodeId: string, playbookCode: strin
     throw new Error(error.detail || 'Failed to unlink playbook');
   }
 }
-
-// ============================================================================
-// Workspace Bindings
-// ============================================================================
 
 export async function bindLensToWorkspace(lensId: string, workspaceId: string): Promise<void> {
   const res = await fetch(
@@ -420,4 +382,3 @@ export async function initializeGraph(): Promise<{ message: string; node_count: 
   }
   return res.json();
 }
-

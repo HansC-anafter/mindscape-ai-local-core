@@ -41,7 +41,6 @@ export function MatrixView({
     }
   };
 
-  // 进一步按 node_type 分组（如果 groupBy 是 category）
   const getNestedGroups = () => {
     if (groupBy === 'category') {
       const nested: Record<string, Record<string, LensNode[]>> = {};
@@ -92,7 +91,7 @@ export function MatrixView({
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }
           `}
-          title="關閉此節點"
+          title="Turn this node off"
         >
           OFF
         </button>
@@ -106,7 +105,7 @@ export function MatrixView({
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }
           `}
-          title="保持此節點"
+          title="Keep this node"
         >
           KEEP
         </button>
@@ -120,7 +119,7 @@ export function MatrixView({
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }
           `}
-          title="強調此節點"
+          title="Emphasize this node"
         >
           EMPH
         </button>
@@ -137,7 +136,7 @@ export function MatrixView({
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-gray-700 uppercase">{category}</h3>
                   <span className="text-xs text-gray-500">
-                    {Object.values(typeGroups).flat().length} 個節點
+                    {Object.values(typeGroups).flat().length} nodes
                   </span>
                 </div>
                 {Object.entries(typeGroups).map(([nodeType, typeNodes]) => (
@@ -157,7 +156,7 @@ export function MatrixView({
               <div key={group} className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-gray-700 uppercase">{group}</h3>
-                  <span className="text-xs text-gray-500">{groupNodes.length} 個節點</span>
+                  <span className="text-xs text-gray-500">{groupNodes.length} nodes</span>
                 </div>
                 <div className="space-y-1">
                   {groupNodes.map(renderNodeItem)}
@@ -168,4 +167,3 @@ export function MatrixView({
     </div>
   );
 }
-

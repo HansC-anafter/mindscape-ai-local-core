@@ -93,7 +93,7 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
             aria-label={t('close' as any)}
           >
-            ✕
+            x
           </button>
         </div>
 
@@ -196,7 +196,7 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
                 type="text"
                 value={formData.icon || ''}
                 onChange={(e) => handleChange('icon', e.target.value)}
-                placeholder="🎯"
+                placeholder="icon"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
@@ -280,4 +280,3 @@ export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
     </div>
   );
 }
-

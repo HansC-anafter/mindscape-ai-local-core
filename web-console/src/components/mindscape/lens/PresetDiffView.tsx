@@ -34,14 +34,14 @@ export function PresetDiffView({
 
   if (isLoading) {
     return (
-      <div className="text-center py-4 text-sm text-gray-500">載入中...</div>
+      <div className="text-center py-4 text-sm text-gray-500">Loading...</div>
     );
   }
 
   if (error) {
     return (
       <div className="text-center py-4 text-sm text-red-500">
-        無法載入差異: {error.message}
+        Unable to load diff: {error.message}
       </div>
     );
   }
@@ -49,12 +49,11 @@ export function PresetDiffView({
   if (!diff) {
     return (
       <div className="text-center py-4 text-sm text-gray-500">
-        無法載入差異
+        Unable to load diff
       </div>
     );
   }
 
-  // 按变化类型分组
   const strengthened = diff.changes.filter(c => c.change_type === 'strengthened');
   const weakened = diff.changes.filter(c => c.change_type === 'weakened');
   const disabled = diff.changes.filter(c => c.change_type === 'disabled');
@@ -63,14 +62,13 @@ export function PresetDiffView({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm font-semibold text-gray-900">
             {diff.preset_a_name} vs {diff.preset_b_name}
           </div>
           <div className="text-xs text-gray-500 mt-1">
-            {diff.changes.length} 個差異
+            {diff.changes.length} differences
           </div>
         </div>
         {onClose && (
@@ -78,24 +76,22 @@ export function PresetDiffView({
             onClick={onClose}
             className="text-xs text-gray-500 hover:text-gray-700"
           >
-            ✕
+            x
           </button>
         )}
       </div>
 
-      {/* Summary */}
       {diff.changes.length === 0 ? (
         <div className="text-center py-4 text-sm text-gray-500">
-          無差異
+          No differences
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Strengthened */}
           {strengthened.length > 0 && (
             <div className="bg-green-50 rounded-lg p-3 border border-green-200">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-semibold text-green-700">
-                  + 強化 ({strengthened.length})
+                  + Strengthened ({strengthened.length})
                 </div>
               </div>
               <div className="space-y-1">
@@ -106,7 +102,7 @@ export function PresetDiffView({
                   >
                     <span>{change.node_label}</span>
                     <span className="text-xs text-gray-500">
-                      {change.from_state} → {change.to_state}
+                      {change.from_state} -&gt; {change.to_state}
                     </span>
                   </div>
                 ))}
@@ -114,12 +110,11 @@ export function PresetDiffView({
             </div>
           )}
 
-          {/* Weakened */}
           {weakened.length > 0 && (
             <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-semibold text-yellow-700">
-                  - 弱化 ({weakened.length})
+                  - Weakened ({weakened.length})
                 </div>
               </div>
               <div className="space-y-1">
@@ -130,7 +125,7 @@ export function PresetDiffView({
                   >
                     <span>{change.node_label}</span>
                     <span className="text-xs text-gray-500">
-                      {change.from_state} → {change.to_state}
+                      {change.from_state} -&gt; {change.to_state}
                     </span>
                   </div>
                 ))}
@@ -138,12 +133,11 @@ export function PresetDiffView({
             </div>
           )}
 
-          {/* Disabled */}
           {disabled.length > 0 && (
             <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-semibold text-gray-700">
-                  ○ 關閉 ({disabled.length})
+                  Disabled ({disabled.length})
                 </div>
               </div>
               <div className="space-y-1">
@@ -154,7 +148,7 @@ export function PresetDiffView({
                   >
                     <span>{change.node_label}</span>
                     <span className="text-xs text-gray-500">
-                      {change.from_state} → {change.to_state}
+                      {change.from_state} -&gt; {change.to_state}
                     </span>
                   </div>
                 ))}
@@ -162,12 +156,11 @@ export function PresetDiffView({
             </div>
           )}
 
-          {/* Enabled */}
           {enabled.length > 0 && (
             <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-semibold text-blue-700">
-                  + 啟用 ({enabled.length})
+                  + Enabled ({enabled.length})
                 </div>
               </div>
               <div className="space-y-1">
@@ -178,7 +171,7 @@ export function PresetDiffView({
                   >
                     <span>{change.node_label}</span>
                     <span className="text-xs text-gray-500">
-                      {change.from_state} → {change.to_state}
+                      {change.from_state} -&gt; {change.to_state}
                     </span>
                   </div>
                 ))}
@@ -186,12 +179,11 @@ export function PresetDiffView({
             </div>
           )}
 
-          {/* Changed (other) */}
           {changed.length > 0 && (
             <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-semibold text-purple-700">
-                  ↻ 其他變更 ({changed.length})
+                  Other Changes ({changed.length})
                 </div>
               </div>
               <div className="space-y-1">
@@ -202,7 +194,7 @@ export function PresetDiffView({
                   >
                     <span>{change.node_label}</span>
                     <span className="text-xs text-gray-500">
-                      {change.from_state} → {change.to_state}
+                      {change.from_state} -&gt; {change.to_state}
                     </span>
                   </div>
                 ))}
@@ -214,4 +206,3 @@ export function PresetDiffView({
     </div>
   );
 }
-

@@ -1,12 +1,5 @@
 'use client';
 
-/**
- * Playbook Expansion Panel
- *
- * Displays playbook details and step DAG when expanding a node
- * with linked playbooks.
- */
-
 import React from 'react';
 import { usePlaybookDAG, type PlaybookStep } from '@/lib/mindscape-graph-api';
 
@@ -31,7 +24,7 @@ export function PlaybookExpansionPanel({ playbookCode, onClose }: PlaybookExpans
         return (
             <div className="p-4 bg-red-50 rounded-lg border border-red-200">
                 <span className="text-red-700 text-sm">
-                    ⚠️ Failed to load playbook: {playbookCode}
+                    Warning: Failed to load playbook: {playbookCode}
                 </span>
             </div>
         );
@@ -39,7 +32,6 @@ export function PlaybookExpansionPanel({ playbookCode, onClose }: PlaybookExpans
 
     return (
         <div className="p-4 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-lg border border-indigo-200">
-            {/* Header */}
             <div className="flex items-start justify-between mb-3">
                 <div>
                     <h4 className="font-semibold text-indigo-900">{playbook.name}</h4>
@@ -52,7 +44,7 @@ export function PlaybookExpansionPanel({ playbookCode, onClose }: PlaybookExpans
                         onClick={onClose}
                         className="text-gray-400 hover:text-gray-600 text-lg"
                     >
-                        ×
+                        Close
                     </button>
                 )}
             </div>
@@ -61,11 +53,10 @@ export function PlaybookExpansionPanel({ playbookCode, onClose }: PlaybookExpans
                 <p className="text-sm text-gray-600 mb-3">{playbook.description}</p>
             )}
 
-            {/* Step DAG Visualization */}
             {steps.length > 0 ? (
                 <div className="mt-3">
                     <span className="text-sm font-medium text-indigo-800">
-                        📋 Steps ({steps.length}):
+                        Steps ({steps.length}):
                     </span>
                     <div className="mt-2 space-y-2">
                         {steps.map((step, idx) => (
@@ -98,28 +89,23 @@ function StepCard({ step, index }: StepCardProps) {
             ${hasGate ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200'}
         `}>
             <div className="flex items-center gap-2">
-                {/* Step number */}
                 <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-800 text-xs flex items-center justify-center font-medium">
                     {index + 1}
                 </span>
 
-                {/* Step ID */}
                 <span className="font-medium text-gray-800">{step.id}</span>
 
-                {/* Gate indicator */}
                 {hasGate && (
                     <span className="px-1.5 py-0.5 bg-amber-200 text-amber-800 rounded text-xs font-medium">
-                        🔐 {step.gate_type || 'gate'}
+                        Gate {step.gate_type || 'gate'}
                     </span>
                 )}
             </div>
 
-            {/* Tool info */}
             <div className="mt-1 ml-7 text-xs text-gray-500">
-                <span className="text-gray-400">→</span> {toolName}
+                <span className="text-gray-400">&gt;</span> {toolName}
             </div>
 
-            {/* Dependencies */}
             {hasDeps && (
                 <div className="mt-1 ml-7 text-xs text-gray-400">
                     depends on: {step.depends_on.join(', ')}

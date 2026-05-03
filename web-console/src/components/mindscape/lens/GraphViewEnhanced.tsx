@@ -48,8 +48,7 @@ export function GraphViewEnhanced({
     Promise.all([
       import('graphology' as any),
       import('@react-sigma/core'),
-      // @ts-ignore - CSS import for styles
-      import('@react-sigma/core/lib/style.css').catch(() => null)
+      import('@react-sigma/core/lib/style.css' as string).catch(() => null)
     ]).then(([graphology, sigmaCore]) => {
       setSigmaComponents({
         Graph: graphology.default,
@@ -58,8 +57,7 @@ export function GraphViewEnhanced({
         useSigma: sigmaCore.useSigma,
         useRegisterEvents: sigmaCore.useRegisterEvents,
       });
-    }).catch(err => {
-      console.error('Failed to load Sigma components:', err);
+    }).catch(() => {
     });
   }, []);
 
@@ -91,7 +89,6 @@ export function GraphViewEnhanced({
 
   const { SigmaContainer, useLoadGraph, useSigma, useRegisterEvents, Graph } = SigmaComponents;
 
-  // Separate component for event handling
   function GraphEvents({ onNodeSelect, onNodeHover }: GraphEventsProps) {
     const registerEvents = useRegisterEvents();
     const sigma = useSigma();
@@ -99,7 +96,6 @@ export function GraphViewEnhanced({
     const onNodeSelectRef = useRef(onNodeSelect);
     const onNodeHoverRef = useRef(onNodeHover);
 
-    // Keep the refs updated with the latest callbacks
     useEffect(() => {
       onNodeSelectRef.current = onNodeSelect;
       onNodeHoverRef.current = onNodeHover;
@@ -110,14 +106,12 @@ export function GraphViewEnhanced({
         return;
       }
 
-      // Clean up previous registration if exists
       if (unregisterRef.current) {
         unregisterRef.current();
         unregisterRef.current = null;
       }
 
       const unregister = registerEvents({
-        // Click events: lock the node detail panel
         clickNode: (event: any) => {
           const nodeId = event.node || event;
           if (nodeId) {
@@ -129,7 +123,6 @@ export function GraphViewEnhanced({
             onNodeSelectRef.current(node);
           }
         },
-        // Hover events: temporary preview (always works, even with locked node)
         enterNode: ({ node }: any) => {
           if (node) {
             onNodeHoverRef.current(node);
@@ -140,7 +133,6 @@ export function GraphViewEnhanced({
         },
       });
 
-      // Only store unregister if it's a function
       if (typeof unregister === 'function') {
         unregisterRef.current = unregister;
       }
@@ -163,45 +155,35 @@ export function GraphViewEnhanced({
     const cameraStateRef = useRef<{ x: number; y: number; ratio: number } | null>(null);
     const isInitialLoadRef = useRef(true);
 
-    // Only reload graph when nodes actually change (by comparing node IDs)
     useEffect(() => {
       const nodeIds = nodes.filter(n => n.state !== 'off').map(n => n.node_id).sort().join(',');
       if (nodeIds === nodesHashRef.current && !isInitialLoadRef.current) {
-        // Nodes haven't changed, only update node styles
         return;
       }
       nodesHashRef.current = nodeIds;
       isInitialLoadRef.current = false;
 
-      // Save current camera state before reloading
       if (sigma && cameraStateRef.current === null) {
         try {
           const camera = sigma.getCamera();
           const state = camera.getState();
           cameraStateRef.current = { x: state.x, y: state.y, ratio: state.ratio };
-        } catch (e) {
-          // Ignore if camera not ready
+        } catch {
         }
       }
 
       const graph = new Graph();
 
-      // Calculate layout: place nodes in a circle centered at (0, 0)
       const visibleNodesList = nodes.filter(n => n.state !== 'off');
       const nodeCount = visibleNodesList.length;
 
       nodes.forEach((node, index) => {
-        if (node.state === 'off') return; // Skip off nodes
+        if (node.state === 'off') return;
 
-        // Find the index in visible nodes list
         const visibleIndex = visibleNodesList.findIndex(n => n.node_id === node.node_id);
         if (visibleIndex === -1) return;
 
-        // Place nodes in a circle centered at (0, 0)
-        // This ensures the graph center is at (0, 0) which matches Sigma.js default camera
         const angle = nodeCount > 1 ? (2 * Math.PI * visibleIndex) / nodeCount : 0;
-        // Calculate radius based on container size to ensure nodes fit
-        // Use a reasonable default radius that will be adjusted by camera zoom
         const radius = nodeCount > 1 ? 200 : 0;
         const x = Math.cos(angle) * radius;
         const y = Math.sin(angle) * radius;
@@ -227,7 +209,6 @@ export function GraphViewEnhanced({
 
       loadGraph(graph);
 
-      // Restore camera state or set initial zoom
       requestAnimationFrame(() => {
         setTimeout(() => {
           if (sigma) {
@@ -237,12 +218,10 @@ export function GraphViewEnhanced({
 
               const camera = sigma.getCamera();
 
-              // Restore saved camera state if available
               if (cameraStateRef.current) {
                 camera.setState(cameraStateRef.current);
-                cameraStateRef.current = null; // Clear after restore
+                cameraStateRef.current = null;
               } else {
-                // Initial load: adjust zoom to fit all nodes
                 const container = sigma.getContainer();
                 const bounds = {
                   minX: Infinity,
@@ -251,7 +230,7 @@ export function GraphViewEnhanced({
                   maxY: -Infinity,
                 };
 
-                currentGraph.forEachNode((nodeId: string, attributes: any) => {
+                currentGraph.forEachNode((_nodeId: string, attributes: any) => {
                   const x = attributes.x || 0;
                   const y = attributes.y || 0;
                   bounds.minX = Math.min(bounds.minX, x);
@@ -276,15 +255,13 @@ export function GraphViewEnhanced({
                   camera.setState({ ratio: newRatio });
                 }
               }
-            } catch (e) {
-              // Ignore camera errors
+            } catch {
             }
           }
         }, 100);
       });
-    }, [nodes, loadGraph, sigma, Graph]);
+    }, [nodes, selectedNodes, loadGraph, sigma]);
 
-    // Update node styles when selectedNodes changes (without reloading graph)
     useEffect(() => {
       if (!sigma) return;
 
@@ -300,13 +277,11 @@ export function GraphViewEnhanced({
         const baseColor = TYPE_COLORS[node.node_type] || '#94a3b8';
         const stateColor = STATE_COLORS[node.state] || baseColor;
 
-        // Update node attributes without reloading graph
         currentGraph.setNodeAttribute(nodeId, 'size', isSelected ? nodeSize * 1.3 : nodeSize);
         currentGraph.setNodeAttribute(nodeId, 'color', isSelected ? '#ef4444' : stateColor);
         currentGraph.setNodeAttribute(nodeId, 'isSelected', isSelected);
       });
 
-      // Refresh Sigma to show updated styles
       sigma.refresh();
     }, [selectedNodes, nodes, sigma]);
 

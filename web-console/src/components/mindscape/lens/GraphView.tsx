@@ -57,7 +57,7 @@ export function GraphView({
                 >
                   <div className="text-sm font-medium text-gray-900">{node.node_label}</div>
                   <div className="text-xs text-gray-500 mt-1">
-                    {node.node_type} • {node.state}
+                    {node.node_type} - {node.state}
                   </div>
                   {node.is_overridden && (
                     <div className="text-xs text-blue-600 mt-1">
@@ -73,4 +73,3 @@ export function GraphView({
     </div>
   );
 }
-

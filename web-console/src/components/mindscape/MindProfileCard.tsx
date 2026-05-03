@@ -9,7 +9,7 @@ interface MindProfileCardProps {
   profileId?: string;
 }
 
-export function MindProfileCard({ profileId }: MindProfileCardProps) {
+export function MindProfileCard(_props: MindProfileCardProps) {
   const router = useRouter();
   const { summary, isLoading, isError } = useProfileSummary();
 
@@ -43,13 +43,11 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
       </h2>
 
       <div className="space-y-6">
-        {/* Direction Guidance */}
         <div>
           <h3 className="text-sm font-medium text-gray-700 mb-3">
             {t('mindProfileDirectionTitle' as any)}
           </h3>
           <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-            {/* Values */}
             <div>
               <span className="text-xs text-gray-500">
                 {t('mindProfileValuesLabel' as any)}
@@ -70,7 +68,6 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
               </div>
             </div>
 
-            {/* Worldviews */}
             <div>
               <span className="text-xs text-gray-500">
                 {t('mindProfileWorldviewsLabel' as any)}
@@ -91,7 +88,6 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
               </div>
             </div>
 
-            {/* Aesthetics */}
             <div>
               <span className="text-xs text-gray-500">
                 {t('mindProfileAestheticsLabel' as any)}
@@ -112,7 +108,6 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
               </div>
             </div>
 
-            {/* Knowledge */}
             <div>
               <span className="text-xs text-gray-500">
                 {t('mindProfileKnowledgeLabel' as any)}
@@ -128,7 +123,6 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
           </div>
         </div>
 
-        {/* Action Guidance */}
         <div>
           <h3 className="text-sm font-medium text-gray-700 mb-3">
             {t('mindProfileActionTitle' as any)}
@@ -173,7 +167,6 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
           </div>
         </div>
 
-        {/* Open Graph Button */}
         <div className="pt-4 border-t border-gray-200">
           <button
             onClick={handleOpenGraph}
@@ -186,4 +179,3 @@ export function MindProfileCard({ profileId }: MindProfileCardProps) {
     </div>
   );
 }
-

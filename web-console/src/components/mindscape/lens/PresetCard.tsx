@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import useSWR from 'swr';
 import { getApiBaseUrl } from '@/lib/api-url';
 import type { MindLensProfile, PresetDiff } from '@/lib/lens-api';
@@ -27,9 +27,6 @@ export function PresetCard({
   onSelect,
   onViewDiff,
 }: PresetCardProps) {
-  const [showDiff, setShowDiff] = useState(false);
-
-  // 如果这不是当前 Preset，获取 Diff 摘要
   const { data: diff } = useSWR<PresetDiff>(
     activePresetId && activePresetId !== profile.id
       ? `${getApiBaseUrl()}/api/v1/mindscape/lens/profiles/${activePresetId}/diff?compare_with=${profile.id}`
@@ -57,69 +54,62 @@ export function PresetCard({
             </h3>
             {profile.is_default && (
               <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">
-                預設
+                Default
               </span>
             )}
             {isActive && (
               <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
-                使用中
+                Active
               </span>
             )}
           </div>
 
-          {/* Diff 摘要 */}
           {hasDiff && !isActive && (
             <div className="mt-2 space-y-1">
               <div className="text-xs text-gray-600">
                 {(diff.strengthened_count ?? 0) > 0 && (
-                  <span className="text-green-600">+{diff.strengthened_count} 強化</span>
+                  <span className="text-green-600">+{diff.strengthened_count} strengthened</span>
                 )}
                 {(diff.weakened_count ?? 0) > 0 && (
-                  <span className="ml-2 text-yellow-600">-{diff.weakened_count} 弱化</span>
+                  <span className="ml-2 text-yellow-600">-{diff.weakened_count} weakened</span>
                 )}
                 {(diff.disabled_count ?? 0) > 0 && (
-                  <span className="ml-2 text-gray-600">○{diff.disabled_count} 關閉</span>
+                  <span className="ml-2 text-gray-600">{diff.disabled_count} disabled</span>
                 )}
                 {(diff.enabled_count ?? 0) > 0 && (
-                  <span className="ml-2 text-blue-600">+{diff.enabled_count} 啟用</span>
+                  <span className="ml-2 text-blue-600">+{diff.enabled_count} enabled</span>
                 )}
               </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onViewDiff) {
+              {onViewDiff && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
                     onViewDiff(profile.id);
-                  } else {
-                    setShowDiff(!showDiff);
-                  }
-                }}
-                className="text-xs text-blue-600 hover:text-blue-800"
-              >
-                查看詳細差異
-              </button>
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800"
+                >
+                  View detailed diff
+                </button>
+              )}
             </div>
           )}
 
-          {/* 无差异提示 */}
           {diff && diff.changes.length === 0 && !isActive && (
-            <div className="mt-2 text-xs text-gray-500">與當前 Preset 無差異</div>
+            <div className="mt-2 text-xs text-gray-500">No differences from current preset</div>
           )}
         </div>
 
-        {/* 操作按钮 */}
         <div className="flex items-center space-x-1 ml-2">
-          {!isActive && (
+          {!isActive && onViewDiff && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (onViewDiff) {
-                  onViewDiff(profile.id);
-                }
+                onViewDiff(profile.id);
               }}
               className="p-1 text-gray-400 hover:text-blue-600"
-              title="查看差異"
+              title="View diff"
             >
-              🔍
+              DIFF
             </button>
           )}
         </div>
@@ -127,4 +117,3 @@ export function PresetCard({
     </div>
   );
 }
-

@@ -1,9 +1,5 @@
 'use client';
 
-/**
- * NodeContextMenu - Right-click context menu for graph nodes
- */
-
 import React from 'react';
 import type { MindscapeNode } from '@/lib/mindscape-graph-api';
 
@@ -30,34 +26,32 @@ export function NodeContextMenu({
 
     const menuItems = [
         {
-            icon: '📋',
-            label: '查看詳情',
+            icon: 'INFO',
+            label: 'View Details',
             onClick: onViewDetails,
         },
         { divider: true },
         {
-            icon: '💬',
-            label: '繼續對話',
+            icon: 'CHAT',
+            label: 'Continue Conversation',
             onClick: onContinueConversation,
             disabled: !node.metadata?.thread_id,
-            disabledReason: '此節點沒有關聯的對話',
+            disabledReason: 'This node has no linked conversation',
         },
         {
-            icon: '🆕',
-            label: '開新對話',
+            icon: 'NEW',
+            label: 'Start New Conversation',
             onClick: onStartNewConversation,
         },
     ];
 
-    return (
+        return (
         <>
-            {/* Backdrop */}
             <div
                 className="fixed inset-0 z-40"
                 onClick={onClose}
             />
 
-            {/* Menu */}
             <div
                 className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[180px] animate-in fade-in zoom-in-95 duration-100"
                 style={{
@@ -65,7 +59,6 @@ export function NodeContextMenu({
                     top: position.y,
                 }}
             >
-                {/* Header */}
                 <div className="px-3 py-2 border-b border-gray-100">
                     <p className="text-xs text-gray-500 truncate max-w-[200px]">
                         {node.label}
@@ -78,7 +71,6 @@ export function NodeContextMenu({
                     </span>
                 </div>
 
-                {/* Menu Items */}
                 {menuItems.map((item, index) => {
                     if ('divider' in item) {
                         return <div key={index} className="my-1 border-t border-gray-100" />;

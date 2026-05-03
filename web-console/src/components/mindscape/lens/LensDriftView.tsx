@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useDriftReport, type DriftReport } from '@/lib/lens-api';
+import { useDriftReport } from '@/lib/lens-api';
 
 interface LensDriftViewProps {
   profileId: string;
@@ -9,12 +9,12 @@ interface LensDriftViewProps {
 
 export function LensDriftView({ profileId }: LensDriftViewProps) {
   const [days, setDays] = useState(30);
-  const { driftReport, isLoading, isError, refresh } = useDriftReport(profileId, days);
+  const { driftReport, isLoading, isError } = useDriftReport(profileId, days);
 
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center text-gray-500">
-        <p>載入漂移分析中...</p>
+        <p>Loading drift analysis...</p>
       </div>
     );
   }
@@ -22,7 +22,7 @@ export function LensDriftView({ profileId }: LensDriftViewProps) {
   if (isError) {
     return (
       <div className="h-full flex items-center justify-center text-red-500">
-        <p>載入失敗，請重試</p>
+        <p>Failed to load. Try again.</p>
       </div>
     );
   }
@@ -30,19 +30,16 @@ export function LensDriftView({ profileId }: LensDriftViewProps) {
   if (!driftReport) {
     return (
       <div className="h-full flex items-center justify-center text-gray-500">
-        <p>暫無漂移數據</p>
+        <p>No drift data</p>
       </div>
     );
   }
 
-  // 处理 node_drift 数据，计算 trigger_rate 和 trend
   const processedNodeDrift = driftReport.node_drift.map((node: any) => {
     const triggerRate = driftReport.total_executions > 0
       ? (node.trigger_count / driftReport.total_executions) * 100
       : 0;
 
-    // 暂时将 trend 设为 'stable'，因为后端没有提供趋势数据
-    // 未来可以通过比较不同时间段的数据来计算趋势
     const trend: string = 'stable';
 
     return {
@@ -60,41 +57,39 @@ export function LensDriftView({ profileId }: LensDriftViewProps) {
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Lens 漂移分析</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Lens Drift Analysis</h2>
           <p className="text-sm text-gray-600">
-            過去 {days} 天，共 {driftReport.total_executions} 次執行
+            Past {days} days, {driftReport.total_executions} executions
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <label className="text-sm text-gray-600">時間範圍：</label>
+          <label className="text-sm text-gray-600">Time Range:</label>
           <select
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
             className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value={7}>7 天</option>
-            <option value={30}>30 天</option>
-            <option value={90}>90 天</option>
-            <option value={180}>180 天</option>
+            <option value={7}>7 days</option>
+            <option value={30}>30 days</option>
+            <option value={90}>90 days</option>
+            <option value={180}>180 days</option>
           </select>
         </div>
       </div>
 
-      {/* Summary Stats */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-          <div className="text-xs text-blue-600 font-medium">總執行次數</div>
+          <div className="text-xs text-blue-600 font-medium">Total Executions</div>
           <div className="text-2xl font-bold text-blue-900">{driftReport.total_executions}</div>
         </div>
         <div className="bg-green-50 rounded-lg p-3 border border-green-200">
-          <div className="text-xs text-green-600 font-medium">活躍節點</div>
+          <div className="text-xs text-green-600 font-medium">Active Nodes</div>
           <div className="text-2xl font-bold text-green-900">{driftReport.node_drift.length}</div>
         </div>
         <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
-          <div className="text-xs text-purple-600 font-medium">平均觸發率</div>
+          <div className="text-xs text-purple-600 font-medium">Average Trigger Rate</div>
           <div className="text-2xl font-bold text-purple-900">
             {processedNodeDrift.length > 0
               ? (
@@ -107,9 +102,8 @@ export function LensDriftView({ profileId }: LensDriftViewProps) {
         </div>
       </div>
 
-      {/* Node Drift List */}
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-gray-700">節點觸發趨勢</h3>
+        <h3 className="text-sm font-semibold text-gray-700">Node Trigger Trends</h3>
         <div className="space-y-2">
           {sortedNodeDrift.map((node) => (
             <div
@@ -122,35 +116,34 @@ export function LensDriftView({ profileId }: LensDriftViewProps) {
                     <span className="text-sm font-medium text-gray-900">{node.node_label}</span>
                     {node.trend === 'increasing' && (
                       <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded">
-                        ↗ 上升
+                        Increasing
                       </span>
                     )}
                     {node.trend === 'decreasing' && (
                       <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded">
-                        ↘ 下降
+                        Decreasing
                       </span>
                     )}
                     {node.trend === 'stable' && (
                       <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 rounded">
-                        → 穩定
+                        Stable
                       </span>
                     )}
                   </div>
                 </div>
                 <div className="flex items-center space-x-4 text-sm">
                   <div className="text-right">
-                    <div className="text-gray-500">觸發次數</div>
+                    <div className="text-gray-500">Trigger Count</div>
                     <div className="font-semibold text-gray-900">{node.trigger_count}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-gray-500">觸發率</div>
+                    <div className="text-gray-500">Trigger Rate</div>
                     <div className="font-semibold text-gray-900">
                       {node.trigger_rate.toFixed(1)}%
                     </div>
                   </div>
                 </div>
               </div>
-              {/* Progress bar */}
               <div className="mt-2">
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div
@@ -171,10 +164,9 @@ export function LensDriftView({ profileId }: LensDriftViewProps) {
 
       {sortedNodeDrift.length === 0 && (
         <div className="text-center py-8 text-gray-500">
-          <p>暫無節點觸發數據</p>
+          <p>No node trigger data</p>
         </div>
       )}
     </div>
   );
 }
-

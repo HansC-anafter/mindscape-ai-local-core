@@ -48,7 +48,6 @@ export function InteractionPanel({
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 h-full flex flex-col">
-      {/* Tab Header */}
       <div className="p-4 border-b border-gray-200">
         <div className="flex space-x-2">
           <button
@@ -94,11 +93,9 @@ export function InteractionPanel({
         </div>
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-hidden flex flex-col">
         {tabMode === 'mirror' || tabMode === 'experiment' ? (
           <div className="flex-1 flex flex-col h-full">
-            {/* Tab 切换：Chat 或 Preview */}
             <div className="p-2 border-b border-gray-200 flex space-x-2">
               <button
                 onClick={() => setShowChat(!showChat)}
@@ -108,7 +105,7 @@ export function InteractionPanel({
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                {showChat ? '切換到預覽' : '切換到對話'}
+                {showChat ? 'Switch to Preview' : 'Switch to Chat'}
               </button>
             </div>
 
@@ -150,4 +147,3 @@ export function InteractionPanel({
     </div>
   );
 }
-

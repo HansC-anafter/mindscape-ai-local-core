@@ -37,7 +37,6 @@ export function NodeDetailPanel({
 }: NodeDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'evidence' | 'playbooks'>('info');
 
-  // 获取节点证据
   const { data: evidenceData, isLoading: evidenceLoading } = useSWR<{ evidence: NodeEvidence[] }>(
     node
       ? `${getApiBaseUrl()}/api/v1/mindscape/lens/evidence/nodes/${node.node_id}?profile_id=${profileId}${workspaceId ? `&workspace_id=${workspaceId}` : ''}&limit=10`
@@ -52,20 +51,17 @@ export function NodeDetailPanel({
 
   return (
     <div className="fixed inset-y-0 right-0 w-96 bg-white shadow-xl border-l border-gray-200 z-50 flex flex-col">
-      {/* Header */}
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-900">節點詳情</h2>
+        <h2 className="text-lg font-semibold text-gray-900">Node Details</h2>
         <button
           onClick={onClose}
           className="text-gray-400 hover:text-gray-600"
         >
-          ✕
+          x
         </button>
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {/* Tabs */}
         <div className="border-b border-gray-200">
           <div className="flex">
             <button
@@ -73,18 +69,18 @@ export function NodeDetailPanel({
               className={`flex-1 px-4 py-2 text-sm font-medium ${activeTab === 'info'
                   ? 'border-b-2 border-blue-600 text-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
-                }`}
+            }`}
             >
-              資訊
+              Info
             </button>
             <button
               onClick={() => setActiveTab('evidence')}
               className={`flex-1 px-4 py-2 text-sm font-medium ${activeTab === 'evidence'
                   ? 'border-b-2 border-blue-600 text-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
-                }`}
+            }`}
             >
-              證據 ({evidenceData?.evidence?.length || 0})
+              Evidence ({evidenceData?.evidence?.length || 0})
             </button>
             <button
               onClick={() => setActiveTab('playbooks')}
@@ -98,43 +94,42 @@ export function NodeDetailPanel({
           </div>
         </div>
 
-        {/* Tab Content */}
         <div className="p-4">
           {activeTab === 'info' && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">節點標籤</h3>
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">Node Label</h3>
                 <p className="text-sm text-gray-700">{node.node_label}</p>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">類型</h3>
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">Type</h3>
                 <p className="text-sm text-gray-700">{node.node_type}</p>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">分類</h3>
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">Category</h3>
                 <p className="text-sm text-gray-700">{node.category}</p>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">狀態</h3>
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">State</h3>
                 <span
                   className={`inline-block px-2 py-1 rounded text-xs font-medium ${node.state === 'emphasize'
                       ? 'bg-green-100 text-green-700'
                       : node.state === 'keep'
                         ? 'bg-blue-100 text-blue-700'
                         : 'bg-gray-100 text-gray-700'
-                    }`}
+                  }`}
                 >
-                  {node.state === 'emphasize' ? '強調' : node.state === 'keep' ? '保持' : '關閉'}
+                  {node.state === 'emphasize' ? 'Emphasize' : node.state === 'keep' ? 'Keep' : 'Off'}
                 </span>
               </div>
 
 
               {node.effective_scope && (
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900 mb-1">有效範圍</h3>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-1">Effective Scope</h3>
                   <p className="text-sm text-gray-700">{node.effective_scope}</p>
                 </div>
               )}
@@ -144,7 +139,7 @@ export function NodeDetailPanel({
           {activeTab === 'evidence' && (
             <div className="space-y-3">
               {evidenceLoading ? (
-                <div className="text-center py-4 text-sm text-gray-500">載入中...</div>
+                <div className="text-center py-4 text-sm text-gray-500">Loading...</div>
               ) : evidenceData?.evidence && evidenceData.evidence.length > 0 ? (
                 evidenceData.evidence.map((evidence, idx) => (
                   <div
@@ -164,7 +159,7 @@ export function NodeDetailPanel({
                 ))
               ) : (
                 <div className="text-center py-4 text-sm text-gray-500">
-                  目前沒有證據記錄
+                  No evidence records
                 </div>
               )}
             </div>
@@ -173,9 +168,8 @@ export function NodeDetailPanel({
           {activeTab === 'playbooks' && (
             <div className="space-y-3">
               <div className="text-center py-4 text-sm text-gray-500">
-                Playbook 連結功能開發中...
+                No linked playbooks
               </div>
-              {/* TODO: 实现 Playbook 链接显示 */}
             </div>
           )}
         </div>
@@ -183,4 +177,3 @@ export function NodeDetailPanel({
     </div>
   );
 }
-

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createChangeSet, applyChangeSet, type ChangeSet } from '@/lib/lens-api';
 
 interface ChangeSetBlockProps {
@@ -20,11 +20,7 @@ export function ChangeSetBlock({
   const [isLoading, setIsLoading] = useState(false);
   const [applyTo, setApplyTo] = useState<'session_only' | 'workspace' | 'preset'>('session_only');
 
-  useEffect(() => {
-    loadChangeset();
-  }, [sessionId, profileId, workspaceId]);
-
-  const loadChangeset = async () => {
+  const loadChangeset = useCallback(async () => {
     try {
       setIsLoading(true);
       const cs = await createChangeSet({
@@ -33,41 +29,43 @@ export function ChangeSetBlock({
         workspace_id: workspaceId,
       });
       setChangeset(cs);
-    } catch (error) {
-      console.error('Failed to load changeset:', error);
+    } catch {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [profileId, sessionId, workspaceId]);
+
+  useEffect(() => {
+    loadChangeset();
+  }, [loadChangeset]);
 
   const handleApply = async () => {
     if (!changeset) return;
 
     if (applyTo === 'preset') {
-      if (!confirm('這會改變你的全域預設，確定？')) {
+      if (!confirm('This will update the global preset. Continue?')) {
         return;
       }
     }
 
     try {
       await applyChangeSet(changeset, applyTo, workspaceId);
-      alert('變更已套用');
+      alert('Changes applied');
       onRefresh();
       loadChangeset();
-    } catch (error) {
-      console.error('Failed to apply changeset:', error);
+    } catch {
       alert('Failed to apply changeset');
     }
   };
 
   if (isLoading) {
-    return <div className="text-center py-4 text-sm text-gray-500">載入中...</div>;
+    return <div className="text-center py-4 text-sm text-gray-500">Loading...</div>;
   }
 
   if (!changeset || changeset.changes.length === 0) {
     return (
       <div className="text-center py-8 text-sm text-gray-500">
-        目前沒有變更
+        No changes
       </div>
     );
   }
@@ -76,17 +74,16 @@ export function ChangeSetBlock({
     <div className="space-y-4">
       <div className="bg-gradient-to-r from-gray-50 to-blue-50 rounded-lg p-4 border border-gray-200 shadow-sm">
         <div className="flex items-center mb-2">
-          <span className="text-lg mr-2">📝</span>
-          <div className="text-sm font-semibold text-gray-900">變更摘要</div>
+          <div className="text-sm font-semibold text-gray-900">Change Summary</div>
         </div>
-        <div className="text-sm text-gray-700">{changeset.summary || '無變更'}</div>
+        <div className="text-sm text-gray-700">{changeset.summary || 'No changes'}</div>
       </div>
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-gray-700">變更列表</div>
+          <div className="text-sm font-semibold text-gray-700">Change List</div>
           <span className="text-xs px-2 py-1 bg-gray-200 text-gray-600 rounded">
-            {changeset.changes.length} 項
+            {changeset.changes.length} items
           </span>
         </div>
         <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -109,7 +106,7 @@ export function ChangeSetBlock({
                   >
                     {change.from_state}
                   </span>
-                  <span className="text-gray-400">→</span>
+                  <span className="text-gray-400">-&gt;</span>
                   <span
                     className={`text-xs px-2 py-0.5 rounded ${
                       change.to_state === 'emphasize'
@@ -130,15 +127,15 @@ export function ChangeSetBlock({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">套用到</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Apply To</label>
         <select
           value={applyTo}
           onChange={(e) => setApplyTo(e.target.value as any)}
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          <option value="session_only">Session Only（不保存）</option>
-          <option value="workspace">Workspace（保存到工作區）</option>
-          <option value="preset">Preset（保存到全域預設）</option>
+          <option value="session_only">Session Only (not saved)</option>
+          <option value="workspace">Workspace (save to workspace)</option>
+          <option value="preset">Preset (save as global default)</option>
         </select>
       </div>
 
@@ -146,9 +143,8 @@ export function ChangeSetBlock({
         onClick={handleApply}
         className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
       >
-        套用變更
+        Apply Changes
       </button>
     </div>
   );
 }
-

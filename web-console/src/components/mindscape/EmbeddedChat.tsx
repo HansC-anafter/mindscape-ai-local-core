@@ -5,14 +5,13 @@ import dynamic from 'next/dynamic';
 import { FloatingPanel } from './FloatingPanel';
 import type { MindscapeNode } from '@/lib/mindscape-graph-api';
 
-// Dynamically import WorkspaceChat to avoid SSR issues
 const WorkspaceChat = dynamic(
     () => import('@/components/WorkspaceChat').then(mod => mod.default),
     {
         ssr: false,
         loading: () => (
             <div className="flex items-center justify-center h-full text-gray-400">
-                載入對話中...
+                Loading conversation...
             </div>
         )
     }
@@ -27,12 +26,6 @@ interface EmbeddedChatProps {
     position?: { x: number; y: number };
 }
 
-/**
- * Embedded Chat Panel for Canvas
- *
- * A floating panel that embeds WorkspaceChat for continuing conversations
- * from graph nodes or starting new conversations.
- */
 export default function EmbeddedChat({
     isOpen,
     workspaceId,
@@ -43,10 +36,9 @@ export default function EmbeddedChat({
 }: EmbeddedChatProps) {
     if (!isOpen) return null;
 
-    // Determine title based on context
     const title = threadId
-        ? `繼續對話 - ${node?.label || 'Node'}`
-        : '開始新對話';
+        ? `Continue Conversation - ${node?.label || 'Node'}`
+        : 'Start New Conversation';
 
     return (
         <FloatingPanel

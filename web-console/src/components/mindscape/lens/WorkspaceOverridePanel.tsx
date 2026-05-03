@@ -12,7 +12,6 @@ interface WorkspaceOverridePanelProps {
 
 export function WorkspaceOverridePanel({
   workspaceId,
-  profileId,
   onRefresh,
 }: WorkspaceOverridePanelProps) {
   const { overrides, isLoading, refresh } = useWorkspaceOverrides(workspaceId);
@@ -24,28 +23,26 @@ export function WorkspaceOverridePanel({
       await setWorkspaceOverride(workspaceId, nodeId, state);
       await refresh();
       onRefresh?.();
-    } catch (error) {
-      console.error('Failed to set override:', error);
-      alert('設置覆寫失敗');
+    } catch {
+      alert('Failed to set override');
     }
   };
 
   const handleRemoveOverride = async (nodeId: string) => {
-    if (!confirm('確定要移除這個覆寫嗎？')) return;
+    if (!confirm('Remove this override?')) return;
 
     try {
       await removeWorkspaceOverride(workspaceId, nodeId);
       await refresh();
       onRefresh?.();
-    } catch (error) {
-      console.error('Failed to remove override:', error);
-      alert('移除覆寫失敗');
+    } catch {
+      alert('Failed to remove override');
     }
   };
 
   if (isLoading) {
     return (
-      <div className="text-center py-4 text-sm text-gray-500">載入中...</div>
+      <div className="text-center py-4 text-sm text-gray-500">Loading...</div>
     );
   }
 
@@ -53,19 +50,19 @@ export function WorkspaceOverridePanel({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-900">
-          Workspace 覆寫 ({overrides?.length || 0})
+          Workspace Overrides ({overrides?.length || 0})
         </h3>
         <button
           onClick={() => refresh()}
           className="text-xs text-blue-600 hover:text-blue-800"
         >
-          刷新
+          Refresh
         </button>
       </div>
 
       {!overrides || overrides.length === 0 ? (
         <div className="text-center py-4 text-sm text-gray-500">
-          目前沒有 Workspace 覆寫
+          No workspace overrides
         </div>
       ) : (
         <div className="space-y-2">
@@ -80,7 +77,7 @@ export function WorkspaceOverridePanel({
                     {override.node_id.slice(0, 12)}...
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
-                    狀態: {override.state === 'emphasize' ? '強調' : override.state === 'keep' ? '保持' : '關閉'}
+                    State: {override.state === 'emphasize' ? 'Emphasize' : override.state === 'keep' ? 'Keep' : 'Off'}
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -91,9 +88,9 @@ export function WorkspaceOverridePanel({
                         onChange={(e) => setNewState(e.target.value as LensNodeState)}
                         className="text-xs border border-gray-300 rounded px-2 py-1"
                       >
-                        <option value="off">關閉</option>
-                        <option value="keep">保持</option>
-                        <option value="emphasize">強調</option>
+                        <option value="off">Off</option>
+                        <option value="keep">Keep</option>
+                        <option value="emphasize">Emphasize</option>
                       </select>
                       <button
                         onClick={() => {
@@ -102,13 +99,13 @@ export function WorkspaceOverridePanel({
                         }}
                         className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
                       >
-                        保存
+                        Save
                       </button>
                       <button
                         onClick={() => setEditingNodeId(null)}
                         className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
                       >
-                        取消
+                        Cancel
                       </button>
                     </>
                   ) : (
@@ -120,13 +117,13 @@ export function WorkspaceOverridePanel({
                         }}
                         className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
                       >
-                        編輯
+                        Edit
                       </button>
                       <button
                         onClick={() => handleRemoveOverride(override.node_id)}
                         className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
                       >
-                        移除
+                        Remove
                       </button>
                     </>
                   )}
@@ -139,4 +136,3 @@ export function WorkspaceOverridePanel({
     </div>
   );
 }
-

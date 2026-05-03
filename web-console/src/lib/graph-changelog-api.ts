@@ -1,18 +1,7 @@
-/**
- * Mindscape Graph Changelog API Hook
- *
- * Provides hooks for managing pending changes, changelog history,
- * and graph version control operations.
- */
-
 import useSWR from 'swr';
 import { getApiBaseUrl } from './api-url';
 
 const API_BASE = getApiBaseUrl();
-
-// ============================================================================
-// Types
-// ============================================================================
 
 export interface PendingChange {
     id: string;
@@ -73,15 +62,9 @@ export interface ApproveResponse {
     results: ApproveResult[];
 }
 
-// ============================================================================
-// Fetchers
-// ============================================================================
-
 const pendingFetcher = async (url: string): Promise<PendingChangesResponse> => {
     const res = await fetch(url);
     if (!res.ok) {
-        const errorText = await res.text().catch(() => 'Unknown error');
-        console.error('[usePendingChanges] Fetch error:', res.status, errorText);
         throw new Error(`Failed to fetch pending changes: ${res.status}`);
     }
     return res.json();
@@ -90,16 +73,10 @@ const pendingFetcher = async (url: string): Promise<PendingChangesResponse> => {
 const historyFetcher = async (url: string): Promise<HistoryResponse> => {
     const res = await fetch(url);
     if (!res.ok) {
-        const errorText = await res.text().catch(() => 'Unknown error');
-        console.error('[useGraphHistory] Fetch error:', res.status, errorText);
         throw new Error(`Failed to fetch graph history: ${res.status}`);
     }
     return res.json();
 };
-
-// ============================================================================
-// Hooks
-// ============================================================================
 
 export interface UsePendingChangesOptions {
     workspaceId?: string;
@@ -107,9 +84,6 @@ export interface UsePendingChangesOptions {
     enabled?: boolean;
 }
 
-/**
- * Hook for fetching pending changes for a workspace
- */
 export function usePendingChanges(options: UsePendingChangesOptions = {}) {
     const { workspaceId, actorFilter, enabled = true } = options;
 
@@ -128,7 +102,7 @@ export function usePendingChanges(options: UsePendingChangesOptions = {}) {
         {
             revalidateOnFocus: true,
             dedupingInterval: 2000,
-            refreshInterval: 5000, // Poll every 5 seconds for pending changes
+            refreshInterval: 5000,
         }
     );
 
@@ -149,9 +123,6 @@ export interface UseGraphHistoryOptions {
     enabled?: boolean;
 }
 
-/**
- * Hook for fetching graph changelog history
- */
 export function useGraphHistory(options: UseGraphHistoryOptions = {}) {
     const { workspaceId, limit = 50, includePending = false, enabled = true } = options;
 
@@ -185,13 +156,6 @@ export function useGraphHistory(options: UseGraphHistoryOptions = {}) {
     };
 }
 
-// ============================================================================
-// Mutation Functions
-// ============================================================================
-
-/**
- * Approve or reject pending changes
- */
 export async function approveChanges(
     workspaceId: string,
     changeIds: string[],
@@ -216,9 +180,6 @@ export async function approveChanges(
     return res.json();
 }
 
-/**
- * Undo an applied change
- */
 export async function undoChange(changeId: string): Promise<{ success: boolean; message?: string; error?: string }> {
     const res = await fetch(`${API_BASE}/api/v1/execution-graph/changelog/undo`, {
         method: 'POST',
@@ -238,9 +199,6 @@ export async function undoChange(changeId: string): Promise<{ success: boolean; 
     return res.json();
 }
 
-/**
- * Get current applied version for a workspace
- */
 export async function getCurrentVersion(workspaceId: string): Promise<number> {
     const res = await fetch(`${API_BASE}/api/v1/execution-graph/changelog/version/${workspaceId}`);
 

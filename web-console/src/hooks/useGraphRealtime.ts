@@ -1,10 +1,3 @@
-/**
- * useGraphRealtime - WebSocket hook for real-time graph updates
- *
- * Connects to the backend WebSocket for receiving graph change notifications.
- * Automatically refreshes the graph and pending changes when updates occur.
- */
-
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { getApiBaseUrl } from '@/lib/api-url';
 
@@ -43,7 +36,6 @@ export function useGraphRealtime({
     const connect = useCallback(() => {
         if (!enabled || !workspaceId) return;
 
-        // Build WebSocket URL
         const apiBase = getApiBaseUrl();
         const wsProtocol = apiBase.startsWith('https') ? 'wss' : 'ws';
         const wsHost = apiBase.replace(/^https?:\/\//, '');
@@ -53,7 +45,6 @@ export function useGraphRealtime({
             const ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
-                console.log('[useGraphRealtime] Connected to', wsUrl);
                 setIsConnected(true);
                 onConnect?.();
             };
@@ -61,36 +52,31 @@ export function useGraphRealtime({
             ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data) as GraphChangeEvent;
-                    console.log('[useGraphRealtime] Received event:', data);
                     setLastEvent(data);
                     onChangeEvent?.(data);
-                } catch (e) {
-                    console.error('[useGraphRealtime] Failed to parse message:', e);
+                } catch {
+                    onError?.(event as unknown as Event);
                 }
             };
 
             ws.onclose = () => {
-                console.log('[useGraphRealtime] Disconnected');
                 setIsConnected(false);
                 onDisconnect?.();
 
-                // Attempt to reconnect after 5 seconds
                 if (enabled) {
                     reconnectTimeoutRef.current = setTimeout(() => {
-                        console.log('[useGraphRealtime] Attempting to reconnect...');
                         connect();
                     }, 5000);
                 }
             };
 
             ws.onerror = (error) => {
-                console.error('[useGraphRealtime] WebSocket error:', error);
                 onError?.(error);
             };
 
             wsRef.current = ws;
-        } catch (e) {
-            console.error('[useGraphRealtime] Failed to connect:', e);
+        } catch {
+            onError?.(new Event('error'));
         }
     }, [workspaceId, enabled, onChangeEvent, onConnect, onDisconnect, onError]);
 
@@ -108,7 +94,6 @@ export function useGraphRealtime({
         setIsConnected(false);
     }, []);
 
-    // Connect on mount, disconnect on unmount
     useEffect(() => {
         if (enabled && workspaceId) {
             connect();

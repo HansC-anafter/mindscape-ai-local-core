@@ -1,23 +1,10 @@
 'use client';
 
-/**
- * MindscapeCanvas - React Flow-based canvas for visualizing mindscape graph
- *
- * This component renders the derived graph + overlay using React Flow's
- * node-based graph capabilities.
- *
- * React Flow is MIT licensed.
- */
-
-import React, { useEffect, useMemo, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useMindscapeGraph, MindscapeNode, MindscapeEdge } from '@/lib/mindscape-graph-api';
 import { usePendingChanges } from '@/lib/graph-changelog-api';
 import { t } from '@/lib/i18n';
-
-// ============================================================================
-// Dynamic Import for React Flow (SSR-safe)
-// ============================================================================
 
 const ReactFlowCanvas = dynamic(
     () => import('./ReactFlowCanvas'),
@@ -26,10 +13,6 @@ const ReactFlowCanvas = dynamic(
         loading: () => <CanvasLoading />,
     }
 );
-
-// ============================================================================
-// Helper Components
-// ============================================================================
 
 function CanvasLoading() {
     return (
@@ -46,7 +29,7 @@ function CanvasError({ message }: { message: string }) {
     return (
         <div className="w-full h-full bg-red-50 rounded-lg flex items-center justify-center">
             <div className="text-center">
-                <div className="text-4xl mb-2">⚠️</div>
+                <div className="text-sm font-semibold mb-2">Warning</div>
                 <span className="text-red-600">{message}</span>
             </div>
         </div>
@@ -57,7 +40,7 @@ function CanvasEmpty() {
     return (
         <div className="w-full h-full bg-gray-50 rounded-lg flex flex-col items-center justify-center border-2 border-dashed border-gray-300">
             <div className="text-center max-w-md px-4">
-                <div className="text-6xl mb-4">🧠</div>
+                <div className="text-sm font-semibold text-gray-500 mb-4">Graph</div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">
                     {t('mindscapeEmptyTitle' as any) || 'No Mindscape Graph'}
                 </h3>
@@ -68,10 +51,6 @@ function CanvasEmpty() {
         </div>
     );
 }
-
-// ============================================================================
-// Main Canvas Component
-// ============================================================================
 
 interface MindscapeCanvasProps {
     workspaceId: string;
@@ -88,13 +67,12 @@ export default function MindscapeCanvas({
     onNodeContextMenu,
     className = '',
 }: MindscapeCanvasProps) {
-    const { graph, overlay, isLoading, error } = useMindscapeGraph({ workspaceId, workspaceGroupId });
+    const { graph, isLoading, error } = useMindscapeGraph({ workspaceId, workspaceGroupId });
     const { pendingChanges } = usePendingChanges({ workspaceId });
 
     const nodes = graph?.nodes ?? [];
     const edges = graph?.edges ?? [];
 
-    // Calculate pending node IDs
     const pendingNodeIds = useMemo(() => {
         const ids = new Set<string>();
         pendingChanges.forEach(change => {
@@ -105,17 +83,14 @@ export default function MindscapeCanvas({
         return ids;
     }, [pendingChanges]);
 
-    // Loading state
     if (isLoading) {
         return <CanvasLoading />;
     }
 
-    // Error state
     if (error) {
         return <CanvasError message={error} />;
     }
 
-    // Empty state
     if (nodes.length === 0) {
         return <CanvasEmpty />;
     }
@@ -132,4 +107,3 @@ export default function MindscapeCanvas({
         </div>
     );
 }
-

@@ -35,33 +35,30 @@ export function MindscapeChatPanel({
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // 根据模式生成预设提示
   const getPresetPrompts = (): string[] => {
     if (mode === 'mirror') {
       return [
-        '總結目前這個 Preset 的核心氣質，用三句話形容。',
-        '這顆節點有哪些具體例子？',
-        '從最近 10 個 Workspace 看，你覺得有哪顆節點實際影響最大？',
+        'Summarize the current preset in three sentences.',
+        'Show concrete examples for this node.',
+        'Which node had the strongest impact across recent workspaces?',
       ];
     } else if (mode === 'experiment') {
       return [
-        '如果我把「深度工作」關掉、改成「快速試錯」，請幫我用新的 Lens 重寫這篇 IG caption 看看。',
-        '幫我開一個「更狠一點」的版本，把合作對象容忍度降 20%。',
+        'Rewrite this caption with deep work off and rapid iteration emphasized.',
+        'Create a stricter version with lower partner tolerance.',
       ];
     } else {
       return [
-        '顯示這次實驗的變更摘要',
-        '將變更套用到 Workspace',
+        'Show the experiment change summary.',
+        'Apply these changes to the workspace.',
       ];
     }
   };
 
-  // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 发送消息
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -73,11 +70,10 @@ export function MindscapeChatPanel({
     };
 
     setMessages(prev => [...prev, userMessage]);
-    setInput('' as any);
+    setInput('');
     setIsLoading(true);
 
     try {
-      // 调用后端 API
       const response = await fetch(`${getApiBaseUrl()}/api/v1/mindscape/lens/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -100,17 +96,16 @@ export function MindscapeChatPanel({
       const assistantMessage: ChatMessage = {
         id: `msg-${Date.now()}-assistant`,
         role: 'assistant',
-        content: data.response || data.message || '無回應',
+        content: data.response || data.message || 'No response',
         timestamp: Date.now(),
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('Failed to send message:', error);
+    } catch {
       const errorMessage: ChatMessage = {
         id: `msg-${Date.now()}-error`,
         role: 'assistant',
-        content: '抱歉，發送訊息時發生錯誤。',
+        content: 'Failed to send the message.',
         timestamp: Date.now(),
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -119,21 +114,19 @@ export function MindscapeChatPanel({
     }
   };
 
-  // 使用预设提示
   const handlePresetPrompt = (prompt: string) => {
     setInput(prompt);
   };
 
   return (
     <div className="flex flex-col h-full">
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
           <div className="text-center py-8 text-sm text-gray-500">
             <div className="mb-4">
-              {mode === 'mirror' && '🪞 看見自己'}
-              {mode === 'experiment' && '🎚 調色實驗'}
-              {mode === 'writeback' && '📦 寫回 Workspace'}
+              {mode === 'mirror' && 'Mirror Mode'}
+              {mode === 'experiment' && 'Experiment Mode'}
+              {mode === 'writeback' && 'Writeback Mode'}
             </div>
             <div className="space-y-2">
               {getPresetPrompts().map((prompt, idx) => (
@@ -169,7 +162,7 @@ export function MindscapeChatPanel({
         {isLoading && (
           <div className="flex justify-start">
             <div className="bg-gray-100 rounded-lg px-3 py-2 text-sm text-gray-500">
-              思考中...
+              Thinking...
             </div>
           </div>
         )}
@@ -177,7 +170,6 @@ export function MindscapeChatPanel({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       <div className="p-4 border-t border-gray-200">
         <div className="flex space-x-2">
           <textarea
@@ -191,7 +183,7 @@ export function MindscapeChatPanel({
             }}
             className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             rows={2}
-            placeholder="輸入訊息..."
+            placeholder="Enter a message..."
             disabled={isLoading}
           />
           <button
@@ -199,11 +191,10 @@ export function MindscapeChatPanel({
             disabled={isLoading || !input.trim()}
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
           >
-            發送
+            Send
           </button>
         </div>
       </div>
     </div>
   );
 }
-
