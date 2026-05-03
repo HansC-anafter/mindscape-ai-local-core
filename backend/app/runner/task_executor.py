@@ -274,6 +274,23 @@ async def _park_task_after_intent_resolution(
         await redis_queue.ack_task(latest.id)
 
 
+async def _release_task_locks(
+    redis_queue: Optional[RedisRunnerQueueStore],
+    lock_keys: list[str],
+    lock_owner_id: str,
+) -> None:
+    if not redis_queue or not lock_keys:
+        return
+    for held_key in lock_keys:
+        try:
+            await redis_queue.release_lock(
+                lock_key=held_key,
+                owner_id=lock_owner_id,
+            )
+        except Exception:
+            pass
+
+
 def _get_task_control_signal(task: Optional[Task]) -> Optional[Dict[str, str]]:
     """Return a runner control signal derived from task status/context."""
     if not task:
@@ -612,7 +629,11 @@ async def _mark_task_succeeded(
 
 
 async def _run_single_task(
-    tasks_store: TasksStore, runner_id: str, task_id: str, redis_queue: Optional[RedisRunnerQueueStore] = None
+    tasks_store: TasksStore,
+    runner_id: str,
+    task_id: str,
+    redis_queue: Optional[RedisRunnerQueueStore] = None,
+    lock_owner_id: Optional[str] = None,
 ) -> None:
     task = tasks_store.get_task(task_id)
     if not task:
@@ -630,6 +651,7 @@ async def _run_single_task(
 
     ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
     lock_keys = _resolve_lock_keys(ctx, task.pack_id)
+    lock_owner_id = lock_owner_id or runner_id
     lock_ttl_seconds = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
     stop_event = threading.Event()
     hb_thread: Optional[threading.Thread] = None
@@ -675,8 +697,7 @@ async def _run_single_task(
                 redis_queue,
             )
         finally:
-            # lock release is handled by the outer finally block
-            pass
+            await _release_task_locks(redis_queue, lock_keys, lock_owner_id)
         return
 
     resolved_profile_id = (
@@ -821,7 +842,7 @@ async def _run_single_task(
                         fut = asyncio.run_coroutine_threadsafe(
                             redis_queue.renew_lock(
                                 lock_key=held_key,
-                                owner_id=runner_id,
+                                owner_id=lock_owner_id,
                                 ttl_seconds=lock_ttl_seconds,
                             ),
                             main_loop,
@@ -1101,9 +1122,4 @@ async def _run_single_task(
         # Release lock
         ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
         lock_keys = _resolve_lock_keys(ctx, task.pack_id)
-        if redis_queue and lock_keys:
-            for held_key in lock_keys:
-                try:
-                    await redis_queue.release_lock(lock_key=held_key, owner_id=runner_id)
-                except Exception:
-                    pass
+        await _release_task_locks(redis_queue, lock_keys, lock_owner_id)

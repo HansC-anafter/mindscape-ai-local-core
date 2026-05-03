@@ -102,7 +102,7 @@ __all__ = [
 
 
 async def _reset_orphaned_running_tasks(
-    tasks_store: TasksStore, current_runner_id: str
+    tasks_store: TasksStore, current_runner_id: str, runner_profile
 ) -> set[str]:
     """Reset running tasks from dead runners back to PENDING on startup.
 
@@ -112,6 +112,25 @@ async def _reset_orphaned_running_tasks(
     """
     reset_task_ids: set[str] = set()
     try:
+        active_runner_ids: set[str] = {current_runner_id}
+        try:
+            heartbeat_max_age = _env_int(
+                "LOCAL_CORE_RUNNER_ORPHAN_HEARTBEAT_MAX_AGE_SECONDS",
+                120,
+            )
+            heartbeats = await asyncio.to_thread(
+                tasks_store.list_runner_heartbeats,
+                max_age_seconds=heartbeat_max_age,
+                limit=500,
+            )
+            active_runner_ids.update(
+                str(row.get("runner_id") or "").strip()
+                for row in heartbeats
+                if str(row.get("runner_id") or "").strip()
+            )
+        except Exception:
+            pass
+
         running = await asyncio.to_thread(
             tasks_store.list_running_playbook_execution_tasks,
             workspace_id=None, limit=500,
@@ -120,7 +139,12 @@ async def _reset_orphaned_running_tasks(
         for t in running:
             ctx = t.execution_context if isinstance(t.execution_context, dict) else {}
             old_runner = ctx.get("runner_id")
-            if old_runner and old_runner != current_runner_id:
+            if (
+                old_runner
+                and old_runner != current_runner_id
+                and old_runner not in active_runner_ids
+                and runner_profile_can_claim_task(runner_profile, t)
+            ):
                 ctx2 = dict(ctx)
                 ctx2.pop("runner_id", None)
                 ctx2.pop("heartbeat_at", None)
@@ -394,19 +418,41 @@ def _build_parked_task_update(
 
 
 async def _cleanup_stale_locks(
-    redis_queue: RedisRunnerQueueStore, current_runner_id: str
+    redis_queue: RedisRunnerQueueStore,
+    current_runner_id: str,
+    tasks_store: TasksStore,
 ) -> None:
-    """Delete any concurrency locks not owned by the current runner.
+    """Delete concurrency locks owned by runners with stale heartbeats.
 
-    On restart, the previous runner's locks are stale (it's dead).
-    We force-delete them so tasks aren't permanently blocked.
+    Lock owners may be either runner_id or runner_id:task_id. A live peer runner
+    must keep its locks across another runner's startup.
     """
     try:
         client = await redis_queue._get_client()
         if not client:
             return
 
-        # Scan for all lock keys
+        heartbeat_max_age = _env_int(
+            "LOCAL_CORE_RUNNER_ORPHAN_HEARTBEAT_MAX_AGE_SECONDS",
+            120,
+        )
+        try:
+            heartbeats = await asyncio.to_thread(
+                tasks_store.list_runner_heartbeats,
+                max_age_seconds=heartbeat_max_age,
+                limit=500,
+            )
+        except Exception as e:
+            logger.warning(f"[Startup] Failed to load runner heartbeats for lock cleanup: {e}")
+            return
+
+        active_runner_ids: set[str] = {current_runner_id}
+        active_runner_ids.update(
+            str(row.get("runner_id") or "").strip()
+            for row in heartbeats
+            if str(row.get("runner_id") or "").strip()
+        )
+
         cleaned = 0
         for pattern in ["concurrency:*", "ig_profile:*"]:
             keys = []
@@ -414,11 +460,17 @@ async def _cleanup_stale_locks(
                 keys.append(key)
             for key in keys:
                 owner = await client.get(key)
-                if owner and owner != current_runner_id:
+                owner_text = (
+                    owner.decode("utf-8", errors="ignore")
+                    if isinstance(owner, bytes)
+                    else str(owner or "")
+                ).strip()
+                owner_runner_id = owner_text.split(":", 1)[0].strip()
+                if owner_runner_id and owner_runner_id not in active_runner_ids:
                     await client.delete(key)
                     cleaned += 1
                     logger.info(
-                        f"[Startup] Cleaned stale lock {key} (owner={owner}, current={current_runner_id})"
+                        f"[Startup] Cleaned stale lock {key} (owner={owner_text}, current={current_runner_id})"
                     )
         if cleaned:
             logger.info(f"[Startup] Cleaned {cleaned} stale lock(s)")
@@ -437,6 +489,7 @@ async def _run_maintenance_cycle(
 ) -> None:
     """Keep the ready frontier warm even when the dequeue loop is idle."""
     _reap_stale_running_tasks(tasks_store, runner_id=runner_id, redis_queue=redis_queue)
+    await _cleanup_stale_locks(redis_queue, runner_id, tasks_store)
     _request_watchdog_abort_for_no_progress_tasks(
         tasks_store,
         watcher_id=f"runner_maintenance:{runner_id}",
@@ -531,7 +584,9 @@ async def run_forever() -> None:
         pass
 
     # ── Startup: reset running tasks from dead runners ──
-    reset_task_ids = await _reset_orphaned_running_tasks(tasks_store, runner_id)
+    reset_task_ids = await _reset_orphaned_running_tasks(
+        tasks_store, runner_id, runner_profile
+    )
     if reset_task_ids:
         await _purge_task_ids_from_transport(reset_task_ids, queue_cycle)
 
@@ -539,7 +594,7 @@ async def run_forever() -> None:
     await _backfill_pending_to_redis(tasks_store, ready_queues)
 
     # ── Startup lock cleanup: remove locks from dead runner instances ──
-    await _cleanup_stale_locks(redis_queue, runner_id)
+    await _cleanup_stale_locks(redis_queue, runner_id, tasks_store)
 
     inflight: set[asyncio.Task] = set()
     reap_interval_seconds = _env_int("LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS", 60)
@@ -765,12 +820,13 @@ async def run_forever() -> None:
             # ── 2. Lock BEFORE Claim ──
             lock_key = _resolve_lock_key(lock_ctx, t_data.pack_id)
             lock_keys = _resolve_lock_keys(lock_ctx, t_data.pack_id)
+            lock_owner_id = f"{runner_id}:{task_id}"
             if lock_keys:
                 acquired_keys: list[str] = []
                 conflicting_key: Optional[str] = None
                 for candidate_key in lock_keys:
                     acquired = await redis_queue.acquire_lock(
-                        candidate_key, runner_id, ttl_seconds=120
+                        candidate_key, lock_owner_id, ttl_seconds=120
                     )
                     if not acquired:
                         conflicting_key = candidate_key
@@ -780,7 +836,7 @@ async def run_forever() -> None:
                 if conflicting_key:
                     for acquired_key in reversed(acquired_keys):
                         try:
-                            await redis_queue.release_lock(acquired_key, runner_id)
+                            await redis_queue.release_lock(acquired_key, lock_owner_id)
                         except Exception:
                             pass
                     parked_update = _build_parked_task_update(
@@ -813,7 +869,7 @@ async def run_forever() -> None:
                 )
                 for held_key in lock_keys:
                     try:
-                        await redis_queue.release_lock(held_key, runner_id)
+                        await redis_queue.release_lock(held_key, lock_owner_id)
                     except Exception:
                         pass
                 await task_queue.ack_task(task_id)
@@ -825,6 +881,7 @@ async def run_forever() -> None:
                 runner_id,
                 t_data.id,
                 redis_queue=task_queue,
+                lock_owner_id=lock_owner_id,
             )
             inflight.add(asyncio.create_task(task_coro))
 
