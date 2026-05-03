@@ -6,41 +6,31 @@ This page describes the released public architecture scope for the current repos
 
 ## Retrieval Corpus
 
-The retrieval corpus contains local tool entries and playbook entries. Tool entries are collected from the tool list service. Playbook entries are collected from the playbook service and can include affordance metadata when a playbook declares what it consumes.
+The retrieval corpus contains local tool entries and playbook entries collected from Local Core host services.
 
-Each corpus entry has a stable tool or playbook identifier, display name, description, category, optional capability identifier, and optional affordance metadata. The retrieval layer treats playbooks as indexable execution options, but it does not expose their private implementation details as part of this public contract.
+Each corpus entry carries host-visible identity, description, category, and optional affordance metadata. The retrieval layer treats playbooks as indexable execution options, but it does not expose private playbook implementation details as part of this public contract.
 
 ## Embedding Store
 
 Tool retrieval uses a PostgreSQL pgvector-backed embedding store for local tool and playbook discovery.
 
-Indexed entries can carry:
-
-- tool or playbook identifier
-- display name and description
-- category
-- capability identifier
-- embedding model metadata
-- affordance metadata
-- lexical search metadata
-
-Lexical metadata supports keyword search alongside vector similarity. Affordance metadata lets retrieval find playbooks by declared resource needs when the caller has structured asset types instead of only a natural language query.
+Indexed entries can carry bounded identity, description, category, model, lexical, and affordance metadata. Lexical metadata supports keyword search alongside vector similarity. Affordance metadata lets retrieval find playbooks by declared resource needs when the caller has structured asset types instead of only a natural language query.
 
 ## Model Selection and Indexing
 
-The active embedding model is resolved from local system settings, environment overrides, discovered local embedding models, and configured fallback settings.
+The active embedding model is resolved from local configuration and available runtime settings.
 
-At post-ready startup, Local Core can warm the shared retrieval corpus after the API is ready. The warm-up path ensures the embedding store exists, checks for stale or missing rows, and refreshes only the stale retrieval data.
+After the API is ready, Local Core can warm the shared retrieval corpus and refresh stale retrieval data.
 
 This keeps tool retrieval out of the API bind path while still allowing the retrieval corpus to refresh after local capabilities or playbooks change.
 
 ## Retrieval Path
 
-The primary retrieval helper accepts a query, a result limit, and an optional workspace ID. It uses a short process-level cache keyed by normalized query, workspace ID, and result limit to avoid repeated embedding calls within a turn.
+The primary retrieval helper accepts a query, a result limit, and optional workspace context. It can use short-lived caching to avoid repeated retrieval work within a turn.
 
-On a cache miss, retrieval combines vector similarity with PostgreSQL lexical search and falls back to the available indexed model set. The search path is an implementation detail; the public contract is that callers receive bounded, ranked local tool or playbook candidates.
+Retrieval can combine vector similarity, lexical search, and indexed model fallback. The search path is an implementation detail; the public contract is that callers receive bounded, ranked local tool or playbook candidates.
 
-The retrieval status is reported as hit, miss, or error. Callers are expected to fall back to bounded defaults or installed manifest scans when retrieval misses or errors.
+Callers are expected to fall back to bounded defaults or installed manifest scans when retrieval misses or errors.
 
 ## Workspace Resource Bindings
 
@@ -66,7 +56,7 @@ During action extraction, the meeting layer can re-query retrieval for action it
 
 The filtered tool API can use a task hint to retrieve semantically relevant tools and combine them with safe default tools. On retrieval miss or retrieval error, it fails open to safe defaults and optional recommended capability tools instead of returning an empty tool set.
 
-The dedicated retrieval endpoint returns matched tool identifiers, matched capability identifiers, status, and match count. It is a discovery and filtering aid, not an execution endpoint.
+The dedicated retrieval endpoint is a discovery and filtering aid, not an execution endpoint.
 
 ## Public Boundary
 
