@@ -6,8 +6,6 @@ Create Date: 2025-12-03
 
 Adds execution_mode, expected_artifacts, and execution_priority columns
 to workspaces table for Workspace Execution Mode feature.
-
-See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
 """
 from typing import Sequence, Union
 
@@ -66,4 +64,3 @@ def downgrade() -> None:
     Note: SQLite doesn't support DROP COLUMN, so this is a no-op
     """
     pass
-

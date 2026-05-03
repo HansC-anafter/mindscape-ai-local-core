@@ -80,22 +80,17 @@ Please output the extraction result in JSON format."""
             user_prompt=user_prompt
         )
 
-        # Get conversation model from system settings (same as generate.py)
-        from ....services.system_settings_store import SystemSettingsStore
-        settings_store = SystemSettingsStore()
-        chat_setting = settings_store.get_setting("chat_model")
+        from ....shared.llm_provider_helper import get_model_name_from_chat_model
 
-        model_to_use = None
-        if chat_setting and chat_setting.value:
-            model_to_use = str(chat_setting.value)
+        model_to_use = get_model_name_from_chat_model()
 
         # Call LLM
         result = await call_llm(
             messages=messages,
             llm_provider=llm_provider,
             model=model_to_use,
-            temperature=0.3,  # Use lower temperature for structured extraction
-            max_tokens=8192  # Allow full schema output; capped again in provider
+            temperature=0.3,
+            max_tokens=8192,
         )
 
         # Extract JSON from response

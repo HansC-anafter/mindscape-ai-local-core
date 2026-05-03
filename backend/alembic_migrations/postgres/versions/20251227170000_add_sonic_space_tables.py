@@ -6,9 +6,7 @@ Create Date: 2025-12-27 17:00:00
 
 Adds all Sonic Space database tables for audio assets, licenses, segments, embeddings,
 intent cards, candidate sets, decision traces, bookmarks, sound kits, perceptual axes, and export audit.
-
 This migration creates the complete database schema for the Sonic Space capability.
-See: docs-internal/implementation/database-orm-implementation-complete-2025-12-27.md
 """
 from typing import Sequence, Union
 
@@ -331,4 +329,3 @@ def downgrade() -> None:
     op.drop_table('sonic_segments')
     op.drop_table('sonic_license_cards')
     op.drop_table('sonic_audio_assets')
-

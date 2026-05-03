@@ -32,10 +32,10 @@ BUILT_IN_RUNTIME_ENVIRONMENTS = [
         },
     },
     {
-        "id": "mindscape-ai-cloud-3d-mesh",
-        "name": "Mindscape AI Cloud 3D Mesh",
+        "id": "blender-bridge-mesh",
+        "name": "Blender Bridge Mesh Runtime",
         "description": "Configure modeled scene/person mesh runtime lanes for Blender Bridge without editing .env",
-        "icon": "🧊",
+        "icon": "box",
         "status": "not_configured",
         "is_default": False,
         "isDefault": False,
@@ -44,7 +44,7 @@ BUILT_IN_RUNTIME_ENVIRONMENTS = [
         "supports_dispatch": True,
         "supports_cell": True,
         "metadata": {
-            "runtime_type": "mindscape_ai_cloud_3d_mesh",
+            "runtime_type": "blender_bridge_mesh",
             "capability_code": "blender_bridge",
             "scope": "system",
         },

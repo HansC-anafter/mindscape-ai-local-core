@@ -36,7 +36,7 @@ class GitHubOAuthManager:
         # Load configuration from environment variables
         self.client_id = os.getenv("GITHUB_CLIENT_ID")
         self.client_secret = os.getenv("GITHUB_CLIENT_SECRET")
-        # 从端口配置服务获取后端 URL
+        # Resolve the backend URL from port configuration.
         try:
             from ....services.port_config_service import port_config_service
             import os
@@ -49,15 +49,13 @@ class GitHubOAuthManager:
                 environment=current_env,
                 site=current_site
             )
-            self.redirect_uri = os.getenv(
-                "GITHUB_REDIRECT_URI",
-                f"{backend_url}/api/v1/tools/github/oauth/callback"
-            )
+            default_redirect_uri = f"{backend_url}/api/v1/tools/github/oauth/callback"
         except Exception:
-            # 回退到环境变量或默认值
+            # Fall back to the local default.
+            default_redirect_uri = "http://localhost:8200/api/v1/tools/github/oauth/callback"
         self.redirect_uri = os.getenv(
             "GITHUB_REDIRECT_URI",
-                "http://localhost:8200/api/v1/tools/github/oauth/callback"
+            default_redirect_uri
         )
 
         # OAuth state storage (in-memory, expires after 10 minutes)
@@ -228,4 +226,3 @@ class GitHubOAuthManager:
 def get_github_oauth_manager(data_dir: str = "./data") -> GitHubOAuthManager:
     """Get GitHub OAuth manager instance"""
     return GitHubOAuthManager(data_dir=data_dir)
-

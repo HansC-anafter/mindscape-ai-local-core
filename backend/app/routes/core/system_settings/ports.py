@@ -1,5 +1,5 @@
 """
-端口配置 API
+Port configuration API.
 """
 from fastapi import APIRouter, HTTPException, Query
 from typing import Dict, Any, Optional
@@ -14,17 +14,17 @@ router = APIRouter(prefix="/ports", tags=["ports"])
 
 @router.get("/", response_model=PortConfig)
 async def get_port_config(
-    cluster: Optional[str] = Query(None, description="集群标识"),
-    environment: Optional[str] = Query(None, description="环境标识"),
-    site: Optional[str] = Query(None, description="站点标识")
+    cluster: Optional[str] = Query(None, description="Cluster identifier"),
+    environment: Optional[str] = Query(None, description="Environment identifier"),
+    site: Optional[str] = Query(None, description="Site identifier")
 ):
     """
-    获取端口配置
+    Get port configuration.
 
     Args:
-        cluster: 集群标识（可选）
-        environment: 环境标识（可选）
-        site: 站点标识（可选）
+        cluster: Optional cluster identifier.
+        environment: Optional environment identifier.
+        site: Optional site identifier.
     """
     try:
         return port_config_service.get_port_config(
@@ -33,44 +33,44 @@ async def get_port_config(
             site=site
         )
     except Exception as e:
-        logger.error(f"获取端口配置失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"获取端口配置失败: {str(e)}")
+        logger.error(f"Failed to get port configuration: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get port configuration: {str(e)}")
 
 
 @router.put("/", response_model=Dict[str, Any])
 async def update_port_config(
     config: PortConfig,
-    auto_apply: bool = Query(False, description="是否自动应用变更（更新 docker-compose/Ingress）"),
-    auto_restart: bool = Query(False, description="是否自动重启服务（需要 auto_apply=True）")
+    auto_apply: bool = Query(False, description="Automatically apply changes to docker-compose or Ingress"),
+    auto_restart: bool = Query(False, description="Automatically restart services; requires auto_apply=True")
 ):
     """
-    更新端口配置
+    Update port configuration.
 
     Args:
-        config: 端口配置
-        auto_apply: 是否自动应用变更（更新 docker-compose/Ingress）
-        auto_restart: 是否自动重启服务（需要 auto_apply=True）
+        config: Port configuration.
+        auto_apply: Whether to apply changes to docker-compose or Ingress.
+        auto_restart: Whether to restart services; requires auto_apply=True.
     """
     try:
-        # 验证端口冲突
+        # Validate port conflicts.
         is_valid, conflicts = port_config_service.validate_port_conflict(config)
         if not is_valid:
             raise HTTPException(
                 status_code=400,
                 detail={
-                    "error": "端口配置冲突",
+                    "error": "Port configuration conflict",
                     "conflicts": conflicts
                 }
             )
 
-        # 更新配置
+        # Update configuration.
         success, message = port_config_service.update_port_config(config)
         if not success:
-            raise HTTPException(status_code=500, detail=message or "更新端口配置失败")
+            raise HTTPException(status_code=500, detail=message or "Failed to update port configuration")
 
         result = {
             "success": True,
-            "message": message or "端口配置已更新",
+            "message": message or "Port configuration updated",
             "config": port_config_service.get_port_config(
                 cluster=config.cluster,
                 environment=config.environment,
@@ -78,7 +78,7 @@ async def update_port_config(
             ).model_dump()
         }
 
-        # 如果启用自动应用
+        # Apply orchestration changes if requested.
         if auto_apply:
             try:
                 from backend.app.services.service_orchestration_service import service_orchestration_service
@@ -90,20 +90,20 @@ async def update_port_config(
                 )
                 result["orchestration"] = orchestration_results
             except Exception as e:
-                logger.warning(f"自动应用端口变更失败: {e}", exc_info=True)
-                result["orchestration"] = {"error": f"自动应用失败: {str(e)}"}
+                logger.warning(f"Failed to auto-apply port changes: {e}", exc_info=True)
+                result["orchestration"] = {"error": f"Auto-apply failed: {str(e)}"}
 
         return result
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"更新端口配置失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"更新端口配置失败: {str(e)}")
+        logger.error(f"Failed to update port configuration: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update port configuration: {str(e)}")
 
 
 @router.post("/validate", response_model=Dict[str, Any])
 async def validate_port_config(config: PortConfig):
-    """验证端口配置（检查冲突）"""
+    """Validate port configuration and check for conflicts."""
     try:
         is_valid, conflicts = port_config_service.validate_port_conflict(config)
         return {
@@ -111,25 +111,25 @@ async def validate_port_config(config: PortConfig):
             "conflicts": conflicts
         }
     except Exception as e:
-        logger.error(f"验证端口配置失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"验证端口配置失败: {str(e)}")
+        logger.error(f"Failed to validate port configuration: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to validate port configuration: {str(e)}")
 
 
 @router.get("/urls", response_model=ServiceURLConfig)
 async def get_service_urls(
-    cluster: Optional[str] = Query(None, description="集群标识"),
-    environment: Optional[str] = Query(None, description="环境标识"),
-    site: Optional[str] = Query(None, description="站点标识"),
-    protocol: str = Query("http", description="协议")
+    cluster: Optional[str] = Query(None, description="Cluster identifier"),
+    environment: Optional[str] = Query(None, description="Environment identifier"),
+    site: Optional[str] = Query(None, description="Site identifier"),
+    protocol: str = Query("http", description="Protocol")
 ):
     """
-    获取所有服务 URL（自动从配置读取主机名）
+    Get service URLs using the hostnames from configuration.
 
     Args:
-        cluster: 集群标识（可选）
-        environment: 环境标识（可选）
-        site: 站点标识（可选）
-        protocol: 协议 (默认: http)
+        cluster: Optional cluster identifier.
+        environment: Optional environment identifier.
+        site: Optional site identifier.
+        protocol: Protocol. Defaults to http.
     """
     try:
         return port_config_service.get_all_service_urls(
@@ -139,6 +139,5 @@ async def get_service_urls(
             protocol=protocol
         )
     except Exception as e:
-        logger.error(f"获取服务 URL 失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"获取服务 URL 失败: {str(e)}")
-
+        logger.error(f"Failed to get service URLs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get service URLs: {str(e)}")

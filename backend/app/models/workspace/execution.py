@@ -84,7 +84,6 @@ class ExecutionPlan(BaseModel):
     - Provides structured reasoning for debugging and replay
     - Can be recorded as EXECUTION_PLAN MindEvent for traceability
 
-    See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
     """
 
     id: str = Field(

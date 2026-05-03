@@ -24,8 +24,8 @@ router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 _BUILT_IN_RUNTIME_CODES = {
     "local-core",
     "local_core",
-    "mindscape-ai-cloud-3d-mesh",
-    "mindscape_ai_cloud_3d_mesh",
+    "blender-bridge-mesh",
+    "blender_bridge_mesh",
     "blender_bridge",
 }
 

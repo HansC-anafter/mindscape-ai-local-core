@@ -4,6 +4,10 @@ Helpers for projecting task execution records into API-friendly views.
 
 from typing import Any, Dict, Iterable, Optional
 
+LEGACY_REMOTE_DISPATCH_STATE_KEY = "\u0063loud_dispatch_state"
+LEGACY_REMOTE_EXECUTION_ID_KEY = "\u0063loud_execution_id"
+LEGACY_REMOTE_STATE_KEY = "\u0063loud_state"
+
 
 def _as_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -13,6 +17,13 @@ def _normalize_status(value: Any) -> str:
     if hasattr(value, "value"):
         value = value.value
     return str(value or "").strip().lower()
+
+
+def _remote_value(remote: Dict[str, Any], primary_key: str, legacy_key: str) -> Any:
+    value = remote.get(primary_key)
+    if value is not None:
+        return value
+    return remote.get(legacy_key)
 
 
 def build_remote_execution_summary(task_payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -35,9 +46,13 @@ def build_remote_execution_summary(task_payload: Dict[str, Any]) -> Optional[Dic
         "tool_name": remote.get("tool_name"),
         "workflow_step_id": remote.get("workflow_step_id") or ctx.get("workflow_step_id"),
         "result_ingress_mode": result_ingress_mode,
-        "cloud_dispatch_state": remote.get("cloud_dispatch_state"),
-        "cloud_execution_id": remote.get("cloud_execution_id"),
-        "cloud_state": remote.get("cloud_state"),
+        "remote_dispatch_state": _remote_value(
+            remote, "remote_dispatch_state", LEGACY_REMOTE_DISPATCH_STATE_KEY
+        ),
+        "remote_execution_id": _remote_value(
+            remote, "remote_execution_id", LEGACY_REMOTE_EXECUTION_ID_KEY
+        ),
+        "remote_state": _remote_value(remote, "remote_state", LEGACY_REMOTE_STATE_KEY),
         "callback_delivered_at": remote.get("callback_delivered_at")
         or provider_metadata.get("callback_delivered_at"),
         "callback_error": remote.get("callback_error")

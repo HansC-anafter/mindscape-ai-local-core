@@ -75,7 +75,7 @@ async def resend_remote_workflow_step_child_task(
 ) -> Dict[str, Any]:
     replay = extract_remote_step_resend_payload(task, workspace_id=workspace_id)
     if connector is None:
-        raise ValueError("Cloud Connector not available for remote step resend")
+        raise ValueError("Execution control connector not available for remote step resend")
 
     new_execution_id = str(uuid.uuid4())
     trace_id = replay["trace_id"]
@@ -124,7 +124,7 @@ async def resend_remote_workflow_step_child_task(
     child_tasks_store.update_task(task.id, execution_context=original_ctx)
 
     try:
-        cloud_result = await connector.start_remote_execution(
+        remote_result = await connector.start_remote_execution(
             tenant_id=replay["tenant_id"],
             playbook_code=replay["playbook_code"] or replay["tool_name"],
             request_payload=request_payload,
@@ -139,7 +139,7 @@ async def resend_remote_workflow_step_child_task(
     except Exception as exc:
         failure_ctx = dict(child_task.execution_context or {})
         failure_remote = dict(failure_ctx.get("remote_execution") or {})
-        failure_remote["cloud_dispatch_state"] = "dispatch_failed"
+        failure_remote["remote_dispatch_state"] = "dispatch_failed"
         failure_remote["error"] = str(exc)
         failure_ctx["remote_execution"] = failure_remote
         child_tasks_store.update_task(child_task.id, execution_context=failure_ctx)
@@ -157,8 +157,8 @@ async def resend_remote_workflow_step_child_task(
 
     updated_ctx = dict(child_task.execution_context or {})
     updated_remote = dict(updated_ctx.get("remote_execution") or {})
-    updated_remote["cloud_dispatch_state"] = cloud_result.get("state", "pending")
-    updated_remote["cloud_execution_id"] = cloud_result.get("id") or new_execution_id
+    updated_remote["remote_dispatch_state"] = remote_result.get("state", "pending")
+    updated_remote["remote_execution_id"] = remote_result.get("id") or new_execution_id
     updated_ctx["remote_execution"] = updated_remote
     child_tasks_store.update_task(child_task.id, execution_context=updated_ctx)
 
@@ -172,6 +172,6 @@ async def resend_remote_workflow_step_child_task(
         "workflow_step_id": replay["workflow_step_id"],
         "tool_name": replay["tool_name"],
         "target_device_id": resolved_target_device_id,
-        "cloud_execution_id": cloud_result.get("id") or new_execution_id,
+        "remote_execution_id": remote_result.get("id") or new_execution_id,
         "lineage_root_execution_id": replay["lineage_root_execution_id"],
     }

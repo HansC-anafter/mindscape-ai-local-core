@@ -263,7 +263,7 @@ async def maybe_execute_tool_via_remote_route(
             try:
                 failure_ctx = dict(child_task.execution_context or {})
                 failure_remote_execution = dict(failure_ctx.get("remote_execution") or {})
-                failure_remote_execution["cloud_dispatch_state"] = "dispatch_failed"
+                failure_remote_execution["remote_dispatch_state"] = "dispatch_failed"
                 failure_remote_execution["error"] = str(exc)
                 failure_ctx["remote_execution"] = failure_remote_execution
                 child_tasks_store.update_task(
@@ -325,8 +325,8 @@ async def maybe_execute_tool_via_remote_route(
             capability_code=capability_code,
             playbook_code=str(route.get("playbook_code") or tool_name),
             provider_metadata={
-                "cloud_execution_id": child_execution_id,
-                "cloud_state": terminal_result.get("status"),
+                "remote_execution_id": child_execution_id,
+                "remote_state": terminal_result.get("status"),
                 "workflow_step_id": step_id,
                 "tool_name": tool_name,
                 "callback_delivered_at": terminal_result.get("callback_delivered_at"),

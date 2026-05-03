@@ -13,8 +13,6 @@ Adds graph tables for Mind-Lens Graph feature:
 - mind_lens_profiles: Lens profile configuration table
 - mind_lens_active_nodes: Bridge table for lens-active nodes
 - mind_lens_workspace_bindings: Bridge table for lens-workspace bindings
-
-See: docs-internal/implementation/mind-lens-graph-implementation-roadmap.md
 """
 from typing import Sequence, Union
 
@@ -173,5 +171,4 @@ def downgrade() -> None:
     op.drop_index('idx_graph_nodes_type', table_name='graph_nodes')
     op.drop_index('idx_graph_nodes_profile', table_name='graph_nodes')
     op.drop_table('graph_nodes')
-
 

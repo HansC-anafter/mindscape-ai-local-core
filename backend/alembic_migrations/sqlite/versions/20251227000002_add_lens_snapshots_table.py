@@ -5,9 +5,6 @@ Revises: 20251227000001
 Create Date: 2025-12-27
 
 Adds lens_snapshots and lens_receipts tables for Mind-Lens observability.
-
-This migration is part of Phase 2 of the Mind-Lens implementation roadmap.
-See: docs-internal/mind-lens/implementation/implementation-roadmap.md
 """
 from typing import Sequence, Union
 
@@ -68,4 +65,3 @@ def downgrade() -> None:
     op.drop_index('idx_lens_snapshots_profile', table_name='lens_snapshots')
     op.drop_index('idx_lens_snapshots_hash', table_name='lens_snapshots')
     op.drop_table('lens_snapshots')
-

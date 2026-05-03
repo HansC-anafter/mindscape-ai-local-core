@@ -41,8 +41,8 @@ def ensure_remote_workflow_step_child_shell(
     remote_execution = {
         "tenant_id": tenant_id,
         "trace_id": trace_id,
-        "cloud_dispatch_state": "queued",
-        "cloud_execution_id": child_execution_id,
+        "remote_dispatch_state": "queued",
+        "remote_execution_id": child_execution_id,
         "job_type": "tool",
         "capability_code": capability_code,
         "tool_name": tool_name,

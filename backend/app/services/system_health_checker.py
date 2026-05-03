@@ -471,7 +471,7 @@ class SystemHealthChecker:
         """Check backend API service health"""
         # If we're already in the backend service checking itself, just return healthy
         # to avoid infinite loop or unnecessary HTTP calls
-        # 从端口配置服务获取后端 URL
+        # Resolve the backend URL from port configuration.
         try:
             from .port_config_service import port_config_service
             import os

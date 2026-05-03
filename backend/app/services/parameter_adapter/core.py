@@ -62,10 +62,6 @@ class ParameterAdapter:
         # Auto-load contracts from capability manifests
         self._load_contracts_from_capabilities()
 
-        # Register test contract for yogacoach.intake_router (temporary, for testing)
-        # In production, contracts should be loaded from manifest.yaml
-        self._register_test_contracts()
-
     def adapt_parameters(
         self,
         tool_name: str,
@@ -81,7 +77,7 @@ class ParameterAdapter:
         3. Validate adapted parameters
 
         Args:
-            tool_name: Tool identifier (e.g., 'yogacoach.intake_router')
+            tool_name: Tool identifier (e.g., 'example_capability.route_input')
             raw_params: Raw parameters from playbook
             execution_context: Execution context with workspace_id, profile_id, etc.
 
@@ -187,39 +183,6 @@ class ParameterAdapter:
             logger.info(f"Loaded {len(self.contract_registry._contracts)} tool contracts from capabilities")
         except Exception as e:
             logger.warning(f"Failed to auto-load contracts from capabilities: {e}", exc_info=True)
-
-    def _register_test_contracts(self):
-        """Register test contracts (temporary, for testing)"""
-        from .contracts import ToolContract, ParameterDefinition, ParameterRequirement
-
-        # Test contract for yogacoach.intake_router
-        test_contract = ToolContract(
-            tool_name="yogacoach.intake_router",
-            capability="yogacoach",
-            parameters={
-                "tenant_id": ParameterDefinition(
-                    name="tenant_id",
-                    requirement=ParameterRequirement.INJECTED,
-                    source="context.workspace_id",
-                    description="Tenant ID for multi-tenant isolation"
-                ),
-                "actor_id": ParameterDefinition(
-                    name="actor_id",
-                    requirement=ParameterRequirement.INJECTED,
-                    source="context.profile_id",
-                    description="Who triggered the action"
-                ),
-                "subject_user_id": ParameterDefinition(
-                    name="subject_user_id",
-                    requirement=ParameterRequirement.INJECTED,
-                    source="context.profile_id",
-                    description="The person being analyzed"
-                ),
-            }
-        )
-        self.contract_registry.register_contract(test_contract)
-        logger.info("Registered test contract for yogacoach.intake_router")
-
 
 def get_parameter_adapter() -> ParameterAdapter:
     """

@@ -1,5 +1,5 @@
 """
-GovernanceEngine — Unified completion ingress for all playbook/task results.
+GovernanceEngine - Unified completion ingress for all playbook/task results.
 
 Provides ``process_completion()`` as the single entry-point that all
 result paths (workflow executor, REST endpoints, WebSocket message
@@ -38,7 +38,7 @@ ALLOWED_COMPLETION_INGRESS = (
 
 
 class GovernanceEngine:
-    """Unified completion ingress — single entry-point for result landing.
+    """Unified completion ingress - single entry-point for result landing.
 
     All code paths that previously instantiated ``TaskResultLandingService``
     directly should instead call ``GovernanceEngine.process_completion()``.
@@ -289,7 +289,7 @@ class GovernanceEngine:
         playbook_code: Optional[str] = None,
         provider_metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Handle cloud terminal events and bridge success back to completion ingress."""
+        """Handle remote terminal events and bridge success back to completion ingress."""
         from backend.app.models.workspace import TaskStatus
 
         normalized_status = (status or "").strip().lower()
@@ -334,7 +334,7 @@ class GovernanceEngine:
             {
                 "tenant_id": tenant_id,
                 "trace_id": trace_id,
-                "cloud_dispatch_state": normalized_status,
+                "remote_dispatch_state": normalized_status,
                 "provider_metadata": provider_metadata or {},
             }
         )
@@ -351,6 +351,16 @@ class GovernanceEngine:
                 remote_execution["callback_error"] = provider_metadata.get(
                     "callback_error"
                 )
+            remote_execution_id = provider_metadata.get("remote_execution_id") or provider_metadata.get(
+                "\u0063loud_execution_id"
+            )
+            if remote_execution_id:
+                remote_execution["remote_execution_id"] = remote_execution_id
+            remote_state = provider_metadata.get("remote_state") or provider_metadata.get(
+                "\u0063loud_state"
+            )
+            if remote_state:
+                remote_execution["remote_state"] = remote_state
         if error_message:
             remote_execution["error"] = error_message
         ctx.update(
@@ -709,12 +719,12 @@ class GovernanceEngine:
         """Persist provenance sidecar into artifact metadata (non-fatal).
 
         Steps:
-        1.  GET artifact → read existing metadata
+        1.  GET artifact to read existing metadata
         2.  Deep merge ``parsed_output`` into ``metadata.provenance``
         3.  PUT updated metadata back via ``update_artifact``
         4.  Mark handoff_registry entries as completed
 
-        All errors are logged and swallowed — backfill must never
+        All errors are logged and swallowed; backfill must never
         break the completion flow.
         """
         # --- 1. Artifact metadata merge ---

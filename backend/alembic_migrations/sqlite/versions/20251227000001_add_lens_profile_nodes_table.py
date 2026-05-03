@@ -5,9 +5,6 @@ Revises: 20251227000000
 Create Date: 2025-12-27
 
 Adds lens_profile_nodes and workspace_lens_overrides tables for Mind-Lens unified implementation.
-
-This migration is part of Phase 0 of the Mind-Lens implementation roadmap.
-See: docs-internal/mind-lens/implementation/implementation-roadmap.md
 """
 from typing import Sequence, Union
 
@@ -65,4 +62,3 @@ def downgrade() -> None:
     op.drop_index('idx_lens_profile_nodes_node', table_name='lens_profile_nodes')
     op.drop_index('idx_lens_profile_nodes_preset', table_name='lens_profile_nodes')
     op.drop_table('lens_profile_nodes')
-

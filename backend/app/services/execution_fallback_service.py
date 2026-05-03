@@ -4,7 +4,6 @@ Execution Fallback Service
 Provides fallback artifact generation when no matching playbook is found.
 For MVP: Use LLM to generate a basic document artifact.
 
-See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
 """
 
 import logging

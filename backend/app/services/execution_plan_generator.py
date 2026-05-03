@@ -10,7 +10,6 @@ The generated plan:
 3. Lists expected artifacts
 4. Can be recorded as EXECUTION_PLAN MindEvent for traceability
 
-See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
 """
 
 import json

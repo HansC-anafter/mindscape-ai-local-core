@@ -411,22 +411,12 @@ class ValidationService:
     def _validate_manifest_with_script(
         self, manifest_path: Path, cap_dir: Path
     ) -> Tuple[bool, List[str], List[str]]:
-        """Validate manifest using external script"""
+        """Validate manifest using the local-core manifest validator."""
         errors = []
         warnings = []
 
-        possible_paths = [
-            self.local_core_root.parent / "mindscape-ai-cloud" / "scripts" / "validate_manifest.py",
-            self.local_core_root / "backend" / "scripts" / "validate_manifest.py",
-        ]
-
-        validate_script = None
-        for path in possible_paths:
-            if path.exists():
-                validate_script = path
-                break
-
-        if not validate_script:
+        validate_script = self.local_core_root / "scripts" / "ci" / "validate_manifest.py"
+        if not validate_script.exists():
             warnings.append(
                 "validate_manifest.py not found, skipping advanced validation"
             )
@@ -434,8 +424,8 @@ class ValidationService:
 
         try:
             result = subprocess.run(
-                [sys.executable, str(validate_script), cap_dir.name],
-                cwd=str(validate_script.parent.parent),
+                [sys.executable, str(validate_script), str(cap_dir)],
+                cwd=str(self.local_core_root),
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -443,10 +433,14 @@ class ValidationService:
 
             if result.returncode != 0:
                 for line in result.stdout.split('\n'):
-                    if 'ERROR' in line:
-                        errors.append(line.strip())
-                    elif 'WARNING' in line:
-                        warnings.append(line.strip())
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    lowered = stripped.lower()
+                    if 'error' in lowered or 'failed' in lowered:
+                        errors.append(stripped)
+                    elif 'warning' in lowered:
+                        warnings.append(stripped)
 
                 if result.stderr:
                     errors.append(result.stderr.strip())

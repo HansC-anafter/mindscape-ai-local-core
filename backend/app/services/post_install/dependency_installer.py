@@ -1,7 +1,7 @@
 """
 Dependency Installer
 
-负责安装 Python 和 UI 依赖
+Installs Python and UI dependencies.
 """
 
 import json
@@ -15,14 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 class DependencyInstaller:
-    """处理依赖安装（Python 和 UI）"""
+    """Handle Python and UI dependency installation."""
 
     def __init__(self, local_core_root: Path):
         """
-        初始化依赖安装器
+        Initialize the dependency installer.
 
         Args:
-            local_core_root: Local-core 项目根目录
+            local_core_root: Local-core project root.
         """
         self.local_core_root = local_core_root
 
@@ -33,12 +33,12 @@ class DependencyInstaller:
         result
     ):
         """
-        安装 Python 依赖（从 requirements.txt）
+        Install Python dependencies from requirements.txt.
 
         Args:
-            cap_dir: 能力包目录
-            capability_code: 能力代码
-            result: InstallResult 对象
+            cap_dir: Capability package directory.
+            capability_code: Capability code.
+            result: InstallResult object.
         """
         requirements_file = cap_dir / "requirements.txt"
         if not requirements_file.exists():
@@ -100,12 +100,12 @@ class DependencyInstaller:
         result
     ):
         """
-        安装 UI 依赖（从 manifest.yaml ui_dependencies 字段）
+        Install UI dependencies from the manifest.yaml ui_dependencies field.
 
         Args:
-            capability_code: 能力代码
-            manifest: 解析后的 manifest 字典
-            result: InstallResult 对象
+            capability_code: Capability code.
+            manifest: Parsed manifest dictionary.
+            result: InstallResult object.
         """
         ui_dependencies = manifest.get('ui_dependencies', {})
         if not ui_dependencies:
@@ -240,10 +240,10 @@ class DependencyInstaller:
 
     def _find_web_console_dir(self) -> Path:
         """
-        查找 web-console 目录
+        Find the web-console directory.
 
         Returns:
-            web-console 目录路径，如果未找到则返回 None
+            web-console directory path, or None if not found.
         """
         possible_paths = [
             self.local_core_root / "web-console",  # Standard location
@@ -262,4 +262,3 @@ class DependencyInstaller:
 
         logger.warning(f"web-console directory not found, tried: {[str(p) for p in possible_paths]}")
         return None
-

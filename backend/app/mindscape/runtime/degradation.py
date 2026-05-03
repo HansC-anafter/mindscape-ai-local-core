@@ -1,10 +1,10 @@
 """
 Runtime Degradation Registry
 
-管理 capability 的運行時降級狀態。
+Tracks capability runtime degradation status.
 
-當可選依賴不可用時，capability 可以在降級模式下運行，
-部分功能不可用但核心功能仍然正常。
+When optional dependencies are unavailable, capabilities can run in degraded
+mode with only a subset of features enabled.
 """
 
 from typing import Dict, List, Set, Optional
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CapabilityStatus:
-    """Capability 運行時狀態"""
+    """Capability runtime status."""
     code: str
     status: str  # "healthy" | "degraded" | "unavailable"
     available_features: List[str] = field(default_factory=list)
@@ -26,7 +26,7 @@ class CapabilityStatus:
     missing_dependencies: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
-        """轉換為字典"""
+        """Convert the status to a dictionary."""
         return {
             "code": self.code,
             "status": self.status,
@@ -39,25 +39,23 @@ class CapabilityStatus:
 
 class DegradationRegistry:
     """
-    全局降級狀態註冊表
+    Global degradation status registry.
 
-    使用單例模式，確保全局只有一個實例。
+    Uses a singleton so runtime status is shared process-wide.
 
-    使用方式：
+    Example:
         registry = DegradationRegistry()
 
-        # 註冊 capability 狀態
         registry.register_capability(
-            code="yogacoach",
-            all_features=["pipeline", "qa", "billing"],
-            missing_deps=["line_messaging_api"],
+            code="example_pack",
+            all_features=["pipeline", "qa", "export"],
+            missing_deps=["optional_provider"],
             degraded_features_map={
-                "line_messaging_api": ["line_push"]
+                "optional_provider": ["export"]
             }
         )
 
-        # 檢查功能可用性
-        if registry.is_feature_available("yogacoach", "pipeline"):
+        if registry.is_feature_available("example_pack", "pipeline"):
             run_pipeline()
     """
 
@@ -81,18 +79,17 @@ class DegradationRegistry:
         degraded_features_map: Dict[str, List[str]]
     ) -> CapabilityStatus:
         """
-        註冊 capability 狀態
+        Register capability status.
 
         Args:
-            code: Capability 代碼
-            all_features: 所有功能列表
-            missing_deps: 缺失的依賴列表
-            degraded_features_map: 依賴 -> 降級功能列表的映射
+            code: Capability code.
+            all_features: Full feature list.
+            missing_deps: Missing dependency list.
+            degraded_features_map: Dependency to degraded feature mapping.
 
         Returns:
-            CapabilityStatus
+            CapabilityStatus.
         """
-        # 計算哪些功能因為缺少依賴而降級
         degraded_features: Set[str] = set()
         for dep in missing_deps:
             features = degraded_features_map.get(dep, [])
@@ -100,7 +97,6 @@ class DegradationRegistry:
 
         available = [f for f in all_features if f not in degraded_features]
 
-        # 確定狀態
         if len(degraded_features) == 0:
             status = "healthy"
         elif len(degraded_features) == len(all_features):
@@ -136,46 +132,45 @@ class DegradationRegistry:
 
     def get_status(self, code: str) -> Optional[CapabilityStatus]:
         """
-        獲取 capability 狀態
+        Get capability status.
 
         Args:
-            code: Capability 代碼
+            code: Capability code.
 
         Returns:
-            CapabilityStatus 或 None
+            CapabilityStatus or None.
         """
         return self._capabilities.get(code)
 
     def get_all_statuses(self) -> Dict[str, CapabilityStatus]:
-        """獲取所有 capability 狀態"""
+        """Get all capability statuses."""
         return self._capabilities.copy()
 
     def is_feature_available(self, capability_code: str, feature: str) -> bool:
         """
-        檢查某個功能是否可用
+        Check whether a feature is available.
 
         Args:
-            capability_code: Capability 代碼
-            feature: 功能名稱
+            capability_code: Capability code.
+            feature: Feature name.
 
         Returns:
-            True 如果功能可用
+            True if the feature is available.
         """
         status = self._capabilities.get(capability_code)
         if not status:
-            # 未註冊的 capability，假設功能可用
             return True
         return feature in status.available_features
 
     def is_capability_healthy(self, code: str) -> bool:
         """
-        檢查 capability 是否健康
+        Check whether a capability is healthy.
 
         Args:
-            code: Capability 代碼
+            code: Capability code.
 
         Returns:
-            True 如果健康
+            True if healthy.
         """
         status = self._capabilities.get(code)
         if not status:
@@ -184,13 +179,13 @@ class DegradationRegistry:
 
     def is_capability_available(self, code: str) -> bool:
         """
-        檢查 capability 是否可用（包括降級模式）
+        Check whether a capability is available, including degraded mode.
 
         Args:
-            code: Capability 代碼
+            code: Capability code
 
         Returns:
-            True 如果可用
+            True if available.
         """
         status = self._capabilities.get(code)
         if not status:
@@ -198,19 +193,16 @@ class DegradationRegistry:
         return status.status in ("healthy", "degraded")
 
     def clear(self):
-        """清除所有狀態（主要用於測試）"""
+        """Clear all statuses. Primarily used by tests."""
         self._capabilities.clear()
 
 
-# 便捷函數
 def get_capability_status(code: str) -> Optional[CapabilityStatus]:
-    """獲取 capability 狀態"""
+    """Get capability status."""
     return DegradationRegistry().get_status(code)
 
 
 def is_feature_available(capability_code: str, feature: str) -> bool:
-    """檢查功能是否可用"""
+    """Check whether a feature is available."""
     return DegradationRegistry().is_feature_available(capability_code, feature)
-
-
 

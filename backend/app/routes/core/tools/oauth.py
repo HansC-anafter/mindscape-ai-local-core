@@ -246,7 +246,7 @@ async def oauth_callback(
 
     if error:
         logger.error(f"OAuth error for {provider}: {error} - {error_description}")
-        # 从端口配置服务获取前端 URL
+        # Resolve the frontend URL from port configuration.
         try:
             from ...services.port_config_service import port_config_service
             import os
@@ -260,7 +260,7 @@ async def oauth_callback(
                 site=current_site
             )
         except Exception:
-            # 回退到环境变量或默认值
+            # Fall back to the environment variable or local default.
             frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8300")
         error_params = urlencode({
             "error": error,
@@ -315,7 +315,7 @@ async def oauth_callback(
         )
     except Exception as e:
         logger.error(f"Failed to exchange token for {provider}: {str(e)}")
-        # 从端口配置服务获取前端 URL
+        # Resolve the frontend URL from port configuration.
         try:
             from ...services.port_config_service import port_config_service
             import os
@@ -329,7 +329,7 @@ async def oauth_callback(
                 site=current_site
             )
         except Exception:
-            # 回退到环境变量或默认值
+            # Fall back to the environment variable or local default.
             frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8300")
         error_params = urlencode({
             "error": "token_exchange_failed",
@@ -565,4 +565,3 @@ async def refresh_token(
     except Exception as e:
         logger.error(f"Failed to refresh token for {provider}: {str(e)}")
         raise_api_error(500, f"Token refresh failed: {str(e)}")
-

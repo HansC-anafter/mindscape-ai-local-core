@@ -22,7 +22,7 @@ def _normalize_optional_string(value: Any) -> Optional[str]:
 
 
 class RemoteExecutionLaunchService:
-    """Own local-core remote launch shell creation and cloud dispatch state sync."""
+    """Own local-core remote launch shell creation and remote dispatch state sync."""
 
     def __init__(self, *, connector: Any):
         self._connector = connector
@@ -49,9 +49,7 @@ class RemoteExecutionLaunchService:
                     status_code=503,
                     detail=(
                         "Execution control connector not available. "
-                        "Set CLOUD_CONNECTOR_ENABLED=true and configure "
-                        "Runtime Environments config_url or "
-                        "EXECUTION_CONTROL_API_URL / SITE_HUB_API_URL / CLOUD_API_URL."
+                        "Configure Runtime Environments config_url or execution control API settings."
                     ),
                 )
 
@@ -61,7 +59,11 @@ class RemoteExecutionLaunchService:
                     detail="workspace_id is required for remote execution",
                 )
 
-            tenant_id = tenant_id or os.getenv("CLOUD_TENANT_ID", "default")
+            tenant_id = (
+                tenant_id
+                or os.getenv("EXECUTION_CONTROL_TENANT_ID")
+                or os.getenv("\u0043LOUD_TENANT_ID", "default")
+            )
             normalized_inputs = dict(inputs or {})
             execution_id = str(
                 execution_id or normalized_inputs.get("execution_id") or uuid.uuid4()
@@ -76,7 +78,7 @@ class RemoteExecutionLaunchService:
             if project_id:
                 normalized_inputs.setdefault("project_id", project_id)
 
-            cloud_request_payload = self._build_remote_request_payload(
+            control_request_payload = self._build_remote_request_payload(
                 playbook_code=playbook_code,
                 profile_id=profile_id,
                 normalized_inputs=normalized_inputs,
@@ -85,7 +87,7 @@ class RemoteExecutionLaunchService:
             )
             dispatch_target = self._resolve_dispatch_target(
                 normalized_inputs=normalized_inputs,
-                request_payload=cloud_request_payload,
+                request_payload=control_request_payload,
             )
 
             tasks_store, task = self._ensure_remote_execution_shell(
@@ -103,7 +105,7 @@ class RemoteExecutionLaunchService:
             result = await connector.start_remote_execution(
                 tenant_id=tenant_id,
                 playbook_code=playbook_code,
-                request_payload=cloud_request_payload,
+                request_payload=control_request_payload,
                 workspace_id=workspace_id,
                 capability_code=capability_code,
                 execution_id=execution_id,
@@ -116,8 +118,8 @@ class RemoteExecutionLaunchService:
 
             remote_ctx = dict(task.execution_context or {})
             remote_exec = dict(remote_ctx.get("remote_execution") or {})
-            remote_exec["cloud_dispatch_state"] = result.get("state", "pending")
-            remote_exec["cloud_execution_id"] = result.get("id") or execution_id
+            remote_exec["remote_dispatch_state"] = result.get("state", "pending")
+            remote_exec["remote_execution_id"] = result.get("id") or execution_id
             runtime_binding = dispatch_target.get("runtime_binding")
             if isinstance(runtime_binding, dict) and runtime_binding:
                 remote_exec["runtime_binding"] = runtime_binding
@@ -130,12 +132,12 @@ class RemoteExecutionLaunchService:
             remote_ctx["remote_execution"] = remote_exec
             tasks_store.update_task(task.id, execution_context=remote_ctx)
 
-            cloud_execution_id = result.get("id") or execution_id
-            if cloud_execution_id != execution_id:
+            remote_execution_id = result.get("id") or execution_id
+            if remote_execution_id != execution_id:
                 logger.warning(
-                    "Remote execution ID drift detected local=%s cloud=%s playbook=%s",
+                    "Remote execution ID drift detected local=%s provider=%s playbook=%s",
                     execution_id,
-                    cloud_execution_id,
+                    remote_execution_id,
                     playbook_code,
                 )
 
@@ -146,13 +148,13 @@ class RemoteExecutionLaunchService:
                 "trace_id": trace_id,
                 "tenant_id": tenant_id,
                 "status": result.get("state", "pending"),
-                "cloud_execution_id": cloud_execution_id,
+                "remote_execution_id": remote_execution_id,
                 "job_type": remote_job_type,
                 "runtime_id": dispatch_target.get("runtime_id"),
                 "result": {
                     "status": result.get("state", "pending"),
                     "execution_id": execution_id,
-                    "note": "Execution dispatched to cloud control plane",
+                    "note": "Execution dispatched to remote control plane",
                 },
             }
         except HTTPException:
@@ -162,7 +164,7 @@ class RemoteExecutionLaunchService:
                 if "tasks_store" in locals() and "task" in locals():
                     remote_ctx = dict(task.execution_context or {})
                     remote_exec = dict(remote_ctx.get("remote_execution") or {})
-                    remote_exec["cloud_dispatch_state"] = "dispatch_failed"
+                    remote_exec["remote_dispatch_state"] = "dispatch_failed"
                     remote_exec["error"] = str(e)
                     if "dispatch_target" in locals():
                         runtime_binding = dispatch_target.get("runtime_binding")
@@ -193,7 +195,7 @@ class RemoteExecutionLaunchService:
             logger.error("Remote execution dispatch failed: %s", e, exc_info=True)
             raise HTTPException(
                 status_code=502,
-                detail=f"Cloud dispatch failed: {e}",
+                detail=f"Remote dispatch failed: {e}",
             )
 
     def _ensure_remote_execution_shell(
@@ -221,8 +223,8 @@ class RemoteExecutionLaunchService:
         remote_execution = {
             "tenant_id": tenant_id,
             "trace_id": trace_id,
-            "cloud_dispatch_state": "queued",
-            "cloud_execution_id": execution_id,
+            "remote_dispatch_state": "queued",
+            "remote_execution_id": execution_id,
         }
         dispatch_target = dict(dispatch_target or {})
         runtime_binding = dispatch_target.get("runtime_binding")

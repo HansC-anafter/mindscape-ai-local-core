@@ -11,8 +11,7 @@ This migration:
 2. Clarifies is_active semantics (node existence, not execution state)
 3. Sets state='keep' for active nodes, state='off' for inactive nodes
 
-Part of Phase 0 of Mind-Lens unified implementation roadmap.
-See: docs-internal/mind-lens/implementation/implementation-roadmap.md
+Part of the Mind-Lens unified implementation roadmap.
 
 IMPORTANT: This migration requires Python code execution, not just SQL.
 It should be run after 20251227000001 (table creation) and 20251227000002 (snapshots).
@@ -153,4 +152,3 @@ def downgrade() -> None:
     print("Warning: Data migration downgrade is not fully reversible.")
     print("Legacy bridge table mind_lens_active_nodes may not have all data.")
     # We don't delete lens_profile_nodes data as it may be the only source of truth
-

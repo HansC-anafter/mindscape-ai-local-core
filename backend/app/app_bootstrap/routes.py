@@ -265,19 +265,6 @@ def register_core_routes(app: FastAPI) -> None:
             "Capability hot reload enabled; capability API routers will be loaded via reload manager."
         )
 
-    # Register YogaCoach API routes directly (installed capability)
-    try:
-        from backend.app.capabilities.yogacoach.routes.api import (
-            router as yogacoach_router,
-        )
-
-        app.include_router(yogacoach_router)
-        logger.info("YogaCoach API routes registered")
-    except ImportError as e:
-        logger.debug(f"YogaCoach API routes not available: {e}")
-    except Exception as e:
-        logger.warning(f"Failed to register YogaCoach API routes: {e}")
-
     app.include_router(
         workspace_resource_bindings_router, tags=["workspace-resource-bindings"]
     )

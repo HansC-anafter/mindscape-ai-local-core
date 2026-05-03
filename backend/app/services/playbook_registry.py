@@ -136,7 +136,7 @@ class PlaybookRegistry:
         self._capability_locks: Dict[str, asyncio.Lock] = {}
 
         # Playbook-level variants (separate from Graph IR variants)
-        # Key: playbook_code (e.g. "yogacoach.intake_flow"), Value: list of variants
+        # Key: playbook_code (e.g. "example_pack.workflow"), Value: list of variants
         self._playbook_variants: Dict[str, List[Dict[str, Any]]] = {}
 
     async def _ensure_loaded(self):

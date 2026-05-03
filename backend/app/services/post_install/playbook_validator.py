@@ -1,9 +1,9 @@
 """
 Playbook Validator
 
-验证已安装的 playbooks：
-1. 结构验证（通过脚本）
-2. 直接工具调用测试（后端模拟，无 LLM）
+Validates installed playbooks:
+1. Structure validation through the validation script.
+2. Direct tool-call tests through backend simulation without an LLM.
 """
 
 import json
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class PlaybookValidator:
-    """验证已安装的 playbooks"""
+    """Validate installed playbooks."""
 
     def __init__(
         self,
@@ -29,12 +29,12 @@ class PlaybookValidator:
         validate_tools_direct_call_func: Optional[Callable] = None
     ):
         """
-        初始化 Playbook 验证器
+        Initialize the playbook validator.
 
         Args:
-            local_core_root: Local-core 项目根目录
-            capabilities_dir: 能力目录
-            validate_tools_direct_call_func: 直接调用工具验证函数
+            local_core_root: Local-core project root.
+            capabilities_dir: Capability directory.
+            validate_tools_direct_call_func: Direct tool-call validation function.
         """
         self.local_core_root = local_core_root
         self.capabilities_dir = capabilities_dir
@@ -47,12 +47,12 @@ class PlaybookValidator:
         result
     ):
         """
-        验证已安装的 playbooks
+        Validate installed playbooks.
 
         Args:
-            capability_code: 能力代码
-            manifest: 解析后的 manifest 字典
-            result: InstallResult 对象
+            capability_code: Capability code.
+            manifest: Parsed manifest dictionary.
+            result: InstallResult object.
         """
         playbooks_config = manifest.get('playbooks', [])
         if not playbooks_config:
@@ -110,10 +110,10 @@ class PlaybookValidator:
         validation_results: Dict
     ) -> bool:
         """
-        验证 playbook 结构
+        Validate playbook structure.
 
         Returns:
-            True 如果结构验证通过
+            True if structure validation passes.
         """
         try:
             process = subprocess.run(
@@ -167,7 +167,7 @@ class PlaybookValidator:
         output: str,
         validation_results: Dict
     ) -> bool:
-        """解析成功的验证输出"""
+        """Parse successful validation output."""
         try:
             output = output.strip()
             json_output = None
@@ -215,7 +215,7 @@ class PlaybookValidator:
         process: subprocess.CompletedProcess,
         validation_results: Dict
     ) -> bool:
-        """解析失败的验证输出"""
+        """Parse failed validation output."""
         try:
             output = (process.stderr or process.stdout or "").strip()
             # Find JSON part
@@ -256,7 +256,7 @@ class PlaybookValidator:
             return False
 
     def _find_matching_brace(self, text: str, start: int) -> int:
-        """找到匹配的右大括号位置"""
+        """Find the matching closing brace position."""
         brace_count = 0
         for i in range(start, len(text)):
             if text[i] == '{':
@@ -273,7 +273,7 @@ class PlaybookValidator:
         capability_code: str,
         validation_results: Dict
     ):
-        """验证工具调用"""
+        """Validate tool calls."""
         try:
             tool_test_errors, tool_test_warnings = self._validate_tools_direct_call(playbook_code, capability_code)
 
@@ -320,11 +320,11 @@ class PlaybookValidator:
             logger.error(f"Playbook {playbook_code} tool call test exception: {e}")
 
     def _categorize_tool_errors(self, errors: List[str], capability_code: str = None) -> Tuple[List[str], List[str]]:
-        """将工具错误分类为可选依赖错误和关键错误"""
+        """Classify tool errors into optional dependency errors and critical errors."""
         optional_dep_errors = []
         critical_errors = []
 
-        # 讀取 manifest 中的可選 Python 依賴
+        # Read optional Python dependencies from the manifest.
         optional_python_packages = []
         if capability_code:
             possible_dir_names = [capability_code, capability_code.replace("_", "-"), capability_code.replace("-", "_")]
@@ -365,7 +365,7 @@ class PlaybookValidator:
         return optional_dep_errors, critical_errors
 
     def _format_critical_errors(self, critical_errors: List[str]) -> str:
-        """格式化关键错误消息"""
+        """Format critical error messages."""
         if len(critical_errors) == 1:
             return critical_errors[0]
         else:
@@ -375,7 +375,7 @@ class PlaybookValidator:
             return error_msg
 
     def _format_optional_dep_warning(self, optional_dep_errors: List[str]) -> str:
-        """格式化可选依赖警告消息"""
+        """Format optional dependency warning messages."""
         dep_names = []
         for e in optional_dep_errors:
             if "'" in e:
@@ -387,7 +387,7 @@ class PlaybookValidator:
         return f"Missing optional dependencies: {', '.join(set(dep_names))}"
 
     def _process_validation_results(self, validation_results: Dict, result):
-        """处理验证结果并添加到 result"""
+        """Process validation results and attach them to the install result."""
         # Add errors for failed validations
         if validation_results["failed"]:
             failed_playbooks = []

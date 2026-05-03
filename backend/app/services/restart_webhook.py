@@ -24,14 +24,15 @@ class RestartWebhookService:
         )
         self.timeout = float(os.getenv("RESTART_WEBHOOK_TIMEOUT", "30"))
         # Project root on host machine (for docker compose command)
-        self.project_root = os.getenv(
-            "LOCAL_CORE_PROJECT_ROOT",
-            "/Users/shock/Projects_local/workspace/mindscape-ai-local-core",
+        self.project_root = (
+            os.getenv("LOCAL_CORE_PROJECT_ROOT")
+            or os.getenv("HOST_PROJECT_PATH")
+            or ""
         )
 
     def is_configured(self) -> bool:
         """Check if Device Node URL is configured"""
-        return bool(self.device_node_url)
+        return bool(self.device_node_url and self.project_root)
 
     async def notify_restart_required(
         self,
@@ -55,8 +56,14 @@ class RestartWebhookService:
         Returns:
             Result dict with success status and details
         """
-        if not self.is_configured():
+        if not self.device_node_url:
             return {"sent": False, "reason": "device_node_not_configured"}
+        if not self.project_root:
+            return {
+                "sent": False,
+                "reason": "project_root_not_configured",
+                "hint": "Set LOCAL_CORE_PROJECT_ROOT to the host checkout path.",
+            }
 
         if not validation_passed:
             logger.warning(f"Restart skipped for {capability_code}: validation failed")

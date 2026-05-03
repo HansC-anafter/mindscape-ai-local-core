@@ -198,20 +198,17 @@ class SkillIndexService:
             {"indexed": int, "skipped": int, "errors": int}
         """
         if not capabilities_dirs:
-            # Default directories
             capabilities_dirs = []
 
-            # Local capabilities
             local_caps = Path(__file__).parent.parent.parent / "capabilities"
             if local_caps.exists():
                 capabilities_dirs.append(str(local_caps))
 
-            # Cloud capabilities (if accessible)
-            cloud_caps = (
-                Path.home() / "Projects_local/workspace/mindscape-ai-cloud/capabilities"
-            )
-            if cloud_caps.exists():
-                capabilities_dirs.append(str(cloud_caps))
+            extra_dirs = os.getenv("MINDSCAPE_SKILL_CAPABILITIES_DIRS", "")
+            for raw_dir in extra_dirs.split(os.pathsep):
+                candidate = raw_dir.strip()
+                if candidate and Path(candidate).exists():
+                    capabilities_dirs.append(candidate)
 
         stats = {"indexed": 0, "skipped": 0, "errors": 0}
 

@@ -89,7 +89,7 @@ class GoogleDriveOAuthManager:
             # Fallback to environment variables only
             self.client_id = os.getenv("GOOGLE_CLIENT_ID")
             self.client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-            # 从端口配置服务获取后端 URL
+            # Resolve the backend URL from port configuration.
             try:
                 from ....services.port_config_service import port_config_service
                 import os
@@ -105,7 +105,7 @@ class GoogleDriveOAuthManager:
                 self.backend_url = backend_url
                 self.redirect_uri = f"{backend_url}/api/tools/google-drive/oauth/callback"
             except Exception:
-                # 回退到环境变量或默认值
+                # Fall back to the environment variable or local default.
                 self.backend_url = os.getenv("BACKEND_URL", "http://localhost:8200")
             self.redirect_uri = os.getenv(
                 "GOOGLE_REDIRECT_URI",
@@ -116,7 +116,7 @@ class GoogleDriveOAuthManager:
         """Get backend URL from system settings or environment variable"""
         if backend_url_setting and backend_url_setting.value:
             return str(backend_url_setting.value)
-        # 从端口配置服务获取后端 URL
+        # Resolve the backend URL from port configuration.
         try:
             from ....services.port_config_service import port_config_service
             import os
@@ -130,7 +130,7 @@ class GoogleDriveOAuthManager:
                 site=current_site
             )
         except Exception:
-            # 回退到环境变量或默认值
+            # Fall back to the environment variable or local default.
             return os.getenv("BACKEND_URL", "http://localhost:8200")
 
     def reload_configuration(self):

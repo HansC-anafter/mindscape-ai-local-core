@@ -1,6 +1,7 @@
 """
 Publish Service API Routes
-中性發佈服務接口 - 不依賴特定服務提供商
+
+Provider-neutral publish service interface.
 """
 
 import logging
@@ -19,25 +20,25 @@ router = APIRouter(prefix="/api/v1/publish-service", tags=["publish-service"])
 
 
 class PublishServiceConfig(BaseModel):
-    """發佈服務配置模型"""
-    api_url: str = Field(..., description="發佈服務 API URL")
-    api_key: str = Field(..., description="API Key 用於認證")
-    enabled: bool = Field(True, description="是否啟用發佈服務")
-    provider_id: Optional[str] = Field(None, description="Provider ID（可選）")
-    storage_backend: Optional[str] = Field(None, description="Storage 後端（gcs, s3, r2，可選）")
-    storage_config: Optional[Dict[str, Any]] = Field(None, description="Storage 配置（可選）")
+    """Publish service configuration."""
+    api_url: str = Field(..., description="Publish service API URL")
+    api_key: str = Field(..., description="API key for authentication")
+    enabled: bool = Field(True, description="Whether the publish service is enabled")
+    provider_id: Optional[str] = Field(None, description="Optional provider ID")
+    storage_backend: Optional[str] = Field(None, description="Optional storage backend: gcs, s3, or r2")
+    storage_config: Optional[Dict[str, Any]] = Field(None, description="Optional storage configuration")
 
 
 class PublishRequest(BaseModel):
-    """發佈請求模型"""
-    content_type: str = Field(..., description="內容類型：playbook 或 capability")
-    content_id: str = Field(..., description="內容 ID（例如：openseo.seo_optimization）")
-    version: str = Field(..., description="版本號")
-    options: Optional[Dict[str, Any]] = Field(None, description="可選的發佈選項")
+    """Publish request."""
+    content_type: str = Field(..., description="Content type: playbook or capability")
+    content_id: str = Field(..., description="Content ID, for example example_pack.workflow")
+    version: str = Field(..., description="Version")
+    options: Optional[Dict[str, Any]] = Field(None, description="Optional publish options")
 
 
 class PublishResponse(BaseModel):
-    """發佈響應模型"""
+    """Publish response."""
     success: bool
     publish_id: Optional[str] = None
     message: str
@@ -47,7 +48,7 @@ class PublishResponse(BaseModel):
 
 
 class TestConnectionResponse(BaseModel):
-    """測試連接響應模型"""
+    """Connection test response."""
     success: bool
     message: str
 
@@ -67,17 +68,13 @@ def get_publish_service_config(
     tool_registry: ToolRegistryService = Depends(get_tool_registry)
 ) -> Optional[PublishServiceConfig]:
     """
-    獲取發佈服務配置
-
-    優先從工具連接獲取，如果沒有則從系統設定獲取（向後兼容）
+    Resolve publish service configuration.
 
     Returns:
-        PublishServiceConfig 或 None（如果未配置）
+        PublishServiceConfig or None if not configured.
     """
-    # 優先從工具連接獲取（publish_custom, publish_private_cloud 等）
     profile_id = 'default-profile'  # TODO: Get from auth context
 
-    # 嘗試多種發佈目標類型
     publish_types = ['publish_custom', 'publish_private_cloud', 'publish_dropbox', 'publish_google_drive']
     publish_connections = []
 
@@ -90,14 +87,11 @@ def get_publish_service_config(
             continue
 
     if publish_connections:
-        # 使用第一個已啟用的發佈目標
         active_conn = next((c for c in publish_connections if c.is_active), None)
         if active_conn:
             conn = active_conn
-            # 對於 Dropbox/Google Drive，需要從 config 獲取 API URL
             api_url = conn.base_url or ''
             if not api_url and conn.config:
-                # Dropbox/Google Drive 可能使用不同的 API URL
                 api_url = conn.config.get('api_url', '')
 
             return PublishServiceConfig(
@@ -109,7 +103,6 @@ def get_publish_service_config(
                 storage_config=conn.config.get('storage_config') if conn.config else None
             )
 
-    # 降級：從系統設定獲取（向後兼容）
     config = settings_store.get("publish_service", default=None)
     if config is None:
         return None
@@ -124,9 +117,7 @@ def get_publish_service_config(
 async def get_config(
     settings_store: SystemSettingsStore = Depends(get_settings_store)
 ):
-    """
-    獲取發佈服務配置
-    """
+    """Get publish service configuration."""
     config = get_publish_service_config(settings_store)
     return config
 
@@ -136,9 +127,7 @@ async def update_config(
     config: PublishServiceConfig,
     settings_store: SystemSettingsStore = Depends(get_settings_store)
 ):
-    """
-    更新發佈服務配置
-    """
+    """Update publish service configuration."""
     try:
         settings_store.set_setting(
             key="publish_service",
@@ -157,24 +146,21 @@ async def update_config(
 async def test_connection(
     settings_store: SystemSettingsStore = Depends(get_settings_store)
 ):
-    """
-    測試發佈服務連接
-    """
+    """Test publish service connection."""
     config = get_publish_service_config(settings_store)
     if not config:
         return TestConnectionResponse(
             success=False,
-            message="發佈服務未配置"
+            message="Publish service is not configured"
         )
 
     if not config.enabled:
         return TestConnectionResponse(
             success=False,
-            message="發佈服務已禁用"
+            message="Publish service is disabled"
         )
 
     try:
-        # 簡單的 health check 或測試端點
         test_url = f"{config.api_url.rstrip('/')}/health"
 
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -189,23 +175,23 @@ async def test_connection(
             if response.status_code == 200:
                 return TestConnectionResponse(
                     success=True,
-                    message="連接成功"
+                    message="Connection succeeded"
                 )
             else:
                 return TestConnectionResponse(
                     success=False,
-                    message=f"連接失敗：HTTP {response.status_code}"
+                    message=f"Connection failed: HTTP {response.status_code}"
                 )
     except httpx.TimeoutException:
         return TestConnectionResponse(
             success=False,
-            message="連接超時"
+            message="Connection timed out"
         )
     except Exception as e:
         logger.error(f"Failed to test connection: {e}", exc_info=True)
         return TestConnectionResponse(
             success=False,
-            message=f"連接失敗：{str(e)}"
+            message=f"Connection failed: {str(e)}"
         )
 
 
@@ -216,31 +202,28 @@ async def publish_content(
     settings_store: SystemSettingsStore = Depends(get_settings_store)
 ):
     """
-    發佈內容到配置的發佈服務
+    Publish content to the configured publish service.
 
-    這是一個中性的 HTTP 代理，不關心背後是 mindscape-ai-cloud 還是其他服務
+    This is a provider-neutral HTTP proxy.
     """
     config = get_publish_service_config(settings_store)
     if not config:
         raise HTTPException(
             status_code=400,
-            detail="發佈服務未配置，請先配置發佈服務"
+            detail="Publish service is not configured"
         )
 
     if not config.enabled:
         raise HTTPException(
             status_code=400,
-            detail="發佈服務已禁用"
+            detail="Publish service is disabled"
         )
 
     try:
-        # 讀取上傳的文件
         file_content = await package_file.read()
 
-        # 構建發佈服務的 API URL
         publish_url = f"{config.api_url.rstrip('/')}/api/v1/publish"
 
-        # 準備請求體
         files = {
             'package_file': (package_file.filename, file_content, package_file.content_type or 'application/zip')
         }
@@ -250,11 +233,9 @@ async def publish_content(
             'version': request.version
         }
         if request.options:
-            # 將 options 作為 JSON 字符串傳遞，或根據發佈服務的 API 格式調整
             import json
             data['options'] = json.dumps(request.options)
 
-        # 調用發佈服務 API
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 publish_url,
@@ -270,7 +251,7 @@ async def publish_content(
                 return PublishResponse(
                     success=result_data.get("success", True),
                     publish_id=result_data.get("publish_id"),
-                    message=result_data.get("message", "發佈成功"),
+                    message=result_data.get("message", "Publish succeeded"),
                     version=result_data.get("version", request.version),
                     url=result_data.get("url"),
                     error=result_data.get("error")
@@ -287,13 +268,13 @@ async def publish_content(
 
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"發佈服務錯誤：{error_msg}"
+                    detail=f"Publish service error: {error_msg}"
                 )
 
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=504,
-            detail="發佈服務響應超時"
+            detail="Publish service response timed out"
         )
     except HTTPException:
         raise
@@ -301,7 +282,7 @@ async def publish_content(
         logger.error(f"Failed to publish: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"發佈失敗：{str(e)}"
+            detail=f"Publish failed: {str(e)}"
         )
 
 
@@ -311,20 +292,18 @@ async def get_publish_history(
     offset: int = 0,
     settings_store: SystemSettingsStore = Depends(get_settings_store)
 ):
-    """
-    獲取發佈歷史（從配置的發佈服務查詢）
-    """
+    """Get publish history from the configured publish service."""
     config = get_publish_service_config(settings_store)
     if not config:
         raise HTTPException(
             status_code=400,
-            detail="發佈服務未配置"
+            detail="Publish service is not configured"
         )
 
     if not config.enabled:
         raise HTTPException(
             status_code=400,
-            detail="發佈服務已禁用"
+            detail="Publish service is disabled"
         )
 
     try:
@@ -345,13 +324,13 @@ async def get_publish_history(
             else:
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"查詢發佈歷史失敗：{response.text}"
+                    detail=f"Failed to query publish history: {response.text}"
                 )
 
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=504,
-            detail="發佈服務響應超時"
+            detail="Publish service response timed out"
         )
     except HTTPException:
         raise
@@ -359,7 +338,7 @@ async def get_publish_history(
         logger.error(f"Failed to get publish history: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"查詢發佈歷史失敗：{str(e)}"
+            detail=f"Failed to query publish history: {str(e)}"
         )
 
 
@@ -368,20 +347,18 @@ async def get_publish_status(
     publish_id: str,
     settings_store: SystemSettingsStore = Depends(get_settings_store)
 ):
-    """
-    查詢發佈狀態（從配置的發佈服務查詢）
-    """
+    """Get publish status from the configured publish service."""
     config = get_publish_service_config(settings_store)
     if not config:
         raise HTTPException(
             status_code=400,
-            detail="發佈服務未配置"
+            detail="Publish service is not configured"
         )
 
     if not config.enabled:
         raise HTTPException(
             status_code=400,
-            detail="發佈服務已禁用"
+            detail="Publish service is disabled"
         )
 
     try:
@@ -401,13 +378,13 @@ async def get_publish_status(
             else:
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"查詢發佈狀態失敗：{response.text}"
+                    detail=f"Failed to query publish status: {response.text}"
                 )
 
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=504,
-            detail="發佈服務響應超時"
+            detail="Publish service response timed out"
         )
     except HTTPException:
         raise
@@ -415,6 +392,5 @@ async def get_publish_status(
         logger.error(f"Failed to get publish status: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"查詢發佈狀態失敗：{str(e)}"
+            detail=f"Failed to query publish status: {str(e)}"
         )
-

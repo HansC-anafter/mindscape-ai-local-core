@@ -4,8 +4,7 @@ Migration script: active_node_ids to lens_profile_nodes(state)
 This script migrates data from mind_lens_active_nodes bridge table
 to the new lens_profile_nodes table with state field.
 
-Part of Phase 0 of Mind-Lens unified implementation roadmap.
-See: docs-internal/mind-lens/implementation/implementation-roadmap.md
+Part of the Mind-Lens unified implementation roadmap.
 """
 
 import sys

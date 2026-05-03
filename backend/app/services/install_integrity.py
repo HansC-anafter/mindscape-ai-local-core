@@ -110,7 +110,7 @@ def save_install_manifest(
     Write ``.install_manifest.json`` to the capability directory.
 
     Args:
-        cap_dir:  Installed capability root (e.g. ``capabilities/yogacoach/``).
+        cap_dir:  Installed capability root (e.g. ``capabilities/example_pack/``).
         version:  Manifest ``version`` field value.
         hashes:   Output of :func:`compute_dir_hashes`.
 

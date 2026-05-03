@@ -6,7 +6,6 @@ All confidence threshold logic should read from this file.
 
 IMPORTANT: Do NOT hardcode threshold values (0.6, 0.8, 0.9) anywhere else.
 
-See: docs-internal/architecture/workspace-llm-agent-execution-mode.md
 """
 
 from typing import Dict
@@ -54,4 +53,3 @@ def should_auto_execute_readonly(
         return True
     threshold = get_threshold(execution_priority)
     return confidence >= threshold
-

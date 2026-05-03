@@ -10,8 +10,6 @@ This migration adds support for:
 - Preview vote tracking (user choice: base vs lens)
 - Convergence metrics (rerun_count, edit_count, time_to_accept_ms)
 - Apply target tracking (session_only, workspace, preset)
-
-See: docs-internal/mind-lens/implementation/implementation-roadmap.md
 """
 from typing import Sequence, Union
 
@@ -77,4 +75,3 @@ def downgrade() -> None:
     op.drop_index('idx_preview_votes_profile', table_name='preview_votes')
     op.drop_index('idx_preview_votes_workspace', table_name='preview_votes')
     op.drop_table('preview_votes')
-

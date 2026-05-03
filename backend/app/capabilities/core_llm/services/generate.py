@@ -43,6 +43,11 @@ async def run(
             - usage: Token usage information
     """
     try:
+        from ....services.model_routing_policy_service import ModelRoutingPolicyService
+
+        routing_service = ModelRoutingPolicyService()
+        resolved_route = routing_service.resolve_chat_default()
+
         if not llm_provider:
             from ....services.agent_runner import LLMProviderManager
             from ....services.config_store import ConfigStore
@@ -51,16 +56,15 @@ async def run(
             from ....models.model_provider import ModelType
             import os
 
-            # Get conversation model from system settings first
+            # Resolve conversation model through the registry-backed policy helper.
             settings_store = SystemSettingsStore()
-            chat_setting = settings_store.get_setting("chat_model")
 
-            if not chat_setting or not chat_setting.value:
+            if not resolved_route.model_name:
                 raise ValueError(
                     "LLM model not configured. Please select a model in the system settings panel."
                 )
 
-            model_name = str(chat_setting.value)
+            model_name = str(resolved_route.model_name)
             if not model_name or model_name.strip() == "":
                 raise ValueError(
                     "LLM model is empty. Please select a valid model in the system settings panel."
@@ -71,12 +75,10 @@ async def run(
             # Get model config to determine provider
             model_store = ModelConfigStore()
             all_models = model_store.get_all_models(model_type=ModelType.CHAT, enabled=True)
-            model_config = None
-            provider_name = None
+            provider_name = resolved_route.provider
 
             for m in all_models:
                 if m.model_name == model_name:
-                    model_config = m
                     provider_name = m.provider_name
                     break
 
@@ -169,18 +171,13 @@ async def run(
             user_prompt=prompt
         )
 
-        # Get conversation model from system settings
-        # Must be configured by user in settings panel, no fallback allowed
-        from ....services.system_settings_store import SystemSettingsStore
-        settings_store = SystemSettingsStore()
-        chat_setting = settings_store.get_setting("chat_model")
-
-        if not chat_setting or not chat_setting.value:
+        # Get conversation model through the registry-backed policy helper.
+        if not resolved_route.model_name:
             raise ValueError(
                 "LLM model not configured. Please select a model in the system settings panel."
             )
 
-        conversation_model = str(chat_setting.value)
+        conversation_model = str(resolved_route.model_name)
         if not conversation_model or conversation_model.strip() == "":
             raise ValueError(
                 "LLM model is empty. Please select a valid model in the system settings panel."

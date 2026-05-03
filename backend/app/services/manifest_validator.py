@@ -1,7 +1,7 @@
 """
 Manifest Validator
 
-包装本地 validate_manifest.py 执行与输出解析；可注入跳过策略。
+Runs the local validate_manifest.py script and parses its output.
 """
 
 import logging
@@ -74,7 +74,7 @@ class ManifestValidator:
                     # Ignore summary headers like "Warnings: 0"
                     if s.lower().startswith("warnings:"):
                         continue
-                    if ('⚠️' in s) or ('WARNING' in s) or ('warning' in s.lower()):
+                    if 'WARNING' in s or 'warning' in s.lower():
                         warnings.append(s)
                 return True, [], warnings
             else:
@@ -88,8 +88,7 @@ class ManifestValidator:
                     if not line:
                         continue
                     if (
-                        '❌' in line
-                        or 'ERROR' in line
+                        'ERROR' in line
                         or 'error' in line.lower()
                         or 'failed' in line.lower()
                     ):
@@ -144,4 +143,3 @@ class ManifestValidator:
         # Block installation by default if validation failed
         logger.error("Installation blocked due to manifest validation failure. Set MINDSCAPE_SKIP_VALIDATION=1 to override (not recommended).")
         return True
-
