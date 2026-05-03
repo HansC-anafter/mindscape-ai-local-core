@@ -14,7 +14,7 @@ Workspace-scoped route aggregation starts in:
 
 - `backend/app/routes/core/workspace/__init__.py`
 
-These files are the safest entry points for understanding which route families are mounted by the local backend.
+These files are the safest entry points for understanding local backend host-surface registration.
 
 ## Runtime Environments
 
@@ -31,7 +31,7 @@ Runtime environment and runtime mediation landmarks:
 - `backend/app/services/runtime_contract_registry.py`
 - `backend/app/services/runtime_route_registration.py`
 
-These files cover local runtime registry behavior, runtime OAuth, runtime proxying, workspace runtime configuration, settings extension discovery, and runtime route wiring.
+These files cover local runtime registry behavior, runtime access mediation, workspace runtime configuration, settings extension discovery, and host-surface registration.
 
 ## Addressable Object Layer
 
@@ -54,7 +54,7 @@ AOL host contract landmarks:
 - `web-console/src/components/capabilities/AddressableObjectHostShell.tsx`
 - `web-console/src/components/capabilities/meeting-workbench/AOLMeetingBottomShell.tsx`
 
-These files cover object identity transport, workspace object routes, catalog discovery, index sync, meeting attachment, relation storage, and frontend host-shell integration.
+These files cover object identity transport, workspace object host surfaces, catalog discovery, index sync, meeting attachment, relation storage, and frontend host-shell integration.
 
 ## Memory Fabric
 
@@ -102,7 +102,7 @@ Meeting orchestration and TaskIR landmarks:
 - `backend/app/services/stores/task_ir_store.py`
 - `backend/app/services/stores/postgres/task_ir_store.py`
 
-These files cover meeting session lifecycle, handoff compile intake, meeting graph access, TaskIR compilation, dispatch gating, policy gating, DAG dispatch, supervisor hooks, and TaskIR persistence.
+These files cover meeting session lifecycle, handoff intake boundaries, meeting graph access, TaskIR compilation, dispatch gating, policy gating, DAG dispatch, supervisor hooks, and TaskIR persistence.
 
 ## Tool Retrieval and Resource Bindings
 
@@ -119,7 +119,7 @@ Tool and resource binding landmarks:
 - `backend/app/services/stores/workspace_resource_binding_store.py`
 - `backend/app/services/playbook_registry.py`
 
-These files cover local tool discovery, filtered tool views, RAG-backed tool search, embedding refresh, workspace resource bindings, and playbook registry lookup.
+These files cover local tool discovery, filtered tool surfaces, RAG-backed tool search, embedding refresh, workspace resource bindings, and playbook registry lookup.
 
 ## Capability Hosting Boundary
 
