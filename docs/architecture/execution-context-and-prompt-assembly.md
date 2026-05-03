@@ -10,26 +10,26 @@ Execution context is not a single global object. It is a set of scoped carriers 
 
 The main carriers are:
 
-- frontend execution context for actor, workspace, local mode, and optional authentication state
+- frontend execution context for actor, workspace, local mode, and local access state
 - parameter adapter context for mapping local runtime values into tool and workflow parameters
 - task execution metadata for playbook, trigger, progress, origin, actor, failure, and propagated tags
-- meeting execution snapshots for runtime selection, authentication state, budget, retry, route, execution profile, and observability inputs
-- executor route context for workspace executor selection and binding state
+- meeting execution snapshots for runtime selection, access readiness, budget, retry posture, execution profile, and observability inputs
+- executor selection context for workspace executor selection and binding state
 - compatibility shims for callers that need adapter metadata
 
 This split keeps Local Core from pretending that every caller uses the same context shape. Each boundary carries only the context it needs.
 
 ## Meeting Execution Context
 
-A meeting execution context is assembled at meeting start from workspace, runtime profile, route decision, runtime environment, and runtime observability sources.
+A meeting execution context is assembled at meeting start from workspace, runtime profile, local routing decisions, runtime environment, and runtime observability sources.
 
-The meeting engine treats this context as a read-only runtime snapshot. It is used for budget headroom, retry behavior, route kind, execution profile, authentication status, and executor runtime awareness. It does not replace TaskIR, meeting session metadata, governance context, or capability-owned state.
+The meeting engine treats this context as a read-only runtime snapshot. It is used for budget headroom, retry posture, execution profile, local access readiness, and executor runtime awareness. It does not replace TaskIR, meeting session metadata, governance context, or capability-owned state.
 
 ## Task Execution Context
 
 Task execution context is stored as structured task metadata. It is built from playbook context, execution results, local domain context, and tags. The task context tracks the selected playbook, trigger source, current step, total steps, origin intent metadata, initiating actor, failure diagnostics, and default execution cluster.
 
-This context is operational state for local task execution. It should not be documented as a public user profile model or as an external tenant contract.
+This context is operational state for local task execution. It should not be documented as a public user profile model or as an external account contract.
 
 ## Parameter Adaptation
 
@@ -92,13 +92,13 @@ This keeps memory context tied to governance and lens selection instead of treat
 
 ## Public Boundary
 
-Local Core owns local context carriers, meeting execution snapshots, task execution context metadata, parameter adapter context, executor route context, prompt context assembly, tool context discovery, and governance-aware memory injection.
+Local Core owns local context carriers, meeting execution snapshots, task execution context metadata, parameter adapter context, executor selection context, prompt context assembly, tool context discovery, and governance-aware memory injection.
 
 Local Core does not publicly own:
 
 - private prompt text or role instructions
 - provider-native request payloads
-- external tenant lifecycle
+- external account lifecycle
 - unrestricted raw memory export
 - installed capability implementation internals
 - old design-stage prompt compiler specifications
