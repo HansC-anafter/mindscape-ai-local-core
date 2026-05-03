@@ -1,6 +1,6 @@
 # Tool Retrieval and Resource Bindings
 
-Mindscape AI Local Core uses tool retrieval and workspace resource bindings to select a small, relevant tool inventory for workspace chat, meeting orchestration, filtered tool APIs, and dispatch planning.
+Mindscape AI Local Core uses tool retrieval and workspace resource bindings to select a small, relevant tool inventory for workspace chat, meeting orchestration, filtered tool surfaces, and dispatch planning.
 
 This page describes the released public architecture scope for the current repository.
 
@@ -20,9 +20,9 @@ Indexed entries can carry bounded identity, description, category, model, lexica
 
 The active embedding model is resolved from local configuration and available runtime settings.
 
-After the API is ready, Local Core can warm the shared retrieval corpus and refresh stale retrieval data.
+After application startup, Local Core can warm the shared retrieval corpus and refresh stale retrieval data.
 
-This keeps tool retrieval out of the API bind path while still allowing the retrieval corpus to refresh after local capabilities or playbooks change.
+This keeps tool retrieval out of the request binding path while still allowing the retrieval corpus to refresh after local capabilities or playbooks change.
 
 ## Retrieval Path
 
@@ -52,11 +52,11 @@ Meeting orchestration pre-fetches relevant tools from agenda items and the user 
 
 During action extraction, the meeting layer can re-query retrieval for action items that have no tool or playbook actuator. It only fills a tool or playbook reference when retrieval improves binding coverage for those unbound items.
 
-## Filtered Tool APIs
+## Filtered Tool Surfaces
 
-The filtered tool API can use a task hint to retrieve semantically relevant tools and combine them with safe default tools. On retrieval miss or retrieval error, it fails open to safe defaults and optional recommended capability tools instead of returning an empty tool set.
+Filtered tool surfaces can use a task hint to retrieve semantically relevant tools and combine them with safe default tools. On retrieval miss or retrieval error, they fail open to safe defaults and optional recommended capability tools instead of returning an empty tool set.
 
-The dedicated retrieval endpoint is a discovery and filtering aid, not an execution endpoint.
+The dedicated retrieval surface is a discovery and filtering aid, not an execution surface.
 
 ## Public Boundary
 
