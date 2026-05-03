@@ -44,25 +44,25 @@ jobs:
           ERRORS=0
           
           if [ -n "$SONIC_PLAYBOOKS" ]; then
-            echo "❌ Error: Sonic Space playbooks detected:"
+            echo "Error: Sonic Space playbooks detected:"
             echo "$SONIC_PLAYBOOKS" | sed 's/^/   - /'
             ERRORS=1
           fi
           
           if [ -n "$YOGA_PLAYBOOKS" ]; then
-            echo "❌ Error: Yoga Coach playbooks detected:"
+            echo "Error: Yoga Coach playbooks detected:"
             echo "$YOGA_PLAYBOOKS" | sed 's/^/   - /'
             ERRORS=1
           fi
           
           if [ -n "$FEATURE_MODELS" ]; then
-            echo "❌ Error: Feature-specific models detected:"
+            echo "Error: Feature-specific models detected:"
             echo "$FEATURE_MODELS" | sed 's/^/   - /'
             ERRORS=1
           fi
           
           if [ -n "$CAPABILITY_FILES" ]; then
-            echo "❌ Error: Capability files detected:"
+            echo "Error: Capability files detected:"
             echo "$CAPABILITY_FILES" | sed 's/^/   - /'
             ERRORS=1
           fi
@@ -77,27 +77,26 @@ jobs:
             exit 1
           fi
           
-          echo "✅ No protected capability files detected"
+          echo "No protected capability files detected"
       
       - name: Verify .gitignore patterns
         run: |
           echo "Verifying .gitignore includes protection patterns..."
           
           if ! grep -q "backend/playbooks/specs/sonic_.*\.json" .gitignore; then
-            echo "⚠️  Warning: .gitignore may be missing Sonic Space playbook patterns"
+            echo "Warning: .gitignore may be missing Sonic Space playbook patterns"
           fi
           
           if ! grep -q "backend/playbooks/specs/yoga_.*\.json" .gitignore; then
-            echo "⚠️  Warning: .gitignore may be missing Yoga Coach playbook patterns"
+            echo "Warning: .gitignore may be missing Yoga Coach playbook patterns"
           fi
           
           if ! grep -q "backend/app/models/sonic_space/" .gitignore; then
-            echo "⚠️  Warning: .gitignore may be missing Sonic Space model patterns"
+            echo "Warning: .gitignore may be missing Sonic Space model patterns"
           fi
           
           if ! grep -q "backend/app/models/yogacoach/" .gitignore; then
-            echo "⚠️  Warning: .gitignore may be missing Yoga Coach model patterns"
+            echo "Warning: .gitignore may be missing Yoga Coach model patterns"
           fi
           
-          echo "✅ .gitignore verification complete"
-
+          echo ".gitignore verification complete"

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 # macOS launchd service management module
 # Delegates to device-node/scripts/install-macos.sh instead of
 # duplicating the launchd logic (fixes E20).
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 
 setup_device_node_launchd() {
   local project_root="${PROJECT_ROOT:-.}"
@@ -21,24 +21,24 @@ setup_device_node_launchd() {
 
   # Check if launchd agent is already running
   if launchctl list 2>/dev/null | grep -q "ai.mindscape.device-node"; then
-    echo "  ✓ Device Node launchd agent running"
+    echo "  OK Device Node launchd agent running"
     return 0
   fi
 
   local plist_dst="$HOME/Library/LaunchAgents/ai.mindscape.device-node.plist"
 
   if [ -f "$plist_dst" ]; then
-    # Plist exists but not loaded — load it
+    # Plist exists but not loaded - load it
     echo "  Loading Device Node launchd agent..."
     launchctl load "$plist_dst"
     sleep 2
     if launchctl list 2>/dev/null | grep -q "ai.mindscape.device-node"; then
-      echo "  ✓ Device Node started via launchd"
+      echo "  OK Device Node started via launchd"
     else
       echo "  WARNING: Device Node launchd agent failed to start"
     fi
   else
-    # First run — delegate to install-macos.sh
+    # First run - delegate to install-macos.sh
     local install_script="$dn_dir/scripts/install-macos.sh"
     if [ -f "$install_script" ]; then
       echo "  First-time setup: running install-macos.sh..."
@@ -64,7 +64,7 @@ setup_device_node_launchd() {
       launchctl load "$plist_dst"
       sleep 2
       if launchctl list 2>/dev/null | grep -q "ai.mindscape.device-node"; then
-        echo "  ✓ Device Node installed and started (launchd, port 3100)"
+        echo "  OK Device Node installed and started (launchd, port 3100)"
       else
         echo "  WARNING: Device Node install failed. Run manually: cd device-node && npm run install:macos"
       fi
@@ -84,7 +84,7 @@ setup_cli_bridge_launchd() {
   fi
 
   if launchctl list 2>/dev/null | grep -q "ai.mindscape.cli-bridge"; then
-    echo "  ✓ CLI Bridge launchd agent running"
+    echo "  OK CLI Bridge launchd agent running"
     return 0
   fi
 
@@ -93,7 +93,7 @@ setup_cli_bridge_launchd() {
     launchctl load "$plist_dst"
     sleep 2
     if launchctl list 2>/dev/null | grep -q "ai.mindscape.cli-bridge"; then
-      echo "  ✓ CLI Bridge started via launchd"
+      echo "  OK CLI Bridge started via launchd"
     else
       echo "  WARNING: CLI Bridge launchd agent failed to start"
     fi

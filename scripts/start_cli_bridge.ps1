@@ -239,7 +239,7 @@ if ($All) {
     }
 
     try {
-        Write-Info "Watcher active — polling every 15s for workspace changes"
+        Write-Info "Watcher active - polling every 15s for workspace changes"
         while ($true) {
             foreach ($entry in @($runningJobs.GetEnumerator())) {
                 $job = $entry.Value

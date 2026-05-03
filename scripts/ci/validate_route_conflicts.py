@@ -2,14 +2,14 @@
 """
 CI Script: Validate Route Conflicts
 
-驗證所有 capability 的 API 路由沒有衝突。
+Validate that capability API routes do not conflict.
 
-檢查項目：
-- 路由路徑重複
-- Prefix 重複
-- 路由模式衝突
+Checks:
+- duplicate route paths
+- duplicate prefixes
+- route pattern conflicts
 
-用法：
+Usage:
     python scripts/ci/validate_route_conflicts.py capabilities/
 """
 
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 @dataclass
 class RouteInfo:
-    """路由資訊"""
+    """Route metadata."""
     capability: str
     file_path: Path
     method: str
@@ -34,7 +34,7 @@ class RouteInfo:
 
 @dataclass
 class RouteConflict:
-    """路由衝突"""
+    """Route conflict metadata."""
     route1: RouteInfo
     route2: RouteInfo
     conflict_type: str  # "exact" | "pattern" | "prefix"
@@ -42,14 +42,14 @@ class RouteConflict:
 
 def extract_routes_from_file(file_path: Path, capability: str) -> List[RouteInfo]:
     """
-    從 Python 文件中提取路由定義
+    Extract route definitions from a Python file.
 
     Args:
-        file_path: Python 文件路徑
-        capability: Capability 名稱
+        file_path: Python file path
+        capability: Capability name
 
     Returns:
-        路由列表
+        Route list
     """
     routes = []
 
@@ -59,19 +59,19 @@ def extract_routes_from_file(file_path: Path, capability: str) -> List[RouteInfo
     except Exception:
         return routes
 
-    # 提取 router prefix
+    # Extract router prefix.
     prefix_match = re.search(
         r'APIRouter\s*\([^)]*prefix\s*=\s*["\']([^"\']+)["\']',
         content
     )
     router_prefix = prefix_match.group(1) if prefix_match else ""
 
-    # 提取路由裝飾器
+    # Extract route decorators.
     lines = content.split('\n')
     for line_no, line in enumerate(lines, 1):
         line = line.strip()
 
-        # 匹配 @router.get("/path"), @router.post("/path") 等
+        # Match @router.get("/path"), @router.post("/path"), and similar decorators.
         match = re.match(
             r'@router\.(get|post|put|delete|patch|options|head)\s*\(\s*["\']([^"\']+)["\']',
             line,
@@ -82,9 +82,9 @@ def extract_routes_from_file(file_path: Path, capability: str) -> List[RouteInfo
             method = match.group(1).upper()
             path = match.group(2)
 
-            # 組合完整路徑
+            # Compose the full route path.
             full_path = router_prefix + path
-            full_path = re.sub(r'/+', '/', full_path)  # 移除重複斜線
+            full_path = re.sub(r'/+', '/', full_path)  # Remove duplicate slashes.
 
             routes.append(RouteInfo(
                 capability=capability,
@@ -99,30 +99,30 @@ def extract_routes_from_file(file_path: Path, capability: str) -> List[RouteInfo
 
 def normalize_path(path: str) -> str:
     """
-    標準化路徑用於比較
+    Normalize paths before comparison.
 
-    將路徑參數替換為佔位符
+    Replace path parameters with placeholders.
     """
     # {param} -> {*}
     normalized = re.sub(r'\{[^}]+\}', '{*}', path)
-    # 移除尾部斜線
+    # Remove trailing slash.
     normalized = normalized.rstrip('/')
     return normalized
 
 
 def find_conflicts(routes: List[RouteInfo]) -> List[RouteConflict]:
     """
-    找出路由衝突
+    Find route conflicts.
 
     Args:
-        routes: 所有路由列表
+        routes: All routes
 
     Returns:
-        衝突列表
+        Conflict list
     """
     conflicts = []
 
-    # 按 (method, normalized_path) 分組
+    # Group by (method, normalized_path).
     route_map: Dict[Tuple[str, str], List[RouteInfo]] = {}
 
     for route in routes:
@@ -131,10 +131,10 @@ def find_conflicts(routes: List[RouteInfo]) -> List[RouteConflict]:
             route_map[key] = []
         route_map[key].append(route)
 
-    # 找出重複
+    # Find duplicates.
     for key, group in route_map.items():
         if len(group) > 1:
-            # 排除同一文件中的重複（可能是誤報）
+            # Ignore duplicates in the same file because they are likely false positives.
             unique_files = set(r.file_path for r in group)
             if len(unique_files) > 1:
                 for i in range(len(group)):
@@ -150,25 +150,25 @@ def find_conflicts(routes: List[RouteInfo]) -> List[RouteConflict]:
 
 def scan_capability(capability_dir: Path) -> List[RouteInfo]:
     """
-    掃描 capability 目錄中的所有路由
+    Scan all routes in a capability directory.
 
     Args:
-        capability_dir: Capability 目錄
+        capability_dir: Capability directory
 
     Returns:
-        路由列表
+        Route list
     """
     routes = []
     capability = capability_dir.name
 
-    # 掃描 api/ 目錄（遞歸掃描所有子目錄）
+    # Scan api/ recursively.
     api_dir = capability_dir / "api"
     if api_dir.exists() and api_dir.is_dir():
         for py_file in api_dir.rglob("*.py"):
             if not py_file.name.startswith('_'):
                 routes.extend(extract_routes_from_file(py_file, capability))
 
-    # 掃描 routes/ 目錄（向後兼容，遞歸掃描）
+    # Scan routes/ recursively for backward compatibility.
     routes_dir = capability_dir / "routes"
     if routes_dir.exists() and routes_dir.is_dir():
         for py_file in routes_dir.rglob("*.py"):
@@ -179,11 +179,11 @@ def scan_capability(capability_dir: Path) -> List[RouteInfo]:
 
 
 def format_conflicts(conflicts: List[RouteConflict]) -> str:
-    """格式化衝突報告"""
+    """Format a conflict report."""
     if not conflicts:
-        return "✅ No route conflicts found"
+        return "No route conflicts found"
 
-    lines = [f"❌ Found {len(conflicts)} route conflict(s):"]
+    lines = [f"Found {len(conflicts)} route conflict(s):"]
     lines.append("")
 
     for i, conflict in enumerate(conflicts, 1):
@@ -194,7 +194,7 @@ def format_conflicts(conflicts: List[RouteConflict]) -> str:
         lines.append(f"  Route 2: {conflict.route2.file_path}:{conflict.route2.line_no}")
         lines.append("")
 
-    lines.append("💡 Fix: Ensure each (method, path) combination is unique across all capabilities")
+    lines.append("Fix: Ensure each (method, path) combination is unique across all capabilities")
 
     return "\n".join(lines)
 
@@ -227,14 +227,14 @@ def main():
         if path.is_file():
             continue
 
-        # 如果是 capabilities 目錄，遍歷子目錄
+        # If this is the capabilities directory, scan its child directories.
         manifest_path = path / "manifest.yaml"
         if manifest_path.exists():
-            # 單個 capability
+            # Single capability.
             routes = scan_capability(path)
             all_routes.extend(routes)
         else:
-            # capabilities 目錄
+            # Capabilities directory.
             for cap_dir in path.iterdir():
                 if cap_dir.is_dir() and not cap_dir.name.startswith('_'):
                     routes = scan_capability(cap_dir)
@@ -275,5 +275,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 

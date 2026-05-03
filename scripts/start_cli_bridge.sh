@@ -42,9 +42,9 @@ NC='\033[0m' # No Color
 
 print_banner() {
     echo -e "${CYAN}"
-    echo "  ╔══════════════════════════════════════╗"
-    echo "  ║     Mindscape CLI Bridge             ║"
-    echo "  ╚══════════════════════════════════════╝"
+    echo "  ----------------------------------------"
+    echo "  -     Mindscape CLI Bridge             -"
+    echo "  ----------------------------------------"
     echo -e "${NC}"
 }
 
@@ -485,13 +485,13 @@ if [[ "$ALL_MODE" == "true" ]]; then
         done <<< "$ALL_WS_IDS"
     fi
 
-    log_info "Watcher active — polling every 15s for workspace changes"
+    log_info "Watcher active - polling every 15s for workspace changes"
 
     # Watcher loop: poll for workspace changes every 15s
     while true; do
         sleep 15
 
-        # 1. Detect dead child processes — collect indices first to avoid
+        # 1. Detect dead child processes - collect indices first to avoid
         #    mutating arrays during iteration (bash mutation-during-iteration bug)
         DEAD_INDICES=()
         for i in "${!RUNNING_PIDS[@]}"; do
@@ -532,7 +532,7 @@ if [[ "$ALL_MODE" == "true" ]]; then
             fi
         done <<< "$CURRENT_WS_IDS"
 
-        # 4. Kill bridges for REMOVED workspaces — collect first, then remove
+        # 4. Kill bridges for REMOVED workspaces - collect first, then remove
         REMOVE_INDICES=()
         for i in "${!RUNNING_WS_IDS[@]}"; do
             local_ws="${RUNNING_WS_IDS[$i]}"

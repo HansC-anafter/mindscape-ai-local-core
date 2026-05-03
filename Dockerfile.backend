@@ -22,8 +22,8 @@ COPY backend/requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code (精确复制，避免 COPY . . 把不需要的文件带进去)
-# .dockerignore 会排除 backend/app/capabilities/ 等 cloud packs
+# Copy application code explicitly instead of using COPY . .
+# .dockerignore excludes capability-installed runtime paths.
 COPY backend/ ./backend/
 
 # Create data and logs directories

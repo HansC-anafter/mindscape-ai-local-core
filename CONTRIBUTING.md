@@ -57,13 +57,13 @@ These rules prevent semantic collisions in code, docs, and PR reviews:
 |------|-------|------|
 | **Agent** | Identity + long-term consistency | Only refers to AgentSpec / AgentCore (intent, lens, memory + actuator). Never use "agent" to mean a model, a framework, or a tool. |
 | **Executor / Runtime** | Execution environment / dispatch | Refers to external integrations (Gemini CLI, OpenClaw, LangGraph, etc.) that provide compute + sandbox. Never call a runtime an "agent". |
-| **Tool / Skill** | Atomic callable capability | A function or MCP tool. Never personify tools as "agents" — tools don't have identity. |
+| **Tool / Skill** | Atomic callable surface | A function or MCP tool. Never personify tools as "agents"; tools do not have identity. |
 
 **Examples:**
-- ✅ "The OpenClaw **runtime** executed the task"
-- ❌ "The OpenClaw **agent** executed the task"
-- ✅ "AgentSpec defines the **agent's** identity"
-- ❌ "The Gemini CLI **agent** is connected"
+- Good: "The OpenClaw **runtime** executed the task"
+- Avoid: "The OpenClaw **agent** executed the task"
+- Good: "AgentSpec defines the **agent's** identity"
+- Avoid: "The Gemini CLI **agent** is connected"
 
 ### Testing
 
@@ -75,5 +75,4 @@ These rules prevent semantic collisions in code, docs, and PR reviews:
 
 Feel free to open an issue for questions or discussions.
 
-Thank you for contributing! 🎉
-
+Thank you for contributing.

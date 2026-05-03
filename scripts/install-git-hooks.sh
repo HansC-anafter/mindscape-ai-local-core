@@ -20,27 +20,26 @@ fi
 if [ -f "$TEMPLATES_DIR/pre-commit.template" ]; then
     cp "$TEMPLATES_DIR/pre-commit.template" "$HOOKS_DIR/pre-commit"
     chmod +x "$HOOKS_DIR/pre-commit"
-    echo "✅ Installed pre-commit hook"
+    echo "OK Installed pre-commit hook"
 else
-    echo "⚠️  Warning: pre-commit.template not found"
+    echo "WARNING  Warning: pre-commit.template not found"
 fi
 
 # Install pre-push hook
 if [ -f "$TEMPLATES_DIR/pre-push.template" ]; then
     cp "$TEMPLATES_DIR/pre-push.template" "$HOOKS_DIR/pre-push"
     chmod +x "$HOOKS_DIR/pre-push"
-    echo "✅ Installed pre-push hook"
+    echo "OK Installed pre-push hook"
 else
-    echo "⚠️  Warning: pre-push.template not found"
+    echo "WARNING  Warning: pre-push.template not found"
 fi
 
 echo ""
 echo "Git hooks installed successfully!"
 echo ""
 echo "These hooks will prevent committing files that should be installed via CapabilityInstaller:"
-echo "  - Feature-specific playbooks (sonic_*, yoga_*)"
-echo "  - Feature-specific models (sonic_space/, yogacoach/)"
+echo "  - Feature-specific playbooks"
+echo "  - Feature-specific model packages"
 echo "  - Capability files"
 echo ""
 echo "See: docs/contributor-guide/capability-installer-guard.md"
-

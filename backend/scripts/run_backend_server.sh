@@ -16,9 +16,6 @@ if [ "${reload_enabled}" = "1" ]; then
   if [ -d /app/backend/app/capabilities ]; then
     set -- "$@" --reload-dir /app/backend/app/capabilities
   fi
-  if [ -d /mindscape-ai-cloud/capabilities ]; then
-    set -- "$@" --reload-dir /mindscape-ai-cloud/capabilities
-  fi
 fi
 
 exec "$@"

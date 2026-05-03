@@ -5,9 +5,9 @@ on:
     paths:
       - 'backend/app/capabilities/**'
       - 'backend/app/mindscape/**'
-      - 'scripts/**'  # 驗證腳本和 Schema 變更也需要觸發 CI
-      - 'tests/**'     # 測試代碼變更也需要觸發 CI
-      - 'schemas/**'   # Schema 變更也需要觸發 CI
+      - 'scripts/**'  # Validation script and schema changes also trigger CI
+      - 'tests/**'     # Test code changes also trigger CI
+      - 'schemas/**'   # Schema changes also trigger CI
 
 jobs:
   validate-imports:
@@ -23,17 +23,17 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pyyaml  # 需要 yaml 用於 validate_router_prefix.py
+          pip install pyyaml  # Needed by validate_router_prefix.py
 
       - name: Validate import paths
         env:
-          STRICT_SYNTAX: "1"  # CI 模式：語法錯誤視為失敗
+          STRICT_SYNTAX: "1"  # CI mode: syntax errors fail the job
         run: |
           python scripts/ci/validate_import_paths.py backend/app/capabilities/
 
       - name: Validate router prefix rules
         env:
-          STRICT_SYNTAX: "1"  # CI 模式：語法錯誤視為失敗
+          STRICT_SYNTAX: "1"  # CI mode: syntax errors fail the job
         run: |
           python scripts/ci/validate_router_prefix.py backend/app/capabilities/
 

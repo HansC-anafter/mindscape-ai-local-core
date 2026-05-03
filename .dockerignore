@@ -1,18 +1,17 @@
 # .dockerignore for local-core
-# 排除 cloud playbook packs 和其他不需要的文件
+# Exclude cloud packs, local-only artifacts, and internal files.
 
 # ============================================
-# Cloud Playbook Packs (必须排除)
+# Cloud Playbook Packs
 # ============================================
-# 排除所有 cloud 相关的 playbook packs
-# 这些路径通过 CapabilityInstaller 安装，不应进入 local-core image
+# These paths are installed by CapabilityInstaller and must not enter the local-core image.
 **/playbook-packs/**
 backend/playbooks/packs-cloud/**
 backend/packs/cloud/**
-# ⚠️ 关键：排除 cloud capability packs 的安装位置
+# Exclude cloud capability pack install locations.
 backend/app/capabilities/**
 web-console/src/app/capabilities/**
-# 如果存在其他 cloud pack 目录，也排除
+# Exclude any additional cloud integration service mirrors.
 backend/app/services/cloud_providers/**
 backend/app/services/cloud_sync/**
 
@@ -62,8 +61,9 @@ yarn-error.log*
 Thumbs.db
 
 # ============================================
-# Data (本地开发数据，不应进入 image)
+# Data
 # ============================================
+# Local development data must not enter the image.
 *.db
 *.sqlite
 data/
@@ -123,9 +123,20 @@ docs-internal/
 scripts-internal/
 
 # ============================================
+# Agent tooling and local runtime caches
+# ============================================
+.agent/
+.codex-backups/
+.tmp/
+.runtime-bundles/
+backend/.tmp/
+backend/.runtime-bundles/
+
+# ============================================
 # Local development overrides
 # ============================================
 docker-compose.override.yml
+docker-compose.override.yml.example
 
 # ============================================
 # Git
@@ -137,4 +148,3 @@ docker-compose.override.yml
 # Nested backend/backend/ (should not exist)
 # ============================================
 backend/backend/
-

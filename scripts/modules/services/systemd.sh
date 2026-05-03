@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 # Linux systemd --user service management module
 # Falls back to nohup if systemd user session is unavailable (FM3).
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 
 setup_device_node_systemd() {
   local project_root="${PROJECT_ROOT:-.}"
@@ -31,7 +31,7 @@ setup_device_node_systemd() {
   node_bin="$(which node)"
   local service_name="ai.mindscape.device-node"
 
-  # ── Try systemd --user first ──
+  # -- Try systemd --user first --
   if command -v systemctl &>/dev/null && systemctl --user status &>/dev/null 2>&1; then
     # Enable user linger so service survives logout (FM3)
     loginctl enable-linger "$(whoami)" 2>/dev/null || true
@@ -64,16 +64,16 @@ EOF
     sleep 2
 
     if systemctl --user is-active "$service_name" &>/dev/null; then
-      echo "  ✓ Device Node started (systemd --user)"
+      echo "  OK Device Node started (systemd --user)"
       return 0
     else
       echo "  WARNING: systemd --user failed, falling back to nohup"
     fi
   fi
 
-  # ── Fallback: nohup (FM3 — no systemd user session) ──
+  # -- Fallback: nohup (FM3 - no systemd user session) --
   if pgrep -f "device-node/dist/index.js" &>/dev/null; then
-    echo "  ✓ Device Node already running (nohup)"
+    echo "  OK Device Node already running (nohup)"
     return 0
   fi
 
@@ -82,7 +82,7 @@ EOF
   local pid=$!
   sleep 2
   if ps -p $pid > /dev/null 2>&1; then
-    echo "  ✓ Device Node started (nohup, PID: $pid)"
+    echo "  OK Device Node started (nohup, PID: $pid)"
   else
     echo "  WARNING: Device Node failed to start. See $dn_dir/logs/device-node.log"
   fi
@@ -100,11 +100,11 @@ setup_cli_bridge_systemd() {
 
   if command -v systemctl &>/dev/null && systemctl --user status &>/dev/null 2>&1; then
     if systemctl --user is-active "$service_name" &>/dev/null; then
-      echo "  ✓ CLI Bridge started (systemd --user)"
+      echo "  OK CLI Bridge started (systemd --user)"
       return 0
     fi
   elif pgrep -f "start_cli_bridge_supervisor.sh" &>/dev/null; then
-    echo "  ✓ CLI Bridge already running (nohup)"
+    echo "  OK CLI Bridge already running (nohup)"
     return 0
   fi
 

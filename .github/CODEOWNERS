@@ -1,15 +1,13 @@
-# CODEOWNERS - 保护敏感路径，防止错误添加 Cloud 组件到 Local-Core
+# CODEOWNERS - protect sensitive paths from Cloud component leakage.
 
-# 禁止在 Local-Core 中直接添加 Cloud capability UI 组件
-# 这些路径需要团队负责人审核
+# These paths require owner review.
 /web-console/src/app/capabilities/ @team-leads
 /backend/app/capabilities/*/ui/ @team-leads
 
-# Playbook specs 需要审核
+# Playbook specs require review.
 /backend/app/capabilities/*/playbooks/specs/ @team-leads
 
-# 任何包含 IG/Cloud 相关内容的文件都需要审核
+# Files that mention IG or Cloud capability surfaces require review.
 **/*ig* @team-leads
 **/*cloud*capability* @team-leads
 **/*cloud*component* @team-leads
-

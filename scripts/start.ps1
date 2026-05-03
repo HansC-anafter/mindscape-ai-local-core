@@ -165,7 +165,7 @@ function Test-DockerAvailable {
         if ($LASTEXITCODE -ne 0) {
             return $false
         }
-        Write-Host "  ✓ Docker client found" -ForegroundColor Green
+        Write-Host "  OK Docker client found" -ForegroundColor Green
     } catch {
         return $false
     }
@@ -174,12 +174,12 @@ function Test-DockerAvailable {
     try {
         $dockerInfo = docker info 2>&1
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "  ✗ Docker daemon is not running" -ForegroundColor Red
+            Write-Host "  ERROR Docker daemon is not running" -ForegroundColor Red
             return $false
         }
-        Write-Host "  ✓ Docker daemon is running" -ForegroundColor Green
+        Write-Host "  OK Docker daemon is running" -ForegroundColor Green
     } catch {
-        Write-Host "  ✗ Docker daemon is not running" -ForegroundColor Red
+        Write-Host "  ERROR Docker daemon is not running" -ForegroundColor Red
         return $false
     }
 
@@ -187,7 +187,7 @@ function Test-DockerAvailable {
     try {
         $context = docker context show 2>&1
         if ($context -match "desktop-linux") {
-            Write-Host "  ✓ Docker context: $context" -ForegroundColor Green
+            Write-Host "  OK Docker context: $context" -ForegroundColor Green
         } else {
             Write-Host "  WARNING: Docker context: $context (expected: desktop-linux)" -ForegroundColor Yellow
         }
@@ -199,13 +199,13 @@ function Test-DockerAvailable {
     try {
         $composeVersion = docker compose version 2>&1
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "  ✓ Docker Compose: $composeVersion" -ForegroundColor Green
+            Write-Host "  OK Docker Compose: $composeVersion" -ForegroundColor Green
         } else {
-            Write-Host "  ✗ Docker Compose not available" -ForegroundColor Red
+            Write-Host "  ERROR Docker Compose not available" -ForegroundColor Red
             return $false
         }
     } catch {
-        Write-Host "  ✗ Docker Compose not available" -ForegroundColor Red
+        Write-Host "  ERROR Docker Compose not available" -ForegroundColor Red
         return $false
     }
 
@@ -377,7 +377,7 @@ if ($LASTEXITCODE -eq 0 -and $existingContainers) {
             foreach ($container in $containerList) {
                 docker rm -f $container 2>&1 | Where-Object { $_ -notmatch "level=warning" -and $_ -notmatch "time=" } | Out-Null
             }
-            Write-Host "  ✓ Containers removed" -ForegroundColor Green
+            Write-Host "  OK Containers removed" -ForegroundColor Green
             Write-Host ""
         } else {
             Write-Host ""
@@ -406,7 +406,7 @@ if (Test-Path $DeviceNodeDir) {
     # Check if service is already running
     $dnService = Get-Service -Name "MindscapeDeviceNode" -ErrorAction SilentlyContinue
     if ($dnService -and $dnService.Status -eq "Running") {
-        Write-Host "  ✓ Device Node service already running" -ForegroundColor Green
+        Write-Host "  OK Device Node service already running" -ForegroundColor Green
     } else {
         # Check if NSSM is installed AND we have admin rights (install-windows.ps1 requires admin)
         $nssmAvailable = Get-Command nssm -ErrorAction SilentlyContinue
@@ -433,7 +433,7 @@ if (Test-Path $DeviceNodeDir) {
                 npm run build --silent 2>$null
             }
             Start-Process -FilePath "node" -ArgumentList "dist\index.js" -WorkingDirectory $DeviceNodeDir -WindowStyle Hidden
-            Write-Host "  ✓ Device Node started (background process)" -ForegroundColor Green
+            Write-Host "  OK Device Node started (background process)" -ForegroundColor Green
             Set-Location $ProjectRoot
         }
     }
@@ -450,7 +450,7 @@ if (Test-Path $CliBridgeScript) {
 
     $bridgeService = Get-Service -Name "MindscapeCliBridge" -ErrorAction SilentlyContinue
     if ($bridgeService -and $bridgeService.Status -eq "Running") {
-        Write-Host "  ✓ CLI Bridge service already running" -ForegroundColor Green
+        Write-Host "  OK CLI Bridge service already running" -ForegroundColor Green
     } else {
         $nssmAvailable = Get-Command nssm -ErrorAction SilentlyContinue
         $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -460,7 +460,7 @@ if (Test-Path $CliBridgeScript) {
             Write-Host "  Installing/updating CLI Bridge service..." -ForegroundColor Yellow
             & (Join-Path $ProjectRoot "scripts\install-cli-bridge-windows.ps1")
         } elseif ($bridgeProcesses.Count -gt 0) {
-            Write-Host "  ✓ CLI Bridge supervisor already running in background" -ForegroundColor Green
+            Write-Host "  OK CLI Bridge supervisor already running in background" -ForegroundColor Green
         } else {
             if ($nssmAvailable -and -not $isAdmin) {
                 Write-Host "  WARNING: NSSM found but not running as Administrator. Starting CLI Bridge in background..." -ForegroundColor Yellow
@@ -474,7 +474,7 @@ if (Test-Path $CliBridgeScript) {
                 "-File", $CliBridgeScript,
                 "-All"
             ) -WorkingDirectory $ProjectRoot -WindowStyle Hidden
-            Write-Host "  ✓ CLI Bridge started (background process)" -ForegroundColor Green
+            Write-Host "  OK CLI Bridge started (background process)" -ForegroundColor Green
         }
     }
     Write-Host ""
@@ -486,7 +486,7 @@ if (Test-Path $CliBridgeScript) {
 # --- Ollama inference check ---
 $ollamaAvailable = Get-Command ollama -ErrorAction SilentlyContinue
 if ($ollamaAvailable) {
-    Write-Host "  ✓ Ollama found: $(ollama --version 2>$null)" -ForegroundColor Green
+    Write-Host "  OK Ollama found: $(ollama --version 2>$null)" -ForegroundColor Green
 } else {
     Write-Host "  WARNING: Ollama not found. Install from https://ollama.com/download for local inference." -ForegroundColor Yellow
 }

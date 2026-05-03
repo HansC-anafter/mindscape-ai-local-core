@@ -151,7 +151,7 @@ main() {
         echo "3. 測試 Execution Mode（直接 playbook.run）"
         echo ""
         echo "詳細測試指南："
-        echo "  docs-internal/implementation/playbook-intent-refactoring-2025-12-04/testing-guide-2025-12-04.md"
+        echo "  Review the current playbook and intent test checklist before rerunning."
     else
         echo -e "${RED}❌ 部分測試失敗，請檢查上述錯誤${NC}"
         exit 1
@@ -161,4 +161,3 @@ main() {
 
 # 執行主流程
 main
-

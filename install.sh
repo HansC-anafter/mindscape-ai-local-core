@@ -35,9 +35,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo ""
-echo "╔═══════════════════════════════════════════════════╗"
-echo "║   Mindscape AI Local Core - Installer             ║"
-echo "╚═══════════════════════════════════════════════════╝"
+echo "-----------------------------------------------------"
+echo "-   Mindscape AI Local Core - Installer             -"
+echo "-----------------------------------------------------"
 echo ""
 
 # Check prerequisites
@@ -46,7 +46,7 @@ check_command() {
         echo "ERROR: $1 is required but not installed."
         return 1
     fi
-    echo "✓ $1 found"
+    echo "OK $1 found"
 }
 
 echo "Checking prerequisites..."
@@ -58,11 +58,11 @@ if ! docker info &> /dev/null; then
     echo "ERROR: Docker is not running. Please start Docker and try again."
     exit 1
 fi
-echo "✓ Docker is running"
+echo "OK Docker is running"
 
 # Check Ollama (optional but recommended for local LLM)
 if command -v ollama &> /dev/null; then
-    echo "✓ Ollama found"
+    echo "OK Ollama found"
     echo "  INFO: To use local LLM, pull a model: ollama pull qwen3:8b"
 else
     echo "WARNING: Ollama not found (optional, for local LLM support)"
@@ -80,7 +80,7 @@ fi
 # Check Node.js (required for CLI agents like gemini-cli, claude-code)
 if command -v node &> /dev/null; then
     NODE_VER=$(node --version 2>/dev/null)
-    echo "✓ Node.js found ($NODE_VER)"
+    echo "OK Node.js found ($NODE_VER)"
 else
     echo "WARNING: Node.js not found (required for CLI agents: gemini-cli, claude-code, codex)"
     read -p "Install Node.js LTS now? (Y/n) " -n 1 -r
@@ -101,7 +101,7 @@ else
             echo "  Could not auto-install. Install Node.js from: https://nodejs.org/"
         fi
         if command -v node &> /dev/null; then
-            echo "  ✓ Node.js installed ($(node --version))"
+            echo "  OK Node.js installed ($(node --version))"
         fi
     else
         echo "  Skipped. Install later from: https://nodejs.org/"
@@ -156,7 +156,7 @@ if [[ "$OSTYPE" == darwin* ]]; then
                 echo "Setting up macOS firewall rules for MLX server ($PYTHON_BIN)..."
                 sudo "$FW" --add "$PYTHON_BIN" 2>/dev/null || true
                 sudo "$FW" --unblockapp "$PYTHON_BIN" 2>/dev/null || true
-                echo "  ✓ Firewall rules configured"
+                echo "  OK Firewall rules configured"
             fi
         fi
     fi
@@ -193,13 +193,13 @@ if [ -f "scripts/start.sh" ]; then
 fi
 
 echo ""
-echo "╔═══════════════════════════════════════════════════╗"
-echo "║   Installation Complete                           ║"
-echo "╚═══════════════════════════════════════════════════╝"
+echo "-----------------------------------------------------"
+echo "-   Installation Complete                           -"
+echo "-----------------------------------------------------"
 echo ""
 echo "Your Mindscape AI is running at:"
-echo "  • Web Console: http://localhost:8300"
-echo "  • Backend API: http://localhost:8200"
+echo "  - Web Console: http://localhost:8300"
+echo "  - Backend API: http://localhost:8200"
 echo ""
 echo "Next steps:"
 echo "  cd $INSTALL_DIR"

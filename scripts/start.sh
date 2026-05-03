@@ -16,25 +16,25 @@ check_docker() {
 
     # Check if docker command exists
     if ! command -v docker &> /dev/null; then
-        echo "  ✗ Docker command not found"
+        echo "  ERROR Docker command not found"
         return 1
     fi
-    echo "  ✓ Docker client found"
+    echo "  OK Docker client found"
 
     # Check if Docker daemon is running
     if ! docker info &> /dev/null; then
-        echo "  ✗ Docker daemon is not running"
+        echo "  ERROR Docker daemon is not running"
         return 1
     fi
-    echo "  ✓ Docker daemon is running"
+    echo "  OK Docker daemon is running"
 
     # Check Docker Compose
     if ! docker compose version &> /dev/null; then
-        echo "  ✗ Docker Compose not available"
+        echo "  ERROR Docker Compose not available"
         return 1
     fi
     COMPOSE_VERSION=$(docker compose version 2>&1)
-    echo "  ✓ Docker Compose: $COMPOSE_VERSION"
+    echo "  OK Docker Compose: $COMPOSE_VERSION"
 
     return 0
 }
@@ -92,7 +92,7 @@ if [ -n "$EXISTING_CONTAINERS" ]; then
                 docker rm -f "$container" 2>/dev/null
             fi
         done
-        echo "  ✓ Containers removed"
+        echo "  OK Containers removed"
         echo ""
     else
         echo ""
@@ -106,7 +106,7 @@ fi
 echo "Starting services..."
 echo ""
 
-# Start Device Node (host-level MCP service — platform-aware)
+# Start Device Node (host-level MCP service - platform-aware)
 source "$SCRIPT_DIR/modules/platform.sh"
 detect_platform
 detect_arch
@@ -135,7 +135,7 @@ elif [ "$PLATFORM" = "linux" ]; then
 else
     BRIDGE_PID=$(pgrep -f "start_cli_bridge_supervisor.sh" 2>/dev/null || true)
     if [ -n "$BRIDGE_PID" ]; then
-        echo "  ✓ CLI Bridge already running (PID: $BRIDGE_PID)"
+        echo "  OK CLI Bridge already running (PID: $BRIDGE_PID)"
     else
         if [ -f "scripts/start_cli_bridge_supervisor.sh" ]; then
             mkdir -p logs
@@ -143,7 +143,7 @@ else
             BRIDGE_PID=$!
             sleep 2
             if ps -p $BRIDGE_PID > /dev/null 2>&1; then
-                echo "  ✓ CLI Bridge started (PID: $BRIDGE_PID)"
+                echo "  OK CLI Bridge started (PID: $BRIDGE_PID)"
             else
                 echo "  WARNING: CLI Bridge failed to start. See logs/cli-bridge.log"
             fi
@@ -164,7 +164,7 @@ echo ""
 echo "Starting MCP Gateway..."
 MCP_PID=$(pgrep -f "mcp-mindscape-gateway" 2>/dev/null || true)
 if [ -n "$MCP_PID" ]; then
-    echo "  ✓ MCP Gateway already running (PID: $MCP_PID)"
+    echo "  OK MCP Gateway already running (PID: $MCP_PID)"
 else
     if [ -d "mcp-mindscape-gateway" ] && command -v node &> /dev/null; then
         cd mcp-mindscape-gateway
@@ -181,7 +181,7 @@ else
 
         sleep 2
         if ps -p $MCP_PID > /dev/null 2>&1; then
-            echo "  ✓ MCP Gateway started (PID: $MCP_PID)"
+            echo "  OK MCP Gateway started (PID: $MCP_PID)"
         else
             echo "  WARNING: MCP Gateway failed to start. See logs/mcp-gateway.log"
         fi

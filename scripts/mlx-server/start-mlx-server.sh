@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 # MLX VLM Server launcher (vision-capable)
 # Starts an OpenAI-compatible server with vision support for the configured model.
 #
 # Config knobs (environment variables):
-#   MLX_MODEL   – HuggingFace model repo (default: mlx-community/Qwen3.5-9B-4bit)
-#   MLX_PORT    – listen port             (default: 8210)
-#   MLX_HOST    – bind address            (default: 0.0.0.0)
-# ─────────────────────────────────────────────────────────
+#   MLX_MODEL   - HuggingFace model repo (default: mlx-community/Qwen3.5-9B-4bit)
+#   MLX_PORT    - listen port             (default: 8210)
+#   MLX_HOST    - bind address            (default: 0.0.0.0)
+# ---------------------------------------------------------
 set -euo pipefail
 
 MODEL="${MLX_MODEL:-mlx-community/Qwen3.5-9B-4bit}"
@@ -15,7 +15,7 @@ PORT="${MLX_PORT:-8210}"
 HOST="${MLX_HOST:-0.0.0.0}"
 PYTHON="/opt/miniconda3/bin/python"
 
-# ── macOS Firewall: allow Docker VM → host connections to MLX server ──
+# -- macOS Firewall: allow Docker VM -> host connections to MLX server --
 # Without this, the application firewall silently drops connections from
 # Docker's host.docker.internal (192.168.65.x) to this port.
 FW="/usr/libexec/ApplicationFirewall/socketfilterfw"
@@ -47,10 +47,10 @@ if [ ! -d "$CACHE_DIR/$MODEL_DIR" ]; then
   "$PYTHON" -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL')"
 fi
 
-# ── Watchdog config ──
+# -- Watchdog config --
 # Health check interval in seconds
 WATCHDOG_INTERVAL="${MLX_WATCHDOG_INTERVAL:-60}"
-# Consecutive failures before kill (60s × 10 = 10 min threshold)
+# Consecutive failures before kill (60s x 10 = 10 min threshold)
 # This is safely above the runner's httpx timeout of 300s (5 min),
 # so a normal long inference won't be killed.
 WATCHDOG_MAX_FAILURES="${MLX_WATCHDOG_MAX_FAILURES:-10}"
@@ -66,7 +66,7 @@ echo "[mlx-server] Watchdog enabled: check every ${WATCHDOG_INTERVAL}s, kill aft
   --host "$HOST" &
 MLX_PID=$!
 
-# ── Liveness watchdog ──
+# -- Liveness watchdog --
 # If MLX hangs mid-inference, it blocks the entire event loop and can't
 # respond to any request (including /v1/models). This watchdog detects
 # prolonged unresponsiveness and kills the process so that launchd's
@@ -96,7 +96,7 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
   sleep "$WATCHDOG_INTERVAL"
 
   if curl -sf -m "$WATCHDOG_CURL_TIMEOUT" "http://localhost:${PORT}/v1/models" > /dev/null 2>&1; then
-    # Health check OK — reset
+    # Health check OK - reset
     if [ "$failures" -gt 0 ]; then
       echo "[mlx-watchdog] Health check OK, resetting failure count (was ${failures})"
     fi
@@ -104,19 +104,19 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
     last_ok_count=$(_count_ok_lines)
     last_stderr_size=$(_file_size "$STDERR_LOG")
   else
-    # Health check failed — did MLX complete any request or emit progress since last check?
+    # Health check failed - did MLX complete any request or emit progress since last check?
     current_ok_count=$(_count_ok_lines)
     current_stderr_size=$(_file_size "$STDERR_LOG")
     if [ "$current_ok_count" -gt "$last_ok_count" ]; then
-      # New 200 OK lines appeared — MLX completed work, just busy with next request
-      echo "[mlx-watchdog] Health check failed but MLX completed requests (${last_ok_count}→${current_ok_count}) — not counting"
+      # New 200 OK lines appeared - MLX completed work, just busy with next request
+      echo "[mlx-watchdog] Health check failed but MLX completed requests (${last_ok_count}->${current_ok_count}) - not counting"
       failures=0
       last_ok_count=$current_ok_count
       last_stderr_size=$current_stderr_size
     elif [ "$current_stderr_size" -gt "$last_stderr_size" ]; then
       # stderr grows during model load/prefill and some runtime error paths.
       # Treat recent log activity as evidence the process is still alive.
-      echo "[mlx-watchdog] Health check failed but MLX emitted stderr progress (${last_stderr_size}→${current_stderr_size}) — not counting"
+      echo "[mlx-watchdog] Health check failed but MLX emitted stderr progress (${last_stderr_size}->${current_stderr_size}) - not counting"
       failures=0
       last_stderr_size=$current_stderr_size
     else
@@ -124,7 +124,7 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
       echo "[mlx-watchdog] Health check failed, no new completions (${failures}/${WATCHDOG_MAX_FAILURES})"
 
       if [ "$failures" -ge "$WATCHDOG_MAX_FAILURES" ]; then
-        echo "[mlx-watchdog] ${WATCHDOG_MAX_FAILURES} consecutive failures — killing MLX (PID ${MLX_PID})"
+        echo "[mlx-watchdog] ${WATCHDOG_MAX_FAILURES} consecutive failures - killing MLX (PID ${MLX_PID})"
         kill "$MLX_PID" 2>/dev/null || true
         sleep 2
         # Force kill if still alive
@@ -136,7 +136,7 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
   fi
 done
 
-# MLX exited on its own — let launchd restart
+# MLX exited on its own - let launchd restart
 wait "$MLX_PID"
 EXIT_CODE=$?
 echo "[mlx-server] MLX process exited with code ${EXIT_CODE}"

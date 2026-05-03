@@ -74,7 +74,7 @@ jobs:
             );
 
             if (restrictedChanged.length > 0) {
-              console.log('⚠️  WARNING: Changes to loader/registry detected:');
+              console.log('WARNING: Changes to loader/registry detected:');
               restrictedChanged.forEach(f => console.log(`   - ${f}`));
               console.log('');
 
@@ -90,16 +90,15 @@ jobs:
               const hasRequiredLabel = requiredLabels.some(label => labels.includes(label));
 
               if (!hasRequiredLabel) {
-                core.setFailed('❌ ERROR: Changes to loader/registry require decision approval');
+                core.setFailed('ERROR: Changes to loader/registry require decision approval');
                 core.setFailed(`   Required labels: ${requiredLabels.join(', ')}`);
                 core.setFailed(`   Current labels: ${labels.join(', ') || '(none)'}`);
                 core.setFailed(`   Restricted files: playbook_registry.py, playbook_loaders/, api_loader.py, capability_runtime_loader.py`);
-                core.setFailed(`   See: docs-internal/implementation/architecture-refactoring-2025-12-22/PLAYBOOK_MIGRATION_PLAN.md`);
+                core.setFailed(`   Record the architecture decision before changing loader or registry surfaces.`);
               } else {
-                console.log(`✅ PR has required decision label: ${labels.filter(l => requiredLabels.includes(l)).join(', ')}`);
+                console.log(`PR has required decision label: ${labels.filter(l => requiredLabels.includes(l)).join(', ')}`);
               }
             }
-
 
 
 

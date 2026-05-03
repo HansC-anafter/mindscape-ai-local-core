@@ -126,7 +126,3 @@ Before deploying to production:
 
 **v1+**: Will include compliance features for enterprise deployments.
 
----
-
-**Last updated**: 2025-12-02
-

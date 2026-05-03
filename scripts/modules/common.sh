@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 # Common helpers module
 # Source this file: source "$SCRIPT_DIR/modules/common.sh"
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 
 # Resolve project root from any script location
 resolve_project_root() {
@@ -22,21 +22,21 @@ resolve_project_root() {
 
 check_docker() {
   if ! command -v docker &>/dev/null; then
-    echo "  ✗ Docker command not found"
+    echo "  ERROR Docker command not found"
     return 1
   fi
   if ! docker info &>/dev/null; then
-    echo "  ✗ Docker daemon is not running"
+    echo "  ERROR Docker daemon is not running"
     return 1
   fi
   if ! docker compose version &>/dev/null; then
-    echo "  ✗ Docker Compose not available"
+    echo "  ERROR Docker Compose not available"
     return 1
   fi
   return 0
 }
 
-log_info()  { echo "  ✓ $*"; }
-log_warn()  { echo "  ⚠️  $*"; }
-log_error() { echo "  ✗ $*"; }
+log_info()  { echo "  OK $*"; }
+log_warn()  { echo "  WARNING  $*"; }
+log_error() { echo "  ERROR $*"; }
 log_step()  { echo ""; echo "$*"; }

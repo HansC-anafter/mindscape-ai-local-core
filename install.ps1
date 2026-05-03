@@ -23,9 +23,9 @@ $ErrorActionPreference = "Stop"
 $RepoUrl = "https://github.com/HansC-anafter/mindscape-ai-local-core.git"
 
 Write-Host ""
-Write-Host "╔═══════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║   Mindscape AI Local Core - Installer             ║" -ForegroundColor Cyan
-Write-Host "╚═══════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "-----------------------------------------------------" -ForegroundColor Cyan
+Write-Host "-   Mindscape AI Local Core - Installer             -" -ForegroundColor Cyan
+Write-Host "-----------------------------------------------------" -ForegroundColor Cyan
 Write-Host ""
 
 # Check prerequisites
@@ -40,19 +40,19 @@ if (-not (Test-Command "git")) {
     Write-Host "   Install from: https://git-scm.com/download/win" -ForegroundColor Gray
     exit 1
 }
-Write-Host "✓ Git found" -ForegroundColor Green
+Write-Host "OK Git found" -ForegroundColor Green
 
 if (-not (Test-Command "docker")) {
     Write-Host "ERROR: Docker is required but not installed." -ForegroundColor Red
     Write-Host "   Install from: https://www.docker.com/products/docker-desktop/" -ForegroundColor Gray
     exit 1
 }
-Write-Host "✓ Docker found" -ForegroundColor Green
+Write-Host "OK Docker found" -ForegroundColor Green
 
 # Check if Docker is running
 try {
     docker info 2>&1 | Out-Null
-    Write-Host "✓ Docker is running" -ForegroundColor Green
+    Write-Host "OK Docker is running" -ForegroundColor Green
 } catch {
     Write-Host "ERROR: Docker is not running. Please start Docker Desktop and try again." -ForegroundColor Red
     exit 1
@@ -60,7 +60,7 @@ try {
 
 # Check Ollama (optional but recommended for local LLM)
 if (Test-Command "ollama") {
-    Write-Host "✓ Ollama found" -ForegroundColor Green
+    Write-Host "OK Ollama found" -ForegroundColor Green
     Write-Host "  INFO: To use local LLM, pull a model: ollama pull qwen3:8b" -ForegroundColor Cyan
 } else {
     Write-Host "WARNING: Ollama not found (optional, for local LLM support)" -ForegroundColor Yellow
@@ -81,7 +81,7 @@ if (Test-Command "ollama") {
 # Check Node.js (required for CLI agents like gemini-cli, claude-code)
 if (Test-Command "node") {
     $nodeVersion = (node --version 2>$null)
-    Write-Host "✓ Node.js found ($nodeVersion)" -ForegroundColor Green
+    Write-Host "OK Node.js found ($nodeVersion)" -ForegroundColor Green
 } else {
     Write-Host "WARNING: Node.js not found (required for CLI agents: gemini-cli, claude-code, codex)" -ForegroundColor Yellow
     $response = Read-Host "Install Node.js LTS now? (Y/n)"
@@ -91,7 +91,7 @@ if (Test-Command "node") {
             winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
             # Refresh PATH so npm is available in this session
             $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
-            Write-Host "✓ Node.js installed" -ForegroundColor Green
+            Write-Host "OK Node.js installed" -ForegroundColor Green
         } else {
             Write-Host "  winget not available. Install Node.js from: https://nodejs.org/" -ForegroundColor Yellow
         }
@@ -107,9 +107,9 @@ if (Test-Command "python") {
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Installing Python websockets (required for CLI Bridge)..." -ForegroundColor Cyan
         python -m pip install websockets --quiet 2>$null
-        Write-Host "✓ websockets installed" -ForegroundColor Green
+        Write-Host "OK websockets installed" -ForegroundColor Green
     } else {
-        Write-Host "✓ Python websockets found" -ForegroundColor Green
+        Write-Host "OK Python websockets found" -ForegroundColor Green
     }
 }
 
@@ -118,10 +118,10 @@ if ((Test-Command "npm") -and -not (Test-Command "gemini")) {
     Write-Host "Installing gemini-cli..." -ForegroundColor Cyan
     npm install -g @google/gemini-cli 2>$null
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "✓ gemini-cli installed" -ForegroundColor Green
+        Write-Host "OK gemini-cli installed" -ForegroundColor Green
     }
 } elseif (Test-Command "gemini") {
-    Write-Host "✓ gemini-cli found" -ForegroundColor Green
+    Write-Host "OK gemini-cli found" -ForegroundColor Green
 }
 
 Write-Host ""
@@ -161,13 +161,13 @@ if (Test-Path "scripts\start.ps1") {
 }
 
 Write-Host ""
-Write-Host "╔═══════════════════════════════════════════════════╗" -ForegroundColor Green
-Write-Host "║   Installation Complete                           ║" -ForegroundColor Green
-Write-Host "╚═══════════════════════════════════════════════════╝" -ForegroundColor Green
+Write-Host "-----------------------------------------------------" -ForegroundColor Green
+Write-Host "-   Installation Complete                           -" -ForegroundColor Green
+Write-Host "-----------------------------------------------------" -ForegroundColor Green
 Write-Host ""
 Write-Host "Your Mindscape AI is running at:" -ForegroundColor White
-Write-Host "  • Web Console: http://localhost:8300" -ForegroundColor Cyan
-Write-Host "  • Backend API: http://localhost:8200" -ForegroundColor Cyan
+Write-Host "  - Web Console: http://localhost:8300" -ForegroundColor Cyan
+Write-Host "  - Backend API: http://localhost:8200" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "CLI Bridge is auto-managed by .\scripts\start.ps1 / the platform service wrapper." -ForegroundColor Yellow
 Write-Host "Manual override:" -ForegroundColor Yellow

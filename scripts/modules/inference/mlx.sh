@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 # MLX inference engine module
 # Extracted from start-mlx-server.sh
 # Requires: platform.sh sourced first
-# ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------
 
 # Find the best Python for MLX
 _find_mlx_python() {
@@ -16,7 +16,7 @@ _find_mlx_python() {
   fi
 }
 
-# Setup macOS firewall rules for MLX server (Docker → host access)
+# Setup macOS firewall rules for MLX server (Docker -> host access)
 setup_mlx_firewall() {
   local python_bin="${1:-$(_find_mlx_python)}"
   [ -z "$python_bin" ] && return 0
@@ -37,7 +37,7 @@ setup_mlx_firewall() {
 # Ensure mlx-vlm is installed
 ensure_mlx_vlm() {
   local python_bin="${1:-$(_find_mlx_python)}"
-  [ -z "$python_bin" ] && { echo "  ✗ No Python found for MLX"; return 1; }
+  [ -z "$python_bin" ] && { echo "  ERROR No Python found for MLX"; return 1; }
 
   if ! "$python_bin" -c "import mlx_vlm" 2>/dev/null; then
     echo "  Installing mlx-vlm..."
@@ -53,7 +53,7 @@ start_mlx_server() {
   local python_bin
   python_bin="$(_find_mlx_python)"
 
-  [ -z "$python_bin" ] && { echo "  ✗ No Python found for MLX"; return 1; }
+  [ -z "$python_bin" ] && { echo "  ERROR No Python found for MLX"; return 1; }
 
   # Setup firewall if on macOS
   if [ "$PLATFORM" = "macos" ]; then

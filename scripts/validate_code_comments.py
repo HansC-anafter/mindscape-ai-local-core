@@ -16,11 +16,13 @@ import subprocess
 
 # Patterns to check
 CHINESE_PATTERN = re.compile(r'[\u4e00-\u9fff]')
-STEP_PATTERN = re.compile(r'(Step\s+\d+|步驟|TODO|FIXME|XXX|HACK|NOTE:|FIXED|Fixed|Added|Removed|Changed|Updated|記錄|紀錄)')
+STEP_PATTERN = re.compile(r'(Step\s+\d+|\u6b65\u9a5f|TODO|FIXME|XXX|HACK|NOTE:|FIXED|Fixed|Added|Removed|Changed|Updated|\u8a18\u9304|\u7d00\u9304)')
 NON_FUNCTIONAL_PATTERN = re.compile(
-    r'(\bimportant\b|重要|don.t forget|別忘記|\btemporary\b|臨時|\btemp\b|暫時|\bThis is\b|這是)'
+    r'(\bimportant\b|\u91cd\u8981|don.t forget|\u5225\u5fd8\u8a18|\btemporary\b|\u81e8\u6642|\btemp\b|\u66ab\u6642|\bThis is\b|\u9019\u662f)'
 )
-EMOJI_PATTERN = re.compile(r'[✅❌⚠️🚀💡🔧📝🎯🔥💯⭐️🌟]')
+EMOJI_PATTERN = re.compile(
+    r'[\u2705\u274c\u26a0\ufe0f\U0001f680\U0001f4a1\U0001f527\U0001f4dd\U0001f3af\U0001f525\U0001f4af\u2b50\U0001f31f]'
+)
 
 def _extract_python_comment(line: str, multiline_quote: str | None) -> tuple[str | None, str]:
     """Return Python line comment content outside string literals."""
@@ -204,20 +206,18 @@ def main():
         all_violations.extend(violations)
 
     if all_violations:
-        print("❌ Code comment violations found:\n")
+        print("Code comment violations found:\n")
         for violation in all_violations:
             print(f"  {violation}")
         print("\nPlease fix these violations before committing.")
-        print("\nSee: docs-internal/implementation/architecture-refactoring-2025-12-22/CODE_COMMENT_VALIDATION_CHECKLIST.md")
+        print("\nReview the public contribution and code comment rules before committing.")
         return 1
     else:
-        print("✅ All code comments comply with guidelines.")
+        print("All code comments comply with guidelines.")
         return 0
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
 
 
 

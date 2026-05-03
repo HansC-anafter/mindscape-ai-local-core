@@ -48,13 +48,13 @@ done
 VIOLATIONS=0
 VIOLATION_FILES=()
 
-echo "🔍 Checking for hardcoded capability brand words in core pages..."
+echo "Checking for hardcoded capability brand words in core pages..."
 echo ""
 
 # Check each core directory
 for core_dir in "${CORE_DIRS[@]}"; do
   if [ ! -d "$core_dir" ]; then
-    echo "⚠️  Directory not found: $core_dir (skipping)"
+    echo "Warning: directory not found: $core_dir (skipping)"
     continue
   fi
 
@@ -66,7 +66,7 @@ for core_dir in "${CORE_DIRS[@]}"; do
     matches=$(grep -r -i -l --include="*.tsx" --include="*.ts" "$brand_word" "$core_dir" $EXCLUDE_PATTERN 2>/dev/null || true)
 
     if [ -n "$matches" ]; then
-      echo "  ❌ Found '$brand_word' in:"
+      echo "  Found '$brand_word' in:"
       echo "$matches" | while read -r file; do
         echo "     - $file"
         VIOLATION_FILES+=("$file")
@@ -80,18 +80,16 @@ echo ""
 
 # Report results
 if [ $VIOLATIONS -eq 0 ]; then
-  echo "✅ No hardcoded capability brand words found in core pages"
+  echo "No hardcoded capability brand words found in core pages"
   exit 0
 else
-  echo "❌ Found $VIOLATIONS violation(s) of capability brand word policy"
+  echo "Found $VIOLATIONS violation(s) of capability brand word policy"
   echo ""
   echo "Violations found in:"
   printf '%s\n' "${VIOLATION_FILES[@]}" | sort -u | while read -r file; do
     echo "  - $file"
   done
   echo ""
-  echo "💡 Solution: Use Capability Slot mechanism instead of hardcoding"
-  echo "   See: docs-internal/SHELL_EXTRACTION_IMPLEMENTATION_PLAN_2026-01-05.md"
+  echo "Solution: use the Capability Slot mechanism instead of hardcoding."
   exit 1
 fi
-

@@ -434,7 +434,7 @@ def main():
             fpath = f.get("file_path", "")
             size = f.get("file_size", f.get("size_bytes", "?"))
 
-            # Resolve container path → host path
+            # Resolve container path -> host path
             host_path = ""
             if fpath and workspace_root:
                 # Strip leading /app/ if present (container CWD)
