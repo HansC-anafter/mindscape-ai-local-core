@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense, useCallback } from 'react';
 import { useConflictHandler } from '@/hooks/useConflictHandler';
 import ConflictDialog from '@/components/ConflictDialog';
 import { useToast } from '@/components/Toast';
@@ -38,14 +38,14 @@ export type { Artifact };
 
 const getArtifactIcon = (artifactType: string): string => {
   const iconMap: Record<string, string> = {
-    checklist: '✅',
-    draft: '📝',
-    config: '⚙️',
-    canva: '🎨',
-    audio: '🔊',
-    docx: '📄'
+    checklist: 'LIST',
+    draft: 'DOC',
+    config: 'CFG',
+    canva: 'CAN',
+    audio: 'AUD',
+    docx: 'DOCX'
   };
-  return iconMap[artifactType] || '📦';
+  return iconMap[artifactType] || 'ITEM';
 };
 
 export default function OutcomesPanel({
@@ -65,12 +65,12 @@ export default function OutcomesPanel({
   const [sandboxInitialFile, setSandboxInitialFile] = useState<string | null>(null);
   const [executionId, setExecutionId] = useState<string | null>(null);
 
-  // Dynamic capability UI components (boundary: no hardcoded Cloud components)
+  // Dynamic capability UI components (boundary: no hardcoded external components)
   const [installedCapabilities, setInstalledCapabilities] = useState<any[]>([]);
   const [capabilityUIComponents, setCapabilityUIComponents] = useState<Map<string, React.ComponentType<any>>>(new Map());
   const [openModalKey, setOpenModalKey] = useState<string | null>(null);
 
-  const loadArtifacts = async () => {
+  const loadArtifacts = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -93,17 +93,17 @@ export default function OutcomesPanel({
           if (newArtifactsList.length === 1) {
             const newArtifact = newArtifactsList[0];
             showToast({
-              message: `✅ 已新增 1 個成果：『${newArtifact.title}』`,
+              message: `Added 1 outcome: "${newArtifact.title}"`,
               type: 'success',
               duration: 5000,
               action: onArtifactClick ? {
-                label: '打開成果卡',
+                label: 'Open Outcome Card',
                 onClick: () => onArtifactClick(newArtifact)
               } : undefined
             });
           } else {
             showToast({
-              message: `✅ 已新增 ${newArtifactsList.length} 個成果`,
+              message: `Added ${newArtifactsList.length} outcomes`,
               type: 'success',
               duration: 5000
             });
@@ -128,7 +128,7 @@ export default function OutcomesPanel({
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiUrl, workspaceId, showToast, onArtifactClick]);
 
   // Load installed capabilities and their UI component metadata (boundary: via API, not hardcoded)
   useEffect(() => {
@@ -261,19 +261,19 @@ export default function OutcomesPanel({
       }
       window.removeEventListener('workspace-chat-updated', handleChatUpdate);
     };
-  }, [workspaceId, apiUrl]);
+  }, [loadArtifacts]);
 
   const handleManualRefresh = async () => {
     try {
       await loadArtifacts();
       showToast({
-        message: '✅ 已刷新成果列表',
+        message: 'Outcome list refreshed',
         type: 'success',
         duration: 2000
       });
     } catch (err) {
       showToast({
-        message: '❌ 刷新失敗，請稍後再試',
+        message: 'Refresh failed. Please try again later.',
         type: 'error',
         duration: 3000
       });
@@ -313,7 +313,7 @@ export default function OutcomesPanel({
           async (data) => {
             await navigator.clipboard.writeText(data.content);
             showToast({
-              message: '已複製到剪貼板',
+              message: 'Copied to clipboard',
               type: 'success',
               duration: 3000
             });
@@ -321,7 +321,7 @@ export default function OutcomesPanel({
           (err) => {
             console.error('Failed to copy artifact:', err);
             showToast({
-              message: '複製失敗，請重試',
+              message: 'Copy failed. Please try again.',
               type: 'error',
               duration: 3000
             });
@@ -333,14 +333,14 @@ export default function OutcomesPanel({
       const data = await response.json();
       await navigator.clipboard.writeText(data.content);
       showToast({
-        message: '已複製到剪貼板',
+        message: 'Copied to clipboard',
         type: 'success',
         duration: 3000
       });
     } catch (err) {
       console.error('Failed to copy artifact:', err);
       showToast({
-        message: '複製失敗，請重試',
+        message: 'Copy failed. Please try again.',
         type: 'error',
         duration: 3000
       });
@@ -361,7 +361,7 @@ export default function OutcomesPanel({
     } catch (err) {
       console.error('Failed to open external URL:', err);
       showToast({
-        message: '開啟失敗，請重試',
+        message: 'Open failed. Please try again.',
         type: 'error',
         duration: 3000
       });
@@ -371,7 +371,7 @@ export default function OutcomesPanel({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-gray-500 dark:text-gray-400">{t('loading' as any) || '載入中...'}</div>
+        <div className="text-sm text-gray-500 dark:text-gray-400">{t('loading' as any) || 'Loading...'}</div>
       </div>
     );
   }
@@ -379,7 +379,7 @@ export default function OutcomesPanel({
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-sm text-red-500 dark:text-red-400">{t('error' as any) || '錯誤'}: {error}</div>
+        <div className="text-sm text-red-500 dark:text-red-400">{t('error' as any) || 'Error'}: {error}</div>
       </div>
     );
   }
@@ -387,7 +387,7 @@ export default function OutcomesPanel({
   if (artifacts.length === 0) {
     return (
       <div className="flex items-center justify-center h-full px-2">
-        <div className="text-xs text-gray-500 dark:text-gray-400">{t('noOutcomes' as any) || '尚無成果'}</div>
+        <div className="text-xs text-gray-500 dark:text-gray-400">{t('noOutcomes' as any) || 'No outcomes yet'}</div>
       </div>
     );
   }
@@ -427,7 +427,7 @@ export default function OutcomesPanel({
         />
       )}
 
-      {/* Dynamic Capability UI Components (boundary: loaded via API, not hardcoded) */}
+      {/* Dynamic capability UI components (boundary: loaded via API, not hardcoded) */}
       {matchingComponentKeys.map((key) => {
         const [capabilityCode, componentCode] = key.split(':');
         const Component = capabilityUIComponents.get(key);
@@ -445,11 +445,10 @@ export default function OutcomesPanel({
               onClick={() => setOpenModalKey(key)}
               className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm font-medium"
             >
-              <span>📱</span>
-              <span>{componentInfo.description || `查看 ${componentInfo.code}`}</span>
+              <span>{componentInfo.description || `View ${componentInfo.code}`}</span>
             </button>
             {isOpen && (
-              <Suspense fallback={<div className="p-4 text-center">載入中...</div>}>
+              <Suspense fallback={<div className="p-4 text-center">Loading...</div>}>
                 <Component
                   isOpen={isOpen}
                   onClose={() => setOpenModalKey(null)}
@@ -470,7 +469,7 @@ export default function OutcomesPanel({
           // Extract execution_id from metadata if not directly available
           const executionId = (artifact as any).execution_id || (artifact.metadata && (artifact.metadata as any).execution_id) || (artifact.metadata && (artifact.metadata as any).navigate_to) || null;
           const createdDate = parseServerTimestamp(artifact.created_at);
-          const formattedDate = createdDate ? createdDate.toLocaleString('zh-TW', {
+          const formattedDate = createdDate ? createdDate.toLocaleString('en-US', {
             month: 'short',
             day: 'numeric',
             hour: '2-digit',
@@ -578,9 +577,9 @@ export default function OutcomesPanel({
                       handleOpenExternal(artifact, e);
                     }}
                     className="px-2 py-0.5 text-[10px] bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-400 rounded hover:opacity-80 dark:hover:bg-blue-900/40 transition-colors flex-shrink-0"
-                    title="下載檔案"
+                    title="Download File"
                   >
-                    <span>⬇</span>
+                    <span>Download</span>
                   </button>
                 )}
               </div>
@@ -589,16 +588,16 @@ export default function OutcomesPanel({
               <div className="flex items-center justify-between text-[10px] text-gray-400 dark:text-gray-500">
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
                   <span className="truncate">{artifact.playbook_code}</span>
-                  <span>•</span>
+                  <span>-</span>
                   <span className="flex-shrink-0">{formattedDate}</span>
                 </div>
                 {(filePath || executionId) && (
                   <button
                     onClick={handleSandboxClick}
                     className="text-[10px] text-accent dark:text-blue-400 hover:opacity-80 dark:hover:text-blue-300 hover:underline flex-shrink-0 ml-2 px-1 py-0.5 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 transition-colors"
-                    title="在 Sandbox 中查看"
+                    title="View in Sandbox"
                   >
-                    <span className="mr-0.5">📁</span> Sandbox
+                    Sandbox
                   </button>
                 )}
               </div>
@@ -642,9 +641,6 @@ export default function OutcomesPanel({
           initialFile={sandboxInitialFile || undefined}
         />
       )}
-
-      {/* IG Grid View Modal moved to Cloud - removed from Local-Core */}
     </>
   );
 }
-

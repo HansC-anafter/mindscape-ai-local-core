@@ -66,9 +66,9 @@ export default function WorkspaceGroupIndicator({
 
     const roleIcon = (role: string) => {
         switch (role) {
-            case 'dispatch': return '🎯';
-            case 'cell': return '🔬';
-            default: return '📦';
+            case 'dispatch': return 'DSP';
+            case 'cell': return 'CEL';
+            default: return 'GRP';
         }
     };
 
@@ -90,7 +90,7 @@ export default function WorkspaceGroupIndicator({
                     text-indigo-600 dark:text-indigo-400 transition-colors cursor-pointer select-none"
                 title="Workspace Group"
             >
-                <span>👥</span>
+                <span>GRP</span>
                 <span>Group</span>
                 {workspaceRole && (
                     <span className="text-[10px] opacity-70">({workspaceRole})</span>
@@ -112,7 +112,7 @@ export default function WorkspaceGroupIndicator({
                         {/* Header */}
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                                <span>👥</span>
+                                <span>GRP</span>
                                 {groupData?.display_name || 'Workspace Group'}
                             </h3>
                             <button
@@ -172,7 +172,7 @@ export default function WorkspaceGroupIndicator({
                                                 key={member.workspace_id}
                                                 className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50"
                                             >
-                                                <span className="text-lg flex-shrink-0">{roleIcon(member.role)}</span>
+                                                <span className="text-xs font-semibold flex-shrink-0">{roleIcon(member.role)}</span>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                                                         {member.title || member.workspace_id}

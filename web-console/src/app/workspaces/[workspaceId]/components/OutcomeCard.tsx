@@ -16,38 +16,38 @@ interface OutcomeCardProps {
 
 const getArtifactIcon = (artifactType: string): string => {
   const iconMap: Record<string, string> = {
-    checklist: '✅',
-    draft: '📝',
-    config: '⚙️',
-    canva: '🎨',
-    audio: '🔊',
-    docx: '📄',
-    file: '📁',
-    link: '🔗',
-    post: '📱',
-    image: '🖼️',
-    video: '🎬',
-    code: '💻',
-    data: '📊'
+    checklist: 'LIST',
+    draft: 'DOC',
+    config: 'CFG',
+    canva: 'CAN',
+    audio: 'AUD',
+    docx: 'DOCX',
+    file: 'FILE',
+    link: 'LINK',
+    post: 'POST',
+    image: 'IMG',
+    video: 'VID',
+    code: 'CODE',
+    data: 'DATA'
   };
-  return iconMap[artifactType] || '📦';
+  return iconMap[artifactType] || 'ITEM';
 };
 
 const getArtifactTypeLabel = (artifactType: string): string => {
   const labelMap: Record<string, string> = {
-    checklist: '清單',
-    draft: '草稿',
-    config: '設定',
+    checklist: 'Checklist',
+    draft: 'Draft',
+    config: 'Config',
     canva: 'Canva',
-    audio: '音頻',
-    docx: '文件',
-    file: '文件',
-    link: '連結',
-    post: '貼文',
-    image: '圖片',
-    video: '視頻',
-    code: '代碼',
-    data: '數據'
+    audio: 'Audio',
+    docx: 'Document',
+    file: 'File',
+    link: 'Link',
+    post: 'Post',
+    image: 'Image',
+    video: 'Video',
+    code: 'Code',
+    data: 'Data'
   };
   return labelMap[artifactType] || artifactType;
 };
@@ -102,7 +102,9 @@ export default function OutcomeCard({
     >
       {/* Header */}
       <div className="flex items-start gap-2 mb-2">
-        <span className="text-xl flex-shrink-0">{getArtifactIcon(artifact.artifact_type)}</span>
+        <span className="text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 flex-shrink-0">
+          {getArtifactIcon(artifact.artifact_type)}
+        </span>
         <div className="flex-1 min-w-0">
           <h4 className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">{artifact.title}</h4>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{artifact.summary}</p>
@@ -124,7 +126,7 @@ export default function OutcomeCard({
         )}
         <span className="text-[10px]">{formatLocalDateTime(artifact.created_at)}</span>
         {artifact.intent_id && (
-          <span className="text-[10px] text-blue-500 dark:text-blue-400">來源 Intent</span>
+          <span className="text-[10px] text-blue-500 dark:text-blue-400">Source Intent</span>
         )}
       </div>
 
@@ -134,53 +136,48 @@ export default function OutcomeCard({
           <button
             onClick={(e) => handleActionClick(e, onCopy)}
             className="px-2 py-1 text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors flex items-center gap-1"
-            title="複製"
+            title="Copy"
           >
-            <span>📋</span>
-            <span>複製</span>
+            <span>Copy</span>
           </button>
         )}
         {artifact.primary_action_type === 'open_external' && onOpenExternal && (
           <button
             onClick={(e) => handleActionClick(e, onOpenExternal)}
             className="px-2 py-1 text-xs bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors flex items-center gap-1"
-            title="開啟"
+            title="Open"
           >
-            <span>🔗</span>
-            <span>開啟</span>
+            <span>Open</span>
           </button>
         )}
         {artifact.primary_action_type === 'download' && onDownload && (
           <button
             onClick={(e) => handleActionClick(e, onDownload)}
             className="px-2 py-1 text-xs bg-gray-50 dark:bg-gray-800/30 text-gray-600 dark:text-gray-400 rounded hover:bg-gray-100 dark:hover:bg-gray-800/40 transition-colors flex items-center gap-1"
-            title="下載"
+            title="Download"
           >
-            <span>⬇️</span>
-            <span>下載</span>
+            <span>Download</span>
           </button>
         )}
         {artifact.primary_action_type === 'navigate' && onNavigate && (
           <button
             onClick={(e) => handleActionClick(e, onNavigate)}
             className="px-2 py-1 text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors flex items-center gap-1"
-            title="跳轉"
+            title="Go to Source"
           >
-            <span>➡️</span>
-            <span>跳轉</span>
+            <span>Go</span>
           </button>
         )}
         {externalUrl && artifact.primary_action_type !== 'open_external' && onOpenExternal && (
           <button
             onClick={(e) => handleActionClick(e, onOpenExternal)}
             className="px-2 py-1 text-xs bg-gray-50 dark:bg-gray-800/30 text-gray-600 dark:text-gray-400 rounded hover:bg-gray-100 dark:hover:bg-gray-800/40 transition-colors flex items-center gap-1"
-            title="開啟連結"
+            title="Open Link"
           >
-            <span>🔗</span>
+            <span>Open</span>
           </button>
         )}
       </div>
     </div>
   );
 }
-

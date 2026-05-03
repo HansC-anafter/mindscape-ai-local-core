@@ -78,11 +78,11 @@ function formatRelativeTime(timestamp: string): string {
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
 
-  if (diffMins < 1) return '剛剛';
-  if (diffMins < 60) return `${diffMins} 分鐘前`;
-  if (diffHours < 24) return `${diffHours} 小時前`;
-  if (diffDays < 7) return `${diffDays} 天前`;
-  return date.toLocaleDateString('zh-TW');
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours} hr ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  return date.toLocaleDateString('en-US');
 }
 
 function EventItem({
@@ -93,10 +93,10 @@ function EventItem({
   onClick: () => void;
 }) {
   const icons: Record<string, string> = {
-    playbook_started: '▶️',
-    step_completed: '✅',
-    artifact_created: '📄',
-    confirmation_needed: '⏸️'
+    playbook_started: 'START',
+    step_completed: 'DONE',
+    artifact_created: 'ART',
+    confirmation_needed: 'WAIT'
   };
 
   return (
@@ -104,7 +104,7 @@ function EventItem({
       className="event-item flex items-center gap-2 p-2 hover:bg-surface-secondary dark:hover:bg-gray-800 rounded cursor-pointer transition-colors"
       onClick={onClick}
     >
-      <span className="event-icon text-xs flex-shrink-0">{icons[event.type] || '•'}</span>
+      <span className="event-icon text-xs flex-shrink-0">{icons[event.type] || '-'}</span>
       <div className="event-content flex-1 min-w-0">
         <div className="playbook-name text-[10px] font-medium text-primary dark:text-gray-100 truncate">
           {event.playbookName}
@@ -127,7 +127,7 @@ export default function ProjectCard({
   workspaceId,
   isExpanded: controlledExpanded,
   isFocused = false,
-  defaultExpanded = true,  // Default to expanded for better visibility of task details
+  defaultExpanded = true,
   onToggleExpand,
   onFocus,
   onOpenExecution,
@@ -160,46 +160,28 @@ export default function ProjectCard({
       onToggleExpand();
       return;
     }
-    console.log('[ProjectCard] Toggle expand:', { before: internalExpanded, projectId: project.id });
     setInternalExpanded(!internalExpanded);
-  }, [internalExpanded, onToggleExpand, project.id]);
+  }, [internalExpanded, onToggleExpand]);
 
-  // Debug: Log expansion state
-  useEffect(() => {
-    console.log('[ProjectCard] Expansion state changed:', {
-      projectId: project.id,
-      defaultExpanded,
-      internalExpanded,
-      controlledExpanded,
-      isExpanded
-    });
-  }, [defaultExpanded, internalExpanded, controlledExpanded, isExpanded, project.id]);
-
-  // Listen for highlight-project-card event
   useEffect(() => {
     const handleHighlight = (e: CustomEvent) => {
       const { projectId } = e.detail || {};
       if (projectId === project.id) {
-        // Clear existing timeout if any
         if (highlightTimeoutRef.current) {
           clearTimeout(highlightTimeoutRef.current);
         }
 
-        // Set highlighted state
         setIsHighlighted(true);
 
-        // Auto-expand card if collapsed
         if (!isExpanded) {
           handleToggleExpand();
         }
 
-        // Scroll card into view if needed
         const cardElement = document.querySelector(`[data-project-card-id="${project.id}"]`);
         if (cardElement) {
           cardElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
-        // Clear highlight after 2.5 seconds
         highlightTimeoutRef.current = setTimeout(() => {
           setIsHighlighted(false);
         }, 2500);
@@ -216,8 +198,6 @@ export default function ProjectCard({
   }, [project.id, isExpanded, handleToggleExpand]);
 
   useEffect(() => {
-    // Load data when component mounts or when project changes, not just when expanded
-    // This ensures statistics are visible even when card is collapsed
     if (cardData || loadingRef.current || apiUrl == null || !effectiveWorkspaceId) {
       return;
     }
@@ -225,7 +205,6 @@ export default function ProjectCard({
     loadingRef.current = true;
     setLoading(true);
     const url = `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/projects/${project.id}/card`;
-    console.log('[ProjectCard] Loading card data from:', url);
 
     let isMounted = true;
     const controller = new AbortController();
@@ -253,7 +232,6 @@ export default function ProjectCard({
       })
       .then(data => {
         if (!isMounted) return;
-        console.log('[ProjectCard] Received data:', data);
         setCardData(data);
         loadingRef.current = false;
         setLoading(false);
@@ -278,7 +256,6 @@ export default function ProjectCard({
     };
   }, [cardData, apiUrl, project.id, effectiveWorkspaceId]);
 
-  // Subscribe to meeting SSE events to refresh card data on state changes.
   useEffect(() => {
     const meetingOn = Boolean(
       cardData?.meeting?.enabled ?? project.metadata?.meeting_enabled
@@ -313,7 +290,6 @@ export default function ProjectCard({
             event.payload.workflow_evidence_budget_utilization_ratio ?? null
           );
         }
-        // Re-fetch card data when any meeting event arrives
         const url = `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/projects/${project.id}/card`;
         fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'include' })
           .then(res => res.ok ? res.json() : null)
@@ -428,7 +404,6 @@ export default function ProjectCard({
           },
         };
       });
-      // Refetch card data after toggle to sync with backend state
       if (enabled) {
         setTimeout(async () => {
           try {
@@ -440,12 +415,12 @@ export default function ProjectCard({
               const data = await res.json();
               setCardData(data);
             }
-          } catch { /* ignore refetch errors */ }
+          } catch {
+            return;
+          }
         }, 1500);
 
-        // Auto kick-off meeting pipeline (no separate chat message needed)
         try {
-          // Find or create meeting session
           let sessionId = cardData?.meeting?.session_id || '';
           if (!sessionId) {
             const activeResp = await fetch(
@@ -474,9 +449,7 @@ export default function ProjectCard({
             }
           }
 
-          // Trigger the meeting pipeline with project context
           const meetingMessage = `[Meeting Started] Start project meeting for "${project.title}" (${project.type})`;
-          console.log('[ProjectCard] Auto-kicking off meeting pipeline for project:', project.id);
           await fetch(`${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -493,14 +466,13 @@ export default function ProjectCard({
       }
     } catch (err) {
       console.error('[ProjectCard] Failed to toggle meeting:', err);
-      throw err;  // Re-throw so callers (handleOpenMeeting) can detect failure
+      throw err;
     } finally {
       setMeetingUpdating(false);
     }
   };
 
   const handleOpenMeeting = () => {
-    console.log('[ProjectCard] Meeting button clicked', { effectiveWorkspaceId, projectId: project.id });
     if (!effectiveWorkspaceId) {
       console.warn('[ProjectCard] No effectiveWorkspaceId, cannot open meeting');
       return;
@@ -581,7 +553,7 @@ export default function ProjectCard({
         <div className="flex items-center justify-between p-3 pb-1.5">
           <div className="left flex items-center gap-2 flex-1 min-w-0">
             <span className="chevron text-xs text-tertiary dark:text-gray-500 flex-shrink-0">
-              {isExpanded ? '▼' : '▶'}
+              {isExpanded ? '[-]' : '[+]'}
             </span>
             <span className="project-name text-sm font-medium text-primary dark:text-gray-100 truncate">
               {project.title}
@@ -599,9 +571,9 @@ export default function ProjectCard({
                   ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
                   : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
                   }`}
-                title={`${cardData.stats.runningExecutions} 個執行中`}
+                title={`${cardData.stats.runningExecutions} running executions`}
               >
-                🔄 {cardData.stats.runningExecutions}
+                RUN {cardData.stats.runningExecutions}
               </span>
             )}
             {cardData && (
@@ -610,9 +582,9 @@ export default function ProjectCard({
                   ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
                   : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
                   }`}
-                title={`${cardData.stats.artifactCount} 個成果`}
+                title={`${cardData.stats.artifactCount} artifacts`}
               >
-                📦 {cardData.stats.artifactCount}
+                ART {cardData.stats.artifactCount}
               </span>
             )}
             {cardData && (
@@ -621,24 +593,24 @@ export default function ProjectCard({
                   ? 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300'
                   : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
                   }`}
-                title={`${cardData.stats.completedExecutions} 個已完成`}
+                title={`${cardData.stats.completedExecutions} completed executions`}
               >
-                ✓ {cardData.stats.completedExecutions}
+                DONE {cardData.stats.completedExecutions}
               </span>
             )}
             {cardData && cardData.stats.pendingConfirmations > 0 && (
               <span
                 className="badge pending text-[10px] px-1.5 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 rounded"
-                title={`${cardData.stats.pendingConfirmations} 個待確認`}
+                title={`${cardData.stats.pendingConfirmations} pending confirmations`}
               >
-                ⏸️ {cardData.stats.pendingConfirmations}
+                WAIT {cardData.stats.pendingConfirmations}
               </span>
             )}
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                handleToggleMeeting(!meetingEnabled).catch(() => { /* error already logged */ });
+                handleToggleMeeting(!meetingEnabled).catch(() => undefined);
               }}
               disabled={meetingUpdating}
               className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${meetingEnabled
@@ -647,18 +619,18 @@ export default function ProjectCard({
                 } ${meetingUpdating ? 'opacity-60 cursor-not-allowed' : 'hover:opacity-85'}`}
               title={meetingEnabled ? 'Disable persistent meeting' : 'Enable persistent meeting'}
             >
-              🧭 {meetingEnabled ? (meetingActive ? 'ON*' : 'ON') : 'OFF'}
+              Meeting {meetingEnabled ? (meetingActive ? 'ON*' : 'ON') : 'OFF'}
             </button>
           </div>
         </div>
         <div className="block px-3 pb-2 pt-0.5 text-[10px] text-secondary dark:text-gray-400">
           <div className="flex items-center gap-3">
             {(project.human_owner_user_id || project.initiator_user_id) && (
-              <span>負責人: {project.human_owner_user_id || project.initiator_user_id}</span>
+              <span>Owner: {project.human_owner_user_id || project.initiator_user_id}</span>
             )}
             {project.created_at && (
               <span>
-                {parseServerTimestamp(project.created_at)?.toLocaleDateString('zh-TW', {
+                {parseServerTimestamp(project.created_at)?.toLocaleDateString('en-US', {
                   year: 'numeric',
                   month: 'short',
                   day: 'numeric'
@@ -689,27 +661,12 @@ export default function ProjectCard({
 
       {isExpanded && (
         <div className="card-content p-3">
-          {(() => {
-            // Debug: Log expansion and data state
-            console.log('[ProjectCard] Expanded content rendering:', {
-              projectId: project.id,
-              isExpanded,
-              loading,
-              hasCardData: !!cardData,
-              cardDataKeys: cardData ? Object.keys(cardData) : null,
-              defaultExpanded,
-              internalExpanded,
-              controlledExpanded
-            });
-            return null;
-          })()}
           {loading ? (
             <div className="text-xs text-secondary dark:text-gray-400 text-center py-4">
-              載入中...
+              Loading...
             </div>
           ) : cardData ? (
             <div className="events-column w-full space-y-4">
-              {/* Persistent Meeting Summary */}
               <div className="p-2 rounded border border-sky-200/60 dark:border-sky-800/60 bg-sky-50/60 dark:bg-sky-900/10">
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <div className="text-[10px] font-semibold text-sky-800 dark:text-sky-300">
@@ -722,7 +679,7 @@ export default function ProjectCard({
                 {meetingEnabled ? (
                   <div className="space-y-1">
                     <div className="text-[10px] text-secondary dark:text-gray-400">
-                      Round {cardData.meeting?.round_count || 0}/{cardData.meeting?.max_rounds || 5} · Action Items {cardData.meeting?.action_item_count || 0}
+                      Round {cardData.meeting?.round_count || 0}/{cardData.meeting?.max_rounds || 5} - Action Items {cardData.meeting?.action_item_count || 0}
                     </div>
                     {workflowEvidenceProfile && (
                       <WorkflowEvidenceSummary
@@ -765,7 +722,7 @@ export default function ProjectCard({
                       }}
                       className="mt-1 ml-2 text-[10px] px-2 py-1 rounded border border-sky-200 dark:border-sky-700 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-900/20"
                     >
-                      場景 Patch
+                      Scene Patch
                     </button>
                   </div>
                 ) : (
@@ -775,11 +732,10 @@ export default function ProjectCard({
                 )}
               </div>
 
-              {/* Playbook List */}
               {cardData.playbooks && cardData.playbooks.length > 0 && (
                 <div className="mb-4">
                   <div className="events-header text-[10px] font-semibold text-primary dark:text-gray-300 mb-2">
-                    Playbook 任務 ({cardData.playbooks.length})
+                    Playbook Tasks ({cardData.playbooks.length})
                   </div>
                   <div className="space-y-1">
                     {cardData.playbooks.map((playbook, index) => (
@@ -806,19 +762,16 @@ export default function ProjectCard({
                 </div>
               )}
 
-              {/* Recent Events */}
               <div>
                 <div className="events-header text-[10px] font-semibold text-primary dark:text-gray-300 mb-2">
-                  即時動態
+                  Live Activity
                 </div>
                 <div className="events-list space-y-1 max-h-48 overflow-y-auto">
                   {(() => {
-                    // Filter to only show events belonging to this project
                     const filteredEvents = cardData.recentEvents.filter(event => {
                       if (event.projectId) {
                         return event.projectId === project.id;
                       }
-                      // No projectId info: assume current project (backward compat)
                       return true;
                     });
 
@@ -832,7 +785,7 @@ export default function ProjectCard({
                       ))
                     ) : (
                       <div className="text-[10px] text-tertiary dark:text-gray-500 text-center py-4">
-                        尚無動態
+                        No activity yet
                       </div>
                     );
                   })()}
@@ -841,7 +794,7 @@ export default function ProjectCard({
             </div>
           ) : (
             <div className="text-xs text-secondary dark:text-gray-400 text-center py-4">
-              無法載入數據
+              Unable to load data
             </div>
           )}
         </div>
@@ -851,19 +804,16 @@ export default function ProjectCard({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            console.log('[ProjectCard] View button clicked', { project, effectiveWorkspaceId });
 
             if (effectiveWorkspaceId) {
-              console.log('[ProjectCard] Navigating to execution timeline');
               router.push(`/workspaces/${effectiveWorkspaceId}/executions/timeline?project_id=${project.id}`);
             } else if (onFocus) {
-              // Fallback
               onFocus();
             }
           }}
           className="w-full text-xs text-accent dark:text-blue-400 hover:opacity-80 dark:hover:text-blue-300 font-medium py-1.5 px-2 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 transition-colors cursor-pointer"
         >
-          查看 →
+          View
         </button>
         <button
           onClick={(e) => {

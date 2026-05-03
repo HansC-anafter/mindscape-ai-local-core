@@ -11,35 +11,35 @@ interface VisibilityBadgeProps {
 }
 
 const VISIBILITY_CONFIG: Record<WorkspaceVisibility, {
-    icon: string;
+    badge: string;
     label: string;
     colorClass: string;
     bgClass: string;
     description: string;
 }> = {
     private: {
-        icon: '🔒',
+        badge: 'PR',
         label: 'Private',
         colorClass: 'text-gray-600 dark:text-gray-400',
         bgClass: 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700',
         description: 'Only you can access',
     },
     group: {
-        icon: '👥',
+        badge: 'GR',
         label: 'Group',
         colorClass: 'text-blue-600 dark:text-blue-400',
         bgClass: 'bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50',
         description: 'Shared with group members',
     },
     discoverable: {
-        icon: '🔍',
+        badge: 'DS',
         label: 'Discoverable',
         colorClass: 'text-amber-600 dark:text-amber-400',
         bgClass: 'bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40',
         description: 'Others can find this workspace',
     },
     public: {
-        icon: '🌐',
+        badge: 'PU',
         label: 'Public',
         colorClass: 'text-green-600 dark:text-green-400',
         bgClass: 'bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/40',
@@ -121,7 +121,7 @@ export default function VisibilityBadge({
                 `}
                 title={config.description}
             >
-                <span>{config.icon}</span>
+                <span>{config.badge}</span>
                 <span>{config.label}</span>
                 <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -151,7 +151,7 @@ export default function VisibilityBadge({
                                     }
                                 `}
                             >
-                                <span className="text-base">{optConfig.icon}</span>
+                                <span className="text-xs font-semibold">{optConfig.badge}</span>
                                 <div className="flex-1 min-w-0">
                                     <div className={`font-medium ${optConfig.colorClass}`}>
                                         {optConfig.label}

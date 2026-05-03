@@ -51,7 +51,7 @@ export default function WorkspaceHeaderBar({
                 workspaceId={workspaceId}
                 onWorkspaceNameEdit={onWorkspaceNameEdit}
             />
-            {/* Visibility & Group badges — positioned right of the workspace title */}
+            {/* Visibility and group badges - positioned right of the workspace title */}
             <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center gap-1.5 z-20"
                 style={{ left: 'var(--badge-left, auto)' }}
                 ref={(el) => {
@@ -91,7 +91,7 @@ export default function WorkspaceHeaderBar({
                     className="px-3 py-1.5 text-sm bg-purple-100 dark:bg-purple-900/30 rounded-lg
                      hover:bg-purple-200 dark:hover:bg-purple-800/40 transition-colors
                      flex items-center gap-1.5 text-purple-700 dark:text-purple-300"
-                    title="心智執行圖"
+                    title="Mind execution graph"
                 >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -106,7 +106,7 @@ export default function WorkspaceHeaderBar({
                         className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg
                        hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors
                        flex items-center gap-1.5"
-                        title="開啟成果包"
+                        title="Open result bundle"
                     >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -119,4 +119,3 @@ export default function WorkspaceHeaderBar({
         </div>
     );
 }
-

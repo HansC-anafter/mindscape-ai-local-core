@@ -40,16 +40,12 @@ export default function ExecutionTimelinePage() {
         setLoading(true);
         setError(null);
 
-        // Optimization: use /tasks endpoint (which we patched to strip heavy results)
-        // instead of /executions-with-steps (which returns huge payloads).
-        // This prevents the "Infinite Loading" / "Freeze" issue.
         const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/tasks?limit=100&include_completed=true&task_type=execution`);
         if (!response.ok) {
           throw new Error(`Failed to load executions: ${response.statusText}`);
         }
         const data = await response.json();
 
-        // Map Task to Execution interface
         const mappedExecutions = (data.tasks || []).map((t: any) => ({
           id: t.id,
           workspace_id: t.workspace_id,
@@ -59,7 +55,7 @@ export default function ExecutionTimelinePage() {
           created_at: t.created_at,
           started_at: t.started_at,
           completed_at: t.completed_at,
-          steps: [] // Steps are lazy loaded via detail view
+          steps: []
         }));
 
         setExecutions(mappedExecutions);
@@ -99,14 +95,12 @@ export default function ExecutionTimelinePage() {
     );
   }
 
-  // Sort executions by created_at (newest first)
   const sortedExecutions = [...executions].sort((a, b) => {
     return (toTimestampMs(b.created_at) ?? 0) - (toTimestampMs(a.created_at) ?? 0);
   });
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
       <div className="px-6 py-4 border-b dark:border-gray-700 bg-surface-secondary dark:bg-gray-900">
         <h1 className="text-2xl font-bold text-primary dark:text-gray-100">
           Execution Timeline
@@ -116,9 +110,7 @@ export default function ExecutionTimelinePage() {
         </p>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 overflow-hidden flex">
-        {/* Timeline */}
         <div className="flex-1 overflow-y-auto p-6">
           {sortedExecutions.length === 0 ? (
             <div className="text-center py-12 text-secondary">
@@ -126,10 +118,8 @@ export default function ExecutionTimelinePage() {
             </div>
           ) : (
             <div className="relative">
-              {/* Timeline line */}
               <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-default dark:bg-gray-700"></div>
 
-              {/* Execution items */}
               <div className="space-y-6">
                 {sortedExecutions.map((execution, index) => (
                   <div
@@ -137,10 +127,8 @@ export default function ExecutionTimelinePage() {
                     className="relative flex items-start gap-4 cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 p-4 rounded-lg transition-colors"
                     onClick={() => setSelectedExecution(execution)}
                   >
-                    {/* Timeline dot */}
                     <div className="relative z-10 w-4 h-4 rounded-full bg-accent dark:bg-blue-500 border-2 border-surface-accent dark:border-gray-900"></div>
 
-                    {/* Content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
@@ -181,7 +169,7 @@ export default function ExecutionTimelinePage() {
                             {formatLocalDateTime(execution.created_at)}
                             {execution.completed_at && (
                               <span className="ml-2">
-                                • Completed: {formatLocalDateTime(execution.completed_at)}
+                                - Completed: {formatLocalDateTime(execution.completed_at)}
                               </span>
                             )}
                           </div>
@@ -205,7 +193,6 @@ export default function ExecutionTimelinePage() {
           )}
         </div>
 
-        {/* Detail Panel */}
         {selectedExecution && (
           <div className="w-96 border-l dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 overflow-y-auto">
             <div className="p-4">
@@ -217,7 +204,7 @@ export default function ExecutionTimelinePage() {
                   onClick={() => setSelectedExecution(null)}
                   className="text-secondary hover:text-primary dark:hover:text-gray-300"
                 >
-                  ✕
+                  Close
                 </button>
               </div>
 

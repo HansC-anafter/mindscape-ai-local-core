@@ -5,17 +5,6 @@ import { useParams } from 'next/navigation';
 import SandboxViewer from '@/components/sandbox/SandboxViewer';
 import { getSandbox, Sandbox } from '@/lib/sandbox-api';
 
-/**
- * Standalone Sandbox Page
- *
- * Opens sandbox viewer in a dedicated page/window.
- * URL: /workspaces/[workspaceId]/sandbox/[sandboxId]
- *
- * Benefits:
- * - Persists when switching playbooks
- * - Can be opened in new browser window
- * - Full screen available
- */
 export default function SandboxPage() {
   const params = useParams();
   const workspaceId = params?.workspaceId as string;
@@ -58,7 +47,7 @@ export default function SandboxPage() {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-red-500 text-6xl mb-4">⚠️</div>
+          <div className="text-red-500 text-sm font-semibold mb-4">Warning</div>
           <h1 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
             Failed to Load Sandbox
           </h1>
@@ -76,7 +65,6 @@ export default function SandboxPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header */}
       <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
@@ -85,7 +73,7 @@ export default function SandboxPage() {
               className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
               title="Close window"
             >
-              ✕
+              Close
             </button>
             <div>
               <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
@@ -102,13 +90,12 @@ export default function SandboxPage() {
               className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
               title="Refresh"
             >
-              🔄 Refresh
+              Refresh
             </button>
           </div>
         </div>
       </header>
 
-      {/* Sandbox Viewer */}
       <main className="h-[calc(100vh-60px)]">
         <SandboxViewer
           workspaceId={workspaceId}
@@ -118,4 +105,3 @@ export default function SandboxPage() {
     </div>
   );
 }
-

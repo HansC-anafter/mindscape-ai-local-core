@@ -89,9 +89,9 @@ export function GcaPoolPane({
             <span className="text-[11px] text-gray-500 dark:text-gray-400">
               Primary executor: {executorRuntimeId || 'not pinned'}
               {workspaceGcaStatus?.policy_mode === 'pinned_runtime'
-                ? ` · saved: pinned ${workspaceGcaStatus.preferred_runtime_id || 'unknown'}`
+                ? ` - saved: pinned ${workspaceGcaStatus.preferred_runtime_id || 'unknown'}`
                 : workspaceGcaStatus
-                  ? ' · saved: no surface pin'
+                  ? ' - saved: no surface pin'
                   : ''}
             </span>
             {savingBinding && (
@@ -129,20 +129,20 @@ export function GcaPoolPane({
               <div>
                 Status: {workspaceGcaStatus.resolved_status}
                 {workspaceGcaStatus.cooldown_until
-                  ? ` · resets ${formatServerDateTime(workspaceGcaStatus.cooldown_until)} (${formatTimeRemaining(workspaceGcaStatus.cooldown_until)})`
+                  ? ` - resets ${formatServerDateTime(workspaceGcaStatus.cooldown_until)} (${formatTimeRemaining(workspaceGcaStatus.cooldown_until)})`
                   : ''}
               </div>
               <div>
                 Pool health: {workspaceGcaStatus.available_count} available / {workspaceGcaStatus.cooling_count}{' '}
                 cooling / {workspaceGcaStatus.pool_count} total
                 {workspaceGcaStatus.next_reset_at
-                  ? ` · next reset ${formatServerDateTime(workspaceGcaStatus.next_reset_at)} (${formatTimeRemaining(workspaceGcaStatus.next_reset_at)})`
+                  ? ` - next reset ${formatServerDateTime(workspaceGcaStatus.next_reset_at)} (${formatTimeRemaining(workspaceGcaStatus.next_reset_at)})`
                   : ''}
               </div>
               <div>
                 Resolution: {workspaceGcaStatus.selection_reason}
                 {workspaceGcaStatus.effective_workspace_id && workspaceGcaStatus.effective_workspace_id !== workspaceId
-                  ? ` · effective workspace ${workspaceGcaStatus.effective_workspace_id}`
+                  ? ` - effective workspace ${workspaceGcaStatus.effective_workspace_id}`
                   : ''}
               </div>
               {workspaceGcaStatus.error && <div className="mt-1">{workspaceGcaStatus.error}</div>}
@@ -251,7 +251,7 @@ export function GcaPoolPane({
                   className="text-[11px] px-1.5 py-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                   title="Remove"
                 >
-                  ✕
+                  Remove
                 </button>
               </div>
             </div>

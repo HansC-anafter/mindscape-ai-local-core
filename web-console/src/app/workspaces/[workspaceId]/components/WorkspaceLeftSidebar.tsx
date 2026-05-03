@@ -61,7 +61,6 @@ export default function WorkspaceLeftSidebar({
 
     return (
         <div className="w-80 border-r dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex flex-col">
-            {/* Tab Panel Section - Top */}
             <div className="flex-1 overflow-hidden min-h-0">
                 <LeftSidebarTabs
                     activeTab={leftSidebarTab}
@@ -81,29 +80,26 @@ export default function WorkspaceLeftSidebar({
                                     apiUrl={apiUrl}
                                     onOpenExecution={(executionId) => {
                                         const executionUrl = `/workspaces/${workspaceId}/executions/${executionId}`;
-                                        console.log('[WorkspacePage] ProjectCard onOpenExecution, navigating to:', executionUrl);
                                         router.push(executionUrl);
                                     }}
                                 />
                             )}
 
-                            {/* Empty state when no projects */}
                             {projects.length === 0 && !isLoadingProject && (
                                 <div className="px-3 py-2">
                                     <div className="project-placeholder text-center py-8">
-                                        <div className="text-2xl mb-2">📁</div>
                                         <div className="text-sm font-medium text-primary dark:text-gray-300 mb-1">
-                                            尚無進行中的專案
+                                            No Active Projects
                                         </div>
                                         <div className="text-xs text-secondary dark:text-gray-400">
-                                            開始對話後，系統會自動建立專案
+                                            Projects will be created automatically after the conversation starts.
                                         </div>
                                     </div>
                                 </div>
                             )}
                             {isLoadingProject && projects.length === 0 && (
                                 <div className="text-xs text-secondary dark:text-gray-400 p-3">
-                                    載入中...
+                                    Loading...
                                 </div>
                             )}
                         </div>
@@ -141,11 +137,11 @@ export default function WorkspaceLeftSidebar({
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                 </svg>
                                 <div>
-                                    <div className="text-xs font-medium text-primary dark:text-gray-300">工作區設定</div>
-                                    <div className="text-[10px] text-tertiary">模式 · 產物 · 偏好 · 資料來源</div>
+                                    <div className="text-xs font-medium text-primary dark:text-gray-300">Workspace Settings</div>
+                                    <div className="text-[10px] text-tertiary">Mode - Artifacts - Preferences - Data Sources</div>
                                 </div>
                             </div>
-                            <span className="text-tertiary text-xs">{showSystemTools ? '▲' : '▼'}</span>
+                            <span className="text-tertiary text-xs">{showSystemTools ? '-' : '+'}</span>
                         </div>
 
                         {/* Collapsible Settings Panel */}
@@ -161,19 +157,19 @@ export default function WorkspaceLeftSidebar({
                                             onClick={() => setShowDataSourcesModal(true)}
                                             className="flex-1 px-3 py-2 text-xs font-medium text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors border-r dark:border-gray-700"
                                         >
-                                            📁 資料來源
+                                            Data Sources
                                         </button>
                                         <button
                                             onClick={() => setShowRuntimeModal(true)}
                                             className="flex-1 px-3 py-2 text-xs font-medium text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors border-r dark:border-gray-700"
                                         >
-                                            ☁️ Runtime
+                                            Runtime
                                         </button>
                                         <button
                                             onClick={() => router.push(`/workspaces/${workspaceId}/instruction`)}
                                             className="flex-1 px-3 py-2 text-xs font-medium text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
                                         >
-                                            🎯 指令
+                                            Instructions
                                         </button>
                                     </div>
 

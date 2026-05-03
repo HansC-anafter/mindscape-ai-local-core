@@ -161,22 +161,7 @@ export default function WorkspaceRightSidebar({
                                                             )}
 
                                                             {(() => {
-                                                                // Show AI Team if there are members, regardless of execution state
-                                                                // AI Team should be visible even when not actively executing (shows recent/relevant team members)
                                                                 const shouldShow = executionState.aiTeamMembers.length > 0;
-                                                                console.log('[WorkspacePage] AITeamPanel render check:', {
-                                                                    aiTeamMembersCount: executionState.aiTeamMembers.length,
-                                                                    pipelineStage: executionState.pipelineStage?.stage,
-                                                                    isExecuting: executionState.isExecuting,
-                                                                    shouldShow,
-                                                                    members: executionState.aiTeamMembers,
-                                                                    executionMode: workspace?.execution_mode
-                                                                });
-                                                                if (shouldShow) {
-                                                                    console.log('[WorkspacePage] Rendering AITeamPanel with members:', executionState.aiTeamMembers);
-                                                                } else {
-                                                                    console.log('[WorkspacePage] Not rendering AITeamPanel - no members');
-                                                                }
                                                                 return shouldShow ? (
                                                                     <div className="mt-3">
                                                                         <AITeamPanel

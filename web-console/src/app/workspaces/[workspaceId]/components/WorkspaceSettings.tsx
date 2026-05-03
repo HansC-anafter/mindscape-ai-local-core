@@ -238,7 +238,6 @@ export default function WorkspaceSettings({
     }
 
     try {
-      // Call backend API to open folder
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/open-folder`,
         {
@@ -251,10 +250,8 @@ export default function WorkspaceSettings({
       if (!response.ok) {
         throw new Error('Failed to open folder');
       }
-      // TODO: Show success toast
     } catch (err) {
       console.error('Failed to open folder:', err);
-      // Fallback: Show path in alert
       alert(`Path: ${storageBasePath}\n\nPlease open this path manually in your file manager.`);
     }
   };

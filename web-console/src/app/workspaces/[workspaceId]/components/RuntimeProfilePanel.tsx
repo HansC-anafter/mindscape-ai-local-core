@@ -42,7 +42,6 @@ export default function RuntimeProfilePanel({
   const [success, setSuccess] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
-  // Load presets
   useEffect(() => {
     const loadPresets = async () => {
       try {
@@ -58,7 +57,6 @@ export default function RuntimeProfilePanel({
     loadPresets();
   }, [apiUrl]);
 
-  // Load current profile
   useEffect(() => {
     const loadProfile = async () => {
       try {
@@ -68,7 +66,6 @@ export default function RuntimeProfilePanel({
           const data = await response.json();
           setProfile(data);
         } else if (response.status === 404) {
-          // Profile doesn't exist yet, will use default
           setProfile(null);
         }
       } catch (err) {
@@ -125,7 +122,6 @@ export default function RuntimeProfilePanel({
       setError(null);
       setSuccess(false);
 
-      // Delete current profile to reset to default
       const deleteResponse = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/runtime-profile`,
         {
@@ -134,7 +130,6 @@ export default function RuntimeProfilePanel({
       );
 
       if (deleteResponse.ok || deleteResponse.status === 404) {
-        // Reload profile (will return default)
         const getResponse = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/runtime-profile`
         );
@@ -172,20 +167,18 @@ export default function RuntimeProfilePanel({
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-          運行時配置 (Runtime Profile)
+          Runtime Profile
         </h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-          配置工作區的執行契約和操作策略
+          Configure workspace execution contracts and operation policy.
         </p>
       </div>
 
-      {/* Preset Templates */}
       <div>
         <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
-          預設模板
+          Preset Templates
         </h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {presets.map((preset) => (
@@ -236,23 +229,22 @@ export default function RuntimeProfilePanel({
             onClick={() => setShowPreview(!showPreview)}
             className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           >
-            {showPreview ? '隱藏預覽' : '顯示預覽'}
+            {showPreview ? 'Hide preview' : 'Show preview'}
           </button>
           <button
             onClick={handleResetToDefault}
             disabled={saving}
             className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? '重置中...' : '重置為預設值'}
+            {saving ? 'Resetting...' : 'Reset to default'}
           </button>
         </div>
       </div>
 
-      {/* Preview */}
       {showPreview && profile && (
         <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800/50">
           <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
-            配置預覽
+            Profile Preview
           </h4>
           <pre className="text-xs text-gray-600 dark:text-gray-400 overflow-auto max-h-96">
             {JSON.stringify(profile, null, 2)}
@@ -260,7 +252,6 @@ export default function RuntimeProfilePanel({
         </div>
       )}
 
-      {/* Success Message */}
       {success && (
         <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
           <div className="flex items-start">
@@ -277,14 +268,13 @@ export default function RuntimeProfilePanel({
             </svg>
             <div className="ml-3 flex-1">
               <p className="text-sm text-green-700 dark:text-green-300">
-                配置已成功更新
+                Profile updated successfully
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Error Message */}
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <div className="flex items-start">
@@ -320,5 +310,4 @@ export default function RuntimeProfilePanel({
     </div>
   );
 }
-
 

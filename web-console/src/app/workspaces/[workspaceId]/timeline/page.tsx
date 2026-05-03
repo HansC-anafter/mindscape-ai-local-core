@@ -32,52 +32,50 @@ export default function WorkspaceTimelinePage() {
   const [workspace, setWorkspace] = useState<{ title?: string } | null>(null);
 
   useEffect(() => {
+    const loadWorkspace = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`);
+        if (response.ok) {
+          const data = await response.json();
+          setWorkspace(data);
+        }
+      } catch {
+      }
+    };
+
+    const loadTimeline = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(
+          `${API_URL}/api/v1/workspaces/${workspaceId}/timeline?limit=50`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          const timelineItems = data.items || data.events || [];
+          const mappedEvents = timelineItems.map((event: any) => ({
+            id: event.id,
+            timestamp: event.timestamp,
+            event_type: event.event_type,
+            actor: event.actor,
+            payload: event.payload || {},
+            metadata: event.metadata || {}
+          }));
+          setEvents(mappedEvents);
+        } else {
+          setError('Failed to load timeline');
+        }
+      } catch {
+        setError('Failed to load timeline');
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (workspaceId) {
       loadTimeline();
       loadWorkspace();
     }
-  }, [workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const loadWorkspace = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`);
-      if (response.ok) {
-        const data = await response.json();
-        setWorkspace(data);
-      }
-    } catch (err) {
-      console.error('Failed to load workspace:', err);
-    }
-  };
-
-  const loadTimeline = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(
-        `${API_URL}/api/v1/workspaces/${workspaceId}/timeline?limit=50`
-      );
-      if (response.ok) {
-        const data = await response.json();
-        const timelineItems = data.items || data.events || [];
-        const mappedEvents = timelineItems.map((event: any) => ({
-          id: event.id,
-          timestamp: event.timestamp,
-          event_type: event.event_type,
-          actor: event.actor,
-          payload: event.payload || {},
-          metadata: event.metadata || {}
-        }));
-        setEvents(mappedEvents);
-      } else {
-        setError('Failed to load timeline');
-      }
-    } catch (err) {
-      setError('Failed to load timeline');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [workspaceId]);
 
   if (loading) {
     return (
@@ -98,7 +96,7 @@ export default function WorkspaceTimelinePage() {
           href={`/workspaces/${workspaceId}`}
           className="text-blue-600 hover:text-blue-800 mb-4 inline-block"
         >
-          ← {t('backToList' as any)}
+          &lt; {t('backToList' as any)}
         </Link>
 
         <h1 className="text-3xl font-bold text-gray-900 mb-6">
@@ -123,16 +121,16 @@ export default function WorkspaceTimelinePage() {
 
               if (event.event_type === 'message') {
                 content = event.payload?.message || event.payload?.text || '';
-                displayType = event.actor === 'user' ? '用户消息' : '助手回复';
+                displayType = event.actor === 'user' ? 'User Message' : 'Assistant Reply';
               } else if (event.event_type === 'playbook_step') {
                 content = `Playbook: ${event.payload?.playbook_code || 'unknown'} - Step: ${event.payload?.step || 'unknown'}`;
-                displayType = 'Playbook 步骤';
+                displayType = 'Playbook Step';
               } else if (event.event_type === 'tool_call') {
                 content = `Tool: ${event.payload?.tool_fqn || event.payload?.tool_name || 'unknown'}`;
-                displayType = '工具调用';
+                displayType = 'Tool Call';
               } else if (event.event_type === 'project_created') {
-                content = `创建了工作区: ${event.payload?.title || event.payload?.workspace_id || ''}`;
-                displayType = '工作区创建';
+                content = `Workspace created: ${event.payload?.title || event.payload?.workspace_id || ''}`;
+                displayType = 'Workspace Created';
               } else {
                 content = event.payload ? JSON.stringify(event.payload, null, 2) : '';
               }
@@ -162,7 +160,7 @@ export default function WorkspaceTimelinePage() {
                       )}
                       {!content && (
                         <div className="text-gray-400 text-sm italic">
-                          无内容
+                          No content
                         </div>
                       )}
                     </div>

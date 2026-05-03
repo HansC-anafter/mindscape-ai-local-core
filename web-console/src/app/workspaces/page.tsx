@@ -12,6 +12,7 @@ import { getApiBaseUrl } from '../../lib/api-url';
 import { formatLocalDateTime } from '@/lib/time';
 
 const API_URL = getApiBaseUrl();
+const OWNER_USER_ID = 'default-user';
 
 interface Workspace {
   id: string;
@@ -28,7 +29,6 @@ export default function WorkspacesPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [ownerUserId] = useState('default-user'); // TODO: Get from auth context
   const [deleteTarget, setDeleteTarget] = useState<Workspace | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [errorDialogMessage, setErrorDialogMessage] = useState<string | null>(null);
@@ -57,7 +57,7 @@ export default function WorkspacesPage() {
       abortControllerRef.current = controller;
 
       const response = await fetch(
-        `${API_URL}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=50`,
+        `${API_URL}/api/v1/workspaces?owner_user_id=${OWNER_USER_ID}&limit=50`,
         {
           signal: controller.signal,
           headers: {
@@ -108,7 +108,7 @@ export default function WorkspacesPage() {
         setLoading(false);
       }
     }
-  }, [ownerUserId]);
+  }, []);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -126,7 +126,7 @@ export default function WorkspacesPage() {
   const handleCreateWorkspace = async (title: string, description: string) => {
     try {
       const response = await fetch(
-        `${API_URL}/api/v1/workspaces?owner_user_id=${ownerUserId}`,
+        `${API_URL}/api/v1/workspaces?owner_user_id=${OWNER_USER_ID}`,
         {
           method: 'POST',
           headers: {
@@ -135,7 +135,7 @@ export default function WorkspacesPage() {
           body: JSON.stringify({
             title: title,
             description: description || '',
-            execution_mode: 'hybrid'  // 預設為混合模式（邊做邊聊）
+            execution_mode: 'hybrid',
           })
         }
       );
@@ -258,7 +258,7 @@ export default function WorkspacesPage() {
               }}
               className="mt-2 px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-lg hover:bg-red-700 dark:hover:bg-red-600 transition-colors"
             >
-              {t('retryButton' as any) || '重試'}
+              {t('retryButton' as any) || 'Retry'}
             </button>
           </div>
         )}
@@ -328,7 +328,7 @@ export default function WorkspacesPage() {
                     className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-opacity"
                     title={t('workspaceDelete' as any)}
                   >
-                    🗑️
+                    Delete
                   </button>
                 </div>
               );
@@ -349,8 +349,8 @@ export default function WorkspacesPage() {
           onConfirm={handleDeleteWorkspace}
           title={t('workspaceDelete' as any)}
           message={deleteTarget ? t('workspaceDeleteConfirm', { workspaceName: deleteTarget.title }) : ''}
-          confirmText={t('delete' as any) || '刪除'}
-          cancelText={t('cancel' as any) || '取消'}
+          confirmText={t('delete' as any) || 'Delete'}
+          cancelText={t('cancel' as any) || 'Cancel'}
           confirmButtonClassName="bg-red-600 hover:bg-red-700"
         />
       </div>

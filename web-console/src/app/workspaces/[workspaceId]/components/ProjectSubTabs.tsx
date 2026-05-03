@@ -113,20 +113,19 @@ export default function ProjectSubTabs({
                       >
                         <div className="flex items-center gap-1">
                           <span className="flex-shrink-0 text-[10px] text-tertiary">
-                            {isSelected ? '▼' : '▶'}
+                            {isSelected ? '[-]' : '[+]'}
                           </span>
                           <span className="truncate font-medium flex-1">{project.title}</span>
                           {meetingEnabled && (
                             <span className="flex-shrink-0 text-[9px] px-1 py-0.5 rounded bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300">
-                              🧭 ON
+                              Meeting ON
                             </span>
                           )}
                         </div>
                         <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 pl-3">
-                          {project.type || 'general'} • {project.state || 'open'}
+                          {project.type || 'general'} - {project.state || 'open'}
                         </div>
                       </button>
-                      {/* Accordion: show ProjectCard inline when selected */}
                       {isSelected && workspaceId && (
                         <div className="ml-1 mt-1 mb-2">
                           <ProjectCard

@@ -30,11 +30,8 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
   const [systemStatus, setSystemStatus] = useState<any>(null);
   const [showFullSettings, setShowFullSettings] = useState(false);
 
-  // Execution state from hook (SSE-driven)
   const executionState = useExecutionState(workspaceId, API_URL);
 
-
-  // Load execution and playbook metadata
   useEffect(() => {
     if (!executionId || !workspaceId) return;
 
@@ -47,28 +44,24 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
           const data = await response.json();
           setFocusedExecution(data);
 
-          // Extract project_id from execution if available
           const projectId = data.project_id || data.execution_context?.project_id;
           if (projectId) {
             setCurrentProjectId(projectId);
           }
         }
-      } catch (error) {
-        console.error('Failed to load execution:', error);
+      } catch {
       }
     };
 
     loadExecution();
   }, [executionId, workspaceId]);
 
-  // Load project ID from workspace primary_project_id if available (and no project loaded from execution)
   useEffect(() => {
-    if (currentProjectId) return; // Don't override if project already loaded from execution
+    if (currentProjectId) return;
 
     if (workspace?.primary_project_id) {
       setCurrentProjectId(workspace.primary_project_id);
     } else {
-      // If no primary_project_id, try to get the first active project
       const loadFirstProject = async () => {
         try {
           const response = await fetch(
@@ -80,15 +73,13 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
               setCurrentProjectId(data.projects[0].id);
             }
           }
-        } catch (err) {
-          console.error('Failed to load projects:', err);
+        } catch {
         }
       };
       loadFirstProject();
     }
   }, [workspace?.primary_project_id, workspaceId, currentProjectId]);
 
-  // Load system status
   useEffect(() => {
     const loadSystemStatus = async () => {
       try {
@@ -97,8 +88,7 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
           const status = await response.json();
           setSystemStatus(status);
         }
-      } catch (err) {
-        console.error('Failed to load system status:', err);
+      } catch {
       }
     };
     loadSystemStatus();
@@ -107,7 +97,6 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
   return (
     <div className="min-h-screen bg-surface dark:bg-gray-950">
       <div className="flex flex-col h-[calc(100vh-48px)]">
-        {/* Train Header - Progress Bar with Workspace Name */}
         {workspace && (
           <TrainHeader
             workspaceName={workspace.title}
@@ -115,23 +104,18 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
             progress={executionState.overallProgress}
             isExecuting={executionState.isExecuting}
             workspaceId={workspaceId}
-            onWorkspaceNameEdit={() => {
-              // Handle workspace name edit if needed
-            }}
+            onWorkspaceNameEdit={() => undefined}
           />
         )}
 
         <div className="flex flex-1 overflow-hidden">
-          {/* Left Sidebar - Tab Panel and Workspace Scope Panel */}
           <div className="w-80 border-r dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex flex-col">
-            {/* Tab Panel Section - Top */}
             <div className="flex-1 overflow-hidden min-h-0">
               <LeftSidebarTabs
                 activeTab={leftSidebarTab}
                 onTabChange={setLeftSidebarTab}
                 timelineContent={
                   <div className="flex flex-col h-full w-full">
-                    {/* All Executions - ExecutionSidebar */}
                     <div className="flex-1 min-h-0 overflow-hidden w-full">
                       <ExecutionSidebar
                         projectId={currentProjectId || ''}
@@ -139,7 +123,6 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
                         apiUrl={API_URL}
                         currentExecutionId={executionId}
                         onSelectExecution={(executionId) => {
-                          // Navigate to dedicated execution page
                           const executionUrl = `/workspaces/${workspaceId}/executions/${executionId}`;
                           router.push(executionUrl);
                         }}
@@ -165,10 +148,8 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
               />
             </div>
 
-            {/* Workspace Settings - Collapsible at bottom */}
             {workspace && (
               <div className="border-t dark:border-gray-700 bg-surface-secondary dark:bg-orange-900/10 mt-auto">
-                {/* Settings Entry - Collapsible in left sidebar */}
                 <div className="border-t dark:border-gray-700">
                   <div
                     className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 transition-colors"
@@ -180,14 +161,13 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
                       <div>
-                        <div className="text-xs font-medium text-primary dark:text-gray-300">工作區設定</div>
-                        <div className="text-[10px] text-tertiary">模式 · 產物 · 偏好 · 資料來源</div>
+                        <div className="text-xs font-medium text-primary dark:text-gray-300">Workspace Settings</div>
+                        <div className="text-[10px] text-tertiary">Mode - artifacts - preferences - sources</div>
                       </div>
                     </div>
-                    <span className="text-tertiary text-xs">{showSystemTools ? '▲' : '▼'}</span>
+                    <span className="text-tertiary text-xs">{showSystemTools ? '-' : '+'}</span>
                   </div>
 
-                  {/* Collapsible Settings Panel */}
                   <div
                     className={`border-t dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 overflow-hidden transition-all duration-300 ease-in-out ${
                       showSystemTools ? 'max-h-[400px] opacity-100' : 'max-h-0 opacity-0'
@@ -195,9 +175,7 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
                   >
                     {showSystemTools && (
                       <div className="overflow-y-auto max-h-[400px]">
-                        {/* Quick Settings View */}
                         <>
-                          {/* Data Sources Section */}
                           <div className="p-3 border-b dark:border-gray-700">
                             <WorkspaceScopePanel
                               dataSources={workspace.data_sources}
@@ -207,7 +185,6 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
                             />
                           </div>
 
-                          {/* System Status Section */}
                           <div className="p-3">
                             {systemStatus ? (
                               <IntegratedSystemStatusCard
@@ -215,11 +192,10 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
                                 workspace={workspace || {}}
                                 workspaceId={workspaceId}
                                 onRefresh={() => {
-                                  // Reload system status
                                   fetch(`${API_URL}/api/v1/system/status`)
                                     .then(res => res.json())
                                     .then(status => setSystemStatus(status))
-                                    .catch(err => console.error('Failed to refresh system status:', err));
+                                    .catch(() => undefined);
                                 }}
                               />
                             ) : (
@@ -227,13 +203,12 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
                             )}
                           </div>
 
-                          {/* Full Settings Button */}
                           <div className="p-3 border-t dark:border-gray-700">
                             <button
                               onClick={() => setShowFullSettings(true)}
                               className="w-full px-3 py-2 text-sm text-primary dark:text-gray-300 bg-surface-secondary dark:bg-gray-800 border border-default dark:border-gray-700 rounded-md hover:bg-surface-accent dark:hover:bg-gray-700 transition-colors"
                             >
-                              開啟完整設定
+                              Open Full Settings
                             </button>
                           </div>
                         </>
@@ -245,20 +220,17 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
             )}
           </div>
 
-          {/* Main Area - Execution Inspector */}
           <div className="flex-1 flex flex-col" style={{ minWidth: 0, overflow: 'hidden' }}>
             <ExecutionInspector
               executionId={executionId}
               workspaceId={workspaceId}
               apiUrl={API_URL}
               onClose={() => {
-                // Navigate back to workspace page
                 router.push(`/workspaces/${workspaceId}`);
               }}
             />
           </div>
 
-          {/* Right Sidebar - Execution Chat */}
           <div className="w-80 border-l dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex flex-col">
             <div className="flex-1 overflow-hidden">
               <ExecutionChatPanel
@@ -284,7 +256,6 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
         workspaceId={workspaceId}
         apiUrl={API_URL}
         onUpdate={() => {
-          // Refresh workspace data if needed
           window.location.reload();
         }}
       />

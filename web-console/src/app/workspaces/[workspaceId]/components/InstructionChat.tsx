@@ -77,9 +77,9 @@ export default function InstructionChat({
 
     const suggestedPrompts = useMemo(
         () => [
-            '幫我把 persona 改成 B2B SaaS 成長顧問',
-            '補上 3 條 anti-goals，避免空泛回答',
-            '讓 style rules 偏向簡短、條列、可執行',
+            'Change the persona to a B2B SaaS growth advisor',
+            'Add 3 anti-goals to avoid generic answers',
+            'Make the style rules concise, structured, and actionable',
         ],
         []
     );
@@ -143,7 +143,7 @@ export default function InstructionChat({
             const assistantMessage: InstructionChatMessage = {
                 id: `a-${Date.now()}`,
                 role: 'assistant',
-                content: data.assistant_message || '已生成建議，可直接套用。',
+                content: data.assistant_message || 'Suggestions are ready and can be applied directly.',
                 patch: data.patch || {},
                 changedFields: data.changed_fields || [],
             };

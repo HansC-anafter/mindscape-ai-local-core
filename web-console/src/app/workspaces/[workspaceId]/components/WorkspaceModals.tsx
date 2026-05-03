@@ -103,8 +103,8 @@ export default function WorkspaceModals({
                 }}
                 title={t('workspaceDelete' as any)}
                 message={workspace ? t('workspaceDeleteConfirm', { workspaceName: workspace.title }) : ''}
-                confirmText={t('delete' as any) || '刪除'}
-                cancelText={t('cancel' as any) || '取消'}
+                confirmText={t('delete' as any) || 'Delete'}
+                cancelText={t('cancel' as any) || 'Cancel'}
                 confirmButtonClassName="bg-red-600 hover:bg-red-700"
             />
 

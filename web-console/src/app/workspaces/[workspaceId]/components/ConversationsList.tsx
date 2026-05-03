@@ -4,6 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { t } from '@/lib/i18n';
 import { parseServerTimestamp } from '@/lib/time';
 
+const LEGACY_DEFAULT_THREAD_TITLE = '\u65b0\u5c0d\u8a71';
+
 export interface ConversationThread {
   id: string;
   workspace_id: string;
@@ -79,14 +81,13 @@ export default function ConversationsList({
     };
   }, [loadThreads]);
 
-  // 🆕 當 threads 載入完成且沒有選擇 thread 時，自動選擇 default thread
+  // Select the default thread after threads finish loading.
   useEffect(() => {
     if (!loading && threads.length > 0 && !selectedThreadId) {
       const defaultThread = threads.find(t => t.is_default);
       if (defaultThread) {
         onThreadSelect(defaultThread.id);
       } else if (threads.length > 0) {
-        // 如果沒有 default thread，選擇第一個
         onThreadSelect(threads[0].id);
       }
     }
@@ -145,16 +146,16 @@ export default function ConversationsList({
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return t('justNow' as any) || '剛剛';
-    if (diffMins < 60) return (t('minutesAgo', { count: String(diffMins) }) as string) || `${diffMins} 分鐘前`;
-    if (diffHours < 24) return (t('hoursAgo', { count: String(diffHours) }) as string) || `${diffHours} 小時前`;
-    if (diffDays < 7) return `${diffDays} 天前`;
-    return date.toLocaleDateString('zh-TW', { month: 'short', day: 'numeric' });
+    if (diffMins < 1) return t('justNow' as any) || 'Just now';
+    if (diffMins < 60) return (t('minutesAgo', { count: String(diffMins) }) as string) || `${diffMins} minute(s) ago`;
+    if (diffHours < 24) return (t('hoursAgo', { count: String(diffHours) }) as string) || `${diffHours} hour(s) ago`;
+    if (diffDays < 7) return `${diffDays} day(s) ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   return (
     <div className="flex flex-col h-full">
-      {/* 新增對話按鈕 - 固定在頂部 */}
+      {/* New conversation button */}
       <div className="flex-shrink-0 p-2 border-b dark:border-gray-700">
         <button
           onClick={() => handleCreateThread()}
@@ -171,20 +172,20 @@ export default function ConversationsList({
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              <span>創建中...</span>
+              <span>Creating...</span>
             </>
           ) : (
             <>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              <span>新建對話</span>
+              <span>New Conversation</span>
             </>
           )}
         </button>
       </div>
 
-      {/* 錯誤提示 */}
+      {/* Error prompt */}
       {error && (
         <div className="flex-shrink-0 p-2 border-b dark:border-gray-700">
           <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded">
@@ -193,20 +194,19 @@ export default function ConversationsList({
         </div>
       )}
 
-      {/* 對話列表 - 可滾動 */}
+      {/* Conversation list */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center p-4">
-            <div className="text-sm text-gray-500 dark:text-gray-400">載入中...</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
           </div>
         ) : threads.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-4 text-center">
-            <div className="text-2xl mb-2">💬</div>
             <div className="text-sm text-gray-500 dark:text-gray-400">
-              還沒有對話
+              No conversations yet
             </div>
             <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-              點擊上方按鈕開始新對話
+              Use the button above to start a conversation.
             </div>
           </div>
         ) : (
@@ -224,10 +224,10 @@ export default function ConversationsList({
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">
                       {thread.is_default && (
-                        <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">[預設]</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">[Default]</span>
                       )}
-                      {thread.title === '新對話'
-                        ? `新對話 ${parseServerTimestamp(thread.created_at)?.toLocaleString('zh-TW', {
+                      {thread.title === LEGACY_DEFAULT_THREAD_TITLE
+                        ? `New Conversation ${parseServerTimestamp(thread.created_at)?.toLocaleString('en-US', {
                           year: 'numeric',
                           month: '2-digit',
                           day: '2-digit',
@@ -238,7 +238,7 @@ export default function ConversationsList({
                         : thread.title}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {formatDate(thread.last_message_at)} • {thread.message_count} 則訊息
+                      {formatDate(thread.last_message_at)} - {thread.message_count} message{thread.message_count === 1 ? '' : 's'}
                     </div>
                   </div>
                 </div>

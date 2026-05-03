@@ -66,7 +66,6 @@ export default function CapabilityExtensionSlot({ section, workspaceId }: Capabi
                 );
                 if (response.ok) {
                     const data = await response.json();
-                    console.log('[CapabilityExtensionSlot] Loaded panels:', data.length, data);
                     setPanels(data);
                 } else {
                     console.warn('[CapabilityExtensionSlot] API response not ok:', response.status);
@@ -80,7 +79,6 @@ export default function CapabilityExtensionSlot({ section, workspaceId }: Capabi
         loadPanels();
     }, [section]);
 
-    // Memoize lazy-loaded components to avoid re-creating on every render
     const lazyComponents = useMemo(() => {
         return panels.map((panel) => {
             const rawContextKey = convertImportPathToContextKey(panel.import_path);
@@ -93,8 +91,8 @@ export default function CapabilityExtensionSlot({ section, workspaceId }: Capabi
                 }
                 try {
                     const moduleLoader = capabilityComponentsContext(contextKey);
-                    const module = typeof moduleLoader === 'function' ? await moduleLoader() : await moduleLoader;
-                    return { default: module[panel.export || 'default'] || module.default };
+                    const loadedModule = typeof moduleLoader === 'function' ? await moduleLoader() : await moduleLoader;
+                    return { default: loadedModule[panel.export || 'default'] || loadedModule.default };
                 } catch (error) {
                     console.error('[CapabilityExtensionSlot] Failed to load component:', panel.component_code, error);
                     return { default: () => null };
@@ -108,7 +106,7 @@ export default function CapabilityExtensionSlot({ section, workspaceId }: Capabi
     if (loading) {
         return (
             <div className="p-3 text-sm text-secondary dark:text-gray-400">
-                載入擴充設定中...
+                Loading extension settings...
             </div>
         );
     }

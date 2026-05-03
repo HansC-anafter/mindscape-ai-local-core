@@ -537,7 +537,6 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                                     >
                                         {step}
                                     </a>
-                                    {' ↗'}
                                 </>
                             ) : (
                                 step
@@ -602,7 +601,7 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                         {saving === agent.settingsKey
                             ? '...'
                             : saved === agent.settingsKey
-                                ? '✓'
+                                ? 'Saved'
                                 : 'Save'}
                     </button>
                 </div>
@@ -692,7 +691,7 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                                             disabled={busyAction === 'login' || runtimeInfo?.status !== 'available'}
                                             className="px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
                                         >
-                                            {busyAction === 'login' ? '登入中...' : '登入'}
+                                            {busyAction === 'login' ? 'Logging in...' : 'Login'}
                                         </button>
                                         <button
                                             type="button"
@@ -700,7 +699,7 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                                             disabled={busyAction === 'logout' || runtimeInfo?.status !== 'available'}
                                             className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                                         >
-                                            {busyAction === 'logout' ? '登出中...' : '登出'}
+                                            {busyAction === 'logout' ? 'Logging out...' : 'Logout'}
                                         </button>
                                     </>
                                 )}
@@ -710,7 +709,7 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                                     disabled={loading || runtimeInfo?.status !== 'available'}
                                     className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                                 >
-                                    {loading ? '檢查中...' : '重新檢查'}
+                                    {loading ? 'Checking...' : 'Refresh'}
                                 </button>
                             </div>
 
@@ -760,7 +759,7 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
         <div className="mb-5">
             <div className="mb-3">
                 <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-                    🔑 CLI Agent Authentication
+                    CLI Agent Authentication
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     Configure provider-specific auth modes. Gemini supports Google Account (GCA) or API key; Codex and Claude can use pure API keys or host-managed sessions.
@@ -839,7 +838,7 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                                     <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                                 </select>
                                 {savedModel && (
-                                    <span className="text-green-600 dark:text-green-400">✓</span>
+                                    <span className="text-green-600 dark:text-green-400">Saved</span>
                                 )}
                             </div>
                         </div>

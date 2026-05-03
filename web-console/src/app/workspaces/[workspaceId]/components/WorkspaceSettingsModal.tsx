@@ -134,7 +134,7 @@ export default function WorkspaceSettingsModal({
             />
           ) : (
             <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-              {t('loading' as any) || '載入中...'}
+              {t('loading' as any) || 'Loading...'}
             </div>
           )}
         </div>
@@ -152,4 +152,3 @@ export default function WorkspaceSettingsModal({
     </div>
   );
 }
-

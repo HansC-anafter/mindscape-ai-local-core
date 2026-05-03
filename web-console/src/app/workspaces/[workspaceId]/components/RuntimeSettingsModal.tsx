@@ -42,8 +42,8 @@ export default function RuntimeSettingsModal({
     if (!isOpen) return null;
 
     const tabs: { id: ModalTab; label: string; icon: string }[] = [
-        { id: 'channel', label: 'Mindscape Cloud Channel', icon: '🔗' },
-        { id: 'cli-keys', label: 'CLI Agent Keys', icon: '🔑' },
+        { id: 'channel', label: 'Runtime Extensions', icon: 'EXT' },
+        { id: 'cli-keys', label: 'CLI Agent Keys', icon: 'CLI' },
     ];
 
     return (
@@ -65,10 +65,10 @@ export default function RuntimeSettingsModal({
                             id="runtime-settings-modal-title"
                             className="text-lg font-semibold text-gray-900 dark:text-gray-100"
                         >
-                            ☁️ 雲端 Runtime 設定
+                            Local Runtime Settings
                         </h2>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                            管理 Mindscape Cloud Channel 綁定與外部服務設定
+                            Manage local runtime extensions and CLI agent authentication.
                         </p>
                     </div>
                     <button
@@ -122,7 +122,7 @@ export default function RuntimeSettingsModal({
                         onClick={onClose}
                         className="px-5 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors text-sm"
                     >
-                        關閉
+                        Close
                     </button>
                 </div>
             </div>
