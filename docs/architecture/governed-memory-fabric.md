@@ -17,7 +17,7 @@ These layers are related but not interchangeable. Public docs should not flatten
 
 ## Canonical Memory Contract
 
-The canonical memory contract includes memory items, versions, evidence links, memory edges, and writeback runs. Memory items carry kind, layer, lifecycle status, verification status, salience, confidence, subject, context, claim, summary, and source pipeline metadata.
+The canonical memory contract includes memory items, versions, evidence links, memory edges, and writeback runs. Memory items carry reviewable claim, lifecycle, evidence, and source metadata without exposing pipeline-private fields as public API.
 
 Memory versions preserve claim snapshots. Evidence links connect memory items to source artifacts such as session digests, reasoning traces, lens receipts, meeting decisions, task executions, artifact results, and writeback receipts.
 
@@ -25,17 +25,17 @@ The public contract is evidence-oriented: memory should be traceable to the run 
 
 ## Meeting Writeback
 
-Meeting close writeback creates or reuses a writeback run, compiles a session digest, creates a canonical memory item, creates an initial version, attaches evidence, and dispatches legacy projection adapters for existing workspace, project, and member memory consumers.
+Meeting close writeback creates a reviewable canonical memory trail from meeting outputs and evidence. It records durable memory, versions it, links it to evidence, and updates compatibility projections for existing workspace, project, and member memory consumers.
 
-The writeback orchestrator also collects additional evidence from stage results, execution traces, intent logs, governance decisions, and lens patches. This lets Local Core connect deliberation, execution, artifacts, and governance into one reviewable memory chain.
+The writeback path can attach additional execution and governance evidence when available. This lets Local Core connect deliberation, execution, artifacts, and governance into one reviewable memory chain without publishing writeback internals as stable public API.
 
 ## Governance Memory Packets
 
-Governance services select and compile compact memory packets for execution context. The selector combines core memory, verified knowledge, candidate knowledge, active goals, pending goals, episodic memory, project memory, and member memory according to workspace mode and policy context.
+Governance services select and compile compact memory packets for execution context. The selector combines governed workspace, project, member, goal, episodic, and knowledge surfaces according to workspace mode and policy context.
 
-The packet compiler turns the selected packet into ordered prompt sections. The route plan can include core directives, verified knowledge, goals, project memory, member memory, episodic evidence, and semantic hits when enabled.
+The packet compiler turns the selected packet into ordered prompt sections. Semantic memory can contribute when enabled, but route planning details remain internal.
 
-Workspace governance routes expose canonical memory listing, memory detail, lifecycle transitions, memory health, and memory impact graph views. These routes are review surfaces for governed memory, not unrestricted write endpoints.
+Workspace governance surfaces provide review, lifecycle, health, and impact views for governed memory. They are not unrestricted write endpoints.
 
 ## Semantic Memory and Retrieval
 
@@ -45,15 +45,15 @@ The repository includes pgvector-backed semantic support:
 - pgvector extension creation during startup when the configured PostgreSQL server is available
 - semantic search services for memory embeddings, playbook knowledge, personal context, and external documents
 - tool embedding services for RAG-based tool and playbook discovery
-- startup warm-up that refreshes the tool RAG corpus and records capability embedding coverage
+- startup warm-up for retrieval indexes
 
-Some generic vector search API routes remain adapter-gated, but the semantic service layer and pgvector-backed retrieval path are present in the repository. Public documentation should describe semantic memory as implemented service support with adapter-dependent public route coverage.
+The semantic service layer and pgvector-backed retrieval path are present in the repository. Public documentation should describe semantic memory as implemented service support and avoid treating every vector helper as a stable public route.
 
 ## World Memory
 
 World memory is implemented separately from semantic vector search. The world memory core provides normalized world-state snapshots, bounded world memory packets, and world card projections.
 
-The world state adapter normalizes governed sidecar context such as schedule projections and performance context into a bounded packet. The projection compiler turns that packet into a concise world card for prompt-safe context injection.
+World memory normalizes governed context into bounded packets. The projection compiler turns those packets into concise world cards for prompt-safe context injection.
 
 World memory should be described as bounded world-state continuity. It is not a replacement for canonical memory, semantic retrieval, or raw provider payload storage.
 
