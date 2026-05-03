@@ -6,13 +6,13 @@ This page describes the released public architecture scope for the current repos
 
 ## Governance Context
 
-The governance context read model compiles workspace state into a structured packet for execution. It can include:
+The governance context read model compiles workspace state into a structured packet for execution. It can include bounded context from:
 
-- workspace identity, project scope, profile scope, workspace mode, and execution mode
-- effective lens metadata and lens-derived style context
-- policy context from runtime profiles, workspace metadata, sandbox configuration, and memory policy
-- workspace core memory, project memory, member memory, canonical episodic memory, personal knowledge, and active goals
-- optional spatial schedule context carried from workspace or meeting session metadata
+- workspace, project, profile, mode, and execution scope
+- effective lens metadata and lens-derived context
+- runtime, sandbox, governance, and memory policy
+- governed memory and goal context
+- optional schedule or meeting metadata
 
 The output is split into a governance context block and a selected memory packet. This keeps policy and memory selection visible as execution input, not hidden inside prompt text.
 
@@ -29,25 +29,24 @@ Local Core includes governance services for:
 
 These services are local policy and review surfaces. They should not be documented as a cloud account policy system.
 
-## Workspace Governance Routes
+## Workspace Governance Surfaces
 
-Workspace governance routes are mounted under `/api/v1/workspaces/{workspace_id}/governance`. The released public scope includes governance decisions, cost monitoring, governance metrics, canonical memory review, memory health, and memory impact graph views.
+Workspace governance surfaces support governance decisions, cost monitoring, governance metrics, canonical memory review, memory health, and memory impact graph views.
 
-These routes support inspection and lifecycle transitions for governed local state. They are not a generic write API for arbitrary policy mutation.
+These surfaces support inspection and lifecycle transitions for governed local state. They are not generic write APIs for arbitrary policy mutation.
 
 ## Mind-Lens
 
 Mind-Lens is the interpretation and viewpoint layer used by Local Core. It is represented by local graph state, effective lens resolution, override layers, execution evidence, and review surfaces.
 
-Lens routes are local API surfaces, but this page is not an endpoint reference.
+Lens surfaces are local execution-context surfaces, but this page is not an endpoint reference.
 
 Current lens behavior includes:
 
-- graph state, profiles, active lens lookup, and workspace binding
-- effective lens resolution across global profile, workspace override, and session override layers
-- workspace and session override management
+- graph-backed lens state and workspace binding
+- effective lens resolution across profile, workspace, and session layers
 - execution evidence and receipt surfaces
-- review, packaging, drift, and chat support as lens operations
+- review and packaging support as host-managed lens operations
 
 ## Execution Injection
 
@@ -57,7 +56,7 @@ Lens state should be described as user-controlled execution context. It is not a
 
 ## Public Boundary
 
-Local Core owns local governance context compilation, policy checks, preflight checks, governance decision records, workspace governance review routes, and Mind-Lens resolution.
+Local Core owns local governance context compilation, policy checks, preflight checks, governance decision records, workspace governance review surfaces, and Mind-Lens resolution.
 
 Local Core does not publicly own:
 
