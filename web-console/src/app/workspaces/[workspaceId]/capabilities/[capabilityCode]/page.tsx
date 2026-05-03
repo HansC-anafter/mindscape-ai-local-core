@@ -5,9 +5,9 @@ import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigat
 import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
 import { getApiBaseUrl } from '@/lib/api-url';
 import {
-  AddressableObjectHostShell,
+  AOLRuntimeShell,
   buildCapabilitySurfaceId,
-} from '@/components/capabilities/AddressableObjectHostShell';
+} from '@/components/capabilities/aol-runtime-shell';
 
 interface ComponentErrorBoundaryProps {
   children: React.ReactNode;
@@ -288,7 +288,7 @@ export default function CapabilityPage() {
     const shouldUseScrollableShell = shouldWrapScrollableMainPage(capabilityCode, componentCode);
 
     return (
-      <AddressableObjectHostShell
+      <AOLRuntimeShell
         apiUrl={apiUrl}
         workspaceId={workspaceId}
         capabilityCode={capabilityCode}
@@ -303,7 +303,7 @@ export default function CapabilityPage() {
             {renderLoadedComponent(key, Component, componentCode, aolHost)}
           </div>
         )}
-      </AddressableObjectHostShell>
+      </AOLRuntimeShell>
     );
   }
 
@@ -313,7 +313,7 @@ export default function CapabilityPage() {
     const defaultComponentCode = mainPageComponents[0]?.code || resolvedMainPageComponentInfo.code;
 
     return (
-      <AddressableObjectHostShell
+      <AOLRuntimeShell
         apiUrl={apiUrl}
         workspaceId={workspaceId}
         capabilityCode={capabilityCode}
@@ -366,12 +366,12 @@ export default function CapabilityPage() {
             </div>
           </div>
         )}
-      </AddressableObjectHostShell>
+      </AOLRuntimeShell>
     );
   }
 
   return (
-    <AddressableObjectHostShell
+    <AOLRuntimeShell
       apiUrl={apiUrl}
       workspaceId={workspaceId}
       capabilityCode={capabilityCode}
@@ -432,6 +432,6 @@ export default function CapabilityPage() {
           </div>
         </div>
       )}
-    </AddressableObjectHostShell>
+    </AOLRuntimeShell>
   );
 }

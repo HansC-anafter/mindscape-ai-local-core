@@ -2,6 +2,7 @@
 TasksStore runner lifecycle mixin — claim, heartbeat, zombie reaping, cancel.
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
@@ -313,6 +314,7 @@ class TasksStoreRunnerMixin:
                 "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS profile_code TEXT",
                 "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS hostname TEXT",
                 "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS inflight INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS resource_snapshot JSONB",
             ):
                 try:
                     conn.execute(text(statement))
@@ -340,8 +342,14 @@ class TasksStoreRunnerMixin:
         profile_code: str | None = None,
         hostname: str | None = None,
         inflight: int = 0,
+        resource_snapshot: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Record that a runner is alive (called every poll cycle)."""
+        resource_snapshot_payload = (
+            json.dumps(resource_snapshot, separators=(",", ":"))
+            if isinstance(resource_snapshot, dict)
+            else None
+        )
         try:
             with self.transaction() as conn:
                 conn.execute(
@@ -352,6 +360,7 @@ class TasksStoreRunnerMixin:
                             profile_code,
                             hostname,
                             inflight,
+                            resource_snapshot,
                             heartbeat_at
                         )
                         VALUES (
@@ -359,6 +368,7 @@ class TasksStoreRunnerMixin:
                             :profile_code,
                             :hostname,
                             :inflight,
+                            CAST(:resource_snapshot AS JSONB),
                             NOW()
                         )
                         ON CONFLICT (runner_id)
@@ -366,6 +376,7 @@ class TasksStoreRunnerMixin:
                             profile_code = EXCLUDED.profile_code,
                             hostname = EXCLUDED.hostname,
                             inflight = EXCLUDED.inflight,
+                            resource_snapshot = EXCLUDED.resource_snapshot,
                             heartbeat_at = NOW()
                         """
                     ),
@@ -374,6 +385,7 @@ class TasksStoreRunnerMixin:
                         "profile_code": profile_code,
                         "hostname": hostname,
                         "inflight": max(0, int(inflight or 0)),
+                        "resource_snapshot": resource_snapshot_payload,
                     },
                 )
         except Exception:
@@ -390,6 +402,7 @@ class TasksStoreRunnerMixin:
                                     profile_code,
                                     hostname,
                                     inflight,
+                                    resource_snapshot,
                                     heartbeat_at
                                 )
                                 VALUES (
@@ -397,6 +410,7 @@ class TasksStoreRunnerMixin:
                                     :profile_code,
                                     :hostname,
                                     :inflight,
+                                    CAST(:resource_snapshot AS JSONB),
                                     NOW()
                                 )
                                 ON CONFLICT (runner_id)
@@ -404,6 +418,7 @@ class TasksStoreRunnerMixin:
                                     profile_code = EXCLUDED.profile_code,
                                     hostname = EXCLUDED.hostname,
                                     inflight = EXCLUDED.inflight,
+                                    resource_snapshot = EXCLUDED.resource_snapshot,
                                     heartbeat_at = NOW()
                                 """
                             ),
@@ -412,6 +427,7 @@ class TasksStoreRunnerMixin:
                                 "profile_code": profile_code,
                                 "hostname": hostname,
                                 "inflight": max(0, int(inflight or 0)),
+                                "resource_snapshot": resource_snapshot_payload,
                             },
                         )
                 except Exception:
@@ -455,7 +471,7 @@ class TasksStoreRunnerMixin:
         limit = max(1, int(limit or 50))
         query_parts = [
             """
-            SELECT runner_id, profile_code, hostname, inflight, heartbeat_at
+            SELECT runner_id, profile_code, hostname, inflight, resource_snapshot, heartbeat_at
             FROM runner_heartbeats
             """
         ]
@@ -516,12 +532,23 @@ class TasksStoreRunnerMixin:
                 if mapping is not None and "inflight" in mapping
                 else 0
             )
+            resource_snapshot = (
+                mapping["resource_snapshot"]
+                if mapping is not None and "resource_snapshot" in mapping
+                else None
+            )
+            if isinstance(resource_snapshot, str):
+                try:
+                    resource_snapshot = json.loads(resource_snapshot)
+                except Exception:
+                    resource_snapshot = None
             heartbeats.append(
                 {
                     "runner_id": runner_id,
                     "profile_code": profile_code,
                     "hostname": hostname,
                     "inflight": int(inflight or 0),
+                    "resource_snapshot": resource_snapshot,
                     "heartbeat_at": (
                         heartbeat_at.isoformat()
                         if hasattr(heartbeat_at, "isoformat")

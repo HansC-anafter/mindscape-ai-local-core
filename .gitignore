@@ -125,6 +125,9 @@ test_*.yaml
 
 # Internal documentation (not for open source)
 docs-internal/
+.agent/workflows/
+.agent/skills/**/*.md
+!.agent/skills/*/SKILL.md
 **/*_COMPLETE_REPORT.md
 **/*_PROGRESS_REPORT.md
 **/*_TODOS.md
@@ -158,8 +161,54 @@ diagnose_ws.py
 verify_integration.py
 verify_playbook_execution.py
 
+# Legacy/internal operation scripts should stay in docs-internal quarantine.
+backend/scripts/audit_pack_runtime_alignment.py
+backend/scripts/build_style_fingerprints.py
+backend/scripts/debug_intent_extraction.py
+backend/scripts/fix_current_step_index.py
+backend/scripts/fix_task_status.py
+backend/scripts/generate_migration_report.py
+backend/scripts/migrate_tool_registry_for_runtime_profile.py
+backend/scripts/probe_codex_runtime_canary.py
+backend/scripts/run_migration_validation.sh
+backend/scripts/validate_tool_registry_runtime_profile.py
+backend/scripts/verify_lens_migration.py
+backend/scripts/verify_meeting_e2e.py
+backend/scripts/verify_meeting_spatial_downstream_e2e.py
+backend/scripts/verify_postgres_migration.py
+backend/scripts/verify_tool_registry_api.py
+backend/scripts/verify_tool_registry_api.sh
+backend/app/services/e2e/
+scripts/analyze_projects.py
+scripts/cleanup_stuck_executions.py
+scripts/cleanup_validation_workspaces.py
+scripts/cleanup_validation_workspaces_api.py
+scripts/cleanup_workspace_executions.py
+scripts/diagnose_registry.py
+scripts/e2e_test_invocation_strategy.py
+scripts/e2e_test_invocation_strategy.sh
+scripts/fix_existing_project_flows.py
+scripts/install_and_verify_packs.sh
+scripts/mindscape_runner.py
+scripts/nomic_embed_cleanup.py
+scripts/run_eval.py
+scripts/test_api_invocation.sh
+scripts/test_invocation_strategy.sh
+scripts/test_path_resolution.sh
+scripts/test_refactoring.sh
+scripts/tier2_precheck.py
+scripts/verify_artifact_fix.py
+scripts/verify_d2_legacy_disable.sh
+scripts/verify_installed_capability_page_render_proof.py
+scripts/verify_pack_installation.sh
+web-console/src/app/workspaces/[workspaceId]/yogacoach/
+web-console/src/app/cloud-publish/
+web-console/src/app/major-proposal/
+web-console/src/lib/mock-graph-data.ts
+
 # Local development overrides
 docker-compose.override.yml
+docker-compose.override.yml.example
 
 # ============================================
 # HARD BARRIER: No cloud components in local-core
@@ -180,6 +229,7 @@ docker-compose.override.yml
 # Capability-installed model directories (auto-ignored; whitelist core subdirs)
 /backend/app/models/*/
 !/backend/app/models/workspace/
+!/backend/app/models/object_runtime/
 !/backend/app/models/playbook_models/
 !/backend/app/models/personal_governance/
 
@@ -190,7 +240,6 @@ data/backups/
 backups/
 .backup/
 *.dump
-docs-internal/
 
 # Legacy capability-installed migration mirrors.
 # Active pack migrations stay capability-local under backend/app/capabilities/*/migrations/.

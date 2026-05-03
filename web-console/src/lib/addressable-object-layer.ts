@@ -118,11 +118,27 @@ export interface ObjectGraphRelation {
   metadata?: Record<string, unknown>;
 }
 
+export interface ObjectGuidanceCard {
+  id: string;
+  title: string;
+  description?: string | null;
+  intent?: string | null;
+  command_template?: string | null;
+  review_label?: string | null;
+  review_routes?: string[];
+  proposal_ref?: AddressableObjectRef | null;
+  target_ref?: AddressableObjectRef | null;
+  required_roles?: string[];
+  priority?: number;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ObjectGraphProjection {
   ref: AddressableObjectRef;
   summary?: AddressableObjectSummary | null;
   node_kind?: string | null;
   relations: ObjectGraphRelation[];
+  guidance?: ObjectGuidanceCard[];
   metadata?: Record<string, unknown>;
 }
 

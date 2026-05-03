@@ -1,0 +1,246 @@
+export const summary = {
+  ref: {
+    uri: 'mindscape://ig/reference/ref_global',
+    owner_pack: 'ig',
+    object_kind: 'reference',
+    object_id: 'ref_global',
+    source_surface: 'ig.references_grid',
+  },
+  title: 'Global Reference',
+  summary_text: 'Shared host selection',
+  labels: ['ig', 'reference'],
+  owner_surface_url: '/workspaces/ws-global/capabilities/ig',
+};
+
+export const attachResponse = {
+  workspace_id: 'ws-global',
+  meeting_id: 'mtg_global',
+  status: 'attached' as const,
+  attachments: [],
+  staged_refs: [],
+  review_routes: [],
+  errors: [],
+};
+
+export const performanceDirectionSummary = {
+  ref: {
+    uri: 'mindscape://performance_direction/storyboard/pd_session_1',
+    owner_pack: 'performance_direction',
+    object_kind: 'storyboard',
+    object_id: 'pd_session_1',
+    source_surface: 'performance_direction.storyboard',
+  },
+  title: 'Yoga storyboard',
+  summary_text: '90s yoga reels storyboard',
+  labels: ['performance_direction', 'storyboard'],
+  owner_surface_url: '/workspaces/ws-global/capabilities/performance_direction',
+};
+
+export const performanceDirectionAttachResponse = {
+  workspace_id: 'ws-global',
+  meeting_id: 'mtg_global',
+  status: 'attached' as const,
+  target_ref: performanceDirectionSummary.ref,
+  attachments: [
+    {
+      role: 'target' as const,
+      ref: performanceDirectionSummary.ref,
+      projection_level: 'meeting' as const,
+    },
+  ],
+  staged_refs: [],
+  review_routes: [],
+  errors: [],
+};
+
+export const registryCompletionRecords = [
+          {
+            id: 'fixture_pack:storyboard:fx_session_1',
+            token: '@storyboard:fx_session_1',
+            label: 'Fixture storyboard',
+            description: 'Neutral registry storyboard',
+            owner_pack: 'fixture_pack',
+            object_kind: 'storyboard',
+            score: 1,
+            ref: {
+              uri: 'mindscape://fixture_pack/storyboard/fx_session_1',
+              owner_pack: 'fixture_pack',
+              object_kind: 'storyboard',
+              object_id: 'fx_session_1',
+              workspace_id: 'ws-global',
+              selector: { selector_type: 'object_root' },
+            },
+            metadata: {
+              affordance_verbs: ['produce_asset'],
+            },
+          },
+          {
+            id: 'fixture_pack:storyboard_scene:fx_session_1:fx_artifact_1:fx_scene',
+            token: '@storyboard_scene:fx_session_1:fx_artifact_1:fx_scene',
+            label: 'Fixture storyboard / fx_scene',
+            description: 'Neutral registry storyboard scene',
+            owner_pack: 'fixture_pack',
+            object_kind: 'storyboard_scene',
+            score: 1,
+            ref: {
+              uri: 'mindscape://fixture_pack/storyboard_scene/fx_session_1:fx_artifact_1:fx_scene',
+              owner_pack: 'fixture_pack',
+              object_kind: 'storyboard_scene',
+              object_id: 'fx_session_1:fx_artifact_1:fx_scene',
+              workspace_id: 'ws-global',
+              selector: {
+                selector_type: 'storyboard_scene',
+                scene_id: 'fx_scene',
+              },
+            },
+            metadata: {
+              affordance_verbs: ['produce_asset'],
+            },
+          },
+          {
+            id: 'fixture_pack:character_package:fixture_character_pkg',
+            token: '@character:fixture_character_pkg',
+            label: 'Fixture Character',
+            description: 'Neutral registry character package',
+            owner_pack: 'fixture_pack',
+            object_kind: 'character_package',
+            score: 1,
+            ref: {
+              uri: 'mindscape://fixture_pack/character_package/fixture_character_pkg',
+              owner_pack: 'fixture_pack',
+              object_kind: 'character_package',
+              object_id: 'fixture_character_pkg',
+              workspace_id: 'ws-global',
+              selector: { selector_type: 'object_root' },
+            },
+            metadata: {
+              affordance_verbs: [],
+            },
+          },
+          {
+            id: 'fixture_pack:character_card:fixture_character_card',
+            token: '@character_card:fixture_character_card',
+            label: 'Fixture Character Card',
+            description: 'Neutral registry character card',
+            owner_pack: 'fixture_pack',
+            object_kind: 'character_card',
+            score: 1,
+            ref: {
+              uri: 'mindscape://fixture_pack/character_card/fixture_character_card',
+              owner_pack: 'fixture_pack',
+              object_kind: 'character_card',
+              object_id: 'fixture_character_card',
+              workspace_id: 'ws-global',
+              selector: { selector_type: 'object_root' },
+            },
+            metadata: {
+              affordance_verbs: [],
+            },
+          },
+          {
+            id: 'performance_direction:storyboard:pd_session_1',
+            token: '@storyboard:pd_session_1',
+            label: 'Yoga storyboard',
+            description: '90s yoga reels storyboard',
+            owner_pack: 'performance_direction',
+            object_kind: 'storyboard',
+            score: 1,
+            ref: {
+              uri: 'mindscape://performance_direction/storyboard/pd_session_1',
+              owner_pack: 'performance_direction',
+              object_kind: 'storyboard',
+              object_id: 'pd_session_1',
+              workspace_id: 'ws-global',
+              selector: { selector_type: 'object_root' },
+            },
+            metadata: {
+              affordance_verbs: ['generate_reels_asset'],
+            },
+          },
+          {
+            id: 'performance_direction:storyboard_scene:pd_session_1:pd_artifact_1:sc02',
+            token: '@storyboard_scene:pd_session_1:pd_artifact_1:sc02',
+            label: 'Yoga storyboard / sc02',
+            description: 'performance_direction storyboard scene',
+            owner_pack: 'performance_direction',
+            object_kind: 'storyboard_scene',
+            score: 1,
+            ref: {
+              uri: 'mindscape://performance_direction/storyboard_scene/pd_session_1:pd_artifact_1:sc02',
+              owner_pack: 'performance_direction',
+              object_kind: 'storyboard_scene',
+              object_id: 'pd_session_1:pd_artifact_1:sc02',
+              workspace_id: 'ws-global',
+              selector: {
+                selector_type: 'storyboard_scene',
+                scene_id: 'sc02',
+              },
+            },
+            metadata: {
+              affordance_verbs: ['generate_reels_asset'],
+            },
+          },
+          {
+            id: 'performance_direction:storyboard_scene:pd_session_registry:latest:sc03',
+            token: '@storyboard_scene:pd_session_registry:latest:sc03',
+            label: 'Registry storyboard / sc03',
+            description: 'Registry-backed storyboard scene',
+            owner_pack: 'performance_direction',
+            object_kind: 'storyboard_scene',
+            score: 1,
+            ref: {
+              uri: 'mindscape://performance_direction/storyboard_scene/pd_session_registry:latest:sc03',
+              owner_pack: 'performance_direction',
+              object_kind: 'storyboard_scene',
+              object_id: 'pd_session_registry:latest:sc03',
+              workspace_id: 'ws-global',
+              selector: {
+                selector_type: 'storyboard_scene',
+                scene_id: 'sc03',
+              },
+            },
+            metadata: {
+              affordance_verbs: ['patch_storyboard'],
+            },
+          },
+          {
+            id: 'character_training:character_package:chacto_hero_pkg',
+            token: '@character:chacto_hero_pkg',
+            label: 'Chacto Hero',
+            description: 'character_training package',
+            owner_pack: 'character_training',
+            object_kind: 'character_package',
+            score: 1,
+            ref: {
+              uri: 'mindscape://character_training/character_package/chacto_hero_pkg',
+              owner_pack: 'character_training',
+              object_kind: 'character_package',
+              object_id: 'chacto_hero_pkg',
+              workspace_id: 'ws-global',
+              selector: { selector_type: 'object_root' },
+            },
+            metadata: {
+              affordance_verbs: [],
+            },
+          },
+          {
+            id: 'character_training:character_card:card_chacto',
+            token: '@character_card:card_chacto',
+            label: 'Chacto Persona',
+            description: 'character_training character card',
+            owner_pack: 'character_training',
+            object_kind: 'character_card',
+            score: 1,
+            ref: {
+              uri: 'mindscape://character_training/character_card/card_chacto',
+              owner_pack: 'character_training',
+              object_kind: 'character_card',
+              object_id: 'card_chacto',
+              workspace_id: 'ws-global',
+              selector: { selector_type: 'object_root' },
+            },
+            metadata: {
+              affordance_verbs: [],
+            },
+          },
+        ];

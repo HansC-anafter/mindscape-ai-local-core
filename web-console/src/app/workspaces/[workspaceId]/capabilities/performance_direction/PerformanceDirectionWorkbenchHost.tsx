@@ -4,9 +4,9 @@ import { usePathname } from 'next/navigation';
 
 import PerformanceDirectionStoryboardEditorPage from '@/app/capabilities/performance_direction/components/PerformanceDirectionStoryboardEditorPage';
 import {
-  AddressableObjectHostShell,
+  AOLRuntimeShell,
   buildCapabilitySurfaceId,
-} from '@/components/capabilities/AddressableObjectHostShell';
+} from '@/components/capabilities/aol-runtime-shell';
 import { getApiBaseUrl } from '@/lib/api-url';
 
 type PerformanceDirectionWorkbenchHostProps = {
@@ -26,7 +26,7 @@ export default function PerformanceDirectionWorkbenchHost({
   const apiUrl = getApiBaseUrl();
 
   return (
-    <AddressableObjectHostShell
+    <AOLRuntimeShell
       apiUrl={apiUrl}
       workspaceId={workspaceId}
       capabilityCode="performance_direction"
@@ -51,6 +51,6 @@ export default function PerformanceDirectionWorkbenchHost({
           />
         </div>
       )}
-    </AddressableObjectHostShell>
+    </AOLRuntimeShell>
   );
 }

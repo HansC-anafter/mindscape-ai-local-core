@@ -8,7 +8,12 @@ Refactored modular chat implementation with separated concerns:
 - utils/: Utility functions (LLM provider, token management)
 """
 
-from .routes import router
+def __getattr__(name):
+    if name == "router":
+        from .routes import router
 
-__all__ = ['router']
+        return router
+    raise AttributeError(name)
 
+
+__all__ = ["router"]

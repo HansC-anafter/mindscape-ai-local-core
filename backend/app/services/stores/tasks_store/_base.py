@@ -19,6 +19,9 @@ from backend.app.services.task_admission_service import (
     ADMISSION_DEFERRED_REASON,
     TASK_ADMISSION_SERVICE,
 )
+from backend.app.services.meeting_command_status_sync import (
+    sync_meeting_command_from_task_safely,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -379,6 +382,7 @@ class TasksStoreCrudMixin:
                 task.pack_id,
             )
 
+        sync_meeting_command_from_task_safely(task)
         self._enqueue_runner_task_after_commit(task)
         return task
 
@@ -537,6 +541,7 @@ class TasksStoreCrudMixin:
             logger.info("Updated task %s status to %s", task_id, status.value)
             updated_task = self.get_task(task_id)
 
+        sync_meeting_command_from_task_safely(updated_task)
         # Activity stream: push terminal status change
         _publish_terminal_event(task_id, status.value, updated_task)
 
@@ -636,6 +641,7 @@ class TasksStoreCrudMixin:
             logger.debug("Updated task %s", task_id)
             updated_task = self.get_task(task_id)
 
+        sync_meeting_command_from_task_safely(updated_task)
         # Activity stream: push terminal status change
         status_val = kwargs.get("status")
         if status_val is not None:
