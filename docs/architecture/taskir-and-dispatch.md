@@ -13,17 +13,17 @@ TaskIR stores:
 - ordered or DAG-shaped PhaseIR entries
 - produced artifact references
 - structured execution metadata for local execution and governance context
-- checkpoint snapshots and update payloads
+- checkpoint and update metadata
 
 PhaseIR stores bounded phase identity, status, dependency, target, actuator, input, attempt, timing, and rollback metadata.
 
-TaskIR can compute executable phases from dependency state, add artifacts, update phase status, lower phases into an actuation plan, and create or restore checkpoints.
+TaskIR can resolve executable phases from dependency state, carry artifact references, update phase status, support actuation planning, and preserve local recovery points.
 
 ## Governance Metadata
 
 TaskIR metadata can carry typed governance context such as goals, constraints, acceptance criteria, lens and memory references, provenance, human instructions, context attachments, and requested output type.
 
-Meeting compilation builds this metadata from handoff input or a compiled request contract when available.
+Meeting compilation builds this metadata from governed local input or verified handoff intake when available.
 
 ## Meeting to TaskIR
 
@@ -59,13 +59,13 @@ Dispatch can also apply workspace routing, upstream result injection, lens conte
 
 ## Handoff Intake
 
-The handoff bundle route can receive and compile signed handoff payloads into local TaskIR. The compile path validates the bundle, resolves local workspace context, runs meeting compilation, and persists TaskIR.
+Cross-boundary handoff intake can compile verified handoff material into local TaskIR. The intake path resolves local workspace context and persists TaskIR only through Local Core host contracts.
 
 This is a cross-boundary intake surface. It should be documented as a local compile path, not as ownership of any external control plane.
 
 ## Persistence and Replay
 
-TaskIR can be persisted through the PostgreSQL TaskIR store after meeting compilation. Handoff handling and execution paths can load TaskIR, update phases, create updates, and continue execution across local playbooks, tools, handoff surfaces, and planned tasks.
+TaskIR can be persisted through the PostgreSQL TaskIR store after meeting compilation. Handoff handling and execution paths can load TaskIR, update phases, create bounded updates, and continue execution across local playbooks, tools, handoff intake, and planned tasks.
 
 Public documentation should describe the stable TaskIR shape and dispatch responsibility. It should not publish internal prompt formats, private provider payloads, or low-level adapter implementation plans.
 
