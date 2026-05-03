@@ -6,17 +6,16 @@ This page describes the released public architecture scope for the current repos
 
 ## Meeting Engine
 
-The meeting engine is a bounded multi-role orchestrator. It composes modules for events, governance, prompts, action item extraction, generation, dispatch helpers, TaskIR compilation, session lifecycle, tool discovery, and L2 bridge behavior.
+The meeting engine is a bounded multi-role orchestrator. It composes modules for events, governance, prompt inputs, action extraction, generation, dispatch helpers, TaskIR compilation, session lifecycle, and tool discovery.
 
-The current pipeline has seven stages:
+The public pipeline can be described as:
 
-- agenda decomposition and tool RAG prefetch
-- request contract compilation
-- multi-round deliberation
-- action intent extraction and null-tool gating
-- policy gate checks and action item emission
-- dispatch gate, task decomposition, TaskIR compilation, and DAG dispatch
-- final minutes, session close, L2 bridge, supervisor scoring, and completion status
+- context and tool preparation
+- request contract compilation and deliberation
+- action intent extraction
+- policy and dispatch gate checks
+- TaskIR compilation, task decomposition when allowed, and DAG dispatch
+- final minutes, session close, inspection metadata, and writeback hooks
 
 This makes meeting orchestration a control layer around execution, not a chat transcript renderer.
 
@@ -54,7 +53,7 @@ The decomposer is skipped when deterministic playbook routes must stay atomic, w
 
 ## Finalization and Writeback
 
-Finalization renders meeting minutes, closes the session, runs the L2 bridge pipeline, emits minutes messages, and schedules supervisor scoring. The session close path can trigger memory writeback through the meeting writeback orchestrator described in the governed memory fabric.
+Finalization renders meeting minutes, closes the session, emits user-visible meeting output, and records inspection metadata. The session close path can trigger memory writeback through the meeting writeback orchestrator described in the governed memory fabric.
 
 Public documentation should treat meeting orchestration as a governed execution convergence layer. It should not expose internal prompts, private role instructions, private validation transcripts, or provider-specific execution payloads.
 
