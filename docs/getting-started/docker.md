@@ -59,11 +59,11 @@ Use direct Compose for a container-only smoke test. Use a helper when you need t
 
 ## Access
 
-Default local endpoints:
+Default local access URLs:
 
 - Web console: `http://localhost:8300`
-- Backend API: `http://localhost:8200`
-- API docs: `http://localhost:8200/docs`
+- Backend service: `http://localhost:8200`
+- OpenAPI docs: `http://localhost:8200/docs`
 - Backend liveness: `http://localhost:8200/healthz`
 - Backend health details: `http://localhost:8200/health`
 
