@@ -33,7 +33,7 @@ The writeback path can attach additional execution and governance evidence when 
 
 Governance services select and compile compact memory packets for execution context. The selector combines governed workspace, project, member, goal, episodic, and knowledge surfaces according to workspace mode and policy context.
 
-The packet compiler turns the selected packet into ordered prompt sections. Semantic memory can contribute when enabled, but route planning details remain internal.
+The packet compiler turns the selected packet into ordered context sections. Semantic memory can contribute when enabled, but route planning details remain internal.
 
 Workspace governance surfaces provide review, lifecycle, health, and impact views for governed memory. They are not unrestricted write endpoints.
 
@@ -41,11 +41,10 @@ Workspace governance surfaces provide review, lifecycle, health, and impact view
 
 The repository includes pgvector-backed semantic support:
 
-- vector database configuration and connection testing through the vector database route
-- pgvector extension creation during startup when the configured PostgreSQL server is available
+- pgvector-backed vector database configuration and health checks
+- pgvector extension support when the configured PostgreSQL server is available
 - semantic search services for memory embeddings, playbook knowledge, personal context, and external documents
-- tool embedding services for RAG-based tool and playbook discovery
-- startup warm-up for retrieval indexes
+- tool and playbook embedding support for retrieval
 
 The semantic service layer and pgvector-backed retrieval path are present in the repository. Public documentation should describe semantic memory as implemented service support and avoid treating every vector helper as a stable public route.
 
@@ -53,7 +52,7 @@ The semantic service layer and pgvector-backed retrieval path are present in the
 
 World memory is implemented separately from semantic vector search. The world memory core provides normalized world-state snapshots, bounded world memory packets, and world card projections.
 
-World memory normalizes governed context into bounded packets. The projection compiler turns those packets into concise world cards for prompt-safe context injection.
+World memory normalizes governed context into bounded packets. The projection compiler turns those packets into concise world cards for bounded context injection.
 
 World memory should be described as bounded world-state continuity. It is not a replacement for canonical memory, semantic retrieval, or raw provider payload storage.
 
@@ -66,7 +65,7 @@ Local Core does not publicly own:
 - provider-native payload dumps as canonical memory
 - unreviewed promotion of transient context into durable memory
 - private receipt internals as public APIs
-- cloud account or tenant memory as Local Core ownership
+- external account or tenant memory as Local Core ownership
 - capability-specific memory schemas unless promoted into a stable Local Core contract
 
 Public memory documentation should preserve the distinction between canonical memory, semantic retrieval, and world memory. It should not publish internal task logs, migration checklists, private validation material, or unreleased data dumps.
