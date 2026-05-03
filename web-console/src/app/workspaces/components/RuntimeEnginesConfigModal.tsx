@@ -7,7 +7,6 @@ import { BaseModal } from '@/components/BaseModal';
 
 // Use require.context to load capability components (webpack feature)
 // @ts-ignore - require.context is a webpack feature, not standard TypeScript
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 // Use 'sync' mode instead of 'lazy' to avoid webpack pp/src path bug
 const rawCapabilityComponentsContext = require.context(
   '../../capabilities',
@@ -143,11 +142,11 @@ export default function RuntimeEnginesConfigModal({
       try {
         // Use require.context to load the component (webpack handles this at build time)
         const moduleLoader = capabilityComponentsContext(contextKey);
-        const module = typeof moduleLoader === 'function'
+        const loadedModule = typeof moduleLoader === 'function'
           ? await moduleLoader()
           : await moduleLoader;
 
-        const component = module[panel.export || 'default'] || module.default;
+        const component = loadedModule[panel.export || 'default'] || loadedModule.default;
         if (!component) {
           console.error(`Component ${panel.component_code} export "${panel.export || 'default'}" not found in module`);
           return {
@@ -208,7 +207,7 @@ export default function RuntimeEnginesConfigModal({
     <BaseModal
       isOpen={isOpen}
       onClose={onClose}
-      title="執行引擎配置"
+      title="Runtime Engine Configuration"
       maxWidth="max-w-4xl"
     >
       <div className="space-y-6">

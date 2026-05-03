@@ -35,7 +35,7 @@ export default function TimelineItemsDrawer({
         onClick={() => setIsCollapsed((previous) => !previous)}
       >
         <div className="flex items-center gap-2">
-          <span className="text-xs text-secondary">{isCollapsed ? '▶' : '▼'}</span>
+          <span className="text-xs text-secondary">{isCollapsed ? '[+]' : '[-]'}</span>
           <span className="text-xs font-semibold text-primary dark:text-gray-300">
             {t('timelineItems' as any) || 'Timeline Items'}
           </span>

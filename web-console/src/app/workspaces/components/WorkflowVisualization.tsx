@@ -128,15 +128,15 @@ export default function WorkflowVisualization({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'completed':
-        return '✓';
+        return 'OK';
       case 'running':
-        return '⟳';
+        return 'RUN';
       case 'error':
-        return '✗';
+        return 'ERR';
       case 'skipped':
-        return '⊘';
+        return 'SKIP';
       default:
-        return '○';
+        return 'WAIT';
     }
   };
 
@@ -176,7 +176,7 @@ export default function WorkflowVisualization({
               <div className="flex items-start gap-4">
                 <div className="flex flex-col items-center">
                   <div
-                    className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold border-2 ${getStatusColor(status || 'pending')}`}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center text-xs font-semibold border-2 ${getStatusColor(status || 'pending')}`}
                   >
                     {getStatusIcon(status || 'pending')}
                   </div>
@@ -298,4 +298,3 @@ export default function WorkflowVisualization({
     </div>
   );
 }
-

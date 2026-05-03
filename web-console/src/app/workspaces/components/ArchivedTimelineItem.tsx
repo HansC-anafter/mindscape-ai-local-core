@@ -70,8 +70,7 @@ export default function ArchivedTimelineItem({
     if (!dateString) return 'N/A';
     const date = parseServerTimestamp(dateString);
     if (!date) return 'N/A';
-    // Convert UTC to local timezone explicitly
-    return date.toLocaleString('zh-TW', {
+    return date.toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
@@ -84,10 +83,9 @@ export default function ArchivedTimelineItem({
   return (
     <div
       className={`bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-1.5 opacity-60 hover:opacity-80 transition-all duration-200 cursor-pointer ${isExpanded ? 'opacity-90' : ''
-        }`}
+      }`}
       onClick={handleClick}
     >
-      {/* Compact Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <span className="text-xs text-gray-700 dark:text-gray-300 truncate font-medium">
@@ -118,22 +116,18 @@ export default function ArchivedTimelineItem({
         </div>
       </div>
 
-      {/* Expanded Details */}
       {isExpanded && (
         <div className="mt-2 pt-2 border-t border-gray-300 dark:border-gray-600 space-y-1.5">
-          {/* Steps Information */}
           <div className="text-xs text-gray-600 dark:text-gray-400">
             <span className="font-medium">Steps:</span> {execution.current_step_index + 1}/{execution.total_steps}
           </div>
 
-          {/* Intent Label */}
           {execution.origin_intent_label && (
             <div className="text-xs text-gray-600 dark:text-gray-400">
               <span className="font-medium">Intent:</span> {execution.origin_intent_label}
             </div>
           )}
 
-          {/* Timestamps */}
           <div className="text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
             {execution.created_at && (
               <div>
@@ -152,40 +146,38 @@ export default function ArchivedTimelineItem({
             )}
           </div>
 
-          {/* Failure Information */}
           {execution.status === 'failed' && (
             <div className="text-xs text-red-600 dark:text-red-400 space-y-1">
               {execution.failure_type && (
                 <div>
-                  <span className="font-medium">{t('failureType' as any) || '失敗類型'}:</span> {execution.failure_type}
+                  <span className="font-medium">{t('failureType' as any) || 'Failure type'}:</span> {execution.failure_type}
                 </div>
               )}
               {execution.failure_reason && (
                 <div>
-                  <span className="font-medium">{t('failureReason' as any) || '失敗原因'}:</span> {execution.failure_reason}
+                  <span className="font-medium">{t('failureReason' as any) || 'Failure reason'}:</span> {execution.failure_reason}
                 </div>
               )}
-              {/* Timeout Diagnostic Information */}
               {execution.failure_type === 'timeout' && execution.task?.execution_context?.timeout_diagnostic && (
                 <div className="mt-2 pt-2 border-t border-red-300 dark:border-red-700">
-                  <div className="font-medium mb-1">{t('diagnosticInfo' as any) || '診斷信息'}:</div>
+                  <div className="font-medium mb-1">{t('diagnosticInfo' as any) || 'Diagnostic info'}:</div>
                   <div className="space-y-0.5 text-gray-700 dark:text-gray-300">
                     {(() => {
                       const diagnostic = execution.task.execution_context.timeout_diagnostic;
                       return (
                         <>
                           <div>
-                            <span className="font-medium">{t('executionSteps' as any) || '執行步驟數'}:</span> {diagnostic.steps_found || 0}
+                            <span className="font-medium">{t('executionSteps' as any) || 'Execution steps'}:</span> {diagnostic.steps_found || 0}
                           </div>
                           {diagnostic.steps_found === 0 ? (
                             <div className="text-orange-600 dark:text-orange-400 italic">
-                              ⚠️ {t('noExecutionSteps' as any) || '未找到執行步驟 - Playbook 可能未啟動或卡在初始化階段'}
+                              Warning: {t('noExecutionSteps' as any) || 'No execution steps found. The playbook may not have started or may still be initializing.'}
                             </div>
                           ) : diagnostic.last_step ? (
                             <div>
-                              <span className="font-medium">{t('lastStep' as any) || '最後步驟'}:</span> {diagnostic.last_step.step_name || 'unknown'}
+                              <span className="font-medium">{t('lastStep' as any) || 'Last step'}:</span> {diagnostic.last_step.step_name || 'unknown'}
                               {diagnostic.last_step.status && (
-                                <span className="ml-2 text-gray-600 dark:text-gray-400">({t('status' as any) || '狀態'}: {diagnostic.last_step.status})</span>
+                                <span className="ml-2 text-gray-600 dark:text-gray-400">({t('status' as any) || 'Status'}: {diagnostic.last_step.status})</span>
                               )}
                             </div>
                           ) : null}
@@ -203,14 +195,13 @@ export default function ArchivedTimelineItem({
             </div>
           )}
 
-          {/* Open Console Button */}
           {onOpenConsole && (
             <div className="pt-2 border-t border-gray-300 dark:border-gray-600">
               <button
                 onClick={handleOpenConsole}
                 className="w-full px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 border border-blue-300 dark:border-blue-700 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
               >
-                {t('trackExecution' as any) || '追蹤調度'}
+                {t('trackExecution' as any) || 'Track execution'}
               </button>
             </div>
           )}
@@ -219,4 +210,3 @@ export default function ArchivedTimelineItem({
     </div>
   );
 }
-

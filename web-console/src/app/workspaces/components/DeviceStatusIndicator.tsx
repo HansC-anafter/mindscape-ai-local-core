@@ -17,9 +17,9 @@ interface DeviceStatusIndicatorProps {
  * Shows device connection status with a colored dot indicator.
  *
  * States:
- *   🟢 Connected — device has authenticated clients
- *   🟡 Idle — device reachable but no clients connected
- *   🔴 Offline — cannot reach status endpoint
+ *   Connected - device has authenticated clients
+ *   Idle - device reachable but no clients connected
+ *   Offline - cannot reach status endpoint
  */
 export function DeviceStatusIndicator({
     apiUrl,
@@ -37,8 +37,8 @@ export function DeviceStatusIndicator({
             {showDetails && localDevice && (
                 <span className={styles.details}>
                     {localDevice.authenticatedClients} client{localDevice.authenticatedClients !== 1 ? 's' : ''}
-                    {localDevice.inflightTasks > 0 && ` · ${localDevice.inflightTasks} inflight`}
-                    {localDevice.pendingTasks > 0 && ` · ${localDevice.pendingTasks} pending`}
+                    {localDevice.inflightTasks > 0 && ` - ${localDevice.inflightTasks} inflight`}
+                    {localDevice.pendingTasks > 0 && ` - ${localDevice.pendingTasks} pending`}
                 </span>
             )}
         </div>

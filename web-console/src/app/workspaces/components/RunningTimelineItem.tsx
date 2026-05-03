@@ -53,11 +53,8 @@ export default function RunningTimelineItem({
   const [latestStep, setLatestStep] = useState<ExecutionStep | null>(currentStep || null);
   const [intentStatus, setIntentStatus] = useState<'confirmed' | 'candidate' | null>(null);
 
-  // Sync execution prop changes to internal state
   useEffect(() => {
     if (execution.execution_id === currentExecution.execution_id) {
-      // Only update if execution_id matches (same execution)
-      // Update if current_step_index or total_steps changed
       if (
         execution.current_step_index !== currentExecution.current_step_index ||
         execution.total_steps !== currentExecution.total_steps ||
@@ -66,21 +63,16 @@ export default function RunningTimelineItem({
         setCurrentExecution(execution);
       }
     } else {
-      // Different execution, update immediately
       setCurrentExecution(execution);
     }
   }, [execution, currentExecution.execution_id, currentExecution.current_step_index, currentExecution.total_steps, currentExecution.status]);
 
-  // Sync currentStep prop changes to internal state
   useEffect(() => {
     if (currentStep) {
       setLatestStep(currentStep);
     }
   }, [currentStep]);
 
-  // Debug logging removed - was too verbose for development
-
-  // Fetch intent tag status
   useEffect(() => {
     const fetchIntentStatus = async () => {
       if (!currentExecution.origin_intent_id && !currentExecution.origin_intent_label) {
@@ -88,7 +80,6 @@ export default function RunningTimelineItem({
       }
 
       try {
-        // If we have origin_intent_id, fetch the intent tag directly
         if (currentExecution.origin_intent_id) {
           const response = await fetch(
             `${apiUrl}/api/v1/workspaces/${workspaceId}/intent-tags/${currentExecution.origin_intent_id}`
@@ -97,16 +88,13 @@ export default function RunningTimelineItem({
             const intentTag = await response.json();
             setIntentStatus(intentTag.status === 'confirmed' ? 'confirmed' : 'candidate');
           } else if (response.status === 404) {
-            // Intent tag not found, might be from a different source, assume confirmed
             setIntentStatus('confirmed');
           }
         } else {
-          // If we only have label but no ID, assume candidate (AI inferred)
           setIntentStatus('candidate');
         }
       } catch (err) {
         console.error('Failed to fetch intent status:', err);
-        // On error, default to candidate status
         setIntentStatus('candidate');
       }
     };
@@ -121,9 +109,7 @@ export default function RunningTimelineItem({
           const newStatus = data.execution.status;
           const oldStatus = currentExecution?.status;
 
-          // Check if execution status changed to completed
           if ((newStatus === 'succeeded' || newStatus === 'failed') && oldStatus && oldStatus !== newStatus) {
-            // Trigger task update event when execution completes
             window.dispatchEvent(new CustomEvent('workspace-task-updated', {
               detail: {
                 execution_id: data.execution.execution_id,
@@ -141,8 +127,6 @@ export default function RunningTimelineItem({
       case 'step_update':
         if (data.step) {
           setLatestStep(data.step);
-          // Update currentExecution's current_step_index from the event
-          // Use data.current_step_index (authoritative) instead of data.step.step_index
           if (data.current_step_index !== undefined && currentExecution) {
             const updatedExecution = {
               ...currentExecution,
@@ -158,7 +142,6 @@ export default function RunningTimelineItem({
         }
         break;
       case 'execution_completed':
-        // Trigger task update event to refresh task list
         window.dispatchEvent(new CustomEvent('workspace-task-updated', {
           detail: {
             execution_id: data.execution_id,
@@ -167,7 +150,6 @@ export default function RunningTimelineItem({
         }));
         break;
       default:
-        // Ignore other event types
         break;
     }
   };
@@ -183,61 +165,48 @@ export default function RunningTimelineItem({
 
   const isConnecting = !sseConnected;
 
-  // Generate Agent/Tool narrative
   const getNarrative = (): string => {
     if (latestStep) {
       const agentLabel = latestStep.agent_type
-        ? `${getAgentLabel(latestStep.agent_type)} · `
+        ? `${getAgentLabel(latestStep.agent_type)} - `
         : '';
-      // Always use total_steps from execution, don't use step's total_steps
-      // step's total_steps might be incorrect or outdated
       let totalSteps = currentExecution.total_steps;
       if (!totalSteps || totalSteps === 0) {
-        // Fallback to 1 only if we really can't determine
         totalSteps = 1;
       }
-      // Always use currentExecution.current_step_index as the authoritative source
-      // latestStep.step_index might be from an old step event
       const stepIndex = currentExecution.current_step_index;
-      const stepInfo = `步驟 ${stepIndex + 1}/${totalSteps}`;
+      const stepInfo = `Step ${stepIndex + 1}/${totalSteps}`;
 
       if (latestStep.used_tools && latestStep.used_tools.length > 0) {
         const toolsText = latestStep.used_tools.join(' + ');
-        return `${agentLabel}${stepInfo}：正在用 ${toolsText} ${latestStep.log_summary || '執行中...'}`;
+        return `${agentLabel}${stepInfo}: using ${toolsText} ${latestStep.log_summary || 'running...'}`;
       } else if (latestStep.log_summary) {
-        return `${agentLabel}${stepInfo}：${latestStep.log_summary}`;
+        return `${agentLabel}${stepInfo}: ${latestStep.log_summary}`;
       } else {
-        return `${agentLabel}${stepInfo}：執行中...`;
+        return `${agentLabel}${stepInfo}: running...`;
       }
     }
-    // Use total_steps from execution, but prefer from step if available
     let totalSteps = currentExecution.total_steps;
     if (!totalSteps || totalSteps === 0) {
-      // Fallback to 1 only if we really can't determine
       totalSteps = 1;
     }
-    return `步驟 ${currentExecution.current_step_index + 1}/${totalSteps}：執行中...`;
+    return `Step ${currentExecution.current_step_index + 1}/${totalSteps}: running...`;
   };
 
   const getAgentLabel = (agentType: string): string => {
     const agentLabels: Record<string, string> = {
-      'researcher': '研究員',
-      'editor': '編輯',
-      'engineer': '工程師',
-      'coordinator': '協調員',
+      'researcher': 'Researcher',
+      'editor': 'Editor',
+      'engineer': 'Engineer',
+      'coordinator': 'Coordinator',
     };
     return agentLabels[agentType] || agentType;
   };
 
-  // Always use total_steps from execution, don't use step's total_steps
-  // step's total_steps might be incorrect or outdated
   let totalSteps = currentExecution.total_steps;
   if (!totalSteps || totalSteps === 0) {
-    // Fallback to 1 only if we really can't determine
     totalSteps = 1;
   }
-  // Always use currentExecution.current_step_index as the authoritative source
-  // latestStep.step_index might be from an old step event
   const currentStepIndex = currentExecution.current_step_index;
   const progressPercentage = totalSteps > 0
     ? ((currentStepIndex + 1) / totalSteps) * 100
@@ -248,16 +217,15 @@ export default function RunningTimelineItem({
       className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded p-2 shadow-sm cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
       onClick={onClick}
     >
-      {/* Intent Breadcrumb */}
       {currentExecution.origin_intent_label && (
         <div className="text-[10px] text-gray-500 dark:text-gray-300 mb-1.5 font-light">
-          <span className="text-gray-400 dark:text-gray-400">Intent：</span>
+          <span className="text-gray-400 dark:text-gray-400">Intent: </span>
           <span className="text-gray-600 dark:text-gray-200">{currentExecution.origin_intent_label}</span>
           {intentStatus === 'confirmed' && (
-            <span className="text-gray-400 dark:text-gray-400 ml-1">（由你確認）</span>
+            <span className="text-gray-400 dark:text-gray-400 ml-1">(confirmed by you)</span>
           )}
           {(intentStatus === 'candidate' || intentStatus === null) && (
-            <span className="text-gray-400 dark:text-gray-400 ml-1">（AI 推測，執行中仍可更改）</span>
+            <span className="text-gray-400 dark:text-gray-400 ml-1">(AI inferred, editable while running)</span>
           )}
         </div>
       )}
@@ -283,7 +251,6 @@ export default function RunningTimelineItem({
         </div>
       </div>
 
-      {/* Progress Bar */}
       <div className="mb-2">
         <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-1.5">
           <div
@@ -293,7 +260,6 @@ export default function RunningTimelineItem({
         </div>
       </div>
 
-      {/* Agent/Tool Narrative with Spinner */}
       <div className="flex items-start gap-2">
         <div className="flex-shrink-0 mt-0.5">
           <div className="relative w-4 h-4">

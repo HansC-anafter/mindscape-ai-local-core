@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useConflictHandler } from '@/hooks/useConflictHandler';
@@ -109,7 +110,7 @@ export default function OutcomeDetailModal({
           // Success: copy to clipboard
           await navigator.clipboard.writeText(result.content);
           showToast({
-            message: '已複製到剪貼板',
+            message: 'Copied to clipboard',
             type: 'success',
             duration: 3000
           });
@@ -117,7 +118,7 @@ export default function OutcomeDetailModal({
         (err) => {
           console.error('Failed to copy artifact:', err);
           showToast({
-            message: '複製失敗，請重試',
+            message: 'Copy failed. Please try again.',
             type: 'error',
             duration: 3000
           });
@@ -127,7 +128,7 @@ export default function OutcomeDetailModal({
           // For now, just copy the content as-is
           await navigator.clipboard.writeText(data.content);
           showToast({
-            message: '已複製到剪貼板（使用新版本）',
+            message: 'Copied to clipboard using the new version',
             type: 'success',
             duration: 3000
           });
@@ -137,7 +138,7 @@ export default function OutcomeDetailModal({
     } catch (err) {
       console.error('Failed to copy artifact:', err);
       showToast({
-        message: '複製失敗，請重試',
+        message: 'Copy failed. Please try again.',
         type: 'error',
         duration: 3000
       });
@@ -158,7 +159,11 @@ export default function OutcomeDetailModal({
       window.open(data.url, '_blank');
     } catch (err) {
       console.error('Failed to open external URL:', err);
-      // TODO: Show error toast
+      showToast({
+        message: 'Failed to open external URL.',
+        type: 'error',
+        duration: 3000
+      });
     }
   };
 
@@ -177,9 +182,9 @@ export default function OutcomeDetailModal({
     const tasks = artifact.content?.tasks || [];
     return (
       <div className="space-y-2">
-        <h3 className="text-lg font-semibold mb-4 dark:text-gray-100">任務清單</h3>
+        <h3 className="text-lg font-semibold mb-4 dark:text-gray-100">Task List</h3>
         {tasks.length === 0 ? (
-          <p className="text-gray-500 dark:text-gray-400">尚無任務</p>
+          <p className="text-gray-500 dark:text-gray-400">No tasks yet</p>
         ) : (
           <div className="space-y-2">
             {tasks.map((task: any, index: number) => (
@@ -226,7 +231,14 @@ export default function OutcomeDetailModal({
       <div className="space-y-4">
         {thumbnailUrl && (
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-            <img src={thumbnailUrl} alt={artifact.title} className="w-full h-auto" />
+            <Image
+              src={thumbnailUrl}
+              alt={artifact.title}
+              width={960}
+              height={540}
+              className="w-full h-auto"
+              unoptimized
+            />
           </div>
         )}
         {canvaUrl && (
@@ -234,7 +246,7 @@ export default function OutcomeDetailModal({
             onClick={handleOpenExternal}
             className="px-4 py-2 bg-green-600 dark:bg-green-700 text-white rounded hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
           >
-            在 Canva 開啟
+            Open in Canva
           </button>
         )}
       </div>
@@ -251,13 +263,13 @@ export default function OutcomeDetailModal({
             <audio controls className="w-full">
               <source src={audioPath} type="audio/mpeg" />
               <source src={audioPath} type="audio/wav" />
-              您的瀏覽器不支援音頻播放。
+              Your browser does not support audio playback.
             </audio>
           </div>
         )}
         {transcript && (
           <div className="mt-4">
-            <h3 className="text-lg font-semibold mb-2 dark:text-gray-100">文字稿</h3>
+            <h3 className="text-lg font-semibold mb-2 dark:text-gray-100">Transcript</h3>
             <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded border border-gray-200 dark:border-gray-700">
               <p className="whitespace-pre-wrap text-sm dark:text-gray-300">{transcript}</p>
             </div>
@@ -321,7 +333,7 @@ export default function OutcomeDetailModal({
               <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 truncate">{artifact.title}</h2>
               <div className="flex items-center gap-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
                 <span>{artifact.playbook_code}</span>
-                <span>•</span>
+                <span>-</span>
                 <span>{formatLocalDateTime(artifact.created_at)}</span>
               </div>
             </div>
@@ -332,7 +344,7 @@ export default function OutcomeDetailModal({
                   disabled={loading}
                   className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors"
                 >
-                  {loading ? '複製中...' : '複製全部'}
+                  {loading ? 'Copying...' : 'Copy All'}
                 </button>
               )}
               {artifact.primary_action_type === 'open_external' && (
@@ -340,7 +352,7 @@ export default function OutcomeDetailModal({
                   onClick={handleOpenExternal}
                   className="px-4 py-2 bg-green-600 dark:bg-green-700 text-white rounded hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
                 >
-                  開啟
+                  Open
                 </button>
               )}
               {artifact.primary_action_type === 'download' && (
@@ -348,14 +360,14 @@ export default function OutcomeDetailModal({
                   onClick={handleOpenExternal}
                   className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded hover:bg-gray-700 dark:hover:bg-gray-600 transition-colors"
                 >
-                  下載
+                  Download
                 </button>
               )}
               <button
                 onClick={onClose}
                 className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-2xl leading-none ml-2"
               >
-                ×
+                Close
               </button>
             </div>
           </div>
@@ -365,41 +377,28 @@ export default function OutcomeDetailModal({
             {renderContent()}
           </div>
 
-          {/* Footer - Metadata */}
           <div className="border-t dark:border-gray-700 px-6 py-3 bg-gray-50 dark:bg-gray-800 shrink-0">
             <div className="space-y-3">
-              {/* Basic Metadata */}
               <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
                 <div className="flex items-center gap-4">
                   <span>Playbook: {artifact.playbook_code}</span>
                   {artifact.execution_id && (
-                    <span>執行 ID: {artifact.execution_id.substring(0, 8)}...</span>
+                    <span>Execution ID: {artifact.execution_id.substring(0, 8)}...</span>
                   )}
                   {artifact.intent_id && (
-                    <span className="text-blue-600 dark:text-blue-400">來源 Intent</span>
+                    <span className="text-blue-600 dark:text-blue-400">Source Intent</span>
                   )}
                 </div>
-                {artifact.intent_id && (
-                  <button
-                    onClick={() => {
-                      // TODO: Navigate to intent or scroll to timeline item
-                      console.log('Navigate to intent:', artifact.intent_id);
-                    }}
-                    className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
-                  >
-                    回到該次對話／意圖
-                  </button>
-                )}
               </div>
 
               {/* Version Info */}
               {artifact.metadata?.version && (
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">版本:</span>
+                  <span className="text-gray-600 dark:text-gray-400">Version:</span>
                   <span className="font-mono font-semibold dark:text-gray-100">v{artifact.metadata.version}</span>
                   {artifact.metadata.is_latest && (
                     <span className="px-2 py-0.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded">
-                      最新
+                      Latest
                     </span>
                   )}
                 </div>
@@ -408,7 +407,7 @@ export default function OutcomeDetailModal({
               {/* Storage Path */}
               {artifact.storage_ref && (
                 <div className="space-y-1">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">存儲路徑</label>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Storage Path</label>
                   <div className="flex items-center gap-2">
                     <code className="flex-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs font-mono text-gray-800 dark:text-gray-200 break-all">
                       {artifact.storage_ref}
@@ -418,23 +417,23 @@ export default function OutcomeDetailModal({
                         try {
                           await navigator.clipboard.writeText(artifact.storage_ref || '');
                           showToast({
-                            message: '路徑已複製到剪貼板',
+                            message: 'Path copied to clipboard',
                             type: 'success',
                             duration: 3000
                           });
                         } catch (err) {
                           console.error('Failed to copy path:', err);
                           showToast({
-                            message: '複製路徑失敗，請重試',
+                            message: 'Failed to copy path. Please try again.',
                             type: 'error',
                             duration: 3000
                           });
                         }
                       }}
                       className="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                      title="複製路徑"
+                      title="Copy Path"
                     >
-                      複製
+                      Copy
                     </button>
                     <button
                       onClick={async () => {
@@ -465,10 +464,10 @@ export default function OutcomeDetailModal({
 
                             // If backend requires manual opening, show path dialog
                             if (result.requires_manual_open && result.path) {
-                              alert(`路徑: ${result.path}\n\n請手動在檔案管理器中開啟此路徑。`);
+                              alert(`Path: ${result.path}\n\nOpen this path manually in your file manager.`);
                             } else {
                               showToast({
-                                message: '已開啟資料夾',
+                                message: 'Folder opened',
                                 type: 'success',
                                 duration: 3000
                               });
@@ -481,13 +480,13 @@ export default function OutcomeDetailModal({
                           const dirPath = path.includes('/')
                             ? path.substring(0, path.lastIndexOf('/'))
                             : path;
-                          alert(`路徑: ${dirPath}\n\n請手動在檔案管理器中開啟此路徑。`);
+                          alert(`Path: ${dirPath}\n\nOpen this path manually in your file manager.`);
                         }
                       }}
                       className="px-3 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-900/40 transition-colors"
-                      title="開啟所在資料夾"
+                      title="Open Containing Folder"
                     >
-                      開啟資料夾
+                      Open Folder
                     </button>
                   </div>
                 </div>
@@ -499,4 +498,3 @@ export default function OutcomeDetailModal({
     </>
   );
 }
-

@@ -48,14 +48,12 @@ export default function GovernanceTab({
       setLoading(true);
       setError(null);
 
-      // Try to load from governance decisions API (Cloud)
       try {
         const response = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/governance/decisions?limit=50`
         );
         if (response.ok) {
           const data = await response.json();
-          // Filter decisions for this execution
           const executionDecisions = (data.decisions || []).filter(
             (d: GovernanceDecision) => d.metadata?.execution_id === executionId
           );
@@ -63,11 +61,9 @@ export default function GovernanceTab({
           setLoading(false);
           return;
         }
-      } catch (err) {
-        // Fallback to events API for Local-Core
+      } catch {
       }
 
-      // Fallback: Load from events API
       const response = await fetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/events?event_types=decision_required&limit=100`
       );

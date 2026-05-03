@@ -88,7 +88,6 @@ export default function StepDetailPanel({
   onReviewBundleArtifactUpdated,
   t,
 }: StepDetailPanelProps) {
-  // Dynamic capability UI components (boundary: no hardcoded Cloud components)
   const [installedCapabilities, setInstalledCapabilities] = useState<any[]>([]);
   const [capabilityUIComponents, setCapabilityUIComponents] = useState<Map<string, React.ComponentType<any>>>(new Map());
   const [openModalKey, setOpenModalKey] = useState<string | null>(null);
@@ -504,7 +503,7 @@ export default function StepDetailPanel({
                 </div>
                 {artifact.createdAt && (
                   <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                    {parseServerTimestamp(artifact.createdAt)?.toLocaleTimeString() ?? '—'}
+                    {parseServerTimestamp(artifact.createdAt)?.toLocaleTimeString() ?? 'N/A'}
                   </div>
                 )}
               </button>

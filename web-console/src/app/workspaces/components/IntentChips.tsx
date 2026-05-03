@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { t } from '@/lib/i18n';
 
 interface IntentTag {
@@ -33,23 +33,7 @@ export default function IntentChips({
   const [loading, setLoading] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadCandidateIntentTags();
-
-    // Refresh when workspace chat updates
-    const handleChatUpdate = () => {
-      setTimeout(() => {
-        loadCandidateIntentTags();
-      }, 1000);
-    };
-
-    window.addEventListener('workspace-chat-updated', handleChatUpdate);
-    return () => {
-      window.removeEventListener('workspace-chat-updated', handleChatUpdate);
-    };
-  }, [workspaceId, messageId]);
-
-  const loadCandidateIntentTags = async () => {
+  const loadCandidateIntentTags = useCallback(async () => {
     try {
       setLoading(true);
       const url = messageId
@@ -66,20 +50,27 @@ export default function IntentChips({
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiUrl, messageId, workspaceId]);
+
+  useEffect(() => {
+    loadCandidateIntentTags();
+
+    const handleChatUpdate = () => {
+      setTimeout(() => {
+        loadCandidateIntentTags();
+      }, 1000);
+    };
+
+    window.addEventListener('workspace-chat-updated', handleChatUpdate);
+    return () => {
+      window.removeEventListener('workspace-chat-updated', handleChatUpdate);
+    };
+  }, [loadCandidateIntentTags]);
 
   const handleConfirmIntent = async (intentTag: IntentTag) => {
     if (confirmingId) {
-      console.log('[IntentChips] Already confirming, ignoring click');
-      return; // Prevent multiple clicks
+      return;
     }
-
-    console.log('[IntentChips] Confirming intent:', {
-      intentTagId: intentTag.id,
-      title: intentTag.title,
-      workspaceId,
-      apiUrl
-    });
 
     setConfirmingId(intentTag.id);
 
@@ -94,30 +85,19 @@ export default function IntentChips({
         }
       );
 
-      console.log('[IntentChips] Confirm response:', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-      });
-
       if (response.ok) {
-        const data = await response.json().catch(() => ({}));
-        console.log('[IntentChips] Confirm success:', data);
-
-        // Remove confirmed tag from list
+        await response.json().catch(() => ({}));
         setIntentTags(prev => prev.filter(tag => tag.id !== intentTag.id));
 
-        // Trigger workspace chat update to refresh
         window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
 
-        // Trigger continue-conversation event to guide user to chat window
         window.dispatchEvent(new CustomEvent('continue-conversation', {
           detail: {
             type: 'continue-conversation',
             intentId: intentTag.id,
             context: {
               topic: intentTag.title,
-              suggestedMessage: `關於「${intentTag.title}」，我想要進一步討論...`
+              suggestedMessage: `About "${intentTag.title}", I want to discuss this further...`
             }
           }
         }));
@@ -145,7 +125,7 @@ export default function IntentChips({
   return (
     <div className={compact ? 'px-0 py-0' : 'px-4 pt-2 pb-1'}>
       <div className={`${compact ? 'mb-1 text-[10px] leading-4' : 'mb-1.5 text-xs'} text-gray-500 dark:text-gray-400`}>
-        {t('mindscapePossibleDirections' as any) || 'Mindscape 看到的可能方向（僅供參考）'}
+        {t('mindscapePossibleDirections' as any) || 'Mindscape possible directions (for reference)'}
       </div>
       <div className={`flex flex-wrap ${compact ? 'gap-1' : 'gap-1.5'}`}>
         {intentTags.map((tag) => (
@@ -154,7 +134,6 @@ export default function IntentChips({
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              console.log('[IntentChips] Button clicked:', { tagId: tag.id, title: tag.title });
               handleConfirmIntent(tag);
             }}
             disabled={confirmingId === tag.id || confirmingId !== null}

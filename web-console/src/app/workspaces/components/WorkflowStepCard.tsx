@@ -90,11 +90,11 @@ export default function WorkflowStepCard({
   onReject
 }: WorkflowStepCardProps) {
   const getStepStatusIcon = () => {
-    if (step.status === 'completed') return '✓';
-    if (step.status === 'running') return '⟳';
-    if (step.status === 'waiting_confirmation') return '⏸';
-    if (step.status === 'failed') return '✗';
-    return '○';
+    if (step.status === 'completed') return 'OK';
+    if (step.status === 'running') return 'RUN';
+    if (step.status === 'waiting_confirmation') return 'WAIT';
+    if (step.status === 'failed') return 'ERR';
+    return 'PEND';
   };
 
   const getStepStatusColor = () => {
@@ -106,10 +106,10 @@ export default function WorkflowStepCard({
   };
 
   const getToolStatusIcon = (status: string) => {
-    if (status === 'completed') return '✓';
-    if (status === 'running') return '⟳';
-    if (status === 'failed') return '✗';
-    return '○';
+    if (status === 'completed') return 'OK';
+    if (status === 'running') return 'RUN';
+    if (status === 'failed') return 'ERR';
+    return 'PEND';
   };
 
   const getToolStatusColor = (status: string) => {
@@ -150,7 +150,7 @@ export default function WorkflowStepCard({
               )}
               {step.used_tools && step.used_tools.length > 0 && (
                 <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded border border-gray-200 dark:border-gray-600">
-                  🔧 {step.used_tools.length} tool{step.used_tools.length > 1 ? 's' : ''}
+                  Tools: {step.used_tools.length}
                 </span>
               )}
             </div>
@@ -173,19 +173,19 @@ export default function WorkflowStepCard({
         <div className="mb-3 bg-white dark:bg-gray-800 rounded p-3 border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-1">
-              🤝 Agent 協作
+              Agent Collaboration
             </span>
             <span className="text-xs text-gray-600 dark:text-gray-400">
               {collaborations[0].collaboration_type}
             </span>
           </div>
           <div className="text-xs text-gray-700 dark:text-gray-300 mb-2">
-            <span className="font-medium">參與者:</span>{' '}
+            <span className="font-medium">Participants:</span>{' '}
             {collaborations[0].participants.join(', ')}
           </div>
           {collaborations[0].topic && (
             <div className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-              <span className="font-medium">主題:</span> {collaborations[0].topic}
+              <span className="font-medium">Topic:</span> {collaborations[0].topic}
             </div>
           )}
           {collaborations[0].discussion && collaborations[0].discussion.length > 0 && (
@@ -200,7 +200,7 @@ export default function WorkflowStepCard({
           )}
           {collaborations[0].result && (
             <div className="mt-2 text-xs bg-green-50 dark:bg-green-900/20 rounded p-2 border border-green-200 dark:border-green-700">
-              <span className="font-medium text-green-800 dark:text-green-300">協作結果:</span>{' '}
+              <span className="font-medium text-green-800 dark:text-green-300">Collaboration Result:</span>{' '}
               <span className="text-green-700 dark:text-green-300">
                 {JSON.stringify(collaborations[0].result).substring(0, 100)}
                 {JSON.stringify(collaborations[0].result).length > 100 ? '...' : ''}
@@ -214,7 +214,7 @@ export default function WorkflowStepCard({
       {toolCalls.length > 0 && (
         <div className="mb-3 bg-white dark:bg-gray-800 rounded p-3 border border-gray-200 dark:border-gray-700">
           <h5 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2 flex items-center gap-1">
-            🔧 工具調用 ({toolCalls.length})
+            Tool Calls ({toolCalls.length})
           </h5>
           <div className="space-y-2">
             {toolCalls.map((toolCall) => (
@@ -242,21 +242,21 @@ export default function WorkflowStepCard({
                 </div>
                 {toolCall.parameters && Object.keys(toolCall.parameters).length > 0 && (
                   <div className="text-[10px] text-gray-600 dark:text-gray-400 mt-1">
-                    <span className="font-medium">參數:</span>{' '}
+                    <span className="font-medium">Parameters:</span>{' '}
                     {JSON.stringify(toolCall.parameters).substring(0, 80)}
                     {JSON.stringify(toolCall.parameters).length > 80 ? '...' : ''}
                   </div>
                 )}
                 {toolCall.response && (
                   <div className="text-[10px] text-gray-700 dark:text-gray-300 mt-1 bg-white dark:bg-gray-800 rounded p-1 border border-gray-200 dark:border-gray-700">
-                    <span className="font-medium">回應:</span>{' '}
+                    <span className="font-medium">Response:</span>{' '}
                     {JSON.stringify(toolCall.response).substring(0, 100)}
                     {JSON.stringify(toolCall.response).length > 100 ? '...' : ''}
                   </div>
                 )}
                 {toolCall.error && (
                   <div className="text-[10px] text-red-700 dark:text-red-400 mt-1 bg-red-50 dark:bg-red-900/20 rounded p-1 border border-red-200 dark:border-red-700">
-                    <span className="font-medium">錯誤:</span> {toolCall.error}
+                    <span className="font-medium">Error:</span> {toolCall.error}
                   </div>
                 )}
               </div>
@@ -269,7 +269,7 @@ export default function WorkflowStepCard({
       {stageResults.length > 0 && (
         <div className="mb-3 bg-white dark:bg-gray-800 rounded p-3 border border-gray-200 dark:border-gray-700">
           <h5 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
-            📦 階段性結果 ({stageResults.length})
+            Stage Results ({stageResults.length})
           </h5>
           <div className="space-y-2">
             {stageResults.map((result) => (
@@ -288,7 +288,7 @@ export default function WorkflowStepCard({
                 )}
                 {result.requires_review && (
                   <div className="mt-1 text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 rounded px-1.5 py-0.5 border border-yellow-200 dark:border-yellow-700">
-                    <span className="font-medium">需要審查</span>
+                    <span className="font-medium">Review Required</span>
                     {result.review_status && (
                       <span className="ml-1">({result.review_status})</span>
                     )}
@@ -304,7 +304,7 @@ export default function WorkflowStepCard({
       {step.requires_confirmation && step.status === 'waiting_confirmation' && (
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded p-3">
           <div className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-2">
-            ⏸ 等待確認
+            Waiting for Confirmation
           </div>
           {step.confirmation_prompt && (
             <div className="text-sm text-yellow-700 dark:text-yellow-300 mb-3">
@@ -317,7 +317,7 @@ export default function WorkflowStepCard({
                 onClick={() => onConfirm(step.id)}
                 className="px-3 py-1.5 text-sm font-medium text-white bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600 rounded transition-colors"
               >
-                確認並繼續
+                Confirm and Continue
               </button>
             )}
             {onReject && (
@@ -325,7 +325,7 @@ export default function WorkflowStepCard({
                 onClick={() => onReject(step.id)}
                 className="px-3 py-1.5 text-sm font-medium text-white bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-600 rounded transition-colors"
               >
-                拒絕
+                Reject
               </button>
             )}
           </div>
@@ -335,11 +335,11 @@ export default function WorkflowStepCard({
       {/* Error Information */}
       {step.error && (
         <div className="mt-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded p-3">
-          <div className="text-sm font-semibold text-red-800 dark:text-red-300 mb-1">錯誤</div>
+          <div className="text-sm font-semibold text-red-800 dark:text-red-300 mb-1">Error</div>
           <div className="text-sm text-red-700 dark:text-red-400">{step.error}</div>
           {step.failure_type && (
             <div className="text-xs text-red-600 dark:text-red-400 mt-1">
-              類型: {step.failure_type}
+              Type: {step.failure_type}
             </div>
           )}
         </div>
@@ -349,15 +349,14 @@ export default function WorkflowStepCard({
       {(step.started_at || step.completed_at) && (
         <div className="mt-3 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700 pt-2">
           {step.started_at && (
-            <div>開始: {formatLocalDateTime(step.started_at)}</div>
+            <div>Started: {formatLocalDateTime(step.started_at)}</div>
           )}
           {step.completed_at && (
-            <div>完成: {formatLocalDateTime(step.completed_at)}</div>
+            <div>Completed: {formatLocalDateTime(step.completed_at)}</div>
           )}
         </div>
       )}
     </div>
   );
 }
-
 

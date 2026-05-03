@@ -50,7 +50,9 @@ export default function ProjectSuggestionTimelineItem({
   };
 
   const handleDismiss = () => {
-    // TODO: Mark suggestion as dismissed (can be implemented via API or local state)
+    window.dispatchEvent(new CustomEvent('workspace-project-suggestion-dismissed', {
+      detail: { itemId: item.id }
+    }));
   };
 
   if (!suggestion) {
@@ -60,7 +62,6 @@ export default function ProjectSuggestionTimelineItem({
   return (
     <div className="bg-purple-50 dark:bg-purple-900/10 border border-purple-200 dark:border-purple-800 rounded-lg p-3 mb-2">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-purple-600 dark:text-purple-400">💡</span>
         <span className="text-xs font-medium text-purple-900 dark:text-purple-100">
           This sounds like a new project
         </span>
@@ -100,8 +101,6 @@ export default function ProjectSuggestionTimelineItem({
     </div>
   );
 }
-
-
 
 
 

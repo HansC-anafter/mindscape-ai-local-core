@@ -44,7 +44,7 @@ export default function StepsTimeline({
             : 'text-gray-400 dark:text-gray-500 bg-surface-accent dark:bg-gray-800 border-default dark:border-gray-700';
           const statusIcon = step
             ? getStepStatusIcon(step, executionStatus)
-            : '○';
+            : '-';
 
           return (
             <button
@@ -74,7 +74,7 @@ export default function StepsTimeline({
                       {step.agent_type}
                       {step.used_tools && step.used_tools.length > 0 && (
                         <span className="ml-1">
-                          · {step.used_tools.length} {t('tools' as any)}
+                          - {step.used_tools.length} {t('tools' as any)}
                         </span>
                       )}
                     </div>

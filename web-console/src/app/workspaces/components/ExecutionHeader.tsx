@@ -69,7 +69,7 @@ export default function ExecutionHeader({
         return { label: t('executionStatusFailed' as any), color: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700' };
       case 'cancelled':
       case 'cancelled_by_user':
-        return { label: t('executionStatusCancelled' as any) || '已取消', color: 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600' };
+        return { label: t('executionStatusCancelled' as any) || 'Cancelled', color: 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300 border-default dark:border-gray-600' };
       case 'paused':
         return { label: t('executionStatusPaused' as any), color: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700' };
       default:
@@ -114,13 +114,13 @@ export default function ExecutionHeader({
         {projectName && (
           <>
             <span className="text-tertiary dark:text-gray-500">/</span>
-            <span className="text-secondary dark:text-gray-500">Project：</span>
+            <span className="text-secondary dark:text-gray-500">Project:</span>
             <span className="text-primary dark:text-gray-300">{projectName}</span>
           </>
         )}
 
         <span className="text-tertiary dark:text-gray-500">/</span>
-        <span className="text-secondary dark:text-gray-500">Playbook：</span>
+        <span className="text-secondary dark:text-gray-500">Playbook:</span>
         <span className="text-primary dark:text-gray-300">{playbookTitle || execution.playbook_code || '...'}</span>
 
         <span className="text-tertiary dark:text-gray-500">/</span>
@@ -151,11 +151,11 @@ export default function ExecutionHeader({
             <span className={`px-1.5 py-0.5 rounded text-[10px] border ${triggerBadge.color}`}>
               {triggerBadge.label}
             </span>
-            <span className="text-tertiary dark:text-gray-500">·</span>
+            <span className="text-tertiary dark:text-gray-500">-</span>
             <span>{t('byUser', { user: execution.initiator_user_id || t('unknownUser' as any) })}</span>
             {execution.started_at && (
               <>
-                <span className="text-tertiary dark:text-gray-500">·</span>
+                <span className="text-tertiary dark:text-gray-500">-</span>
                 <span>{t('startedAt', { time: formatTime(execution.started_at) })}</span>
               </>
             )}
@@ -168,19 +168,19 @@ export default function ExecutionHeader({
             <div className="flex flex-wrap items-center gap-3 text-xs text-secondary dark:text-gray-400">
               {stats.concurrent > 0 && (
                 <span className="flex items-center gap-1">
-                  <span>🔄</span>
+                  <span>Running</span>
                   <span>{stats.concurrent} {t('concurrent' as any) || 'concurrent'}</span>
                 </span>
               )}
               {stats.waitingConfirmation > 0 && (
                 <span className="flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
-                  <span>⏸️</span>
+                  <span>Waiting</span>
                   <span>{stats.waitingConfirmation} {t('waitingConfirmation' as any) || 'waiting confirmation'}</span>
                 </span>
               )}
               {stats.completed > 0 && (
                 <span className="flex items-center gap-1">
-                  <span>✅</span>
+                  <span>Done</span>
                   <span>{stats.completed} {t('completed' as any) || 'completed'}</span>
                 </span>
               )}

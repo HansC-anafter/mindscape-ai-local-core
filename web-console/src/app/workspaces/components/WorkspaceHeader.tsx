@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { t } from '@/lib/i18n';
-import WorkspaceModeSelector, { WorkspaceMode } from '../../../components/WorkspaceModeSelector';
+import type { WorkspaceMode } from '../../../components/WorkspaceModeSelector';
 import ActivePlaybookIndicator from '../../../components/ActivePlaybookIndicator';
 import ExecutionModePill, { ExecutionMode, ExecutionPriority } from '../../../components/ExecutionModePill';
 import ExpectedArtifactsBadge from '../../../components/ExpectedArtifactsBadge';
@@ -32,54 +31,25 @@ interface WorkspaceHeaderProps {
   apiUrl?: string;
 }
 
-const modeLabels: Record<NonNullable<WorkspaceMode>, string> = {
-  research: '研究模式',
-  publishing: '發佈模式',
-  planning: '規劃模式',
-};
-
-const modeColors: Record<NonNullable<WorkspaceMode>, string> = {
-  research: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700',
-  publishing: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700',
-  planning: 'bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300 border-gray-400 dark:border-gray-600',
-};
-
 export default function WorkspaceHeader({
   workspaceName,
-  mode,
   executionMode,
   executionPriority,
   expectedArtifacts,
-  associatedIntent,
   workspaceId,
-  onModeChange,
   onExecutionModeClick,
-  updatingMode = false,
   onWorkspaceUpdate,
   apiUrl = getApiBaseUrl(),
 }: WorkspaceHeaderProps) {
-  const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(workspaceName);
   const [isRenaming, setIsRenaming] = useState(false);
 
-  // Update editedName when workspaceName changes
   React.useEffect(() => {
     if (!isEditing) {
       setEditedName(workspaceName);
     }
   }, [workspaceName, isEditing]);
-
-  const handleSwitchIntent = () => {
-    // TODO: Open intent selector modal
-    console.log('Switch intent');
-  };
-
-  const handleViewInMindscape = () => {
-    if (associatedIntent?.id) {
-      router.push(`/mindscape?intent=${associatedIntent.id}`);
-    }
-  };
 
   const handleStartRename = () => {
     setIsEditing(true);
@@ -139,7 +109,6 @@ export default function WorkspaceHeader({
     <>
       <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-6 py-1.5">
         <div className="flex items-center gap-4 relative">
-          {/* Left: Workspace name and execution mode indicators */}
           <div className="flex items-center gap-3 flex-shrink-0">
             {isEditing ? (
               <input
@@ -162,25 +131,22 @@ export default function WorkspaceHeader({
                   className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-xs"
                   title={t('workspaceRename' as any)}
                 >
-                  ✏️
+                  Rename
                 </button>
               </div>
             )}
 
-            {/* Execution Mode Pill */}
             <ExecutionModePill
               mode={executionMode || 'hybrid'}
               priority={executionPriority}
               onClick={onExecutionModeClick}
             />
 
-            {/* Expected Artifacts Badge */}
             {expectedArtifacts && expectedArtifacts.length > 0 && (
               <ExpectedArtifactsBadge artifacts={expectedArtifacts} />
             )}
           </div>
 
-          {/* Center: Active Playbook Indicator (centered) */}
           <div className="absolute left-1/2 transform -translate-x-1/2">
             <ActivePlaybookIndicator
               workspaceId={workspaceId}

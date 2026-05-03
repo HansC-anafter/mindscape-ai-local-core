@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useT } from '@/lib/i18n';
 
 interface ExecutionSummaryBarProps {
   playbookCode?: string;
@@ -15,7 +14,6 @@ interface ExecutionSummaryBarProps {
 }
 
 export default function ExecutionSummaryBar({
-  playbookCode,
   revisionPatches = [],
   aiSummary,
   outputCount = 0,
@@ -24,7 +22,6 @@ export default function ExecutionSummaryBar({
   onOpenDrafts,
   onOpenOutputs
 }: ExecutionSummaryBarProps) {
-  const t = useT();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
   const hasInsights = !!aiSummary;
@@ -34,7 +31,6 @@ export default function ExecutionSummaryBar({
   return (
     <div className="bg-surface-secondary dark:bg-gray-900 border-b border-default dark:border-gray-700 px-4 py-1.5 flex-shrink-0">
       <div className="flex items-center gap-4 text-xs">
-        {/* 執行洞察 */}
         <button
           onClick={() => {
             setExpandedSection(expandedSection === 'insights' ? null : 'insights');
@@ -43,16 +39,15 @@ export default function ExecutionSummaryBar({
           className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${
             hasInsights
               ? 'text-accent dark:text-blue-400 hover:bg-accent-10 dark:hover:bg-blue-900/20'
-              : 'text-gray-400 dark:text-gray-500 hover:bg-tertiary dark:hover:bg-gray-800'
+            : 'text-gray-400 dark:text-gray-500 hover:bg-tertiary dark:hover:bg-gray-800'
           }`}
         >
-          <span>💡</span>
+          <span>Insight</span>
           <span>
-            {hasInsights ? '有執行洞察' : '尚無修正建議'}
+            {hasInsights ? 'Execution insights available' : 'No revision suggestions'}
           </span>
         </button>
 
-        {/* 修正草案 */}
         {hasDrafts ? (
           <button
             onClick={() => {
@@ -61,17 +56,16 @@ export default function ExecutionSummaryBar({
             }}
             className="flex items-center gap-1.5 px-2 py-1 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-200 dark:hover:bg-yellow-900/40 transition-colors"
           >
-            <span>📝</span>
-            <span className="font-medium">有 {revisionPatches.length} 則修正建議</span>
+            <span>Drafts</span>
+            <span className="font-medium">{revisionPatches.length} revision suggestion{revisionPatches.length === 1 ? '' : 's'}</span>
           </button>
         ) : (
           <div className="flex items-center gap-1.5 px-2 py-1 text-gray-400 dark:text-gray-500">
-            <span>📝</span>
-            <span>尚無修正建議</span>
+            <span>Drafts</span>
+            <span>No revision suggestions</span>
           </div>
         )}
 
-        {/* 已產出 */}
         <button
           onClick={() => {
             setExpandedSection(expandedSection === 'outputs' ? null : 'outputs');
@@ -80,12 +74,12 @@ export default function ExecutionSummaryBar({
           className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${
             hasOutputs
               ? 'text-green-600 dark:text-green-400 hover:bg-accent-10 dark:hover:bg-green-900/20'
-              : 'text-gray-400 dark:text-gray-500 hover:bg-tertiary dark:hover:bg-gray-800'
+            : 'text-gray-400 dark:text-gray-500 hover:bg-tertiary dark:hover:bg-gray-800'
           }`}
         >
-          <span>📦</span>
+          <span>Outputs</span>
           <span>
-            已產出：{outputCount}{expectedOutputCount > 0 ? ` / ${expectedOutputCount}` : ''}
+            Produced: {outputCount}{expectedOutputCount > 0 ? ` / ${expectedOutputCount}` : ''}
           </span>
         </button>
       </div>

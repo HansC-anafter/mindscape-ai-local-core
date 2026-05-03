@@ -243,9 +243,9 @@ function PendingTaskCard({
                   title="Auto-execution threshold for the current workspace"
                 >
                   <option value="none">auto</option>
-                  <option value="0.9">≥0.9</option>
-                  <option value="0.8">≥0.8</option>
-                  <option value="0.7">≥0.7</option>
+                  <option value="0.9">&gt;=0.9</option>
+                  <option value="0.8">&gt;=0.8</option>
+                  <option value="0.7">&gt;=0.7</option>
                 </select>
               ) : (
                 <span

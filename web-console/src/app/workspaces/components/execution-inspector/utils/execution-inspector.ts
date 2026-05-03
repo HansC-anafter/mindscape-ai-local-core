@@ -194,16 +194,16 @@ export function getStepStatusIcon(
   const effectiveStatus = getEffectiveStepStatus(step, executionStatus);
   switch (effectiveStatus) {
     case 'completed':
-      return '✓';
+      return 'C';
     case 'running':
-      return '⟳';
+      return 'R';
     case 'waiting_confirmation':
-      return '⏸';
+      return 'W';
     case 'failed':
     case 'timeout':
-      return '✗';
+      return 'X';
     default:
-      return '○';
+      return '-';
   }
 }
 

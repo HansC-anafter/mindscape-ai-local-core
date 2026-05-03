@@ -24,9 +24,9 @@ export interface RemoteExecutionSummary {
   tool_name?: string | null;
   workflow_step_id?: string | null;
   result_ingress_mode?: string | null;
-  cloud_dispatch_state?: string | null;
-  cloud_execution_id?: string | null;
-  cloud_state?: string | null;
+  remote_dispatch_state?: string | null;
+  remote_execution_id?: string | null;
+  remote_state?: string | null;
   callback_delivered_at?: string | null;
   callback_error?: string | null;
   target_device_id?: string | null;

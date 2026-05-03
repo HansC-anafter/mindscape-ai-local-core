@@ -1,18 +1,7 @@
 'use client';
 
-/**
- * RunProvenanceChips - Component for displaying execution provenance information
- *
- * Shows baseline constraints, input artifacts, and warnings for web-generation executions.
- * Displays chips that link to related artifacts.
- */
-
 import React from 'react';
 import { useRouter } from 'next/navigation';
-
-// ============================================================================
-// Types
-// ============================================================================
 
 export interface ExecutionProvenance {
   constrainedBy?: {
@@ -21,7 +10,7 @@ export interface ExecutionProvenance {
     variantId?: string;
     lockMode: 'locked' | 'advisory';
   };
-  inferred?: boolean; // If no baseline was applied, marked as inferred
+  inferred?: boolean;
   inputs?: {
     snapshot?: { id: string; version: string };
     outline?: { id: string; version: string };
@@ -46,10 +35,6 @@ interface ProvenanceChipProps {
   artifactId?: string;
 }
 
-// ============================================================================
-// Component
-// ============================================================================
-
 export function RunProvenanceChips({
   provenance,
   workspaceId,
@@ -68,7 +53,6 @@ export function RunProvenanceChips({
 
   return (
     <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-      {/* Constraint Declaration */}
       <div className="mb-2 text-sm text-gray-600 dark:text-gray-400">
         {provenance.constrainedBy ? (
           <>
@@ -84,7 +68,7 @@ export function RunProvenanceChips({
             )}
             {provenance.constrainedBy.lockMode === 'locked' && (
               <span className="ml-2 text-purple-600 dark:text-purple-400 font-medium">
-                🔒 Locked
+                Locked
               </span>
             )}
           </>
@@ -93,14 +77,13 @@ export function RunProvenanceChips({
             <span className="italic">No baseline applied;</span> inferred from outline.
             {provenance.inferred && (
               <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400">
-                ⚠️ Inferred
+                Inferred
               </span>
             )}
           </>
         )}
       </div>
 
-      {/* Warnings */}
       {provenance.warnings && provenance.warnings.length > 0 && (
         <div className="mb-2 space-y-1">
           {provenance.warnings.map((warning, index) => (
@@ -115,9 +98,9 @@ export function RunProvenanceChips({
               }`}
             >
               <span className="font-medium">
-                {warning.type === 'stale' && '⚠️ Stale: '}
-                {warning.type === 'missing' && '❌ Missing: '}
-                {warning.type === 'partial-extraction' && '⚠️ Partial: '}
+                {warning.type === 'stale' && 'Stale: '}
+                {warning.type === 'missing' && 'Missing: '}
+                {warning.type === 'partial-extraction' && 'Partial: '}
               </span>
               {warning.message}
             </div>
@@ -125,7 +108,6 @@ export function RunProvenanceChips({
         </div>
       )}
 
-      {/* Provenance Chips */}
       {provenance.inputs && (
         <div className="flex flex-wrap gap-2">
           {provenance.inputs.snapshot && (
@@ -169,10 +151,6 @@ export function RunProvenanceChips({
   );
 }
 
-// ============================================================================
-// ProvenanceChip Component
-// ============================================================================
-
 function ProvenanceChip({
   type,
   label,
@@ -181,25 +159,25 @@ function ProvenanceChip({
 }: ProvenanceChipProps) {
   const typeConfig: Record<
     string,
-    { icon: string; className: string }
+    { label: string; className: string }
   > = {
     snapshot: {
-      icon: '🎨',
+      label: 'SNAP',
       className:
         'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/50',
     },
     outline: {
-      icon: '📋',
+      label: 'OUT',
       className:
         'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50',
     },
     spec: {
-      icon: '📄',
+      label: 'SPEC',
       className:
         'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50',
     },
     themeConfig: {
-      icon: '🎨',
+      label: 'THEME',
       className:
         'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-900/50',
     },
@@ -219,7 +197,7 @@ function ProvenanceChip({
       `}
       title={artifactId ? `View artifact: ${artifactId}` : undefined}
     >
-      <span>{config.icon}</span>
+      <span>{config.label}</span>
       <span>{label}</span>
     </button>
   );

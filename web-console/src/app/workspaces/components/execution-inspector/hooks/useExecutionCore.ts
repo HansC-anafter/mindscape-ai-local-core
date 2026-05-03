@@ -91,32 +91,24 @@ export function useExecutionCore(
           );
           setCurrentStepIndex(validStepIndex);
 
-          // Extract sandbox_id directly from execution response (preferred)
-          // Also extract project_id for fallback query
           const execProjectId = data.project_id
             || data.execution_context?.project_id
             || data.task?.project_id;
 
           if (data.sandbox_id) {
-            console.log('[useExecutionCore] Found sandbox_id in execution response:', data.sandbox_id);
             setSandboxId(data.sandbox_id);
-            // Still set projectId for reference
             if (execProjectId) {
               setProjectId(execProjectId);
             }
           } else {
-            // Fallback: Extract project_id and query sandbox
-            console.log('[useExecutionCore] No sandbox_id in execution response, project_id:', execProjectId);
             if (execProjectId) {
               setProjectId(execProjectId);
-              // sandboxId will be set by useEffect when projectId changes
             } else {
               setProjectId(null);
               setSandboxId(null);
             }
           }
         } else {
-          // Check again after async operation
           if (cancelled || executionId !== currentExecutionId) {
             return;
           }
@@ -125,7 +117,6 @@ export function useExecutionCore(
           console.error('[useExecutionCore] Failed to load execution:', response.status, 'for executionId:', currentExecutionId);
         }
       } catch (err) {
-        // Check again after async operation
         if (cancelled || executionId !== currentExecutionId) {
           return;
         }
@@ -141,13 +132,11 @@ export function useExecutionCore(
 
     loadExecution();
 
-    // Cleanup function
     return () => {
       cancelled = true;
     };
   }, [executionId, workspaceId, apiUrl]);
 
-  // Calculate and update duration
   useEffect(() => {
     if (!execution?.started_at) {
       setDuration('');
@@ -167,7 +156,6 @@ export function useExecutionCore(
     }
   }, [execution?.started_at, execution?.status, execution?.completed_at]);
 
-  // Load workspace name
   useEffect(() => {
     if (workspaceData?.workspace?.title) {
       setWorkspaceName(workspaceData.workspace.title);
@@ -187,7 +175,6 @@ export function useExecutionCore(
     }
   }, [workspaceId, apiUrl, workspaceData]);
 
-  // Load project name
   useEffect(() => {
     if (!projectId) {
       setProjectName(undefined);
@@ -207,7 +194,6 @@ export function useExecutionCore(
     loadProject();
   }, [projectId, workspaceId, apiUrl]);
 
-  // Calculate execution stats
   useEffect(() => {
     if (!projectId) {
       setExecutionStats(undefined);
@@ -246,18 +232,15 @@ export function useExecutionCore(
             completed
           });
         } else if (response.status === 404) {
-          // Endpoint not available, silently ignore
           setExecutionStats(undefined);
         }
       } catch (err) {
-        // Silently ignore errors for optional endpoint
         setExecutionStats(undefined);
       }
     };
     loadStats();
   }, [projectId, workspaceId, apiUrl]);
 
-  // Load sandbox ID
   useEffect(() => {
     if (!projectId) {
       setSandboxId(null);
@@ -265,13 +248,10 @@ export function useExecutionCore(
     }
     const loadSandbox = async () => {
       try {
-        console.log('[useExecutionCore] Loading sandbox for project:', projectId);
         const sandbox = await getSandboxByProject(workspaceId, projectId);
         if (sandbox?.sandbox_id) {
-          console.log('[useExecutionCore] Found sandbox_id:', sandbox.sandbox_id);
           setSandboxId(sandbox.sandbox_id);
         } else {
-          console.log('[useExecutionCore] No sandbox found for project:', projectId);
           setSandboxId(null);
         }
       } catch (err) {

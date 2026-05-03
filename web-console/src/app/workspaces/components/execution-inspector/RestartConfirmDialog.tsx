@@ -23,8 +23,8 @@ export default function RestartConfirmDialog({
       onConfirm={onConfirm}
       title={t('confirmRestartExecution' as any) || 'Confirm Restart Execution'}
       message={t('confirmRestartExecutionMessage' as any) || 'Are you sure you want to restart this execution? This will create a new execution and cancel the current one.'}
-      confirmText={t('accept' as any) || '確定'}
-      cancelText={t('cancel' as any) || '取消'}
+      confirmText={t('accept' as any) || 'Confirm'}
+      cancelText={t('cancel' as any) || 'Cancel'}
       confirmButtonClassName="bg-blue-600 hover:bg-blue-700"
     />
   );

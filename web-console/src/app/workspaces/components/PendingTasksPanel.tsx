@@ -392,16 +392,16 @@ export default function PendingTasksPanel({
               descriptionSource.includes('upload') ||
               descriptionSource.includes('file') ||
               descriptionSource.includes('document') ||
-              descriptionSource.includes('上傳') ||
-              descriptionSource.includes('檔案') ||
-              descriptionSource.includes('文件')
+              descriptionSource.includes('\u4e0a\u50b3') ||
+              descriptionSource.includes('\u6a94\u6848') ||
+              descriptionSource.includes('\u6587\u4ef6')
             ) {
               dataType = 'file';
             } else if (
               descriptionSource.includes('text') ||
               descriptionSource.includes('input') ||
-              descriptionSource.includes('輸入') ||
-              descriptionSource.includes('文字')
+              descriptionSource.includes('\u8f38\u5165') ||
+              descriptionSource.includes('\u6587\u5b57')
             ) {
               dataType = 'text';
             }

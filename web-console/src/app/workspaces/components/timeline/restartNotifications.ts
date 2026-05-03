@@ -44,7 +44,7 @@ export function showExecutionRestartedNotification({
         onclick="this.parentElement.remove()"
         class="ml-2 text-white/80 transition-colors hover:text-white"
       >
-        ×
+        Close
       </button>
     </div>
   `);
@@ -64,7 +64,7 @@ export function showExecutionRestartErrorNotification(message: string): void {
         onclick="this.parentElement.remove()"
         class="ml-2 text-white/80 transition-colors hover:text-white"
       >
-        ×
+        Close
       </button>
     </div>
   `);

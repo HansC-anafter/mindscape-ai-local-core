@@ -60,9 +60,6 @@ export default function HeaderBar({
             executionRunNumber={executionRunNumber}
             stats={stats}
             remoteExecutionAggregate={remoteExecutionAggregate}
-            onRetry={execution.status === 'failed' ? () => {
-              // TODO: Implement retry functionality
-            } : undefined}
             isStopping={isStopping}
             onStop={execution.status === 'running' ? onStop : undefined}
             onEditPlaybook={onReloadPlaybook}

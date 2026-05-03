@@ -68,7 +68,7 @@ function CollapsibleSection({
         className={`sticky top-0 z-10 flex cursor-pointer items-center gap-1 px-1 py-1 text-xs font-semibold ${headerClassName}`}
         onClick={() => onToggle(sectionKey)}
       >
-        <span className="select-none">{isCollapsed ? '▶' : '▼'}</span>
+        <span className="select-none">{isCollapsed ? '[+]' : '[-]'}</span>
         <span>
           {title} {count > 0 ? `(${count})` : ''}
         </span>

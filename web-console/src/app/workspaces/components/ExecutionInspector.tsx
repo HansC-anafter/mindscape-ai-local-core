@@ -194,7 +194,6 @@ export default function ExecutionInspector({
 
     const fetchArtifacts = async () => {
       try {
-        console.log('[ExecutionInspector] Fetching artifacts for execution:', executionId);
         const response = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?limit=100&include_content=true`
         );
@@ -202,21 +201,13 @@ export default function ExecutionInspector({
 
         if (response.ok) {
           const data = await response.json();
-          console.log('[ExecutionInspector] Received artifacts:', data.artifacts?.length || 0);
-          // Filter artifacts for this execution
           const executionArtifacts = (data.artifacts || []).filter((art: any) => {
             const artExecutionId = art.execution_id || art.metadata?.execution_id || art.metadata?.navigate_to;
-            const matches = artExecutionId === executionId;
-            if (matches) {
-              console.log('[ExecutionInspector] Found matching artifact:', art.id, art.title);
-            }
-            return matches;
+            return artExecutionId === executionId;
           });
-          console.log('[ExecutionInspector] Filtered artifacts for execution:', executionArtifacts.length);
           const convertedArtifacts = executionArtifacts.map((art: any) => toArtifactRecord(art, apiUrl, workspaceId));
           if (!cancelled) {
             setOriginalArtifacts(convertedArtifacts);
-            console.log('[ExecutionInspector] Setting artifacts:', convertedArtifacts.length);
             setArtifacts(convertedArtifacts);
           }
         } else {
@@ -507,15 +498,6 @@ export default function ExecutionInspector({
                       : undefined
                   }
                   outputCount={artifacts.length}
-                  onOpenInsights={() => {
-                    // TODO: Open insights drawer/modal
-                  }}
-                  onOpenDrafts={() => {
-                    // TODO: Open drafts drawer/modal
-                  }}
-                  onOpenOutputs={() => {
-                    // TODO: Open outputs drawer/modal - could scroll to artifacts section
-                  }}
                 />
 
                 {relatedMemoryLoading && !relatedMemory ? (

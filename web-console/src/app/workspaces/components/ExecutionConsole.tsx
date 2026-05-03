@@ -69,7 +69,6 @@ export default function ExecutionConsole({
   const [collaborations, setCollaborations] = useState<any[]>([]);
   const [stageResults, setStageResults] = useState<any[]>([]);
 
-  // Load execution details
   useEffect(() => {
     const loadExecution = async () => {
       try {
@@ -91,11 +90,9 @@ export default function ExecutionConsole({
     loadExecution();
   }, [executionId, workspaceId, apiUrl]);
 
-  // Load steps, tool calls, collaborations, and stage results
   useEffect(() => {
     const loadStepDetails = async () => {
       try {
-        // Load steps
         const stepsResponse = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/steps`
         );
@@ -104,7 +101,6 @@ export default function ExecutionConsole({
           setSteps(stepsData.steps || []);
         }
 
-        // Load tool calls
         try {
           const toolCallsResponse = await fetch(
             `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/tool-calls`
@@ -117,7 +113,6 @@ export default function ExecutionConsole({
           console.warn('Failed to load tool calls:', err);
         }
 
-        // Load stage results
         try {
           const stageResultsResponse = await fetch(
             `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/stage-results`
@@ -130,7 +125,6 @@ export default function ExecutionConsole({
           console.warn('Failed to load stage results:', err);
         }
 
-        // Load agent collaborations (from AGENT_EXECUTION events)
         try {
           const eventsResponse = await fetch(
             `${apiUrl}/api/v1/workspaces/${workspaceId}/events?event_types=AGENT_EXECUTION&execution_id=${executionId}&limit=100`
@@ -198,10 +192,10 @@ export default function ExecutionConsole({
   const currentStep = steps.find(s => s.step_index === currentStepIndex);
 
   const getStepStatusIcon = (step: ExecutionStep) => {
-    if (step.status === 'completed') return '✓';
-    if (step.status === 'running') return '⟳';
-    if (step.status === 'waiting_confirmation') return '⏸';
-    return '○';
+    if (step.status === 'completed') return 'C';
+    if (step.status === 'running') return 'R';
+    if (step.status === 'waiting_confirmation') return 'W';
+    return '-';
   };
 
   const getStepStatusColor = (step: ExecutionStep) => {
@@ -224,7 +218,6 @@ export default function ExecutionConsole({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <div className="flex-1">
             <h2 className="text-xl font-semibold text-gray-900">
@@ -249,9 +242,7 @@ export default function ExecutionConsole({
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-hidden flex">
-          {/* Steps List */}
           <div className="w-64 border-r bg-gray-50 overflow-y-auto">
             <div className="p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Steps</h3>
@@ -285,7 +276,6 @@ export default function ExecutionConsole({
             </div>
           </div>
 
-          {/* Step Details */}
           <div className="flex-1 overflow-y-auto p-6">
             {currentStep ? (
               <WorkflowStepCard
@@ -302,7 +292,6 @@ export default function ExecutionConsole({
                     );
                     if (response.ok) {
                       window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
-                      // Reload execution and steps
                       const execResponse = await fetch(
                         `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}`
                       );
@@ -324,7 +313,6 @@ export default function ExecutionConsole({
                     );
                     if (response.ok) {
                       window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
-                      // Reload execution and steps
                       const execResponse = await fetch(
                         `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}`
                       );
@@ -347,7 +335,6 @@ export default function ExecutionConsole({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="border-t p-4 bg-gray-50">
           <div className="flex items-center justify-between">
             <div className="text-sm text-gray-600">

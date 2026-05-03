@@ -44,22 +44,21 @@ export default function WorkspaceScopePanel({
       <div className="bg-surface-secondary dark:bg-gray-800 border border-default dark:border-gray-700 rounded-lg p-2 shadow-sm">
         <div className="flex items-center justify-between mb-1.5">
           <h3 className="text-xs font-semibold text-primary dark:text-gray-100">
-            資料來源
+            Data Sources
           </h3>
           <button
             onClick={handleManageDataSources}
             className="text-xs text-accent dark:text-blue-400 hover:opacity-80 dark:hover:text-blue-300 font-medium"
           >
-            管理
+            Manage
           </button>
         </div>
 
         <div className="space-y-1 text-[10px] text-primary dark:text-gray-300">
           {dataSources?.local_folder && (
             <div className="flex items-center">
-              <span className="mr-1.5">📁</span>
               <span>
-                <span className="font-medium">本地資料夾:</span>{' '}
+                <span className="font-medium">Local Folder:</span>{' '}
                 <span className="text-secondary dark:text-gray-400">{dataSources.local_folder}</span>
               </span>
             </div>
@@ -67,7 +66,6 @@ export default function WorkspaceScopePanel({
 
           {dataSources?.obsidian_vault && (
             <div className="flex items-center">
-              <span className="mr-1.5">🗂</span>
               <span>
                 <span className="font-medium">Obsidian vault:</span>{' '}
                 <span className="text-gray-600 dark:text-gray-400">{dataSources.obsidian_vault}</span>
@@ -77,20 +75,18 @@ export default function WorkspaceScopePanel({
 
           {dataSources?.wordpress && (
             <div className="flex items-center">
-              <span className="mr-1.5">🌐</span>
               <span>
                 <span className="font-medium">WordPress:</span>{' '}
                 <span className="text-gray-600 dark:text-gray-400">{dataSources.wordpress}</span>
-                <span className="ml-1.5 text-green-600 dark:text-green-400">(已連線)</span>
+                <span className="ml-1.5 text-green-600 dark:text-green-400">(Connected)</span>
               </span>
             </div>
           )}
 
           {dataSources?.rag_source && (
             <div className="flex items-center">
-              <span className="mr-1.5">🔍</span>
               <span>
-                <span className="font-medium">RAG 來源:</span>{' '}
+                <span className="font-medium">RAG Source:</span>{' '}
                 <span className="text-gray-600 dark:text-gray-400">{dataSources.rag_source}</span>
               </span>
             </div>
@@ -102,7 +98,7 @@ export default function WorkspaceScopePanel({
               !dataSources.wordpress &&
               !dataSources.rag_source) && (
               <div className="text-gray-500 dark:text-gray-400 italic text-[10px]">
-                尚未配置資料來源
+                No data sources configured
               </div>
             )}
         </div>

@@ -70,29 +70,12 @@ export default function StepTimelineWithDetails({
 }: StepTimelineWithDetailsProps & { className?: string }) {
   const t = useT();
 
-  // Create a map of executed steps by step_index (1-based)
   const executedStepsMap = new Map(steps.map(s => [s.step_index, s]));
 
-  // Debug: Log received props
-  console.log('[StepTimelineWithDetails] Received props:', {
-    steps_count: steps.length,
-    steps_step_indices: steps.map(s => s.step_index),
-    totalSteps: totalSteps,
-    playbookSteps_count: playbookSteps?.length || 0,
-    playbookSteps: playbookSteps ? playbookSteps.slice(0, 5).map(s => ({ step_index: s.step_index, step_name: s.step_name })) : null
-  });
-
-  // Generate all steps: use playbookSteps if available, otherwise generate from totalSteps
   const allSteps: Array<{ step_index: number; step_name: string; description?: string; executed?: ExecutionStep }> = [];
 
   if (playbookSteps && playbookSteps.length > 0) {
-    // Use playbook step definitions
-    console.log('[StepTimelineWithDetails] Using playbookSteps, count:', playbookSteps.length);
-    console.log('[StepTimelineWithDetails] playbookSteps step_indices (first 10):', playbookSteps.slice(0, 10).map(s => s.step_index));
-    console.log('[StepTimelineWithDetails] playbookSteps step_indices (all):', playbookSteps.map(s => s.step_index));
     playbookSteps.forEach((playbookStep, index) => {
-      // Use array index + 1 as step_index to ensure uniqueness
-      // The original step_index from playbookStep might have duplicates
       const uniqueStepIndex = index + 1;
       allSteps.push({
         step_index: uniqueStepIndex,
@@ -101,15 +84,7 @@ export default function StepTimelineWithDetails({
         executed: executedStepsMap.get(playbookStep.step_index) || executedStepsMap.get(uniqueStepIndex)
       });
     });
-    console.log('[StepTimelineWithDetails] Final allSteps count:', allSteps.length);
-    console.log('[StepTimelineWithDetails] allSteps step_indices:', allSteps.map(s => s.step_index));
-    console.log('[StepTimelineWithDetails] allSteps will render:', allSteps.length, 'steps');
-    console.log('[StepTimelineWithDetails] Generated allSteps from playbookSteps (first 10):', allSteps.slice(0, 10).map(s => ({ step_index: s.step_index, step_name: s.step_name, hasExecuted: !!s.executed })));
-    if (allSteps.length > 10) {
-      console.log('[StepTimelineWithDetails] Generated allSteps from playbookSteps (last 10):', allSteps.slice(-10).map(s => ({ step_index: s.step_index, step_name: s.step_name, hasExecuted: !!s.executed })));
-    }
   } else if (totalSteps && totalSteps > 0) {
-    // Generate steps from totalSteps
     for (let i = 1; i <= totalSteps; i++) {
       const executed = executedStepsMap.get(i);
       allSteps.push({
@@ -119,7 +94,6 @@ export default function StepTimelineWithDetails({
       });
     }
   } else {
-    // Fallback: only show executed steps
     steps.forEach(step => {
       allSteps.push({
         step_index: step.step_index,
@@ -134,7 +108,7 @@ export default function StepTimelineWithDetails({
 
   const getEffectiveStepStatus = (step: ExecutionStep): string => {
     if (executionStatus?.toLowerCase() === 'failed' && step.status === 'running') {
-      return 'timeout'; // Show timeout instead of running when execution failed
+      return 'timeout';
     }
     return step.status;
   };
@@ -143,16 +117,16 @@ export default function StepTimelineWithDetails({
     const effectiveStatus = getEffectiveStepStatus(step);
     switch (effectiveStatus) {
       case 'completed':
-        return '✓';
+        return 'C';
       case 'running':
-        return '⟳';
+        return 'R';
       case 'waiting_confirmation':
-        return '⏸';
+        return 'W';
       case 'failed':
       case 'timeout':
-        return '✗';
+        return 'X';
       default:
-        return '○';
+        return '-';
     }
   };
 
@@ -182,16 +156,14 @@ export default function StepTimelineWithDetails({
 
   return (
     <div className={`flex gap-0 h-full w-full ${className}`}>
-      {/* Left: Steps Timeline */}
       <div className="w-[280px] h-full flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 p-3 overflow-y-auto">
         <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('stepsTimeline' as any)}</h3>
         <div className="space-y-1.5">
-          {allSteps.map((stepInfo, renderIndex) => {
+          {allSteps.map((stepInfo) => {
             const step = stepInfo.executed;
             const isSelected = stepInfo.step_index === currentStepIndex;
-            // If step not executed yet, show as pending
             const statusColor = step ? getStepStatusColor(step) : 'text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700';
-            const statusIcon = step ? getStepStatusIcon(step) : '○';
+            const statusIcon = step ? getStepStatusIcon(step) : '-';
 
             return (
               <button
@@ -217,7 +189,7 @@ export default function StepTimelineWithDetails({
                       <div className="text-[10px] text-gray-500 dark:text-gray-300 mt-0.5">
                         {step.agent_type}
                         {step.used_tools && step.used_tools.length > 0 && (
-                          <span className="ml-1">· {step.used_tools.length} {t('tools' as any)}</span>
+                          <span className="ml-1">- {step.used_tools.length} {t('tools' as any)}</span>
                         )}
                       </div>
                     )}
@@ -234,7 +206,6 @@ export default function StepTimelineWithDetails({
         </div>
       </div>
 
-      {/* Right: Current Step Details */}
       <div className="flex-1 bg-white dark:bg-gray-800 p-3 overflow-y-auto min-w-0">
         {currentStepInfo ? (
           <>
@@ -249,7 +220,6 @@ export default function StepTimelineWithDetails({
                   </span>
                 )}
               </div>
-              {/* Priority: Show executed step description if available, otherwise show playbook step description */}
               {(currentStep?.description || currentStep?.log_summary || currentStepInfo?.description) && (
                 <p className="text-xs text-gray-600 dark:text-gray-300 mb-1.5 whitespace-pre-wrap">
                   {currentStep?.description || currentStep?.log_summary || currentStepInfo?.description}
@@ -265,7 +235,6 @@ export default function StepTimelineWithDetails({
               )}
             </div>
 
-            {/* Event Stream */}
             <div className="mb-3">
               <h4 className="text-xs font-medium text-gray-900 dark:text-gray-100 mb-1.5">{t('eventStream' as any)}</h4>
               {currentStepEvents.length > 0 ? (
@@ -302,7 +271,6 @@ export default function StepTimelineWithDetails({
               )}
             </div>
 
-            {/* Tool Calls */}
             {currentStepToolCalls.length > 0 && (
               <div className="mb-4">
                 <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">{t('toolCalls' as any)}</h4>
@@ -336,7 +304,6 @@ export default function StepTimelineWithDetails({
               </div>
             )}
 
-            {/* Error */}
             {currentStep?.error && (
               <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded">
                 <div className="text-sm font-medium text-red-700 dark:text-red-300 mb-1">{t('error' as any)}</div>
@@ -346,11 +313,10 @@ export default function StepTimelineWithDetails({
           </>
         ) : (
           <div className="text-center py-8 text-gray-500 dark:text-gray-300">
-            {t('selectStepToViewDetails' as any) || '請選擇步驟以查看詳情'}
+            {t('selectStepToViewDetails' as any) || 'Select a step to view details'}
           </div>
         )}
       </div>
     </div>
   );
 }
-

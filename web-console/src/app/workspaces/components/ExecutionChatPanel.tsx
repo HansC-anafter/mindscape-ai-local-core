@@ -70,12 +70,10 @@ export default function ExecutionChatPanel({
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollToBottomRef = useRef<((force?: boolean, instant?: boolean) => void) | null>(null);
 
-  // Scroll to bottom function - optimized to avoid jumping to top
   const scrollToBottom = useCallback((force: boolean = false, instant: boolean = false) => {
     if (!messagesScrollRef.current) return;
 
     if (force || instant) {
-      // Direct scroll without smooth behavior to avoid jumping
       messagesScrollRef.current.scrollTop = messagesScrollRef.current.scrollHeight;
       setAutoScroll(true);
       setUserScrolled(false);
@@ -83,7 +81,6 @@ export default function ExecutionChatPanel({
       autoScrollRef.current = true;
       setShowScrollToBottom(false);
     } else if (autoScrollRef.current && !userScrolledRef.current && messages.length > 0) {
-      // Only use smooth scroll if already near bottom
       const { scrollTop, scrollHeight, clientHeight } = messagesScrollRef.current;
       const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
       if (isNearBottom) {
@@ -92,16 +89,13 @@ export default function ExecutionChatPanel({
     }
   }, [messages.length]);
 
-  // Keep scrollToBottom ref in sync
   useEffect(() => {
     scrollToBottomRef.current = scrollToBottom;
   }, [scrollToBottom]);
 
-  // Check execution status to determine if we need to continue execution
   useEffect(() => {
     const checkExecutionStatus = async () => {
       try {
-        // Get execution details
         const execResponse = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}`
         );
@@ -110,7 +104,6 @@ export default function ExecutionChatPanel({
         }
         const exec = await execResponse.json();
 
-        // Get execution steps to find current step
         const stepsResponse = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/steps`
         );
@@ -122,7 +115,6 @@ export default function ExecutionChatPanel({
           const stepsData = await stepsResponse.json();
           const stepsArray = stepsData.steps || [];
 
-          // Find current step based on current_step_index
           const currentStepIndex = exec.current_step_index ?? 0;
           const currentStep = stepsArray.find((s: any) => s.step_index === currentStepIndex + 1);
           if (currentStep) {
@@ -132,13 +124,11 @@ export default function ExecutionChatPanel({
           }
         }
 
-        // Get status from execution or task
         const execStatus = exec.status || exec.task?.status || executionStatus;
         const pausedAt = exec.paused_at;
         const executionContext = exec.task?.execution_context || exec.execution_context || {};
         const pausedAtFromContext = executionContext.paused_at;
 
-        // Determine if we need to continue execution
         const shouldContinue =
           execStatus === 'waiting_confirmation' ||
           execStatus === 'paused' ||
@@ -151,7 +141,6 @@ export default function ExecutionChatPanel({
         setCurrentStepStatus(currentStepStatus);
       } catch (err) {
         console.error('[ExecutionChatPanel] Failed to check execution status:', err);
-        // Fallback: use executionStatus prop
         const shouldContinue =
           executionStatus === 'waiting_confirmation' ||
           executionStatus === 'paused';
@@ -161,21 +150,17 @@ export default function ExecutionChatPanel({
 
     checkExecutionStatus();
 
-    // Poll execution status if execution is running (every 2 seconds)
     const interval = setInterval(checkExecutionStatus, 2000);
     return () => clearInterval(interval);
   }, [executionId, workspaceId, apiUrl, executionStatus]);
 
-  // Load initial messages
   useEffect(() => {
-    // Skip if executionId is invalid
     if (!executionId || executionId === 'undefined') {
       setIsLoading(false);
       setMessages([]);
       return;
     }
 
-    // Reset state when executionId changes
     setMessages([]);
     setIsLoading(true);
     setIsSending(false);
@@ -197,11 +182,10 @@ export default function ExecutionChatPanel({
       try {
         const fetchPromise = fetch(url);
 
-        // Add timeout and error handling
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => {
             reject(new Error(`Fetch timeout for executionId: ${currentExecutionId}`));
-          }, 10000); // 10 second timeout
+          }, 10000);
         });
 
         const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
@@ -216,8 +200,6 @@ export default function ExecutionChatPanel({
 
           if (!cancelled) {
             setMessages(loadedMessages);
-            // Auto scroll to bottom after loading messages (instant)
-            // Use ref to avoid dependency on scrollToBottom function
             setTimeout(() => {
               if (scrollToBottomRef.current && !cancelled) {
                 scrollToBottomRef.current(true, true);
@@ -232,7 +214,6 @@ export default function ExecutionChatPanel({
       } catch (err) {
         if (!cancelled) {
           console.error('[ExecutionChatPanel] Failed to load execution chat messages:', err);
-          // Still set loading to false even on error
           setIsLoading(false);
         }
       } finally {
@@ -244,13 +225,11 @@ export default function ExecutionChatPanel({
 
     loadMessages();
 
-    // Cleanup function to cancel request if executionId changes
     return () => {
       cancelled = true;
     };
   }, [executionId, workspaceId, apiUrl]);
 
-  // Connect to SSE stream for real-time updates using unified stream manager
   useExecutionStream(
     executionId,
     workspaceId,
@@ -259,10 +238,8 @@ export default function ExecutionChatPanel({
       if (update.type === 'execution_chat') {
         const newMessage = update.message as ExecutionChatMessage;
         setMessages(prev => {
-          // Check if message already exists (by id or by content for user messages)
           const exists = prev.some(m => {
             if (m.id === newMessage.id) return true;
-            // For user messages, also check by content and timestamp to avoid duplicates
             if (m.role === 'user' && newMessage.role === 'user' &&
               m.content === newMessage.content &&
               Math.abs((toTimestampMs(m.created_at) ?? 0) - (toTimestampMs(newMessage.created_at) ?? 0)) < 5000) {
@@ -272,26 +249,21 @@ export default function ExecutionChatPanel({
           });
 
           if (exists) {
-            // Update existing message (replace thinking placeholder or update user message)
             const updated = prev.map(m => {
               if (m.id === newMessage.id) {
-                // Remove thinking state when real message arrives
                 if (m.id === thinkingMessageIdRef.current) {
                   setIsWaitingForReply(false);
                   thinkingMessageIdRef.current = null;
                 }
                 return newMessage;
               }
-              // Also update user message if content matches (SSE returned the same user message)
               if (m.role === 'user' && newMessage.role === 'user' &&
                 m.content === newMessage.content &&
                 Math.abs((toTimestampMs(m.created_at) ?? 0) - (toTimestampMs(newMessage.created_at) ?? 0)) < 5000) {
-                // Use the server's version which has the correct id
                 return newMessage;
               }
               return m;
             });
-            // Trigger scroll after update
             setTimeout(() => {
               if (autoScrollRef.current && !userScrolledRef.current && scrollToBottomRef.current) {
                 scrollToBottomRef.current(false, true);
@@ -299,16 +271,13 @@ export default function ExecutionChatPanel({
             }, 10);
             return updated;
           } else {
-            // Add new message (from SSE)
             const updated = [...prev, newMessage].sort((a, b) =>
               (toTimestampMs(a.created_at) ?? 0) - (toTimestampMs(b.created_at) ?? 0)
             );
-            // Remove thinking state when real message arrives
             if (newMessage.role === 'assistant' && thinkingMessageIdRef.current) {
               setIsWaitingForReply(false);
               thinkingMessageIdRef.current = null;
             }
-            // Trigger scroll after adding new message
             setTimeout(() => {
               if (autoScrollRef.current && !userScrolledRef.current && scrollToBottomRef.current) {
                 scrollToBottomRef.current(false, true);
@@ -321,7 +290,6 @@ export default function ExecutionChatPanel({
     }
   );
 
-  // Handle scroll events to detect user manual scrolling
   const handleScroll = useCallback(() => {
     if (!messagesScrollRef.current) return;
 
@@ -343,15 +311,11 @@ export default function ExecutionChatPanel({
     }
   }, []);
 
-  // Auto scroll to bottom when new messages arrive (only if user is at bottom)
   useEffect(() => {
     if (messages.length > 0 && autoScrollRef.current && !userScrolledRef.current) {
-      // Clear any existing timeout
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current);
       }
-      // Use instant scroll for better UX
-      // Use ref to avoid dependency on scrollToBottom function
       scrollTimeoutRef.current = setTimeout(() => {
         if (scrollToBottomRef.current) {
           scrollToBottomRef.current(false, true);
@@ -365,7 +329,6 @@ export default function ExecutionChatPanel({
     };
   }, [messages.length]);
 
-  // Cleanup scroll timeout on unmount
   useEffect(() => {
     return () => {
       if (scrollTimeoutRef.current) {
@@ -374,7 +337,6 @@ export default function ExecutionChatPanel({
     };
   }, []);
 
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -390,7 +352,6 @@ export default function ExecutionChatPanel({
     setInput('' as any);
     setIsSending(true);
 
-    // Immediately add user message to UI for instant feedback
     const userMessageId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const userMessage: ExecutionChatMessage = {
       id: userMessageId,
@@ -408,7 +369,6 @@ export default function ExecutionChatPanel({
       return updated;
     });
 
-    // Scroll to bottom immediately after adding user message
     setUserScrolled(false);
     setAutoScroll(true);
     userScrolledRef.current = false;
@@ -422,9 +382,7 @@ export default function ExecutionChatPanel({
     try {
       let response: Response;
 
-      // Determine which API to use based on execution status
       if (needsContinue) {
-        // Scenario A: Continue execution
         response = await fetch(
           `${apiUrl}/api/v1/playbooks/execute/${executionId}/continue`,
           {
@@ -438,7 +396,6 @@ export default function ExecutionChatPanel({
           }
         );
       } else {
-        // Scenario B: Discussion and optimization
         response = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/chat`,
           {
@@ -457,7 +414,6 @@ export default function ExecutionChatPanel({
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Failed to send message:', response.status, errorText);
-        // Remove user message on error and restore input
         setMessages(prev => prev.filter(m => m.id !== userMessageId));
         setInput(content);
         setIsWaitingForReply(false);
@@ -466,16 +422,14 @@ export default function ExecutionChatPanel({
           thinkingMessageIdRef.current = null;
         }
       } else {
-        // Message sent successfully
         if (needsContinue) {
-          // For continue API, add thinking placeholder to show LLM is processing
           const thinkingId = `thinking-${Date.now()}`;
           thinkingMessageIdRef.current = thinkingId;
           const thinkingMessage: ExecutionChatMessage = {
             id: thinkingId,
             execution_id: executionId,
             role: 'assistant',
-            content: t('aiThinking' as any) || 'AI 正在思考...',
+            content: t('aiThinking' as any) || 'AI is thinking...',
             message_type: 'question',
             created_at: new Date().toISOString(),
           };
@@ -489,14 +443,13 @@ export default function ExecutionChatPanel({
 
           setIsWaitingForReply(true);
         } else {
-          // For chat API, add thinking placeholder
           const thinkingId = `thinking-${Date.now()}`;
           thinkingMessageIdRef.current = thinkingId;
           const thinkingMessage: ExecutionChatMessage = {
             id: thinkingId,
             execution_id: executionId,
             role: 'assistant',
-            content: t('aiThinking' as any) || 'AI 正在思考...',
+            content: t('aiThinking' as any) || 'AI is thinking...',
             message_type: 'question',
             created_at: new Date().toISOString(),
           };
@@ -511,7 +464,6 @@ export default function ExecutionChatPanel({
           setIsWaitingForReply(true);
         }
 
-        // Scroll to bottom after adding thinking message
         setTimeout(() => {
           if (scrollToBottomRef.current) {
             scrollToBottomRef.current(true, true);
@@ -520,19 +472,16 @@ export default function ExecutionChatPanel({
       }
     } catch (err) {
       console.error('Failed to send message:', err);
-      // Remove user message on error and restore input
       setMessages(prev => prev.filter(m => m.id !== userMessageId));
       setInput(content);
     } finally {
       setIsSending(false);
-      // Reset textarea height
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
       }
     }
   };
 
-  // Convert ExecutionChatMessage to ChatMessage for MessageItem
   const convertToChatMessage = (msg: ExecutionChatMessage): ChatMessage => {
     return {
       id: msg.id,
@@ -544,7 +493,6 @@ export default function ExecutionChatPanel({
 
   const handleQuickPrompt = async (prompt: string) => {
     setInput(prompt);
-    // Auto-submit after a short delay
     setTimeout(() => {
       const form = document.querySelector('form') as HTMLFormElement;
       if (form) {
@@ -593,13 +541,12 @@ export default function ExecutionChatPanel({
 
   return (
     <div className="execution-chat-container flex flex-col h-full border-l dark:border-gray-700 bg-surface-secondary dark:bg-gray-900">
-      {/* Header */}
       <div className="flex-shrink-0 px-4 py-3 border-b dark:border-gray-700 bg-surface-secondary dark:bg-gray-900">
         <div className="flex items-center justify-between">
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('playbookInspector' as any)}</h3>
             <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
-              {playbookMetadata?.title || playbookMetadata?.playbook_code || t('unknownPlaybook' as any)} · {t('runNumber', { number: String(runNumber) })}
+              {playbookMetadata?.title || playbookMetadata?.playbook_code || t('unknownPlaybook' as any)} - {t('runNumber', { number: String(runNumber) })}
             </p>
           </div>
           {collapsible && (
@@ -616,7 +563,6 @@ export default function ExecutionChatPanel({
         </div>
       </div>
 
-      {/* Messages List Container - with relative positioning for scroll button */}
       <div className="flex-1 relative" style={{ minHeight: 0 }}>
         <div
           ref={messagesScrollRef}
@@ -633,12 +579,12 @@ export default function ExecutionChatPanel({
                 <div className="text-center mb-4">
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                     {needsContinue
-                      ? t('playbookWaitingForResponse' as any) || 'Playbook 正在等待您的回應'
+                      ? t('playbookWaitingForResponse' as any) || 'Playbook is waiting for your response'
                       : t('askPlaybookInspector' as any)}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {needsContinue
-                      ? t('sendMessageToContinue' as any) || '發送消息將繼續執行下一步。'
+                      ? t('sendMessageToContinue' as any) || 'Send a message to continue to the next step.'
                       : t('itKnowsStepsEventsErrors' as any)}
                   </p>
                 </div>
@@ -695,7 +641,6 @@ export default function ExecutionChatPanel({
           })()}
         </div>
 
-        {/* Scroll to bottom button - fixed to visible viewport center bottom */}
         {showScrollToBottom && (
           <button
             onClick={() => {
@@ -726,7 +671,6 @@ export default function ExecutionChatPanel({
         )}
       </div>
 
-      {/* Input Form */}
       <form
         onSubmit={handleSend}
         className="flex-shrink-0 relative border-t dark:border-gray-700 bg-surface-secondary dark:bg-gray-800"
@@ -736,7 +680,7 @@ export default function ExecutionChatPanel({
           name="execution-chat-input"
           placeholder={
             needsContinue
-              ? t('enterResponseToContinue' as any) || '輸入回應以繼續執行...'
+              ? t('enterResponseToContinue' as any) || 'Enter a response to continue...'
               : t('discussPlaybookExecution' as any)
           }
           value={input}

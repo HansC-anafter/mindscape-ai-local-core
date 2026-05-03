@@ -1,13 +1,9 @@
 import type { PlaybookStepDefinition } from '../types/execution';
 
-/**
- * Parse playbook steps from various data structures
- */
 export function parsePlaybookSteps(data: any): PlaybookStepDefinition[] {
   const stepDefs: PlaybookStepDefinition[] = [];
   let playbookSteps: any[] = [];
 
-  // First, try direct steps array in metadata or root
   if (Array.isArray(data.steps) && data.steps.length > 0) {
     playbookSteps = data.steps;
   } else if (data.metadata?.steps && Array.isArray(data.metadata.steps) && data.metadata.steps.length > 0) {
@@ -23,16 +19,13 @@ export function parsePlaybookSteps(data: any): PlaybookStepDefinition[] {
           playbookSteps = parsed.steps;
         }
       } catch (e) {
-        // sop_content is not JSON, try Markdown parsing
         playbookSteps = parseMarkdownSteps(sopStr);
       }
     } else {
-      // sop_content is Markdown or other text format
       playbookSteps = parseMarkdownSteps(sopStr);
     }
   }
 
-  // If still no steps found, try alternative fields
   if (playbookSteps.length === 0) {
     if (data.definition?.steps && Array.isArray(data.definition.steps)) {
       playbookSteps = data.definition.steps;
@@ -41,7 +34,6 @@ export function parsePlaybookSteps(data: any): PlaybookStepDefinition[] {
     }
   }
 
-  // Extract step information from playbook structure
   playbookSteps.forEach((step: any, index: number) => {
     let description = '';
     if (step.inputs?.text) {
@@ -80,19 +72,16 @@ export function parsePlaybookSteps(data: any): PlaybookStepDefinition[] {
   return stepDefs;
 }
 
-/**
- * Parse steps from Markdown content
- */
 function parseMarkdownSteps(sopStr: string): any[] {
   const stepPatterns = [
-    /^##+\s+Step\s+(\d+)(?!\.\d)[:：]?\s*(.+)$/gmi,
-    /^##+\s*步驟\s*(\d+)(?!\.\d)[:：]?\s*(.+)$/gmi,
-    /^###\s+Step\s+(\d+)(?!\.\d)[:：]?\s*(.+)$/gmi,
-    /^(\d+)\.\s+Step\s+(\d+)[:：]?\s*(.+)$/gmi,
-    /^(\d+)\.\s*步驟\s*(\d+)[:：]?\s*(.+)$/gmi,
-    /^-\s+Step\s+(\d+)[:：]?\s*(.+)$/gmi,
-    /^Step\s+(\d+)(?!\.\d)[:：]?\s*(.+)$/gmi,
-    /^步驟\s+(\d+)(?!\.\d)[:：]?\s*(.+)$/gmi,
+    /^##+\s+Step\s+(\d+)(?!\.\d)[:\uFF1A]?\s*(.+)$/gmi,
+    /^##+\s*\u6b65\u9a5f\s*(\d+)(?!\.\d)[:\uFF1A]?\s*(.+)$/gmi,
+    /^###\s+Step\s+(\d+)(?!\.\d)[:\uFF1A]?\s*(.+)$/gmi,
+    /^(\d+)\.\s+Step\s+(\d+)[:\uFF1A]?\s*(.+)$/gmi,
+    /^(\d+)\.\s*\u6b65\u9a5f\s*(\d+)[:\uFF1A]?\s*(.+)$/gmi,
+    /^-\s+Step\s+(\d+)[:\uFF1A]?\s*(.+)$/gmi,
+    /^Step\s+(\d+)(?!\.\d)[:\uFF1A]?\s*(.+)$/gmi,
+    /^\u6b65\u9a5f\s+(\d+)(?!\.\d)[:\uFF1A]?\s*(.+)$/gmi,
     /^##+\s+(\d+)\.\s*(.+)$/gmi,
     /^##+\s+(.+)$/gmi,
     /^[1-9]\d*\.\s+(.+)$/gmi
@@ -105,7 +94,7 @@ function parseMarkdownSteps(sopStr: string): any[] {
     const line = lines[i].trim();
     if (!line || line.startsWith('.')) continue;
 
-    if (/^####\s+Step\s+\d+\.\d+[:：]/.test(line)) continue;
+    if (/^####\s+Step\s+\d+\.\d+[:\uFF1A]/.test(line)) continue;
 
     for (let pIdx = 0; pIdx < stepPatterns.length; pIdx++) {
       const pattern = stepPatterns[pIdx];
@@ -119,7 +108,7 @@ function parseMarkdownSteps(sopStr: string): any[] {
           if (/^(Goal|Execution Steps|Personalization|Integration|Success Criteria|Notes|Related Documentation)$/i.test(title)) {
             continue;
           }
-          const phaseMatch = title.match(/^Phase\s+(\d+)[:：]?\s*(.+)$/i);
+          const phaseMatch = title.match(/^Phase\s+(\d+)[:\uFF1A]?\s*(.+)$/i);
           if (phaseMatch) {
             const phaseNumber = parseInt(phaseMatch[1], 10);
             const phaseName = phaseMatch[2] || title;
@@ -167,12 +156,12 @@ function parseMarkdownSteps(sopStr: string): any[] {
           let description = '';
           for (let j = i + 1; j < Math.min(i + 20, lines.length); j++) {
             const nextLine = lines[j].trim();
-            if (nextLine.match(/^##+\s+(Step|步驟|Step|步驟)\s+\d+/i) ||
-                nextLine.match(/^(\d+)\.\s+(Step|步驟)\s+\d+/i) ||
+            if (nextLine.match(/^##+\s+(Step|\u6b65\u9a5f)\s+\d+/i) ||
+                nextLine.match(/^(\d+)\.\s+(Step|\u6b65\u9a5f)\s+\d+/i) ||
                 (nextLine.match(/^##+/) && !nextLine.match(/^\.\d+/))) {
               break;
             }
-            if (nextLine && (nextLine.match(/^\.\d+[:：]/) || !nextLine.match(/^##+|^###+/))) {
+            if (nextLine && (nextLine.match(/^\.\d+[:\uFF1A]/) || !nextLine.match(/^##+|^###+/))) {
               description += (description ? ' ' : '') + nextLine;
             }
           }

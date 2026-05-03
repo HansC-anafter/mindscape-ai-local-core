@@ -28,7 +28,6 @@ export default function ExecutionInspector({
   apiUrl,
   onClose,
 }: ExecutionInspectorProps) {
-  console.log('[ExecutionInspector] Component rendered with executionId:', executionId, 'workspaceId:', workspaceId, 'apiUrl:', apiUrl);
   const t = useT();
   const workspaceData = useWorkspaceDataOptional();
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
@@ -98,7 +97,6 @@ export default function ExecutionInspector({
 
     const fetchArtifacts = async () => {
       try {
-        console.log('[ExecutionInspector] Fetching artifacts for execution:', executionId);
         const response = await fetch(
           `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?limit=100`
         );
@@ -106,32 +104,18 @@ export default function ExecutionInspector({
 
         if (response.ok) {
           const data = await response.json();
-          console.log('[ExecutionInspector] Received artifacts:', data.artifacts?.length || 0);
-          // Filter artifacts for this execution
           const executionArtifacts = (data.artifacts || []).filter((art: any) => {
             const artExecutionId = art.execution_id || art.metadata?.execution_id || art.metadata?.navigate_to;
-            const matches = artExecutionId === executionId;
-            if (matches) {
-              console.log('[ExecutionInspector] Found matching artifact:', art.id, art.title);
-            }
-            return matches;
+            return artExecutionId === executionId;
           });
-          console.log('[ExecutionInspector] Filtered artifacts for execution:', executionArtifacts.length);
-          // Convert to Artifact format
           const convertedArtifacts = executionArtifacts.map((art: any) => {
-            // Extract file path from metadata
             const filePath = art.metadata?.actual_file_path || art.metadata?.file_path || art.storage_ref;
-            // Convert absolute path to relative path (remove sandbox base path)
             let relativePath: string | undefined = undefined;
             if (filePath) {
-              // Extract relative path from absolute path
-              // Example: /app/data/sandboxes/{workspace_id}/project_repo/{sandbox_id}/current/artifacts/.../file.json
-              // Should become: artifacts/.../file.json
               const match = filePath.match(/current\/(.+)$/);
               if (match) {
                 relativePath = match[1];
               } else {
-                // Fallback: try to extract from path
                 const parts = filePath.split('/');
                 const currentIndex = parts.indexOf('current');
                 if (currentIndex >= 0 && currentIndex < parts.length - 1) {
@@ -151,7 +135,6 @@ export default function ExecutionInspector({
             };
           });
           if (!cancelled) {
-            console.log('[ExecutionInspector] Setting artifacts:', convertedArtifacts.length);
             setArtifacts(convertedArtifacts);
           }
         } else {
@@ -257,7 +240,6 @@ export default function ExecutionInspector({
     };
   }, [apiUrl, executionThreadId, workspaceId]);
 
-  // Get current step data
   const currentStep = useMemo(() => {
     return executionSteps.steps.find(s => s.step_index === executionCore.currentStepIndex);
   }, [executionSteps.steps, executionCore.currentStepIndex]);
@@ -266,7 +248,6 @@ export default function ExecutionInspector({
     return executionSteps.toolCalls.filter(tc => tc.step_id === currentStep?.id);
   }, [executionSteps.toolCalls, currentStep?.id]);
 
-  // Handle restart confirmation
   const handleRestartConfirm = () => {
     setShowRestartConfirm(false);
     if (executionCore.execution?.playbook_code && executionId) {
@@ -274,34 +255,17 @@ export default function ExecutionInspector({
     }
   };
 
-  // Handle artifact view - open SandboxModal instead of direct file URL
   const handleArtifactView = (artifact: typeof artifacts[0]) => {
-    console.log('[ExecutionInspector] handleArtifactView called with:', {
-      artifact,
-      artifactId: artifact?.id,
-      artifactName: artifact?.name,
-      artifactFilePath: artifact?.filePath,
-      artifactUrl: artifact?.url,
-      sandboxId: executionCore.sandboxId,
-    });
-
-    // Check if we have a sandbox ID
     if (!executionCore.sandboxId) {
-      console.log('[ExecutionInspector] No sandboxId, falling back to direct URL');
-      // Fallback: if no sandbox, open file directly (for external URLs or non-sandbox artifacts)
       if (artifact.url) {
-        console.log('[ExecutionInspector] Opening artifact.url:', artifact.url);
         window.open(artifact.url, '_blank');
       } else if (artifact.id) {
         const downloadUrl = `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts/${artifact.id}/download`;
-        console.log('[ExecutionInspector] Opening download URL:', downloadUrl);
         window.open(downloadUrl, '_blank');
       }
       return;
     }
 
-    console.log('[ExecutionInspector] Opening SandboxModal with filePath:', artifact.filePath);
-    // Open SandboxModal with the artifact file
     setSandboxInitialFile(artifact.filePath || null);
     setShowSandboxModal(true);
   };
@@ -352,15 +316,6 @@ export default function ExecutionInspector({
                       : undefined
                   }
                   outputCount={artifacts.length}
-                  onOpenInsights={() => {
-                    // TODO: Open insights drawer/modal
-                  }}
-                  onOpenDrafts={() => {
-                    // TODO: Open drafts drawer/modal
-                  }}
-                  onOpenOutputs={() => {
-                    // TODO: Open outputs drawer/modal - could scroll to artifacts section
-                  }}
                 />
 
                 {/* Steps Timeline & Current Step Details - Main Work Area */}
