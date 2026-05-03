@@ -22,7 +22,7 @@ The catalog is a local runtime read model over installed object providers. It is
 
 Local Core maintains workspace-scoped object instance records for concrete addressable objects. Records carry bounded summaries, search and mention metadata, affordance hints, and freshness metadata for host surfaces.
 
-Object instance indexing updates the local object instance registry from owner-managed sources. Public documentation should describe the read model and search behavior, not the private indexing schedule or backend invocation details.
+Object instance indexing updates the local object instance registry from owner-managed sources. Public documentation should describe the read model and search behavior, not the private indexing schedule or owner-specific invocation details.
 
 The same read model backs object search and mention completion for workspace surfaces.
 
@@ -44,13 +44,13 @@ Attachment may feed review and materialization workflows when the selected objec
 
 ## Object Actions and Materialization
 
-Object actions are provider-declared affordances coordinated by Local Core. The runtime can plan, invoke, and close actions while keeping provenance and object relations bounded to the local read model.
+Object actions are owner-declared affordances coordinated by Local Core. The host can plan, invoke, and close actions while keeping provenance and object relations bounded to the local read model.
 
 Materialization is owner-managed. Local Core coordinates host request context and error handling, while the owner system remains responsible for deciding whether a requested materialization is valid and what state it changes.
 
 ## Graph Projection
 
-AOL supports bounded object graph projection for selected objects. Projection can come from an owner graph backend when declared or from Local Core relation read models.
+AOL supports bounded object graph projection for selected objects. Projection can come from an owner graph surface when declared or from Local Core relation read models.
 
 Graph projections provide bounded object summaries and relation context for inspection. They are not unrestricted graph database access.
 
@@ -60,9 +60,9 @@ Local Core owns object identity transport, object catalog normalization, workspa
 
 Local Core does not publicly own:
 
-- capability canonical object schemas
+- capability-owned canonical object schemas
 - capability business rules or storage internals
-- unrestricted raw owner-owned state export
+- unrestricted raw owner-managed state export
 - provider-native runtime payloads
 - private rollout plans or validation material
 - capability authoring tutorials
