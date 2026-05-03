@@ -2,7 +2,7 @@
 
 Mindscape AI Local Core is the local-first runtime host for governed AI work. It combines workspace state, conversation intake, governance context, meeting orchestration, memory, playbook execution, tools, sandboxed artifacts, and optional runtime connectors.
 
-This page is a public overview. It is intentionally smaller than the internal architecture notes and avoids unreleased APIs, private validation material, and implementation history.
+This page is a public overview. It is intentionally smaller than the engineering architecture notes and avoids unreleased APIs, private validation material, and implementation history.
 
 ## Current Runtime Shape
 
@@ -62,7 +62,7 @@ Capability authoring details and per-capability service implementations are not 
 
 ### Optional Connectors
 
-The repository includes local connector surfaces such as cloud connector services, remote execution callback routes, external agent adapters, and an MCP gateway package. These surfaces should be described as optional integration points.
+The repository includes local connector surfaces such as external connector services, remote execution callback routes, external agent adapters, and an MCP gateway package. These surfaces should be described as optional integration points.
 
 They do not make the local workspace dependent on a cloud product.
 

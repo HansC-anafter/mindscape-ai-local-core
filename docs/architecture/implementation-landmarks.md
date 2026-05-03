@@ -37,7 +37,13 @@ These files cover local runtime registry behavior, runtime OAuth, runtime proxyi
 
 AOL host contract landmarks:
 
-- `backend/app/models/object_runtime.py`
+- `backend/app/models/object_runtime/refs.py`
+- `backend/app/models/object_runtime/catalog.py`
+- `backend/app/models/object_runtime/instance_index.py`
+- `backend/app/models/object_runtime/meeting.py`
+- `backend/app/models/object_runtime/actions.py`
+- `backend/app/models/object_runtime/materialization.py`
+- `backend/app/models/object_runtime/graph.py`
 - `backend/app/routes/core/workspace/object_runtime.py`
 - `backend/app/services/object_catalog_registry.py`
 - `backend/app/services/object_index_sync_service.py`
