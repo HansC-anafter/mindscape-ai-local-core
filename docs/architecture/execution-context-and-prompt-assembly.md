@@ -6,16 +6,16 @@ This page describes the released public architecture scope for the current repos
 
 ## Context Carriers
 
-Execution context is not a single global object in the current Local Core implementation. It is a set of scoped carriers used at different runtime boundaries.
+Execution context is not a single global object. It is a set of scoped carriers used at different runtime boundaries.
 
 The main carriers are:
 
-- frontend execution context for actor ID, workspace ID, local or external mode tags, and optional API authentication
-- parameter adapter context for workspace, profile, project, execution, tenant, actor, subject user, and additional runtime values
-- task execution context dictionaries for playbook code, trigger source, step progress, origin intent, initiating actor, failure state, default cluster, and propagated tags
-- meeting execution context snapshots for executor runtime, runtime authentication state, budgets, retry policy, route kind, execution profile, and runtime observability
-- executor route context for workspace executor selection and binding snapshots
-- local compatibility shims for code that expects a cloud-style execution context contract
+- frontend execution context for actor, workspace, local mode, and optional authentication state
+- parameter adapter context for mapping local runtime values into tool and workflow parameters
+- task execution metadata for playbook, trigger, progress, origin, actor, failure, and propagated tags
+- meeting execution snapshots for runtime selection, authentication state, budget, retry, route, execution profile, and observability inputs
+- executor route context for workspace executor selection and binding state
+- compatibility shims for callers that need adapter metadata
 
 This split keeps Local Core from pretending that every caller uses the same context shape. Each boundary carries only the context it needs.
 
@@ -33,7 +33,7 @@ This context is operational state for local task execution. It should not be doc
 
 ## Parameter Adaptation
 
-Parameter adaptation uses an execution context data structure to map runtime fields into tool and workflow parameters. Known fields include workspace, profile, project, execution, tenant, actor, and subject user identifiers. Unknown fields remain in additional context so adapters can preserve caller-specific values without forcing them into core models.
+Parameter adaptation uses an execution context data structure to map runtime fields into tool and workflow parameters. Stable local fields stay explicit, while adapter-specific metadata can remain in additional context without being promoted into core models.
 
 Validation and parameter transformation remain separate concerns. The context object is a carrier, not a policy engine.
 
@@ -54,18 +54,16 @@ The conversation context builder can assemble:
 - recent file analysis
 - timeline and thread references
 - conversation summary and recent messages
-- side-chain context when policy allows it
 - semantic memory hits from vector search
 - relevant tool context
 
 The meeting prompt layer can assemble:
 
-- locale directive
 - project context
 - workspace asset map
 - available tool inventory
 - uploaded file references
-- meeting session identity, workspace ID, project ID, round, agenda, and user request
+- meeting session context, agenda, and user request
 - active lens context
 - active intents
 - previous meeting decisions
