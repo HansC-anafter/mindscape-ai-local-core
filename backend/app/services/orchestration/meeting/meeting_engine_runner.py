@@ -300,6 +300,65 @@ def _producer_review_result(
     }
 
 
+def _strict_quality_gate_rollup(
+    producer_eval_summaries: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    strict_summaries: List[Dict[str, Any]] = []
+    failed_gate_ids: List[str] = []
+    for summary in producer_eval_summaries:
+        gate_summary = _as_dict(summary.get("quality_gate_summary"))
+        if not gate_summary:
+            continue
+        if not bool(gate_summary.get("strict_acceptance_required")):
+            continue
+        strict_summaries.append(gate_summary)
+        for gate_id in list(gate_summary.get("failed_gate_ids") or []):
+            _append_unique(failed_gate_ids, _clean_string(gate_id))
+
+    if not strict_summaries:
+        return {
+            "strict_acceptance_required": False,
+            "strict_gate_failed": False,
+            "failed_gate_ids": [],
+        }
+
+    content_pass = all(
+        bool(summary.get("storyboard_content_high_quality_pass"))
+        for summary in strict_summaries
+    )
+    final_required = any(
+        _clean_string(summary.get("gate_stage")) in {"final", "milestone"}
+        for summary in strict_summaries
+    )
+    final_pass = all(
+        bool(summary.get("final_storyboard_high_quality_pass"))
+        for summary in strict_summaries
+    )
+    meeting_pass = all(
+        bool(summary.get("meeting_final_acceptance_pass"))
+        for summary in strict_summaries
+    )
+    strict_gate_failed = not content_pass or (final_required and not meeting_pass)
+    if not failed_gate_ids and strict_gate_failed:
+        _append_unique(
+            failed_gate_ids,
+            (
+                "MEETING_FINAL_ACCEPTANCE"
+                if final_required and not meeting_pass
+                else "STORYBOARD_CONTENT_HIGH_QUALITY"
+            ),
+        )
+    return {
+        "strict_acceptance_required": True,
+        "strict_gate_failed": strict_gate_failed,
+        "failed_gate_ids": failed_gate_ids,
+        "storyboard_content_high_quality_pass": content_pass,
+        "final_storyboard_high_quality_pass": final_pass,
+        "meeting_final_acceptance_pass": meeting_pass,
+        "gate_stage": "final" if final_required else "content",
+    }
+
+
 def _bounded_json(value: Any, *, limit: int = 12000) -> str:
     try:
         rendered = json.dumps(value, ensure_ascii=False, sort_keys=True)
@@ -430,13 +489,18 @@ def _producer_quality_gate_fallback(
     quality_requirements: Optional[Dict[str, Any]] = None,
     reason: Optional[str] = None,
 ) -> Dict[str, Any]:
+    strict_rollup = _strict_quality_gate_rollup(producer_eval_summaries)
     review_state = producer_review.get("review_state")
     recommended_actions = list(producer_review.get("recommended_actions") or [])
     needs_revision = review_state in {
         "needs_revision",
         "needs_reference_analysis",
         "failed",
-    }
+    } or bool(strict_rollup.get("strict_gate_failed"))
+    if strict_rollup.get("strict_gate_failed"):
+        review_state = review_state or "needs_revision"
+        for gate_id in list(strict_rollup.get("failed_gate_ids") or []):
+            _append_unique(recommended_actions, f"resolve_quality_gate:{gate_id}")
     gate_state = (
         "needs_reference_analysis"
         if review_state == "needs_reference_analysis"
@@ -469,6 +533,20 @@ def _producer_quality_gate_fallback(
         ),
         "completion_status": "needs_revision" if needs_revision else "accepted",
         "recommended_actions": recommended_actions,
+        "strict_acceptance_required": bool(
+            strict_rollup.get("strict_acceptance_required")
+        ),
+        "strict_gate_failed": bool(strict_rollup.get("strict_gate_failed")),
+        "failed_gate_ids": list(strict_rollup.get("failed_gate_ids") or []),
+        "storyboard_content_high_quality_pass": strict_rollup.get(
+            "storyboard_content_high_quality_pass"
+        ),
+        "final_storyboard_high_quality_pass": strict_rollup.get(
+            "final_storyboard_high_quality_pass"
+        ),
+        "meeting_final_acceptance_pass": strict_rollup.get(
+            "meeting_final_acceptance_pass"
+        ),
         "rewrite_handoff": (
             {
                 "kind": "producer_quality_rewrite_handoff",
@@ -502,6 +580,11 @@ def _normalize_meeting_quality_review(
         "rewrite_required",
         "reference_analysis_required",
         "human_review_required",
+    }:
+        decision = fallback_gate["decision"]
+    if fallback_gate.get("strict_gate_failed") and decision in {
+        "accept",
+        "accept_with_risk",
     }:
         decision = fallback_gate["decision"]
 

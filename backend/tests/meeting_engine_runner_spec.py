@@ -543,6 +543,50 @@ def test_producer_quality_gate_dispatch_request_respects_rewrite_requirement():
     ]
 
 
+def test_producer_quality_gate_strict_content_gate_blocks_accept_with_risk():
+    gate = runner_module._producer_quality_gate_fallback(
+        producer_review={
+            "review_state": "passed",
+            "review_reason": "producer_eval_passed",
+            "recommended_actions": [],
+        },
+        producer_eval_summaries=[
+            {
+                "schema_version": "producer_eval_summary.v1",
+                "producer": "performance_direction",
+                "pack_code": "performance_direction",
+                "playbook_code": "pd_storyboard_gen",
+                "passed": False,
+                "review_state": "needs_revision",
+                "quality_gate_summary": {
+                    "schema_version": "pd_storyboard_quality_gate_summary.v1",
+                    "gate_stage": "content",
+                    "strict_acceptance_required": True,
+                    "storyboard_content_high_quality_pass": False,
+                    "final_storyboard_high_quality_pass": False,
+                    "meeting_final_acceptance_pass": False,
+                    "failed_gate_ids": ["G4_LLM_SCENE_JUDGE"],
+                },
+            }
+        ],
+        quality_requirements={"strict_acceptance_required": True},
+    )
+
+    normalized = runner_module._normalize_meeting_quality_review(
+        {
+            "decision": "accept_with_risk",
+            "rationale": "Accept despite the failed judge.",
+            "recommended_actions": [],
+        },
+        fallback_gate=gate,
+    )
+
+    assert gate["strict_gate_failed"] is True
+    assert gate["failed_gate_ids"] == ["G4_LLM_SCENE_JUDGE"]
+    assert normalized["decision"] == "rewrite_required"
+    assert normalized["completion_status"] == "needs_revision"
+
+
 @pytest.mark.asyncio
 async def test_meeting_engine_runner_reconciles_multiple_dispatch_artifacts(monkeypatch):
     class _FakeMeetingEngine:
