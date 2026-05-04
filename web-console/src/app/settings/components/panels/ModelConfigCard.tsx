@@ -170,9 +170,37 @@ export function ModelConfigCard({ card, onConfigSaved, pullState, onPullModel, o
     }
   };
 
+  const buildModelMetadataUpdates = (): Record<string, any> => {
+    const updates: Record<string, any> = {};
+    if (model.metadata?.max_output_tokens !== maxOutputTokens) {
+      updates.max_output_tokens = maxOutputTokens;
+    }
+    if (runtimeEngine !== (model.metadata?.runtime_engine || 'auto')) {
+      updates.runtime_engine = runtimeEngine;
+    }
+    if (temperature !== (model.metadata?.temperature ?? 0.6)) {
+      updates.temperature = temperature;
+    }
+    return updates;
+  };
+
+  const persistModelMetadataUpdates = async (): Promise<boolean> => {
+    const updates = buildModelMetadataUpdates();
+    if (Object.keys(updates).length === 0) {
+      return false;
+    }
+
+    await settingsApi.patch<{ success: boolean }>(
+      `/api/v1/system-settings/models/${model.id}/metadata`,
+      updates
+    );
+    return true;
+  };
+
   const handleSaveProviderConfig = async () => {
     try {
       setSaving(true);
+      await persistModelMetadataUpdates();
       const config: any = {
         provider_level: true
       };
@@ -218,25 +246,7 @@ export function ModelConfigCard({ card, onConfigSaved, pullState, onPullModel, o
       setSaving(true);
       
       // 1. Prepare and send metadata PATCH directly
-      const storedMaxOutputTokens = model.metadata?.max_output_tokens;
-      const maxOutputTokensChanged = storedMaxOutputTokens !== maxOutputTokens;
-      if (
-        maxOutputTokensChanged ||
-        runtimeEngine !== (model.metadata?.runtime_engine || 'auto') ||
-        temperature !== (model.metadata?.temperature ?? 0.6)
-      ) {
-        const updates: any = {};
-        if (maxOutputTokensChanged) updates.max_output_tokens = maxOutputTokens;
-        if (runtimeEngine !== (model.metadata?.runtime_engine || 'auto')) updates.runtime_engine = runtimeEngine;
-        if (temperature !== (model.metadata?.temperature ?? 0.6)) updates.temperature = temperature;
-
-        if (Object.keys(updates).length > 0) {
-          await settingsApi.patch<{ success: boolean }>(
-            `/api/v1/system-settings/models/${model.id}/metadata`,
-            updates
-          );
-        }
-      }
+      await persistModelMetadataUpdates();
 
       // 2. Prepare config PUT
       const config: any = {
