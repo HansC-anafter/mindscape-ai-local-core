@@ -62,6 +62,9 @@ interface ModelConfigCardProps {
   onRemoveModel?: (modelId: string | number) => void;
 }
 
+const MAX_OUTPUT_TOKEN_SLIDER_MAX = 131072;
+const LOCAL_MLX_MAX_OUTPUT_TOKENS_CAP = 12288;
+
 export function ModelConfigCard({ card, onConfigSaved, pullState, onPullModel, onCancelPull, onRemoveModel }: ModelConfigCardProps) {
   const { model, api_key_configured, base_url, project_id, location, provider_config, quota_info } = card;
   const [showModelOverride, setShowModelOverride] = useState(false);
@@ -93,13 +96,49 @@ export function ModelConfigCard({ card, onConfigSaved, pullState, onPullModel, o
     if (params && params < 9e9) return 16384;
     return 4096;
   };
+
+  const getLocalRuntimeMaxTokensCap = (m: ModelItem, engine: string): number | null => {
+    const metadataCap = Number(
+      m.metadata?.local_max_output_tokens_cap
+        ?? m.metadata?.runtime_max_output_tokens_cap
+        ?? m.metadata?.max_output_tokens_cap
+    );
+    if (Number.isFinite(metadataCap) && metadataCap > 0) {
+      return metadataCap;
+    }
+
+    const name = (m.model_name || '').toLowerCase();
+    const provider = (m.provider || '').toLowerCase();
+    const resolvedEngine = (engine || 'auto').toLowerCase();
+    const routesToLocalMlx =
+      resolvedEngine === 'mlx'
+      || (resolvedEngine === 'auto' && (name.includes('mlx-community') || name.includes('mlx')));
+
+    if (m.model_type === 'multimodal' && routesToLocalMlx && (provider === 'huggingface' || provider === 'mlx')) {
+      return LOCAL_MLX_MAX_OUTPUT_TOKENS_CAP;
+    }
+    return null;
+  };
+
+  const defaultMaxTokens = getDefaultMaxTokens(model);
+  const initialRuntimeEngine = model.metadata?.runtime_engine || 'auto';
+  const initialLocalRuntimeMaxTokensCap = getLocalRuntimeMaxTokensCap(model, initialRuntimeEngine);
+  const initialMaxOutputTokens = Math.min(
+    model.metadata?.max_output_tokens ?? defaultMaxTokens,
+    initialLocalRuntimeMaxTokensCap ?? MAX_OUTPUT_TOKEN_SLIDER_MAX
+  );
+
   const [maxOutputTokens, setMaxOutputTokens] = useState<number>(
-    model.metadata?.max_output_tokens ?? getDefaultMaxTokens(model)
+    initialMaxOutputTokens
   );
 
   const [runtimeEngine, setRuntimeEngine] = useState<string>(
-    model.metadata?.runtime_engine || 'auto'
+    initialRuntimeEngine
   );
+
+  const localRuntimeMaxTokensCap = getLocalRuntimeMaxTokensCap(model, runtimeEngine);
+  const maxOutputTokenSliderMax = localRuntimeMaxTokensCap ?? MAX_OUTPUT_TOKEN_SLIDER_MAX;
+  const effectiveMaxOutputTokens = Math.min(maxOutputTokens, maxOutputTokenSliderMax);
   
   const [temperature, setTemperature] = useState<number>(
     model.metadata?.temperature ?? 0.6
@@ -172,8 +211,8 @@ export function ModelConfigCard({ card, onConfigSaved, pullState, onPullModel, o
 
   const buildModelMetadataUpdates = (): Record<string, any> => {
     const updates: Record<string, any> = {};
-    if (model.metadata?.max_output_tokens !== maxOutputTokens) {
-      updates.max_output_tokens = maxOutputTokens;
+    if (model.metadata?.max_output_tokens !== effectiveMaxOutputTokens) {
+      updates.max_output_tokens = effectiveMaxOutputTokens;
     }
     if (runtimeEngine !== (model.metadata?.runtime_engine || 'auto')) {
       updates.runtime_engine = runtimeEngine;
@@ -738,18 +777,22 @@ export function ModelConfigCard({ card, onConfigSaved, pullState, onPullModel, o
                   <input
                     type="range"
                     min={256}
-                    max={131072}
+                    max={maxOutputTokenSliderMax}
                     step={256}
-                    value={maxOutputTokens}
-                    onChange={(e) => setMaxOutputTokens(Number(e.target.value))}
+                    value={effectiveMaxOutputTokens}
+                    onChange={(e) => setMaxOutputTokens(Math.min(Number(e.target.value), maxOutputTokenSliderMax))}
                     className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
                   />
                   <span className="text-sm font-mono text-gray-700 dark:text-gray-300 min-w-[5rem] text-right">
-                    {maxOutputTokens.toLocaleString()}
+                    {effectiveMaxOutputTokens.toLocaleString()}
                   </span>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {(t('maxOutputTokensHint' as any) || 'Default: {default}. Set higher for thinking models.').replace('{default}', getDefaultMaxTokens(model).toLocaleString())}
+                  {localRuntimeMaxTokensCap
+                    ? (t('maxOutputTokensLocalMlxCapHint' as any) || 'Upstream default: {default}. Local MLX stable cap: {cap}; the runtime clamps higher values to avoid server instability.')
+                      .replace('{default}', defaultMaxTokens.toLocaleString())
+                      .replace('{cap}', localRuntimeMaxTokensCap.toLocaleString())
+                    : (t('maxOutputTokensHint' as any) || 'Default: {default}. Set higher for thinking models.').replace('{default}', defaultMaxTokens.toLocaleString())}
                 </p>
               </div>
             </div>

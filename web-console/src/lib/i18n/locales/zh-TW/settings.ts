@@ -352,6 +352,7 @@ export const settingsZhTW = {
   saveModelOverride: '儲存模型覆寫',
   maxOutputTokens: '最大輸出 Token 數',
   maxOutputTokensHint: '預設值：{default}。Thinking 模型建議設更高。',
+  maxOutputTokensLocalMlxCapHint: '上游預設值：{default}。本機 MLX 穩定上限：{cap}；系統會限制更高值，避免本機 VLM server 不穩。',
   modelOverrideDescription: '覆寫此特定模型的提供者設定 (通常不需要)',
   override: '覆寫',
   location: '位置',

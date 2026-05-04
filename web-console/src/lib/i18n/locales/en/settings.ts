@@ -350,6 +350,7 @@ export const settingsEn = {
   saveModelOverride: 'Save Model Override',
   maxOutputTokens: 'Max Output Tokens',
   maxOutputTokensHint: 'Default: {default}. Set higher for thinking models.',
+  maxOutputTokensLocalMlxCapHint: 'Upstream default: {default}. Local MLX stable cap: {cap}; the system clamps higher values to avoid local VLM server instability.',
   modelOverrideDescription: 'Override provider settings for this specific model (usually not needed)',
   override: 'Override',
   location: 'Location',
