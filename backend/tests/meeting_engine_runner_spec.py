@@ -350,6 +350,200 @@ async def test_meeting_engine_runner_reconciles_dispatch_execution_artifacts(mon
 
 
 @pytest.mark.asyncio
+async def test_meeting_engine_runner_exposes_producer_eval_review_state(monkeypatch):
+    captured = {"quality_review_prompts": []}
+
+    class _FakeMeetingEngine:
+        def __init__(self, **kwargs):
+            self.session = kwargs["session"]
+
+        async def run(self, message, handoff_in=None):
+            return runner_module.MeetingResult(
+                session_id="mtg_demo",
+                minutes_md="minutes",
+                decision="accepted",
+                event_ids=[],
+                task_ir=SimpleNamespace(
+                    task_id="task_ir_quality",
+                    artifacts=[
+                        {
+                            "id": "artifact_quality_eval",
+                            "uri": "/tmp/content-quality.json",
+                            "metadata": {
+                                "file_path": "/tmp/content-quality.json",
+                                "artifact_kind": (
+                                    "performance_direction_storyboard_content_quality_eval"
+                                ),
+                                "producer_eval_summary": {
+                                    "schema_version": "producer_eval_summary.v1",
+                                    "producer": "performance_direction",
+                                    "pack_code": "performance_direction",
+                                    "playbook_code": "pd_storyboard_gen",
+                                    "passed": False,
+                                    "score": 52,
+                                    "review_state": "needs_revision",
+                                    "needs_revision": True,
+                                    "rewrite_recommended": True,
+                                    "rewrite_dispatch_request": {
+                                        "schema_version": (
+                                            "producer_quality_rewrite_dispatch_request.v1"
+                                        ),
+                                        "pack_code": "performance_direction",
+                                        "playbook_code": (
+                                            "pd_storyboard_content_rewrite"
+                                        ),
+                                    },
+                                    "recommended_actions": [
+                                        "rewrite_storyboard_script_with_reference_cues"
+                                    ],
+                                },
+                            },
+                        }
+                    ],
+                ),
+                dispatch_result={"status": "dispatched"},
+                completion_status="accepted",
+            )
+
+        async def _generate_text(self, messages, **kwargs):
+            captured["quality_review_prompts"].append(
+                {"messages": messages, "kwargs": kwargs}
+            )
+            return """
+            {
+              "decision": "rewrite_required",
+              "rationale": "Scene copy is too generic for the selected references.",
+              "recommended_actions": [
+                "rewrite_storyboard_script_with_reference_cues",
+                "preserve_scene_count"
+              ],
+              "rewrite_instructions": [
+                "Add reference-specific visual cues to every scene.",
+                "Make each scene carry a distinct narrative function."
+              ],
+              "required_reference_questions": []
+            }
+            """
+
+    async def _fake_persist_meeting_task_ir(task_ir):
+        return None
+
+    monkeypatch.setattr(
+        "backend.app.services.stores.workspace_runtime_profile_store.WorkspaceRuntimeProfileStore",
+        _FakeWorkspaceRuntimeProfileStore,
+    )
+    monkeypatch.setattr(runner_module, "MeetingEngine", _FakeMeetingEngine)
+    monkeypatch.setattr(
+        "backend.app.services.conversation.pipeline_meeting.build_execution_launcher",
+        lambda store: SimpleNamespace(store=store),
+    )
+    monkeypatch.setattr(
+        "backend.app.services.conversation.pipeline_meeting.persist_meeting_task_ir",
+        _fake_persist_meeting_task_ir,
+    )
+
+    artifacts_store = _FakeArtifactsStore()
+    result = await MeetingEngineRunner(
+        store=SimpleNamespace(name="mindscape_store", artifacts=artifacts_store),
+        session_store=_FakeSessionStore(),
+    ).run_meeting_orchestration(
+        session=SimpleNamespace(
+            id="mtg_demo",
+            thread_id="thread_demo",
+            project_id="project_demo",
+            metadata={},
+        ),
+        workspace=SimpleNamespace(
+            id="ws_demo",
+            owner_user_id="profile_demo",
+            primary_project_id="project_demo",
+            metadata={},
+            resolved_executor_runtime="local_executor",
+        ),
+        message="Run meeting orchestration",
+        handoff_in=SimpleNamespace(handoff_id="handoff_1"),
+        command=_command(),
+    )
+
+    assert result["artifact_landing_status"] == "landed"
+    assert result["producer_eval_summaries"][0]["review_state"] == "needs_revision"
+    assert result["producer_eval_summaries"][0]["artifact_id"] == "artifact_quality_eval"
+    assert result["review_state"] == "needs_revision"
+    assert result["review_reason"] == "producer_eval_requires_review"
+    assert (
+        "rewrite_storyboard_script_with_reference_cues"
+        in result["recommended_actions"]
+    )
+    assert "accept_with_risk" in result["recommended_actions"]
+    assert result["completion_status"] == "needs_revision"
+    assert result["producer_quality_gate"]["schema_version"] == (
+        "meeting_producer_quality_gate.v1"
+    )
+    assert result["producer_quality_gate"]["llm_review_status"] == "completed"
+    assert result["producer_quality_gate"]["gate_state"] == "blocked_for_revision"
+    assert result["producer_quality_gate"]["decision"] == "rewrite_required"
+    assert "preserve_scene_count" in result["producer_quality_gate"]["recommended_actions"]
+    assert result["producer_quality_gate"]["rewrite_handoff"]["kind"] == (
+        "producer_quality_rewrite_handoff"
+    )
+    assert result["producer_quality_gate"]["rewrite_handoff"]["dispatch_request"][
+        "playbook_code"
+    ] == "pd_storyboard_content_rewrite"
+    assert result["producer_quality_gate"]["rewrite_handoff"]["dispatch_request"][
+        "dispatch_mode"
+    ] == "explicit_quality_requirement_required"
+    assert result["producer_quality_gate"]["rewrite_handoff"]["meeting_review"][
+        "rewrite_instructions"
+    ] == [
+        "Add reference-specific visual cues to every scene.",
+        "Make each scene carry a distinct narrative function.",
+    ]
+    assert len(captured["quality_review_prompts"]) == 1
+    assert "Producer eval summaries" in captured["quality_review_prompts"][0]["messages"][1]["content"]
+
+
+def test_producer_quality_gate_dispatch_request_respects_rewrite_requirement():
+    gate = runner_module._producer_quality_gate_fallback(
+        producer_review={
+            "review_state": "needs_revision",
+            "review_reason": "producer_eval_requires_review",
+            "recommended_actions": [
+                "rewrite_storyboard_script_with_reference_cues"
+            ],
+        },
+        producer_eval_summaries=[
+            {
+                "schema_version": "producer_eval_summary.v1",
+                "producer": "performance_direction",
+                "pack_code": "performance_direction",
+                "playbook_code": "pd_storyboard_gen",
+                "artifact_id": "artifact_quality_eval",
+                "passed": False,
+                "review_state": "needs_revision",
+                "rewrite_recommended": True,
+                "rewrite_dispatch_request": {
+                    "schema_version": "producer_quality_rewrite_dispatch_request.v1",
+                    "pack_code": "performance_direction",
+                    "playbook_code": "pd_storyboard_content_rewrite",
+                },
+            }
+        ],
+        quality_requirements={"rewrite_until_quality_passed": True},
+    )
+
+    dispatch_request = gate["rewrite_handoff"]["dispatch_request"]
+    assert dispatch_request["schema_version"] == (
+        "producer_quality_rewrite_dispatch_request.v1"
+    )
+    assert dispatch_request["pack_code"] == "performance_direction"
+    assert dispatch_request["playbook_code"] == "pd_storyboard_content_rewrite"
+    assert dispatch_request["dispatch_mode"] == "auto_launch_allowed"
+    assert dispatch_request["input_params"]["producer_eval_artifact_ids"] == [
+        "artifact_quality_eval"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_meeting_engine_runner_reconciles_multiple_dispatch_artifacts(monkeypatch):
     class _FakeMeetingEngine:
         def __init__(self, **kwargs):

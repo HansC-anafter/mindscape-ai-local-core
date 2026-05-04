@@ -125,6 +125,14 @@ def project_command_ledger_graph(
                     "meeting_orchestration_error_code": meeting_orchestration.get("error_code"),
                     "task_ir_id": meeting_orchestration.get("task_ir_id"),
                     "artifact_landing_status": meeting_orchestration.get("artifact_landing_status"),
+                    "review_state": meeting_orchestration.get("review_state"),
+                    "review_reason": meeting_orchestration.get("review_reason"),
+                    "recommended_actions": meeting_orchestration.get(
+                        "recommended_actions"
+                    ),
+                    "producer_quality_gate": meeting_orchestration.get(
+                        "producer_quality_gate"
+                    ),
                     "request_contract_aol_metadata": meeting_orchestration.get(
                         "request_contract_aol_metadata"
                     ),

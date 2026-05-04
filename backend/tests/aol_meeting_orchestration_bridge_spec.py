@@ -244,6 +244,71 @@ async def test_bridge_promotes_requested_action_only_with_explicit_force():
         handoff.playbook_requests[0]["input_params"]["addressable_object_layer"]
         == aol_metadata
     )
+    assert (
+        handoff.playbook_requests[0]["input_params"]["quality_requirements"]
+        == aol_metadata["quality_requirements"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_bridge_carries_generic_quality_requirements_without_forcing_playbook(monkeypatch):
+    source_ref = _ref("ig", "reference", "ref_quality")
+    canonical = MeetingCommandEnvelope(
+        workspace_id="ws_demo",
+        meeting_id="mtg_demo",
+        origin_surface="meeting_workbench",
+        actor="user",
+        intent_text="Draft a grounded storyboard script",
+        context_objects=[ObjectRoleEntry(role="source", ref=source_ref)],
+        metadata={
+            "quality_requirements": {
+                "target": {"deliverable_kind": "vertical_reels_storyboard"},
+                "content_quality": {
+                    "require_reference_grounding": True,
+                    "minimum_scene_specificity": "high",
+                },
+            }
+        },
+    )
+
+    async def _fake_project_object_graph(request, workspace_id):
+        return ObjectGraphProjectResponse(
+            workspace_id=workspace_id,
+            projections=[
+                ObjectGraphProjection(
+                    ref=source_ref,
+                    summary=ObjectSummary(
+                        ref=source_ref,
+                        title="Reference",
+                        summary_text="Reference summary",
+                    ),
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        bridge_module,
+        "project_object_graph",
+        _fake_project_object_graph,
+    )
+
+    handoff = await AOLMeetingOrchestrationBridge().build_handoff_in(
+        command=_command(),
+        canonical=canonical,
+        session=SimpleNamespace(id="mtg_demo", meeting_type="meeting_workbench", metadata={}),
+        workspace_id="ws_demo",
+    )
+
+    quality_requirements = handoff.governance_constraints["quality_requirements"]
+    assert quality_requirements["source"] == "aol_meeting_orchestration_bridge"
+    assert quality_requirements["grounding_required"] is True
+    assert quality_requirements["target"]["deliverable_kind"] == "vertical_reels_storyboard"
+    assert quality_requirements["content_quality"]["minimum_scene_specificity"] == "high"
+    assert (
+        handoff.metadata["addressable_object_layer"]["quality_requirements"]
+        == quality_requirements
+    )
+    assert handoff.playbook_requests is None
 
 
 @pytest.mark.asyncio

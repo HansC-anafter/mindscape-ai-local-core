@@ -176,6 +176,58 @@ def _artifact_refs_for_execution(
     return artifact_ids, artifact_paths
 
 
+def _producer_quality_from_runtime_payloads(
+    *,
+    existing_orchestration: Dict[str, Any],
+    result: Any,
+    governance_result: Any,
+) -> Dict[str, Any]:
+    try:
+        from backend.app.services.orchestration.meeting.meeting_engine_runner import (
+            _producer_eval_summaries_from_value,
+            _producer_quality_gate_fallback,
+            _producer_review_result,
+        )
+    except Exception:
+        return {}
+
+    summaries = [
+        item
+        for item in list(existing_orchestration.get("producer_eval_summaries") or [])
+        if isinstance(item, dict)
+    ]
+    for payload, source in (
+        (result, "late_agent_result"),
+        (governance_result, "late_governance_result"),
+    ):
+        summaries.extend(_producer_eval_summaries_from_value(payload, source=source))
+
+    if not summaries:
+        return {}
+
+    producer_review = _producer_review_result(summaries)
+    producer_quality_gate = existing_orchestration.get("producer_quality_gate")
+    if not isinstance(producer_quality_gate, dict) or producer_review.get(
+        "review_state"
+    ) in {"needs_revision", "needs_reference_analysis", "failed"}:
+        producer_quality_gate = _producer_quality_gate_fallback(
+            producer_review=producer_review,
+            producer_eval_summaries=summaries,
+            reason="late_result_meeting_llm_review_not_run",
+        )
+    return {
+        "producer_eval_summaries": summaries,
+        "review_state": producer_review.get("review_state"),
+        "review_reason": producer_review.get("review_reason"),
+        "recommended_actions": producer_review.get("recommended_actions") or [],
+        "producer_quality_gate": producer_quality_gate,
+        "completion_status": producer_quality_gate.get(
+            "completion_status",
+            existing_orchestration.get("completion_status"),
+        ),
+    }
+
+
 def _task_runtime_id(task: Any) -> Optional[str]:
     return _first_text(getattr(task, "execution_id", None), getattr(task, "id", None))
 
@@ -367,6 +419,11 @@ def sync_meeting_command_from_agent_result(
         aol_metadata = _find_aol_metadata(result)
     if not aol_metadata:
         aol_metadata = _find_aol_metadata(metadata)
+    producer_quality_update = _producer_quality_from_runtime_payloads(
+        existing_orchestration=existing_orchestration,
+        result=result,
+        governance_result=governance_result,
+    )
 
     updated_orchestration = {
         **existing_orchestration,
@@ -381,6 +438,7 @@ def sync_meeting_command_from_agent_result(
         "artifact_landing_status": artifact_landing_status,
         "request_contract_aol_metadata": aol_metadata,
         "late_result_reconciled": recovered_from_timeout,
+        **producer_quality_update,
     }
     if command_status == MeetingCommandStatus.COMPLETED:
         updated_orchestration.pop("error", None)

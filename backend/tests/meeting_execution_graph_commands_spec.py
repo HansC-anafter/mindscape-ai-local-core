@@ -22,6 +22,16 @@ def test_command_ledger_graph_preserves_meeting_orchestration_metadata():
                 "error_code": "meeting_orchestration_timeout",
                 "task_ir_id": None,
                 "artifact_landing_status": "failed",
+                "review_state": "needs_revision",
+                "review_reason": "producer_eval_requires_review",
+                "recommended_actions": [
+                    "rewrite_storyboard_script_with_reference_cues"
+                ],
+                "producer_quality_gate": {
+                    "schema_version": "meeting_producer_quality_gate.v1",
+                    "gate_state": "blocked_for_revision",
+                    "decision": "rewrite_required",
+                },
                 "request_contract_aol_metadata": {
                     "selected_object_refs": [
                         {"uri": "mindscape://ig/reference/ref_a"},
@@ -49,6 +59,10 @@ def test_command_ledger_graph_preserves_meeting_orchestration_metadata():
         == "meeting_orchestration_timeout"
     )
     assert node["metadata"]["artifact_landing_status"] == "failed"
+    assert node["metadata"]["review_state"] == "needs_revision"
+    assert node["metadata"]["producer_quality_gate"]["decision"] == (
+        "rewrite_required"
+    )
     assert (
         len(
             node["metadata"]["request_contract_aol_metadata"][

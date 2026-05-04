@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+import json
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -135,6 +136,424 @@ def _execution_artifacts(lookup_store: Any, execution_id: str) -> List[Any]:
         return [artifact] if artifact is not None else []
 
     return []
+
+
+def _raw_producer_eval_summaries(value: Any, *, depth: int = 0) -> List[Dict[str, Any]]:
+    if depth > 8:
+        return []
+    found: List[Dict[str, Any]] = []
+    if isinstance(value, dict):
+        direct = value.get("producer_eval_summary")
+        if isinstance(direct, dict):
+            found.append(dict(direct))
+        elif isinstance(direct, list):
+            found.extend(dict(item) for item in direct if isinstance(item, dict))
+
+        if (
+            value.get("schema_version") == "producer_eval_summary.v1"
+            or (
+                "review_state" in value
+                and "passed" in value
+                and (
+                    "producer" in value
+                    or "pack_code" in value
+                    or "artifact_kind" in value
+                )
+            )
+        ):
+            found.append(dict(value))
+
+        for nested in value.values():
+            found.extend(_raw_producer_eval_summaries(nested, depth=depth + 1))
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(_raw_producer_eval_summaries(item, depth=depth + 1))
+    return found
+
+
+def _normalize_producer_eval_summary(
+    raw: Dict[str, Any],
+    *,
+    source: str,
+    artifact_id: Optional[str] = None,
+    artifact_kind: Optional[str] = None,
+    execution_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    summary = dict(raw or {})
+    summary.setdefault("schema_version", "producer_eval_summary.v1")
+    summary.setdefault("source", source)
+    if artifact_id:
+        summary.setdefault("artifact_id", artifact_id)
+    if artifact_kind:
+        summary.setdefault("artifact_kind", artifact_kind)
+    if execution_id:
+        summary.setdefault("execution_id", execution_id)
+
+    review_state = _clean_string(summary.get("review_state"))
+    passed = summary.get("passed")
+    if isinstance(passed, bool):
+        passed_bool: Optional[bool] = passed
+    elif passed is None:
+        passed_bool = None
+    else:
+        passed_bool = bool(passed)
+    if not review_state:
+        review_state = "passed" if passed_bool is True else "needs_revision"
+    summary["review_state"] = review_state
+    if passed_bool is not None:
+        summary["passed"] = passed_bool
+    summary["needs_revision"] = bool(
+        summary.get("needs_revision")
+        or review_state in {"needs_revision", "needs_reference_analysis", "failed"}
+        or passed_bool is False
+    )
+    summary["rewrite_recommended"] = bool(summary.get("rewrite_recommended"))
+    summary["needs_reference_analysis"] = bool(
+        summary.get("needs_reference_analysis")
+        or review_state == "needs_reference_analysis"
+    )
+    summary.setdefault("blocking_findings", [])
+    summary.setdefault("warnings", [])
+    summary.setdefault("recommended_actions", [])
+    return summary
+
+
+def _producer_eval_summaries_from_value(
+    value: Any,
+    *,
+    source: str,
+    artifact_id: Optional[str] = None,
+    artifact_kind: Optional[str] = None,
+    execution_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    summaries: List[Dict[str, Any]] = []
+    seen = set()
+    for raw in _raw_producer_eval_summaries(value):
+        normalized = _normalize_producer_eval_summary(
+            raw,
+            source=source,
+            artifact_id=artifact_id,
+            artifact_kind=artifact_kind,
+            execution_id=execution_id,
+        )
+        key = (
+            normalized.get("artifact_id"),
+            normalized.get("artifact_kind"),
+            normalized.get("review_state"),
+            str(normalized.get("score")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        summaries.append(normalized)
+    return summaries
+
+
+def _producer_review_result(
+    summaries: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not summaries:
+        return {
+            "review_state": None,
+            "review_reason": None,
+            "recommended_actions": [],
+        }
+
+    failing = [
+        summary
+        for summary in summaries
+        if summary.get("passed") is False
+        or summary.get("needs_revision")
+        or summary.get("rewrite_recommended")
+        or summary.get("needs_reference_analysis")
+        or summary.get("review_state") in {"needs_revision", "needs_reference_analysis", "failed"}
+    ]
+    if not failing:
+        return {
+            "review_state": "passed",
+            "review_reason": "producer_eval_passed",
+            "recommended_actions": [],
+        }
+
+    needs_reference_analysis = any(
+        summary.get("needs_reference_analysis") for summary in failing
+    )
+    rewrite_recommended = any(summary.get("rewrite_recommended") for summary in failing)
+    actions: List[str] = []
+    if needs_reference_analysis:
+        _append_unique(actions, "attach_reference_analysis")
+        _append_unique(actions, "ask_human_for_reference_cues")
+    if rewrite_recommended:
+        _append_unique(actions, "rewrite_storyboard_script_with_reference_cues")
+    for summary in failing:
+        for action in list(summary.get("recommended_actions") or []):
+            _append_unique(actions, _clean_string(action))
+    _append_unique(actions, "accept_with_risk")
+    return {
+        "review_state": (
+            "needs_reference_analysis"
+            if needs_reference_analysis
+            else "needs_revision"
+        ),
+        "review_reason": "producer_eval_requires_review",
+        "recommended_actions": actions,
+    }
+
+
+def _bounded_json(value: Any, *, limit: int = 12000) -> str:
+    try:
+        rendered = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        rendered = str(value)
+    if len(rendered) <= limit:
+        return rendered
+    return rendered[:limit] + "...<truncated>"
+
+
+def _extract_json_object(text: Any) -> Dict[str, Any]:
+    raw = str(text or "").strip()
+    if not raw:
+        return {}
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw.lower().startswith("json"):
+            raw = raw[4:].strip()
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        pass
+
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start < 0 or end <= start:
+        return {}
+    try:
+        parsed = json.loads(raw[start : end + 1])
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _truthy(value: Any, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return default
+
+
+def _quality_requirements_from_aol_metadata(
+    request_contract_aol: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    metadata = _as_dict(request_contract_aol)
+    return _as_dict(metadata.get("quality_requirements"))
+
+
+def _rewrite_until_quality_passed(quality_requirements: Dict[str, Any]) -> bool:
+    content_quality = _as_dict(quality_requirements.get("content_quality"))
+    return _truthy(quality_requirements.get("rewrite_until_quality_passed")) or _truthy(
+        content_quality.get("rewrite_until_quality_passed")
+    )
+
+
+def _producer_rewrite_dispatch_request(
+    *,
+    producer_eval_summaries: List[Dict[str, Any]],
+    quality_requirements: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    request: Dict[str, Any] = {}
+    for summary in producer_eval_summaries:
+        candidate = _as_dict(
+            summary.get("rewrite_dispatch_request")
+            or summary.get("producer_rewrite_dispatch_request")
+        )
+        if _clean_string(candidate.get("playbook_code")):
+            request = candidate
+            break
+    if not request:
+        return None
+
+    producer_eval_artifact_ids = [
+        _clean_string(summary.get("artifact_id"))
+        for summary in producer_eval_summaries
+        if _clean_string(summary.get("artifact_id"))
+    ]
+    source_playbook_codes = [
+        _clean_string(summary.get("playbook_code"))
+        for summary in producer_eval_summaries
+        if _clean_string(summary.get("playbook_code"))
+    ]
+    auto_allowed = _rewrite_until_quality_passed(quality_requirements)
+    input_params = _as_dict(request.get("input_params"))
+    input_params.update(
+        {
+            "quality_requirements": quality_requirements,
+            "producer_eval_artifact_ids": producer_eval_artifact_ids,
+            "source_playbook_codes": source_playbook_codes,
+            "rewrite_handoff": {
+                "value_from": "producer_quality_gate.rewrite_handoff"
+            },
+        }
+    )
+    return {
+        **request,
+        "schema_version": request.get("schema_version")
+        or "producer_quality_rewrite_dispatch_request.v1",
+        "dispatch_mode": (
+            "auto_launch_allowed"
+            if auto_allowed
+            else "explicit_quality_requirement_required"
+        ),
+        "required_inputs": list(
+            request.get("required_inputs")
+            or [
+                "storyboard",
+                "reference_cue_map",
+                "content_quality_eval",
+                "quality_requirements",
+                "rewrite_handoff",
+            ]
+        ),
+        "input_params": input_params,
+    }
+
+
+def _producer_quality_gate_fallback(
+    *,
+    producer_review: Dict[str, Any],
+    producer_eval_summaries: List[Dict[str, Any]],
+    quality_requirements: Optional[Dict[str, Any]] = None,
+    reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    review_state = producer_review.get("review_state")
+    recommended_actions = list(producer_review.get("recommended_actions") or [])
+    needs_revision = review_state in {
+        "needs_revision",
+        "needs_reference_analysis",
+        "failed",
+    }
+    gate_state = (
+        "needs_reference_analysis"
+        if review_state == "needs_reference_analysis"
+        else "blocked_for_revision"
+        if needs_revision
+        else "passed"
+    )
+    quality_requirements_payload = _as_dict(quality_requirements)
+    dispatch_request = (
+        _producer_rewrite_dispatch_request(
+            producer_eval_summaries=producer_eval_summaries,
+            quality_requirements=quality_requirements_payload,
+        )
+        if needs_revision
+        else None
+    )
+    return {
+        "schema_version": "meeting_producer_quality_gate.v1",
+        "gate_state": gate_state,
+        "review_state": review_state,
+        "review_reason": producer_review.get("review_reason"),
+        "llm_review_status": "fallback" if needs_revision else "not_required",
+        "llm_review_error": reason,
+        "decision": (
+            "reference_analysis_required"
+            if review_state == "needs_reference_analysis"
+            else "rewrite_required"
+            if needs_revision
+            else "accept"
+        ),
+        "completion_status": "needs_revision" if needs_revision else "accepted",
+        "recommended_actions": recommended_actions,
+        "rewrite_handoff": (
+            {
+                "kind": "producer_quality_rewrite_handoff",
+                "source": "meeting_engine_runner",
+                "target_review_state": review_state,
+                "producer_eval_artifact_ids": [
+                    summary.get("artifact_id")
+                    for summary in producer_eval_summaries
+                    if summary.get("artifact_id")
+                ],
+                "producer_eval_summaries": producer_eval_summaries,
+                "required_actions": recommended_actions,
+                "dispatch_request": dispatch_request,
+            }
+            if needs_revision
+            else None
+        ),
+    }
+
+
+def _normalize_meeting_quality_review(
+    raw_review: Dict[str, Any],
+    *,
+    fallback_gate: Dict[str, Any],
+) -> Dict[str, Any]:
+    review = dict(raw_review or {})
+    decision = _clean_string(review.get("decision")) or fallback_gate["decision"]
+    if decision not in {
+        "accept",
+        "accept_with_risk",
+        "rewrite_required",
+        "reference_analysis_required",
+        "human_review_required",
+    }:
+        decision = fallback_gate["decision"]
+
+    actions = list(fallback_gate.get("recommended_actions") or [])
+    for action in list(review.get("recommended_actions") or []):
+        _append_unique(actions, _clean_string(action))
+
+    gate_state = fallback_gate["gate_state"]
+    if decision in {"rewrite_required", "human_review_required"}:
+        gate_state = "blocked_for_revision"
+    elif decision == "reference_analysis_required":
+        gate_state = "needs_reference_analysis"
+    elif decision == "accept_with_risk":
+        gate_state = "accept_with_risk"
+    elif decision == "accept":
+        gate_state = "passed"
+
+    rewrite_handoff = fallback_gate.get("rewrite_handoff")
+    if isinstance(rewrite_handoff, dict):
+        rewrite_handoff = {
+            **rewrite_handoff,
+            "meeting_review": {
+                "decision": decision,
+                "rationale": _clean_string(review.get("rationale")),
+                "rewrite_instructions": review.get("rewrite_instructions") or [],
+                "required_reference_questions": review.get(
+                    "required_reference_questions"
+                )
+                or [],
+            },
+            "required_actions": actions,
+        }
+
+    return {
+        **fallback_gate,
+        "gate_state": gate_state,
+        "llm_review_status": "completed",
+        "llm_review_error": None,
+        "decision": decision,
+        "completion_status": (
+            "accepted"
+            if decision == "accept"
+            else "accepted_with_risk"
+            if decision == "accept_with_risk"
+            else "needs_revision"
+        ),
+        "recommended_actions": actions,
+        "rationale": _clean_string(review.get("rationale")),
+        "rewrite_instructions": review.get("rewrite_instructions") or [],
+        "required_reference_questions": review.get("required_reference_questions") or [],
+        "rewrite_handoff": rewrite_handoff,
+    }
 
 
 def _workspace_artifact_type(payload: Dict[str, Any]) -> WorkspaceArtifactType:
@@ -383,6 +802,24 @@ class MeetingEngineRunner:
         artifact_file_paths = [
             path for path in (_artifact_file_path(item) for item in artifacts) if path
         ]
+        producer_eval_summaries: List[Dict[str, Any]] = []
+        for artifact_payload in artifacts:
+            producer_eval_summaries.extend(
+                _producer_eval_summaries_from_value(
+                    artifact_payload,
+                    source="task_ir_artifact",
+                    artifact_id=_clean_string(artifact_payload.get("id")),
+                    artifact_kind=_clean_string(
+                        _as_dict(artifact_payload.get("metadata")).get("artifact_kind")
+                    ),
+                )
+            )
+        producer_eval_summaries.extend(
+            _producer_eval_summaries_from_value(
+                meeting_result.dispatch_result,
+                source="dispatch_result",
+            )
+        )
         artifact_landing = self._land_task_ir_artifacts(
             artifacts=artifacts,
             workspace=workspace,
@@ -400,6 +837,7 @@ class MeetingEngineRunner:
             _append_unique(artifact_landing["artifact_db_ids"], artifact_id)
         for artifact_path in dispatch_artifacts["artifact_file_paths"]:
             _append_unique(artifact_file_paths, artifact_path)
+        producer_eval_summaries.extend(dispatch_artifacts["producer_eval_summaries"])
         artifact_execution_errors = dispatch_artifacts["artifact_execution_errors"]
         artifact_landing_status = self._artifact_landing_status(
             artifact_ids=artifact_ids,
@@ -410,6 +848,18 @@ class MeetingEngineRunner:
                 "artifact_file_path_missing_count"
             ],
         )
+        producer_review = _producer_review_result(producer_eval_summaries)
+        producer_quality_gate = await self._producer_quality_gate_review(
+            engine=engine,
+            producer_review=producer_review,
+            producer_eval_summaries=producer_eval_summaries,
+            request_contract_aol=request_contract_aol,
+            task_ir_artifacts=artifacts,
+            user_message=message,
+        )
+        completion_status = producer_quality_gate["completion_status"]
+        if producer_review["review_state"] is None and meeting_result.completion_status:
+            completion_status = meeting_result.completion_status
 
         return {
             "status": "completed",
@@ -419,7 +869,6 @@ class MeetingEngineRunner:
             ),
             "event_ids": list(meeting_result.event_ids or []),
             "minutes_md": meeting_result.minutes_md or "",
-            "completion_status": meeting_result.completion_status,
             "dispatch_result": meeting_result.dispatch_result,
             "task_ir_artifacts": artifacts,
             "artifact_ids": artifact_ids,
@@ -428,9 +877,115 @@ class MeetingEngineRunner:
             "artifact_db_errors": artifact_landing["artifact_db_errors"],
             "artifact_execution_errors": artifact_execution_errors,
             "artifact_landing_status": artifact_landing_status,
+            "producer_eval_summaries": producer_eval_summaries,
+            "review_state": producer_review["review_state"],
+            "review_reason": producer_review["review_reason"],
+            "recommended_actions": producer_review["recommended_actions"],
+            "producer_quality_gate": producer_quality_gate,
+            "completion_status": completion_status,
             "request_contract_aol_metadata": request_contract_aol,
             "request_contract_aol_metadata_persisted": persisted_metadata,
         }
+
+    async def _producer_quality_gate_review(
+        self,
+        *,
+        engine: Any,
+        producer_review: Dict[str, Any],
+        producer_eval_summaries: List[Dict[str, Any]],
+        request_contract_aol: Dict[str, Any],
+        task_ir_artifacts: List[Dict[str, Any]],
+        user_message: str,
+    ) -> Dict[str, Any]:
+        quality_requirements = _quality_requirements_from_aol_metadata(
+            request_contract_aol
+        )
+        fallback_gate = _producer_quality_gate_fallback(
+            producer_review=producer_review,
+            producer_eval_summaries=producer_eval_summaries,
+            quality_requirements=quality_requirements,
+        )
+        if fallback_gate["gate_state"] == "passed":
+            return fallback_gate
+
+        generate_text = getattr(engine, "_generate_text", None)
+        if not callable(generate_text):
+            return _producer_quality_gate_fallback(
+                producer_review=producer_review,
+                producer_eval_summaries=producer_eval_summaries,
+                quality_requirements=quality_requirements,
+                reason="meeting_llm_review_unavailable",
+            )
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are the MeetingEngine producer-quality reviewer. "
+                    "Decide whether the produced storyboard can be accepted, "
+                    "accepted with explicit risk, requires rewrite, requires "
+                    "reference analysis, or requires human review. Return JSON only."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Review this producer evaluator result and choose the next "
+                    "orchestration action.\n\n"
+                    f"Original user instruction:\n{user_message}\n\n"
+                    f"AOL/request contract metadata:\n{_bounded_json(request_contract_aol)}\n\n"
+                    f"Producer review rollup:\n{_bounded_json(producer_review)}\n\n"
+                    f"Producer eval summaries:\n{_bounded_json(producer_eval_summaries)}\n\n"
+                    f"TaskIR artifacts:\n{_bounded_json(task_ir_artifacts, limit=8000)}\n\n"
+                    "Return this JSON shape exactly:\n"
+                    "{\n"
+                    '  "decision": "accept|accept_with_risk|rewrite_required|reference_analysis_required|human_review_required",\n'
+                    '  "rationale": "short reason",\n'
+                    '  "recommended_actions": ["action_id"],\n'
+                    '  "rewrite_instructions": ["concrete per-scene/content rewrite instruction"],\n'
+                    '  "required_reference_questions": ["question if reference evidence is missing"]\n'
+                    "}\n"
+                    "Do not rewrite the full storyboard here. Produce routing "
+                    "instructions for the next pass."
+                ),
+            },
+        ]
+        try:
+            review_text = await generate_text(
+                messages,
+                max_tokens=1200,
+                capability_profile="precise",
+            )
+        except TypeError:
+            try:
+                review_text = await generate_text(messages)
+            except Exception as exc:
+                return _producer_quality_gate_fallback(
+                    producer_review=producer_review,
+                    producer_eval_summaries=producer_eval_summaries,
+                    quality_requirements=quality_requirements,
+                    reason=str(exc),
+                )
+        except Exception as exc:
+            return _producer_quality_gate_fallback(
+                producer_review=producer_review,
+                producer_eval_summaries=producer_eval_summaries,
+                quality_requirements=quality_requirements,
+                reason=str(exc),
+            )
+
+        parsed = _extract_json_object(review_text)
+        if not parsed:
+            return _producer_quality_gate_fallback(
+                producer_review=producer_review,
+                producer_eval_summaries=producer_eval_summaries,
+                quality_requirements=quality_requirements,
+                reason="meeting_llm_review_non_json",
+            )
+        return _normalize_meeting_quality_review(
+            parsed,
+            fallback_gate=fallback_gate,
+        )
 
     async def _resolve_runtime_profile(self, workspace: Any) -> Optional[Any]:
         from backend.app.services.stores.workspace_runtime_profile_store import (
@@ -569,6 +1124,7 @@ class MeetingEngineRunner:
                 "artifact_file_paths": [],
                 "artifact_execution_errors": [],
                 "artifact_file_path_missing_count": 0,
+                "producer_eval_summaries": [],
             }
 
         lookup_store = artifacts_store
@@ -593,6 +1149,7 @@ class MeetingEngineRunner:
                 "artifact_file_paths": [],
                 "artifact_execution_errors": [],
                 "artifact_file_path_missing_count": 0,
+                "producer_eval_summaries": [],
             }
 
         result = {
@@ -600,11 +1157,13 @@ class MeetingEngineRunner:
             "artifact_file_paths": [],
             "artifact_execution_errors": [],
             "artifact_file_path_missing_count": 0,
+            "producer_eval_summaries": [],
         }
         for attempt_index in range(16):
             artifact_db_ids: List[str] = []
             artifact_file_paths: List[str] = []
             artifact_execution_errors: List[Dict[str, str]] = []
+            producer_eval_summaries: List[Dict[str, Any]] = []
             missing_file_paths = 0
 
             for execution_id in execution_ids:
@@ -634,6 +1193,24 @@ class MeetingEngineRunner:
 
                     artifact_id = _clean_string(getattr(artifact, "id", None))
                     _append_unique(artifact_db_ids, artifact_id)
+                    metadata = _as_dict(getattr(artifact, "metadata", None))
+                    raw_kind = _clean_string(
+                        metadata.get("artifact_kind")
+                        or metadata.get("raw_artifact_kind")
+                    )
+                    for container, source in (
+                        (metadata, "dispatch_artifact_metadata"),
+                        (_artifact_model_content(artifact), "dispatch_artifact_content"),
+                    ):
+                        producer_eval_summaries.extend(
+                            _producer_eval_summaries_from_value(
+                                container,
+                                source=source,
+                                artifact_id=artifact_id,
+                                artifact_kind=raw_kind,
+                                execution_id=execution_id,
+                            )
+                        )
                     artifact_path = _artifact_model_file_path(artifact)
                     if artifact_path:
                         _append_unique(artifact_file_paths, artifact_path)
@@ -645,6 +1222,7 @@ class MeetingEngineRunner:
                 "artifact_file_paths": artifact_file_paths,
                 "artifact_execution_errors": artifact_execution_errors,
                 "artifact_file_path_missing_count": missing_file_paths,
+                "producer_eval_summaries": producer_eval_summaries,
             }
             if artifact_execution_errors:
                 return result
@@ -675,6 +1253,10 @@ class MeetingEngineRunner:
             "artifact_db_ids": [],
             "artifact_db_errors": [],
             "artifact_landing_status": "failed",
+            "producer_eval_summaries": [],
+            "review_state": None,
+            "review_reason": None,
+            "recommended_actions": [],
             "request_contract_aol_metadata": self._request_contract_aol_metadata(session),
             "request_contract_aol_metadata_persisted": False,
             "missing_dependency": dependency,

@@ -95,6 +95,83 @@ def test_sync_meeting_command_from_late_agent_result_recovers_timeout(monkeypatc
     assert "error_code" not in orchestration
 
 
+def test_late_agent_result_preserves_producer_quality_gate_for_revision():
+    command = MeetingCommandRecord(
+        command_id="cmd-quality-late",
+        workspace_id="ws-1",
+        meeting_id="mtg-1",
+        thread_id="thread-1",
+        origin_surface="meeting_workbench",
+        actor="user",
+        intent_text="Run storyboard orchestration",
+        status=MeetingCommandStatus.FAILED,
+        metadata={
+            "dispatch_mode": "route_meeting_orchestration",
+            "dispatch_status": "failed",
+            "meeting_orchestration": {
+                "status": "failed",
+                "completion_status": "failed",
+                "error_code": "meeting_orchestration_timeout",
+                "artifact_landing_status": "pending",
+                "late_result_possible": True,
+            },
+        },
+    )
+    store = _FakeMeetingCommandStore(command)
+
+    updated = sync_meeting_command_from_agent_result(
+        execution_id="exec-quality-late",
+        result={
+            "execution_id": "exec-quality-late",
+            "status": "completed",
+            "metadata": {"meeting_command_id": "cmd-quality-late"},
+            "output": {
+                "producer_eval_summary": {
+                    "schema_version": "producer_eval_summary.v1",
+                    "producer": "performance_direction",
+                    "pack_code": "performance_direction",
+                    "playbook_code": "pd_storyboard_gen",
+                    "passed": False,
+                    "review_state": "needs_revision",
+                    "rewrite_recommended": True,
+                    "rewrite_dispatch_request": {
+                        "schema_version": (
+                            "producer_quality_rewrite_dispatch_request.v1"
+                        ),
+                        "pack_code": "performance_direction",
+                        "playbook_code": "pd_storyboard_content_rewrite",
+                    },
+                    "recommended_actions": [
+                        "rewrite_storyboard_script_with_reference_cues"
+                    ],
+                }
+            },
+        },
+        governance_result={"success": True, "artifact_id": "artifact-quality-late"},
+        status="completed",
+        store=store,
+    )
+
+    assert updated is store.saved
+    orchestration = updated.metadata["meeting_orchestration"]
+    assert orchestration["status"] == "completed"
+    assert orchestration["completion_status"] == "needs_revision"
+    assert orchestration["review_state"] == "needs_revision"
+    assert orchestration["review_reason"] == "producer_eval_requires_review"
+    assert orchestration["producer_quality_gate"]["gate_state"] == (
+        "blocked_for_revision"
+    )
+    assert orchestration["producer_quality_gate"]["llm_review_status"] == "fallback"
+    assert orchestration["producer_quality_gate"]["rewrite_handoff"]["kind"] == (
+        "producer_quality_rewrite_handoff"
+    )
+    dispatch_request = orchestration["producer_quality_gate"]["rewrite_handoff"][
+        "dispatch_request"
+    ]
+    assert dispatch_request["playbook_code"] == "pd_storyboard_content_rewrite"
+    assert dispatch_request["dispatch_mode"] == "explicit_quality_requirement_required"
+
+
 def test_task_sync_does_not_demote_meeting_orchestration_command():
     command = MeetingCommandRecord(
         command_id="cmd-orchestrated",

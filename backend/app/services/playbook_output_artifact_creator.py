@@ -98,6 +98,12 @@ def resolve_template(template: str, context: Dict[str, Any]) -> str:
                     value = artifact_info.get("title")
                 return str(value) if value is not None else ""
 
+        value = get_nested_value(context, var_path)
+        if value is not None:
+            return str(value)
+        if parts and parts[0] in context:
+            return ""
+
         return match.group(0)  # Return original if not found
 
     # Match {{variable.path}} pattern
@@ -142,6 +148,13 @@ def get_nested_value(data: Any, path: str) -> Any:
             return None
 
     return current
+
+
+def _resolve_context_path(context: Dict[str, Any], path: str) -> Any:
+    normalized_path = str(path or "").strip()
+    if not normalized_path:
+        return None
+    return get_nested_value(context, normalized_path)
 
 
 def _serialize_artifact_file_content(source_data: Any) -> str:
@@ -222,22 +235,43 @@ class PlaybookOutputArtifactCreator:
         )
         for artifact_def in output_artifacts:
             try:
-                artifact = await self._create_single_artifact(
-                    playbook_code=playbook_code,
-                    execution_id=execution_id,
-                    workspace_id=workspace_id,
-                    artifact_def=artifact_def,
-                    context=context,
-                    execution_context=execution_context,
-                    playbook_metadata=playbook_metadata,
-                )
+                fan_out_source = str(artifact_def.get("fan_out_source") or "").strip()
+                fan_out_items = None
+                if fan_out_source:
+                    fan_out_items = _resolve_context_path(context, fan_out_source)
+                    if not isinstance(fan_out_items, list):
+                        logger.warning(
+                            f"Artifact definition {artifact_def.get('id')} fan_out_source "
+                            f"did not resolve to a list: {fan_out_source}"
+                        )
+                        continue
 
-                if artifact:
-                    created_artifacts.append(artifact)
-                    logger.info(
-                        f"Created artifact {artifact.id} from playbook {playbook_code} "
-                        f"(type: {artifact.artifact_type.value}, title: {artifact.title})"
+                iterable_items = fan_out_items if fan_out_items is not None else [None]
+                for item_index, item in enumerate(iterable_items):
+                    item_context = context
+                    if fan_out_items is not None:
+                        item_context = {
+                            **context,
+                            "item": item,
+                            "item_index": item_index,
+                        }
+
+                    artifact = await self._create_single_artifact(
+                        playbook_code=playbook_code,
+                        execution_id=execution_id,
+                        workspace_id=workspace_id,
+                        artifact_def=artifact_def,
+                        context=item_context,
+                        execution_context=execution_context,
+                        playbook_metadata=playbook_metadata,
                     )
+
+                    if artifact:
+                        created_artifacts.append(artifact)
+                        logger.info(
+                            f"Created artifact {artifact.id} from playbook {playbook_code} "
+                            f"(type: {artifact.artifact_type.value}, title: {artifact.title})"
+                        )
             except Exception as e:
                 logger.error(
                     f"Failed to create artifact from definition {artifact_def.get('id', 'unknown')}: {e}",
@@ -351,12 +385,12 @@ class PlaybookOutputArtifactCreator:
             except Exception as e:
                 logger.error(f"Failed to read file from sandbox: {e}", exc_info=True)
                 return None
-        else:
+        elif source_path.startswith("step."):
             # Extract step_id and output_key from source (e.g., "step.generate_post.post_content")
             source_parts = source_path.split(
                 ".", 2
             )  # ['step', 'step_id'] or ['step', 'step_id', 'output_key...']
-            if len(source_parts) < 2 or source_parts[0] != "step":
+            if len(source_parts) < 2:
                 logger.warning(f"Invalid source path format: {source_path}")
                 return None
 
@@ -377,6 +411,11 @@ class PlaybookOutputArtifactCreator:
             if source_data is None:
                 logger.warning(f"Source data not found for {source_path}")
                 return None
+        else:
+            source_data = _resolve_context_path(context, source_path)
+            if source_data is None:
+                logger.warning(f"Source data not found for {source_path}")
+                return None
 
         # Resolve metadata
         metadata = {}
@@ -394,19 +433,36 @@ class PlaybookOutputArtifactCreator:
                     metadata[key] = value
 
         # Get artifact type and primary action type
+        artifact_type_value = artifact_def.get("artifact_type")
+        artifact_type_from = str(artifact_def.get("artifact_type_from") or "").strip()
+        if artifact_type_from:
+            artifact_type_value = _resolve_context_path(context, artifact_type_from) or artifact_type_value
+
+        primary_action_type_value = artifact_def.get("primary_action_type")
+        primary_action_type_from = str(
+            artifact_def.get("primary_action_type_from") or ""
+        ).strip()
+        if primary_action_type_from:
+            primary_action_type_value = (
+                _resolve_context_path(context, primary_action_type_from)
+                or primary_action_type_value
+            )
+
         try:
-            artifact_type = ArtifactType(artifact_def["artifact_type"])
+            artifact_type = ArtifactType(str(artifact_type_value or "").strip())
         except (KeyError, ValueError) as e:
             logger.error(
-                f"Invalid artifact_type: {artifact_def.get('artifact_type')}, {e}"
+                f"Invalid artifact_type: {artifact_type_value}, {e}"
             )
             return None
 
         try:
-            primary_action_type = PrimaryActionType(artifact_def["primary_action_type"])
+            primary_action_type = PrimaryActionType(
+                str(primary_action_type_value or "").strip()
+            )
         except (KeyError, ValueError) as e:
             logger.error(
-                f"Invalid primary_action_type: {artifact_def.get('primary_action_type')}, {e}"
+                f"Invalid primary_action_type: {primary_action_type_value}, {e}"
             )
             return None
 
@@ -429,6 +485,7 @@ class PlaybookOutputArtifactCreator:
                 else {"content": source_data}
             ),
             storage_ref=metadata.get("file_path")
+            or metadata.get("storage_ref")
             or metadata.get("external_url")
             or metadata.get("post_url"),
             sync_state=None,

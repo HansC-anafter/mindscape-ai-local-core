@@ -94,16 +94,16 @@ describe('CapabilityPage installed render-proof gate', () => {
     globalThis.__MINDSCAPE_CAPABILITY_UI_TEST_CONTEXT__ = testContext;
 
     global.fetch = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
-      if (url === 'http://api.test/api/v1/capability-packs/installed-capabilities') {
+      if (url === 'http://api.test/api/v1/capability-packs/installed-capabilities/demo_render_proof') {
         return {
           ok: true,
-          json: async () => ([
+          json: async () => (
             {
               id: 'demo_render_proof',
               code: 'demo_render_proof',
               display_name: 'Demo Render Proof',
-            },
-          ]),
+            }
+          ),
         } as Response;
       }
 

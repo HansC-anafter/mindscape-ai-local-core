@@ -2,7 +2,11 @@
 
 import React, { useEffect, useState, Suspense } from 'react';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
+import { AlertTriangle } from 'lucide-react';
+import {
+  loadCapabilityUIComponent,
+  primeCapabilityUIComponentMetadata,
+} from '@/lib/capability-ui-loader';
 import { getApiBaseUrl } from '@/lib/api-url';
 import {
   AOLRuntimeShell,
@@ -105,20 +109,15 @@ export default function CapabilityPage() {
     setError(null);
 
     try {
-      const listResponse = await fetch(`${apiUrl}/api/v1/capability-packs/installed-capabilities`);
-
-      if (!listResponse.ok) {
-        throw new Error(`Failed to load capabilities list: ${listResponse.status}`);
-      }
-
-      const capabilitiesList = await listResponse.json();
-      const capabilityData = capabilitiesList.find(
-        (cap: CapabilityInfo) => cap.code === capabilityCode || cap.id === capabilityCode,
+      const capabilityResponse = await fetch(
+        `${apiUrl}/api/v1/capability-packs/installed-capabilities/${capabilityCode}`,
       );
 
-      if (!capabilityData) {
-        throw new Error(`Capability "${capabilityCode}" 未找到或未安裝`);
+      if (!capabilityResponse.ok) {
+        throw new Error(`Failed to load capability metadata: ${capabilityResponse.status}`);
       }
+
+      const capabilityData = await capabilityResponse.json();
 
       setCapabilityInfo(capabilityData);
 
@@ -136,6 +135,7 @@ export default function CapabilityPage() {
 
       const componentsData = await componentsResponse.json();
       setUIComponents(componentsData || []);
+      primeCapabilityUIComponentMetadata(capabilityId, componentsData || []);
 
       const mainPageComponents = componentsData.filter(isMainPageComponent);
       const otherComponents = componentsData.filter((component: UIComponentInfo) => !isMainPageComponent(component));
@@ -219,8 +219,13 @@ export default function CapabilityPage() {
     return (
       <div className="flex h-full flex-col items-center justify-center p-4">
         <div className="max-w-md text-center">
-          <div className="mb-4 text-4xl">⚠️</div>
-          <h2 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">Capability 未找到</h2>
+          <AlertTriangle
+            className="mx-auto mb-4 h-10 w-10 text-amber-500"
+            aria-hidden="true"
+          />
+          <h2 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Capability not found
+          </h2>
           <div className="mb-4 text-sm text-red-500 dark:text-red-400">{error}</div>
           <div className="mb-4 text-xs text-gray-500 dark:text-gray-400">
             Capability code: <code className="rounded bg-gray-100 px-2 py-1 dark:bg-gray-800">{capabilityCode}</code>
@@ -230,13 +235,13 @@ export default function CapabilityPage() {
               onClick={() => router.back()}
               className="rounded bg-gray-200 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
             >
-              返回
+              Go back
             </button>
             <button
               onClick={() => window.close()}
               className="rounded bg-blue-500 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
             >
-              關閉頁面
+              Close page
             </button>
           </div>
         </div>

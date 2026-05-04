@@ -67,6 +67,128 @@ _PACK_SOURCE_PRIORITY = {
     "feature_manifest": 3,
 }
 
+
+def _safe_pack_code_variants(capability_code: str) -> List[str]:
+    raw_variants = [
+        capability_code,
+        capability_code.replace("-", "_"),
+        capability_code.replace("_", "-"),
+    ]
+    variants: List[str] = []
+    seen = set()
+    for variant in raw_variants:
+        if not variant or Path(variant).name != variant or variant in seen:
+            continue
+        seen.add(variant)
+        variants.append(variant)
+    return variants
+
+
+def _pack_root_candidates(base_dir: Path, child_path: str) -> List[Path]:
+    return [
+        base_dir / child_path,
+        Path("/app/backend") / child_path,
+        base_dir / "backend" / child_path,
+    ]
+
+
+def _candidate_pack_manifest_paths(
+    capability_code: str,
+    base_dir: Optional[Path] = None,
+) -> List[tuple[Path, str, str]]:
+    base_dir = base_dir or Path(__file__).parent.parent.parent.parent
+    candidates: List[tuple[Path, str, str]] = []
+
+    for variant in _safe_pack_code_variants(capability_code):
+        for root in _pack_root_candidates(base_dir, "app/capabilities"):
+            candidates.append(
+                (root / variant / "manifest.yaml", "capability_manifest", variant)
+            )
+        for root in _pack_root_candidates(base_dir, "features"):
+            candidates.append((root / variant / "manifest.yaml", "feature_manifest", variant))
+        for root in _pack_root_candidates(base_dir, "packs"):
+            candidates.append((root / f"{variant}.yaml", "legacy_pack_yaml", variant))
+
+    deduped: List[tuple[Path, str, str]] = []
+    seen = set()
+    for path, source_kind, default_id in candidates:
+        marker = (str(path), source_kind)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append((path, source_kind, default_id))
+    return deduped
+
+
+def _map_pack_manifest_for_source(
+    manifest_path: Path,
+    source_kind: str,
+    default_id: str,
+) -> Optional[Dict[str, Any]]:
+    meta = _load_manifest_file(manifest_path)
+    if not meta:
+        return None
+
+    if source_kind == "legacy_pack_yaml":
+        meta["_source_kind"] = source_kind
+        return meta
+
+    return _map_runtime_manifest(
+        meta,
+        default_id=default_id,
+        manifest_path=manifest_path,
+        source_kind=source_kind,
+    )
+
+
+def _get_pack_meta_by_code(
+    capability_code: str,
+    base_dir: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    variants = set(_safe_pack_code_variants(capability_code))
+    if not variants:
+        return None
+
+    merged_by_id: Dict[str, Dict[str, Any]] = {}
+    for manifest_path, source_kind, default_id in _candidate_pack_manifest_paths(
+        capability_code,
+        base_dir,
+    ):
+        if not manifest_path.exists():
+            continue
+
+        meta = _map_pack_manifest_for_source(manifest_path, source_kind, default_id)
+        if not meta:
+            continue
+        pack_id = meta.get("id") or meta.get("code")
+        if not pack_id:
+            continue
+        existing = merged_by_id.get(pack_id)
+        merged_by_id[pack_id] = _merge_pack_meta(existing, meta) if existing else meta
+
+    for meta in merged_by_id.values():
+        if meta.get("id") in variants or meta.get("code") in variants:
+            return meta
+
+    for meta in _scan_pack_yaml_files(base_dir):
+        if meta.get("id") in variants or meta.get("code") in variants:
+            return meta
+    return None
+
+
+def _format_installed_capability(pack_meta: Dict[str, Any]) -> Dict[str, Any]:
+    pack_id = pack_meta.get("id")
+    return {
+        "id": pack_id,
+        "code": pack_meta.get("code", pack_id),
+        "display_name": pack_meta.get("name", pack_id),
+        "version": pack_meta.get("version", "1.0.0"),
+        "description": pack_meta.get("description", ""),
+        "scope": pack_meta.get("scope", "global"),
+        "ui_components": pack_meta.get("ui_components", []),
+    }
+
+
 def _normalize_enabled_by_default(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -694,21 +816,7 @@ def list_installed_capabilities():
         for pack_meta in pack_metas:
             pack_id = pack_meta.get("id")
             if pack_id and pack_id in installed_ids:
-                installed_capabilities.append(
-                    {
-                        "id": pack_id,
-                        "code": pack_meta.get(
-                            "code", pack_id
-                        ),  # Use code from meta if available
-                        "display_name": pack_meta.get("name", pack_id),
-                        "version": pack_meta.get("version", "1.0.0"),
-                        "description": pack_meta.get("description", ""),
-                        "scope": pack_meta.get("scope", "global"),
-                        "ui_components": pack_meta.get(
-                            "ui_components", []
-                        ),  # Include UI components info
-                    }
-                )
+                installed_capabilities.append(_format_installed_capability(pack_meta))
 
         t3 = time.time()
         logger.debug("Mapped installed capabilities in %.3fs", t3 - t2)
@@ -718,6 +826,34 @@ def list_installed_capabilities():
         logger.error(f"Failed to list installed capabilities: {e}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Failed to list installed capabilities: {str(e)}"
+        )
+
+
+@router.get("/installed-capabilities/{capability_code}")
+def get_installed_capability(capability_code: str):
+    try:
+        pack_meta = _get_pack_meta_by_code(capability_code)
+        if not pack_meta:
+            raise HTTPException(
+                status_code=404, detail=f"Capability '{capability_code}' not found"
+            )
+
+        installed_ids = _get_installed_pack_ids()
+        pack_id = pack_meta.get("id")
+        if pack_id not in installed_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Capability '{capability_code}' is not installed",
+            )
+
+        return JSONResponse(content=_format_installed_capability(pack_meta))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get installed capability %s: %s", capability_code, e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get installed capability: {str(e)}",
         )
 
 
@@ -736,18 +872,7 @@ def get_capability_ui_components(capability_code: str):
     Component code must be installed via RuntimeAssetsInstaller, not hardcoded.
     """
     try:
-        # Get all packs
-        pack_metas = _scan_pack_yaml_files()
-
-        pack_meta = next(
-            (
-                p
-                for p in pack_metas
-                if p.get("id") == capability_code or p.get("code") == capability_code
-            ),
-            None,
-        )
-
+        pack_meta = _get_pack_meta_by_code(capability_code)
         if not pack_meta:
             raise HTTPException(
                 status_code=404, detail=f"Capability '{capability_code}' not found"

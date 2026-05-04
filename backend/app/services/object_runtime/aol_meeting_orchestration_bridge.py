@@ -177,6 +177,9 @@ def _normalize_explicit_playbook_request(
     input_params.setdefault("task", command.intent_text)
     input_params.setdefault("human_instructions", command.intent_text)
     input_params.setdefault("addressable_object_layer", aol_metadata)
+    quality_requirements = _as_dict(aol_metadata.get("quality_requirements"))
+    if quality_requirements:
+        input_params.setdefault("quality_requirements", quality_requirements)
     if context_attachments:
         input_params.setdefault("context_attachments", context_attachments)
 
@@ -292,6 +295,74 @@ def _collect_explicit_playbook_requests(
         seen.add(key)
         normalized.append(request)
     return normalized
+
+
+def _merge_dict(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(base or {})
+    for key, value in dict(overlay or {}).items():
+        if value in (None, "", [], {}):
+            continue
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _collect_quality_requirements(
+    *,
+    metadata: Dict[str, Any],
+    action_parameters: Dict[str, Any],
+    selected_cards: List[Dict[str, Any]],
+    context_attachments: List[Dict[str, Any]],
+    refs: List[ObjectRef],
+) -> Dict[str, Any]:
+    grounding_required = any(
+        ref.owner_pack == "ig" and ref.object_kind == "reference" for ref in refs
+    )
+    requirements: Dict[str, Any] = {
+        "schema_version": "generic_quality_requirements.v1",
+        "source": "aol_meeting_orchestration_bridge",
+        "producer_review_required": True,
+        "grounding_required": grounding_required,
+        "target": {"deliverable_kind": "storyboard_or_media_asset"},
+        "content_quality": {
+            "require_concrete_scene_copy": True,
+            "reject_internal_workflow_copy": True,
+            "require_reference_grounding": grounding_required,
+        },
+    }
+    candidates: List[Dict[str, Any]] = []
+    for container in (metadata, action_parameters):
+        for key in (
+            "quality_requirements",
+            "content_quality_requirements",
+            "producer_quality_requirements",
+        ):
+            candidate = _as_dict(container.get(key))
+            if candidate:
+                candidates.append(candidate)
+    for card in selected_cards:
+        card_payload = _as_dict(card)
+        card_metadata = _as_dict(
+            card_payload.get("metadata") or card_payload.get("guidance_metadata")
+        )
+        candidate = _as_dict(card_metadata.get("quality_requirements"))
+        if candidate:
+            candidates.append(candidate)
+    for attachment in context_attachments:
+        payload = _as_dict(attachment)
+        for key in (
+            "quality_requirements",
+            "content_quality_requirements",
+            "producer_quality_requirements",
+        ):
+            candidate = _as_dict(payload.get(key))
+            if candidate:
+                candidates.append(candidate)
+    for candidate in candidates:
+        requirements = _merge_dict(requirements, candidate)
+    return requirements
 
 
 class AOLMeetingOrchestrationBridge:
@@ -475,6 +546,14 @@ class AOLMeetingOrchestrationBridge:
         if existing_session_aol:
             aol_metadata["session_addressable_object_layer"] = existing_session_aol
 
+        quality_requirements = _collect_quality_requirements(
+            metadata=metadata,
+            action_parameters=action_parameters,
+            selected_cards=selected_cards,
+            context_attachments=context_attachments,
+            refs=refs,
+        )
+        aol_metadata["quality_requirements"] = quality_requirements
         playbook_requests = _collect_explicit_playbook_requests(
             metadata=metadata,
             action_parameters=action_parameters,
@@ -484,15 +563,22 @@ class AOLMeetingOrchestrationBridge:
             context_attachments=context_attachments,
             aol_metadata=aol_metadata,
         )
+        governance_constraints = {
+            "addressable_object_layer": aol_metadata,
+            "quality_requirements": quality_requirements,
+        }
 
         return HandoffIn(
             handoff_id=f"aol_cmd_{command.command_id}_{uuid.uuid4().hex[:8]}",
             workspace_id=workspace_id,
             intent_summary=command.intent_text,
             goals=[command.intent_text],
-            governance_constraints={"addressable_object_layer": aol_metadata},
+            governance_constraints=governance_constraints,
             context_attachments=context_attachments,
             human_instructions=metadata.get("raw_intent_text") or command.intent_text,
             playbook_requests=playbook_requests or None,
-            metadata={"addressable_object_layer": aol_metadata},
+            metadata={
+                "addressable_object_layer": aol_metadata,
+                "quality_requirements": quality_requirements,
+            },
         )

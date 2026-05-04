@@ -48,6 +48,7 @@ vi.mock('@/components/WorkspaceChat', () => ({
 
 vi.mock('@/lib/capability-ui-loader', () => ({
   loadCapabilityUIComponent: (...args: any[]) => mockLoadCapabilityUIComponent(...args),
+  primeCapabilityUIComponentMetadata: vi.fn(),
 }));
 
 describe('CapabilityPage AOL host shell', () => {
@@ -84,16 +85,16 @@ describe('CapabilityPage AOL host shell', () => {
     });
 
     global.fetch = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
-      if (url === 'http://api.test/api/v1/capability-packs/installed-capabilities') {
+      if (url === 'http://api.test/api/v1/capability-packs/installed-capabilities/ig') {
         return {
           ok: true,
-          json: async () => ([
+          json: async () => (
             {
               id: 'ig',
               code: 'ig',
               display_name: 'Instagram Workbench',
-            },
-          ]),
+            }
+          ),
         } as Response;
       }
 

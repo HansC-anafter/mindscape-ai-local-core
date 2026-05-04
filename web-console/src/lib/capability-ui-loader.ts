@@ -59,6 +59,16 @@ export function resetCapabilityUIComponentLoaderCaches(): void {
   loadedComponentsCache.clear();
 }
 
+export function primeCapabilityUIComponentMetadata(
+  capabilityCode: string,
+  components: UIComponentInfo[] | null | undefined,
+): void {
+  if (!capabilityCode || !Array.isArray(components)) {
+    return;
+  }
+  componentMetadataCache.set(capabilityCode, components);
+}
+
 /**
  * Pre-register all capability components using require.context
  * Webpack processes this at build time and creates a context function
@@ -70,7 +80,7 @@ const rawCapabilityComponentsContext = (
   ?? (require.context(
     '../app/capabilities',
     true,
-    /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._)).*\.tsx$/,
+    /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._))\.\/[^/]+\/(?:components\/)?[^/]+\.tsx$/,
     'sync'
   ) as CapabilityComponentsContext)
 );
