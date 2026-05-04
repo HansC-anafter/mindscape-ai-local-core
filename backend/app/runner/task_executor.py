@@ -484,8 +484,13 @@ async def _mark_task_failed(
                 else {}
             )
             ctxf = dict(ctxf)
-            retry_count = ctxf.get("retry_count", 0) + 1
-            ctxf["retry_count"] = retry_count
+            resource_wait = resource_pressure_source == "browser_resource_lease"
+            if resource_wait:
+                retry_count = int(ctxf.get("retry_count", 0) or 0)
+                ctxf["resource_wait_count"] = int(ctxf.get("resource_wait_count", 0) or 0) + 1
+            else:
+                retry_count = int(ctxf.get("retry_count", 0) or 0) + 1
+                ctxf["retry_count"] = retry_count
             ctxf["error"] = msg
             ctxf["runner_id"] = runner_id
             ctxf["failed_at"] = _utc_now().isoformat()
@@ -496,7 +501,7 @@ async def _mark_task_failed(
                 if isinstance(resource_snapshot, dict):
                     ctxf["resource_snapshot"] = resource_snapshot
 
-            is_deadletter = retry_count >= max_attempts
+            is_deadletter = False if resource_wait else retry_count >= max_attempts
 
             # For terminal deadletters, change status to FAILED.
             # Otherwise we keep it as PENDING but defer it to delayed queue.
@@ -505,10 +510,11 @@ async def _mark_task_failed(
 
             # Invoke on_fail hook (best-effort, may create follow-up tasks).
             hook_invoked = False
-            try:
-                hook_invoked = _invoke_on_fail_hook(ctxf, msg, latest.id)
-            except Exception as hook_err:
-                logger.warning(f"on_fail hook error for task {task_id}: {hook_err}")
+            if not resource_wait:
+                try:
+                    hook_invoked = _invoke_on_fail_hook(ctxf, msg, latest.id)
+                except Exception as hook_err:
+                    logger.warning(f"on_fail hook error for task {task_id}: {hook_err}")
 
             if hook_invoked:
                 logger.info(f"on_fail hook handled failure for task {task_id}. Skipping native requeue.")
@@ -555,6 +561,16 @@ async def _mark_task_failed(
                     logger.warning(f"Task {task_id} reached max_attempts ({max_attempts}). Sending to Deadletter.")
                     await redis_queue.move_to_deadletter(task_id)
                     await redis_queue.ack_task(task_id)  # Clean up from processing
+                elif resource_wait:
+                    logger.warning(
+                        "Task %s deferred by browser resource lease wait (wait_count=%s). NACKing to delayed queue.",
+                        task_id,
+                        ctxf.get("resource_wait_count"),
+                    )
+                    await redis_queue.nack_task_to_delayed(
+                        task_id,
+                        delay_sec=retry_delay_sec,
+                    )
                 else:
                     logger.warning(f"Task {task_id} failed transiently (attempt {retry_count}). NACKing to delayed queue.")
                     await redis_queue.nack_task_to_delayed(

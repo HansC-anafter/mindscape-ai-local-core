@@ -1,4 +1,10 @@
+from types import SimpleNamespace
+
+import pytest
+
 from backend.app.runner import resource_pressure
+from backend.app.runner.task_executor import _mark_task_failed
+from backend.app.models.workspace import TaskStatus
 
 
 def _write(path, value: str) -> None:
@@ -77,3 +83,71 @@ def test_classify_subprocess_resource_failure():
         )
         == "browser_resource_lease"
     )
+
+
+class _FakeTasksStore:
+    def __init__(self):
+        self.task = SimpleNamespace(
+            id="task-1",
+            status=TaskStatus.RUNNING,
+            execution_context={"retry_count": 2},
+            started_at=None,
+        )
+        self.update_kwargs = None
+
+    def get_task(self, task_id):
+        assert task_id == self.task.id
+        return self.task
+
+    def update_task(self, task_id, **kwargs):
+        assert task_id == self.task.id
+        self.update_kwargs = kwargs
+        self.task.status = kwargs["status"]
+        self.task.execution_context = kwargs["execution_context"]
+        return self.task
+
+
+class _FakeRedisQueue:
+    def __init__(self):
+        self.delayed = None
+        self.deadlettered = False
+        self.acked = False
+
+    async def nack_task_to_delayed(self, task_id, delay_sec=15):
+        self.delayed = (task_id, delay_sec)
+        return True
+
+    async def move_to_deadletter(self, task_id):
+        self.deadlettered = True
+        return True
+
+    async def ack_task(self, task_id):
+        self.acked = True
+        return True
+
+
+@pytest.mark.asyncio
+async def test_browser_resource_lease_wait_does_not_consume_workflow_retry():
+    store = _FakeTasksStore()
+    queue = _FakeRedisQueue()
+
+    await _mark_task_failed(
+        store,
+        "task-1",
+        "runner-browser",
+        "Timed out waiting for IG browser resource lease",
+        queue,
+        retry_delay_sec=300,
+        resource_pressure_source="browser_resource_lease",
+    )
+
+    updated_context = store.update_kwargs["execution_context"]
+    assert store.update_kwargs["status"] == TaskStatus.PENDING
+    assert store.update_kwargs["frontier_state"] == "cold"
+    assert store.update_kwargs["error"] is None
+    assert updated_context["retry_count"] == 2
+    assert updated_context["resource_wait_count"] == 1
+    assert updated_context["resource_pressure_source"] == "browser_resource_lease"
+    assert queue.delayed == ("task-1", 300)
+    assert queue.deadlettered is False
+    assert queue.acked is False
