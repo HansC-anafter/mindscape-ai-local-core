@@ -21,6 +21,7 @@ build/
 node_modules/
 .next/
 web-console/.next.backup-*/
+web-console/.next.bak-*/
 out/
 *.log
 npm-debug.log*
@@ -64,6 +65,7 @@ logs/
 *.tmp
 temp/
 tmp/
+_backups/
 
 # Capability pack files (build artifacts)
 *.mindpack
@@ -124,7 +126,12 @@ test_*.yaml
 !docs/**/*.pdf
 
 # Internal documentation (not for open source)
-docs-internal/
+docs-internal/*
+!docs-internal/implementation/
+docs-internal/implementation/*
+!docs-internal/implementation/runtime/
+docs-internal/implementation/runtime/*
+!docs-internal/implementation/runtime/ig-runtime-resource-settings-worktree-closure-todos-2026-05-05.md
 .agent/workflows/
 .agent/skills/**/*.md
 !.agent/skills/*/SKILL.md
