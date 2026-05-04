@@ -218,13 +218,15 @@ export function ModelConfigCard({ card, onConfigSaved, pullState, onPullModel, o
       setSaving(true);
       
       // 1. Prepare and send metadata PATCH directly
+      const storedMaxOutputTokens = model.metadata?.max_output_tokens;
+      const maxOutputTokensChanged = storedMaxOutputTokens !== maxOutputTokens;
       if (
-        maxOutputTokens !== getDefaultMaxTokens(model) ||
+        maxOutputTokensChanged ||
         runtimeEngine !== (model.metadata?.runtime_engine || 'auto') ||
         temperature !== (model.metadata?.temperature ?? 0.6)
       ) {
         const updates: any = {};
-        if (maxOutputTokens !== getDefaultMaxTokens(model)) updates.max_output_tokens = maxOutputTokens;
+        if (maxOutputTokensChanged) updates.max_output_tokens = maxOutputTokens;
         if (runtimeEngine !== (model.metadata?.runtime_engine || 'auto')) updates.runtime_engine = runtimeEngine;
         if (temperature !== (model.metadata?.temperature ?? 0.6)) updates.temperature = temperature;
 

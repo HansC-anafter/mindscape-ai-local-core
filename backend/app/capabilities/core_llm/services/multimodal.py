@@ -11,10 +11,13 @@ Three-layer routing:
 """
 
 import asyncio
+import contextlib
 import importlib
 import importlib.util
+import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +26,80 @@ logger = logging.getLogger(__name__)
 
 # Local OpenAI-compatible VLM endpoints may only handle one heavy vision call at a time.
 _MLX_SEMAPHORE = asyncio.Semaphore(1)
+_MLX_CONNECT_TIMEOUT_SECONDS = float(os.getenv("VLM_CONNECT_TIMEOUT_SECONDS", "30"))
+_MLX_READ_TIMEOUT_SECONDS = float(os.getenv("VLM_READ_TIMEOUT_SECONDS", "1200"))
+_MLX_WRITE_TIMEOUT_SECONDS = float(os.getenv("VLM_WRITE_TIMEOUT_SECONDS", "120"))
+_MLX_POOL_TIMEOUT_SECONDS = float(os.getenv("VLM_POOL_TIMEOUT_SECONDS", "30"))
+_WATCHDOG_STATE_DIR = Path(os.getenv("VLM_WATCHDOG_STATE_DIR", "/tmp/mindscape-vlm-watchdog"))
+_WATCHDOG_STATE_FILE = _WATCHDOG_STATE_DIR / "inflight_request.json"
+_WATCHDOG_HEARTBEAT_INTERVAL_SECONDS = float(
+    os.getenv("VLM_WATCHDOG_HEARTBEAT_INTERVAL_SECONDS", "5")
+)
+
+
+def _coerce_positive_int(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError):
+        return None
+    return coerced if coerced > 0 else None
+
+
+def _normalize_reasoning_trace_mode(value: Any) -> str:
+    return "capture" if str(value or "").lower() == "capture" else "suppress"
+
+
+def _looks_like_json_object(text: str) -> bool:
+    return bool((text or "").lstrip().startswith("{"))
+
+
+def _looks_like_visible_loop_prose(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "thinking process",
+            "field mapping",
+            "correction on",
+            "one more check",
+        )
+    )
+
+
+def _mlx_server_progress_enabled() -> bool:
+    return os.getenv("VLM_PROGRESS_ENABLED", "").lower() in {"1", "true", "yes", "on"}
+
+
+def _write_watchdog_state(payload: Dict[str, Any]) -> None:
+    try:
+        _WATCHDOG_STATE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_path = _WATCHDOG_STATE_FILE.with_suffix(".json.tmp")
+        tmp_path.write_text(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        tmp_path.replace(_WATCHDOG_STATE_FILE)
+    except Exception as exc:
+        logger.debug("[MultimodalAnalyze] Failed to write watchdog state: %s", exc)
+
+
+def _clear_watchdog_state() -> None:
+    try:
+        _WATCHDOG_STATE_FILE.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        logger.debug("[MultimodalAnalyze] Failed to clear watchdog state: %s", exc)
+
+
+async def _watchdog_heartbeat(payload: Dict[str, Any]) -> None:
+    while True:
+        await asyncio.sleep(_WATCHDOG_HEARTBEAT_INTERVAL_SECONDS)
+        heartbeat_payload = dict(payload)
+        heartbeat_payload["heartbeat_at"] = time.time()
+        _write_watchdog_state(heartbeat_payload)
 
 
 def _detect_image_mime(b64_data: str) -> str:
@@ -54,6 +131,7 @@ async def vision_analyze(
     temperature: Optional[float] = None,
     workspace_id: Optional[str] = None,
     _model_override: Optional[str] = None,
+    max_tokens: Optional[int] = None,
     **kwargs,  # absorb extra playbook inputs (profile_id, etc.)
 ) -> Dict[str, Any]:
     """
@@ -89,6 +167,39 @@ async def vision_analyze(
     if temperature is None:
         temperature = 0.3
 
+    first_image = images[0] if isinstance(images, list) and images else {}
+    request_id = (
+        kwargs.get("request_id")
+        or first_image.get("request_id")
+        or ""
+    )
+    reference_id = (
+        kwargs.get("reference_id")
+        or first_image.get("reference_id")
+        or first_image.get("shortcode")
+        or ""
+    )
+    analysis_profile = (
+        kwargs.get("analysis_profile")
+        or first_image.get("analysis_profile")
+        or ""
+    )
+    payload_stats = (
+        kwargs.get("payload_stats")
+        or first_image.get("payload_stats")
+        or {}
+    )
+    reasoning_trace_mode = (
+        kwargs.get("reasoning_trace_mode")
+        or first_image.get("reasoning_trace_mode")
+        or "suppress"
+    )
+    requested_max_tokens = _coerce_positive_int(
+        max_tokens
+        if max_tokens is not None
+        else kwargs.get("max_tokens", first_image.get("max_tokens"))
+    )
+
     # ── Resolve model ──
     model_name, provider_name = _resolve_multimodal_model(_model_override)
     
@@ -118,7 +229,13 @@ async def vision_analyze(
             temperature = 0.4
             
         return await _route_cloud_llm(
-            images, prompt, model_name, "vertex-ai", temperature, workspace_id
+            images,
+            prompt,
+            model_name,
+            "vertex-ai",
+            temperature,
+            workspace_id,
+            max_tokens=requested_max_tokens,
         )
 
     elif provider_name == "openai" or provider_name == "anthropic":
@@ -131,7 +248,13 @@ async def vision_analyze(
             temperature = 0.4
             
         return await _route_cloud_llm(
-            images, prompt, model_name, provider_name, temperature, workspace_id
+            images,
+            prompt,
+            model_name,
+            provider_name,
+            temperature,
+            workspace_id,
+            max_tokens=requested_max_tokens,
         )
 
     elif provider_name == "mlx":
@@ -142,7 +265,18 @@ async def vision_analyze(
         if temperature is None:
             temperature = 0.6
             
-        return await _route_mlx_server(images, prompt, model_name, temperature)
+        return await _route_mlx_server(
+            images,
+            prompt,
+            model_name,
+            temperature,
+            request_id=request_id,
+            reference_id=reference_id,
+            analysis_profile=analysis_profile,
+            payload_stats=payload_stats,
+            reasoning_trace_mode=reasoning_trace_mode,
+            max_tokens=requested_max_tokens,
+        )
 
     elif provider_name == "huggingface":
         if temperature is None:
@@ -152,11 +286,23 @@ async def vision_analyze(
         if temperature is None:
             temperature = 0.6
             
-        return await _route_huggingface(images, prompt, model_name, temperature)
+        return await _route_huggingface(
+            images,
+            prompt,
+            model_name,
+            temperature,
+            max_tokens=requested_max_tokens,
+        )
 
     # Fallback for any other provider_name that might be passed
     return await _route_cloud_llm(
-        images, prompt, model_name, provider_name, temperature, workspace_id
+        images,
+        prompt,
+        model_name,
+        provider_name,
+        temperature,
+        workspace_id,
+        max_tokens=requested_max_tokens,
     )
 
 
@@ -416,6 +562,13 @@ async def _route_mlx_server(
     prompt: str,
     model_name: str,
     temperature: float,
+    *,
+    request_id: str = "",
+    reference_id: str = "",
+    analysis_profile: str = "",
+    payload_stats: Optional[Dict[str, Any]] = None,
+    reasoning_trace_mode: str = "suppress",
+    max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Route to an OpenAI-compatible vision endpoint.
 
@@ -431,6 +584,8 @@ async def _route_mlx_server(
 
     base_url = _resolve_multimodal_base_url(model_name)
     url = f"{base_url}/v1/chat/completions"
+    reasoning_trace_mode = _normalize_reasoning_trace_mode(reasoning_trace_mode)
+    payload_stats = payload_stats or {}
 
     logger.info(
         "[MultimodalAnalyze] Routing to multimodal endpoint: %s (model=%s)",
@@ -448,6 +603,8 @@ async def _route_mlx_server(
         }
         
     main_shortcode = images[0].get("shortcode", "unknown")
+    if not reference_id:
+        reference_id = main_shortcode
     
     content = [{"type": "text", "text": prompt}]
     for img_data in images:
@@ -460,13 +617,25 @@ async def _route_mlx_server(
                 },
             })
 
+    system_prompt = (
+        "You are a vision analysis API. "
+        "Output ONLY the raw JSON object. "
+        "No explanation, no markdown. "
+        "Start your response with '{' immediately."
+    )
+    if reasoning_trace_mode == "capture":
+        system_prompt = (
+            f"{system_prompt} "
+            'Never output phrases like "Thinking Process", "Field Mapping", '
+            '"Correction on", or "One more check".'
+        )
+    else:
+        system_prompt = f"/no_think\n{system_prompt} No thinking."
+
     messages = [
         {
             "role": "system",
-            "content": "/no_think\nYou are a vision analysis API. "
-                       "Output ONLY the raw JSON object. "
-                       "No thinking, no explanation, no markdown. "
-                       "Start your response with '{' immediately.",
+            "content": system_prompt,
         },
         {
             "role": "user",
@@ -474,10 +643,21 @@ async def _route_mlx_server(
         }
     ]
 
-    async with httpx.AsyncClient(timeout=1200.0) as client:
+    timeout = httpx.Timeout(
+        connect=_MLX_CONNECT_TIMEOUT_SECONDS,
+        read=_MLX_READ_TIMEOUT_SECONDS,
+        write=_MLX_WRITE_TIMEOUT_SECONDS,
+        pool=_MLX_POOL_TIMEOUT_SECONDS,
+    )
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
         try:
             from ....shared.inference_config import InferenceConfig
-            resolved_max = InferenceConfig.get_max_tokens(model_name, caller_default=6144)
+            requested_max_tokens = _coerce_positive_int(max_tokens)
+            resolved_max = InferenceConfig.get_max_tokens(
+                model_name,
+                caller_default=requested_max_tokens or 12288,
+            )
             
             first_b64 = images[0].get("base64_jpeg", "")
             mime = _detect_image_mime(first_b64) if first_b64 else "unknown"
@@ -488,40 +668,115 @@ async def _route_mlx_server(
                 model_name,
             )
 
+            queue_started = time.perf_counter()
+            queue_wait_ms = 0.0
+            mlx_post_ms = 0.0
+            watchdog_payload = {
+                "status": "active",
+                "request_id": request_id,
+                "reference_id": reference_id,
+                "analysis_profile": analysis_profile,
+                "model": model_name,
+                "started_at": time.time(),
+                "heartbeat_at": time.time(),
+            }
+            _write_watchdog_state(watchdog_payload)
+            heartbeat_task = asyncio.create_task(_watchdog_heartbeat(watchdog_payload))
             # Acquire semaphore so only one local VLM inference runs at a time.
-            async with _MLX_SEMAPHORE:
-                logger.info(
-                    "[MultimodalAnalyze] Multimodal endpoint semaphore acquired for %s with %d images",
-                    main_shortcode, len(content) - 1,
-                )
-                resp = await client.post(
-                    url,
-                    json={
-                        "model": model_name,
-                        "messages": messages,
-                        "temperature": temperature,
-                        "max_tokens": resolved_max,
-                        "response_format": {"type": "json_object"},
-                    },
-                )
+            try:
+                async with _MLX_SEMAPHORE:
+                    queue_wait_ms = (time.perf_counter() - queue_started) * 1000
+                    logger.info(
+                        "[MultimodalAnalyze] Multimodal endpoint semaphore acquired for %s with %d images",
+                        main_shortcode, len(content) - 1,
+                    )
+                    post_started = time.perf_counter()
+                    resp = await client.post(
+                        url,
+                        json={
+                            "model": model_name,
+                            "messages": messages,
+                            "temperature": temperature,
+                            "max_tokens": resolved_max,
+                            "response_format": {"type": "json_object"},
+                        },
+                    )
+                    mlx_post_ms = (time.perf_counter() - post_started) * 1000
+            finally:
+                heartbeat_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat_task
+                _clear_watchdog_state()
             
             resp.raise_for_status()
             data = resp.json()
-            msg = data["choices"][0]["message"]
+            choice = data["choices"][0]
+            msg = choice.get("message") or {}
+            finish_reason = choice.get("finish_reason")
             
             # Prefer content over reasoning; when both exist,
             # pick whichever looks like JSON (starts with '{').
             resp_content = (msg.get("content") or "").strip()
             reasoning = (msg.get("reasoning") or "").strip()
-            if resp_content and resp_content.startswith("{"):
+            response_source = "empty"
+            if resp_content and _looks_like_json_object(resp_content):
                 text = resp_content
-            elif reasoning and reasoning.startswith("{"):
+                response_source = "content"
+            elif reasoning and _looks_like_json_object(reasoning):
                 text = reasoning
+                response_source = "reasoning"
+            elif (
+                reasoning_trace_mode == "capture"
+                and resp_content
+                and _looks_like_visible_loop_prose(resp_content)
+            ):
+                text = resp_content
+                response_source = "capture_leak_non_json"
             else:
                 text = resp_content or reasoning
+                response_source = "content" if resp_content else "reasoning"
                 
             if text:
-                results.append({"shortcode": main_shortcode, "description": text})
+                telemetry = {
+                    "request_id": request_id,
+                    "reference_id": reference_id,
+                    "analysis_profile": analysis_profile,
+                    "image_payload_count": payload_stats.get(
+                        "image_payload_count",
+                        len([img for img in images if img.get("base64_jpeg")]),
+                    ),
+                    "image_payload_total_bytes": payload_stats.get(
+                        "image_payload_total_bytes",
+                        sum(len(img.get("base64_jpeg", "")) for img in images),
+                    ),
+                    "resolved_max_tokens": resolved_max,
+                    "queue_wait_ms": queue_wait_ms,
+                    "mlx_post_ms": mlx_post_ms,
+                    "response_chars": len(text),
+                    "finish_reason": finish_reason,
+                    "response_source": response_source,
+                    "reasoning_trace_mode": reasoning_trace_mode,
+                }
+                result_item = {
+                    "shortcode": main_shortcode,
+                    "description": text,
+                    "_telemetry": telemetry,
+                }
+                if reasoning_trace_mode == "capture" and reasoning:
+                    result_item["thinking"] = reasoning
+                results.append(result_item)
+                logger.info(
+                    "[MultimodalAnalyze][Perf] request_id=%s reference_id=%s profile=%s max_tokens=%d queue_ms=%.1f post_ms=%.1f finish=%s source=%s chars=%d",
+                    request_id,
+                    reference_id,
+                    analysis_profile,
+                    resolved_max,
+                    queue_wait_ms,
+                    mlx_post_ms,
+                    finish_reason,
+                    response_source,
+                    len(text),
+                )
                 logger.info(
                     "[MultimodalAnalyze] Multimodal endpoint analysis OK for %s (%d chars)",
                     main_shortcode, len(text),
@@ -546,6 +801,10 @@ async def _route_mlx_server(
         "model_id": model_name,
         "provider": "mlx",
         "results": results,
+        "request_id": request_id,
+        "reference_id": reference_id,
+        "analysis_profile": analysis_profile,
+        "_telemetry": results[0].get("_telemetry", {}) if results else {},
     }
 
 
@@ -554,6 +813,8 @@ async def _route_huggingface(
     prompt: str,
     model_id: str,
     temperature: float,
+    *,
+    max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Route to Hugging Face VLM (Qwen2-VL etc.)."""
     vision_analyze = _load_hf_vision_tool()
@@ -564,12 +825,28 @@ async def _route_huggingface(
                      "Is the huggingface capability pack installed?",
         }
 
-    return await vision_analyze(
-        images=images,
-        prompt=prompt,
-        model_id=model_id,
-        temperature=temperature,
-    )
+    call_kwargs = {
+        "images": images,
+        "prompt": prompt,
+        "model_id": model_id,
+        "temperature": temperature,
+    }
+    requested_max_tokens = _coerce_positive_int(max_tokens)
+    if requested_max_tokens is not None:
+        import inspect
+
+        try:
+            signature = inspect.signature(vision_analyze)
+            accepts_kwargs = any(
+                param.kind == inspect.Parameter.VAR_KEYWORD
+                for param in signature.parameters.values()
+            )
+            if "max_tokens" in signature.parameters or accepts_kwargs:
+                call_kwargs["max_tokens"] = requested_max_tokens
+        except (TypeError, ValueError):
+            pass
+
+    return await vision_analyze(**call_kwargs)
 
 
 # Module-level cache for HF vision tool (avoid re-import per call)
@@ -664,6 +941,8 @@ async def _route_cloud_llm(
     provider_name: str,
     temperature: float,
     workspace_id: Optional[str] = None,
+    *,
+    max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Route to cloud LLM (OpenAI / Anthropic / Vertex AI) via call_llm."""
     from ....shared.llm_utils import call_llm
@@ -746,6 +1025,7 @@ async def _route_cloud_llm(
             llm_provider=llm_provider,
             model=model_name,
             temperature=temperature,
+            max_tokens=_coerce_positive_int(max_tokens),
         )
         description = resp.get("text", "").strip()
         if description:
