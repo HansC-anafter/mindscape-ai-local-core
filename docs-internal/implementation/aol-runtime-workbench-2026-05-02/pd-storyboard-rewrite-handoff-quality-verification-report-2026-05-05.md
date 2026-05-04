@@ -1,7 +1,7 @@
 ---
 title: PD Storyboard Rewrite Handoff 品質查驗報告
 date: 2026-05-05
-status: draft
+status: completed
 owner: local-core / performance_direction
 skill_alignment: evidence-based-reporting
 ---
@@ -12,7 +12,7 @@ skill_alignment: evidence-based-reporting
 
 ## 結論
 
-本次可閉環提交範圍包含 cloud `performance_direction` pack 的 storyboard content rewrite pass、producer-provided rewrite dispatch request、local-core generic Meeting quality gate/handoff、playbook output artifact materialization、capability metadata endpoint，以及 AOL host shell 的 installed capability lookup。正式 pack 安裝須在 cloud source commit 後執行，本報告先記錄提交前品質證據；提交後安裝證據會補錄到本檔。
+本次可閉環提交範圍包含 cloud `performance_direction` pack 的 storyboard content rewrite pass、producer-provided rewrite dispatch request、local-core generic Meeting quality gate/handoff、playbook output artifact materialization、capability metadata endpoint，以及 AOL host shell 的 installed capability lookup。cloud source commit 後已重新打包 `.mindpack`，並透過 local-core install API 正式安裝與重啟 backend。
 
 不納入本次提交範圍的 dirty/WIP 包含 cloud `capabilities/ig/**`、cloud `.tmp/**`、local-core settings UI、runner resource pressure path，以及 `PerformanceDirectionStoryboardEditorPage.test.tsx` 中尚未閉環的大型 storyboard editor case。
 
@@ -129,10 +129,65 @@ cloud `manifest.yaml` 內的 `display_name_zh` / `description_zh` 是正式 zh-T
 
 ## 安裝證據
 
-待 cloud source commit 後補錄：
+cloud source 已提交為 `7722986`；local-core host/docs 已提交為 `5474897a`。正式 `.mindpack` 從已提交的 cloud `capabilities/performance_direction` scope 打包；打包前 `git status --short -- capabilities/performance_direction` 無輸出。
 
-- `python3 scripts/package_capability.py performance_direction`
-- `curl -sS -X POST http://localhost:8220/api/v1/capability-packs/install-from-file -F file=@.../performance_direction.mindpack`
-- backend restart if `restart_required=true`
-- `/api/v1/playbooks/pd_storyboard_content_rewrite`
-- `/api/v1/tools/performance_direction.pd_storyboard_content_rewrite`
+> **Evidence**:
+> ```bash
+> python3 scripts/package_capability.py performance_direction
+> ```
+> ```
+> Packaging 216 files from /Users/shock/Projects_local/workspace/mindscape-ai-cloud/capabilities/performance_direction
+> Created .mindpack file: /Users/shock/Projects_local/workspace/mindscape-ai-cloud/performance_direction.mindpack
+> Package size: 385.19 KB
+> Successfully created: /Users/shock/Projects_local/workspace/mindscape-ai-cloud/performance_direction.mindpack
+> ```
+
+> **Evidence**:
+> ```bash
+> tar tzf performance_direction.mindpack
+> ```
+> ```
+> performance_direction/playbooks/specs/pd_storyboard_content_rewrite.json
+> performance_direction/playbooks/zh-TW/pd_storyboard_content_rewrite.md
+> performance_direction/playbooks/en/pd_storyboard_content_rewrite.md
+> performance_direction/tools/storyboard_content_rewrite.py
+> performance_direction/tests/storyboard_content_rewrite_test.py
+> performance_direction/tests/pd_storyboard_content_rewrite_playbook_spec_test.py
+> ```
+
+> **Evidence**:
+> ```bash
+> curl -sS -X POST http://localhost:8220/api/v1/capability-packs/install-from-file -F file=@/Users/shock/Projects_local/workspace/mindscape-ai-cloud/performance_direction.mindpack
+> ```
+> ```
+> {"success":true,"capability_id":"performance_direction","version":"0.1.0","restart_required":true,"restart_triggered":false}
+> ```
+
+Install API 回傳 `restart_required=true`，因此已執行本地 backend restart。
+
+> **Evidence**:
+> ```bash
+> docker compose restart backend
+> docker compose ps backend
+> curl -sS -m 20 http://localhost:8220/health
+> ```
+> ```
+> Container mindscape-ai-local-core-backend  Started
+> mindscape-ai-local-core-backend   Up 2 minutes (healthy)
+> {"status":"healthy","components":{"backend":"healthy","post_ready_playbook_registry":"completed","object_index_sync":"completed"},"issues":[]}
+> ```
+
+registry 查驗已確認 rewrite playbook/tool 可用，且 `pd_storyboard_gen` outputs 內含 `rewrite_result`。
+
+> **Evidence**:
+> ```bash
+> curl -sS -m 20 http://localhost:8220/api/v1/playbooks/pd_storyboard_content_rewrite
+> curl -sS -m 20 http://localhost:8220/api/v1/tools/performance_direction.pd_storyboard_content_rewrite
+> curl -sS -m 20 http://localhost:8220/api/v1/playbooks/pd_storyboard_gen
+> ```
+> ```
+> "playbook_code":"pd_storyboard_content_rewrite"
+> "tool_slot":"performance_direction.pd_storyboard_content_rewrite"
+> "tool_id":"performance_direction.pd_storyboard_content_rewrite"
+> "rewrite_result":"rewrite_result"
+> ```

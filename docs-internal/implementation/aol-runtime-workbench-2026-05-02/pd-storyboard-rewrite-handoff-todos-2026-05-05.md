@@ -1,7 +1,7 @@
 ---
 title: PD Storyboard Rewrite Handoff Todos 與資料範圍
 date: 2026-05-05
-status: active
+status: completed
 owner: local-core / performance_direction
 skill_alignment: evidence-based-planning
 ---
@@ -77,9 +77,9 @@ skill_alignment: evidence-based-planning
 | capability metadata endpoint 支援單一 installed capability lookup | done | `capability_packs.py:832` |
 | AOL host shell 改用單一 metadata endpoint 並 prime loader metadata | done | `page.tsx:138`、`capability-ui-loader.ts:62` |
 | 提交前測試 | done | cloud 8 passed；local-core 28 passed；AOL host vitest 2 passed |
-| 正式 commit | pending | 待 pathspec staging 後提交 |
-| 提交後 `.mindpack` 正式安裝 | pending | 待 cloud source commit 後執行 |
-| 安裝後 registry/API 查驗 | pending | 待 install response、playbook endpoint、tool endpoint 補證 |
+| 正式 commit | done | cloud `7722986`；local-core `5474897a` |
+| 提交後 `.mindpack` 正式安裝 | done | install API 回傳 `success=true`、`restart_required=true` |
+| 安裝後 registry/API 查驗 | done | health healthy；rewrite playbook/tool endpoint 可查；`pd_storyboard_gen` output 含 `rewrite_result` |
 
 ## 不納入本次閉環
 
@@ -87,4 +87,3 @@ skill_alignment: evidence-based-planning
 - local-core settings UI dirty files。
 - local-core runner resource pressure dirty files。
 - `PerformanceDirectionStoryboardEditorPage.test.tsx` 目前含未閉環大型 editor case；本次不提交此 WIP test file。
-
