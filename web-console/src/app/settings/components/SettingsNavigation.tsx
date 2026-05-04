@@ -1,13 +1,27 @@
 'use client';
 
 import React from 'react';
+import Activity from 'lucide-react/dist/esm/icons/activity.js';
+import Brain from 'lucide-react/dist/esm/icons/brain.js';
+import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right.js';
+import KeyRound from 'lucide-react/dist/esm/icons/key-round.js';
+import Languages from 'lucide-react/dist/esm/icons/languages.js';
+import Package from 'lucide-react/dist/esm/icons/package.js';
+import PlayCircle from 'lucide-react/dist/esm/icons/play-circle.js';
+import SettingsIcon from 'lucide-react/dist/esm/icons/settings.js';
+import Share2 from 'lucide-react/dist/esm/icons/share-2.js';
+import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check.js';
+import UsersRound from 'lucide-react/dist/esm/icons/users-round.js';
+import Wrench from 'lucide-react/dist/esm/icons/wrench.js';
 import { t } from '../../../lib/i18n';
 import type { SettingsTab } from '../types';
+
+type NavigationIcon = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 
 interface NavigationItem {
   id: string;
   label: string;
-  icon?: string;
+  icon?: NavigationIcon;
   tab: SettingsTab;
   section?: string;
   provider?: string;
@@ -43,7 +57,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'basic',
     label: 'basicSettings',
-    icon: 'SET',
+    icon: SettingsIcon,
     tab: 'basic',
     children: [
       {
@@ -105,7 +119,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'credentials',
     label: 'credentialsAndOAuth',
-    icon: 'AUTH',
+    icon: KeyRound,
     tab: 'credentials',
     children: [
       {
@@ -125,13 +139,13 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'mindscape',
     label: 'mindscapeConfiguration',
-    icon: 'MS',
+    icon: Brain,
     tab: 'mindscape',
   },
   {
     id: 'ai-team-governance',
     label: 'aiTeamGovernance',
-    icon: 'AI',
+    icon: UsersRound,
     tab: 'ai-team-governance',
     children: [
       {
@@ -170,13 +184,13 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'runtime',
     label: 'runtimeEnvironments',
-    icon: 'RUN',
+    icon: PlayCircle,
     tab: 'runtime',
   },
   {
     id: 'tools',
     label: 'toolsAndIntegrations',
-    icon: 'TOOL',
+    icon: Wrench,
     tab: 'tools',
     children: [
       {
@@ -282,7 +296,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'social_media',
     label: 'socialMediaIntegration',
-    icon: 'SOC',
+    icon: Share2,
     tab: 'social_media',
     children: [
       {
@@ -326,7 +340,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'localization',
     label: 'localization',
-    icon: 'I18N',
+    icon: Languages,
     tab: 'localization',
     children: [
       {
@@ -346,7 +360,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'governance',
     label: 'governance',
-    icon: 'GOV',
+    icon: ShieldCheck,
     tab: 'governance',
     children: [
       {
@@ -384,7 +398,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'packs_status',
     label: 'capabilityPacks',
-    icon: 'PACK',
+    icon: Package,
     tab: 'packs_status',
     children: [
       {
@@ -404,7 +418,7 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'service_status',
     label: 'serviceStatus',
-    icon: 'OPS',
+    icon: Activity,
     tab: 'service_status',
   },
 ];
@@ -441,6 +455,7 @@ export function SettingsNavigation({
           const isActive = activeTab === item.tab && (!activeSection || item.tab === 'packs_status');
           const hasChildren = item.children && item.children.length > 0;
           const isExpanded = expandedItems.has(item.id);
+          const Icon = item.icon;
 
           return (
             <div key={item.id}>
@@ -480,7 +495,7 @@ export function SettingsNavigation({
                     setHoveredItemId(null);
                   }}
                 >
-                  {item.icon && <span className="text-xs">{item.icon}</span>}
+                  {Icon && <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
                   <span>{t(item.label as any)}</span>
                 </button>
                 {hasChildren && (
@@ -491,14 +506,10 @@ export function SettingsNavigation({
                     }}
                     className="px-1 py-1.5 rounded-md hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
                   >
-                    <svg
-                      className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
+                    <ChevronRight
+                      className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                      aria-hidden="true"
+                    />
                   </button>
                 )}
               </div>

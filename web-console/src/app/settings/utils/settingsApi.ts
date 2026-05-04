@@ -1,4 +1,4 @@
-import { shouldUseSameOriginProxyForBrowser } from '../../../lib/api-origin';
+import { normalizeBrowserReachableUrl, shouldUseSameOriginProxyForBrowser } from '../../../lib/api-origin';
 
 // Get initial API URL (avoids circular dependency)
 const getInitialApiUrl = (): string => {
@@ -148,7 +148,12 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
 
       if (response.ok) {
         const urls: { backend_api_url: string } = await response.json();
-        const backendUrl = urls.backend_api_url;
+        const backendUrl = normalizeBrowserReachableUrl(urls.backend_api_url);
+        if (backendUrl === '') {
+          apiUrlCache = '';
+          lastValidationTime = Date.now();
+          return apiUrlCache;
+        }
         // Verify the returned URL is reachable if different from initial
         if (backendUrl !== initialUrl) {
           try {

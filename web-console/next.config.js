@@ -19,12 +19,32 @@ const nextConfig = {
     const mediaProxyUrl = process.env.MEDIA_PROXY_URL || 'http://127.0.0.1:8202';
     return [
       {
+        source: '/health',
+        destination: `${backendUrl}/health`,
+      },
+      {
         source: '/api/v1/media/:path*',
         destination: `${mediaProxyUrl}/api/v1/media/:path*`,
       },
       {
         source: '/api/v1/playbooks/',
         destination: `${backendUrl}/api/v1/playbooks/`,
+      },
+      {
+        source: '/api/v1/capability-packs',
+        destination: `${backendUrl}/api/v1/capability-packs/`,
+      },
+      {
+        source: '/api/v1/capability-packs/',
+        destination: `${backendUrl}/api/v1/capability-packs/`,
+      },
+      {
+        source: '/api/v1/capability-suites',
+        destination: `${backendUrl}/api/v1/capability-suites/`,
+      },
+      {
+        source: '/api/v1/capability-suites/',
+        destination: `${backendUrl}/api/v1/capability-suites/`,
       },
       {
         source: '/api/:path*',

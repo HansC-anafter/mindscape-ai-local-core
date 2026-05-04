@@ -1,31 +1,38 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Header from '../../components/Header';
 import { t } from '../../lib/i18n';
 import { SettingsNavigation } from './components/SettingsNavigation';
-import { SettingsConfigAssistant, type SettingsConfigAssistantHandle } from './components/SettingsConfigAssistant';
-import { BasicSettingsPanel } from './components/BasicSettingsPanel';
-import { CredentialsAndOAuthPanel } from './components/CredentialsAndOAuthPanel';
-import { MindscapePanel } from './components/MindscapePanel';
 import { SettingsNotificationContainer } from './hooks/useSettingsNotification';
-import { SocialMediaPanel } from './components/SocialMediaPanel';
-import { ToolsPanel } from './components/ToolsPanel';
-
-import { LocalizationPanel } from './components/LocalizationPanel';
-import { ServiceStatusPanel } from './components/ServiceStatusPanel';
-import { PacksPanel } from './components/PacksPanel';
-import { GovernancePanel } from './components/GovernancePanel';
-import { AITeamGovernancePanel } from './components/panels/AITeamGovernancePanel';
-import { RuntimeEnvironmentsSettings } from './components/panels/RuntimeEnvironmentsSettings';
-import { useTools } from './hooks/useTools';
 import type { SettingsTab } from './types';
+
+interface SettingsConfigAssistantHandle {
+  sendMessage: (message: string) => void;
+}
+
+function SettingsPanelFallback() {
+  return (
+    <div className="rounded-lg border border-default dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 p-4 text-sm text-secondary dark:text-gray-400">
+      Loading...
+    </div>
+  );
+}
+
+const SettingsContentHost = dynamic(
+  () => import('./components/SettingsContentHost').then((mod) => mod.SettingsContentHost),
+  { ssr: false, loading: SettingsPanelFallback }
+);
+const SettingsConfigAssistant = dynamic(
+  () => import('./components/SettingsConfigAssistant').then((mod) => mod.SettingsConfigAssistant),
+  { ssr: false, loading: SettingsPanelFallback }
+);
 
 export default function SettingsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { getToolStatusForPack } = useTools();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('basic');
   const [activeSection, setActiveSection] = useState<string | undefined>();
@@ -107,41 +114,15 @@ export default function SettingsPage() {
     router.push(`/settings?${params?.toString()}`);
   };
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'basic':
-        return <BasicSettingsPanel activeSection={activeSection} />;
-      case 'credentials':
-        return (
-          <CredentialsAndOAuthPanel
-            activeSection={activeSection}
-            activeProvider={activeProvider}
-            onNavigate={(section, provider) => handleNavigate('credentials', section, provider)}
-          />
-        );
-      case 'mindscape':
-        return <MindscapePanel />;
-      case 'ai-team-governance':
-        return <AITeamGovernancePanel activeSection={activeSection} onSendToAssistant={handleSendToAssistant} />;
-      case 'social_media':
-        return <SocialMediaPanel activeProvider={activeProvider} />;
-      case 'tools':
-        return <ToolsPanel activeSection={activeSection} activeProvider={activeProvider} />;
-
-      case 'runtime':
-        return <RuntimeEnvironmentsSettings />;
-      case 'localization':
-        return <LocalizationPanel activeSection={activeSection} />;
-      case 'service_status':
-        return <ServiceStatusPanel />;
-      case 'packs_status':
-        return <PacksPanel getToolStatus={getToolStatusForPack} activeSection={activeSection || 'packages'} />;
-      case 'governance':
-        return <GovernancePanel activeSection={activeSection} />;
-      default:
-        return <BasicSettingsPanel activeSection={activeSection} />;
-    }
-  };
+  const content = (
+    <SettingsContentHost
+      activeTab={activeTab}
+      activeSection={activeSection}
+      activeProvider={activeProvider}
+      onCredentialsNavigate={(section, provider) => handleNavigate('credentials', section, provider)}
+      onSendToAssistant={handleSendToAssistant}
+    />
+  );
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-surface dark:bg-gray-900">
@@ -206,11 +187,11 @@ export default function SettingsPage() {
           <div className="col-span-12 lg:col-span-7 flex flex-col h-full min-h-0 bg-surface dark:bg-gray-900">
             {(activeTab === 'basic' && activeSection === 'models-and-quota') ? (
               <div className="flex-1 flex flex-col min-h-0 p-3 lg:p-4">
-                {renderContent()}
+                {content}
               </div>
             ) : (
               <div className="flex-1 overflow-y-auto min-h-0 p-3 lg:p-4">
-                {renderContent()}
+                {content}
               </div>
             )}
           </div>

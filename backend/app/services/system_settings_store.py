@@ -692,6 +692,7 @@ class SystemSettingsStore(PostgresStoreBase):
             normalized[key.strip()] = value.strip()
         return normalized
 
+    @staticmethod
     def _normalize_profile_model_bindings(
         bindings: Optional[Dict[str, Any]]
     ) -> Dict[str, Dict[str, str]]:

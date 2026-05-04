@@ -1,7 +1,7 @@
 'use client';
 
-import { t } from '@/lib/i18n';
 import { getAddModelType } from '@/app/settings/utils/modelsAndQuotaPanel';
+import { t } from '@/lib/i18n';
 
 import type {
   CatalogCategory,
@@ -27,19 +27,6 @@ interface ModelsAndQuotaToolbarProps {
   onSwitchTab: (tab: ModelTypeFilter) => void;
 }
 
-function getPanelDescription(modelTypeFilter: ModelTypeFilter): string {
-  if (modelTypeFilter === 'chat') {
-    return 'Configure and manage large language models used for chat reasoning.';
-  }
-  if (modelTypeFilter === 'multimodal') {
-    return 'Manage multimodal models for image, audio, and other inputs.';
-  }
-  if (modelTypeFilter === 'embedding') {
-    return 'Manage vectorization models used by knowledge and memory features.';
-  }
-  return 'Configure settings related to tool calling.';
-}
-
 function getCatalogDescription(catalogCategory: CatalogCategory): string {
   if (catalogCategory === 'runtime-cli') {
     return 'Credentials and model settings for CLI and local development tools.';
@@ -51,7 +38,7 @@ function getCatalogDescription(catalogCategory: CatalogCategory): string {
 }
 
 function getTabClass(active: boolean): string {
-  return `flex-1 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap flex items-center justify-center ${
+  return `shrink-0 px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap flex items-center justify-center ${
     active
       ? 'bg-surface-secondary dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
       : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
@@ -85,17 +72,8 @@ export function ModelsAndQuotaToolbar({
 }: ModelsAndQuotaToolbarProps) {
   return (
     <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 pb-3 mb-3">
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-3">
-        <div className="xl:max-w-sm shrink-0">
-          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-            {t('modelsAndQuota' as any) || 'Models and Quota'}
-          </h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed max-w-sm">
-            {getPanelDescription(modelTypeFilter)}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 self-start w-full xl:w-auto xl:flex-1 max-w-3xl">
+      <div className="flex flex-col gap-3 mb-3">
+        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-full max-w-full overflow-x-auto">
           <button onClick={() => onSwitchTab('chat')} className={getTabClass(modelTypeFilter === 'chat')}>
             Chat / Plan
             <span className={getBadgeClass(modelTypeFilter === 'chat')}>{chatCount}</span>

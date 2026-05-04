@@ -1,29 +1,29 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { t } from '../../../lib/i18n';
 import { useBasicSettings } from '../hooks/useBasicSettings';
 import { Card } from './Card';
 import { showNotification } from '../hooks/useSettingsNotification';
-import { LLMModelSettings } from './LLMModelSettings';
-import { GoogleOAuthSettings } from './GoogleOAuthSettings';
 import { BackendModeSettings } from './panels/BackendModeSettings';
-import { ModelsAndQuotaPanel } from './panels/ModelsAndQuotaPanel';
-import { APIAndQuotaSettings } from './panels/APIAndQuotaSettings';
-import { EmbeddingSettings } from './panels/EmbeddingSettings';
-import { LLMChatSettings } from './panels/LLMChatSettings';
-import { BackendStatusSection } from './panels/BackendStatusSection';
-import { LanguagePreferencesSettings } from './panels/LanguagePreferencesSettings';
-import { ModelRouteRegistryPanel } from './panels/ModelRouteRegistryPanel';
-import { ThemePresetSettings } from './panels/ThemePresetSettings';
-import { CloudExtensionSettings } from './panels/CloudExtensionSettings';
-import { UnsplashFingerprintsSettings } from './panels/UnsplashFingerprintsSettings';
-import { PortConfigurationSettings } from './panels/PortConfigurationSettings';
-import { RuntimeBackupSettings } from './panels/RuntimeBackupSettings';
 
 interface BasicSettingsPanelProps {
   activeSection?: string;
 }
+
+function BasicPanelFallback() {
+  return (
+    <div className="rounded-lg border border-default dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 p-4 text-sm text-secondary dark:text-gray-400">
+      Loading...
+    </div>
+  );
+}
+
+const BasicSettingsSectionHost = dynamic(
+  () => import('./BasicSettingsSectionHost').then((mod) => mod.BasicSettingsSectionHost),
+  { ssr: false, loading: BasicPanelFallback }
+);
 
 export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = {}) {
   const {
@@ -119,41 +119,6 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
           </div>
         );
 
-      case 'oauth':
-        return (
-          <div className="space-y-6">
-            <GoogleOAuthSettings />
-          </div>
-        );
-
-      case 'language-preference':
-        return (
-          <div className="space-y-6">
-            <LanguagePreferencesSettings />
-          </div>
-        );
-
-      case 'theme-preset':
-        return (
-          <div className="space-y-6">
-            <ThemePresetSettings />
-          </div>
-        );
-
-      case 'cloud-extension':
-        return (
-          <div className="space-y-6">
-            <CloudExtensionSettings />
-          </div>
-        );
-
-      case 'model-routing-registry':
-        return (
-          <div className="space-y-6">
-            <ModelRouteRegistryPanel />
-          </div>
-        );
-
       case 'unsplash-fingerprints':
         if (mode !== 'local') {
           return (
@@ -162,46 +127,21 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
             </div>
           );
         }
-        return (
-          <div className="space-y-6">
-            <UnsplashFingerprintsSettings />
-          </div>
-        );
-
-      case 'port-configuration':
-        return (
-          <div className="space-y-6">
-            <PortConfigurationSettings />
-          </div>
-        );
-
-      case 'runtime-backup':
-        return (
-          <div className="space-y-6">
-            <RuntimeBackupSettings />
-          </div>
-        );
+        return <BasicSettingsSectionHost activeSection={section} />;
 
       default:
-        return null;
+        return <BasicSettingsSectionHost activeSection={section} />;
     }
   };
 
   if (activeSection === 'runtime-backup') {
-    return <RuntimeBackupSettings />;
+    return <BasicSettingsSectionHost activeSection={activeSection} />;
   }
 
   const isStandalone = activeSection && ['models-and-quota', 'api-quota', 'embedding', 'llm-chat', 'model-routing-registry'].includes(activeSection);
 
   if (isStandalone) {
-    if (activeSection === 'model-routing-registry') {
-      return <ModelRouteRegistryPanel />;
-    }
-    return (
-      <Card className="h-full min-h-0 flex flex-col">
-        <ModelsAndQuotaPanel />
-      </Card>
-    );
+    return <BasicSettingsSectionHost activeSection={activeSection} />;
   }
 
   const sectionContent = renderSection();

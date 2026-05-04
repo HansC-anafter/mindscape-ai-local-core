@@ -67,14 +67,13 @@ export function useSettingsNotification() {
 
 export function SettingsNotificationContainer() {
   const notifications = useSettingsNotification();
-  const container = typeof window !== 'undefined' ? document.getElementById('settings-notifications') : null;
+  const [container, setContainer] = useState<HTMLElement | null>(null);
 
-  if (!container) {
-    console.warn('[Notification] Container #settings-notifications not found in DOM');
-    return null;
-  }
+  useEffect(() => {
+    setContainer(document.getElementById('settings-notifications'));
+  }, []);
 
-  if (notifications.length === 0) {
+  if (!container || notifications.length === 0) {
     return null;
   }
 
