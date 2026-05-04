@@ -30,6 +30,7 @@ _MLX_CONNECT_TIMEOUT_SECONDS = float(os.getenv("VLM_CONNECT_TIMEOUT_SECONDS", "3
 _MLX_READ_TIMEOUT_SECONDS = float(os.getenv("VLM_READ_TIMEOUT_SECONDS", "1200"))
 _MLX_WRITE_TIMEOUT_SECONDS = float(os.getenv("VLM_WRITE_TIMEOUT_SECONDS", "120"))
 _MLX_POOL_TIMEOUT_SECONDS = float(os.getenv("VLM_POOL_TIMEOUT_SECONDS", "30"))
+_MLX_MAX_OUTPUT_TOKENS_CAP_DEFAULT = 12288
 _WATCHDOG_STATE_DIR = Path(os.getenv("VLM_WATCHDOG_STATE_DIR", "/tmp/mindscape-vlm-watchdog"))
 _WATCHDOG_STATE_FILE = _WATCHDOG_STATE_DIR / "inflight_request.json"
 _WATCHDOG_HEARTBEAT_INTERVAL_SECONDS = float(
@@ -45,6 +46,20 @@ def _coerce_positive_int(value: Any) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return coerced if coerced > 0 else None
+
+
+def _cap_local_vlm_max_tokens(value: int) -> int:
+    cap = _coerce_positive_int(
+        os.getenv("VLM_MAX_OUTPUT_TOKENS_CAP", str(_MLX_MAX_OUTPUT_TOKENS_CAP_DEFAULT))
+    )
+    if cap is None or value <= cap:
+        return value
+    logger.warning(
+        "[VLM] Capping local max_tokens from %d to %d for MLX stability",
+        value,
+        cap,
+    )
+    return cap
 
 
 def _normalize_reasoning_trace_mode(value: Any) -> str:
@@ -658,6 +673,7 @@ async def _route_mlx_server(
                 model_name,
                 caller_default=requested_max_tokens or 12288,
             )
+            resolved_max = _cap_local_vlm_max_tokens(resolved_max)
             
             first_b64 = images[0].get("base64_jpeg", "")
             mime = _detect_image_mime(first_b64) if first_b64 else "unknown"
