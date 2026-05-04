@@ -156,13 +156,9 @@ async def test_bridge_projects_aol_refs_and_carries_guidance_metadata(monkeypatc
         for attachment in handoff.context_attachments
     )
     assert handoff.governance_constraints["addressable_object_layer"] == aol_metadata
-    assert handoff.playbook_requests is not None
-    assert handoff.playbook_requests[0]["playbook_code"] == "visual_audit"
-    assert handoff.playbook_requests[0]["request_contract_source"] == "requested_action"
-    assert (
-        handoff.playbook_requests[0]["input_params"]["addressable_object_layer"]
-        == aol_metadata
-    )
+    assert aol_metadata["hard_playbook_request_allowed"] is False
+    assert aol_metadata["hard_playbook_request_reason"] == "candidate_affordance_only"
+    assert handoff.playbook_requests is None
 
 
 @pytest.mark.asyncio
@@ -210,3 +206,73 @@ async def test_bridge_skips_graph_projection_when_only_guidance_metadata_is_sele
     ]
     assert handoff.context_attachments[0]["role"] == "guidance"
     assert handoff.playbook_requests is None
+
+
+@pytest.mark.asyncio
+async def test_bridge_promotes_requested_action_only_with_explicit_force():
+    canonical = MeetingCommandEnvelope(
+        workspace_id="ws_demo",
+        meeting_id="mtg_demo",
+        origin_surface="meeting_workbench",
+        actor="user",
+        intent_text="Run a visual audit now",
+        requested_action=MeetingRequestedAction(
+            verb="execute_playbook",
+            pack_code="ig",
+            playbook_code="visual_audit",
+        ),
+        metadata={
+            "explicit_override": True,
+            "force_playbook_request": True,
+        },
+    )
+
+    handoff = await AOLMeetingOrchestrationBridge().build_handoff_in(
+        command=_command(),
+        canonical=canonical,
+        session=SimpleNamespace(id="mtg_demo", meeting_type="meeting_workbench", metadata={}),
+        workspace_id="ws_demo",
+    )
+
+    aol_metadata = handoff.metadata["addressable_object_layer"]
+    assert aol_metadata["hard_playbook_request_allowed"] is True
+    assert aol_metadata["hard_playbook_request_reason"] == "metadata.force_playbook_request"
+    assert handoff.playbook_requests is not None
+    assert handoff.playbook_requests[0]["playbook_code"] == "visual_audit"
+    assert handoff.playbook_requests[0]["request_contract_source"] == "requested_action"
+    assert (
+        handoff.playbook_requests[0]["input_params"]["addressable_object_layer"]
+        == aol_metadata
+    )
+
+
+@pytest.mark.asyncio
+async def test_bridge_keeps_explicit_playbook_request_arrays_hard_without_force():
+    canonical = MeetingCommandEnvelope(
+        workspace_id="ws_demo",
+        meeting_id="mtg_demo",
+        origin_surface="meeting_workbench",
+        actor="user",
+        intent_text="Run a visual audit explicitly",
+        metadata={
+            "playbook_requests": [
+                {
+                    "playbook_code": "visual_audit",
+                }
+            ],
+        },
+    )
+
+    handoff = await AOLMeetingOrchestrationBridge().build_handoff_in(
+        command=_command(),
+        canonical=canonical,
+        session=SimpleNamespace(id="mtg_demo", meeting_type="meeting_workbench", metadata={}),
+        workspace_id="ws_demo",
+    )
+
+    assert handoff.playbook_requests is not None
+    assert handoff.playbook_requests[0]["playbook_code"] == "visual_audit"
+    assert (
+        handoff.playbook_requests[0]["request_contract_source"]
+        == "explicit_playbook_request"
+    )

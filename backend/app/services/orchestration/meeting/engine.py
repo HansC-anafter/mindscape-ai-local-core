@@ -439,6 +439,44 @@ class MeetingEngine(
             + ", ".join(playbook_codes)
         )
 
+    def _ensure_requested_playbooks_in_available_cache(self) -> None:
+        """Add installed explicit request playbooks to the policy allowlist cache."""
+        contract = self._get_request_contract_metadata()
+        requests = self._extract_request_contract_playbook_requests(contract)
+        if not requests:
+            return
+
+        existing_cache = str(getattr(self, "_available_playbooks_cache", "") or "")
+        existing_codes = {
+            line[2:].split(":", 1)[0].strip()
+            for line in existing_cache.splitlines()
+            if line.strip().startswith("- ") and ":" in line
+        }
+        additions: List[str] = []
+
+        try:
+            from backend.app.services.orchestration.playbook_alias_resolution import (
+                load_playbook_spec,
+            )
+        except Exception:
+            load_playbook_spec = None
+
+        for item in requests:
+            playbook_code = str(item.get("playbook_code") or "").strip()
+            if not playbook_code or playbook_code in existing_codes:
+                continue
+            if load_playbook_spec is None or load_playbook_spec(playbook_code) is None:
+                continue
+            title = str(item.get("title") or playbook_code).strip() or playbook_code
+            additions.append(f"- {playbook_code}: {title}")
+            existing_codes.add(playbook_code)
+
+        if not additions:
+            return
+        self._available_playbooks_cache = "\n".join(
+            [part for part in [existing_cache.strip(), *additions] if part]
+        )
+
     async def _stage_agenda_and_rag(self, user_message: str) -> None:
         """S1: Agenda decomposition + RAG tool pre-fetch."""
         await self._emit_meeting_stage("agenda", "Analyzing agenda...")
@@ -931,6 +969,7 @@ class MeetingEngine(
             action_intents=action_intents,
         )
         self._hydrate_action_items_for_policy_gate(action_items)
+        self._ensure_requested_playbooks_in_available_cache()
         try:
             from backend.app.services.orchestration.meeting.dispatch_policy_gate import (
                 check_dispatch_policy,

@@ -320,21 +320,26 @@ def _get_task_control_signal(task: Optional[Task]) -> Optional[Dict[str, str]]:
     return None
 
 
-def _initialize_capability_packages_for_runner() -> None:
+def _initialize_capability_packages_for_runner(*, load_tools: bool = True) -> None:
     try:
         from pathlib import Path
 
         from backend.app.services.capability_registry import get_registry, load_capabilities
-        from backend.app.services.capability_tool_loader import load_all_capability_tools
 
         app_dir = Path(__file__).resolve().parent.parent
         capabilities_dir = (app_dir / "capabilities").resolve()
         load_capabilities(capabilities_dir)
-        load_all_capability_tools()
+        if load_tools:
+            from backend.app.services.capability_tool_loader import load_all_capability_tools
+
+            load_all_capability_tools()
 
         registry = get_registry()
         logger.info(
-            f"Runner capability packages loaded: {len(registry.list_capabilities())} capabilities, {len(registry.list_tools())} tools"
+            "Runner capability packages loaded: %s capabilities, %s tools, load_tools=%s",
+            len(registry.list_capabilities()),
+            len(registry.list_tools()),
+            load_tools,
         )
     except Exception as e:
         logger.error(f"Runner failed to load capability packages: {e}", exc_info=True)
@@ -354,7 +359,13 @@ def _child_execute_playbook(payload: Dict[str, Any]) -> None:
     if task_id:
         os.environ["LOCAL_CORE_TASK_ID"] = task_id
     try:
-        _initialize_capability_packages_for_runner()
+        eager_tool_load = (
+            os.getenv("LOCAL_CORE_RUNNER_CHILD_EAGER_TOOL_LOAD", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        _initialize_capability_packages_for_runner(load_tools=eager_tool_load)
     except Exception:
         pass
 
@@ -508,11 +519,24 @@ async def _mark_task_failed(
                         logger.error(f"Failed to ack task {task_id} after hook invocation: {e}")
                 return
 
+            retry_delay_sec = max(15, int(retry_delay_sec or 15))
+            next_eligible_at = (
+                None
+                if is_deadletter
+                else _utc_now() + timedelta(seconds=retry_delay_sec)
+            )
+
             # 1. Strict DB write first
             tasks_store.update_task(
                 latest.id,
                 execution_context=ctxf,
                 status=new_status,
+                started_at=latest.started_at if is_deadletter else None,
+                next_eligible_at=next_eligible_at,
+                blocked_reason=None,
+                blocked_payload=None,
+                frontier_state="done" if is_deadletter else "cold",
+                frontier_enqueued_at=None,
                 completed_at=_utc_now() if is_deadletter else None,
                 error=msg if is_deadletter else None,
             )
@@ -535,7 +559,7 @@ async def _mark_task_failed(
                     logger.warning(f"Task {task_id} failed transiently (attempt {retry_count}). NACKing to delayed queue.")
                     await redis_queue.nack_task_to_delayed(
                         task_id,
-                        delay_sec=max(15, int(retry_delay_sec or 15)),
+                        delay_sec=retry_delay_sec,
                     )
     except Exception as e:
         logger.error(f"Failed to mark task {task_id} as failed: {e}", exc_info=True)

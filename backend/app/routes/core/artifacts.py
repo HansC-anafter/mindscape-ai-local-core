@@ -69,6 +69,7 @@ class ArtifactResponse(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
+    task_id: Optional[str] = None
     execution_id: Optional[str] = None  # Add execution_id
     thread_id: Optional[str] = None
     playbook_code: Optional[str] = None
@@ -220,6 +221,7 @@ def artifact_to_response(
             if artifact.updated_at
             else _utc_now().isoformat()
         ),
+        task_id=artifact.task_id,
         execution_id=artifact.execution_id,
         thread_id=artifact.thread_id,
         playbook_code=artifact.playbook_code,

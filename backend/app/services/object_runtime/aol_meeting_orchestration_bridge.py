@@ -208,6 +208,30 @@ def _normalize_explicit_playbook_request(
     return request
 
 
+def _truthy_flag(value: Any) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
+def _allow_requested_action_hard_playbook_request(
+    *,
+    metadata: Dict[str, Any],
+    action_parameters: Dict[str, Any],
+) -> tuple[bool, str]:
+    if _truthy_flag(metadata.get("force_playbook_request")):
+        return True, "metadata.force_playbook_request"
+    if _truthy_flag(action_parameters.get("force_playbook_request")):
+        return True, "action_parameters.force_playbook_request"
+    if _truthy_flag(metadata.get("explicit_override")):
+        if metadata.get("dispatch_mode") == "route_playbook":
+            return True, "route_playbook.explicit_override"
+        return True, "metadata.explicit_override"
+    return False, "candidate_affordance_only"
+
+
 def _collect_explicit_playbook_requests(
     *,
     metadata: Dict[str, Any],
@@ -231,7 +255,13 @@ def _collect_explicit_playbook_requests(
 
     if requested_action and requested_action.playbook_code:
         verb = _clean_str(getattr(requested_action, "verb", None)) or ""
-        if verb in {"execute_playbook", "run_playbook", "invoke_playbook"}:
+        allowed, reason = _allow_requested_action_hard_playbook_request(
+            metadata=metadata,
+            action_parameters=action_parameters,
+        )
+        aol_metadata["hard_playbook_request_allowed"] = allowed
+        aol_metadata["hard_playbook_request_reason"] = reason
+        if allowed and verb in {"execute_playbook", "run_playbook", "invoke_playbook"}:
             raw_requests.append(
                 {
                     "playbook_code": requested_action.playbook_code,
