@@ -8,38 +8,15 @@ from typing import Optional, Tuple
 
 from backend.app.services.agent_runner import LLMProviderManager
 from backend.app.services.config_store import ConfigStore
-from backend.app.services.model_config_store import ModelConfigStore
 from backend.app.services.system_settings_store import SystemSettingsStore
 
 logger = logging.getLogger(__name__)
 
 
 def determine_provider_from_model(model_name: str) -> Optional[str]:
-    """
-    Determine provider name from model name
-
-    Args:
-        model_name: Model name (e.g., "gpt-4", "gemini-pro", "claude-3")
-
-    Returns:
-        Provider name or None if cannot determine
-    """
-    if not model_name:
-        return None
-
-    model_lower = model_name.lower()
-    if "gemini" in model_lower:
-        return "vertex-ai"
-    elif "gpt" in model_lower or "o1" in model_lower or "o3" in model_lower:
-        return "openai"
-    elif "claude" in model_lower:
-        return "anthropic"
-    elif any(
-        token in model_lower
-        for token in ("llama", "mistral", "gemma", "deepseek", "qwen", "phi")
-    ):
-        return "ollama"
-    return None
+    """Resolve the provider through the model routing registry."""
+    provider_name, _ = get_provider_name_from_model_config(model_name)
+    return provider_name
 
 
 def get_provider_name_from_model_config(
@@ -58,49 +35,20 @@ def get_provider_name_from_model_config(
         return None, None
 
     try:
-        model_store = ModelConfigStore()
         from backend.app.models.model_provider import ModelType
-
-        all_models = model_store.get_all_models(model_type=ModelType.CHAT, enabled=True)
-
-        for model in all_models:
-            if model.model_name == model_name:
-                return model.provider_name, model
-
-        # -- Disabled model guard --
-        # Check if model exists but is DISABLED → refuse to route
-        all_disabled = model_store.get_all_models(
-            model_type=ModelType.CHAT, enabled=False
+        from backend.app.services.model_routing_policy_service import (
+            ModelRoutingPolicyService,
         )
-        for model in all_disabled:
-            if model.model_name == model_name:
-                logger.warning(
-                    "Model '%s' is DISABLED in model config (provider=%s). "
-                    "Returning None to prevent unintended API costs.",
-                    model_name,
-                    model.provider_name,
-                )
-                return None, None
 
-        # Infer provider from model name, but only if that provider
-        # has at least one enabled model — prevents bypassing the
-        # "all models disabled" setting.
-        provider_name = determine_provider_from_model(model_name)
-        if provider_name:
-            has_enabled = any(m.provider_name == provider_name for m in all_models)
-            if not has_enabled:
-                logger.warning(
-                    "Provider '%s' (inferred from '%s') has no enabled "
-                    "models. Returning None to prevent unintended API costs.",
-                    provider_name,
-                    model_name,
-                )
-                return None, None
-        return provider_name, None
+        route = ModelRoutingPolicyService().resolve_registered_model(
+            model_name=model_name,
+            model_type=ModelType.CHAT,
+            source="workspace_chat_streaming",
+        )
+        return route.provider, route
     except Exception as e:
         logger.warning(
-            "Failed to get model config for %s: %s — fail-closed, "
-            "returning None to prevent unintended API costs.",
+            "Failed to resolve registered chat model route for %s: %s",
             model_name,
             e,
         )
@@ -270,7 +218,7 @@ def get_llm_provider(
     """
     if not model_name:
         raise ValueError(
-            "Cannot generate response: chat_model not configured in system settings"
+            "Cannot generate response: chat_model not configured in model-routing-registry"
         )
 
     # Get provider name
@@ -279,8 +227,7 @@ def get_llm_provider(
     if not provider_name:
         raise ValueError(
             f"Cannot determine provider for model '{model_name}'. "
-            f"Supported models: gemini-*, gpt-*, o1-*, o3-*, claude-*, "
-            f"and local Ollama model names such as llama*, gemma*, qwen*"
+            "Configure the model provider in model-routing-registry."
         )
 
     # Get or create provider manager

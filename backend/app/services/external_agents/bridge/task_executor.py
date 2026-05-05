@@ -38,14 +38,15 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 from backend.app.services.external_agents.bridge.codex_cli_runner import (
     DEFAULT_CLI_STALL_TIMEOUT_SECONDS,
-    MAX_CLI_OUTPUT_SIZE,
     cli_activity_signature,
+    clip_cli_stream,
     extract_codex_cli_error,
     resolve_codex_cli_binary,
     looks_like_codex_auth_failure,
     looks_like_codex_quota_exhaustion,
     resolve_codex_cli_output,
     should_retry_codex_runtime_fault,
+    tail_cli_stream,
     wait_for_cli_subprocess_activity,
 )
 
@@ -965,7 +966,8 @@ class HostBridgeTaskExecutor:
             'model_reasoning_effort="high"',
             "exec",
             "--skip-git-repo-check",
-            "--full-auto",
+            "--sandbox",
+            "workspace-write",
             "--output-last-message",
             last_message_path,
         ]
@@ -1351,8 +1353,14 @@ class HostBridgeTaskExecutor:
             snapshot_paths=snapshot_paths,
         )
 
-        stdout = stdout_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
-        stderr = stderr_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_SIZE].strip()
+        stdout = clip_cli_stream(
+            stdout_bytes.decode("utf-8", errors="replace"),
+            max_size=MAX_OUTPUT_SIZE,
+        ).strip()
+        stderr = clip_cli_stream(
+            stderr_bytes.decode("utf-8", errors="replace"),
+            max_size=MAX_OUTPUT_SIZE,
+        ).strip()
         output = stdout
         synthesized_error: Optional[str] = None
 
@@ -1460,7 +1468,7 @@ class HostBridgeTaskExecutor:
         return ExecutionResult(
             status="failed",
             output=output,
-            error=f"Exit code {proc.returncode}: {stderr[:500] or stdout[:500]}",
+            error=f"Exit code {proc.returncode}: {tail_cli_stream(stderr or stdout, max_size=500)}",
             files_modified=files_modified,
             files_created=files_created,
             attachments=attachments,

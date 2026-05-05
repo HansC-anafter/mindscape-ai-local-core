@@ -72,26 +72,33 @@ class MeetingGenerationMixin:
                 Callers doing constrained tasks (e.g. self-heal repair) can
                 pass a lower value.
             capability_profile: Optional profile name (e.g. 'fast', 'precise').
-                When set, CapabilityProfileResolver resolves it to a model.
+                When set, model-routing-registry resolves it to a model.
             model: Optional explicit model override. Takes precedence over
-                capability_profile resolution. Used by MeetingLLMAdapter and
-                external consumers.
+                capability_profile resolution.
             use_executor_runtime: Retained for compatibility. Meeting generation
                 always requires a bound executor runtime and never uses a direct
                 provider path.
         """
-        # Resolve model: explicit model > capability_profile > global default
         resolved_model: Optional[str] = model
-        resolved_variant: Optional[str] = None
         if not resolved_model and capability_profile:
-            from backend.app.services.capability_profile_resolver import (
-                CapabilityProfileResolver,
+            from backend.app.models.model_provider import ModelType
+            from backend.app.services.model_routing_policy_service import (
+                ModelRoutingPolicyService,
             )
 
-            resolver = CapabilityProfileResolver()
-            resolved_model, resolved_variant = resolver.resolve(capability_profile)
+            route = ModelRoutingPolicyService().resolve_profile_model(
+                profile=capability_profile,
+                scope="local",
+                model_type=ModelType.CHAT,
+            )
+            resolved_model = route.model_name
+        if not resolved_model:
+            from backend.app.services.model_routing_policy_service import (
+                ModelRoutingPolicyService,
+            )
 
-        # P1.6-C: Trace hook — record per-agent model routing for observability
+            resolved_model = ModelRoutingPolicyService().resolve_chat_default().model_name
+
         if capability_profile:
             try:
                 self._emit_event(
@@ -99,8 +106,7 @@ class MeetingGenerationMixin:
                     payload={
                         "capability_profile": capability_profile,
                         "resolved_model": resolved_model,
-                        "resolved_variant": resolved_variant,
-                        "fallback_happened": resolved_model is None,
+                        "route_authority": "model-routing-registry",
                         "session_id": getattr(
                             getattr(self, "session", None), "id", None
                         ),
@@ -418,7 +424,8 @@ class MeetingGenerationMixin:
                 'model_reasoning_effort="high"',
                 "exec",
                 "--skip-git-repo-check",
-                "--full-auto",
+                "--sandbox",
+                "workspace-write",
                 "--output-last-message",
                 last_message_path,
             ]

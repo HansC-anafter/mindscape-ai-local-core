@@ -1,11 +1,41 @@
 import pytest
 from pathlib import Path
+from types import SimpleNamespace
 
 from backend.app.services.llm.governed_stage_router import resolve_governed_stage_route
 from backend.app.services.llm.core_llm import core_llm_call
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+class _FakeRoutingPolicy:
+    def resolve_chat_default(self):
+        return SimpleNamespace(model_name="gpt-5.4", provider="openai")
+
+    def resolve_registered_model(self, *, model_name, model_type=None, source="requested_model"):
+        return SimpleNamespace(
+            model_name=model_name,
+            provider="openai",
+            metadata={},
+            source=source,
+        )
+
+    def resolve_profile_model(self, *, profile, scope="local", model_type=None):
+        return SimpleNamespace(
+            model_name=None,
+            provider=None,
+            metadata={},
+            source=f"system_settings.profile_model_bindings.{scope}.{profile}",
+        )
+
+
+@pytest.fixture(autouse=True)
+def _registry_policy(monkeypatch):
+    monkeypatch.setattr(
+        "backend.app.services.model_routing_policy_service.ModelRoutingPolicyService",
+        _FakeRoutingPolicy,
+    )
 
 
 @pytest.mark.asyncio
@@ -21,6 +51,7 @@ async def test_json_response_keeps_workspace_runtime_route():
 
     assert decision.route_mode == "workspace_runtime"
     assert decision.executor_runtime == "codex_cli"
+    assert decision.provider_name == "openai"
     assert decision.decision_reason == "workspace_runtime_stage"
 
 
@@ -37,6 +68,7 @@ async def test_managed_stage_keeps_workspace_runtime_route():
 
     assert decision.route_mode == "workspace_runtime"
     assert decision.executor_runtime == "gemini_cli"
+    assert decision.provider_name == "openai"
     assert decision.decision_reason == "workspace_runtime_stage"
 
 
@@ -53,6 +85,7 @@ async def test_no_workspace_runtime_uses_managed_provider():
 
     assert decision.route_mode == "managed_provider"
     assert decision.executor_runtime is None
+    assert decision.provider_name == "openai"
     assert decision.decision_reason == "no_workspace_runtime"
 
 
@@ -90,3 +123,11 @@ def test_route_bypass_strings_are_not_reintroduced():
         text = path.read_text()
         for token in forbidden:
             assert token not in text, f"{token} reintroduced in {path}"
+
+
+def test_workspace_chat_provider_resolution_uses_registry_policy():
+    from backend.features.workspace.chat.utils.llm_provider import (
+        determine_provider_from_model,
+    )
+
+    assert determine_provider_from_model("qwen2.5:7b") == "openai"

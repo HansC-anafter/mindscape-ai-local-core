@@ -147,6 +147,25 @@ def resolve_codex_cli_binary(preferred_binary: Optional[str] = None) -> str:
     return str(preferred_binary or os.environ.get("CODEX_CLI_PATH") or "codex").strip() or "codex"
 
 
+def tail_cli_stream(text: str, *, max_size: int) -> str:
+    normalized = str(text or "")
+    if len(normalized) <= max_size:
+        return normalized
+    return normalized[-max_size:]
+
+
+def clip_cli_stream(text: str, *, max_size: int) -> str:
+    normalized = str(text or "")
+    if len(normalized) <= max_size:
+        return normalized
+    half = max(1, max_size // 2)
+    return (
+        normalized[:half]
+        + f"\n\n[... clipped {len(normalized) - (half * 2)} characters ...]\n\n"
+        + normalized[-half:]
+    )
+
+
 def looks_like_codex_quota_exhaustion(message: str) -> bool:
     normalized = str(message or "").lower()
     if not normalized:
@@ -462,8 +481,14 @@ async def run_codex_cli_subprocess(
             await _terminate_cli_process(proc=proc)
         raise
 
-    stdout_text = stdout_bytes.decode("utf-8", errors="replace")[:max_output_size].strip()
-    stderr_text = stderr_bytes.decode("utf-8", errors="replace")[:max_output_size].strip()
+    stdout_text = clip_cli_stream(
+        stdout_bytes.decode("utf-8", errors="replace"),
+        max_size=max_output_size,
+    ).strip()
+    stderr_text = clip_cli_stream(
+        stderr_bytes.decode("utf-8", errors="replace"),
+        max_size=max_output_size,
+    ).strip()
     output_text, synthesized_error = resolve_codex_cli_output(
         stdout=stdout_text,
         stderr=stderr_text,

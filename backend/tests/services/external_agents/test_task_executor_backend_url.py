@@ -19,14 +19,14 @@ def test_resolve_backend_api_url_falls_back_to_ws_host(monkeypatch):
     assert HostBridgeTaskExecutor._resolve_backend_api_url() == "http://localhost:8200"
 
 
-def test_codex_cli_command_uses_full_auto(monkeypatch):
+def test_codex_cli_command_uses_workspace_write_sandbox(monkeypatch):
     executor = HostBridgeTaskExecutor(workspace_root="/tmp", runtime_surface="codex_cli")
     captured = {}
 
-    async def fake_fetch(runtime_name, ctx):
-        return {"env": {}}
+    async def fake_fetch(runtime_name, ctx, **kwargs):
+        return {"env": {}, "selected_runtime_id": "runtime-codex-test"}
 
-    async def fake_run(ctx, cmd, cwd, runtime_name, last_message_path=None, extra_env=None):
+    async def fake_run(ctx, cmd, cwd, runtime_name, **kwargs):
         captured["cmd"] = cmd
         return ExecutionResult(status="completed", output="ok")
 
@@ -46,5 +46,6 @@ def test_codex_cli_command_uses_full_auto(monkeypatch):
 
     asyncio.run(executor._execute_via_codex_cli(ctx, timeout=5))
 
-    assert "--full-auto" in captured["cmd"]
+    assert "--full-auto" not in captured["cmd"]
+    assert captured["cmd"][captured["cmd"].index("--sandbox") + 1] == "workspace-write"
     assert "--ask-for-approval" not in captured["cmd"]
