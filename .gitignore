@@ -132,6 +132,7 @@ docs-internal/implementation/*
 !docs-internal/implementation/runtime/
 docs-internal/implementation/runtime/*
 !docs-internal/implementation/runtime/ig-runtime-resource-settings-worktree-closure-todos-2026-05-05.md
+!docs-internal/implementation/runtime/ig-runtime-resource-settings-worktree-quality-report-2026-05-05.zh-TW.md
 .agent/workflows/
 .agent/skills/**/*.md
 !.agent/skills/*/SKILL.md

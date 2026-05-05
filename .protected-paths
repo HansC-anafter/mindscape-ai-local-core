@@ -41,3 +41,5 @@ docs-internal/
 !backend/app/models/object_runtime/
 !docs-internal/implementation/2026-05-02/external-docs-aggressive-quarantine/
 !docs-internal/implementation/aol-runtime-workbench-2026-05-02/
+!docs-internal/implementation/runtime/ig-runtime-resource-settings-worktree-closure-todos-2026-05-05.md
+!docs-internal/implementation/runtime/ig-runtime-resource-settings-worktree-quality-report-2026-05-05.zh-TW.md
