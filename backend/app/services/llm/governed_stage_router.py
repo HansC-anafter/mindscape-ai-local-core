@@ -14,20 +14,6 @@ from backend.app.services.conversation.capability_profile import (
 from backend.app.services.conversation.stage_profile_mapper import StageProfileMapper
 from backend.app.services.executor_route_context import load_executor_route_context
 
-_AGENTIC_EXECUTOR_RUNTIMES = frozenset({"codex_cli", "gemini_cli", "claude_code_cli"})
-_MANAGED_ONLY_STAGES = frozenset(
-    {
-        "intent_analysis",
-        "execution_selection",
-        "plan_generation",
-        "tool_call_generation",
-        "tool_call_repair",
-        "response_formatting",
-        "scope_decision",
-    }
-)
-
-
 @dataclass(frozen=True)
 class StageRouteDecision:
     workspace_id: Optional[str]
@@ -152,32 +138,6 @@ async def resolve_governed_stage_route(
         llm_provider_manager=llm_provider_manager,
         profile_id=profile_id,
     )
-
-    if executor_runtime in _AGENTIC_EXECUTOR_RUNTIMES and resolved_stage in _MANAGED_ONLY_STAGES:
-        return StageRouteDecision(
-            workspace_id=workspace_id,
-            stage_name=resolved_stage,
-            purpose=purpose,
-            route_mode="managed_provider",
-            executor_runtime=executor_runtime,
-            concrete_runtime_id=concrete_runtime_id,
-            capability_profile=capability_profile,
-            model_name=resolved_model_name,
-            decision_reason="agentic_runtime_managed_stage",
-        )
-
-    if executor_runtime in _AGENTIC_EXECUTOR_RUNTIMES and response_format == "json":
-        return StageRouteDecision(
-            workspace_id=workspace_id,
-            stage_name=resolved_stage,
-            purpose=purpose,
-            route_mode="managed_provider",
-            executor_runtime=executor_runtime,
-            concrete_runtime_id=concrete_runtime_id,
-            capability_profile=capability_profile,
-            model_name=resolved_model_name,
-            decision_reason="agentic_runtime_structured_stage",
-        )
 
     if executor_runtime:
         return StageRouteDecision(

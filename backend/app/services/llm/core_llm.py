@@ -160,7 +160,11 @@ async def core_llm_call(
     )
     append_stage_route_decision(decision_log, decision)
 
-    if decision.route_mode == "workspace_runtime" and workspace is not None:
+    if decision.route_mode == "workspace_runtime":
+        if workspace is None:
+            raise RuntimeError(
+                "Workspace runtime route selected but workspace context is unavailable"
+            )
         return await _call_via_runtime(
             workspace=workspace,
             executor_runtime=decision.executor_runtime or executor_runtime,
@@ -168,6 +172,11 @@ async def core_llm_call(
             user_message=user_message,
             response_format=response_format,
             model=model,
+        )
+
+    if decision.executor_runtime:
+        raise RuntimeError(
+            "Managed provider route is not allowed when workspace executor runtime is configured"
         )
 
     logger.info(
