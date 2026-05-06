@@ -37,6 +37,9 @@ class ToolConnectionStore(PostgresStoreBase):
         super().__init__(db_role=db_role)
         self.db_path = db_path
 
+    def _db_connection(self):
+        return super().get_connection()
+
     def save_connection(self, connection: ToolConnection) -> ToolConnection:
         """Save or update a tool connection"""
         connection.updated_at = _utc_now()
@@ -129,7 +132,7 @@ class ToolConnectionStore(PostgresStoreBase):
         self, connection_id: str, profile_id: str
     ) -> Optional[ToolConnection]:
         """Get a specific tool connection"""
-        with self.get_connection() as conn:
+        with self._db_connection() as conn:
             row = conn.execute(
                 text(
                     """
@@ -158,7 +161,7 @@ class ToolConnectionStore(PostgresStoreBase):
 
         query += " ORDER BY usage_count DESC, name ASC"
 
-        with self.get_connection() as conn:
+        with self._db_connection() as conn:
             rows = conn.execute(text(query), params).fetchall()
             return [self._row_to_connection(row) for row in rows]
 
@@ -166,7 +169,7 @@ class ToolConnectionStore(PostgresStoreBase):
         self, profile_id: str, tool_type: str
     ) -> List[ToolConnection]:
         """Get all connections for a specific tool type"""
-        with self.get_connection() as conn:
+        with self._db_connection() as conn:
             rows = conn.execute(
                 text(
                     """

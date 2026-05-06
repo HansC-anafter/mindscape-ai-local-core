@@ -7,7 +7,7 @@ Provides DataSource abstraction as a view/service interface.
 """
 
 import logging
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from fastapi import APIRouter, HTTPException, Query, Path as PathParam
 from pydantic import BaseModel
 
@@ -16,7 +16,9 @@ from ...models.data_source import (
     CreateDataSourceRequest,
     UpdateDataSourceRequest
 )
-from ...services.data_source_service import DataSourceService
+
+if TYPE_CHECKING:
+    from ...services.data_source_service import DataSourceService
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +29,10 @@ router = APIRouter(
 
 
 # Initialize service
-def get_data_source_service() -> DataSourceService:
+def get_data_source_service() -> "DataSourceService":
     """Get DataSourceService instance"""
+    from ...services.data_source_service import DataSourceService
+
     return DataSourceService()
 
 
@@ -192,4 +196,3 @@ async def get_data_sources_by_type(
     except Exception as e:
         logger.error(f"Failed to get data sources by type: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
