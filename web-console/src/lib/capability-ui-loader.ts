@@ -10,6 +10,11 @@
 
 import { lazy, ComponentType } from 'react';
 import { convertImportPathToContextKey, normalizeCapabilityContextKey } from './capability-path';
+import { loadRegisteredCapabilityComponentsContext } from './capability-ui-context-registry';
+import type {
+  CapabilityComponentModuleLoad,
+  CapabilityComponentsContext,
+} from './capability-ui-context-types';
 
 interface UIComponentInfo {
   code: string;
@@ -19,15 +24,6 @@ interface UIComponentInfo {
   artifact_types: string[];
   playbook_codes: string[];
   import_path: string;
-}
-
-type CapabilityComponentModule = Record<string, any>;
-
-interface CapabilityComponentsContext {
-  (key: string): CapabilityComponentModule;
-  keys: () => string[];
-  resolve?: (request: string) => string;
-  id?: string;
 }
 
 declare global {
@@ -54,9 +50,119 @@ function normalizeCapabilityComponentKeys(
   );
 }
 
+interface CapabilityComponentsResolver {
+  keys: Set<string>;
+  load: (key: string) => CapabilityComponentModuleLoad;
+  resolve?: (request: string) => string;
+  id?: string;
+}
+
+function normalizeContextRequest(key: string): string {
+  if (key.startsWith('pp/src/app/capabilities/')) {
+    return key.replace('pp/src/app/capabilities/', './');
+  }
+  if (key.startsWith('pp/src/')) {
+    return key.replace('pp/src/', './');
+  }
+  return normalizeCapabilityContextKey(key) || key;
+}
+
+function createLegacyResolver(rawContext: CapabilityComponentsContext): CapabilityComponentsResolver {
+  const keys = normalizeCapabilityComponentKeys(rawContext);
+  const rawResolve = rawContext.resolve ? rawContext.resolve.bind(rawContext) : null;
+
+  return {
+    keys,
+    id: rawContext.id,
+    load: (key: string) => {
+      const normalizedKey = normalizeContextRequest(key);
+
+      try {
+        return rawContext(normalizedKey);
+      } catch (error) {
+        if (normalizedKey !== key) {
+          try {
+            return rawContext(key);
+          } catch (fallbackError) {
+            const matchingKey = Array.from(keys).find(k =>
+              k.endsWith(key.split('/').pop() || '') ||
+              k.includes(key.split('/').pop() || '')
+            );
+            if (matchingKey) {
+              return rawContext(matchingKey);
+            }
+            throw fallbackError;
+          }
+        }
+        throw error;
+      }
+    },
+    resolve: rawResolve
+      ? ((request: string) => {
+        const normalizedRequest = normalizeContextRequest(request);
+
+        try {
+          return rawResolve(normalizedRequest);
+        } catch (error) {
+          if (normalizedRequest !== request) {
+            try {
+              return rawResolve(request);
+            } catch (fallbackError) {
+              throw fallbackError;
+            }
+          }
+          throw error;
+        }
+      })
+      : undefined,
+  };
+}
+
+function createScopedResolver(
+  capabilityCode: string,
+  rawContext: CapabilityComponentsContext,
+): CapabilityComponentsResolver {
+  const rawKeys = typeof rawContext.keys === 'function' ? rawContext.keys() : [];
+  const rawByScopedKey = new Map<string, string>();
+
+  for (const rawKey of rawKeys) {
+    const normalizedRawKey = normalizeContextRequest(rawKey).replace(/^\.\//, '');
+    const scopedKey = normalizeCapabilityContextKey(`./${capabilityCode}/${normalizedRawKey}`);
+    if (scopedKey) {
+      rawByScopedKey.set(scopedKey, rawKey);
+    }
+  }
+
+  const keys = new Set(rawByScopedKey.keys());
+  const rawResolve = rawContext.resolve ? rawContext.resolve.bind(rawContext) : null;
+
+  return {
+    keys,
+    id: rawContext.id,
+    load: (key: string) => {
+      const normalizedKey = normalizeContextRequest(key);
+      const rawKey = rawByScopedKey.get(normalizedKey);
+      if (rawKey) {
+        return rawContext(rawKey);
+      }
+
+      const fallbackKey = normalizedKey.replace(new RegExp(`^\\./${capabilityCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`), './');
+      return rawContext(fallbackKey);
+    },
+    resolve: rawResolve
+      ? ((request: string) => {
+        const normalizedRequest = normalizeContextRequest(request);
+        const rawKey = rawByScopedKey.get(normalizedRequest);
+        return rawResolve(rawKey || normalizedRequest);
+      })
+      : undefined,
+  };
+}
+
 export function resetCapabilityUIComponentLoaderCaches(): void {
   componentMetadataCache.clear();
   loadedComponentsCache.clear();
+  resolverCache.clear();
 }
 
 export function primeCapabilityUIComponentMetadata(
@@ -69,24 +175,14 @@ export function primeCapabilityUIComponentMetadata(
   componentMetadataCache.set(capabilityCode, components);
 }
 
-/**
- * Pre-register all capability components using require.context
- * Webpack processes this at build time and creates a context function
- */
-const rawCapabilityComponentsContext = (
-  globalThis.__MINDSCAPE_CAPABILITY_UI_TEST_CONTEXT__
-  // @ts-ignore - require.context is a webpack feature, not standard TypeScript
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  ?? (require.context(
-    '../app/capabilities',
-    true,
-    /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._))\.\/[^/]+\/(?:components\/)?[^/]+\.tsx$/,
-    'sync'
-  ) as CapabilityComponentsContext)
-);
-const capabilityComponentKeys = normalizeCapabilityComponentKeys(rawCapabilityComponentsContext);
-if (process.env.NODE_ENV === 'development') {
-  const suspectKeys = Array.from(capabilityComponentKeys).filter((key) => {
+const resolverCache = new Map<string, Promise<CapabilityComponentsResolver | null>>();
+
+function logSuspiciousContextKeys(keys: Set<string>): void {
+  if (process.env.NODE_ENV !== 'development') {
+    return;
+  }
+
+  const suspectKeys = Array.from(keys).filter((key) => {
     return (
       key.startsWith('pp/src') ||
       key.includes('/pp/src') ||
@@ -101,75 +197,40 @@ if (process.env.NODE_ENV === 'development') {
       'total',
       suspectKeys.length,
       '\n  All keys sample (first 20):',
-      Array.from(capabilityComponentKeys).slice(0, 20)
+      Array.from(keys).slice(0, 20)
     );
   }
 }
-const capabilityComponentsContext = ((key: string) => {
-  let normalizedKey = key;
 
-  if (normalizedKey.startsWith('pp/src/app/capabilities/')) {
-    normalizedKey = normalizedKey.replace('pp/src/app/capabilities/', './');
-  } else if (normalizedKey.startsWith('pp/src/')) {
-    normalizedKey = normalizedKey.replace('pp/src/', './');
-  } else {
-    normalizedKey = normalizeCapabilityContextKey(key) || key;
+async function getCapabilityComponentsResolver(
+  capabilityCode: string,
+): Promise<CapabilityComponentsResolver | null> {
+  const testContext = globalThis.__MINDSCAPE_CAPABILITY_UI_TEST_CONTEXT__;
+  if (testContext) {
+    const resolver = createLegacyResolver(testContext);
+    logSuspiciousContextKeys(resolver.keys);
+    return resolver;
   }
 
-  const resolvedKey = normalizedKey;
-
-  try {
-    return rawCapabilityComponentsContext(resolvedKey);
-  } catch (error) {
-    if (normalizedKey !== key) {
-      try {
-        return rawCapabilityComponentsContext(key);
-      } catch (fallbackError) {
-        const matchingKey = Array.from(capabilityComponentKeys).find(k =>
-          k.endsWith(key.split('/').pop() || '') ||
-          k.includes(key.split('/').pop() || '')
-        );
-        if (matchingKey) {
-          return rawCapabilityComponentsContext(matchingKey);
-        }
-        throw fallbackError;
-      }
-    }
-    throw error;
+  const cacheKey = capabilityCode.trim();
+  if (!cacheKey) {
+    return null;
   }
-}) as typeof rawCapabilityComponentsContext;
 
-capabilityComponentsContext.keys = rawCapabilityComponentsContext.keys;
-const rawResolve = (rawCapabilityComponentsContext as any).resolve
-  ? (rawCapabilityComponentsContext as any).resolve.bind(rawCapabilityComponentsContext)
-  : null;
-(capabilityComponentsContext as any).resolve = rawResolve
-  ? ((request: string) => {
-    let normalizedRequest = request;
-    if (normalizedRequest.startsWith('pp/src/app/capabilities/')) {
-      normalizedRequest = normalizedRequest.replace('pp/src/app/capabilities/', './');
-    } else if (normalizedRequest.startsWith('pp/src/')) {
-      normalizedRequest = normalizedRequest.replace('pp/src/', './');
-    } else {
-      normalizedRequest = normalizeCapabilityContextKey(request) || request;
-    }
-    const resolvedRequest = normalizedRequest;
-
-    try {
-      return rawResolve(resolvedRequest);
-    } catch (error) {
-      if (normalizedRequest !== request) {
-        try {
-          return rawResolve(request);
-        } catch (fallbackError) {
-          throw fallbackError;
-        }
+  if (!resolverCache.has(cacheKey)) {
+    resolverCache.set(cacheKey, (async () => {
+      const loaded = await loadRegisteredCapabilityComponentsContext(cacheKey);
+      if (!loaded) {
+        return null;
       }
-      throw error;
-    }
-  })
-  : undefined;
-(capabilityComponentsContext as any).id = (rawCapabilityComponentsContext as any).id;
+      const resolver = createScopedResolver(loaded.capabilityCode, loaded.context);
+      logSuspiciousContextKeys(resolver.keys);
+      return resolver;
+    })());
+  }
+
+  return resolverCache.get(cacheKey)!;
+}
 
 function buildFallbackContextKey(component: UIComponentInfo, capabilityCode: string): string | null {
   if (!component.path) return null;
@@ -189,7 +250,8 @@ function buildFallbackContextKey(component: UIComponentInfo, capabilityCode: str
 function findExistingContextKey(
   candidate: string | null,
   component: UIComponentInfo,
-  capabilityCode: string
+  capabilityCode: string,
+  capabilityComponentKeys: Set<string>,
 ): string | null {
   const normalizedCandidate = normalizeCapabilityContextKey(candidate);
   if (normalizedCandidate && capabilityComponentKeys.has(normalizedCandidate)) {
@@ -324,12 +386,25 @@ export async function loadCapabilityUIComponent(
 
     try {
       const rawContextKey = convertImportPathToContextKey(importPath);
-      const contextKey = findExistingContextKey(rawContextKey, component, capabilityCode);
+      const resolver = await getCapabilityComponentsResolver(capabilityCode);
+      if (!resolver) {
+        console.warn(
+          `[loadCapabilityUIComponent] Capability UI context not registered: ${capabilityCode}`
+        );
+        return null;
+      }
+
+      const contextKey = findExistingContextKey(
+        rawContextKey,
+        component,
+        capabilityCode,
+        resolver.keys,
+      );
       if (!contextKey) {
         console.error(`[loadCapabilityUIComponent] Invalid import path format: ${importPath}`);
         return null;
       }
-      if (!capabilityComponentKeys.has(contextKey)) {
+      if (!resolver.keys.has(contextKey)) {
         console.warn(
           `[loadCapabilityUIComponent] Context key not found in bundle: ${contextKey} (import_path=${importPath}, component_path=${component.path})`
         );
@@ -340,7 +415,7 @@ export async function loadCapabilityUIComponent(
       // The context function is created by webpack at build time
       // In 'sync' mode, require.context returns the module directly
       // In 'lazy' mode, it returns a function that returns a Promise
-      const moduleLoader = capabilityComponentsContext(contextKey);
+      const moduleLoader = resolver.load(contextKey);
 
       // Handle both sync and lazy modes
       let module;

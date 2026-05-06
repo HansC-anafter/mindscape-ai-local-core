@@ -1,0 +1,260 @@
+import http from 'node:http';
+import net from 'node:net';
+import { spawn } from 'node:child_process';
+
+const PUBLIC_HOST = process.env.FRONTEND_PROXY_HOST || '0.0.0.0';
+const PUBLIC_PORT = Number.parseInt(process.env.PORT || '3000', 10);
+const NEXT_HOST = process.env.NEXT_DEV_HOST || '127.0.0.1';
+const NEXT_PORT = Number.parseInt(process.env.NEXT_DEV_PORT || '3001', 10);
+const DEFAULT_BACKEND_URL = 'http://backend:8200';
+const DEFAULT_MEDIA_PROXY_URL = 'http://media-proxy:8000';
+const HOP_BY_HOP_HEADERS = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+]);
+
+export function isFrontendLivenessPath(requestUrl = '/') {
+  try {
+    const parsed = new URL(requestUrl, 'http://localhost');
+    return parsed.pathname === '/healthz' || parsed.pathname === '/api/healthz';
+  } catch {
+    return requestUrl === '/healthz' || requestUrl === '/api/healthz';
+  }
+}
+
+function normalizeBaseUrl(value, fallback) {
+  const resolved = String(value || '').trim() || fallback;
+  return resolved.replace(/\/+$/, '');
+}
+
+export function isDevApiProxyPath(requestUrl = '/') {
+  try {
+    const parsed = new URL(requestUrl, 'http://localhost');
+    return parsed.pathname.startsWith('/api/') && !isFrontendLivenessPath(requestUrl);
+  } catch {
+    return String(requestUrl || '').startsWith('/api/') && !isFrontendLivenessPath(requestUrl);
+  }
+}
+
+export function resolveDevApiProxyTarget(requestUrl = '/') {
+  const parsed = new URL(requestUrl, 'http://localhost');
+  const baseUrl = parsed.pathname.startsWith('/api/v1/media/')
+    ? normalizeBaseUrl(process.env.MEDIA_PROXY_URL, DEFAULT_MEDIA_PROXY_URL)
+    : normalizeBaseUrl(
+        process.env.WEB_CONSOLE_BACKEND_URL ||
+          process.env.BACKEND_URL ||
+          process.env.NEXT_PUBLIC_BACKEND_URL,
+        DEFAULT_BACKEND_URL,
+      );
+  const upstream = new URL(baseUrl);
+  return {
+    hostname: upstream.hostname,
+    port: Number.parseInt(upstream.port || (upstream.protocol === 'https:' ? '443' : '80'), 10),
+    protocol: upstream.protocol,
+    path: `${parsed.pathname}${parsed.search}`,
+  };
+}
+
+function copyProxyRequestHeaders(headers, target) {
+  const nextHeaders = {};
+  for (const [key, value] of Object.entries(headers || {})) {
+    if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase()) && key.toLowerCase() !== 'host') {
+      nextHeaders[key] = value;
+    }
+  }
+  nextHeaders.host = target.port ? `${target.hostname}:${target.port}` : target.hostname;
+  nextHeaders['x-mindscape-web-console-proxy'] = '1';
+  return nextHeaders;
+}
+
+function copyProxyResponseHeaders(headers) {
+  const nextHeaders = {};
+  for (const [key, value] of Object.entries(headers || {})) {
+    if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
+      nextHeaders[key] = value;
+    }
+  }
+  nextHeaders['cache-control'] = 'no-store';
+  return nextHeaders;
+}
+
+function writeFrontendLiveness(res, nextRunning) {
+  const statusCode = nextRunning ? 200 : 500;
+  const body = JSON.stringify({
+    status: nextRunning ? 'ok' : 'next_dev_unavailable',
+    service: 'frontend',
+    next_dev: nextRunning ? 'running' : 'exited',
+  });
+
+  res.writeHead(statusCode, {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+export function computeNextDevRestartDelayMs(restartCount) {
+  const boundedCount = Math.max(0, Math.min(Number(restartCount) || 0, 5));
+  return Math.min(30_000, 1_000 * (2 ** boundedCount));
+}
+
+function resolveNextProxyTarget(requestUrl = '/') {
+  return {
+    hostname: NEXT_HOST,
+    port: NEXT_PORT,
+    protocol: 'http:',
+    path: requestUrl,
+  };
+}
+
+function proxyHttpRequest(req, res) {
+  const target = isDevApiProxyPath(req.url)
+    ? resolveDevApiProxyTarget(req.url)
+    : resolveNextProxyTarget(req.url);
+  const upstream = http.request(
+    {
+      hostname: target.hostname,
+      port: target.port,
+      method: req.method,
+      path: target.path,
+      headers: copyProxyRequestHeaders(req.headers, target),
+    },
+    (upstreamRes) => {
+      res.writeHead(upstreamRes.statusCode || 502, copyProxyResponseHeaders(upstreamRes.headers));
+      upstreamRes.pipe(res);
+    },
+  );
+
+  upstream.on('error', () => {
+    if (!res.headersSent) {
+      res.writeHead(502, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    }
+    res.end(JSON.stringify({ error: isDevApiProxyPath(req.url) ? 'backend_dev_proxy_unavailable' : 'next_dev_proxy_unavailable' }));
+  });
+
+  req.pipe(upstream);
+}
+
+function proxyUpgrade(req, socket, head) {
+  const target = isDevApiProxyPath(req.url)
+    ? resolveDevApiProxyTarget(req.url)
+    : resolveNextProxyTarget(req.url);
+  const upstream = net.connect(target.port, target.hostname, () => {
+    const headers = copyProxyRequestHeaders(req.headers, target);
+    upstream.write(
+      `${req.method} ${target.path} HTTP/${req.httpVersion}\r\n` +
+      Object.entries(headers)
+        .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+        .join('\r\n') +
+      '\r\n\r\n',
+    );
+    if (head?.length) {
+      upstream.write(head);
+    }
+    socket.pipe(upstream).pipe(socket);
+  });
+
+  upstream.on('error', () => {
+    socket.destroy();
+  });
+}
+
+export function createFrontendProxyServer({ nextRunningRef }) {
+  const server = http.createServer((req, res) => {
+    if (isFrontendLivenessPath(req.url)) {
+      writeFrontendLiveness(res, nextRunningRef.current);
+      return;
+    }
+
+    proxyHttpRequest(req, res);
+  });
+
+  server.on('upgrade', proxyUpgrade);
+  server.on('clientError', (_error, socket) => {
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+  });
+
+  return server;
+}
+
+export function start() {
+  const nextRunningRef = { current: false };
+  let nextProcess = null;
+  let restartTimer = null;
+  let restartCount = 0;
+  let shuttingDown = false;
+  const server = createFrontendProxyServer({ nextRunningRef });
+
+  const launchNextDev = () => {
+    if (shuttingDown) {
+      return;
+    }
+
+    nextRunningRef.current = false;
+    nextProcess = spawn(
+      'pnpm',
+      ['run', 'dev', '--', '-H', NEXT_HOST, '-p', String(NEXT_PORT)],
+      {
+        cwd: process.cwd(),
+        env: process.env,
+        stdio: 'inherit',
+      },
+    );
+
+    nextProcess.on('spawn', () => {
+      nextRunningRef.current = true;
+    });
+
+    nextProcess.on('exit', (code, signal) => {
+      nextRunningRef.current = false;
+      console.error(`[frontend-proxy] next dev exited code=${code ?? 'null'} signal=${signal ?? 'null'}`);
+
+      if (shuttingDown) {
+        return;
+      }
+
+      const delayMs = computeNextDevRestartDelayMs(restartCount);
+      restartCount += 1;
+      console.error(`[frontend-proxy] restarting next dev in ${delayMs}ms`);
+      restartTimer = setTimeout(() => {
+        restartTimer = null;
+        launchNextDev();
+      }, delayMs);
+    });
+  };
+
+  launchNextDev();
+
+  server.listen(PUBLIC_PORT, PUBLIC_HOST, () => {
+    console.log(`[frontend-proxy] listening on ${PUBLIC_HOST}:${PUBLIC_PORT}, proxying to ${NEXT_HOST}:${NEXT_PORT}`);
+  });
+
+  const shutdown = () => {
+    shuttingDown = true;
+    if (restartTimer) {
+      clearTimeout(restartTimer);
+      restartTimer = null;
+    }
+    server.close(() => {
+      nextProcess?.kill('SIGTERM');
+    });
+    setTimeout(() => {
+      nextProcess?.kill('SIGKILL');
+      process.exit(0);
+    }, 10_000).unref();
+  };
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  start();
+}

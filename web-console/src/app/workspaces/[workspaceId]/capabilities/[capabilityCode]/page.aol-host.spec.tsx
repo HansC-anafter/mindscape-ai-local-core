@@ -2,7 +2,9 @@ import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import CapabilityPage from './page';
+import { AOLRuntimeShellProvider } from '@/components/capabilities/aol-runtime-shell/AOLRuntimeShell';
+import CapabilityUiGatePage from './ui/page';
+import CapabilityUiGenericPage from './ui/generic/page';
 
 const mockBack = vi.fn();
 const mockReplace = vi.fn();
@@ -11,8 +13,12 @@ const mockLoadCapabilityUIComponent = vi.fn();
 
 let mockSearchParams = new URLSearchParams();
 let mockCapabilityCode = 'ig';
+const originalBackendUrl = process.env.WEB_CONSOLE_BACKEND_URL;
 
 vi.mock('next/navigation', () => ({
+  redirect: vi.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT ${url}`);
+  }),
   useParams: () => ({
     workspaceId: 'ws-test',
     capabilityCode: mockCapabilityCode,
@@ -53,6 +59,7 @@ vi.mock('@/lib/capability-ui-loader', () => ({
 
 describe('CapabilityPage AOL host shell', () => {
   beforeEach(() => {
+    process.env.WEB_CONSOLE_BACKEND_URL = 'http://api.test';
     mockBack.mockReset();
     mockPush.mockReset();
     mockReplace.mockReset();
@@ -98,6 +105,19 @@ describe('CapabilityPage AOL host shell', () => {
         } as Response;
       }
 
+      if (url === 'http://api.test/api/v1/capability-packs/installed-capabilities/empty_capability') {
+        return {
+          ok: true,
+          json: async () => (
+            {
+              id: 'empty_capability',
+              code: 'empty_capability',
+              display_name: 'Empty Capability',
+            }
+          ),
+        } as Response;
+      }
+
       if (url === 'http://api.test/api/v1/capability-packs/installed-capabilities/ig/ui-components') {
         return {
           ok: true,
@@ -112,6 +132,13 @@ describe('CapabilityPage AOL host shell', () => {
               import_path: '@/app/capabilities/ig/components/IGWorkbenchPage',
             },
           ]),
+        } as Response;
+      }
+
+      if (url === 'http://api.test/api/v1/capability-packs/installed-capabilities/empty_capability/ui-components') {
+        return {
+          ok: true,
+          json: async () => [],
         } as Response;
       }
 
@@ -225,11 +252,46 @@ describe('CapabilityPage AOL host shell', () => {
   });
 
   afterEach(() => {
+    if (originalBackendUrl === undefined) {
+      delete process.env.WEB_CONSOLE_BACKEND_URL;
+    } else {
+      process.env.WEB_CONSOLE_BACKEND_URL = originalBackendUrl;
+    }
     vi.clearAllMocks();
   });
 
+  async function renderCapabilityLoadedPage() {
+    const page = await CapabilityUiGenericPage({
+      params: {
+        workspaceId: 'ws-test',
+        capabilityCode: mockCapabilityCode,
+      },
+    });
+
+    render(
+      <AOLRuntimeShellProvider workspaceId="ws-test">
+        {page}
+      </AOLRuntimeShellProvider>,
+    );
+  }
+
+  async function renderCapabilityGatePage() {
+    const page = await CapabilityUiGatePage({
+      params: {
+        workspaceId: 'ws-test',
+        capabilityCode: mockCapabilityCode,
+      },
+    });
+
+    render(
+      <AOLRuntimeShellProvider workspaceId="ws-test">
+        {page}
+      </AOLRuntimeShellProvider>,
+    );
+  }
+
   it('resolves an addressable selection and attaches it to a meeting from the host shell', async () => {
-    render(<CapabilityPage />);
+    await renderCapabilityLoadedPage();
 
     expect(await screen.findByTestId('aol-global-anchor')).not.toBeNull();
 
@@ -253,5 +315,14 @@ describe('CapabilityPage AOL host shell', () => {
     expect(within(objectContextPanel).getByText('Demo Reference')).not.toBeNull();
     expect(within(objectContextPanel).getByText('mtg_123')).not.toBeNull();
     expect(mockPush).not.toHaveBeenCalled();
+  }, 20000);
+
+  it('does not load the capability UI bundle when the capability has no UI components', async () => {
+    mockCapabilityCode = 'empty_capability';
+
+    await renderCapabilityGatePage();
+
+    expect(await screen.findByText(/No UI components available for Empty Capability/)).not.toBeNull();
+    expect(mockLoadCapabilityUIComponent).not.toHaveBeenCalled();
   });
 });

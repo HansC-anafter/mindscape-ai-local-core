@@ -1,0 +1,63 @@
+import type { CapabilityComponentsContext } from './capability-ui-context-types';
+
+type CapabilityContextModule = {
+  default: CapabilityComponentsContext;
+};
+
+type CapabilityContextLoader = () => Promise<CapabilityContextModule>;
+
+const contextLoaders: Record<string, CapabilityContextLoader> = {
+  blender_bridge: () => import('./capability-ui-contexts/blender_bridge'),
+  brand_identity: () => import('./capability-ui-contexts/brand_identity'),
+  character_training: () => import('./capability-ui-contexts/character_training'),
+  chat_capture: () => import('./capability-ui-contexts/chat_capture'),
+  comfyui_runtime: () => import('./capability-ui-contexts/comfyui_runtime'),
+  content_scheduler: () => import('./capability-ui-contexts/content_scheduler'),
+  demo_aol_pack: () => import('./capability-ui-contexts/demo_aol_pack'),
+  expert_network: () => import('./capability-ui-contexts/expert_network'),
+  ig: () => import('./capability-ui-contexts/ig'),
+  layer_asset_forge: () => import('./capability-ui-contexts/layer_asset_forge'),
+  mindscape_cloud_integration: () => import('./capability-ui-contexts/mindscape_cloud_integration'),
+  multi_media_studio: () => import('./capability-ui-contexts/multi_media_studio'),
+  newsletter: () => import('./capability-ui-contexts/newsletter'),
+  performance_direction: () => import('./capability-ui-contexts/performance_direction'),
+  practice_companion: () => import('./capability-ui-contexts/practice_companion'),
+  public_persona_studio: () => import('./capability-ui-contexts/public_persona_studio'),
+  video_chapter_studio: () => import('./capability-ui-contexts/video_chapter_studio'),
+  video_renderer: () => import('./capability-ui-contexts/video_renderer'),
+  web_generation: () => import('./capability-ui-contexts/web_generation'),
+  world_asset_forge: () => import('./capability-ui-contexts/world_asset_forge'),
+  yogacoach: () => import('./capability-ui-contexts/yogacoach'),
+};
+
+function capabilityCodeVariants(capabilityCode: string): string[] {
+  const variants = new Set<string>();
+  const trimmed = capabilityCode.trim();
+  if (trimmed) {
+    variants.add(trimmed);
+    variants.add(trimmed.replace(/-/g, '_'));
+    variants.add(trimmed.replace(/_/g, '-'));
+  }
+  return Array.from(variants);
+}
+
+export async function loadRegisteredCapabilityComponentsContext(
+  capabilityCode: string,
+): Promise<{ capabilityCode: string; context: CapabilityComponentsContext } | null> {
+  for (const variant of capabilityCodeVariants(capabilityCode)) {
+    const loader = contextLoaders[variant];
+    if (!loader) {
+      continue;
+    }
+    const module = await loader();
+    return {
+      capabilityCode: variant,
+      context: module.default,
+    };
+  }
+  return null;
+}
+
+export function getRegisteredCapabilityComponentContextCodes(): string[] {
+  return Object.keys(contextLoaders);
+}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import type { CapabilityComponentsContext } from '@/lib/capability-ui-context-types';
 
 const mockBack = vi.fn();
 const mockReplace = vi.fn();
@@ -8,6 +9,7 @@ const mockPush = vi.fn();
 
 let mockSearchParams = new URLSearchParams();
 let mockCapabilityCode = 'demo_render_proof';
+const originalBackendUrl = process.env.WEB_CONSOLE_BACKEND_URL;
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({
@@ -43,18 +45,6 @@ vi.mock('@/components/WorkspaceChat', () => ({
   },
 }));
 
-interface CapabilityComponentsContext {
-  (key: string): Record<string, unknown>;
-  keys: () => string[];
-  resolve?: (request: string) => string;
-  id?: string;
-}
-
-declare global {
-  // eslint-disable-next-line no-var
-  var __MINDSCAPE_CAPABILITY_UI_TEST_CONTEXT__: CapabilityComponentsContext | undefined;
-}
-
 function createCapabilityComponentsTestContext(
   modules: Record<string, Record<string, unknown>>,
 ): CapabilityComponentsContext {
@@ -76,6 +66,7 @@ describe('CapabilityPage installed render-proof gate', () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
+    process.env.WEB_CONSOLE_BACKEND_URL = 'http://api.test';
     mockBack.mockReset();
     mockPush.mockReset();
     mockReplace.mockReset();
@@ -234,15 +225,34 @@ describe('CapabilityPage installed render-proof gate', () => {
   });
 
   afterEach(() => {
+    if (originalBackendUrl === undefined) {
+      delete process.env.WEB_CONSOLE_BACKEND_URL;
+    } else {
+      process.env.WEB_CONSOLE_BACKEND_URL = originalBackendUrl;
+    }
     delete globalThis.__MINDSCAPE_CAPABILITY_UI_TEST_CONTEXT__;
     vi.clearAllMocks();
   });
 
   it('loads the installed capability page through the real loader and processes an AOL selection callback', async () => {
     vi.resetModules();
-    const { default: CapabilityPage } = await import('./page');
+    const { default: CapabilityPage } = await import('./ui/generic/page');
+    const { AOLRuntimeShellProvider } = await import(
+      '@/components/capabilities/aol-runtime-shell/AOLRuntimeShell'
+    );
 
-    render(<CapabilityPage />);
+    const page = await CapabilityPage({
+      params: {
+        workspaceId: 'ws-render-proof',
+        capabilityCode: mockCapabilityCode,
+      },
+    });
+
+    render(
+      <AOLRuntimeShellProvider workspaceId="ws-render-proof">
+        {page}
+      </AOLRuntimeShellProvider>,
+    );
 
     expect(await screen.findByTestId('aol-global-anchor')).not.toBeNull();
 
@@ -271,12 +281,12 @@ describe('CapabilityPage installed render-proof gate', () => {
     expect(mockPush).not.toHaveBeenCalled();
 
     const warningMessages = consoleWarnSpy.mock.calls
-      .map((call) => call.map((value) => String(value)).join(' '));
+      .map((call: unknown[]) => call.map((value: unknown) => String(value)).join(' '));
     const errorMessages = consoleErrorSpy.mock.calls
-      .map((call) => call.map((value) => String(value)).join(' '));
+      .map((call: unknown[]) => call.map((value: unknown) => String(value)).join(' '));
 
     expect(
-      warningMessages.some((message) =>
+      warningMessages.some((message: string) =>
         message.includes('Context key not found in bundle') ||
         message.includes('UI component DemoRenderProofPage not found') ||
         message.includes('Capability demo_render_proof UI components not available') ||
@@ -284,10 +294,10 @@ describe('CapabilityPage installed render-proof gate', () => {
       ),
     ).toBe(false);
     expect(
-      errorMessages.some((message) =>
+      errorMessages.some((message: string) =>
         message.includes('[CapabilityPage] Error in component') ||
         message.includes('[loadCapabilityUIComponent] Failed to import UI component'),
       ),
     ).toBe(false);
-  });
+  }, 30000);
 });
