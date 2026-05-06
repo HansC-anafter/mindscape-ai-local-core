@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  classifyProxyUpstream,
   computeNextDevRestartDelayMs,
   createFrontendProxyServer,
   isDevApiProxyPath,
   isFrontendLivenessPath,
+  normalizeProxyLogPath,
   resolveDevApiProxyTarget,
 } from './dev-proxy.mjs';
 
@@ -37,6 +39,14 @@ describe('frontend dev proxy', () => {
       port: 8000,
       path: '/api/v1/media/assets/demo.png',
     });
+  });
+
+  it('classifies upstreams and strips query strings from timing log paths', () => {
+    expect(classifyProxyUpstream('/api/v1/cloud-sync/status?fresh=1')).toBe('backend_api');
+    expect(classifyProxyUpstream('/api/v1/media/assets/demo.png?token=secret')).toBe('media_proxy');
+    expect(classifyProxyUpstream('/workspaces/ws-1?tab=home')).toBe('next_dev');
+    expect(normalizeProxyLogPath('/workspaces/ws-1?tab=home')).toBe('/workspaces/ws-1');
+    expect(normalizeProxyLogPath('not a url?with=query')).toBe('/not%20a%20url');
   });
 
   it('reports failed liveness when the Next dev child is unavailable', async () => {

@@ -7,17 +7,26 @@ If no remote_crs adapter is enabled, remote_crs mode will return 501.
 """
 
 from fastapi import APIRouter, HTTPException, Query, Body
-from typing import Dict, Any, Optional
+from functools import lru_cache
+from typing import Dict, Any
 
-from ...models.config import UpdateBackendConfigRequest, UserConfig
-from ...services.config_store import ConfigStore
-from ...services.backend_manager import BackendManager
+from ...models.config import UpdateBackendConfigRequest
 
 router = APIRouter(prefix="/api/v1/config", tags=["config"])
 
-# Initialize stores
-config_store = ConfigStore()
-backend_manager = BackendManager(config_store=config_store)
+
+@lru_cache(maxsize=1)
+def _get_config_store():
+    from ...services.config_store import ConfigStore
+
+    return ConfigStore()
+
+
+@lru_cache(maxsize=1)
+def _get_backend_manager():
+    from ...services.backend_manager import BackendManager
+
+    return BackendManager(config_store=_get_config_store())
 
 
 def _check_remote_crs_adapter() -> bool:
@@ -37,6 +46,8 @@ def _check_remote_crs_adapter() -> bool:
 async def get_backend_config(profile_id: str = Query(..., description="Profile ID")):
     """Get current backend configuration"""
     try:
+        config_store = _get_config_store()
+        backend_manager = _get_backend_manager()
         config = config_store.get_or_create_config(profile_id)
 
         # Get available backends info (with current profile config)
@@ -73,6 +84,8 @@ async def update_backend_config(
     logger = logging.getLogger(__name__)
 
     try:
+        config_store = _get_config_store()
+        backend_manager = _get_backend_manager()
         logger.info(f"Updating backend config for {profile_id}: mode={request.mode}")
         # Validate mode - only allow local if adapter not available
         if request.mode == "remote_crs" and not _check_remote_crs_adapter():
@@ -154,6 +167,7 @@ async def update_backend_config(
 async def list_available_backends():
     """List all available backend types and their status"""
     try:
+        backend_manager = _get_backend_manager()
         backends = backend_manager.get_available_backends()
 
         # Filter out remote_crs if adapter is not available
@@ -169,4 +183,3 @@ async def list_available_backends():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list backends: {str(e)}")
-

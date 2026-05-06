@@ -1,6 +1,7 @@
 import http from 'node:http';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
+import { performance } from 'node:perf_hooks';
 
 const PUBLIC_HOST = process.env.FRONTEND_PROXY_HOST || '0.0.0.0';
 const PUBLIC_PORT = Number.parseInt(process.env.PORT || '3000', 10);
@@ -18,6 +19,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   'transfer-encoding',
   'upgrade',
 ]);
+let requestSequence = 0;
 
 export function isFrontendLivenessPath(requestUrl = '/') {
   try {
@@ -105,6 +107,32 @@ export function computeNextDevRestartDelayMs(restartCount) {
   return Math.min(30_000, 1_000 * (2 ** boundedCount));
 }
 
+export function normalizeProxyLogPath(requestUrl = '/') {
+  try {
+    return new URL(requestUrl, 'http://localhost').pathname;
+  } catch {
+    const value = String(requestUrl || '/');
+    return value.split('?')[0] || '/';
+  }
+}
+
+export function classifyProxyUpstream(requestUrl = '/') {
+  if (isDevApiProxyPath(requestUrl)) {
+    return new URL(requestUrl, 'http://localhost').pathname.startsWith('/api/v1/media/')
+      ? 'media_proxy'
+      : 'backend_api';
+  }
+  return 'next_dev';
+}
+
+function roundedDurationMs(startedAt) {
+  return Math.round((performance.now() - startedAt) * 100) / 100;
+}
+
+function writeProxyTimingLog(event) {
+  console.log(`[frontend-proxy] request ${JSON.stringify(event)}`);
+}
+
 function resolveNextProxyTarget(requestUrl = '/') {
   return {
     hostname: NEXT_HOST,
@@ -115,9 +143,58 @@ function resolveNextProxyTarget(requestUrl = '/') {
 }
 
 function proxyHttpRequest(req, res) {
-  const target = isDevApiProxyPath(req.url)
+  const requestId = ++requestSequence;
+  const startedAt = performance.now();
+  const upstreamKind = classifyProxyUpstream(req.url);
+  const logPath = normalizeProxyLogPath(req.url);
+  let upstreamStatus = null;
+  let upstreamHeaderMs = null;
+  let completionLogged = false;
+  const target = upstreamKind === 'backend_api' || upstreamKind === 'media_proxy'
     ? resolveDevApiProxyTarget(req.url)
     : resolveNextProxyTarget(req.url);
+
+  writeProxyTimingLog({
+    event: 'start',
+    id: requestId,
+    method: req.method,
+    path: logPath,
+    upstream: upstreamKind,
+  });
+
+  const logCompletion = (event, extra = {}) => {
+    if (completionLogged) {
+      return;
+    }
+    completionLogged = true;
+    writeProxyTimingLog({
+      event,
+      id: requestId,
+      method: req.method,
+      path: logPath,
+      upstream: upstreamKind,
+      status: res.statusCode || upstreamStatus,
+      upstream_status: upstreamStatus,
+      upstream_header_ms: upstreamHeaderMs,
+      duration_ms: roundedDurationMs(startedAt),
+      ...extra,
+    });
+  };
+
+  req.on('aborted', () => {
+    logCompletion('client_aborted');
+  });
+
+  res.on('finish', () => {
+    logCompletion('finish');
+  });
+
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      logCompletion('client_closed');
+    }
+  });
+
   const upstream = http.request(
     {
       hostname: target.hostname,
@@ -127,12 +204,23 @@ function proxyHttpRequest(req, res) {
       headers: copyProxyRequestHeaders(req.headers, target),
     },
     (upstreamRes) => {
+      upstreamStatus = upstreamRes.statusCode || null;
+      upstreamHeaderMs = roundedDurationMs(startedAt);
       res.writeHead(upstreamRes.statusCode || 502, copyProxyResponseHeaders(upstreamRes.headers));
       upstreamRes.pipe(res);
     },
   );
 
-  upstream.on('error', () => {
+  upstream.on('error', (error) => {
+    writeProxyTimingLog({
+      event: 'upstream_error',
+      id: requestId,
+      method: req.method,
+      path: logPath,
+      upstream: upstreamKind,
+      duration_ms: roundedDurationMs(startedAt),
+      error: error?.code || error?.message || 'unknown',
+    });
     if (!res.headersSent) {
       res.writeHead(502, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     }
