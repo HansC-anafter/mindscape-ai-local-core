@@ -241,6 +241,8 @@ def evaluate_browser_resource_pressure(
 
     memory = snapshot.get("memory") if isinstance(snapshot, dict) else {}
     pids = snapshot.get("pids") if isinstance(snapshot, dict) else {}
+    inflight = snapshot.get("inflight") if isinstance(snapshot, dict) else None
+    browser_session_max_active = max(1, _env_int("IG_BROWSER_SESSION_MAX_ACTIVE", 1))
     memory_ratio = None
     if isinstance(memory, dict):
         memory_ratio = memory.get("working_set_ratio")
@@ -270,6 +272,9 @@ def evaluate_browser_resource_pressure(
         elif pids_soft_count is not None and pids_current >= pids_soft_count:
             reasons.append("pids_soft_count")
 
+    if isinstance(inflight, int) and inflight >= browser_session_max_active:
+        reasons.append("browser_session_slots")
+
     if hard_reasons:
         _COOLDOWN_UNTIL_EPOCH = max(_COOLDOWN_UNTIL_EPOCH, now + cooldown_seconds)
 
@@ -289,6 +294,7 @@ def evaluate_browser_resource_pressure(
         "reasons": hard_reasons or reasons,
         "memory_soft_ratio": memory_soft_ratio,
         "memory_hard_ratio": memory_hard_ratio,
+        "browser_session_max_active": browser_session_max_active,
         "cooldown_seconds": cooldown_seconds,
         "cooldown_until_epoch": (
             _COOLDOWN_UNTIL_EPOCH if _COOLDOWN_UNTIL_EPOCH > now else None
