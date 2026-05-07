@@ -46,13 +46,16 @@
 6. IG workbench `sidebar-summary`：已打包安裝，IG pack active。
    不降級理由：counts 與 execution list 同時保留，只合併首屏請求。
 
+7. `ig/post-thumbnail` bounded foreground fetch：cloud source 已提交 `5886e72`、pack 已安裝、validation succeeded。
+   不降級理由：browser/post-detail fallback 保留為背景 cache refresh；前景 request 不再等待慢 fallback。
+
 ## 下一步實作順序
 
-1. **Bounded thumbnail path**
-   - 檢查 `backend/app/capabilities/ig/api/post_proxy.py`、`thumbnail_fetcher.py`、前端呼叫端。
-   - 將頁面 request 的等待上限與 browser fallback 解耦：若本地已有 cache 直接回 cache；若沒有，排 background fetch 並回明確 pending/missing 狀態。
-   - 不刪除 browser fallback，不停縮圖功能；只是避免單張縮圖阻塞整頁數分鐘。
-   - 驗證：同一批 `post-thumbnail` URL 在無 cache / 403 / placeholder 情境下 API 不超過 bounded time，背景任務仍會補 cache。
+1. **Bounded thumbnail path activation**
+   - 目前 source、pack、container disk 已完成；control API 8220 已在 3.173s 內回 404/queued。
+   - backend API 8200 仍是舊載入 module，8s probe timeout；install response 已標示 active workloads `meeting_sessions=113`，所以不得手動 restart/kill。
+   - 下一步只能在安全窗口執行 reload/activation，或等 active workloads 降到允許自動 reload；不得用停止任務或降 inflight 來換取啟用。
+   - 驗證：reload 後重測 8200 與 8300 frontend proxy，`post-thumbnail` miss 必須在 bounded time 內返回，背景 cache refresh 仍排程。
 
 2. **Counts path 收斂**
    - 檢查 `load_reference_counts` live reconciliation 與 `ig_reference_catalog` count snapshot。

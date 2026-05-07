@@ -76,6 +76,9 @@
 6. IG workbench UI 改用 `sidebar-summary`。
    為什麼不是降級：counts 與 active execution 都保留，只把兩個首屏 API 合併成一個，降低 waterfall 與 DB/API 競爭。
 
+7. `ig/post-thumbnail` 前景請求 bounded fast path。
+   為什麼不是降級：cache、DB thumbnail、embed fast path 仍在前景；browser 與 post-detail fallback 沒刪除，改到背景刷新同一份 cache，避免單張縮圖把頁面請求卡 5 分鐘。
+
 ## 驗證結果
 
 - local-core：`pytest backend/tests/healthz_liveness_spec.py backend/tests/system_health_checker_readiness_isolation_spec.py backend/tests/test_ocr_client_optional.py backend/tests/system_health_checker_ollama_spec.py backend/tests/runtime_assets_installer_migrations_spec.py backend/tests/progress_snapshot_thread_offload_spec.py -q` -> `13 passed`。
@@ -84,10 +87,12 @@
 - runtime curl：`/api/v1/ig/workbench/sidebar-summary?...` -> `200,1.151090` under live load。
 - installed UI：`useIGWorkbenchState.ts` contains `/sidebar-summary` in frontend container。
 - pack validation：IG `validation.state=succeeded`、`failed=0`。
+- thumbnail pack：cloud commit `5886e72`，pack SHA-256 `5433d10d97c856beecda50d35202596783e7000bce437612aae19471dc06191e`，install API `200,21.617581`，validation succeeded。
+- thumbnail runtime：container disk 已含 `allow_slow_fallbacks=False`；control API `8220 /api/v1/ig/post-thumbnail/DVhtY3zD1sU` -> `404,3.173150`，但 backend API `8200` 仍 timeout 8s，因 install response deferred reload：`meeting_sessions=113`。
 
 ## 剩餘缺口
 
-1. `ig/post-thumbnail` 缺 bounded request / background cache，仍可把頁面拖到數分鐘。
+1. `ig/post-thumbnail` source/pack 已修，但 `8200` backend process 尚未 reload；在安全窗口 reload 前，frontend 仍可能打到舊 module。
 2. `sidebar-counts` 仍有 1.9s-4.8s 樣本，需進一步收斂 count reconciliation。
 3. 現有開著的瀏覽器頁籤可能仍跑舊 JS，需使用者刷新後才吃到新 installed UI bundle。
 4. PD workbench 仍受 Next dev compile 與多 API waterfall 影響，還不能宣稱秒開。
