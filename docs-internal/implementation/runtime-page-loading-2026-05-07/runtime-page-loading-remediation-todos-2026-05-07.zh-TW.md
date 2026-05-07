@@ -54,6 +54,7 @@
 1. **Bounded thumbnail path activation**
    - 目前 source、pack、container disk 已完成；control API 8220 已在 3.173s 內回 404/queued。
    - backend API 8200 仍是舊載入 module，8s probe timeout；install response 已標示 active workloads `meeting_sessions=113`，所以不得手動 restart/kill。
+   - reload 前置驗證目前 `valid:false`：既有 `brand_identity` / `expert_network` pack manifest 指到不存在的 API 檔，需先另案修正或明確批准 force reload。
    - 下一步只能在安全窗口執行 reload/activation，或等 active workloads 降到允許自動 reload；不得用停止任務或降 inflight 來換取啟用。
    - 驗證：reload 後重測 8200 與 8300 frontend proxy，`post-thumbnail` miss 必須在 bounded time 內返回，背景 cache refresh 仍排程。
 

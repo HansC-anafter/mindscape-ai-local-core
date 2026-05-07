@@ -89,6 +89,7 @@
 - pack validation：IG `validation.state=succeeded`、`failed=0`。
 - thumbnail pack：cloud commit `5886e72`，pack SHA-256 `5433d10d97c856beecda50d35202596783e7000bce437612aae19471dc06191e`，install API `200,21.617581`，validation succeeded。
 - thumbnail runtime：container disk 已含 `allow_slow_fallbacks=False`；control API `8220 /api/v1/ig/post-thumbnail/DVhtY3zD1sU` -> `404,3.173150`，但 backend API `8200` 仍 timeout 8s，因 install response deferred reload：`meeting_sessions=113`。
+- reload validation：`8220 /api/v1/admin/validate-reload` -> `valid:false`，既有 `brand_identity` 缺 `api/cis_mapper_endpoints.py`、`expert_network` 缺 `api/__init__.py`，不是 IG 修復造成，但會阻擋 validate-first reload。
 
 ## 剩餘缺口
 
@@ -98,3 +99,4 @@
 4. PD workbench 仍受 Next dev compile 與多 API waterfall 影響，還不能宣稱秒開。
 5. `20260507063000_add_admission_deferred_task_indexes.py` 已存在於 local-core source，但 DB `alembic_version` 未見該 revision；索引已存在，仍需確認是否 stamp/apply，不能盲目動 DB。
 6. runner-browser 正在執行 IG browser 任務，不能用 stop/restart 當修復；後續只能做 bounded I/O、cache、DB offload、API 合併。
+7. reload validation 有既有非 IG pack 缺口，需另案修正 source/pack 或在安全窗口明確 force reload；不得為了啟用 IG 修復直接忽略此證據。
