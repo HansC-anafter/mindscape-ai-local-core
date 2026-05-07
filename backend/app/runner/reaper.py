@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import text
@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 
 _NO_PROGRESS_WATCHDOG_DEFAULT_PACKS = {"ig_analyze_following"}
 _CONCURRENCY_LOCKED_REASON = "concurrency_locked"
+
+
+def _is_stale_started_task(task: Task, threshold: datetime) -> bool:
+    started_at = getattr(task, "started_at", None)
+    return bool(started_at and started_at <= threshold)
 
 
 def _emit_run_state_changed_for_task(
@@ -372,6 +377,49 @@ async def _async_force_release(
         logger.warning(f"[Reaper] Failed to force-release lock {lock_key}: {e}")
 
 
+def _requeue_stale_queued_task(
+    tasks_store: TasksStore,
+    task: Task,
+    ctx: dict,
+    *,
+    runner_id: str,
+    stale_seconds: int,
+    reason: str,
+    action: str,
+    redis_queue: Optional[RedisRunnerQueueStore],
+) -> None:
+    requeue_count = 0
+    if isinstance(ctx.get("runner_reaper"), dict):
+        requeue_count = ctx["runner_reaper"].get("requeue_count", 0)
+
+    ctx2 = dict(ctx)
+    ctx2.pop("runner_id", None)
+    ctx2.pop("heartbeat_at", None)
+    ctx2["status"] = "queued"
+    ctx2["runner_reaper"] = {
+        "runner_id": runner_id,
+        "stale_seconds": stale_seconds,
+        "action": action,
+        "reason": reason,
+        "requeue_count": requeue_count + 1,
+        "requeued_at": _utc_now().isoformat(),
+    }
+    now = _utc_now()
+    tasks_store.update_task(
+        task.id,
+        execution_context=ctx2,
+        status=TaskStatus.PENDING,
+        started_at=None,
+        next_eligible_at=now,
+        blocked_reason=None,
+        blocked_payload=None,
+        frontier_state="ready",
+        frontier_enqueued_at=now,
+        error=None,
+    )
+    _force_release_lock(ctx, task.pack_id, redis_queue)
+
+
 def _reap_stale_running_tasks(
     tasks_store: TasksStore,
     runner_id: str,
@@ -394,11 +442,33 @@ def _reap_stale_running_tasks(
             ctx_runner_id = ctx.get("runner_id")
             heartbeat_at = _parse_utc_iso(ctx.get("heartbeat_at"))
 
-            if not ctx_runner_id:
-                continue
-
             # Only reap tasks that were executed in runner mode (or clearly runner-owned).
             if ctx.get("execution_mode") not in (None, "runner"):
+                continue
+
+            if not ctx_runner_id:
+                if (
+                    t.status == TaskStatus.PENDING
+                    and ctx.get("status") == "queued"
+                    and _is_stale_started_task(t, threshold)
+                ):
+                    msg = (
+                        "Runner ownership missing for stale queued task "
+                        f"(started_at={getattr(t, 'started_at', None)})"
+                    )
+                    _requeue_stale_queued_task(
+                        tasks_store,
+                        t,
+                        ctx,
+                        runner_id=runner_id,
+                        stale_seconds=stale_seconds,
+                        reason=msg,
+                        action="requeue_orphan_no_runner",
+                        redis_queue=redis_queue,
+                    )
+                    logger.warning(
+                        f"Re-queued stale runner task without owner task_id={t.id} ({msg})"
+                    )
                 continue
 
             if heartbeat_at and heartbeat_at > threshold:
@@ -426,7 +496,6 @@ def _reap_stale_running_tasks(
             # - Do NOT use sandbox_id/current_step_index as "started" heuristics; some runner tasks
             #   execute in-process and may never set sandbox_id even after making real progress.
             if ctx2.get("status") == "queued":
-                # Track re-queue count to prevent infinite crash loops
                 requeue_count = 0
                 if isinstance(ctx.get("runner_reaper"), dict):
                     requeue_count = ctx["runner_reaper"].get("requeue_count", 0)
@@ -454,19 +523,16 @@ def _reap_stale_running_tasks(
                         f"Failed task after {requeue_count} re-queues task_id={t.id} ({msg})"
                     )
                 else:
-                    ctx2.pop("runner_id", None)
-                    ctx2.pop("heartbeat_at", None)
-                    ctx2["status"] = "queued"
-                    ctx2["runner_reaper"]["action"] = "requeue"
-                    ctx2["runner_reaper"]["requeue_count"] = requeue_count + 1
-                    ctx2["runner_reaper"]["requeued_at"] = _utc_now().isoformat()
-                    tasks_store.update_task(
-                        t.id,
-                        execution_context=ctx2,
-                        status=TaskStatus.PENDING,
-                        error=None,
+                    _requeue_stale_queued_task(
+                        tasks_store,
+                        t,
+                        ctx,
+                        runner_id=runner_id,
+                        stale_seconds=stale_seconds,
+                        reason=msg,
+                        action="requeue",
+                        redis_queue=redis_queue,
                     )
-                    _force_release_lock(ctx, t.pack_id, redis_queue)
                     logger.warning(
                         f"Re-queued stale runner task task_id={t.id} (attempt {requeue_count + 1}/3) ({msg})"
                     )

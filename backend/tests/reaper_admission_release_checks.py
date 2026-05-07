@@ -138,6 +138,38 @@ def _build_concurrency_locked_task() -> Task:
     )
 
 
+def _build_stale_queued_running_task_without_owner() -> Task:
+    now = _utc_now()
+    return Task(
+        id="task-orphan-running",
+        workspace_id="ws-1",
+        message_id="msg-orphan",
+        execution_id="exec-orphan",
+        pack_id="ig_batch_pin_references",
+        task_type="playbook_execution",
+        status=TaskStatus.PENDING,
+        queue_shard="browser_local",
+        created_at=now - timedelta(hours=2),
+        started_at=now - timedelta(hours=2),
+        next_eligible_at=now - timedelta(hours=2),
+        frontier_state="running",
+        execution_context={
+            "playbook_code": "ig_batch_pin_references",
+            "status": "queued",
+            "runner_reaper": {
+                "action": "startup_reset",
+                "previous_runner_id": "runner-old",
+                "new_runner_id": "runner-current",
+            },
+            "inputs": {
+                "workspace_id": "ws-1",
+                "target_handle": "sample",
+                "user_data_dir": "profile-a",
+            },
+        },
+    )
+
+
 def _build_running_browser_task(
     *,
     pack_id: str = "ig_analyze_following",
@@ -285,6 +317,29 @@ async def test_releases_due_concurrency_locked_task_to_ready_queue():
     assert "runner_skip_lock_key" not in update["execution_context"]
     assert "runner_skip_conflict_lock_key" not in update["execution_context"]
     assert "resume_after" not in update["execution_context"]
+
+
+def test_requeues_stale_queued_running_task_without_runner_owner(monkeypatch):
+    task = _build_stale_queued_running_task_without_owner()
+    store = _FakeTasksStore([task])
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", "180")
+
+    reaper._reap_stale_running_tasks(store, "runner-new", redis_queue=None)
+
+    assert len(store.updated) == 1
+    assert store.updated[0][0] == "task-orphan-running"
+    update = store.updated[0][1]
+    assert update["status"] == TaskStatus.PENDING
+    assert update["started_at"] is None
+    assert update["blocked_reason"] is None
+    assert update["frontier_state"] == "ready"
+    assert update["frontier_enqueued_at"] is not None
+    assert update["next_eligible_at"] is not None
+    updated_ctx = update["execution_context"]
+    assert updated_ctx["status"] == "queued"
+    assert updated_ctx["runner_reaper"]["action"] == "requeue_orphan_no_runner"
+    assert "runner_id" not in updated_ctx
+    assert "heartbeat_at" not in updated_ctx
 
 
 def test_requests_watchdog_abort_for_running_following_task_with_no_progress(monkeypatch):
