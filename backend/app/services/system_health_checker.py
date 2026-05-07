@@ -7,11 +7,13 @@ Checks system health status including:
 - Tool connections (WordPress, Obsidian, Notion, etc.)
 """
 
+import asyncio
 import json
 import logging
 import os
 import urllib.request
-from typing import Dict, Any, List, Optional
+from collections.abc import Awaitable, Callable
+from typing import Dict, Any, List, Optional, TypeVar
 from enum import Enum
 
 from backend.app.services.config_store import ConfigStore
@@ -19,6 +21,24 @@ from backend.app.services.tool_registry import ToolRegistryService
 from backend.app.services.backend_manager import BackendManager
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
+
+
+async def run_readiness_coro_in_worker(
+    coro_factory: Callable[[], Awaitable[T]],
+) -> T:
+    """Run readiness checks away from the API event loop.
+
+    System/workspace health intentionally performs real DB, LLM, OCR, vector, and
+    tool checks. Some of those clients are synchronous, so the full readiness
+    coroutine runs on a worker thread to avoid starving dependency-free
+    liveness.
+    """
+
+    def _run() -> T:
+        return asyncio.run(coro_factory())
+
+    return await asyncio.to_thread(_run)
 
 
 class HealthIssueSeverity(str, Enum):
@@ -632,6 +652,10 @@ class SystemHealthChecker:
             from backend.app.capabilities.core_files.services.ocr_client import get_ocr_client
 
             ocr_client = get_ocr_client()
+            optional_disabled = self._optional_ocr_disabled_response(ocr_client)
+            if optional_disabled:
+                return optional_disabled
+
             health_data = await ocr_client.check_health()
 
             if health_data.get("status") == "ok":
@@ -643,9 +667,6 @@ class SystemHealthChecker:
                     "service": health_data.get("service", "ocr-service")
                 }
             else:
-                optional_disabled = self._optional_ocr_disabled_response(ocr_client)
-                if optional_disabled:
-                    return optional_disabled
                 issues.append(HealthIssue(
                     issue_type="ocr_service_unhealthy",
                     severity=HealthIssueSeverity.WARNING,

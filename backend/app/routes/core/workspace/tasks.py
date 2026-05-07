@@ -36,11 +36,13 @@ from ....services.task_execution_projection import (
     build_execution_group_summary,
     project_execution_for_api,
 )
+from ....services.json_safety import json_value_without_nul
 from ..execution_dispatch import get_or_create_cloud_connector
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 store = MindscapeStore()
+_ARTIFACT_PROGRESS_CONTENT_MARKER = '%"progress"%'
 
 
 def _build_workspace_execution_order_clause(order_by: str, order: str) -> str:
@@ -152,6 +154,19 @@ def _build_admission_state(task_obj: Any, ctx: Dict[str, Any]) -> Optional[Dict[
     }
 
 
+def _extract_artifact_progress_from_content(content: Any) -> tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    content_json = json_value_without_nul(content, {})
+    if not isinstance(content_json, dict):
+        return None, {}
+
+    progress = content_json.get("progress")
+    content_metadata = content_json.get("metadata")
+    return (
+        progress if isinstance(progress, dict) else None,
+        content_metadata if isinstance(content_metadata, dict) else {},
+    )
+
+
 async def _execution_stream_poller(
     workspace_id: str, execution_id: str, state: _ExecutionStreamState
 ) -> None:
@@ -222,19 +237,21 @@ async def _execution_stream_poller(
                     with tasks_store.get_connection() as _conn:
                         _row = _conn.execute(
                             _text(
-                                "SELECT content::jsonb->'progress' AS p "
+                                "SELECT content "
                                 "FROM artifacts "
                                 "WHERE execution_id = :eid "
-                                "AND content::jsonb ? 'progress' "
+                                "AND content IS NOT NULL "
+                                "AND content LIKE :progress_marker "
                                 "ORDER BY updated_at DESC LIMIT 1"
                             ),
-                            {"eid": execution_id},
+                            {
+                                "eid": execution_id,
+                                "progress_marker": _ARTIFACT_PROGRESS_CONTENT_MARKER,
+                            },
                         ).fetchone()
                         if _row and _row[0]:
-                            progress = (
+                            progress, _content_metadata = _extract_artifact_progress_from_content(
                                 _row[0]
-                                if isinstance(_row[0], dict)
-                                else json.loads(_row[0])
                             )
                             if isinstance(progress, dict):
                                 last_known_progress = progress
@@ -553,6 +570,114 @@ async def get_workspace_executions(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _load_execution_progress_snapshot_payload(
+    workspace_id: str,
+    execution_id: str,
+) -> Dict[str, Any]:
+    from sqlalchemy import text
+
+    tasks_store = TasksStore()
+    task = tasks_store.get_task_by_execution_id(execution_id)
+    if not task:
+        task = tasks_store.get_task(execution_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    if task.workspace_id != workspace_id:
+        raise HTTPException(
+            status_code=403, detail="Execution does not belong to this workspace"
+        )
+
+    artifact_id = None
+    artifact_updated_at = None
+    progress = None
+    artifact_metadata = {}
+    content_metadata = {}
+
+    try:
+        with tasks_store.get_connection() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT
+                        id,
+                        updated_at,
+                        created_at,
+                        metadata,
+                        content
+                    FROM artifacts
+                    WHERE workspace_id = :workspace_id
+                      AND execution_id = :execution_id
+                      AND content IS NOT NULL
+                      AND content LIKE :progress_marker
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "workspace_id": workspace_id,
+                    "execution_id": execution_id,
+                    "progress_marker": _ARTIFACT_PROGRESS_CONTENT_MARKER,
+                },
+            ).fetchone()
+        if row:
+            artifact_id = str(row.id)
+            ts = row.updated_at or row.created_at
+            artifact_updated_at = ts.isoformat() if ts else None
+            artifact_metadata = json_value_without_nul(row.metadata, {}) or {}
+            progress, content_metadata = _extract_artifact_progress_from_content(
+                row.content
+            )
+    except Exception:
+        artifact = store.artifacts.get_by_execution_id(execution_id)
+        if artifact and artifact.workspace_id == workspace_id:
+            content = artifact.content or {}
+            artifact_id = artifact.id
+            ts = artifact.updated_at or artifact.created_at
+            artifact_updated_at = ts.isoformat() if ts else None
+            artifact_metadata = artifact.metadata or {}
+            if isinstance(content, dict):
+                p = content.get("progress")
+                progress = p if isinstance(p, dict) else {}
+                cm = content.get("metadata")
+                content_metadata = cm if isinstance(cm, dict) else {}
+
+    ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+    _QUEUE_CACHE.refresh_if_stale(tasks_store)
+
+    return {
+        "workspace_id": workspace_id,
+        "execution_id": execution_id,
+        "task_status": task.status,
+        "artifact_id": artifact_id,
+        "artifact_updated_at": artifact_updated_at,
+        "progress": progress if isinstance(progress, dict) else None,
+        "queue_position": _QUEUE_CACHE.get_position(tasks_store, task),
+        "queue_total": _QUEUE_CACHE.get_total(task.queue_shard or "default"),
+        "blocked_reason": task.blocked_reason,
+        "blocked_payload": task.blocked_payload,
+        "frontier_state": task.frontier_state,
+        "next_eligible_at": (
+            task.next_eligible_at.isoformat() if task.next_eligible_at else None
+        ),
+        "admission_state": _build_admission_state(task, ctx),
+        "artifact_metadata": artifact_metadata,
+        "content_metadata": content_metadata,
+        "execution_context": {
+            "heartbeat_at": ctx.get("heartbeat_at"),
+            "runner_id": ctx.get("runner_id"),
+            "execution_backend_hint": ctx.get("execution_backend_hint"),
+            "inputs": ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {},
+            "dependency_hold": ctx.get("dependency_hold"),
+            "admission_policy": (
+                ctx.get("admission_policy")
+                if isinstance(ctx.get("admission_policy"), dict)
+                else None
+            ),
+            "admission": ctx.get("admission") if isinstance(ctx.get("admission"), dict) else None,
+        },
+    }
+
+
 @router.get("/{workspace_id}/executions/{execution_id}/progress-snapshot")
 async def get_execution_progress_snapshot(
     workspace_id: str = PathParam(..., description="Workspace ID"),
@@ -564,122 +689,12 @@ async def get_execution_progress_snapshot(
     This endpoint avoids returning full artifact `content` payloads while still exposing
     the latest `progress` object and metadata needed by UI status/debug cards.
     """
-    import json
-    from sqlalchemy import text
-
-    def _to_json(value: Any, default: Any = None):
-        if value is None:
-            return default
-        if isinstance(value, (dict, list, int, float, bool)):
-            return value
-        if isinstance(value, str):
-            try:
-                return json.loads(value)
-            except Exception:
-                return default
-        return default
-
     try:
-        tasks_store = TasksStore()
-        task = tasks_store.get_task_by_execution_id(execution_id)
-        if not task:
-            task = tasks_store.get_task(execution_id)
-        if not task:
-            raise HTTPException(status_code=404, detail="Execution not found")
-        if task.workspace_id != workspace_id:
-            raise HTTPException(
-                status_code=403, detail="Execution does not belong to this workspace"
-            )
-
-        artifact_id = None
-        artifact_updated_at = None
-        progress = None
-        artifact_metadata = {}
-        content_metadata = {}
-
-        # Fast path (Postgres JSON extraction): read only progress + metadata, not full content blob.
-        try:
-            with tasks_store.get_connection() as conn:
-                row = conn.execute(
-                    text(
-                        """
-                        SELECT
-                            id,
-                            updated_at,
-                            created_at,
-                            metadata,
-                            content::jsonb->'progress' AS progress,
-                            content::jsonb->'metadata' AS content_metadata
-                        FROM artifacts
-                        WHERE workspace_id = :workspace_id
-                          AND execution_id = :execution_id
-                          AND content IS NOT NULL
-                          AND content::jsonb ? 'progress'
-                        ORDER BY updated_at DESC
-                        LIMIT 1
-                        """
-                    ),
-                    {"workspace_id": workspace_id, "execution_id": execution_id},
-                ).fetchone()
-            if row:
-                artifact_id = str(row.id)
-                ts = row.updated_at or row.created_at
-                artifact_updated_at = ts.isoformat() if ts else None
-                progress = _to_json(row.progress, {})
-                artifact_metadata = _to_json(row.metadata, {}) or {}
-                content_metadata = _to_json(row.content_metadata, {}) or {}
-        except Exception:
-            # Fallback: use store-level artifact read if DB JSON operators aren't available.
-            artifact = store.artifacts.get_by_execution_id(execution_id)
-            if artifact and artifact.workspace_id == workspace_id:
-                content = artifact.content or {}
-                artifact_id = artifact.id
-                ts = artifact.updated_at or artifact.created_at
-                artifact_updated_at = ts.isoformat() if ts else None
-                artifact_metadata = artifact.metadata or {}
-                if isinstance(content, dict):
-                    p = content.get("progress")
-                    progress = p if isinstance(p, dict) else {}
-                    cm = content.get("metadata")
-                    content_metadata = cm if isinstance(cm, dict) else {}
-
-        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
-
-        # Refresh queue cache for position data
-        _QUEUE_CACHE.refresh_if_stale(tasks_store)
-
-        return {
-            "workspace_id": workspace_id,
-            "execution_id": execution_id,
-            "task_status": task.status,
-            "artifact_id": artifact_id,
-            "artifact_updated_at": artifact_updated_at,
-            "progress": progress if isinstance(progress, dict) else None,
-            "queue_position": _QUEUE_CACHE.get_position(tasks_store, task),
-            "queue_total": _QUEUE_CACHE.get_total(task.queue_shard or "default"),
-            "blocked_reason": task.blocked_reason,
-            "blocked_payload": task.blocked_payload,
-            "frontier_state": task.frontier_state,
-            "next_eligible_at": (
-                task.next_eligible_at.isoformat() if task.next_eligible_at else None
-            ),
-            "admission_state": _build_admission_state(task, ctx),
-            "artifact_metadata": artifact_metadata,
-            "content_metadata": content_metadata,
-            "execution_context": {
-                "heartbeat_at": ctx.get("heartbeat_at"),
-                "runner_id": ctx.get("runner_id"),
-                "execution_backend_hint": ctx.get("execution_backend_hint"),
-                "inputs": ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {},
-                "dependency_hold": ctx.get("dependency_hold"),
-                "admission_policy": (
-                    ctx.get("admission_policy")
-                    if isinstance(ctx.get("admission_policy"), dict)
-                    else None
-                ),
-                "admission": ctx.get("admission") if isinstance(ctx.get("admission"), dict) else None,
-            },
-        }
+        return await asyncio.to_thread(
+            _load_execution_progress_snapshot_payload,
+            workspace_id,
+            execution_id,
+        )
     except HTTPException:
         raise
     except Exception as e:

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional, Any
 from sqlalchemy import text
 from app.database.connection_factory import ConnectionFactory
+from ..json_safety import replace_json_nul_codepoints
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ class PostgresStoreBase:
         if data is None:
             return None
         try:
-            return json.dumps(data)
+            return json.dumps(replace_json_nul_codepoints(data))
         except (TypeError, ValueError) as e:
             logger.error(f"Failed to serialize JSON: {e}")
             raise ValueError(f"Invalid JSON data: {e}")
@@ -82,13 +83,13 @@ class PostgresStoreBase:
 
         # If already a dict/list (from JSONB), return as is
         if isinstance(data, (dict, list)):
-            return data
+            return replace_json_nul_codepoints(data)
 
         if isinstance(data, str):
             if not data.strip():
                 return default if default is not None else {}
             try:
-                return json.loads(data)
+                return replace_json_nul_codepoints(json.loads(data))
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to deserialize JSON string: {e}")
                 return default if default is not None else {}

@@ -8,7 +8,10 @@ from fastapi import (
 )
 
 from ....services.mindscape_store import MindscapeStore
-from ....services.system_health_checker import SystemHealthChecker
+from ....services.system_health_checker import (
+    SystemHealthChecker,
+    run_readiness_coro_in_worker,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -23,7 +26,9 @@ async def get_workspace_health(
     """Get health status for a workspace"""
     try:
         health_checker = SystemHealthChecker()
-        health = await health_checker.check_workspace_health(profile_id, workspace_id)
+        health = await run_readiness_coro_in_worker(
+            lambda: health_checker.check_workspace_health(profile_id, workspace_id)
+        )
         return health
     except Exception as e:
         logger.error(f"Failed to get workspace health: {e}", exc_info=True)

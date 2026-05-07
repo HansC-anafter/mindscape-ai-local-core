@@ -74,6 +74,22 @@ app.add_middleware(
     ],  # Allow all for development
 )
 
+
+@app.get("/healthz")
+async def healthz():
+    """Pure liveness probe for the API process.
+
+    This endpoint must stay dependency-free: no OCR, LLM, vector DB, object index,
+    workspace health, or external service checks. Readiness/system health belongs
+    to /health and /api/v1/workspaces/{workspace_id}/health.
+    """
+    return {
+        "status": "ok",
+        "backend_role": get_backend_runtime_role(),
+        "reload_enabled": should_enable_uvicorn_reload(),
+    }
+
+
 # Connect modular bootstrap components
 register_all_routes(app)
 register_error_handlers(app)
@@ -118,7 +134,10 @@ async def reset_rate_limit(request: Request):
 @app.get("/health")
 async def health_check():
     """Overall health check with system component status"""
-    from backend.app.services.system_health_checker import SystemHealthChecker
+    from backend.app.services.system_health_checker import (
+        SystemHealthChecker,
+        run_readiness_coro_in_worker,
+    )
 
     health_checker = SystemHealthChecker()
 
@@ -126,16 +145,24 @@ async def health_check():
     issues = []
 
     # Check LLM configuration
-    llm_status = await health_checker._check_llm_configuration("default-user", issues)
+    llm_status = await run_readiness_coro_in_worker(
+        lambda: health_checker._check_llm_configuration("default-user", issues)
+    )
 
     # Check Vector DB connection
-    vector_db_status = await health_checker._check_vector_db(issues)
+    vector_db_status = await run_readiness_coro_in_worker(
+        lambda: health_checker._check_vector_db(issues)
+    )
 
     # Check backend service
-    backend_status = await health_checker._check_backend_service(issues)
+    backend_status = await run_readiness_coro_in_worker(
+        lambda: health_checker._check_backend_service(issues)
+    )
 
     # Check OCR service
-    ocr_status = await health_checker._check_ocr_service(issues)
+    ocr_status = await run_readiness_coro_in_worker(
+        lambda: health_checker._check_ocr_service(issues)
+    )
 
     # Determine overall status
     overall_status = "healthy"
@@ -236,16 +263,6 @@ async def health_check():
             "snapshot": object_index_sync_snapshot,
         },
         "issues": [issue.to_dict() for issue in issues] if issues else [],
-    }
-
-
-@app.get("/healthz")
-async def healthz():
-    """Lightweight liveness probe for container/runtime health."""
-    return {
-        "status": "ok",
-        "backend_role": get_backend_runtime_role(),
-        "reload_enabled": should_enable_uvicorn_reload(),
     }
 
 

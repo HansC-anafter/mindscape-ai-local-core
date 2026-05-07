@@ -31,6 +31,19 @@ class OCRClient:
         )
         self.timeout = 300.0  # 5 minutes for large PDFs
 
+    def _is_optional_default_disabled(self) -> bool:
+        required = str(os.getenv("OCR_SERVICE_REQUIRED", "")).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        return (
+            not required
+            and "OCR_SERVICE_URL" not in os.environ
+            and self.service_url.rstrip("/") == "http://ocr-service:8001"
+        )
+
     async def ocr_image(self, file_path: str) -> Dict[str, Any]:
         """
         Process image file with OCR
@@ -42,6 +55,14 @@ class OCRClient:
             OCR result with text, blocks, and confidence scores
         """
         try:
+            if self._is_optional_default_disabled():
+                logger.info("OCR service not configured; skipping image OCR")
+                return {
+                    "status": "disabled",
+                    "text": "",
+                    "blocks": [],
+                    "reason": "OCR_SERVICE_URL is not configured",
+                }
             path = Path(file_path)
             if not path.exists():
                 raise FileNotFoundError(f"File not found: {file_path}")
@@ -85,6 +106,14 @@ class OCRClient:
             OCR result with pages array
         """
         try:
+            if self._is_optional_default_disabled():
+                logger.info("OCR service not configured; skipping PDF OCR")
+                return {
+                    "status": "disabled",
+                    "text": "",
+                    "pages": [],
+                    "reason": "OCR_SERVICE_URL is not configured",
+                }
             path = Path(file_path)
             if not path.exists():
                 raise FileNotFoundError(f"File not found: {file_path}")
@@ -167,7 +196,6 @@ async def ocr_pdf(file_path: str, dpi: int = 300) -> Dict[str, Any]:
     """
     client = get_ocr_client()
     return await client.ocr_pdf(file_path, dpi=dpi)
-
 
 
 

@@ -307,6 +307,34 @@ def pack_declares_branch_label(
     return False
 
 
+def _resolve_applied_revisions(
+    orchestrator,
+    current_revisions: set[str],
+) -> set[str]:
+    try:
+        return {
+            str(revision)
+            for revision in orchestrator._get_applied_revisions(
+                "postgres",
+                current_revisions,
+            )
+        }
+    except Exception as exc:
+        logger.warning(
+            "Could not resolve applied migration ancestry; falling back to current heads: %s",
+            exc,
+        )
+        return {str(revision) for revision in current_revisions}
+
+
+def _pending_revisions(
+    revisions: list[str],
+    applied_revisions: set[str],
+) -> list[str]:
+    applied = {str(revision) for revision in applied_revisions}
+    return [str(revision) for revision in revisions if str(revision) not in applied]
+
+
 def execute_migrations(
     local_core_root: Path,
     capabilities_dir: Path,
@@ -456,10 +484,14 @@ def execute_migrations(
 
         with engine.connect() as connection:
             result_query = connection.execute(text("SELECT version_num FROM alembic_version"))
-            applied_revisions = {row[0] for row in result_query}
+            current_revisions = {str(row[0]) for row in result_query}
+            applied_revisions = _resolve_applied_revisions(
+                orchestrator,
+                current_revisions,
+            )
 
             for revision in revisions:
-                if revision not in applied_revisions:
+                if revision not in current_revisions:
                     continue
                 expected_tables = revision_expected_tables.get(revision, [])
                 if not expected_tables:
@@ -481,9 +513,12 @@ def execute_migrations(
                     )
                 )
                 connection.commit()
+                applied_revisions.discard(str(revision))
                 logger.info(
                     f"Removed revision {revision}, will re-execute migration"
                 )
+
+        pending_revisions = _pending_revisions(revisions, applied_revisions)
 
         if pack_declares_branch_label(capability_code, current_migration_files):
             target = f"{capability_code}@head"
@@ -501,8 +536,21 @@ def execute_migrations(
             if upgrade_result:
                 logger.info(f"Branch-scoped migration completed for {capability_code}")
             elif revisions:
+                if not pending_revisions:
+                    logger.info(
+                        f"No pending per-revision migrations for {capability_code}; "
+                        "all declared revisions are already in the applied ancestry"
+                    )
+                    result.add_warning(
+                        f"Branch-scoped migration failed for {capability_code}, "
+                        "but declared revisions are already applied"
+                    )
+                    if result.migration_status is None:
+                        result.migration_status = {}
+                    result.migration_status[capability_code] = "applied"
+                    return
                 logger.info(f"Falling back to per-revision for {capability_code}")
-                for revision in revisions:
+                for revision in pending_revisions:
                     logger.info(
                         f"Executing migration {revision} for {capability_code}..."
                     )
@@ -532,7 +580,11 @@ def execute_migrations(
                 result.migration_status[capability_code] = "failed"
                 return
         else:
-            for revision in revisions:
+            if not pending_revisions:
+                logger.info(
+                    f"No pending migrations for {capability_code}; declared revisions are already applied"
+                )
+            for revision in pending_revisions:
                 logger.info(f"Executing migration {revision} for {capability_code}...")
                 upgrade_result = orchestrator._run_alembic_upgrade(
                     alembic_config, revision

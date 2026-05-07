@@ -74,7 +74,14 @@ def test_ollama_health_reports_missing_selected_model(monkeypatch):
     assert [issue.type for issue in issues] == ["ollama_model_missing"]
 
 
-class _FakeOCRClient:
+class _OptionalOCRClient:
+    service_url = "http://ocr-service:8001"
+
+    async def check_health(self):
+        raise AssertionError("optional default OCR service must not be probed")
+
+
+class _RequiredOCRClient:
     service_url = "http://ocr-service:8001"
 
     async def check_health(self):
@@ -87,7 +94,7 @@ async def test_default_ocr_service_is_disabled_when_optional(monkeypatch):
     monkeypatch.delenv("OCR_SERVICE_REQUIRED", raising=False)
     monkeypatch.setattr(
         "backend.app.capabilities.core_files.services.ocr_client.get_ocr_client",
-        lambda: _FakeOCRClient(),
+        lambda: _OptionalOCRClient(),
     )
     checker = object.__new__(SystemHealthChecker)
     issues = []
@@ -106,7 +113,7 @@ async def test_default_ocr_service_warns_when_required(monkeypatch):
     monkeypatch.setenv("OCR_SERVICE_REQUIRED", "true")
     monkeypatch.setattr(
         "backend.app.capabilities.core_files.services.ocr_client.get_ocr_client",
-        lambda: _FakeOCRClient(),
+        lambda: _RequiredOCRClient(),
     )
     checker = object.__new__(SystemHealthChecker)
     issues = []

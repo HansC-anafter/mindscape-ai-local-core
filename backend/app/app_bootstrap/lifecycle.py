@@ -25,6 +25,7 @@ _PACK_VALIDATION_RESUME_TASK_ATTR = "_pack_validation_resume_task"
 _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR = "_runtime_migrations_post_ready_task"
 _OBJECT_INDEX_SYNC_TASK_ATTR = "_object_index_sync_task"
 _CODEX_POOL_SWEEPER_SERVICE_ATTR = "_codex_pool_sweeper_service"
+_POST_READY_HEAVY_WORK_LOCK_ATTR = "_post_ready_heavy_work_lock"
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -42,6 +43,40 @@ def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
 def should_run_object_index_sync() -> bool:
     disabled = os.getenv("AOL_OBJECT_INDEX_SYNC_DISABLED", "").strip().lower()
     return disabled not in {"1", "true", "yes", "on"}
+
+
+async def _wait_for_post_ready_bind_grace(task_name: str) -> None:
+    """Let uvicorn finish binding before post-ready work starts."""
+    delay_seconds = _env_int(
+        "MINDSCAPE_POST_READY_BIND_GRACE_SECONDS",
+        2,
+        minimum=0,
+        maximum=300,
+    )
+    if delay_seconds > 0:
+        logger.info(
+            "Post-ready task %s waiting %ds for server bind grace",
+            task_name,
+            delay_seconds,
+        )
+        await asyncio.sleep(delay_seconds)
+    else:
+        await asyncio.sleep(0)
+
+
+def _get_post_ready_heavy_work_lock(app: FastAPI) -> asyncio.Lock:
+    lock = getattr(app.state, _POST_READY_HEAVY_WORK_LOCK_ATTR, None)
+    if lock is None:
+        lock = asyncio.Lock()
+        setattr(app.state, _POST_READY_HEAVY_WORK_LOCK_ATTR, lock)
+    return lock
+
+
+async def _run_post_ready_heavy_work(app: FastAPI, task_name: str, worker):
+    """Serialize post-ready heavy work off the API event loop."""
+    async with _get_post_ready_heavy_work_lock(app):
+        logger.info("Post-ready task %s heavy work starting", task_name)
+        return await asyncio.to_thread(worker)
 
 
 async def _sync_tool_rag_pack_embedding_state(
@@ -93,14 +128,23 @@ def _consume_preflight_contract_decision() -> tuple[bool, str, dict]:
 async def _run_post_ready_tool_rag_warmup(app: FastAPI) -> None:
     """Warm the shared tool corpus after readiness, not during startup."""
     try:
+        await _wait_for_post_ready_bind_grace("tool-rag-post-ready-warmup")
         app.state.tool_rag_post_ready_status = "running"
         app.state.tool_rag_post_ready_error = None
         from backend.app.services.pack_activation_service import PackActivationService
         from backend.app.services.stores.installed_packs_store import InstalledPacksStore
 
-        await asyncio.sleep(0)
-        tes, indexed_count, mode = await refresh_tool_rag_corpus(
-            log_prefix="Tool RAG post-ready warm-up"
+        def _refresh_tool_rag_corpus_in_worker():
+            return asyncio.run(
+                refresh_tool_rag_corpus(
+                    log_prefix="Tool RAG post-ready warm-up"
+                )
+            )
+
+        tes, indexed_count, mode = await _run_post_ready_heavy_work(
+            app,
+            "tool-rag-post-ready-warmup",
+            _refresh_tool_rag_corpus_in_worker,
         )
         logger.info(
             "Tool RAG post-ready warm-up completed: indexed=%d mode=%s",
@@ -128,12 +172,23 @@ async def _run_post_ready_tool_rag_warmup(app: FastAPI) -> None:
 async def _run_post_ready_playbook_registry_warmup(app: FastAPI) -> None:
     """Load local capability playbooks after readiness and reconcile activation state."""
     try:
+        await _wait_for_post_ready_bind_grace(
+            "playbook-registry-post-ready-warmup"
+        )
         app.state.playbook_registry_post_ready_status = "running"
         app.state.playbook_registry_post_ready_error = None
         from backend.app.services.playbook_registry import get_playbook_registry
 
-        await asyncio.sleep(0)
-        await asyncio.to_thread(get_playbook_registry)
+        def _load_playbook_registry_in_worker():
+            registry = get_playbook_registry()
+            registry._load_all_playbooks_sync()
+            return registry
+
+        await _run_post_ready_heavy_work(
+            app,
+            "playbook-registry-post-ready-warmup",
+            _load_playbook_registry_in_worker,
+        )
         app.state.playbook_registry_post_ready_completed = True
         app.state.playbook_registry_post_ready_status = "completed"
         logger.info("Playbook registry post-ready warm-up completed")
@@ -176,12 +231,11 @@ async def _resume_pending_pack_validations_post_ready() -> None:
 async def _run_post_ready_runtime_migrations(app: FastAPI) -> None:
     """Run capability/runtime migrations after readiness so bind is never blocked."""
     try:
+        await _wait_for_post_ready_bind_grace("runtime-migrations-post-ready")
         app.state.runtime_migrations_post_ready_status = "running"
         app.state.runtime_migrations_post_ready_error = None
         from pathlib import Path
         from backend.app.services.migrations import MigrationOrchestrator
-
-        await asyncio.sleep(0)
 
         app_dir = Path(__file__).parent.parent
         capabilities_root = app_dir / "capabilities"
