@@ -48,7 +48,17 @@ class _FakeTasksStore:
         self.concurrency_locked_calls = 0
 
     def list_running_playbook_execution_tasks(self, *, workspace_id=None, limit=200):
-        return self._tasks[:limit]
+        return [
+            task for task in self._tasks if task.status == TaskStatus.RUNNING
+        ][:limit]
+
+    def list_frontier_running_pending_tasks(self, *, workspace_id=None, limit=200):
+        return [
+            task
+            for task in self._tasks
+            if task.status == TaskStatus.PENDING
+            and getattr(task, "frontier_state", None) == "running"
+        ][:limit]
 
     def list_due_admission_deferred_tasks(self, *, queue_shard=None, limit=200):
         return self._tasks[:limit]

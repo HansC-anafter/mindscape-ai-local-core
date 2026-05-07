@@ -432,11 +432,24 @@ def _reap_stale_running_tasks(
         running = tasks_store.list_running_playbook_execution_tasks(
             workspace_id=None, limit=500
         )
+        list_frontier_running_pending_tasks = getattr(
+            tasks_store,
+            "list_frontier_running_pending_tasks",
+            None,
+        )
+        if callable(list_frontier_running_pending_tasks):
+            running.extend(
+                list_frontier_running_pending_tasks(workspace_id=None, limit=500)
+            )
     except Exception as e:
         logger.warning(f"Runner stale-task scan failed: {e}")
         return
 
+    seen_task_ids: set[str] = set()
     for t in running:
+        if t.id in seen_task_ids:
+            continue
+        seen_task_ids.add(t.id)
         try:
             ctx = t.execution_context if isinstance(t.execution_context, dict) else {}
             ctx_runner_id = ctx.get("runner_id")
