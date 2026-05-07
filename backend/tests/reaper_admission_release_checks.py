@@ -182,7 +182,7 @@ def _build_stale_queued_running_task_without_owner() -> Task:
 
 def _build_running_browser_task(
     *,
-    pack_id: str = "ig_analyze_following",
+    pack_id: str = "browser_profile_scan",
     heartbeat_age_seconds: int = 30,
     current_step_index: int = 0,
     started_age_seconds: int = 3600,
@@ -204,6 +204,10 @@ def _build_running_browser_task(
             "heartbeat_at": (now - timedelta(seconds=heartbeat_age_seconds)).isoformat(),
             "status": "running",
             "current_step_index": current_step_index,
+            "no_progress_watchdog": {
+                "enabled": True,
+                "artifact_progress_source": "browser_profile_scan_progress",
+            },
         },
     )
 
@@ -352,7 +356,7 @@ def test_requeues_stale_queued_running_task_without_runner_owner(monkeypatch):
     assert "heartbeat_at" not in updated_ctx
 
 
-def test_requests_watchdog_abort_for_running_following_task_with_no_progress(monkeypatch):
+def test_requests_watchdog_abort_for_running_task_with_no_progress(monkeypatch):
     task = _build_running_browser_task()
     store = _FakeTasksStore([task])
     execution_store = _FakeExecutionStore(
@@ -431,7 +435,7 @@ def test_skips_watchdog_abort_once_progress_has_started(monkeypatch):
     assert store.updated == []
 
 
-def test_skips_watchdog_abort_when_following_semantic_progress_is_fresh(monkeypatch):
+def test_skips_watchdog_abort_when_artifact_semantic_progress_is_fresh(monkeypatch):
     task = _build_running_browser_task()
     store = _FakeTasksStore([task])
     execution_store = _FakeExecutionStore(
@@ -445,7 +449,7 @@ def test_skips_watchdog_abort_when_following_semantic_progress_is_fresh(monkeypa
     artifacts_store = _FakeArtifactsStore(
         {
             "exec-watchdog": _FakeArtifact(
-                metadata={"source": "ig_analyze_following_progress"},
+                metadata={"source": "browser_profile_scan_progress"},
                 content={
                     "progress": {
                         "stage": "dialog_opened",

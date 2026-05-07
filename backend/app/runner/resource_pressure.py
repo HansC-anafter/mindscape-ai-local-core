@@ -242,7 +242,10 @@ def evaluate_browser_resource_pressure(
     memory = snapshot.get("memory") if isinstance(snapshot, dict) else {}
     pids = snapshot.get("pids") if isinstance(snapshot, dict) else {}
     inflight = snapshot.get("inflight") if isinstance(snapshot, dict) else None
-    browser_session_max_active = max(1, _env_int("IG_BROWSER_SESSION_MAX_ACTIVE", 1))
+    browser_session_max_active = max(
+        1,
+        _env_int("LOCAL_CORE_RUNNER_BROWSER_SESSION_MAX_ACTIVE", 1),
+    )
     memory_ratio = None
     if isinstance(memory, dict):
         memory_ratio = memory.get("working_set_ratio")

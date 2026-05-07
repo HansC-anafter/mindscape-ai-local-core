@@ -185,6 +185,27 @@ class PlaybookStep(BaseModel):
         return values
 
 
+class ConcurrencyLockAlias(BaseModel):
+    """Additional lock key declared by a playbook concurrency contract."""
+
+    lock_key_input: Optional[str] = Field(
+        None,
+        description="Input parameter name whose value is used as alias lock key.",
+    )
+    lock_scope: str = Field(
+        default="input",
+        description="Alias lock scope: input, playbook_input, playbook, workspace.",
+    )
+    lock_key_template: Optional[str] = Field(
+        None,
+        description="Optional literal template using {value}, {pack_id}, or {playbook_code}.",
+    )
+    default_lock_key_value: Optional[str] = Field(
+        None,
+        description="Default alias value when the input is missing or blank.",
+    )
+
+
 class ConcurrencyPolicy(BaseModel):
     """Runner-level concurrency control for playbook execution."""
 
@@ -198,7 +219,15 @@ class ConcurrencyPolicy(BaseModel):
     )
     lock_scope: str = Field(
         default="input",
-        description="Lock scope: input, playbook, workspace.",
+        description="Lock scope: input, playbook_input, playbook, workspace.",
+    )
+    default_lock_key_value: Optional[str] = Field(
+        None,
+        description="Default lock value when the input is missing or blank.",
+    )
+    lock_aliases: List[ConcurrencyLockAlias] = Field(
+        default_factory=list,
+        description="Additional lock keys acquired with the primary lock.",
     )
 
 

@@ -24,7 +24,6 @@ from backend.app.runner.utils import _env_int, _parse_utc_iso, _utc_now
 
 logger = logging.getLogger(__name__)
 
-_NO_PROGRESS_WATCHDOG_DEFAULT_PACKS = {"ig_analyze_following"}
 _CONCURRENCY_LOCKED_REASON = "concurrency_locked"
 
 
@@ -95,15 +94,19 @@ def _watchdog_pack_allowlist() -> set[str]:
     raw_value = str(
         os.getenv(
             "LOCAL_CORE_RUNNER_NO_PROGRESS_WATCHDOG_PACKS",
-            ",".join(sorted(_NO_PROGRESS_WATCHDOG_DEFAULT_PACKS)),
+            "",
         )
         or ""
     )
     items = {item.strip() for item in raw_value.split(",") if item.strip()}
-    return items or set(_NO_PROGRESS_WATCHDOG_DEFAULT_PACKS)
+    return items
 
 
-def _extract_following_semantic_progress_at(artifact: Any) -> Optional[Any]:
+def _extract_artifact_semantic_progress_at(
+    artifact: Any,
+    *,
+    expected_source: Optional[str],
+) -> Optional[Any]:
     if artifact is None:
         return None
 
@@ -115,7 +118,8 @@ def _extract_following_semantic_progress_at(artifact: Any) -> Optional[Any]:
             metadata = None
     if isinstance(metadata, dict):
         source = str(metadata.get("source") or "").strip().lower()
-        if source and source != "ig_analyze_following_progress":
+        expected = str(expected_source or "").strip().lower()
+        if expected and source != expected:
             return None
 
     content = getattr(artifact, "content", None)
@@ -160,6 +164,7 @@ def _resolve_watchdog_progress_updated_at(
     execution: Any,
     execution_id: str,
     artifacts_store: Optional[Any],
+    watchdog_policy: dict[str, Any],
 ) -> Optional[Any]:
     progress_updated_at = _latest_watchdog_timestamp(
         getattr(execution, "updated_at", None),
@@ -168,7 +173,10 @@ def _resolve_watchdog_progress_updated_at(
         getattr(task, "created_at", None),
     )
 
-    if str(getattr(task, "pack_id", "") or "").strip() != "ig_analyze_following":
+    artifact_progress_source = str(
+        watchdog_policy.get("artifact_progress_source") or ""
+    ).strip()
+    if not artifact_progress_source:
         return progress_updated_at
     if artifacts_store is None:
         return progress_updated_at
@@ -178,10 +186,29 @@ def _resolve_watchdog_progress_updated_at(
     except Exception:
         return progress_updated_at
 
-    semantic_progress_at = _extract_following_semantic_progress_at(artifact)
+    semantic_progress_at = _extract_artifact_semantic_progress_at(
+        artifact,
+        expected_source=artifact_progress_source,
+    )
     if semantic_progress_at is None:
         return progress_updated_at
     return _latest_watchdog_timestamp(progress_updated_at, semantic_progress_at)
+
+
+def _watchdog_policy_from_context(ctx: dict[str, Any]) -> dict[str, Any]:
+    raw_policy = ctx.get("no_progress_watchdog")
+    if isinstance(raw_policy, dict):
+        return dict(raw_policy)
+    return {}
+
+
+def _watchdog_policy_enabled(policy: dict[str, Any]) -> bool:
+    value = policy.get("enabled")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "no", "off"}
+    return bool(value)
 
 
 def _request_watchdog_abort_for_no_progress_tasks(
@@ -196,8 +223,6 @@ def _request_watchdog_abort_for_no_progress_tasks(
         return 0
 
     allowed_packs = _watchdog_pack_allowlist()
-    if not allowed_packs:
-        return 0
 
     try:
         running = tasks_store.list_running_playbook_execution_tasks(
@@ -213,12 +238,6 @@ def _request_watchdog_abort_for_no_progress_tasks(
         )
 
         execution_store = PostgresPlaybookExecutionsStore()
-    if artifacts_store is None and "ig_analyze_following" in allowed_packs:
-        from backend.app.services.stores.postgres.artifacts_store import (
-            PostgresArtifactsStore,
-        )
-
-        artifacts_store = PostgresArtifactsStore()
 
     now = _utc_now()
     stale_seconds = _env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180)
@@ -228,10 +247,14 @@ def _request_watchdog_abort_for_no_progress_tasks(
 
     for task in running:
         try:
-            if str(task.pack_id or "").strip() not in allowed_packs:
-                continue
-
             ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+            watchdog_policy = _watchdog_policy_from_context(ctx)
+            pack_id = str(task.pack_id or "").strip()
+            if not (
+                _watchdog_policy_enabled(watchdog_policy)
+                or pack_id in allowed_packs
+            ):
+                continue
             if ctx.get("execution_mode") not in (None, "runner"):
                 continue
             if ctx.get("watchdog_abort_requested_at"):
@@ -261,11 +284,22 @@ def _request_watchdog_abort_for_no_progress_tasks(
             if phase not in ("", "queue"):
                 continue
 
+            if (
+                artifacts_store is None
+                and watchdog_policy.get("artifact_progress_source")
+            ):
+                from backend.app.services.stores.postgres.artifacts_store import (
+                    PostgresArtifactsStore,
+                )
+
+                artifacts_store = PostgresArtifactsStore()
+
             progress_updated_at = _resolve_watchdog_progress_updated_at(
                 task=task,
                 execution=execution,
                 execution_id=execution_id,
                 artifacts_store=artifacts_store,
+                watchdog_policy=watchdog_policy,
             )
             if progress_updated_at is None:
                 continue

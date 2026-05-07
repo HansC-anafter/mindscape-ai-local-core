@@ -179,10 +179,19 @@ def _emit_run_state_changed_for_task(
 
         ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
         inputs = None
-        if isinstance(task.params, dict):
+        if isinstance(task.params, dict) and task.params:
             inputs = task.params
         elif isinstance(ctx.get("inputs"), dict):
             inputs = ctx.get("inputs")
+        elif isinstance(task.params, dict):
+            inputs = task.params
+        event_inputs = inputs if isinstance(inputs, dict) else {}
+        playbook_code = (
+            event_inputs.get("playbook_code")
+            or (ctx.get("playbook_code") if isinstance(ctx, dict) else None)
+            or task.pack_id
+            or ""
+        )
 
         event = _build_run_state_changed_event(
             profile_id=(
@@ -196,7 +205,7 @@ def _emit_run_state_changed_for_task(
             previous_state=previous_state,
             new_state=new_state,
             reason=reason,
-            playbook_code=task.pack_id or "",
+            playbook_code=playbook_code,
             inputs=inputs,
         )
         MindscapeStore().create_event(event)
@@ -786,10 +795,7 @@ async def _run_single_task(
     def _heartbeat_thread() -> None:
         interval_s = max(1.0, hb_interval_ms / 1000.0)
         beat_seq = 0
-        trace_heartbeat = task.pack_id in {
-            "ig_analyze_following",
-            "ig_batch_pin_references",
-        }
+        trace_heartbeat = bool(ctx.get("trace_runner_heartbeat"))
         while not stop_event.is_set():
             beat_seq += 1
             # Check if subprocess is still running - stop heartbeat if subprocess died
@@ -947,7 +953,7 @@ async def _run_single_task(
             target=_child_execute_playbook, args=(payload,), daemon=True
         )
         proc.start()
-        if task.pack_id in {"ig_analyze_following", "ig_batch_pin_references"}:
+        if trace_heartbeat:
             logger.warning(
                 "Runner subprocess started task_id=%s playbook=%s pid=%s",
                 task.id,
@@ -969,7 +975,7 @@ async def _run_single_task(
                 await asyncio.sleep(0.5)
             # Treat None exitcode as error (-1) to catch zombie/abnormal termination
             exitcode = proc.exitcode
-            if task.pack_id in {"ig_analyze_following", "ig_batch_pin_references"}:
+            if trace_heartbeat:
                 logger.warning(
                     "Runner subprocess exited task_id=%s playbook=%s pid=%s exitcode=%s",
                     task.id,
@@ -1056,6 +1062,12 @@ async def _run_single_task(
                     except Exception:
                         pass
             elif latest and latest.status in (TaskStatus.FAILED, TaskStatus.EXPIRED):
+                _emit_run_state_changed_for_task(
+                    latest,
+                    previous_state="RUNNING",
+                    new_state="FAILED",
+                    reason=latest.error or "execution_failed",
+                )
                 if redis_queue:
                     try:
                         await redis_queue.ack_task(task.id)

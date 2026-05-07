@@ -14,7 +14,7 @@ def _write(path, value: str) -> None:
 
 def test_runner_resource_snapshot_uses_cgroup_working_set(tmp_path, monkeypatch):
     monkeypatch.delenv("LOCAL_CORE_RUNNER_BROWSER_MEMORY_SOFT_RATIO", raising=False)
-    monkeypatch.setenv("IG_BROWSER_SESSION_MAX_ACTIVE", "2")
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_BROWSER_SESSION_MAX_ACTIVE", "2")
     resource_pressure._reset_resource_cooldown_for_tests()
 
     _write(tmp_path / "memory.current", "900")
@@ -41,7 +41,7 @@ def test_runner_resource_pressure_defers_when_browser_session_slots_are_full(
     tmp_path,
     monkeypatch,
 ):
-    monkeypatch.setenv("IG_BROWSER_SESSION_MAX_ACTIVE", "1")
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_BROWSER_SESSION_MAX_ACTIVE", "1")
     resource_pressure._reset_resource_cooldown_for_tests()
 
     _write(tmp_path / "memory.current", "100")

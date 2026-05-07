@@ -42,7 +42,6 @@ from backend.app.runner.concurrency import (
     _resolve_lock_key,
     _resolve_lock_keys,
     _build_inputs,
-    _is_ig_playbook,
 )
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.resource_pressure import (
@@ -77,7 +76,6 @@ __all__ = [
     "_runner_id",
     "_resolve_lock_key",
     "_build_inputs",
-    "_is_ig_playbook",
     "_invoke_on_fail_hook",
     "_request_watchdog_abort_for_no_progress_tasks",
     "_reap_stale_running_tasks",
@@ -453,25 +451,54 @@ async def _cleanup_stale_locks(
             if str(row.get("runner_id") or "").strip()
         )
 
-        cleaned = 0
-        for pattern in ["concurrency:*", "ig_profile:*"]:
-            keys = []
+        cleanup_patterns = [
+            item.strip()
+            for item in os.getenv(
+                "LOCAL_CORE_RUNNER_LOCK_CLEANUP_PATTERNS",
+                "concurrency:*",
+            ).split(",")
+            if item.strip()
+        ]
+        keys: list[str] = []
+        for pattern in cleanup_patterns:
             async for key in client.scan_iter(match=pattern):
                 keys.append(key)
-            for key in keys:
-                owner = await client.get(key)
-                owner_text = (
-                    owner.decode("utf-8", errors="ignore")
-                    if isinstance(owner, bytes)
-                    else str(owner or "")
-                ).strip()
-                owner_runner_id = owner_text.split(":", 1)[0].strip()
-                if owner_runner_id and owner_runner_id not in active_runner_ids:
-                    await client.delete(key)
-                    cleaned += 1
-                    logger.info(
-                        f"[Startup] Cleaned stale lock {key} (owner={owner_text}, current={current_runner_id})"
-                    )
+
+        try:
+            running_tasks = await asyncio.to_thread(
+                tasks_store.list_running_playbook_execution_tasks,
+                workspace_id=None,
+                limit=1000,
+            )
+            for task in running_tasks:
+                ctx = (
+                    task.execution_context
+                    if isinstance(task.execution_context, dict)
+                    else {}
+                )
+                keys.extend(_resolve_lock_keys(ctx, str(task.pack_id or "")))
+        except Exception as e:
+            logger.warning("[Startup] Failed to derive task lock aliases: %s", e)
+
+        cleaned = 0
+        seen_keys: set[str] = set()
+        for key in keys:
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            owner = await client.get(key)
+            owner_text = (
+                owner.decode("utf-8", errors="ignore")
+                if isinstance(owner, bytes)
+                else str(owner or "")
+            ).strip()
+            owner_runner_id = owner_text.split(":", 1)[0].strip()
+            if owner_runner_id and owner_runner_id not in active_runner_ids:
+                await client.delete(key)
+                cleaned += 1
+                logger.info(
+                    f"[Startup] Cleaned stale lock {key} (owner={owner_text}, current={current_runner_id})"
+                )
         if cleaned:
             logger.info(f"[Startup] Cleaned {cleaned} stale lock(s)")
     except Exception as e:
@@ -791,7 +818,10 @@ async def run_forever() -> None:
                 else {}
             )
             playbook_code = lock_ctx.get("playbook_code") or t_data.pack_id or ""
-            unmet = await dep_checker.check_playbook_deps(playbook_code)
+            unmet = await dep_checker.check_playbook_deps(
+                playbook_code,
+                execution_context=lock_ctx,
+            )
 
             if unmet:
                 now_dt = datetime.now(timezone.utc)

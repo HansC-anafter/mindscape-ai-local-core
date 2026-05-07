@@ -39,7 +39,7 @@ def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:
     """Extract all runner-relevant metadata from a PlaybookRun.
 
     Returns a dict with optional keys:
-      - concurrency: dict  (lock_key_input, max_parallel, lock_scope)
+      - concurrency: dict  (lock_key_input, max_parallel, lock_scope, lock_aliases)
       - runner_timeout_seconds: int
       - lifecycle_hooks: dict
       - resource_class: str  ("browser" | "compute" | "api")
@@ -47,6 +47,10 @@ def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:
       - queue_shard: str
       - runner_profile_hint: str
       - runtime_affinity: dict
+      - trace_runner_heartbeat: bool
+      - no_progress_watchdog: dict
+      - runner_dependencies: list[str]
+      - dependency_resolver: dict
       - capability_code: str
 
     Both playbook_execution.py and playbook_rerun.py must call this
@@ -80,6 +84,16 @@ def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:
             "max_parallel": concurrency.max_parallel,
             "lock_scope": concurrency.lock_scope,
         }
+        if concurrency.default_lock_key_value is not None:
+            meta["concurrency"]["default_lock_key_value"] = (
+                concurrency.default_lock_key_value
+            )
+        lock_aliases = [
+            alias.model_dump(exclude_none=True)
+            for alias in getattr(concurrency, "lock_aliases", []) or []
+        ]
+        if lock_aliases:
+            meta["concurrency"]["lock_aliases"] = lock_aliases
 
     # --- runner_timeout_seconds ---
     ep = getattr(pj, "execution_profile", None) or {}
@@ -110,6 +124,23 @@ def resolve_runner_metadata(playbook_run) -> Dict[str, Any]:
     runtime_affinity = _resolve_runtime_affinity_from_profile(ep)
     if runtime_affinity:
         meta["runtime_affinity"] = runtime_affinity
+
+    if isinstance(ep, dict):
+        if ep.get("trace_runner_heartbeat") is not None:
+            meta["trace_runner_heartbeat"] = bool(ep.get("trace_runner_heartbeat"))
+        no_progress_watchdog = ep.get("no_progress_watchdog")
+        if isinstance(no_progress_watchdog, dict):
+            meta["no_progress_watchdog"] = dict(no_progress_watchdog)
+        runner_dependencies = ep.get("runner_dependencies")
+        if isinstance(runner_dependencies, list):
+            meta["runner_dependencies"] = [
+                str(item).strip()
+                for item in runner_dependencies
+                if str(item).strip()
+            ]
+        dependency_resolver = ep.get("dependency_resolver")
+        if isinstance(dependency_resolver, dict):
+            meta["dependency_resolver"] = dict(dependency_resolver)
 
     return meta
 

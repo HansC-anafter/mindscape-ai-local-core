@@ -1,17 +1,17 @@
 """Runner dependency health checks.
 
-Provides per-playbook dependency checking so that tasks requiring
-unavailable services (e.g. MLX vision server) remain pending instead
-of being claimed and failing.
+Provides dependency checking so tasks requiring unavailable services remain
+pending instead of being claimed and failing.
 
 Usage from worker.py:
     checker = DependencyChecker()
-    unmet = await checker.check_playbook_deps("ig_analyze_pinned_reference")
+    unmet = await checker.check_playbook_deps(playbook_code, execution_context)
     if unmet:
         # hold task, don't claim
 """
 
 import asyncio
+import importlib
 import json
 import logging
 import os
@@ -39,15 +39,6 @@ _WATCHDOG_PREFILL_TIMEOUT_SECONDS = max(
     _WATCHDOG_HEARTBEAT_TTL_SECONDS,
     int(os.getenv("MLX_WATCHDOG_INFLIGHT_PREFILL_TIMEOUT", "1800")),
 )
-
-
-# ── Playbook → dependency mapping ──
-# Unknown playbooks default to no dependency checks (always claimable).
-PLAYBOOK_DEPENDENCIES: Dict[str, List[str]] = {
-    "ig_analyze_pinned_reference": ["mlx"],
-    # Add more as needed:
-    # "some_vision_playbook": ["mlx"],
-}
 
 
 @dataclass
@@ -95,84 +86,87 @@ class DependencyChecker:
         playbook_code: str,
         execution_context: Optional[Dict[str, Any]] = None,
     ) -> List[str]:
-        deps = list(PLAYBOOK_DEPENDENCIES.get(playbook_code, []))
+        deps = self._extract_runner_dependencies(execution_context)
         if not deps:
             return []
 
-        if playbook_code != "ig_analyze_pinned_reference":
-            return deps
-
-        workspace_id = self._extract_workspace_id(execution_context)
-        if not workspace_id:
-            return deps
-
-        resolved_scope = self._resolve_reference_runtime_scope(
-            workspace_id,
+        resolved = self._resolve_dependencies_with_declared_resolver(
+            deps,
+            playbook_code=playbook_code,
             execution_context=execution_context,
         )
-        if resolved_scope == "cloud":
-            logger.info(
-                "Skipping local MLX dependency gate for %s because workspace=%s resolves to cloud vision runtime",
-                playbook_code,
-                workspace_id,
-            )
-            return []
+        if resolved is not None:
+            return resolved
 
         return deps
 
-    def _resolve_reference_runtime_scope(
+    def _extract_runner_dependencies(
         self,
-        workspace_id: str,
-        *,
         execution_context: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        try:
-            from backend.app.capabilities.ig.services.vision_runtime_policy import (
-                extract_reference_execution_intent_from_inputs,
-                resolve_reference_execution_intent,
-            )
+    ) -> List[str]:
+        if not isinstance(execution_context, dict):
+            return []
+        raw = execution_context.get("runner_dependencies")
+        if not isinstance(raw, list):
+            return []
+        deps: List[str] = []
+        for item in raw:
+            dep = str(item or "").strip()
+            if dep and dep not in deps:
+                deps.append(dep)
+        return deps
 
-            inputs = (
-                execution_context.get("inputs")
-                if isinstance(execution_context, dict)
-                and isinstance(execution_context.get("inputs"), dict)
-                else None
-            )
-            intent = extract_reference_execution_intent_from_inputs(inputs)
-            resolution = resolve_reference_execution_intent(
-                intent,
-                workspace_id=workspace_id,
-            )
-            resolved_scope = str(resolution.get("resolved_scope") or "").strip().lower()
-            if resolved_scope in {"cloud", "local"}:
-                return resolved_scope
-        except Exception as exc:
-            logger.warning(
-                "Failed to resolve vision runtime policy for dependency check workspace=%s: %s",
-                workspace_id,
-                exc,
-            )
-
-        # Stay conservative if policy resolution breaks or returns nothing.
-        return "local"
-
-    @staticmethod
-    def _extract_workspace_id(
+    def _resolve_dependencies_with_declared_resolver(
+        self,
+        deps: List[str],
+        *,
+        playbook_code: str,
         execution_context: Optional[Dict[str, Any]],
-    ) -> Optional[str]:
+    ) -> Optional[List[str]]:
         if not isinstance(execution_context, dict):
             return None
 
-        workspace_id = str(execution_context.get("workspace_id") or "").strip()
-        if workspace_id:
-            return workspace_id
+        resolver = execution_context.get("dependency_resolver")
+        if not isinstance(resolver, dict):
+            return None
+        backend = str(resolver.get("backend") or "").strip()
+        if not backend or ":" not in backend:
+            return None
 
-        inputs = execution_context.get("inputs")
-        if isinstance(inputs, dict):
-            workspace_id = str(inputs.get("workspace_id") or "").strip()
-            if workspace_id:
-                return workspace_id
-        return None
+        module_name, func_name = backend.split(":", 1)
+        if not module_name.startswith("capabilities."):
+            logger.warning(
+                "Ignoring dependency resolver outside installed capability namespace for %s: %s",
+                playbook_code,
+                backend,
+            )
+            return None
+
+        try:
+            module = importlib.import_module(module_name)
+            func = getattr(module, func_name)
+            resolved = func(
+                dependencies=list(deps),
+                execution_context=execution_context,
+                playbook_code=playbook_code,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Declared dependency resolver failed for %s backend=%s: %s",
+                playbook_code,
+                backend,
+                exc,
+            )
+            return None
+
+        if not isinstance(resolved, list):
+            return None
+        normalized: List[str] = []
+        for item in resolved:
+            dep = str(item or "").strip()
+            if dep and dep not in normalized:
+                normalized.append(dep)
+        return normalized
 
     async def _check_dep(self, dep: str) -> bool:
         """Check a single dependency, using cache if fresh."""
@@ -186,7 +180,7 @@ class DependencyChecker:
         if dep == "mlx":
             result.available, result.error = await self._check_mlx()
         else:
-            # Unknown dep → assume available
+            # Unknown dependency names are treated as external to this runner.
             result.available = True
 
         self._cache[dep] = result
@@ -207,7 +201,7 @@ class DependencyChecker:
         making progress instead of treating MLX as dead.
         """
         port = os.getenv("MLX_PORT", "8210")
-        # Inside Docker → host.docker.internal; on host → localhost
+        # Inside Docker uses host.docker.internal; host runs can use localhost.
         host = os.getenv(
             "MLX_HOST_FROM_RUNNER",
             "host.docker.internal"
