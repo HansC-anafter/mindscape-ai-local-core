@@ -25,6 +25,7 @@ from backend.app.runner.utils import _env_int, _parse_utc_iso, _utc_now
 logger = logging.getLogger(__name__)
 
 _CONCURRENCY_LOCKED_REASON = "concurrency_locked"
+_DEPENDENCY_HOLD_REASON = "dependency_hold"
 
 
 def _is_stale_started_task(task: Task, threshold: datetime) -> bool:
@@ -741,12 +742,28 @@ async def _reap_redis_queues(
         ready_depth += concurrency_released_count
 
         release_limit = max(0, ready_target - ready_depth)
+        dependency_released_count = await _release_dependency_hold_tasks(
+            tasks_store,
+            redis_queue,
+            release_limit=release_limit,
+        )
+        ready_depth += dependency_released_count
+
+        release_limit = max(0, ready_target - ready_depth)
         released_count = await _release_admission_deferred_tasks(
             tasks_store,
             redis_queue,
             release_limit=release_limit,
         )
         ready_depth += released_count
+
+        release_limit = max(0, ready_target - ready_depth)
+        cold_released_count = await _release_unblocked_cold_tasks(
+            tasks_store,
+            redis_queue,
+            release_limit=release_limit,
+        )
+        ready_depth += cold_released_count
 
         # 3. DB Bridge Sync (Eventual Consistency Repair)
         #    Keep only a bounded ready frontier in Redis. Do not materialize
@@ -903,6 +920,178 @@ async def _release_admission_deferred_tasks(
             exc,
         )
 
+    return len(released_task_ids)
+
+
+async def _release_dependency_hold_tasks(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    release_limit: int,
+) -> int:
+    if release_limit <= 0:
+        return 0
+
+    list_due_dependency_hold_tasks = getattr(
+        tasks_store,
+        "list_due_dependency_hold_tasks",
+        None,
+    )
+    if not list_due_dependency_hold_tasks:
+        return 0
+
+    due_tasks = await asyncio.to_thread(
+        list_due_dependency_hold_tasks,
+        queue_shard=redis_queue.pack_id,
+        limit=max(release_limit * 4, release_limit),
+    )
+    if not due_tasks:
+        return 0
+
+    client = await redis_queue._get_client()
+    if not client:
+        return 0
+
+    now = _utc_now()
+    released_task_ids: list[str] = []
+
+    for task in due_tasks:
+        if len(released_task_ids) >= release_limit:
+            break
+        if getattr(task, "blocked_reason", None) != _DEPENDENCY_HOLD_REASON:
+            continue
+
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        ctx2 = dict(ctx)
+        ctx2.pop("dependency_hold", None)
+        ctx2.pop("resume_after", None)
+
+        try:
+            await asyncio.to_thread(
+                tasks_store.update_task,
+                task.id,
+                execution_context=ctx2,
+                next_eligible_at=now,
+                blocked_reason=None,
+                blocked_payload=None,
+                queue_shard=getattr(task, "queue_shard", None) or redis_queue.pack_id,
+                frontier_state="ready",
+                frontier_enqueued_at=now,
+            )
+            released_task_ids.append(task.id)
+        except Exception as exc:
+            logger.warning(
+                "[Bridge] Failed to release dependency-held task %s on shard %s: %s",
+                getattr(task, "id", None),
+                redis_queue.pack_id,
+                exc,
+            )
+
+    if not released_task_ids:
+        return 0
+
+    try:
+        pipe = client.pipeline()
+        for task_id in released_task_ids:
+            pipe.lpush(redis_queue.q_pending, task_id)
+        await pipe.execute()
+    except Exception as exc:
+        logger.warning(
+            "[Bridge] Failed to enqueue %d dependency-held task(s) for shard %s: %s",
+            len(released_task_ids),
+            redis_queue.pack_id,
+            exc,
+        )
+        return 0
+
+    logger.warning(
+        "[Bridge] Released %d due dependency-held task(s) on shard %s.",
+        len(released_task_ids),
+        redis_queue.pack_id,
+    )
+    return len(released_task_ids)
+
+
+async def _release_unblocked_cold_tasks(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    release_limit: int,
+) -> int:
+    if release_limit <= 0:
+        return 0
+
+    list_due_unblocked_cold_tasks = getattr(
+        tasks_store,
+        "list_due_unblocked_cold_tasks",
+        None,
+    )
+    if not list_due_unblocked_cold_tasks:
+        return 0
+
+    due_tasks = await asyncio.to_thread(
+        list_due_unblocked_cold_tasks,
+        queue_shard=redis_queue.pack_id,
+        limit=max(release_limit * 4, release_limit),
+    )
+    if not due_tasks:
+        return 0
+
+    client = await redis_queue._get_client()
+    if not client:
+        return 0
+
+    now = _utc_now()
+    released_task_ids: list[str] = []
+
+    for task in due_tasks:
+        if len(released_task_ids) >= release_limit:
+            break
+        if getattr(task, "blocked_reason", None):
+            continue
+
+        try:
+            await asyncio.to_thread(
+                tasks_store.update_task,
+                task.id,
+                next_eligible_at=now,
+                blocked_reason=None,
+                blocked_payload=None,
+                queue_shard=getattr(task, "queue_shard", None) or redis_queue.pack_id,
+                frontier_state="ready",
+                frontier_enqueued_at=now,
+            )
+            released_task_ids.append(task.id)
+        except Exception as exc:
+            logger.warning(
+                "[Bridge] Failed to release cold pending task %s on shard %s: %s",
+                getattr(task, "id", None),
+                redis_queue.pack_id,
+                exc,
+            )
+
+    if not released_task_ids:
+        return 0
+
+    try:
+        pipe = client.pipeline()
+        for task_id in released_task_ids:
+            pipe.lpush(redis_queue.q_pending, task_id)
+        await pipe.execute()
+    except Exception as exc:
+        logger.warning(
+            "[Bridge] Failed to enqueue %d cold pending task(s) for shard %s: %s",
+            len(released_task_ids),
+            redis_queue.pack_id,
+            exc,
+        )
+        return 0
+
+    logger.warning(
+        "[Bridge] Released %d unblocked cold task(s) on shard %s.",
+        len(released_task_ids),
+        redis_queue.pack_id,
+    )
     return len(released_task_ids)
 
 

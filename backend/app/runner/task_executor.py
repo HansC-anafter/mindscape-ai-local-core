@@ -307,8 +307,6 @@ def _get_task_control_signal(task: Optional[Task]) -> Optional[Dict[str, str]]:
 
     if task.status == TaskStatus.CANCELLED_BY_USER:
         return {"kind": "cancelled", "message": task.error or "Cancelled by user"}
-    if task.status == TaskStatus.FAILED:
-        return {"kind": "failed", "message": task.error or "Task failed externally"}
     if task.status == TaskStatus.EXPIRED:
         return {"kind": "expired", "message": task.error or "Task expired externally"}
 
@@ -1153,12 +1151,23 @@ async def _run_single_task(
                     )
                     proc.kill()
                     proc.join(timeout=1.0)
-                    # Mark killed task as FAILED to prevent reaper re-queue loop
-                    await _mark_task_failed(
-                        tasks_store, task.id, runner_id,
-                        f"Runner subprocess killed after join timeout (pid={proc.pid})",
-                        redis_queue
-                    )
+                    latest = None
+                    try:
+                        latest = tasks_store.get_task(task.id)
+                    except Exception:
+                        latest = None
+                    terminal_statuses = {
+                        TaskStatus.SUCCEEDED,
+                        TaskStatus.FAILED,
+                        TaskStatus.CANCELLED_BY_USER,
+                        TaskStatus.EXPIRED,
+                    }
+                    if not latest or latest.status not in terminal_statuses:
+                        await _mark_task_failed(
+                            tasks_store, task.id, runner_id,
+                            f"Runner subprocess killed after join timeout (pid={proc.pid})",
+                            redis_queue
+                        )
         except Exception as e:
             logger.warning(f"Runner subprocess cleanup error for task {task.id}: {e}")
         if hb_thread:

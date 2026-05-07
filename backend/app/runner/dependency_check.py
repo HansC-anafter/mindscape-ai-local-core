@@ -21,6 +21,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from backend.app.services.runner_topology import (
+    merge_runner_metadata_into_context,
+    resolve_installed_playbook_runner_metadata,
+)
+
 logger = logging.getLogger(__name__)
 
 _WATCHDOG_STATE_DIR = Path(
@@ -86,14 +91,24 @@ class DependencyChecker:
         playbook_code: str,
         execution_context: Optional[Dict[str, Any]] = None,
     ) -> List[str]:
-        deps = self._extract_runner_dependencies(execution_context)
+        context = execution_context if isinstance(execution_context, dict) else {}
+        deps = self._extract_runner_dependencies(context)
+        if not deps:
+            metadata = resolve_installed_playbook_runner_metadata(playbook_code)
+            if metadata:
+                context = merge_runner_metadata_into_context(
+                    context,
+                    metadata,
+                    playbook_code=playbook_code,
+                )
+                deps = self._extract_runner_dependencies(context)
         if not deps:
             return []
 
         resolved = self._resolve_dependencies_with_declared_resolver(
             deps,
             playbook_code=playbook_code,
-            execution_context=execution_context,
+            execution_context=context,
         )
         if resolved is not None:
             return resolved

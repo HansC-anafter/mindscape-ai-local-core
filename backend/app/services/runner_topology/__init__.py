@@ -32,6 +32,10 @@ from .routing import (
     resolve_task_routing_target,
     runner_profile_can_claim_task,
 )
+from .spec_metadata import (
+    merge_runner_metadata_into_context,
+    resolve_installed_playbook_runner_metadata,
+)
 from .runtime_binding import (
     RuntimeBindingTarget,
     resolve_runtime_binding,
@@ -61,6 +65,7 @@ __all__ = [
     "resolve_runner_capacity_snapshot",
     "resolve_runner_poll_batch_limit",
     "resolve_runner_profile_from_env",
+    "resolve_installed_playbook_runner_metadata",
     "resolve_runtime_binding",
     "resolve_runtime_dispatch_target",
     "resolve_target_runner_profile",
@@ -68,4 +73,5 @@ __all__ = [
     "resolve_task_routing_target",
     "runner_profile_has_capacity",
     "runner_profile_can_claim_task",
+    "merge_runner_metadata_into_context",
 ]

@@ -30,13 +30,6 @@ _LEGACY_TO_CANONICAL = {
     LEGACY_VISION_QUEUE_PARTITION: VISION_LOCAL_QUEUE_PARTITION,
 }
 
-_PACK_QUEUE_PARTITIONS = {
-    "ig_analyze_pinned_reference": VISION_LOCAL_QUEUE_PARTITION,
-    "ig_batch_pin_references": BROWSER_LOCAL_QUEUE_PARTITION,
-    "ig_analyze_following": BROWSER_LOCAL_QUEUE_PARTITION,
-    "ig_pin_post_detail": BROWSER_LOCAL_QUEUE_PARTITION,
-}
-
 RUNNER_READY_QUEUE_ORDER = (
     VISION_LOCAL_QUEUE_PARTITION,
     BROWSER_LOCAL_QUEUE_PARTITION,
@@ -59,13 +52,6 @@ def normalize_queue_partition(
 
 
 def canonical_queue_partition_for_pack(pack_id: Any) -> str:
-    if isinstance(pack_id, str):
-        normalized = pack_id.strip()
-        if normalized:
-            return _PACK_QUEUE_PARTITIONS.get(
-                normalized,
-                DEFAULT_LOCAL_QUEUE_PARTITION,
-            )
     return DEFAULT_LOCAL_QUEUE_PARTITION
 
 

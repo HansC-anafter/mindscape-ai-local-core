@@ -26,6 +26,7 @@ from backend.app.services.runner_topology import (
     RUNNER_READY_QUEUE_ORDER,
     canonical_queue_partition_for_pack,
     normalize_queue_partition,
+    resolve_installed_playbook_runner_metadata,
     resolve_runner_capacity_snapshot,
     resolve_runner_profile_from_env,
     resolve_target_runner_profile,
@@ -275,6 +276,17 @@ def _resolve_task_queue_shard(
         )
         if explicit_queue_shard:
             return explicit_queue_shard
+    metadata = resolve_installed_playbook_runner_metadata(pack_id)
+    if metadata:
+        metadata_queue_shard = normalize_queue_partition(
+            metadata.get("queue_partition"),
+            fallback=None,
+        ) or normalize_queue_partition(
+            metadata.get("queue_shard"),
+            fallback=None,
+        )
+        if metadata_queue_shard:
+            return metadata_queue_shard
     return canonical_queue_partition_for_pack(pack_id)
 
 
@@ -365,6 +377,7 @@ def _build_parked_task_update(
     dependency_hold: Optional[dict] = None,
     lock_key: Optional[str] = None,
     conflicting_lock_key: Optional[str] = None,
+    current_queue_shard: Optional[str] = None,
 ) -> dict:
     base_now = now or datetime.now(timezone.utc)
     next_eligible_at = base_now + timedelta(seconds=delay_seconds)
@@ -404,8 +417,9 @@ def _build_parked_task_update(
         "blocked_payload": blocked_payload or None,
         "frontier_state": "cold",
         "frontier_enqueued_at": None,
-        "queue_shard": _resolve_task_queue_shard(
-            ctx2.get("playbook_code") or "", ctx2
+        "queue_shard": (
+            normalize_queue_partition(current_queue_shard, fallback=None)
+            or _resolve_task_queue_shard(ctx2.get("playbook_code") or "", ctx2)
         ),
     }
 
@@ -835,9 +849,7 @@ async def run_forever() -> None:
                     delay_seconds=30,
                     now=now_dt,
                     dependency_hold=dep_hold,
-                )
-                parked_update["queue_shard"] = _resolve_task_queue_shard(
-                    t_data.pack_id, lock_ctx
+                    current_queue_shard=getattr(t_data, "queue_shard", None),
                 )
                 await asyncio.to_thread(
                     tasks_store.update_task,
@@ -876,9 +888,7 @@ async def run_forever() -> None:
                         now=_utc_now(),
                         lock_key=lock_key,
                         conflicting_lock_key=conflicting_key,
-                    )
-                    parked_update["queue_shard"] = _resolve_task_queue_shard(
-                        t_data.pack_id, lock_ctx
+                        current_queue_shard=getattr(t_data, "queue_shard", None),
                     )
                     await asyncio.to_thread(
                         tasks_store.update_task,

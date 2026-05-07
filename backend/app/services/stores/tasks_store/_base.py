@@ -13,7 +13,9 @@ from app.models.workspace import Task, TaskStatus
 from backend.app.services.runner_topology import (
     DEFAULT_LOCAL_QUEUE_PARTITION,
     canonical_queue_partition_for_pack,
+    merge_runner_metadata_into_context,
     normalize_queue_partition,
+    resolve_installed_playbook_runner_metadata,
 )
 from backend.app.services.task_admission_service import (
     ADMISSION_DEFERRED_REASON,
@@ -93,7 +95,36 @@ def _resolve_queue_shard(
         )
     if explicit_queue_shard:
         return explicit_queue_shard
+    spec_metadata = resolve_installed_playbook_runner_metadata(pack_id)
+    if spec_metadata:
+        metadata_queue_shard = _normalize_queue_shard(
+            spec_metadata.get("queue_partition")
+        ) or _normalize_queue_shard(
+            spec_metadata.get("queue_shard")
+        )
+        if metadata_queue_shard:
+            return metadata_queue_shard
     return canonical_queue_partition_for_pack(pack_id)
+
+
+def _enrich_runner_task_context(task: Task) -> None:
+    if task.task_type not in _RUNNER_TASK_TYPES:
+        return
+    playbook_code = ""
+    if isinstance(task.execution_context, dict):
+        playbook_code = str(task.execution_context.get("playbook_code") or "").strip()
+    playbook_code = playbook_code or str(task.pack_id or "").strip()
+    if not playbook_code:
+        return
+
+    metadata = resolve_installed_playbook_runner_metadata(playbook_code)
+    if not metadata:
+        return
+    task.execution_context = merge_runner_metadata_into_context(
+        task.execution_context,
+        metadata,
+        playbook_code=playbook_code,
+    )
 
 
 def _resolve_concurrency_key(
@@ -287,6 +318,7 @@ class TasksStoreCrudMixin:
         Returns:
             Created task
         """
+        _enrich_runner_task_context(task)
         scheduler_fields = _derive_scheduler_fields(task)
         for key, value in scheduler_fields.items():
             setattr(task, key, value)

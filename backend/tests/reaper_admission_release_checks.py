@@ -46,6 +46,8 @@ class _FakeTasksStore:
         self.updated: list[tuple[str, dict]] = []
         self.release_candidate_calls = 0
         self.concurrency_locked_calls = 0
+        self.dependency_hold_calls = 0
+        self.unblocked_cold_calls = 0
 
     def list_running_playbook_execution_tasks(self, *, workspace_id=None, limit=200):
         return [
@@ -71,6 +73,14 @@ class _FakeTasksStore:
 
     def list_due_concurrency_locked_tasks(self, *, queue_shard=None, limit=200):
         self.concurrency_locked_calls += 1
+        return self._tasks[:limit]
+
+    def list_due_dependency_hold_tasks(self, *, queue_shard=None, limit=200):
+        self.dependency_hold_calls += 1
+        return self._tasks[:limit]
+
+    def list_due_unblocked_cold_tasks(self, *, queue_shard=None, limit=200):
+        self.unblocked_cold_calls += 1
         return self._tasks[:limit]
 
     def update_task(self, task_id, **kwargs):
@@ -145,6 +155,48 @@ def _build_concurrency_locked_task() -> Task:
                 "user_data_dir": "profile-a",
             },
         },
+    )
+
+
+def _build_dependency_hold_task() -> Task:
+    now = _utc_now()
+    return Task(
+        id="task-dependency",
+        workspace_id="ws-1",
+        message_id="msg-dependency",
+        execution_id="exec-dependency",
+        pack_id="vision_reference_analyze",
+        task_type="playbook_execution",
+        status=TaskStatus.PENDING,
+        queue_shard="vision_local",
+        created_at=now - timedelta(minutes=5),
+        next_eligible_at=now - timedelta(minutes=1),
+        blocked_reason="dependency_hold",
+        frontier_state="cold",
+        execution_context={
+            "playbook_code": "vision_reference_analyze",
+            "dependency_hold": {"deps": ["mlx"], "checked_at": now.isoformat()},
+            "resume_after": now.isoformat(),
+        },
+    )
+
+
+def _build_unblocked_cold_task() -> Task:
+    now = _utc_now()
+    return Task(
+        id="task-cold",
+        workspace_id="ws-1",
+        message_id="msg-cold",
+        execution_id="exec-cold",
+        pack_id="vision_reference_analyze",
+        task_type="playbook_execution",
+        status=TaskStatus.PENDING,
+        queue_shard="vision_local",
+        created_at=now - timedelta(minutes=5),
+        next_eligible_at=now - timedelta(minutes=1),
+        blocked_reason=None,
+        frontier_state="cold",
+        execution_context={"playbook_code": "vision_reference_analyze"},
     )
 
 
@@ -331,6 +383,50 @@ async def test_releases_due_concurrency_locked_task_to_ready_queue():
     assert "runner_skip_lock_key" not in update["execution_context"]
     assert "runner_skip_conflict_lock_key" not in update["execution_context"]
     assert "resume_after" not in update["execution_context"]
+
+
+@pytest.mark.asyncio
+async def test_releases_due_dependency_hold_task_to_ready_queue():
+    store = _FakeTasksStore([_build_dependency_hold_task()])
+    queue = _FakeRedisQueue("vision_local")
+
+    released = await reaper._release_dependency_hold_tasks(
+        store,
+        queue,
+        release_limit=1,
+    )
+
+    assert released == 1
+    assert store.dependency_hold_calls == 1
+    assert queue._client.enqueued == ["task-dependency"]
+    update = store.updated[0][1]
+    assert update["blocked_reason"] is None
+    assert update["blocked_payload"] is None
+    assert update["frontier_state"] == "ready"
+    assert update["queue_shard"] == "vision_local"
+    assert "dependency_hold" not in update["execution_context"]
+    assert "resume_after" not in update["execution_context"]
+
+
+@pytest.mark.asyncio
+async def test_releases_due_unblocked_cold_task_to_ready_queue():
+    store = _FakeTasksStore([_build_unblocked_cold_task()])
+    queue = _FakeRedisQueue("vision_local")
+
+    released = await reaper._release_unblocked_cold_tasks(
+        store,
+        queue,
+        release_limit=1,
+    )
+
+    assert released == 1
+    assert store.unblocked_cold_calls == 1
+    assert queue._client.enqueued == ["task-cold"]
+    update = store.updated[0][1]
+    assert update["blocked_reason"] is None
+    assert update["blocked_payload"] is None
+    assert update["frontier_state"] == "ready"
+    assert update["queue_shard"] == "vision_local"
 
 
 def test_requeues_stale_queued_running_task_without_runner_owner(monkeypatch):
