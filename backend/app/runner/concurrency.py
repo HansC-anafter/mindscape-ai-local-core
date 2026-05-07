@@ -13,6 +13,7 @@ _PLAYBOOK_INPUT_LOCK_PACKS = {
 
 _LEGACY_PROFILE_ALIAS_PACKS = {
     "ig_analyze_following",
+    "ig_batch_pin_references",
 }
 
 
