@@ -29,7 +29,7 @@ from backend.app.services.runner_topology import (
 logger = logging.getLogger(__name__)
 
 _WATCHDOG_STATE_DIR = Path(
-    os.getenv("MULTIMODAL_WATCHDOG_STATE_DIR", "/app/logs/mlx-watchdog")
+    os.getenv("MULTIMODAL_WATCHDOG_STATE_DIR", "/app/data/runtime/mlx-watchdog")
 )
 _WATCHDOG_STATE_FILE = _WATCHDOG_STATE_DIR / "inflight_request.json"
 _WATCHDOG_HEARTBEAT_TTL_SECONDS = max(
@@ -272,11 +272,25 @@ class DependencyChecker:
                 return False
 
             now = time.time()
-            heartbeat_at = self._safe_float(payload.get("heartbeat_at_epoch"))
-            progress_at = self._safe_float(payload.get("progress_at_epoch"))
-            phase_entered_at = self._safe_float(payload.get("phase_entered_at_epoch"))
-            started_at = self._safe_float(payload.get("started_at_epoch"))
-            phase = str(payload.get("progress_phase") or "").strip().lower()
+            heartbeat_at = self._safe_float(
+                payload.get("heartbeat_at_epoch") or payload.get("heartbeat_at")
+            )
+            progress_at = self._safe_float(
+                payload.get("progress_at_epoch")
+                or payload.get("progress_at")
+                or payload.get("heartbeat_at")
+            )
+            phase_entered_at = self._safe_float(
+                payload.get("phase_entered_at_epoch")
+                or payload.get("phase_entered_at")
+                or payload.get("started_at")
+            )
+            started_at = self._safe_float(
+                payload.get("started_at_epoch") or payload.get("started_at")
+            )
+            phase = str(
+                payload.get("progress_phase") or payload.get("phase") or ""
+            ).strip().lower()
 
             request_age = max(0.0, now - started_at) if started_at else 0.0
             heartbeat_age = max(0.0, now - heartbeat_at) if heartbeat_at else float("inf")
