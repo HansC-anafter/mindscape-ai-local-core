@@ -44,11 +44,23 @@ class _FakeTasksStore:
     def __init__(self, tasks):
         self._tasks = list(tasks)
         self.updated: list[tuple[str, dict]] = []
+        self.release_candidate_calls = 0
+        self.concurrency_locked_calls = 0
 
     def list_running_playbook_execution_tasks(self, *, workspace_id=None, limit=200):
         return self._tasks[:limit]
 
     def list_due_admission_deferred_tasks(self, *, queue_shard=None, limit=200):
+        return self._tasks[:limit]
+
+    def list_due_admission_deferred_release_candidates(
+        self, *, queue_shard=None, limit=200
+    ):
+        self.release_candidate_calls += 1
+        return self._tasks[:limit]
+
+    def list_due_concurrency_locked_tasks(self, *, queue_shard=None, limit=200):
+        self.concurrency_locked_calls += 1
         return self._tasks[:limit]
 
     def update_task(self, task_id, **kwargs):
@@ -91,6 +103,36 @@ def _build_deferred_task() -> Task:
                 "visibility": "background",
                 "producer_kind": "pin_reference",
                 "queue_shard": "ig_analysis",
+            },
+        },
+    )
+
+
+def _build_concurrency_locked_task() -> Task:
+    now = _utc_now()
+    return Task(
+        id="task-locked",
+        workspace_id="ws-1",
+        message_id="msg-locked",
+        execution_id="exec-locked",
+        pack_id="ig_batch_pin_references",
+        task_type="playbook_execution",
+        status=TaskStatus.PENDING,
+        queue_shard="browser_local",
+        created_at=now - timedelta(minutes=5),
+        next_eligible_at=now - timedelta(minutes=1),
+        blocked_reason="concurrency_locked",
+        frontier_state="cold",
+        execution_context={
+            "playbook_code": "ig_batch_pin_references",
+            "runner_skip_reason": "concurrency_locked",
+            "runner_skip_lock_key": "concurrency:playbook_input:ig_batch_pin_references:profile-a",
+            "runner_skip_conflict_lock_key": "concurrency:playbook_input:ig_batch_pin_references:profile-a",
+            "resume_after": now.isoformat(),
+            "inputs": {
+                "workspace_id": "ws-1",
+                "target_handle": "sample",
+                "user_data_dir": "profile-a",
             },
         },
     )
@@ -176,6 +218,7 @@ async def test_releases_due_deferred_task_when_capacity_available(monkeypatch):
     )
 
     assert released == 1
+    assert store.release_candidate_calls == 1
     assert queue._client.enqueued == ["task-1"]
     assert store.updated[0][0] == "task-1"
     assert store.updated[0][1]["blocked_reason"] is None
@@ -215,6 +258,33 @@ async def test_reextends_deferred_task_when_capacity_still_exceeded(monkeypatch)
     assert store.updated[0][1]["blocked_reason"] == ADMISSION_DEFERRED_REASON
     assert store.updated[0][1]["frontier_state"] == "cold"
     assert store.updated[0][1]["next_eligible_at"] == next_eligible_at
+
+
+@pytest.mark.asyncio
+async def test_releases_due_concurrency_locked_task_to_ready_queue():
+    store = _FakeTasksStore([_build_concurrency_locked_task()])
+    queue = _FakeRedisQueue("browser_local")
+
+    released = await reaper._release_concurrency_locked_tasks(
+        store,
+        queue,
+        release_limit=1,
+    )
+
+    assert released == 1
+    assert store.concurrency_locked_calls == 1
+    assert queue._client.enqueued == ["task-locked"]
+    assert store.updated[0][0] == "task-locked"
+    update = store.updated[0][1]
+    assert update["blocked_reason"] is None
+    assert update["blocked_payload"] is None
+    assert update["frontier_state"] == "ready"
+    assert update["queue_shard"] == "browser_local"
+    assert update["frontier_enqueued_at"] is not None
+    assert "runner_skip_reason" not in update["execution_context"]
+    assert "runner_skip_lock_key" not in update["execution_context"]
+    assert "runner_skip_conflict_lock_key" not in update["execution_context"]
+    assert "resume_after" not in update["execution_context"]
 
 
 def test_requests_watchdog_abort_for_running_following_task_with_no_progress(monkeypatch):

@@ -9,7 +9,8 @@ from typing import Any, Optional
 
 from sqlalchemy import text
 
-from backend.app.models.workspace import TaskStatus
+from backend.app.models.workspace import Task, TaskStatus
+from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 from backend.app.services.task_admission_service import (
@@ -24,6 +25,59 @@ from backend.app.runner.utils import _env_int, _parse_utc_iso, _utc_now
 logger = logging.getLogger(__name__)
 
 _NO_PROGRESS_WATCHDOG_DEFAULT_PACKS = {"ig_analyze_following"}
+_CONCURRENCY_LOCKED_REASON = "concurrency_locked"
+
+
+def _emit_run_state_changed_for_task(
+    task: Task,
+    *,
+    previous_state: str,
+    new_state: str,
+    reason: str,
+) -> None:
+    """Emit the workspace lifecycle event when reaper owns a terminal transition."""
+    try:
+        from backend.app.services.playbook_runner import _build_run_state_changed_event
+
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        inputs = None
+        if isinstance(task.params, dict) and task.params:
+            inputs = task.params
+        elif isinstance(ctx.get("inputs"), dict):
+            inputs = ctx.get("inputs")
+        elif isinstance(task.params, dict):
+            inputs = task.params
+        event_inputs = inputs if isinstance(inputs, dict) else {}
+        playbook_code = (
+            event_inputs.get("playbook_code")
+            or (ctx.get("playbook_code") if isinstance(ctx, dict) else None)
+            or task.pack_id
+            or ""
+        )
+        event = _build_run_state_changed_event(
+            profile_id=(
+                getattr(task, "profile_id", None)
+                or (ctx.get("profile_id") if isinstance(ctx, dict) else None)
+                or "default-user"
+            ),
+            project_id=task.project_id,
+            workspace_id=task.workspace_id,
+            execution_id=task.execution_id or str(task.id),
+            previous_state=previous_state,
+            new_state=new_state,
+            reason=reason,
+            playbook_code=playbook_code,
+            inputs=inputs,
+        )
+        MindscapeStore().create_event(event)
+    except Exception as emit_error:
+        logger.warning(
+            "Failed to emit %s RUN_STATE_CHANGED event for stale task %s (%s): %s",
+            new_state,
+            task.id,
+            task.execution_id,
+            emit_error,
+        )
 
 
 def _normalize_task_id(raw_value: object) -> str:
@@ -390,6 +444,12 @@ def _reap_stale_running_tasks(
                         completed_at=_utc_now(),
                         error=ctx2["error"],
                     )
+                    _emit_run_state_changed_for_task(
+                        t,
+                        previous_state="RUNNING",
+                        new_state="FAILED",
+                        reason=ctx2["error"],
+                    )
                     logger.warning(
                         f"Failed task after {requeue_count} re-queues task_id={t.id} ({msg})"
                     )
@@ -445,6 +505,12 @@ def _reap_stale_running_tasks(
                         status=TaskStatus.FAILED,
                         completed_at=_utc_now(),
                         error=msg,
+                    )
+                    _emit_run_state_changed_for_task(
+                        t,
+                        previous_state="RUNNING",
+                        new_state="FAILED",
+                        reason=msg,
                     )
                     logger.warning(f"Reaped stale running task task_id={t.id} ({msg})")
                     _force_release_lock(ctx, t.pack_id, redis_queue)
@@ -554,6 +620,14 @@ async def _reap_redis_queues(
 
         ready_depth = await client.llen(redis_queue.q_pending)
         release_limit = max(0, ready_target - ready_depth)
+        concurrency_released_count = await _release_concurrency_locked_tasks(
+            tasks_store,
+            redis_queue,
+            release_limit=release_limit,
+        )
+        ready_depth += concurrency_released_count
+
+        release_limit = max(0, ready_target - ready_depth)
         released_count = await _release_admission_deferred_tasks(
             tasks_store,
             redis_queue,
@@ -636,8 +710,13 @@ async def _release_admission_deferred_tasks(
     if release_limit <= 0:
         return 0
 
-    due_tasks = await asyncio.to_thread(
+    list_due_release_candidates = getattr(
+        tasks_store,
+        "list_due_admission_deferred_release_candidates",
         tasks_store.list_due_admission_deferred_tasks,
+    )
+    due_tasks = await asyncio.to_thread(
+        list_due_release_candidates,
         queue_shard=redis_queue.pack_id,
         limit=max(release_limit * 4, release_limit),
     )
@@ -711,4 +790,95 @@ async def _release_admission_deferred_tasks(
             exc,
         )
 
+    return len(released_task_ids)
+
+
+async def _release_concurrency_locked_tasks(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    release_limit: int,
+) -> int:
+    if release_limit <= 0:
+        return 0
+
+    list_due_locked_tasks = getattr(
+        tasks_store,
+        "list_due_concurrency_locked_tasks",
+        None,
+    )
+    if not list_due_locked_tasks:
+        return 0
+
+    due_tasks = await asyncio.to_thread(
+        list_due_locked_tasks,
+        queue_shard=redis_queue.pack_id,
+        limit=max(release_limit * 4, release_limit),
+    )
+    if not due_tasks:
+        return 0
+
+    client = await redis_queue._get_client()
+    if not client:
+        return 0
+
+    now = _utc_now()
+    released_task_ids: list[str] = []
+
+    for task in due_tasks:
+        if len(released_task_ids) >= release_limit:
+            break
+        if getattr(task, "blocked_reason", None) != _CONCURRENCY_LOCKED_REASON:
+            continue
+
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        ctx2 = dict(ctx)
+        ctx2.pop("runner_skip_reason", None)
+        ctx2.pop("runner_skip_lock_key", None)
+        ctx2.pop("runner_skip_conflict_lock_key", None)
+        ctx2.pop("resume_after", None)
+
+        try:
+            await asyncio.to_thread(
+                tasks_store.update_task,
+                task.id,
+                execution_context=ctx2,
+                next_eligible_at=now,
+                blocked_reason=None,
+                blocked_payload=None,
+                queue_shard=getattr(task, "queue_shard", None) or redis_queue.pack_id,
+                frontier_state="ready",
+                frontier_enqueued_at=now,
+            )
+            released_task_ids.append(task.id)
+        except Exception as exc:
+            logger.warning(
+                "[Bridge] Failed to release concurrency-locked task %s on shard %s: %s",
+                getattr(task, "id", None),
+                redis_queue.pack_id,
+                exc,
+            )
+
+    if not released_task_ids:
+        return 0
+
+    try:
+        pipe = client.pipeline()
+        for task_id in released_task_ids:
+            pipe.lpush(redis_queue.q_pending, task_id)
+        await pipe.execute()
+    except Exception as exc:
+        logger.warning(
+            "[Bridge] Failed to enqueue %d concurrency-locked task(s) for shard %s: %s",
+            len(released_task_ids),
+            redis_queue.pack_id,
+            exc,
+        )
+        return 0
+
+    logger.warning(
+        "[Bridge] Released %d due concurrency-locked task(s) on shard %s.",
+        len(released_task_ids),
+        redis_queue.pack_id,
+    )
     return len(released_task_ids)

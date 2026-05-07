@@ -60,6 +60,22 @@ _EXECUTION_LIST_SELECT = """
     FROM tasks
 """
 
+_ADMISSION_RELEASE_CANDIDATE_SELECT = """
+    SELECT
+        id,
+        workspace_id,
+        message_id,
+        execution_id,
+        pack_id,
+        task_type,
+        status,
+        execution_context,
+        created_at,
+        next_eligible_at,
+        queue_shard
+    FROM tasks
+"""
+
 
 class TasksStoreQueryMixin:
     """Read-only query methods for TasksStore."""
@@ -113,6 +129,43 @@ class TasksStoreQueryMixin:
                 break
 
         return selected
+
+    def _row_to_blocked_release_candidate(self, row, *, blocked_reason: str) -> Task:
+        execution_context = None
+        try:
+            raw_ctx = getattr(row, "execution_context", None)
+            if raw_ctx:
+                execution_context = self.deserialize_json(raw_ctx)
+        except Exception:
+            execution_context = None
+
+        created_at = self._coerce_datetime(getattr(row, "created_at", None)) or _utc_now()
+        next_eligible_at = (
+            self._coerce_datetime(getattr(row, "next_eligible_at", None)) or created_at
+        )
+
+        return Task(
+            id=row.id,
+            workspace_id=row.workspace_id,
+            message_id=row.message_id,
+            execution_id=getattr(row, "execution_id", None),
+            pack_id=row.pack_id,
+            task_type=row.task_type,
+            status=TaskStatus(row.status),
+            params={},
+            result=None,
+            execution_context=execution_context,
+            created_at=created_at,
+            next_eligible_at=next_eligible_at,
+            blocked_reason=blocked_reason,
+            queue_shard=getattr(row, "queue_shard", None) or "default",
+            frontier_state="cold",
+        )
+
+    def _row_to_admission_release_candidate(self, row) -> Task:
+        return self._row_to_blocked_release_candidate(
+            row, blocked_reason=ADMISSION_DEFERRED_REASON
+        )
 
     def list_tasks_by_workspace(
         self,
@@ -503,6 +556,7 @@ class TasksStoreQueryMixin:
             FROM tasks
             WHERE task_type IN (:task_type_pb, :task_type_tool)
             AND status = :status
+            AND frontier_state = :frontier_state
             AND next_eligible_at <= :now
             AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
             """
@@ -511,6 +565,7 @@ class TasksStoreQueryMixin:
             "task_type_pb": "playbook_execution",
             "task_type_tool": "tool_execution",
             "status": TaskStatus.PENDING.value,
+            "frontier_state": "ready",
             "now": datetime.now(timezone.utc),
             "admission_blocked_reason": ADMISSION_DEFERRED_REASON,
         }
@@ -528,7 +583,9 @@ class TasksStoreQueryMixin:
             query_parts.append(f"AND {queue_clause}")
             params.update(queue_params)
 
-        query_parts.append("ORDER BY next_eligible_at ASC, created_at ASC, id ASC")
+        query_parts.append(
+            "ORDER BY frontier_enqueued_at ASC NULLS LAST, created_at ASC, id ASC"
+        )
         query_parts.append("LIMIT :limit")
         params["limit"] = scan_limit
 
@@ -609,6 +666,113 @@ class TasksStoreQueryMixin:
         with self.get_connection() as conn:
             rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
             return [self._row_to_task(row) for row in rows]
+
+    def list_due_admission_deferred_release_candidates(
+        self,
+        *,
+        queue_shard: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Task]:
+        """List due admission-deferred tasks with only fields needed for release evaluation."""
+        query_parts = [
+            _ADMISSION_RELEASE_CANDIDATE_SELECT,
+            """
+            WHERE task_type IN (:task_type_pb, :task_type_tool)
+              AND status = :status
+              AND blocked_reason = :blocked_reason
+              AND next_eligible_at <= :now
+            """,
+        ]
+        params: Dict[str, Any] = {
+            "task_type_pb": "playbook_execution",
+            "task_type_tool": "tool_execution",
+            "status": TaskStatus.PENDING.value,
+            "blocked_reason": ADMISSION_DEFERRED_REASON,
+            "now": datetime.now(timezone.utc),
+            "limit": limit,
+        }
+
+        if queue_shard:
+            queue_clause, queue_params = build_queue_partition_filter_clause(
+                "queue_shard",
+                queue_shard,
+                param_prefix="queue_partition",
+            )
+            query_parts.append(f"AND {queue_clause}")
+            params.update(queue_params)
+
+        query_parts.append(
+            """
+            ORDER BY
+                CASE
+                    WHEN COALESCE(execution_context->'admission_policy'->>'visibility', '') = 'visible' THEN 0
+                    WHEN COALESCE(execution_context->'admission'->>'visibility', '') = 'visible' THEN 0
+                    ELSE 1
+                END ASC,
+                next_eligible_at ASC,
+                created_at ASC,
+                id ASC
+            """
+        )
+        query_parts.append("LIMIT :limit")
+
+        with self.get_connection() as conn:
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+            return [self._row_to_admission_release_candidate(row) for row in rows]
+
+    def list_due_concurrency_locked_tasks(
+        self,
+        *,
+        queue_shard: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Task]:
+        query_parts = [
+            _ADMISSION_RELEASE_CANDIDATE_SELECT,
+            """
+            WHERE task_type IN (:task_type_pb, :task_type_tool)
+              AND status = :status
+              AND blocked_reason = :blocked_reason
+              AND frontier_state = :frontier_state
+              AND next_eligible_at <= :now
+            """,
+        ]
+        params: Dict[str, Any] = {
+            "task_type_pb": "playbook_execution",
+            "task_type_tool": "tool_execution",
+            "status": TaskStatus.PENDING.value,
+            "blocked_reason": "concurrency_locked",
+            "frontier_state": "cold",
+            "now": datetime.now(timezone.utc),
+            "limit": limit,
+        }
+
+        if queue_shard:
+            queue_clause, queue_params = build_queue_partition_filter_clause(
+                "queue_shard",
+                queue_shard,
+                param_prefix="queue_partition",
+            )
+            query_parts.append(f"AND {queue_clause}")
+            params.update(queue_params)
+
+        query_parts.append(
+            """
+            ORDER BY
+                next_eligible_at ASC,
+                created_at ASC,
+                id ASC
+            """
+        )
+        query_parts.append("LIMIT :limit")
+
+        with self.get_connection() as conn:
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+            return [
+                self._row_to_blocked_release_candidate(
+                    row, blocked_reason="concurrency_locked"
+                )
+                for row in rows
+            ]
 
     def list_runnable_agent_dispatch_tasks(
         self, workspace_id: Optional[str] = None, limit: int = 5
