@@ -63,6 +63,30 @@ def test_runner_resource_pressure_defers_when_browser_session_slots_are_full(
     assert snapshot["admission"]["browser_session_max_active"] == 1
 
 
+def test_browser_session_default_follows_runner_max_inflight(tmp_path, monkeypatch):
+    monkeypatch.delenv("LOCAL_CORE_RUNNER_BROWSER_SESSION_MAX_ACTIVE", raising=False)
+    resource_pressure._reset_resource_cooldown_for_tests()
+
+    _write(tmp_path / "memory.current", "100")
+    _write(tmp_path / "memory.max", "1000")
+    _write(tmp_path / "memory.stat", "inactive_file 0\n")
+    _write(tmp_path / "pids.current", "12")
+    _write(tmp_path / "pids.max", "max")
+
+    snapshot = resource_pressure.build_runner_resource_snapshot(
+        profile_code="runner-browser",
+        inflight=1,
+        max_inflight=2,
+        available_slots=1,
+        cgroup_root=tmp_path,
+        now_epoch=100.0,
+    )
+
+    assert snapshot["admission"]["state"] == "normal"
+    assert snapshot["admission"]["should_defer"] is False
+    assert snapshot["admission"]["browser_session_max_active"] == 2
+
+
 def test_runner_resource_pressure_enters_cooldown(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_CORE_RUNNER_BROWSER_MEMORY_HARD_RATIO", "0.90")
     monkeypatch.setenv("LOCAL_CORE_RUNNER_BROWSER_RESOURCE_COOLDOWN_SECONDS", "120")

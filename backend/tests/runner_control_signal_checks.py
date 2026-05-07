@@ -1,5 +1,9 @@
+import pytest
+
 from backend.app.models.workspace import Task, TaskStatus, _utc_now
+from backend.app.runner import task_executor
 from backend.app.runner.task_executor import _get_task_control_signal
+from backend.app.services.execution_intent_resolver import ExecutionIntentResolution
 
 
 def _task(status: TaskStatus, *, error: str = "", execution_context=None) -> Task:
@@ -45,3 +49,75 @@ def test_watchdog_abort_still_controls_runner_subprocess():
     )
 
     assert signal == {"kind": "watchdog_abort", "message": "No semantic progress"}
+
+
+@pytest.mark.asyncio
+async def test_trace_heartbeat_context_does_not_abort_after_subprocess_start(monkeypatch):
+    task = _task(
+        TaskStatus.RUNNING,
+        execution_context={"trace_runner_heartbeat": True, "inputs": {}},
+    )
+    marked = {}
+
+    class FakeTasksStore:
+        def get_task(self, task_id):
+            return task
+
+        def update_task(self, task_id, **kwargs):
+            if "execution_context" in kwargs:
+                task.execution_context = kwargs["execution_context"]
+            if "status" in kwargs:
+                task.status = kwargs["status"]
+
+        def update_task_heartbeat(self, task_id, *, runner_id):
+            return None
+
+    class FakeProcess:
+        pid = 1234
+        exitcode = 0
+
+        def start(self):
+            return None
+
+        def is_alive(self):
+            return False
+
+        def join(self, timeout=None):
+            return None
+
+        def terminate(self):
+            return None
+
+        def kill(self):
+            return None
+
+    class FakeMpContext:
+        def Process(self, target, args, daemon):
+            return FakeProcess()
+
+    monkeypatch.setattr(task_executor.mp, "get_context", lambda method: FakeMpContext())
+    monkeypatch.setattr(
+        task_executor,
+        "_resolve_execution_attempt_inputs",
+        lambda task, ctx: ({}, ExecutionIntentResolution(effective_inputs={})),
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "_apply_runtime_binding_to_playbook_task",
+        lambda task, ctx, inputs, profile_id: (inputs, ctx, object()),
+    )
+
+    async def _mark_succeeded(tasks_store, task_id, runner_id, result_file, redis_queue):
+        marked["task_id"] = task_id
+
+    monkeypatch.setattr(task_executor, "_mark_task_succeeded", _mark_succeeded)
+
+    await task_executor._run_single_task(
+        FakeTasksStore(),
+        "runner-1",
+        task.id,
+        redis_queue=None,
+        lock_owner_id="runner-1:task-1",
+    )
+
+    assert marked == {"task_id": task.id}

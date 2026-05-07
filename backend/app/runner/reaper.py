@@ -28,6 +28,15 @@ _CONCURRENCY_LOCKED_REASON = "concurrency_locked"
 _DEPENDENCY_HOLD_REASON = "dependency_hold"
 
 
+def _blocked_release_limit(ready_target: int, ready_depth: int) -> int:
+    capacity_limit = max(0, ready_target - ready_depth)
+    floor_limit = max(
+        0,
+        _env_int("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM", 4),
+    )
+    return max(capacity_limit, floor_limit)
+
+
 def _is_stale_started_task(task: Task, threshold: datetime) -> bool:
     started_at = getattr(task, "started_at", None)
     return bool(started_at and started_at <= threshold)
@@ -733,7 +742,7 @@ async def _reap_redis_queues(
                 logger.error(f"Failed to recycle visibility task {task_id}: {e}")
 
         ready_depth = await client.llen(redis_queue.q_pending)
-        release_limit = max(0, ready_target - ready_depth)
+        release_limit = _blocked_release_limit(ready_target, ready_depth)
         concurrency_released_count = await _release_concurrency_locked_tasks(
             tasks_store,
             redis_queue,
@@ -741,7 +750,7 @@ async def _reap_redis_queues(
         )
         ready_depth += concurrency_released_count
 
-        release_limit = max(0, ready_target - ready_depth)
+        release_limit = _blocked_release_limit(ready_target, ready_depth)
         dependency_released_count = await _release_dependency_hold_tasks(
             tasks_store,
             redis_queue,
@@ -910,7 +919,7 @@ async def _release_admission_deferred_tasks(
     try:
         pipe = client.pipeline()
         for task_id in released_task_ids:
-            pipe.lpush(redis_queue.q_pending, task_id)
+            pipe.rpush(redis_queue.q_pending, task_id)
         await pipe.execute()
     except Exception as exc:
         logger.warning(
@@ -993,7 +1002,7 @@ async def _release_dependency_hold_tasks(
     try:
         pipe = client.pipeline()
         for task_id in released_task_ids:
-            pipe.lpush(redis_queue.q_pending, task_id)
+            pipe.rpush(redis_queue.q_pending, task_id)
         await pipe.execute()
     except Exception as exc:
         logger.warning(
@@ -1076,7 +1085,7 @@ async def _release_unblocked_cold_tasks(
     try:
         pipe = client.pipeline()
         for task_id in released_task_ids:
-            pipe.lpush(redis_queue.q_pending, task_id)
+            pipe.rpush(redis_queue.q_pending, task_id)
         await pipe.execute()
     except Exception as exc:
         logger.warning(
@@ -1167,7 +1176,7 @@ async def _release_concurrency_locked_tasks(
     try:
         pipe = client.pipeline()
         for task_id in released_task_ids:
-            pipe.lpush(redis_queue.q_pending, task_id)
+            pipe.rpush(redis_queue.q_pending, task_id)
         await pipe.execute()
     except Exception as exc:
         logger.warning(

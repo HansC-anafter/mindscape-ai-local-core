@@ -47,6 +47,13 @@ def _env_optional_int(name: str) -> Optional[int]:
     return value if value > 0 else None
 
 
+def _default_browser_session_max_active(snapshot: dict[str, Any]) -> int:
+    configured_max = snapshot.get("max_inflight") if isinstance(snapshot, dict) else None
+    if isinstance(configured_max, int) and configured_max > 0:
+        return configured_max
+    return 1
+
+
 def _env_optional_float(name: str) -> Optional[float]:
     raw = os.environ.get(name)
     if raw is None or raw == "":
@@ -244,7 +251,8 @@ def evaluate_browser_resource_pressure(
     inflight = snapshot.get("inflight") if isinstance(snapshot, dict) else None
     browser_session_max_active = max(
         1,
-        _env_int("LOCAL_CORE_RUNNER_BROWSER_SESSION_MAX_ACTIVE", 1),
+        _env_optional_int("LOCAL_CORE_RUNNER_BROWSER_SESSION_MAX_ACTIVE")
+        or _default_browser_session_max_active(snapshot),
     )
     memory_ratio = None
     if isinstance(memory, dict):

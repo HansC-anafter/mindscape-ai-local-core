@@ -758,6 +758,10 @@ class TasksStoreQueryMixin:
         query_parts.append(
             """
             ORDER BY
+                ROW_NUMBER() OVER (
+                    PARTITION BY pack_id
+                    ORDER BY next_eligible_at ASC, created_at ASC, id ASC
+                ) ASC,
                 next_eligible_at ASC,
                 created_at ASC,
                 id ASC
@@ -820,7 +824,18 @@ class TasksStoreQueryMixin:
             query_parts.append(f"AND {queue_clause}")
             params.update(queue_params)
 
-        query_parts.append("ORDER BY next_eligible_at ASC, created_at ASC, id ASC")
+        query_parts.append(
+            """
+            ORDER BY
+                ROW_NUMBER() OVER (
+                    PARTITION BY pack_id
+                    ORDER BY next_eligible_at ASC, created_at ASC, id ASC
+                ) ASC,
+                next_eligible_at ASC,
+                created_at ASC,
+                id ASC
+            """
+        )
         query_parts.append("LIMIT :limit")
 
         with self.get_connection() as conn:

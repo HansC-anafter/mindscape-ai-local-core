@@ -789,11 +789,11 @@ async def _run_single_task(
 
     # proc reference will be set before heartbeat starts checking it
     proc_ref = [None]  # Use list for mutable reference in closure
+    trace_heartbeat = bool(ctx.get("trace_runner_heartbeat"))
 
     def _heartbeat_thread() -> None:
         interval_s = max(1.0, hb_interval_ms / 1000.0)
         beat_seq = 0
-        trace_heartbeat = bool(ctx.get("trace_runner_heartbeat"))
         while not stop_event.is_set():
             beat_seq += 1
             # Check if subprocess is still running - stop heartbeat if subprocess died
@@ -950,7 +950,21 @@ async def _run_single_task(
         proc = ctx_mp.Process(
             target=_child_execute_playbook, args=(payload,), daemon=True
         )
-        proc.start()
+        logger.info(
+            "Runner subprocess starting task_id=%s playbook=%s",
+            task.id,
+            task.pack_id,
+        )
+        try:
+            proc.start()
+        except BaseException as start_exc:
+            logger.exception(
+                "Runner subprocess start failed task_id=%s playbook=%s: %s",
+                task.id,
+                task.pack_id,
+                start_exc,
+            )
+            raise
         if trace_heartbeat:
             logger.warning(
                 "Runner subprocess started task_id=%s playbook=%s pid=%s",
@@ -1008,9 +1022,29 @@ async def _run_single_task(
         done, pending = await asyncio.wait(
             {exec_task, control_task, timeout_task}, return_when=asyncio.FIRST_COMPLETED
         )
+        done_labels = []
+        if exec_task in done:
+            done_labels.append("exec")
+        if control_task in done:
+            done_labels.append("control")
+        if timeout_task in done:
+            done_labels.append("timeout")
+        logger.info(
+            "Runner wait completed task_id=%s playbook=%s done=%s proc_alive=%s",
+            task.id,
+            task.pack_id,
+            ",".join(done_labels) or "unknown",
+            proc.is_alive() if proc else None,
+        )
 
         if control_task in done:
             signal = control_task.result() or {}
+            logger.warning(
+                "Runner control signal received task_id=%s playbook=%s signal=%s",
+                task.id,
+                task.pack_id,
+                signal,
+            )
             try:
                 if proc.is_alive():
                     proc.terminate()

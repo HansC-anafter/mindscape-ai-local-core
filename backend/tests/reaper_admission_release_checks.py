@@ -14,17 +14,25 @@ class _FakePipeline:
     def __init__(self, client):
         self.client = client
         self._pending: list[str] = []
+        self._ops: list[tuple[str, str]] = []
 
     def lpush(self, _queue_name, task_id):
         self._pending.append(task_id)
+        self._ops.append(("lpush", task_id))
+
+    def rpush(self, _queue_name, task_id):
+        self._pending.append(task_id)
+        self._ops.append(("rpush", task_id))
 
     async def execute(self):
         self.client.enqueued.extend(self._pending)
+        self.client.operations.extend(self._ops)
 
 
 class _FakeRedisClient:
     def __init__(self):
         self.enqueued: list[str] = []
+        self.operations: list[tuple[str, str]] = []
 
     def pipeline(self):
         return _FakePipeline(self)
@@ -200,6 +208,14 @@ def _build_unblocked_cold_task() -> Task:
     )
 
 
+def test_blocked_release_limit_keeps_small_fairness_floor(monkeypatch):
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM", "4")
+
+    assert reaper._blocked_release_limit(ready_target=64, ready_depth=80) == 4
+    assert reaper._blocked_release_limit(ready_target=64, ready_depth=60) == 4
+    assert reaper._blocked_release_limit(ready_target=64, ready_depth=10) == 54
+
+
 def _build_stale_queued_running_task_without_owner() -> Task:
     now = _utc_now()
     return Task(
@@ -372,6 +388,7 @@ async def test_releases_due_concurrency_locked_task_to_ready_queue():
     assert released == 1
     assert store.concurrency_locked_calls == 1
     assert queue._client.enqueued == ["task-locked"]
+    assert queue._client.operations == [("rpush", "task-locked")]
     assert store.updated[0][0] == "task-locked"
     update = store.updated[0][1]
     assert update["blocked_reason"] is None
@@ -399,6 +416,7 @@ async def test_releases_due_dependency_hold_task_to_ready_queue():
     assert released == 1
     assert store.dependency_hold_calls == 1
     assert queue._client.enqueued == ["task-dependency"]
+    assert queue._client.operations == [("rpush", "task-dependency")]
     update = store.updated[0][1]
     assert update["blocked_reason"] is None
     assert update["blocked_payload"] is None
