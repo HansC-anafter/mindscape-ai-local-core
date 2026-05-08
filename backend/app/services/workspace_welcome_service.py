@@ -234,11 +234,11 @@ class WorkspaceWelcomeService:
                     model_name = get_model_name_from_chat_model()
                     if not model_name:
                         raise ValueError(
-                            "LLM model not configured. Please select a model in the system settings panel."
+                            "LLM model not configured in model-routing-registry."
                         )
                     if not model_name or model_name.strip() == "":
                         raise ValueError(
-                            "LLM model is empty. Please select a valid model in the system settings panel."
+                            "LLM model is empty. Configure chat_model in model-routing-registry."
                         )
 
                     context_builder = ContextBuilder(
@@ -349,11 +349,11 @@ Generate a personalized welcome message for this workspace. Remember to respond 
                     model_name = get_model_name_from_chat_model()
                     if not model_name:
                         raise ValueError(
-                            "LLM model not configured. Please select a model in the system settings panel."
+                            "LLM model not configured in model-routing-registry."
                         )
                     if not model_name or model_name.strip() == "":
                         raise ValueError(
-                            "LLM model is empty. Please select a valid model in the system settings panel."
+                            "LLM model is empty. Configure chat_model in model-routing-registry."
                         )
 
                     result = await generate_text(

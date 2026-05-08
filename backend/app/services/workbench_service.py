@@ -821,8 +821,14 @@ class WorkbenchService:
     async def _get_lightweight_system_status(self, profile_id: str) -> Dict[str, Any]:
         """Get lightweight system status (without full issue details)"""
         try:
-            full_health = await self.health_checker.check_workspace_health(
-                profile_id=profile_id
+            from backend.app.services.system_health_checker import (
+                run_readiness_coro_in_worker,
+            )
+
+            full_health = await run_readiness_coro_in_worker(
+                lambda: self.health_checker.check_workspace_health(
+                    profile_id=profile_id
+                )
             )
 
             critical_issues = [

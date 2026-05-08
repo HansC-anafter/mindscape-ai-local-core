@@ -184,8 +184,9 @@ class WorkspaceSeedService:
         try:
             llm_provider = get_llm_provider_from_settings(llm_manager)
         except ValueError as e:
-            logger.warning(f"LLM provider not available: {e}, using fallback")
-            return self._generate_fallback_digest(text_content, seed_type)
+            raise ValueError(
+                f"LLM provider unavailable through model-routing-registry: {e}"
+            ) from e
 
         from backend.app.shared.llm_provider_helper import (
             get_model_name_from_chat_model,
@@ -193,8 +194,7 @@ class WorkspaceSeedService:
 
         model_name = get_model_name_from_chat_model()
         if not model_name:
-            logger.warning("Chat model not configured, using fallback")
-            return self._generate_fallback_digest(text_content, seed_type)
+            raise ValueError("chat_model not configured in model-routing-registry")
 
         # Key rule: if URLs seed, add hard rule in prompt
         if seed_type == "urls":
@@ -248,46 +248,13 @@ Please generate a structured digest according to the schema description.
 
             extracted_data = result.get("extracted_data", {})
             if not extracted_data:
-                logger.warning("LLM extraction returned empty data, using fallback")
-                return self._generate_fallback_digest(text_content, seed_type)
+                raise ValueError("LLM extraction returned empty data")
 
             return extracted_data
 
         except Exception as e:
             logger.error(f"Failed to generate digest with LLM: {e}", exc_info=True)
-            return self._generate_fallback_digest(text_content, seed_type)
-
-    def _generate_fallback_digest(
-        self, text_content: str, seed_type: str
-    ) -> Dict[str, Any]:
-        """Generate fallback digest when LLM is not available"""
-        return {
-            "brief": f"Workspace created from {seed_type} seed. Please configure manually.",
-            "facts": [],
-            "unknowns": ["Need to clarify workspace goals and requirements"],
-            "next_actions": [
-                "Review workspace configuration",
-                "Add initial intents",
-                "Configure AI team",
-                "Select playbooks",
-            ],
-            "intents": [
-                {
-                    "title": "Initial Setup",
-                    "description": "Complete workspace configuration",
-                    "priority": "high",
-                }
-            ],
-            "starter_kit_type": "custom",
-            "first_playbook": "daily_planning",
-            "instruction": {
-                "persona": None,
-                "goals": [],
-                "anti_goals": [],
-                "style_rules": [],
-                "domain_context": text_content[:500] if text_content else None,
-            },
-        }
+            raise
 
     async def _apply_to_blueprint(
         self,

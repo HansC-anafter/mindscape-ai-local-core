@@ -188,7 +188,7 @@ class ToolSlotIntentAnalyzer:
                     ),
                     llm_provider_manager=self.llm_provider_manager,
                     profile_id=profile_id,
-                ) or "gpt-3.5-turbo"
+                )
                 strong_model = resolve_stage_model_name(
                     requested_model=None,
                     capability_profile=resolve_stage_capability_profile(
@@ -197,7 +197,11 @@ class ToolSlotIntentAnalyzer:
                     ),
                     llm_provider_manager=self.llm_provider_manager,
                     profile_id=profile_id,
-                ) or "gpt-4o"
+                )
+                if not fast_model or not strong_model:
+                    raise ValueError(
+                        "Intent analyzer models must resolve through model-routing-registry"
+                    )
 
                 # Map risk level
                 utility_risk_level = None
@@ -314,8 +318,7 @@ class ToolSlotIntentAnalyzer:
         Returns:
             ToolSlotAnalysisResult with top_k candidates
         """
-        # Use fast model for recall (gpt-3.5-turbo or similar)
-        # For now, use existing _llm_analyze_relevance with fast model override
+        # Use the registry-resolved fast model for recall.
         # In future, can use embedding-based matching for even faster recall
 
         try:
@@ -775,7 +778,7 @@ Return JSON format:
         workspace_id: Optional[str] = None,
     ) -> ToolSlotAnalysisResult:
         """
-        Use LLM to analyze tool relevance (legacy method, uses default model)
+        Use LLM to analyze tool relevance through the registry chat model.
 
         Args:
             user_message: User message
@@ -786,14 +789,14 @@ Return JSON format:
         Returns:
             ToolSlotAnalysisResult with relevance scores
         """
-        # Use default model (fallback to chat_model)
+        # The downstream LLM call resolves the registry chat_model.
         return await self._llm_analyze_relevance_with_model(
             user_message=user_message,
             available_tools=available_tools,
             conversation_history=conversation_history,
             playbook_code=playbook_code,
             workspace_id=workspace_id,
-            model_name=None,  # Will use default
+            model_name=None,
             emphasis="balanced"
         )
 

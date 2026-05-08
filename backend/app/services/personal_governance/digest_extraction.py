@@ -101,69 +101,33 @@ def _build_extraction_user_prompt(digest: SessionDigest) -> str:
 
 
 # ---------------------------------------------------------------------------
-# LLM call (pluggable — uses Ollama or OpenAI via existing config)
+# LLM call (registry-routed)
 # ---------------------------------------------------------------------------
 
 
 async def _call_extraction_llm(
     system_prompt: str, user_prompt: str
 ) -> Optional[Dict[str, Any]]:
-    """Call LLM for structured extraction. Returns parsed JSON or None."""
+    """Call the registry-routed LLM for structured extraction."""
     try:
-        import httpx
-        import os
+        from backend.app.shared.llm_utils import (
+            call_llm,
+            extract_json_from_text,
+        )
 
-        # Try Ollama first (local, fast)
-        ollama_host = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
-        model = os.getenv("OLLAMA_CHAT_MODEL", "llama3.1:8b")
-
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{ollama_host}/api/chat",
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "stream": False,
-                    "format": "json",
-                },
-            )
-            if resp.status_code == 200:
-                content = resp.json().get("message", {}).get("content", "")
-                return json.loads(content)
-    except Exception as e:
-        logger.debug("Ollama extraction failed, trying OpenAI: %s", e)
-
-    # Fallback: OpenAI
-    try:
-        from backend.app.services.config_store import ConfigStore
-        import openai
-        import os
-
-        config_store = ConfigStore()
-        config = config_store.get_or_create_config("default-user")
-        api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            logger.warning("No LLM available for extraction")
-            return None
-
-        client = openai.AsyncOpenAI(api_key=api_key)
-        resp = await client.chat.completions.create(
-            model="gpt-4o-mini",
+        result = await call_llm(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            response_format={"type": "json_object"},
             temperature=0.3,
             max_tokens=1000,
+            purpose="personal_governance.digest_extraction",
+            stage_name="structured_extract",
         )
-        content = resp.choices[0].message.content
-        return json.loads(content)
+        return extract_json_from_text(str(result.get("text") or ""))
     except Exception as e:
-        logger.error("OpenAI extraction failed: %s", e)
+        logger.error("Registry-routed digest extraction failed: %s", e)
         return None
 
 

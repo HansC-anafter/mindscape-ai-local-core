@@ -459,9 +459,8 @@ class SuggestionGenerator:
             provider_name = resolved_route.provider
             model_name = resolved_route.model_name
 
-            # Get provider based on user's selection - no fallback
             if not provider_name or not model_name:
-                error_msg = "Cannot determine LLM provider: chat_model not configured in system settings"
+                error_msg = "Cannot determine LLM provider: chat_model not configured in model-routing-registry"
                 logger.error(error_msg)
                 raise ValueError(error_msg)
 

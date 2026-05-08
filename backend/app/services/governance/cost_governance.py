@@ -91,18 +91,18 @@ class CostGovernance:
         # Get model name from context or settings
         model_name = context.get("model_name")
         if not model_name:
-            # Try to get from execution profile or settings
-            model_name = self.settings_store.get("chat_model", "gpt-5.4")
+            from backend.app.services.model_routing_policy_service import (
+                ModelRoutingPolicyService,
+            )
+
+            model_name = ModelRoutingPolicyService().resolve_chat_default().model_name
 
         # Get model pricing from ModelUtilityConfigStore
         try:
             model_config = self.model_config_store.get_model_config(model_name)
             if not model_config or not model_config.enabled:
-                # Fallback to default model
-                model_config = self.model_config_store.get_model_config("gpt-5.4")
-                if not model_config:
-                    logger.warning(f"Model config not found for {model_name}, using default pricing")
-                    return 0.0
+                logger.warning("Model config not found for registry model %s", model_name)
+                return 0.0
 
             # Calculate cost: (input_tokens * input_price + output_tokens * output_price) / 1M
             # For simplicity, assume same price for input and output
@@ -198,18 +198,10 @@ class CostGovernance:
         if execution_profile.execution_mode == "durable":
             return "Consider using 'simple' execution mode to reduce cost"
 
-        # Suggest using cheaper model
-        current_model = context.get("model_name", "gpt-5.4")
-        cheaper_models = ["gpt-4o-mini", "gpt-3.5-turbo", "claude-haiku-4.5"]
-        for model in cheaper_models:
-            try:
-                model_config = self.model_config_store.get_model_config(model)
-                if model_config and model_config.enabled:
-                    return f"Consider using {model} model to reduce cost"
-            except Exception:
-                continue
-
-        return "Consider reducing input/output token usage or using a cheaper model"
+        return (
+            "Consider reducing input/output token usage or selecting a lower-cost "
+            "registry-approved model in model-routing-registry"
+        )
 
     async def check(
         self,

@@ -21,9 +21,9 @@ from pathlib import Path
 
 import yaml
 
-from app.services.pack_activation_service import PackActivationService
-from app.services.stores.installed_packs_store import InstalledPacksStore
-from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
+from backend.app.services.pack_activation_service import PackActivationService
+from backend.app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
+from backend.app.services.stores.installed_packs_store import InstalledPacksStore
 
 logger = logging.getLogger(__name__)
 
@@ -494,18 +494,22 @@ def list_packs():
         # Scan pack YAML files
         pack_metas = _scan_pack_yaml_files()
 
-        # Get installed and enabled pack IDs
-        installed_ids = _get_installed_pack_ids()
-        enabled_ids = _get_enabled_pack_ids()
-
         installed_metadata = {}
         for row in installed_packs_store.list_installed_metadata():
             metadata = row.get("metadata") or {}
             installed_metadata[row["pack_id"]] = {
                 "installed_at": row.get("installed_at"),
+                "enabled": bool(row.get("enabled")),
                 "version": metadata.get("version", "1.0.0"),
                 "metadata": metadata,
             }
+        installed_ids = set(installed_metadata.keys())
+        enabled_ids = {
+            pack_id
+            for pack_id, metadata in installed_metadata.items()
+            if metadata.get("enabled")
+        }
+        activation_states_by_pack_id = pack_activation_service.list_states_by_pack_id()
 
         packs = []
         for pack_meta in pack_metas:
@@ -519,11 +523,7 @@ def list_packs():
             installed_info = installed_metadata.get(pack_id, {})
             installed_metadata_payload = installed_info.get("metadata") or {}
             validation_state = installed_metadata_payload.get("validation")
-            activation_state = (
-                pack_activation_service.get_state(pack_id)
-                if pack_id in installed_ids
-                else None
-            )
+            activation_state = activation_states_by_pack_id.get(pack_id)
 
             # Handle tools field: if it's a list of dicts, extract tool names
             tools_raw = pack_meta.get("tools", [])

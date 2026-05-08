@@ -11,8 +11,8 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
-from app.database.config import get_vector_postgres_config
-from app.services.tool_embedding_service_core import (
+from backend.app.database.config import get_vector_postgres_config
+from backend.app.services.tool_embedding_service_core import (
     CREATE_TABLE_SQL,
     IndexableEntry,
     MultiModelIndexingError,
@@ -67,7 +67,7 @@ class ToolEmbeddingService:
             Tuple of (embedding_vector, model_name) or (None, None) on failure
         """
         try:
-            from app.services.vector_search import VectorSearchService
+            from backend.app.services.vector_search import VectorSearchService
 
             vs = VectorSearchService(postgres_config=self.postgres_config)
             embedding, model_name = await vs._generate_embedding_with_model(
@@ -282,7 +282,7 @@ class ToolEmbeddingService:
         entries: List[IndexableEntry] = []
 
         try:
-            from app.services.tool_list_service import ToolListService
+            from backend.app.services.tool_list_service import ToolListService
 
             all_tools = ToolListService().get_all_tools()
         except Exception as e:
@@ -307,8 +307,10 @@ class ToolEmbeddingService:
         try:
             from backend.app.services.manifest_utils import resolve_playbook_affordance
             from backend.app.services.playbook_service import PlaybookService
+            from backend.app.services.playbook_registry import get_playbook_registry
 
             pb_svc = PlaybookService()
+            pb_svc.registry = get_playbook_registry()
             all_playbooks = await pb_svc.list_playbooks()
             seen_codes: set = set()
             for pb in all_playbooks:

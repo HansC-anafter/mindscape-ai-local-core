@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
-from app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 
 def _utc_now() -> datetime:
@@ -55,6 +55,21 @@ class PackActivationStateStore(PostgresStoreBase):
             if not row:
                 return None
             return self._row_to_dict(row)
+
+    def list_states_by_pack_id(self) -> Dict[str, Dict[str, Any]]:
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT pack_id, pack_family, enabled, install_state, migration_state,
+                           activation_state, activation_mode, embedding_state,
+                           embedding_error, embeddings_updated_at, manifest_hash,
+                           registered_prefixes, last_error, activated_at, updated_at
+                    FROM pack_activation_state
+                    """
+                )
+            ).fetchall()
+            return {row.pack_id: self._row_to_dict(row) for row in rows}
 
     def upsert_state(
         self,

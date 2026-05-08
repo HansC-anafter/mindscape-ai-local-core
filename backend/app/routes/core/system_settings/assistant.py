@@ -2,11 +2,7 @@
 Settings Configuration Assistant API
 
 Provides chat-based assistance for system configuration.
-Uses intelligent model selection with fallback chain:
-1. OpenAI o3/o4-mini (Thinking models)
-2. Google Gemini 2.5 Pro
-3. Anthropic Claude 3.5 Sonnet
-4. OpenAI GPT-4o
+Model selection is owned by model-routing-registry.
 """
 
 import logging
@@ -14,13 +10,7 @@ import json
 import re
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, HTTPException
-
-from backend.app.shared.llm_provider_helper import (
-    create_llm_provider_manager,
-    get_model_name_from_chat_model,
-)
-from .shared import settings_store
+from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
 
@@ -65,30 +55,6 @@ class AssistantChatResponse(BaseModel):
     model_used: Optional[str] = None
 
 
-# ============================================================
-# Model Selection Logic
-# ============================================================
-
-# Thinking models preferred for complex reasoning tasks
-THINKING_MODELS = [
-    "o3",
-    "o4-mini",
-    "o1",
-    "o1-mini",
-]
-
-# Fallback chain for model selection
-FALLBACK_CHAIN = [
-    ("openai", "o3"),
-    ("openai", "o4-mini"),
-    ("openai", "o1"),
-    ("vertex-ai", "gemini-2.5-pro"),
-    ("vertex-ai", "gemini-2.0-flash"),
-    ("anthropic", "claude-3-5-sonnet"),
-    ("openai", "gpt-4o"),
-    ("openai", "gpt-4o-mini"),
-]
-
 NO_MODEL_GUIDE_MESSAGE = """
 ## 🔑 需要設定 AI 模型
 
@@ -107,40 +73,6 @@ NO_MODEL_GUIDE_MESSAGE = """
 
 點擊下方按鈕開始設定！
 """
-
-
-def get_available_providers() -> Dict[str, bool]:
-    """Check which LLM providers are available"""
-    try:
-        llm_manager = create_llm_provider_manager()
-        available = llm_manager.get_available_providers()
-        return {
-            "openai": "openai" in available,
-            "anthropic": "anthropic" in available,
-            "vertex-ai": "vertex-ai" in available,
-            "ollama": "ollama" in available,
-        }
-    except Exception as e:
-        logger.error(f"Error checking available providers: {e}")
-        return {
-            "openai": False,
-            "anthropic": False,
-            "vertex-ai": False,
-            "ollama": False,
-        }
-
-
-def select_best_model(available_providers: Dict[str, bool]) -> Optional[tuple]:
-    """
-    Select the best available model based on fallback chain
-
-    Returns:
-        (provider, model) tuple or None if no model available
-    """
-    for provider, model in FALLBACK_CHAIN:
-        if available_providers.get(provider, False):
-            return (provider, model)
-    return None
 
 
 def build_assistant_system_prompt(
@@ -261,16 +193,17 @@ async def chat_with_assistant(request: AssistantChatRequest) -> AssistantChatRes
     """
     Chat with the configuration assistant
 
-    Uses intelligent model selection with fallback chain.
-    If no LLM is configured, returns guidance on how to set up.
+    Uses model-routing-registry.chat_model. If no route is configured,
+    returns guidance on how to set up.
     """
     try:
-        # Check available providers
-        available_providers = get_available_providers()
+        try:
+            from backend.app.services.model_routing_policy_service import (
+                ModelRoutingPolicyService,
+            )
 
-        # Check if any provider is available
-        if not any(available_providers.values()):
-            # No LLM configured, return guidance
+            resolved_route = ModelRoutingPolicyService().resolve_chat_default()
+        except Exception:
             return AssistantChatResponse(
                 response=NO_MODEL_GUIDE_MESSAGE,
                 actions=[
@@ -287,31 +220,9 @@ async def chat_with_assistant(request: AssistantChatRequest) -> AssistantChatRes
                 ],
                 model_used=None,
             )
-
-        # Select best available model
-        selection = select_best_model(available_providers)
-        if not selection:
-            return AssistantChatResponse(
-                response="無法找到可用的 LLM 模型。請配置至少一個 LLM API Key。",
-                actions=[
-                    AssistantAction(
-                        label="前往設定", action="navigate", params={"tab": "basic"}
-                    )
-                ],
-                model_used=None,
-            )
-
-        provider, model = selection
-        logger.info(f"Using model: {provider}/{model}")
-
-        # Create LLM manager and get provider
-        llm_manager = create_llm_provider_manager()
-        llm_provider = llm_manager.get_provider(provider)
-
-        if not llm_provider:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to get LLM provider: {provider}"
-            )
+        provider = resolved_route.provider
+        model = resolved_route.model_name
+        logger.info("Using registry assistant model: %s/%s", provider, model)
 
         # Build system prompt
         system_prompt = build_assistant_system_prompt(
@@ -332,7 +243,6 @@ async def chat_with_assistant(request: AssistantChatRequest) -> AssistantChatRes
 
         response = await chat_completion_with_workspace_route(
             messages=messages,
-            provider=llm_provider,
             model=model,
             purpose="system_settings_assistant_chat",
             stage_name="response_formatting",
@@ -371,17 +281,26 @@ async def get_assistant_status() -> Dict[str, Any]:
     """
     Get the status of the configuration assistant
 
-    Returns available providers and recommended model.
+    Returns the registry-selected assistant model.
     """
-    available_providers = get_available_providers()
-    selection = select_best_model(available_providers)
+    try:
+        from backend.app.services.model_routing_policy_service import (
+            ModelRoutingPolicyService,
+        )
 
-    return {
-        "available": any(available_providers.values()),
-        "providers": available_providers,
-        "recommended_model": f"{selection[0]}/{selection[1]}" if selection else None,
-        "fallback_chain": [f"{p}/{m}" for p, m in FALLBACK_CHAIN],
-    }
+        resolved_route = ModelRoutingPolicyService().resolve_chat_default()
+        return {
+            "available": True,
+            "provider": resolved_route.provider,
+            "model": resolved_route.model_name,
+            "route_authority": "model-routing-registry",
+        }
+    except Exception as exc:
+        return {
+            "available": False,
+            "error": str(exc),
+            "route_authority": "model-routing-registry",
+        }
 
 
 # ============================================================
@@ -445,32 +364,30 @@ async def agent_mode_chat(request: AgentChatRequest) -> AgentChatResponse:
                 total_iterations=0,
             )
 
-        # Check available providers
-        available_providers = get_available_providers()
-        if not any(available_providers.values()):
+        try:
+            from backend.app.services.model_routing_policy_service import (
+                ModelRoutingPolicyService,
+            )
+
+            resolved_route = ModelRoutingPolicyService().resolve_chat_default()
+        except Exception:
             return AgentChatResponse(
                 status="failed",
-                error="No LLM configured. Please set up an API key first.",
+                error="No chat_model configured in model-routing-registry.",
                 total_iterations=0,
             )
 
-        # Select best available model
-        selection = select_best_model(available_providers)
-        if not selection:
-            return AgentChatResponse(
-                status="failed",
-                error="No suitable LLM model available.",
-                total_iterations=0,
-            )
-
-        provider, model = selection
-        logger.info(f"Agent mode using LangChain with: {provider}/{model}")
+        provider = resolved_route.provider
+        model = resolved_route.model_name
+        logger.info("Agent mode using registry route: %s/%s", provider, model)
 
         # Get agent tools
         tools = get_config_assistant_tools()
 
-        # Get LLM manager and extract credentials for LangChain
-        llm_manager = create_llm_provider_manager()
+        # Load credentials for the registry-selected provider.
+        from backend.app.shared.llm_provider_helper import create_llm_provider_manager
+
+        llm_manager = create_llm_provider_manager(provider_name=provider)
         llm_provider = llm_manager.get_provider(provider)
 
         # Extract credentials based on provider type

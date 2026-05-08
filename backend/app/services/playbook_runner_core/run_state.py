@@ -58,7 +58,9 @@ def build_run_state_context(
     new_state: str,
     inputs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    ctx = inputs if isinstance(inputs, dict) else {}
+    raw_ctx = inputs if isinstance(inputs, dict) else {}
+    nested_inputs = raw_ctx.get("inputs") if isinstance(raw_ctx.get("inputs"), dict) else None
+    ctx = nested_inputs or raw_ctx
     refresh_hint = derive_refresh_hint(playbook_code)
     target_username = normalize_optional_handle(
         ctx.get("target_username") or ctx.get("target_handle")

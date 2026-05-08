@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-from app.database.config import get_vector_postgres_config
+from backend.app.database.config import get_vector_postgres_config
 
 logger = logging.getLogger(__name__)
 

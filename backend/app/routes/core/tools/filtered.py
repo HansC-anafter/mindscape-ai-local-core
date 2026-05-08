@@ -112,10 +112,13 @@ def _get_tool_registry() -> ToolRegistryService:
 
 @functools.lru_cache(maxsize=1)
 def _get_playbook_service():
-    """Reuse a single PlaybookService so registry lazy-loading survives across requests."""
+    """Reuse the process-wide registry so pack playbooks are not rescanned per request."""
     from backend.app.services.playbook_service import PlaybookService
+    from backend.app.services.playbook_registry import get_playbook_registry
 
-    return PlaybookService()
+    service = PlaybookService()
+    service.registry = get_playbook_registry()
+    return service
 
 
 def _collect_all_tools(
@@ -176,50 +179,21 @@ def _collect_all_tools(
             )
             existing_ids.add(t_info.tool_id)
 
-        # Capability tools
-        cap_tools = tool_list_svc._get_capability_tools()
-        for t_info in cap_tools:
-            if t_info.tool_id in existing_ids:
+        # Capability tools: use installed manifests as the metadata source of truth.
+        # Avoid loading capability runtimes on the filtered-tools request path.
+        from backend.app.routes.core.tools.base import (
+            _load_capability_tools_from_installed_manifests,
+        )
+
+        for t in _load_capability_tools_from_installed_manifests():
+            if t.tool_id in existing_ids:
                 continue
-            if enabled_only and not t_info.enabled:
+            if enabled_only and not t.enabled:
                 continue
-            all_tools.append(
-                RegisteredTool(
-                    tool_id=t_info.tool_id,
-                    site_id="capability",
-                    provider="capability",
-                    display_name=t_info.name,
-                    origin_capability_id=t_info.tool_id,
-                    category=t_info.category,
-                    description=t_info.description,
-                    endpoint="",
-                    methods=[],
-                    danger_level="low",
-                    input_schema={},
-                    enabled=t_info.enabled,
-                    read_only=False,
-                    allowed_agent_roles=[],
-                    side_effect_level="none",
-                    scope="system",
-                )
-            )
-            existing_ids.add(t_info.tool_id)
+            all_tools.append(t)
+            existing_ids.add(t.tool_id)
     except Exception as e:
         logger.warning(f"Failed to load tools from ToolListService: {e}", exc_info=True)
-
-    # 3. Fallback from installed manifests (if no capability tools found)
-    try:
-        if not any(t.provider == "capability" for t in all_tools):
-            from backend.app.routes.core.tools.base import (
-                _load_capability_tools_from_installed_manifests,
-            )
-
-            for t in _load_capability_tools_from_installed_manifests():
-                if t.tool_id not in existing_ids:
-                    all_tools.append(t)
-                    existing_ids.add(t.tool_id)
-    except Exception as e:
-        logger.warning(f"Manifest fallback failed: {e}", exc_info=True)
 
     return all_tools
 

@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy import text
 
-from app.models.workspace import Task
+from backend.app.models.workspace import Task
 from backend.app.services.runner_topology import (
     DEFAULT_LOCAL_QUEUE_PARTITION,
     build_queue_partition_filter_clause,

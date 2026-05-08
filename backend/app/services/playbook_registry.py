@@ -7,6 +7,7 @@ Supports lazy loading to avoid startup overhead
 import os
 import asyncio
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 from enum import Enum
@@ -133,6 +134,7 @@ class PlaybookRegistry:
         self._capabilities_dir: Optional[Path] = None
         # Concurrency protection: global load lock and per-capability locks
         self._load_lock = asyncio.Lock()
+        self._load_thread_lock = threading.RLock()
         self._capability_locks: Dict[str, asyncio.Lock] = {}
 
         # Playbook-level variants (separate from Graph IR variants)
@@ -145,8 +147,7 @@ class PlaybookRegistry:
             return
         async with self._load_lock:
             if not self._loaded:
-                await self._load_all_playbooks()
-                self._loaded = True
+                await asyncio.to_thread(self._load_all_playbooks_sync)
 
     async def _ensure_user_playbooks_loaded(self):
         """Load user playbooks without forcing a full registry preload."""
@@ -200,25 +201,36 @@ class PlaybookRegistry:
 
     async def _load_all_playbooks(self):
         """Load all playbooks from different sources"""
-        logger.info("Loading playbooks from all sources...")
+        await asyncio.to_thread(self._load_all_playbooks_sync)
 
-        # Load system-level playbooks first for core functionality
-        if not self._system_loaded:
-            self._load_system_playbooks()
-            self._system_loaded = True
+    def _load_all_playbooks_sync(self):
+        """Load all playbooks from different sources without blocking the API event loop."""
+        if self._loaded:
+            return
+        with self._load_thread_lock:
+            if self._loaded:
+                return
 
-        # Load capability playbooks for extended features
-        self._load_capability_playbooks()
+            logger.info("Loading playbooks from all sources...")
 
-        # Load user-defined playbooks from database if store is available
-        if self.store and not self._user_loaded:
-            self._load_user_playbooks()
-            self._user_loaded = True
+            # Load system-level playbooks first for core functionality
+            if not self._system_loaded:
+                self._load_system_playbooks()
+                self._system_loaded = True
 
-        logger.info(
-            f"Loaded {len(self.system_playbooks)} system playbook locales, "
-            f"{len(self.capability_playbooks)} capability packs"
-        )
+            # Load capability playbooks for extended features
+            self._load_capability_playbooks()
+
+            # Load user-defined playbooks from database if store is available
+            if self.store and not self._user_loaded:
+                self._load_user_playbooks()
+                self._user_loaded = True
+
+            self._loaded = True
+            logger.info(
+                f"Loaded {len(self.system_playbooks)} system playbook locales, "
+                f"{len(self.capability_playbooks)} capability packs"
+            )
 
     def _load_system_playbooks(self):
         """

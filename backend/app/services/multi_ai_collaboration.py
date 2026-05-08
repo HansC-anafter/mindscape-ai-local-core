@@ -370,16 +370,9 @@ class MultiAICollaborationService:
                             llm_provider = get_llm_provider_from_settings(llm_manager)
                         except (ValueError, Exception) as e:
                             logger.warning(
-                                f"Failed to get LLM provider from settings: {e}, trying direct provider"
+                                f"Failed to get LLM provider from settings: {e}"
                             )
-                            if vertex_service_account_json and vertex_project_id:
-                                llm_provider = llm_manager.get_provider("vertex-ai")
-                            elif openai_key:
-                                llm_provider = llm_manager.get_provider("openai")
-                            elif anthropic_key:
-                                llm_provider = llm_manager.get_provider("anthropic")
-                            else:
-                                llm_provider = None
+                            llm_provider = None
 
                         seed_extractor = SeedExtractor(llm_provider=llm_provider)
                         logger.info(

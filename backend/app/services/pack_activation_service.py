@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 import yaml
 
-from app.services.install_result import InstallResult
-from app.services.stores.pack_activation_state_store import PackActivationStateStore
+from backend.app.services.install_result import InstallResult
+from backend.app.services.stores.pack_activation_state_store import PackActivationStateStore
 
 
 def _utc_now() -> datetime:
@@ -62,6 +62,9 @@ class PackActivationService:
 
     def get_state(self, pack_id: str) -> Optional[Dict[str, Any]]:
         return self.store.get_state(pack_id)
+
+    def list_states_by_pack_id(self) -> Dict[str, Dict[str, Any]]:
+        return self.store.list_states_by_pack_id()
 
     def record_install_outcome(
         self,

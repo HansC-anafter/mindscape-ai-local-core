@@ -373,8 +373,10 @@ class PlaybookPreflight:
             is_strict_mode = governance_mode == "strict"
 
             # 1. Check agent availability
+            workspace_id = str(getattr(workspace, "id", "") or "").strip() or None
             agent_available, agent_error = await self._check_agent_availability(
-                agent_id
+                agent_id,
+                workspace_id=workspace_id,
             )
             if not agent_available:
                 return PlaybookPreflightResult(
@@ -452,6 +454,7 @@ class PlaybookPreflight:
     async def _check_agent_availability(
         self,
         agent_id: str,
+        workspace_id: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         """
         Check if the external agent is installed and available.
@@ -479,8 +482,33 @@ class PlaybookPreflight:
                 return False, f"Agent '{agent_id}' adapter not found"
 
             # Check if agent CLI is available
-            is_available = await adapter.is_available()
+            availability_detail: Dict[str, Any] = {}
+            if hasattr(adapter, "get_availability_detail"):
+                try:
+                    availability_detail = adapter.get_availability_detail(
+                        workspace_id=workspace_id,
+                    )
+                except TypeError:
+                    availability_detail = adapter.get_availability_detail()
+            if availability_detail:
+                is_available = bool(availability_detail.get("available"))
+            else:
+                is_available = await adapter.is_available(workspace_id=workspace_id)
             if not is_available:
+                reason = str(availability_detail.get("reason") or "").strip()
+                if reason == "no_ws_client":
+                    return (
+                        False,
+                        "No WebSocket client connected. "
+                        f"Run scripts/start_cli_bridge.sh --surface {agent_id} "
+                        "to connect the host bridge.",
+                    )
+                if reason:
+                    return (
+                        False,
+                        f"Agent '{agent_id}' is not available for workspace "
+                        f"{workspace_id or 'global'}: {reason}",
+                    )
                 return (
                     False,
                     f"Agent '{agent_id}' CLI is not available (not installed or not in PATH)",

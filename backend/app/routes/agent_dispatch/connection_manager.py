@@ -57,6 +57,8 @@ CREATE INDEX IF NOT EXISTS idx_pending_dispatch_status
     ON pending_dispatch(status);
 """
 _tables_ensured = False
+_CROSS_WORKER_SCHEMA_LOCK_NAMESPACE = 487629357
+_CROSS_WORKER_SCHEMA_LOCK_KEY = 20260505
 
 
 def _get_worker_instance_id() -> str:
@@ -64,7 +66,35 @@ def _get_worker_instance_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
 
-def _get_core_db_connection():
+def _ensure_cross_worker_tables(conn) -> None:
+    """Create/migrate cross-worker dispatch tables under one schema DDL lock."""
+    with conn.cursor() as cur:
+        # Serialize only schema DDL across workers; normal dispatch traffic is unaffected.
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(%s, %s)",
+            (_CROSS_WORKER_SCHEMA_LOCK_NAMESPACE, _CROSS_WORKER_SCHEMA_LOCK_KEY),
+        )
+        cur.execute(_CREATE_WS_CONNECTIONS_SQL)
+        cur.execute(_CREATE_PENDING_DISPATCH_SQL)
+        cur.execute(
+            "ALTER TABLE ws_connections "
+            "ADD COLUMN IF NOT EXISTS worker_instance_id "
+            "VARCHAR(128)"
+        )
+        cur.execute("ALTER TABLE ws_connections ALTER COLUMN client_id TYPE TEXT")
+        cur.execute(
+            "ALTER TABLE pending_dispatch "
+            "ADD COLUMN IF NOT EXISTS last_progress_at "
+            "TIMESTAMP WITH TIME ZONE"
+        )
+        cur.execute(
+            "ALTER TABLE pending_dispatch "
+            "ADD COLUMN IF NOT EXISTS picked_by_worker_instance_id "
+            "VARCHAR(128)"
+        )
+
+
+def _get_core_db_connection(ensure_schema: bool = True):
     """Get a raw DB-API connection from the SQLAlchemy engine pool.
 
     Uses the centralized engine_postgres_core pool (pool_size=5,
@@ -85,31 +115,9 @@ def _get_core_db_connection():
         logger.warning("[AgentWS] Failed to get pooled DB connection")
         return None
 
-    if not _tables_ensured:
+    if ensure_schema and not _tables_ensured:
         try:
-            with conn.cursor() as cur:
-                cur.execute(_CREATE_WS_CONNECTIONS_SQL)
-                cur.execute(_CREATE_PENDING_DISPATCH_SQL)
-                cur.execute(
-                    "ALTER TABLE ws_connections "
-                    "ADD COLUMN IF NOT EXISTS worker_instance_id "
-                    "VARCHAR(128)"
-                )
-                cur.execute(
-                    "ALTER TABLE ws_connections "
-                    "ALTER COLUMN client_id TYPE TEXT"
-                )
-                # Migrate existing tables: add last_progress_at if missing
-                cur.execute(
-                    "ALTER TABLE pending_dispatch "
-                    "ADD COLUMN IF NOT EXISTS last_progress_at "
-                    "TIMESTAMP WITH TIME ZONE"
-                )
-                cur.execute(
-                    "ALTER TABLE pending_dispatch "
-                    "ADD COLUMN IF NOT EXISTS picked_by_worker_instance_id "
-                    "VARCHAR(128)"
-                )
+            _ensure_cross_worker_tables(conn)
             conn.commit()
             _tables_ensured = True
             logger.info("[AgentWS] Cross-worker tables ensured (on-demand)")
@@ -407,17 +415,18 @@ class ConnectionMixin:
     @staticmethod
     def ensure_cross_worker_tables() -> None:
         """Create ws_connections and pending_dispatch tables if not exist."""
-        conn = _get_core_db_connection()
+        global _tables_ensured
+
+        conn = _get_core_db_connection(ensure_schema=False)
         if not conn:
             logger.warning(
                 "[AgentWS] Cannot create cross-worker tables: " "no core DB connection"
             )
             return
         try:
-            with conn.cursor() as cur:
-                cur.execute(_CREATE_WS_CONNECTIONS_SQL)
-                cur.execute(_CREATE_PENDING_DISPATCH_SQL)
+            _ensure_cross_worker_tables(conn)
             conn.commit()
+            _tables_ensured = True
             logger.info("[AgentWS] Cross-worker tables ensured")
         except Exception:
             conn.rollback()

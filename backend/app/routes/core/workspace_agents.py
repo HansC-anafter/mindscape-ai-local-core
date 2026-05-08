@@ -597,6 +597,17 @@ async def _execute_agent_control(
     return await adapter.execute(request)
 
 
+def _raise_agent_control_failure(action: str, result: Any) -> None:
+    message = str(
+        getattr(result, "error", None)
+        or getattr(result, "output", None)
+        or f"Codex {action} did not complete"
+    ).strip()
+    lower = message.lower()
+    status_code = 504 if any(token in lower for token in ("timeout", "timed out", "stalled")) else 409
+    raise HTTPException(status_code=status_code, detail=message)
+
+
 def _classify_codex_status(success: bool, output: str, error: Optional[str]) -> str:
     if success:
         return "authenticated"
@@ -809,16 +820,17 @@ async def login_workspace_agent(
         "codex_login",
         inputs=control_inputs,
     )
-    if result.success:
-        observed_identity = _codex_identity_from_result(result)
-        _validate_codex_account_home_login_identity(
-            control_inputs,
-            observed_identity,
-        )
-        _persist_codex_account_home_login_metadata(
-            control_inputs,
-            observed_identity,
-        )
+    if not result.success:
+        _raise_agent_control_failure("login", result)
+    observed_identity = _codex_identity_from_result(result)
+    _validate_codex_account_home_login_identity(
+        control_inputs,
+        observed_identity,
+    )
+    _persist_codex_account_home_login_metadata(
+        control_inputs,
+        observed_identity,
+    )
     return WorkspaceAgentAuthActionResponse(
         agent_id=agent_id,
         workspace_id=workspace_id,
@@ -870,6 +882,8 @@ async def logout_workspace_agent(
         "codex_logout",
         inputs=control_inputs,
     )
+    if not result.success:
+        _raise_agent_control_failure("logout", result)
     return WorkspaceAgentAuthActionResponse(
         agent_id=agent_id,
         workspace_id=workspace_id,

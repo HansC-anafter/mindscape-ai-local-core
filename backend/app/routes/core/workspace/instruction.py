@@ -1,5 +1,6 @@
 import json
 import logging
+from functools import lru_cache
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter
@@ -10,18 +11,20 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
 
-from ....capabilities.core_llm.services.structured import extract as structured_extract
 from ....models.workspace_blueprint import WorkspaceInstruction
-from ....services.mindscape_store import MindscapeStore
 from ....services.workspace_instruction_chat_merge import INSTRUCTION_FIELDS
 from ....services.workspace_instruction_chat_merge import merge_instruction_patch
 from ....services.workspace_instruction_chat_merge import normalize_instruction
-from ....shared.llm_provider_helper import create_llm_provider_manager
-from ....shared.llm_provider_helper import get_llm_provider_from_settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-store = MindscapeStore()
+
+
+@lru_cache(maxsize=1)
+def _get_store():
+    from ....services.mindscape_store import MindscapeStore
+
+    return MindscapeStore()
 
 class InstructionChatMessage(BaseModel):
     role: Literal["user", "assistant"]
@@ -150,6 +153,7 @@ async def chat_workspace_instruction(
     workspace_id: str = PathParam(..., description="Workspace ID"),
     request: InstructionChatRequest = Body(...),
 ):
+    store = _get_store()
     workspace = await store.get_workspace(workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
@@ -161,12 +165,6 @@ async def chat_workspace_instruction(
         if getattr(workspace, "workspace_blueprint", None):
             workspace_instruction = getattr(workspace.workspace_blueprint, "instruction", None)
         current_instruction = normalize_instruction(workspace_instruction)
-
-    try:
-        llm_manager = create_llm_provider_manager()
-        llm_provider = get_llm_provider_from_settings(llm_manager)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
 
     schema_json = json.dumps(
         InstructionAssistantOutput.model_json_schema(),
@@ -201,11 +199,18 @@ Generate a concise assistant message and a structured patch.
 
     confidence: Optional[float] = None
     try:
+        from ....capabilities.core_llm.services.structured import (
+            extract as structured_extract,
+        )
+
         result = await structured_extract(
             text=prompt_text,
             schema_description=schema_description,
-            llm_provider=llm_provider,
+            llm_provider=None,
             target_language=getattr(workspace, "default_locale", None) or "zh-TW",
+            workspace_id=workspace_id,
+            stage_name="workspace_instruction_chat",
+            purpose="workspace_instruction_chat",
         )
         assistant_output = _coerce_assistant_output(result.get("extracted_data"))
         confidence_value = result.get("confidence")
