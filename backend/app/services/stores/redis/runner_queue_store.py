@@ -32,6 +32,16 @@ else
 end
 """
 
+LUA_REMOVE_PENDING_AND_PROCESS = """
+local removed = redis.call("lrem", KEYS[1], 1, ARGV[1])
+if removed > 0 then
+    redis.call("zadd", KEYS[2], ARGV[2], ARGV[1])
+    return 1
+else
+    return 0
+end
+"""
+
 class RedisRunnerQueueStore:
     def __init__(self, pack_id: str = "default"):
         self.pack_id = pack_id
@@ -154,6 +164,35 @@ class RedisRunnerQueueStore:
             )
         except Exception as e:
             logger.error(f"[Redis Queue] Failed non-blocking dequeue: {e}")
+            return None
+
+    async def promote_pending_task_by_id(
+        self,
+        task_id: str,
+        visibility_timeout_sec: int = 180,
+    ) -> Optional[str]:
+        """Move a known pending-list member into processing if it is still queued."""
+        client = await self._get_client()
+        if not client:
+            return None
+
+        normalized_task_id = str(task_id or "").strip()
+        if not normalized_task_id:
+            return None
+
+        try:
+            deadline = self._utc_now_timestamp() + visibility_timeout_sec
+            moved = await client.eval(
+                LUA_REMOVE_PENDING_AND_PROCESS,
+                2,
+                self.q_pending,
+                self.q_processing,
+                normalized_task_id,
+                deadline,
+            )
+            return normalized_task_id if int(moved or 0) > 0 else None
+        except Exception as e:
+            logger.error(f"[Redis Queue] Failed targeted dequeue {normalized_task_id}: {e}")
             return None
 
     async def ack_task(self, task_id: str) -> bool:

@@ -368,6 +368,78 @@ async def _dequeue_from_ready_queues(
     return task_id, queue_store if task_id else None, next_cursor
 
 
+async def _dequeue_preferred_different_playbook(
+    queue_cycle: list[RedisRunnerQueueStore],
+    *,
+    tasks_store: TasksStore,
+    excluded_pack_ids: set[str],
+    runner_profile,
+    visibility_timeout_sec: int,
+    scan_limit: int,
+) -> tuple[Optional[str], Optional[RedisRunnerQueueStore]]:
+    if not queue_cycle or not excluded_pack_ids or scan_limit <= 0:
+        return None, None
+
+    for queue_store in queue_cycle:
+        client = await queue_store._get_client()
+        if not client:
+            continue
+
+        try:
+            candidate_ids = await client.lrange(
+                queue_store.q_pending,
+                0,
+                max(0, scan_limit - 1),
+            )
+        except Exception as e:
+            logger.warning(
+                "[Worker] Failed to scan ready queue %s for playbook fairness: %s",
+                queue_store.pack_id,
+                e,
+            )
+            continue
+
+        seen: set[str] = set()
+        for raw_task_id in candidate_ids:
+            task_id = _normalize_task_id(raw_task_id).strip()
+            if not task_id or task_id in seen:
+                continue
+            seen.add(task_id)
+
+            try:
+                t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
+            except Exception as e:
+                logger.warning(
+                    "[Worker] Failed to hydrate fairness candidate %s: %s",
+                    task_id,
+                    e,
+                )
+                continue
+
+            if not t_data or t_data.status != TaskStatus.PENDING:
+                continue
+            pack_id = str(t_data.pack_id or "")
+            if pack_id in excluded_pack_ids:
+                continue
+            if not runner_profile_can_claim_task(runner_profile, t_data):
+                continue
+
+            moved = await queue_store.promote_pending_task_by_id(
+                task_id,
+                visibility_timeout_sec=visibility_timeout_sec,
+            )
+            if moved:
+                logger.info(
+                    "[Worker] Fairness selected task %s playbook=%s while inflight=%s",
+                    task_id,
+                    pack_id,
+                    ",".join(sorted(excluded_pack_ids)),
+                )
+                return moved, queue_store
+
+    return None, None
+
+
 def _build_parked_task_update(
     task_ctx: Optional[dict],
     *,
@@ -642,6 +714,10 @@ async def run_forever() -> None:
     dep_checker = DependencyChecker(cache_ttl=5.0)
     is_browser_runner = is_browser_resource_profile(runner_profile)
     next_resource_defer_log_at = 0.0
+    playbook_fair_scan_limit = _env_int(
+        "LOCAL_CORE_RUNNER_PLAYBOOK_FAIR_SCAN_LIMIT",
+        128,
+    )
 
     # Kick the bridge once on startup without blocking the main heartbeat/dequeue
     # loop. The maintenance path can scan queues and DB state; if it stalls, the
@@ -784,14 +860,33 @@ async def run_forever() -> None:
                 await asyncio.sleep(poll_interval_ms / 1000)
                 continue
 
+        active_pack_ids = {
+            str(getattr(task, "_mindscape_pack_id", "") or "")
+            for task in inflight
+            if str(getattr(task, "_mindscape_pack_id", "") or "").strip()
+        }
+
+        task_id = None
+        task_queue = None
+        if active_pack_ids and playbook_fair_scan_limit > 0:
+            task_id, task_queue = await _dequeue_preferred_different_playbook(
+                queue_cycle,
+                tasks_store=tasks_store,
+                excluded_pack_ids=active_pack_ids,
+                runner_profile=runner_profile,
+                visibility_timeout_sec=visibility_timeout_sec,
+                scan_limit=playbook_fair_scan_limit,
+            )
+
         # ── 1. Redis Queue Dequeue ──
         # Blocking Pop from pending to processing (ZSET). This wait completely replaces DB polling.
-        task_id, task_queue, queue_cursor = await _dequeue_from_ready_queues(
-            queue_cycle,
-            cursor=queue_cursor,
-            visibility_timeout_sec=visibility_timeout_sec,
-            block_timeout_sec=2,
-        )
+        if not task_id or not task_queue:
+            task_id, task_queue, queue_cursor = await _dequeue_from_ready_queues(
+                queue_cycle,
+                cursor=queue_cursor,
+                visibility_timeout_sec=visibility_timeout_sec,
+                block_timeout_sec=2,
+            )
 
         if not task_id or not task_queue:
             continue
@@ -923,7 +1018,9 @@ async def run_forever() -> None:
                 redis_queue=task_queue,
                 lock_owner_id=lock_owner_id,
             )
-            inflight.add(asyncio.create_task(task_coro))
+            dispatch_task = asyncio.create_task(task_coro)
+            setattr(dispatch_task, "_mindscape_pack_id", str(t_data.pack_id or ""))
+            inflight.add(dispatch_task)
 
         except Exception as e:
             logger.warning(
