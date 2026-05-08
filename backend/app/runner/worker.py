@@ -566,7 +566,17 @@ async def _cleanup_stale_locks(
                     if isinstance(task.execution_context, dict)
                     else {}
                 )
-                keys.extend(_resolve_lock_keys(ctx, str(task.pack_id or "")))
+                keys.extend(
+                    _resolve_lock_keys(
+                        ctx,
+                        str(task.pack_id or ""),
+                        persisted_concurrency_key=getattr(
+                            task,
+                            "concurrency_key",
+                            None,
+                        ),
+                    )
+                )
         except Exception as e:
             logger.warning("[Startup] Failed to derive task lock aliases: %s", e)
 
@@ -959,8 +969,12 @@ async def run_forever() -> None:
                 continue
 
             # ── 2. Lock BEFORE Claim ──
-            lock_key = _resolve_lock_key(lock_ctx, t_data.pack_id)
-            lock_keys = _resolve_lock_keys(lock_ctx, t_data.pack_id)
+            lock_keys = _resolve_lock_keys(
+                lock_ctx,
+                t_data.pack_id,
+                persisted_concurrency_key=getattr(t_data, "concurrency_key", None),
+            )
+            lock_key = lock_keys[0] if lock_keys else None
             lock_owner_id = f"{runner_id}:{task_id}"
             if lock_keys:
                 acquired_keys: list[str] = []

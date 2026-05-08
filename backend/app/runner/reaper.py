@@ -387,6 +387,7 @@ def _force_release_lock(
     task_ctx: dict,
     pack_id: str,
     redis_queue: Optional[RedisRunnerQueueStore],
+    persisted_concurrency_key: Optional[str] = None,
 ) -> None:
     """Force-delete the concurrency lock for a reaped task.
 
@@ -396,7 +397,11 @@ def _force_release_lock(
     """
     if not redis_queue:
         return
-    lock_keys = _resolve_lock_keys(task_ctx, pack_id)
+    lock_keys = _resolve_lock_keys(
+        task_ctx,
+        pack_id,
+        persisted_concurrency_key=persisted_concurrency_key,
+    )
     if not lock_keys:
         return
     try:
@@ -461,7 +466,12 @@ def _requeue_stale_queued_task(
         frontier_enqueued_at=now,
         error=None,
     )
-    _force_release_lock(ctx, task.pack_id, redis_queue)
+    _force_release_lock(
+        ctx,
+        task.pack_id,
+        redis_queue,
+        persisted_concurrency_key=getattr(task, "concurrency_key", None),
+    )
 
 
 def _reap_stale_running_tasks(
@@ -636,7 +646,12 @@ def _reap_stale_running_tasks(
                         reason=msg,
                     )
                     logger.warning(f"Reaped stale running task task_id={t.id} ({msg})")
-                    _force_release_lock(ctx, t.pack_id, redis_queue)
+                    _force_release_lock(
+                        ctx,
+                        t.pack_id,
+                        redis_queue,
+                        persisted_concurrency_key=getattr(t, "concurrency_key", None),
+                    )
             logger.info(
                 f"Reaper checked task_id={t.id} - status={t.status} - heartbeat_at={ctx.get('heartbeat_at')} - Threshold={threshold.isoformat()}"
             )

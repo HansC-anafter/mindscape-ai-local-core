@@ -127,10 +127,13 @@ def _resolve_lock_key(
 def _resolve_lock_keys(
     task_ctx: Optional[Dict[str, Any]],
     pack_id: str,
+    *,
+    persisted_concurrency_key: Optional[str] = None,
 ) -> List[str]:
     """Resolve the primary concurrency key plus declared alias keys."""
+    persisted_key = _normalized_string(persisted_concurrency_key)
     if not isinstance(task_ctx, dict):
-        return []
+        return [persisted_key] if persisted_key else []
 
     inputs = task_ctx.get("inputs")
     if not isinstance(inputs, dict):
@@ -159,6 +162,8 @@ def _resolve_lock_keys(
             )
             if alias_key:
                 keys.append(alias_key)
+    if persisted_key:
+        keys.append(persisted_key)
 
     deduped: list[str] = []
     seen = set()

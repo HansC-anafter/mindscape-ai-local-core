@@ -719,7 +719,11 @@ async def _run_single_task(
     inflight_files = set()
 
     ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
-    lock_keys = _resolve_lock_keys(ctx, task.pack_id)
+    lock_keys = _resolve_lock_keys(
+        ctx,
+        task.pack_id,
+        persisted_concurrency_key=getattr(task, "concurrency_key", None),
+    )
     lock_owner_id = lock_owner_id or runner_id
     lock_ttl_seconds = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
     stop_event = threading.Event()
@@ -1238,5 +1242,9 @@ async def _run_single_task(
                 pass
         # Release lock
         ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
-        lock_keys = _resolve_lock_keys(ctx, task.pack_id)
+        lock_keys = _resolve_lock_keys(
+            ctx,
+            task.pack_id,
+            persisted_concurrency_key=getattr(task, "concurrency_key", None),
+        )
         await _release_task_locks(redis_queue, lock_keys, lock_owner_id)
