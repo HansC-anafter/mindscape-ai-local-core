@@ -19,6 +19,7 @@ from backend.app.services.execution_intent_resolver import (
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.playbook_run_executor import PlaybookRunExecutor
 from backend.app.services.runner_topology import (
+    resolve_runner_capacity_snapshot,
     resolve_runner_profile_from_env,
     resolve_runtime_dispatch_target,
 )
@@ -474,6 +475,26 @@ def _build_subprocess_failure_message(
     if isinstance(detail, str) and detail.strip():
         return f"{msg}: {detail.strip()}"
     return msg
+
+
+def _build_resource_failure_snapshot(*, inflight: int = 1) -> Optional[Dict[str, Any]]:
+    try:
+        runner_profile = resolve_runner_profile_from_env(
+            default_max_inflight=_env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
+        )
+        capacity = resolve_runner_capacity_snapshot(
+            runner_profile,
+            inflight=inflight,
+            configured_poll_batch_limit=_env_int("LOCAL_CORE_RUNNER_POLL_BATCH_LIMIT", 0),
+        )
+        return build_runner_resource_snapshot(
+            profile_code=runner_profile.profile_code,
+            inflight=inflight,
+            max_inflight=capacity.max_inflight,
+            available_slots=capacity.available_slots,
+        )
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1175,13 +1196,7 @@ async def _run_single_task(
                 retry_delay_sec = 15
                 if resource_source:
                     retry_delay_sec = resource_failure_retry_delay_seconds()
-                    try:
-                        resource_snapshot = build_runner_resource_snapshot(
-                            profile_code=os.environ.get("LOCAL_CORE_RUNNER_PROFILE"),
-                            inflight=1,
-                        )
-                    except Exception:
-                        resource_snapshot = None
+                    resource_snapshot = _build_resource_failure_snapshot(inflight=1)
                 await _mark_task_failed(
                     tasks_store,
                     task.id,

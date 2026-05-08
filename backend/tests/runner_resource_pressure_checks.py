@@ -4,7 +4,11 @@ from unittest.mock import patch
 import pytest
 
 from backend.app.runner import resource_pressure
-from backend.app.runner.task_executor import _mark_task_failed, _mark_task_succeeded
+from backend.app.runner.task_executor import (
+    _build_resource_failure_snapshot,
+    _mark_task_failed,
+    _mark_task_succeeded,
+)
 from backend.app.models.workspace import TaskStatus
 
 
@@ -86,6 +90,30 @@ def test_browser_session_default_follows_runner_max_inflight(tmp_path, monkeypat
     assert snapshot["admission"]["state"] == "normal"
     assert snapshot["admission"]["should_defer"] is False
     assert snapshot["admission"]["browser_session_max_active"] == 2
+
+
+def test_resource_failure_snapshot_uses_runner_capacity(monkeypatch):
+    captured = {}
+
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_PROFILE", "browser_local")
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_MAX_INFLIGHT", "2")
+
+    def fake_snapshot(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(
+        "backend.app.runner.task_executor.build_runner_resource_snapshot",
+        fake_snapshot,
+    )
+
+    snapshot = _build_resource_failure_snapshot(inflight=1)
+
+    assert snapshot == {"ok": True}
+    assert captured["profile_code"] == "browser_local"
+    assert captured["inflight"] == 1
+    assert captured["max_inflight"] == 2
+    assert captured["available_slots"] == 1
 
 
 def test_runner_resource_pressure_enters_cooldown(tmp_path, monkeypatch):
