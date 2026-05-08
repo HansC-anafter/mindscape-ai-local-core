@@ -58,6 +58,9 @@ interface HostServiceStatus {
   detail?: string;
 }
 
+const shouldSkipBackgroundPoll = () =>
+  typeof document !== 'undefined' && document.visibilityState === 'hidden';
+
 export default function IntegratedSystemStatusCard({
   systemStatus,
   workspace,
@@ -72,55 +75,93 @@ export default function IntegratedSystemStatusCard({
   const [hostServices, setHostServices] = useState<HostServiceStatus[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const agentsRequestRef = useRef<Promise<void> | null>(null);
+  const hostServicesRequestRef = useRef<Promise<void> | null>(null);
 
   const fetchAgents = useCallback(async () => {
-    try {
-      const apiUrl = getApiBaseUrl();
-      // Use workspace-scoped endpoint for accurate per-workspace status
-      const res = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/agents`);
-      if (res.ok) {
-        const data = await res.json();
-        setAgents(data.agents || []);
-        if (data.bridge_script_path) {
-          setBridgeScriptPath(data.bridge_script_path);
+    if (shouldSkipBackgroundPoll()) {
+      return;
+    }
+    if (agentsRequestRef.current) {
+      return agentsRequestRef.current;
+    }
+
+    const request = (async () => {
+      try {
+        const apiUrl = getApiBaseUrl();
+        // Use workspace-scoped endpoint for accurate per-workspace status
+        const res = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/agents`);
+        if (res.ok) {
+          const data = await res.json();
+          setAgents(data.agents || []);
+          if (data.bridge_script_path) {
+            setBridgeScriptPath(data.bridge_script_path);
+          }
         }
+      } catch {
+        // Silently ignore fetch errors
       }
-    } catch {
-      // Silently ignore fetch errors
+    })();
+
+    agentsRequestRef.current = request;
+    try {
+      await request;
+    } finally {
+      if (agentsRequestRef.current === request) {
+        agentsRequestRef.current = null;
+      }
     }
   }, [workspaceId]);
 
   const fetchHostServices = useCallback(async () => {
-    const apiUrl = getApiBaseUrl();
-    const checks: HostServiceStatus[] = [];
+    if (shouldSkipBackgroundPoll()) {
+      return;
+    }
+    if (hostServicesRequestRef.current) {
+      return hostServicesRequestRef.current;
+    }
 
-    // XTTS service
-    try {
-      const r = await fetch(`${apiUrl}/api/v1/host/services/xtts/health`, { signal: AbortSignal.timeout(3000) });
-      if (r.ok) {
-        const d = await r.json();
-        checks.push({
-          name: 'XTTS Service',
-          ok: d.status === 'ok',
-          detail: d.model_loaded ? 'model loaded' : 'model not loaded',
-        });
-      } else {
+    const request = (async () => {
+      const apiUrl = getApiBaseUrl();
+      const checks: HostServiceStatus[] = [];
+
+      // XTTS service
+      try {
+        const r = await fetch(`${apiUrl}/api/v1/host/services/xtts/health`, { signal: AbortSignal.timeout(3000) });
+        if (r.ok) {
+          const d = await r.json();
+          checks.push({
+            name: 'XTTS Service',
+            ok: d.status === 'ok',
+            detail: d.model_loaded ? 'model loaded' : 'model not loaded',
+          });
+        } else {
+          checks.push({ name: 'XTTS Service', ok: false, detail: 'unreachable' });
+        }
+      } catch {
         checks.push({ name: 'XTTS Service', ok: false, detail: 'unreachable' });
       }
-    } catch {
-      checks.push({ name: 'XTTS Service', ok: false, detail: 'unreachable' });
-    }
 
-    // MCP Gateway (Node process on host)
+      // MCP Gateway (Node process on host)
+      try {
+        const r = await fetch(`${apiUrl}/api/v1/host/services/mcp-gateway/health`, { signal: AbortSignal.timeout(3000) });
+        checks.push({ name: 'MCP Gateway', ok: r.ok, detail: r.ok ? 'running' : 'not running' });
+      } catch {
+        checks.push({ name: 'MCP Gateway', ok: false, detail: 'unreachable' });
+      }
+
+      setHostServices(checks);
+      setLastUpdated(new Date());
+    })();
+
+    hostServicesRequestRef.current = request;
     try {
-      const r = await fetch(`${apiUrl}/api/v1/host/services/mcp-gateway/health`, { signal: AbortSignal.timeout(3000) });
-      checks.push({ name: 'MCP Gateway', ok: r.ok, detail: r.ok ? 'running' : 'not running' });
-    } catch {
-      checks.push({ name: 'MCP Gateway', ok: false, detail: 'unreachable' });
+      await request;
+    } finally {
+      if (hostServicesRequestRef.current === request) {
+        hostServicesRequestRef.current = null;
+      }
     }
-
-    setHostServices(checks);
-    setLastUpdated(new Date());
   }, []);
 
   const handleManualRefresh = useCallback(async () => {

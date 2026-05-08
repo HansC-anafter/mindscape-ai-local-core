@@ -50,35 +50,57 @@ export function useDeviceStatus(
     const [isPolling, setIsPolling] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const inFlightRef = useRef<Promise<void> | null>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     const fetchStatus = useCallback(async () => {
         if (apiUrl == null) return;
-        try {
-            setIsPolling(true);
-            const res = await fetch(`${apiUrl}/api/v1/mcp/agent/status`);
-            if (!res.ok) {
-                setError(`Status API returned ${res.status}`);
-                return;
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        if (inFlightRef.current) return inFlightRef.current;
+
+        const request = (async () => {
+            try {
+                setIsPolling(true);
+                const controller = new AbortController();
+                abortControllerRef.current = controller;
+                const res = await fetch(`${apiUrl}/api/v1/mcp/agent/status`, {
+                    signal: controller.signal,
+                });
+                if (!res.ok) {
+                    setError(`Status API returned ${res.status}`);
+                    return;
+                }
+                const data: DispatchStatus = await res.json();
+
+                const device: DeviceInfo = {
+                    deviceId: data.device_id,
+                    totalClients: data.total_clients,
+                    authenticatedClients: data.authenticated_clients,
+                    inflightTasks: data.inflight_tasks,
+                    pendingTasks: data.pending_tasks,
+                    bridgeControls: data.bridge_controls,
+                    isLocal: true,
+                    lastSeen: Date.now(),
+                };
+
+                setLocalDevice(device);
+                setError(null);
+            } catch (err) {
+                if (err instanceof Error && err.name === 'AbortError') return;
+                setError(err instanceof Error ? err.message : 'Connection failed');
+            } finally {
+                setIsPolling(false);
+                abortControllerRef.current = null;
             }
-            const data: DispatchStatus = await res.json();
+        })();
 
-            const device: DeviceInfo = {
-                deviceId: data.device_id,
-                totalClients: data.total_clients,
-                authenticatedClients: data.authenticated_clients,
-                inflightTasks: data.inflight_tasks,
-                pendingTasks: data.pending_tasks,
-                bridgeControls: data.bridge_controls,
-                isLocal: true,
-                lastSeen: Date.now(),
-            };
-
-            setLocalDevice(device);
-            setError(null);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Connection failed');
+        inFlightRef.current = request;
+        try {
+            await request;
         } finally {
-            setIsPolling(false);
+            if (inFlightRef.current === request) {
+                inFlightRef.current = null;
+            }
         }
     }, [apiUrl]);
 
@@ -94,6 +116,9 @@ export function useDeviceStatus(
                 clearInterval(timerRef.current);
                 timerRef.current = null;
             }
+            abortControllerRef.current?.abort();
+            abortControllerRef.current = null;
+            inFlightRef.current = null;
         };
     }, [enabled, pollInterval, fetchStatus]);
 

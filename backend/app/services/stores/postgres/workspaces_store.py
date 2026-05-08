@@ -200,6 +200,39 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             rows = result.fetchall()
             return [self._row_to_workspace(row) for row in rows]
 
+    def list_workspace_summaries(
+        self,
+        owner_user_id: str,
+        primary_project_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """List workspaces without heavy configuration columns."""
+        with self.get_connection() as conn:
+            query_str = """
+                SELECT
+                    id, owner_user_id, title, description, workspace_type,
+                    group_id, workspace_role, primary_project_id,
+                    default_playbook_id, default_locale, mode,
+                    execution_mode, meeting_enabled, expected_artifacts,
+                    execution_priority, project_assignment_mode, launch_status,
+                    starter_kit_type, ttl_hours, expires_at, parent_workspace_id,
+                    visibility, created_at, updated_at
+                FROM workspaces
+                WHERE owner_user_id = :owner_user_id
+            """
+            params = {"owner_user_id": owner_user_id, "limit": limit}
+
+            if primary_project_id:
+                query_str += " AND primary_project_id = :primary_project_id"
+                params["primary_project_id"] = primary_project_id
+
+            query_str += " ORDER BY updated_at DESC LIMIT :limit"
+
+            result = conn.execute(text(query_str), params)
+            return [
+                self._row_to_workspace_summary(row) for row in result.fetchall()
+            ]
+
     def update_workspace_sync(self, workspace: Workspace) -> Workspace:
         """Update an existing workspace (synchronous)."""
         workspace.updated_at = _utc_now()
@@ -352,6 +385,36 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             query = text("DELETE FROM workspaces WHERE id = :id")
             result = conn.execute(query, {"id": workspace_id})
             return result.rowcount > 0
+
+    def _row_to_workspace_summary(self, row) -> Dict[str, Any]:
+        return {
+            "id": row.id,
+            "owner_user_id": row.owner_user_id,
+            "title": row.title,
+            "description": row.description,
+            "workspace_type": row.workspace_type or "personal",
+            "group_id": getattr(row, "group_id", None),
+            "workspace_role": getattr(row, "workspace_role", None) or "cell",
+            "primary_project_id": row.primary_project_id,
+            "default_playbook_id": row.default_playbook_id,
+            "default_locale": row.default_locale,
+            "mode": row.mode,
+            "execution_mode": row.execution_mode or "qa",
+            "meeting_enabled": bool(getattr(row, "meeting_enabled", False)),
+            "expected_artifacts": self.deserialize_json(
+                row.expected_artifacts, default=[]
+            ),
+            "execution_priority": row.execution_priority or "medium",
+            "project_assignment_mode": row.project_assignment_mode or "auto_silent",
+            "launch_status": row.launch_status or LaunchStatus.PENDING.value,
+            "starter_kit_type": row.starter_kit_type,
+            "ttl_hours": getattr(row, "ttl_hours", None),
+            "expires_at": getattr(row, "expires_at", None),
+            "parent_workspace_id": getattr(row, "parent_workspace_id", None),
+            "visibility": getattr(row, "visibility", None) or "private",
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
 
     def _row_to_workspace(self, row) -> Workspace:
         """Convert database row to Workspace."""

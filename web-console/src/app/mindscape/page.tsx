@@ -305,7 +305,7 @@ export default function MindscapePage() {
                   onClick={async () => {
                     try {
                       // Get first workspace
-                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${profileId}&limit=1`);
                       if (workspacesRes.ok) {
                         const workspaces = await workspacesRes.json();
                         if (workspaces.length > 0) {
@@ -343,7 +343,7 @@ export default function MindscapePage() {
                 <button
                   onClick={async () => {
                     try {
-                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${profileId}&limit=1`);
                       if (workspacesRes.ok) {
                         const workspaces = await workspacesRes.json();
                         if (workspaces.length > 0) {
@@ -382,7 +382,7 @@ export default function MindscapePage() {
                 <button
                   onClick={async () => {
                     try {
-                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${profileId}&limit=1`);
                       if (workspacesRes.ok) {
                         const workspaces = await workspacesRes.json();
                         if (workspaces.length > 0) {
@@ -413,7 +413,7 @@ export default function MindscapePage() {
                         key={intent.id}
                         onClick={async () => {
                           try {
-                            const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+                            const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${profileId}&limit=1`);
                             if (workspacesRes.ok) {
                               const workspaces = await workspacesRes.json();
                               if (workspaces.length > 0) {
@@ -439,7 +439,7 @@ export default function MindscapePage() {
                 <button
                   onClick={async () => {
                     try {
-                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${profileId}&limit=1`);
+                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${profileId}&limit=1`);
                       if (workspacesRes.ok) {
                         const workspaces = await workspacesRes.json();
                         if (workspaces.length > 0) {

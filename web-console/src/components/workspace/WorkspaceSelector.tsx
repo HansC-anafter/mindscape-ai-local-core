@@ -62,7 +62,7 @@ export function WorkspaceSelector({
         }
 
         const apiUrl = getApiBaseUrl();
-        const url = `${apiUrl}/api/v1/workspaces?${params?.toString()}`;
+        const url = `${apiUrl}/api/v1/workspaces/summary?${params?.toString()}`;
         console.log('[WorkspaceSelector] Fetching workspaces from:', url);
 
         const response = await fetch(url, {
@@ -157,4 +157,3 @@ export function WorkspaceSelector({
     </div>
   );
 }
-

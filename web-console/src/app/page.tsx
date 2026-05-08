@@ -29,7 +29,7 @@ export default function Home() {
           // Returning user: redirect to first workspace
           setBootState('redirect');
           try {
-            const wsRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${PROFILE_ID}&limit=1`);
+            const wsRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${PROFILE_ID}&limit=1`);
             if (wsRes.ok) {
               const workspaces = await wsRes.json();
               if (workspaces.length > 0) {
@@ -154,7 +154,7 @@ export default function Home() {
         <button
           onClick={async () => {
             try {
-              const wsRes = await fetch(`${apiUrl}/api/v1/workspaces?owner_user_id=${PROFILE_ID}&limit=1`);
+              const wsRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${PROFILE_ID}&limit=1`);
               if (wsRes.ok) {
                 const workspaces = await wsRes.json();
                 if (workspaces.length > 0) {

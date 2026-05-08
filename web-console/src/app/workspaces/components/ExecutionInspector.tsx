@@ -195,7 +195,7 @@ export default function ExecutionInspector({
     const fetchArtifacts = async () => {
       try {
         const response = await fetch(
-          `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?limit=100&include_content=true`
+          `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?limit=100&include_content=false&include_preview=false`
         );
         if (cancelled) return;
 

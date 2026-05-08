@@ -57,7 +57,7 @@ export default function WorkspacesPage() {
       abortControllerRef.current = controller;
 
       const response = await fetch(
-        `${API_URL}/api/v1/workspaces?owner_user_id=${OWNER_USER_ID}&limit=50`,
+        `${API_URL}/api/v1/workspaces/summary?owner_user_id=${OWNER_USER_ID}&limit=50`,
         {
           signal: controller.signal,
           headers: {

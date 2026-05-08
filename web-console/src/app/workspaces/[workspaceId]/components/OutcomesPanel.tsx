@@ -35,6 +35,58 @@ interface OutcomesPanelProps {
 
 export type { Artifact };
 
+const artifactListRequests = new Map<string, Promise<Artifact[]>>();
+const installedCapabilityRequests = new Map<string, Promise<any[]>>();
+
+const fetchWorkspaceArtifacts = (apiUrl: string, workspaceId: string): Promise<Artifact[]> => {
+  const requestKey = `${apiUrl}|${workspaceId}`;
+  const existingRequest = artifactListRequests.get(requestKey);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const params = new URLSearchParams({
+    include_content: 'false',
+    include_preview: 'false',
+    limit: '100',
+  });
+  const request = fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?${params.toString()}`)
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to load artifacts: ${response.statusText}`);
+      }
+      const data = await response.json();
+      return data.artifacts || data || [];
+    })
+    .finally(() => {
+      artifactListRequests.delete(requestKey);
+    });
+
+  artifactListRequests.set(requestKey, request);
+  return request;
+};
+
+const fetchInstalledCapabilities = (apiUrl: string): Promise<any[]> => {
+  const existingRequest = installedCapabilityRequests.get(apiUrl);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = fetch(`${apiUrl}/api/v1/capability-packs/installed-capabilities`)
+    .then(async (response) => {
+      if (!response.ok) {
+        return [];
+      }
+      return response.json();
+    })
+    .finally(() => {
+      installedCapabilityRequests.delete(apiUrl);
+    });
+
+  installedCapabilityRequests.set(apiUrl, request);
+  return request;
+};
+
 const getArtifactIcon = (artifactType: string): string => {
   const iconMap: Record<string, string> = {
     checklist: 'LIST',
@@ -69,64 +121,73 @@ export default function OutcomesPanel({
   const [capabilityUIComponents, setCapabilityUIComponents] = useState<Map<string, React.ComponentType<any>>>(new Map());
   const [matchingComponentKeys, setMatchingComponentKeys] = useState<string[]>([]);
   const [openModalKey, setOpenModalKey] = useState<string | null>(null);
+  const loadArtifactsInFlightRef = useRef<Promise<void> | null>(null);
 
   const loadArtifacts = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      // Use new API parameters for better filtering and content inclusion
-      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/artifacts?include_content=true&include_preview=true&limit=100`;
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to load artifacts: ${response.statusText}`);
-      }
-      const data = await response.json();
-      const newArtifacts = data.artifacts || data || [];
+    if (loadArtifactsInFlightRef.current) {
+      return loadArtifactsInFlightRef.current;
+    }
 
-      // Detect newly added artifacts (compare before and after lists)
-      if (previousArtifactsRef.current.length > 0) {
-        const previousIds = new Set(previousArtifactsRef.current.map(a => a.id));
-        const newArtifactsList = newArtifacts.filter((a: Artifact) => !previousIds.has(a.id));
+    const request = (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const newArtifacts = await fetchWorkspaceArtifacts(apiUrl, workspaceId);
 
-        if (newArtifactsList.length > 0) {
-          // Show Toast notification
-          if (newArtifactsList.length === 1) {
-            const newArtifact = newArtifactsList[0];
-            showToast({
-              message: `Added 1 outcome: "${newArtifact.title}"`,
-              type: 'success',
-              duration: 5000,
-              action: onArtifactClick ? {
-                label: 'Open Outcome Card',
-                onClick: () => onArtifactClick(newArtifact)
-              } : undefined
-            });
-          } else {
-            showToast({
-              message: `Added ${newArtifactsList.length} outcomes`,
-              type: 'success',
-              duration: 5000
-            });
+        // Detect newly added artifacts (compare before and after lists)
+        if (previousArtifactsRef.current.length > 0) {
+          const previousIds = new Set(previousArtifactsRef.current.map(a => a.id));
+          const newArtifactsList = newArtifacts.filter((a: Artifact) => !previousIds.has(a.id));
+
+          if (newArtifactsList.length > 0) {
+            // Show Toast notification
+            if (newArtifactsList.length === 1) {
+              const newArtifact = newArtifactsList[0];
+              showToast({
+                message: `Added 1 outcome: "${newArtifact.title}"`,
+                type: 'success',
+                duration: 5000,
+                action: onArtifactClick ? {
+                  label: 'Open Outcome Card',
+                  onClick: () => onArtifactClick(newArtifact)
+                } : undefined
+              });
+            } else {
+              showToast({
+                message: `Added ${newArtifactsList.length} outcomes`,
+                type: 'success',
+                duration: 5000
+              });
+            }
+
+            // Highlight newly added artifacts
+            const newIds = new Set<string>(newArtifactsList.map((a: Artifact) => a.id));
+            setHighlightedArtifactIds(newIds);
+
+            // Remove highlight after 5 seconds
+            setTimeout(() => {
+              setHighlightedArtifactIds(new Set());
+            }, 5000);
           }
-
-          // Highlight newly added artifacts
-          const newIds = new Set<string>(newArtifactsList.map((a: Artifact) => a.id));
-          setHighlightedArtifactIds(newIds);
-
-          // Remove highlight after 5 seconds
-          setTimeout(() => {
-            setHighlightedArtifactIds(new Set());
-          }, 5000);
         }
-      }
 
-      setArtifacts(newArtifacts);
-      previousArtifactsRef.current = newArtifacts;
-    } catch (err) {
-      console.error('Failed to load artifacts:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load artifacts');
+        setArtifacts(newArtifacts);
+        previousArtifactsRef.current = newArtifacts;
+      } catch (err) {
+        console.error('Failed to load artifacts:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load artifacts');
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    loadArtifactsInFlightRef.current = request;
+    try {
+      await request;
     } finally {
-      setLoading(false);
+      if (loadArtifactsInFlightRef.current === request) {
+        loadArtifactsInFlightRef.current = null;
+      }
     }
   }, [apiUrl, workspaceId, showToast, onArtifactClick]);
 
@@ -134,11 +195,8 @@ export default function OutcomesPanel({
   useEffect(() => {
     const loadCapabilities = async () => {
       try {
-        const response = await fetch(`${apiUrl}/api/v1/capability-packs/installed-capabilities`);
-        if (response.ok) {
-          const capabilities = await response.json();
-          setInstalledCapabilities(capabilities);
-        }
+        const capabilities = await fetchInstalledCapabilities(apiUrl);
+        setInstalledCapabilities(capabilities);
       } catch (err) {
         // Silently fail - capabilities are optional
       }

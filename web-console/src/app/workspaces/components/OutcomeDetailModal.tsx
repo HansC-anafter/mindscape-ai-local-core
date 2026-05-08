@@ -58,6 +58,16 @@ const markdownComponents = {
   blockquote: ({ children }: any) => <blockquote className="border-l-4 border-gray-300 dark:border-gray-600 pl-2 italic mb-2">{children}</blockquote>,
 };
 
+const mergeArtifactDetail = (base: Artifact, detail: any): Artifact => ({
+  ...base,
+  ...detail,
+  summary: detail.summary ?? detail.description ?? base.summary,
+  storage_ref: detail.storage_ref ?? detail.file_path ?? base.storage_ref,
+  primary_action_type: detail.primary_action_type ?? base.primary_action_type,
+  metadata: detail.metadata ?? base.metadata ?? {},
+  content: detail.content ?? base.content,
+});
+
 export default function OutcomeDetailModal({
   artifact,
   isOpen,
@@ -66,8 +76,49 @@ export default function OutcomeDetailModal({
   apiUrl
 }: OutcomeDetailModalProps) {
   const [loading, setLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailArtifact, setDetailArtifact] = useState<Artifact | null>(null);
   const { conflictDialog, handleConflict, closeConflictDialog } = useConflictHandler();
   const { showToast, ToastComponent } = useToast();
+
+  useEffect(() => {
+    if (!isOpen || !artifact?.id) {
+      setDetailArtifact(null);
+      return;
+    }
+
+    let cancelled = false;
+    setDetailLoading(!artifact.content);
+
+    const loadArtifactDetail = async () => {
+      try {
+        const response = await fetch(
+          `${apiUrl}/api/v1/artifacts/${artifact.id}?include_content=true&include_preview=true`
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to load outcome detail: ${response.statusText}`);
+        }
+        const detail = await response.json();
+        if (!cancelled) {
+          setDetailArtifact(mergeArtifactDetail(artifact, detail));
+        }
+      } catch (err) {
+        console.error('Failed to load outcome detail:', err);
+        if (!cancelled) {
+          setDetailArtifact(artifact);
+        }
+      } finally {
+        if (!cancelled) {
+          setDetailLoading(false);
+        }
+      }
+    };
+
+    loadArtifactDetail();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, artifact, isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -81,6 +132,7 @@ export default function OutcomeDetailModal({
   }, [isOpen]);
 
   if (!isOpen || !artifact) return null;
+  const activeArtifact = detailArtifact || artifact;
 
   const handleCopy = async () => {
     try {
@@ -168,7 +220,7 @@ export default function OutcomeDetailModal({
   };
 
   const renderDraftContent = () => {
-    const content = artifact.content?.content || artifact.content?.content || artifact.summary || '';
+    const content = activeArtifact.content?.content || activeArtifact.summary || '';
     return (
       <div className="prose prose-sm max-w-none">
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -179,7 +231,7 @@ export default function OutcomeDetailModal({
   };
 
   const renderChecklistContent = () => {
-    const tasks = artifact.content?.tasks || [];
+    const tasks = activeArtifact.content?.tasks || [];
     return (
       <div className="space-y-2">
         <h3 className="text-lg font-semibold mb-4 dark:text-gray-100">Task List</h3>
@@ -218,22 +270,22 @@ export default function OutcomeDetailModal({
     return (
       <div className="space-y-2">
         <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded overflow-x-auto text-xs text-gray-900 dark:text-gray-100">
-          {JSON.stringify(artifact.content, null, 2)}
+          {JSON.stringify(activeArtifact.content, null, 2)}
         </pre>
       </div>
     );
   };
 
   const renderCanvaContent = () => {
-    const canvaUrl = artifact.content?.canva_url || artifact.storage_ref;
-    const thumbnailUrl = artifact.content?.thumbnail_url;
+    const canvaUrl = activeArtifact.content?.canva_url || activeArtifact.storage_ref;
+    const thumbnailUrl = activeArtifact.content?.thumbnail_url;
     return (
       <div className="space-y-4">
         {thumbnailUrl && (
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <Image
               src={thumbnailUrl}
-              alt={artifact.title}
+              alt={activeArtifact.title}
               width={960}
               height={540}
               className="w-full h-auto"
@@ -254,8 +306,8 @@ export default function OutcomeDetailModal({
   };
 
   const renderAudioContent = () => {
-    const audioPath = artifact.content?.audio_file_path || artifact.storage_ref;
-    const transcript = artifact.content?.transcript;
+    const audioPath = activeArtifact.content?.audio_file_path || activeArtifact.storage_ref;
+    const transcript = activeArtifact.content?.transcript;
     return (
       <div className="space-y-4">
         {audioPath && (
@@ -280,7 +332,11 @@ export default function OutcomeDetailModal({
   };
 
   const renderContent = () => {
-    switch (artifact.artifact_type) {
+    if (detailLoading && !activeArtifact.content) {
+      return <div className="text-sm text-gray-500 dark:text-gray-400">Loading outcome content...</div>;
+    }
+
+    switch (activeArtifact.artifact_type) {
       case 'draft':
         return renderDraftContent();
       case 'checklist':
@@ -295,7 +351,7 @@ export default function OutcomeDetailModal({
         return (
           <div className="space-y-2">
             <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded overflow-x-auto text-xs text-gray-900 dark:text-gray-100">
-              {JSON.stringify(artifact.content, null, 2)}
+              {JSON.stringify(activeArtifact.content, null, 2)}
             </pre>
           </div>
         );
@@ -330,15 +386,15 @@ export default function OutcomeDetailModal({
           {/* Header */}
           <div className="flex items-center justify-between border-b dark:border-gray-700 px-6 py-4 shrink-0">
             <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 truncate">{artifact.title}</h2>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 truncate">{activeArtifact.title}</h2>
               <div className="flex items-center gap-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
-                <span>{artifact.playbook_code}</span>
+                <span>{activeArtifact.playbook_code}</span>
                 <span>-</span>
-                <span>{formatLocalDateTime(artifact.created_at)}</span>
+                <span>{formatLocalDateTime(activeArtifact.created_at)}</span>
               </div>
             </div>
             <div className="flex items-center gap-2 ml-4">
-              {artifact.primary_action_type === 'copy' && (
+              {activeArtifact.primary_action_type === 'copy' && (
                 <button
                   onClick={handleCopy}
                   disabled={loading}
@@ -347,7 +403,7 @@ export default function OutcomeDetailModal({
                   {loading ? 'Copying...' : 'Copy All'}
                 </button>
               )}
-              {artifact.primary_action_type === 'open_external' && (
+              {activeArtifact.primary_action_type === 'open_external' && (
                 <button
                   onClick={handleOpenExternal}
                   className="px-4 py-2 bg-green-600 dark:bg-green-700 text-white rounded hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
@@ -355,7 +411,7 @@ export default function OutcomeDetailModal({
                   Open
                 </button>
               )}
-              {artifact.primary_action_type === 'download' && (
+              {activeArtifact.primary_action_type === 'download' && (
                 <button
                   onClick={handleOpenExternal}
                   className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded hover:bg-gray-700 dark:hover:bg-gray-600 transition-colors"
@@ -381,22 +437,22 @@ export default function OutcomeDetailModal({
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
                 <div className="flex items-center gap-4">
-                  <span>Playbook: {artifact.playbook_code}</span>
-                  {artifact.execution_id && (
-                    <span>Execution ID: {artifact.execution_id.substring(0, 8)}...</span>
+                  <span>Playbook: {activeArtifact.playbook_code}</span>
+                  {activeArtifact.execution_id && (
+                    <span>Execution ID: {activeArtifact.execution_id.substring(0, 8)}...</span>
                   )}
-                  {artifact.intent_id && (
+                  {activeArtifact.intent_id && (
                     <span className="text-blue-600 dark:text-blue-400">Source Intent</span>
                   )}
                 </div>
               </div>
 
               {/* Version Info */}
-              {artifact.metadata?.version && (
+              {activeArtifact.metadata?.version && (
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-gray-600 dark:text-gray-400">Version:</span>
-                  <span className="font-mono font-semibold dark:text-gray-100">v{artifact.metadata.version}</span>
-                  {artifact.metadata.is_latest && (
+                  <span className="font-mono font-semibold dark:text-gray-100">v{activeArtifact.metadata.version}</span>
+                  {activeArtifact.metadata.is_latest && (
                     <span className="px-2 py-0.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded">
                       Latest
                     </span>
@@ -405,17 +461,17 @@ export default function OutcomeDetailModal({
               )}
 
               {/* Storage Path */}
-              {artifact.storage_ref && (
+              {activeArtifact.storage_ref && (
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Storage Path</label>
                   <div className="flex items-center gap-2">
                     <code className="flex-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs font-mono text-gray-800 dark:text-gray-200 break-all">
-                      {artifact.storage_ref}
+                      {activeArtifact.storage_ref}
                     </code>
                     <button
                       onClick={async () => {
                         try {
-                          await navigator.clipboard.writeText(artifact.storage_ref || '');
+                          await navigator.clipboard.writeText(activeArtifact.storage_ref || '');
                           showToast({
                             message: 'Path copied to clipboard',
                             type: 'success',
@@ -439,7 +495,7 @@ export default function OutcomeDetailModal({
                       onClick={async () => {
                         try {
                           // Open folder in system file manager
-                          const path = artifact.storage_ref || '';
+                          const path = activeArtifact.storage_ref || '';
                           if (path) {
                             // Try to extract directory path
                             const dirPath = path.includes('/')
@@ -476,7 +532,7 @@ export default function OutcomeDetailModal({
                         } catch (err) {
                           console.error('Failed to open folder:', err);
                           // Fallback: Show path in alert
-                          const path = artifact.storage_ref || '';
+                          const path = activeArtifact.storage_ref || '';
                           const dirPath = path.includes('/')
                             ? path.substring(0, path.lastIndexOf('/'))
                             : path;

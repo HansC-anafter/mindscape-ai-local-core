@@ -177,7 +177,7 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
       const apiUrl = getApiBaseUrl();
       const ownerUserId = 'default-user';
       const workspacesResponse = await fetch(
-        `${apiUrl}/api/v1/workspaces?owner_user_id=${ownerUserId}&limit=100`
+        `${apiUrl}/api/v1/workspaces/summary?owner_user_id=${ownerUserId}&limit=100`
       );
       if (workspacesResponse.ok) {
         const workspaces = await workspacesResponse.json();

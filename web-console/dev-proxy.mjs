@@ -9,6 +9,11 @@ const NEXT_HOST = process.env.NEXT_DEV_HOST || '127.0.0.1';
 const NEXT_PORT = Number.parseInt(process.env.NEXT_DEV_PORT || '3001', 10);
 const DEFAULT_BACKEND_URL = 'http://backend:8200';
 const DEFAULT_MEDIA_PROXY_URL = 'http://media-proxy:8000';
+const PROXY_LOG_MODE = process.env.FRONTEND_PROXY_LOG_MODE || 'slow';
+const PROXY_SLOW_LOG_THRESHOLD_MS = Number.parseInt(
+  process.env.FRONTEND_PROXY_SLOW_LOG_THRESHOLD_MS || '1000',
+  10,
+);
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'keep-alive',
@@ -129,7 +134,36 @@ function roundedDurationMs(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
 }
 
+export function shouldWriteProxyTimingLog(
+  event,
+  logMode = PROXY_LOG_MODE,
+  slowThresholdMs = PROXY_SLOW_LOG_THRESHOLD_MS,
+) {
+  if (logMode === 'none') {
+    return false;
+  }
+  if (logMode === 'all') {
+    return true;
+  }
+  if (!event || event.event === 'start') {
+    return false;
+  }
+  if (event.event === 'upstream_error') {
+    return true;
+  }
+  if (Number(event.status) >= 500 || Number(event.upstream_status) >= 500) {
+    return true;
+  }
+  if (event.event === 'client_aborted' || event.event === 'client_closed') {
+    return true;
+  }
+  return Number(event.duration_ms || 0) >= slowThresholdMs;
+}
+
 function writeProxyTimingLog(event) {
+  if (!shouldWriteProxyTimingLog(event)) {
+    return;
+  }
   console.log(`[frontend-proxy] request ${JSON.stringify(event)}`);
 }
 

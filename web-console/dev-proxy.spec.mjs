@@ -8,6 +8,7 @@ import {
   isFrontendLivenessPath,
   normalizeProxyLogPath,
   resolveDevApiProxyTarget,
+  shouldWriteProxyTimingLog,
 } from './dev-proxy.mjs';
 
 describe('frontend dev proxy', () => {
@@ -76,5 +77,15 @@ describe('frontend dev proxy', () => {
     expect(computeNextDevRestartDelayMs(1)).toBe(2000);
     expect(computeNextDevRestartDelayMs(5)).toBe(30000);
     expect(computeNextDevRestartDelayMs(99)).toBe(30000);
+  });
+
+  it('keeps default proxy timing logs to slow and error completions', () => {
+    expect(shouldWriteProxyTimingLog({ event: 'start' }, 'slow', 1000)).toBe(false);
+    expect(shouldWriteProxyTimingLog({ event: 'finish', status: 200, duration_ms: 200 }, 'slow', 1000)).toBe(false);
+    expect(shouldWriteProxyTimingLog({ event: 'finish', status: 200, duration_ms: 1200 }, 'slow', 1000)).toBe(true);
+    expect(shouldWriteProxyTimingLog({ event: 'finish', status: 500, duration_ms: 20 }, 'slow', 1000)).toBe(true);
+    expect(shouldWriteProxyTimingLog({ event: 'upstream_error', duration_ms: 20 }, 'slow', 1000)).toBe(true);
+    expect(shouldWriteProxyTimingLog({ event: 'finish', status: 200, duration_ms: 20 }, 'all', 1000)).toBe(true);
+    expect(shouldWriteProxyTimingLog({ event: 'upstream_error', duration_ms: 20 }, 'none', 1000)).toBe(false);
   });
 });

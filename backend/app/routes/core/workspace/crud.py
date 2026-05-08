@@ -21,7 +21,7 @@ from fastapi import (
     Query,
     Body,
 )
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from ....models.workspace import (
     Workspace,
@@ -41,6 +41,69 @@ from .utils import ensure_workspace_launch_status
 router = APIRouter()
 logger = logging.getLogger(__name__)
 store = MindscapeStore()
+
+
+class WorkspaceSummary(BaseModel):
+    id: str
+    owner_user_id: str
+    title: str
+    description: Optional[str] = None
+    workspace_type: Optional[str] = None
+    group_id: Optional[str] = None
+    workspace_role: Optional[str] = None
+    primary_project_id: Optional[str] = None
+    default_playbook_id: Optional[str] = None
+    default_locale: Optional[str] = None
+    mode: Optional[str] = None
+    execution_mode: Optional[str] = None
+    meeting_enabled: bool = False
+    expected_artifacts: Optional[List[str]] = None
+    execution_priority: Optional[str] = None
+    project_assignment_mode: Optional[str] = None
+    launch_status: Optional[str] = None
+    starter_kit_type: Optional[str] = None
+    ttl_hours: Optional[int] = None
+    expires_at: Optional[datetime] = None
+    parent_workspace_id: Optional[str] = None
+    visibility: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+def _workspace_to_summary(workspace: Workspace) -> WorkspaceSummary:
+    workspace_type = getattr(workspace, "workspace_type", None)
+    project_assignment_mode = getattr(workspace, "project_assignment_mode", None)
+    launch_status = getattr(workspace, "launch_status", None)
+    visibility = getattr(workspace, "visibility", None)
+
+    return WorkspaceSummary(
+        id=workspace.id,
+        owner_user_id=workspace.owner_user_id,
+        title=workspace.title,
+        description=workspace.description,
+        workspace_type=getattr(workspace_type, "value", workspace_type),
+        group_id=getattr(workspace, "group_id", None),
+        workspace_role=getattr(workspace, "workspace_role", None),
+        primary_project_id=workspace.primary_project_id,
+        default_playbook_id=workspace.default_playbook_id,
+        default_locale=workspace.default_locale,
+        mode=workspace.mode,
+        execution_mode=workspace.execution_mode,
+        meeting_enabled=bool(getattr(workspace, "meeting_enabled", False)),
+        expected_artifacts=workspace.expected_artifacts,
+        execution_priority=workspace.execution_priority,
+        project_assignment_mode=getattr(
+            project_assignment_mode, "value", project_assignment_mode
+        ),
+        launch_status=getattr(launch_status, "value", launch_status),
+        starter_kit_type=workspace.starter_kit_type,
+        ttl_hours=getattr(workspace, "ttl_hours", None),
+        expires_at=getattr(workspace, "expires_at", None),
+        parent_workspace_id=getattr(workspace, "parent_workspace_id", None),
+        visibility=getattr(visibility, "value", visibility),
+        created_at=workspace.created_at,
+        updated_at=workspace.updated_at,
+    )
 
 @router.get("/", response_model=List[Workspace])
 async def list_workspaces(
@@ -81,6 +144,61 @@ async def list_workspaces(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to list workspaces: {str(e)}"
+        )
+
+
+@router.get("/summary", response_model=List[WorkspaceSummary])
+async def list_workspace_summaries(
+    owner_user_id: str = Query(..., description="Owner user ID"),
+    primary_project_id: Optional[str] = Query(
+        None, description="Filter by primary project ID"
+    ),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of workspaces"),
+    include_system: bool = Query(
+        False, description="Include system workspaces (validation, testing, etc.)"
+    ),
+    group_id: Optional[str] = Query(
+        None, description="Group ID filter (Cloud only, ignored in local-core)"
+    ),
+):
+    """
+    List lightweight workspace summaries for navigation and selectors.
+
+    Full workspace configuration remains available from GET /workspaces/{workspace_id}.
+    """
+    try:
+        if hasattr(store, "list_workspace_summaries"):
+            summaries = await asyncio.to_thread(
+                store.list_workspace_summaries,
+                owner_user_id=owner_user_id,
+                primary_project_id=primary_project_id,
+                limit=limit,
+            )
+        else:
+            workspaces = await asyncio.to_thread(
+                store.list_workspaces,
+                owner_user_id=owner_user_id,
+                primary_project_id=primary_project_id,
+                limit=limit,
+            )
+            summaries = [_workspace_to_summary(ws) for ws in workspaces]
+
+        if not include_system:
+            summaries = [
+                summary
+                for summary in summaries
+                if not (
+                    getattr(summary, "is_system", False)
+                    if not isinstance(summary, dict)
+                    else summary.get("is_system", False)
+                )
+            ]
+
+        return summaries
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list workspace summaries: {str(e)}",
         )
 
 

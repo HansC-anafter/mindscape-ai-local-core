@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { settingsApi } from '../utils/settingsApi';
-import type { BackendConfig, ToolConnection, CapabilityPack } from '../types';
+import type { BackendConfig, ToolConnection } from '../types';
 
 import { getApiBaseUrl } from '../../../lib/api-url';
 
@@ -51,10 +51,11 @@ export function useSettingsContext(currentTab: string, currentSection?: string) 
   const collectConfigState = useCallback(async () => {
     try {
       const profileId = 'default-user';
-      const [backendConfig, tools, packs] = await Promise.all([
+      const [backendConfig, tools, installedPacks, enabledPacks] = await Promise.all([
         settingsApi.get<BackendConfig>(`/api/v1/config/backend?profile_id=${profileId}`, { silent: true }),
         settingsApi.get<ToolConnection[]>(`/api/v1/tools/connections/?profile_id=${profileId}`, { silent: true }),
-        settingsApi.get<CapabilityPack[]>('/api/v1/capability-packs/', { silent: true }),
+        settingsApi.get<string[]>('/api/v1/capability-packs/installed', { silent: true }),
+        settingsApi.get<string[]>('/api/v1/capability-packs/enabled', { silent: true }),
       ]);
 
       let healthStatus = null;
@@ -94,8 +95,8 @@ export function useSettingsContext(currentTab: string, currentSection?: string) 
           })) : []
         },
         packs: {
-          installed: Array.isArray(packs) ? packs.length : 0,
-          enabled: Array.isArray(packs) ? packs.filter(p => p.enabled).length : 0,
+          installed: Array.isArray(installedPacks) ? installedPacks.length : 0,
+          enabled: Array.isArray(enabledPacks) ? enabledPacks.length : 0,
         },
         services: {
           backend: healthStatus?.overall_status === 'healthy' ? 'healthy' : (healthStatus ? 'unhealthy' : 'unavailable'),
@@ -132,4 +133,3 @@ export function useSettingsContext(currentTab: string, currentSection?: string) 
 
   return { context, loading, refresh: collectConfigState };
 }
-
