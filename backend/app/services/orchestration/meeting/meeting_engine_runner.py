@@ -420,6 +420,31 @@ def _rewrite_until_quality_passed(quality_requirements: Dict[str, Any]) -> bool:
     )
 
 
+def _producer_eval_required_by_quality_requirements(
+    quality_requirements: Dict[str, Any],
+) -> bool:
+    content_quality = _as_dict(quality_requirements.get("content_quality"))
+    target = _as_dict(quality_requirements.get("target"))
+    deliverable_kind = (_clean_string(target.get("deliverable_kind")) or "").lower()
+    strict_keys = (
+        "strict_acceptance_required",
+        "storyboard_content_high_quality_required",
+        "final_storyboard_high_quality_required",
+        "meeting_final_acceptance_required",
+        "scene_judge_required",
+    )
+    if any(_truthy(quality_requirements.get(key)) for key in strict_keys):
+        return True
+    if any(_truthy(content_quality.get(key)) for key in strict_keys):
+        return True
+    if "storyboard" not in deliverable_kind:
+        return False
+    return _truthy(content_quality.get("require_reference_grounding")) or (
+        (_clean_string(content_quality.get("minimum_scene_specificity")) or "").lower()
+        == "high"
+    )
+
+
 def _producer_rewrite_dispatch_request(
     *,
     producer_eval_summaries: List[Dict[str, Any]],
@@ -492,14 +517,28 @@ def _producer_quality_gate_fallback(
     strict_rollup = _strict_quality_gate_rollup(producer_eval_summaries)
     review_state = producer_review.get("review_state")
     recommended_actions = list(producer_review.get("recommended_actions") or [])
+    quality_requirements_payload = _as_dict(quality_requirements)
+    producer_result_required = _producer_eval_required_by_quality_requirements(
+        quality_requirements_payload
+    )
+    producer_result_missing = producer_result_required and not producer_eval_summaries
+    failed_gate_ids = list(strict_rollup.get("failed_gate_ids") or [])
+    if producer_result_missing:
+        review_state = review_state or "producer_result_missing"
+        _append_unique(failed_gate_ids, "PRODUCER_RESULT_REQUIRED")
+        _append_unique(
+            recommended_actions,
+            "resolve_producer_result:storyboard_quality_eval",
+        )
     needs_revision = review_state in {
         "needs_revision",
         "needs_reference_analysis",
         "failed",
-    } or bool(strict_rollup.get("strict_gate_failed"))
-    if strict_rollup.get("strict_gate_failed"):
+        "producer_result_missing",
+    } or bool(strict_rollup.get("strict_gate_failed")) or producer_result_missing
+    if strict_rollup.get("strict_gate_failed") or producer_result_missing:
         review_state = review_state or "needs_revision"
-        for gate_id in list(strict_rollup.get("failed_gate_ids") or []):
+        for gate_id in failed_gate_ids:
             _append_unique(recommended_actions, f"resolve_quality_gate:{gate_id}")
     gate_state = (
         "needs_reference_analysis"
@@ -508,7 +547,6 @@ def _producer_quality_gate_fallback(
         if needs_revision
         else "passed"
     )
-    quality_requirements_payload = _as_dict(quality_requirements)
     dispatch_request = (
         _producer_rewrite_dispatch_request(
             producer_eval_summaries=producer_eval_summaries,
@@ -527,6 +565,8 @@ def _producer_quality_gate_fallback(
         "decision": (
             "reference_analysis_required"
             if review_state == "needs_reference_analysis"
+            else "producer_result_required"
+            if producer_result_missing
             else "rewrite_required"
             if needs_revision
             else "accept"
@@ -534,10 +574,14 @@ def _producer_quality_gate_fallback(
         "completion_status": "needs_revision" if needs_revision else "accepted",
         "recommended_actions": recommended_actions,
         "strict_acceptance_required": bool(
-            strict_rollup.get("strict_acceptance_required")
+            strict_rollup.get("strict_acceptance_required") or producer_result_required
         ),
-        "strict_gate_failed": bool(strict_rollup.get("strict_gate_failed")),
-        "failed_gate_ids": list(strict_rollup.get("failed_gate_ids") or []),
+        "strict_gate_failed": bool(
+            strict_rollup.get("strict_gate_failed") or producer_result_missing
+        ),
+        "producer_result_required": producer_result_required,
+        "producer_result_missing": producer_result_missing,
+        "failed_gate_ids": failed_gate_ids,
         "storyboard_content_high_quality_pass": strict_rollup.get(
             "storyboard_content_high_quality_pass"
         ),
@@ -580,6 +624,7 @@ def _normalize_meeting_quality_review(
         "rewrite_required",
         "reference_analysis_required",
         "human_review_required",
+        "producer_result_required",
     }:
         decision = fallback_gate["decision"]
     if fallback_gate.get("strict_gate_failed") and decision in {
@@ -593,7 +638,11 @@ def _normalize_meeting_quality_review(
         _append_unique(actions, _clean_string(action))
 
     gate_state = fallback_gate["gate_state"]
-    if decision in {"rewrite_required", "human_review_required"}:
+    if decision in {
+        "rewrite_required",
+        "human_review_required",
+        "producer_result_required",
+    }:
         gate_state = "blocked_for_revision"
     elif decision == "reference_analysis_required":
         gate_state = "needs_reference_analysis"
@@ -911,9 +960,15 @@ class MeetingEngineRunner:
             command=command,
             request_contract_aol=request_contract_aol,
         )
+        dispatch_execution_ids = _dispatch_execution_ids(meeting_result.dispatch_result)
+        artifact_wait_seconds = self._dispatch_artifact_wait_seconds(
+            command=command,
+            request_contract_aol=request_contract_aol,
+        )
         dispatch_artifacts = await self._dispatch_artifact_refs(
             meeting_result.dispatch_result,
             artifacts_store=getattr(self.store, "artifacts", None),
+            wait_seconds=artifact_wait_seconds,
         )
         for artifact_id in dispatch_artifacts["artifact_db_ids"]:
             _append_unique(artifact_ids, artifact_id)
@@ -930,6 +985,7 @@ class MeetingEngineRunner:
             artifact_missing_file_paths=dispatch_artifacts[
                 "artifact_file_path_missing_count"
             ],
+            pending_execution_ids=dispatch_execution_ids,
         )
         producer_review = _producer_review_result(producer_eval_summaries)
         producer_quality_gate = await self._producer_quality_gate_review(
@@ -941,7 +997,11 @@ class MeetingEngineRunner:
             user_message=message,
         )
         completion_status = producer_quality_gate["completion_status"]
-        if producer_review["review_state"] is None and meeting_result.completion_status:
+        if (
+            producer_review["review_state"] is None
+            and meeting_result.completion_status
+            and producer_quality_gate["gate_state"] in {"passed", "accept_with_risk"}
+        ):
             completion_status = meeting_result.completion_status
 
         return {
@@ -988,6 +1048,8 @@ class MeetingEngineRunner:
             producer_eval_summaries=producer_eval_summaries,
             quality_requirements=quality_requirements,
         )
+        if fallback_gate.get("producer_result_missing"):
+            return fallback_gate
         if fallback_gate["gate_state"] == "passed":
             return fallback_gate
 
@@ -1022,7 +1084,7 @@ class MeetingEngineRunner:
                     f"TaskIR artifacts:\n{_bounded_json(task_ir_artifacts, limit=8000)}\n\n"
                     "Return this JSON shape exactly:\n"
                     "{\n"
-                    '  "decision": "accept|accept_with_risk|rewrite_required|reference_analysis_required|human_review_required",\n'
+                    '  "decision": "accept|accept_with_risk|rewrite_required|reference_analysis_required|human_review_required|producer_result_required",\n'
                     '  "rationale": "short reason",\n'
                     '  "recommended_actions": ["action_id"],\n'
                     '  "rewrite_instructions": ["concrete per-scene/content rewrite instruction"],\n'
@@ -1114,10 +1176,13 @@ class MeetingEngineRunner:
         artifact_db_ids: List[str],
         artifact_execution_errors: Optional[List[Dict[str, str]]] = None,
         artifact_missing_file_paths: int = 0,
+        pending_execution_ids: Optional[List[str]] = None,
     ) -> str:
         if artifact_execution_errors:
             return "failed"
         if not artifact_ids:
+            if pending_execution_ids:
+                return "pending"
             return "not_requested"
         if artifact_missing_file_paths > 0:
             return "pending"
@@ -1199,6 +1264,7 @@ class MeetingEngineRunner:
         dispatch_result: Any,
         *,
         artifacts_store: Any,
+        wait_seconds: Optional[float] = None,
     ) -> Dict[str, Any]:
         execution_ids = _dispatch_execution_ids(dispatch_result)
         if not execution_ids:
@@ -1242,7 +1308,17 @@ class MeetingEngineRunner:
             "artifact_file_path_missing_count": 0,
             "producer_eval_summaries": [],
         }
-        for attempt_index in range(16):
+        poll_interval_seconds = 0.5
+        if wait_seconds is None:
+            wait_seconds = 8.0
+        try:
+            wait_seconds = float(wait_seconds)
+        except (TypeError, ValueError):
+            wait_seconds = 8.0
+        wait_seconds = min(max(wait_seconds, poll_interval_seconds), 3600.0)
+        max_attempts = max(1, int(wait_seconds / poll_interval_seconds))
+
+        for attempt_index in range(max_attempts):
             artifact_db_ids: List[str] = []
             artifact_file_paths: List[str] = []
             artifact_execution_errors: List[Dict[str, str]] = []
@@ -1311,9 +1387,28 @@ class MeetingEngineRunner:
                 return result
             if artifact_db_ids and missing_file_paths == 0:
                 return result
-            if attempt_index < 15:
-                await asyncio.sleep(0.5)
+            if attempt_index < max_attempts - 1:
+                await asyncio.sleep(poll_interval_seconds)
         return result
+
+    @staticmethod
+    def _dispatch_artifact_wait_seconds(
+        *,
+        command: MeetingCommandRecord,
+        request_contract_aol: Dict[str, Any],
+    ) -> float:
+        quality_requirements = _quality_requirements_from_aol_metadata(
+            request_contract_aol
+        )
+        if not _producer_eval_required_by_quality_requirements(quality_requirements):
+            return 8.0
+        metadata = _as_dict(getattr(command, "metadata", None))
+        raw_timeout = metadata.get("meeting_orchestration_timeout_seconds")
+        try:
+            timeout = float(raw_timeout)
+        except (TypeError, ValueError):
+            timeout = 300.0
+        return min(max(timeout, 8.0), 3600.0)
 
     def _missing_dependency_result(
         self,

@@ -81,7 +81,7 @@ async def test_direct_codex_cli_failsover_to_next_runtime_on_quota(
     run_calls: list[str] = []
     success_reports: list[str] = []
 
-    async def _fake_bundle():
+    async def _fake_bundle(**kwargs):
         bundle_calls.append("bundle")
         if len(bundle_calls) == 1:
             return {
@@ -109,7 +109,12 @@ async def test_direct_codex_cli_failsover_to_next_runtime_on_quota(
             return (1, transcript, "", "", transcript)
         return (0, "done", "", "done", "done")
 
-    async def _fake_report(runtime_id: str, *, workspace_id: str = "") -> None:
+    async def _fake_report(
+        runtime_id: str,
+        *,
+        workspace_id: str = "",
+        error_text: str = "",
+    ) -> None:
         quota_reports.append((runtime_id, workspace_id))
 
     async def _fake_success(runtime_id: str) -> None:
@@ -154,7 +159,7 @@ async def test_direct_codex_cli_failsover_to_next_runtime_on_stall_timeout(
     run_calls: list[str] = []
     success_reports: list[str] = []
 
-    async def _fake_bundle():
+    async def _fake_bundle(**kwargs):
         bundle_calls.append("bundle")
         if len(bundle_calls) == 1:
             return {
@@ -227,7 +232,7 @@ async def test_direct_codex_cli_failsover_to_next_runtime_on_os_error_2(
     run_calls: list[str] = []
     success_reports: list[str] = []
 
-    async def _fake_bundle():
+    async def _fake_bundle(**kwargs):
         bundle_calls.append("bundle")
         if len(bundle_calls) == 1:
             return {
@@ -300,7 +305,7 @@ async def test_direct_codex_cli_failsover_when_runner_raises_timeout(
     run_calls: list[str] = []
     success_reports: list[str] = []
 
-    async def _fake_bundle():
+    async def _fake_bundle(**kwargs):
         bundle_calls.append("bundle")
         if len(bundle_calls) == 1:
             return {
@@ -381,7 +386,7 @@ async def test_direct_codex_cli_reports_deactivated_workspace_error_code(
     engine = _DummyMeeting()
     auth_reports: list[tuple[str, str, str]] = []
 
-    async def _fake_bundle():
+    async def _fake_bundle(**kwargs):
         return {
             "env": {"CODEX_HOME": "/tmp/acct-a"},
             "selected_runtime_id": "runtime-a",
@@ -445,7 +450,12 @@ async def test_fetch_direct_codex_auth_bundle_allows_pool_fallback_for_preferred
 
     class _FakeResolver:
         def resolve(self, **kwargs):
-            assert kwargs == {"surface": "codex_cli", "workspace_id": "ws-123"}
+            assert kwargs == {
+                "surface": "codex_cli",
+                "workspace_id": "ws-123",
+                "auth_workspace_id": None,
+                "source_workspace_id": None,
+            }
             return ExecutorRouteSelection(
                 surface="codex_cli",
                 executor_runtime="codex_cli",
@@ -468,7 +478,7 @@ async def test_fetch_direct_codex_auth_bundle_allows_pool_fallback_for_preferred
         ):
             return {
                 "preferred_runtime_id": selection.preferred_runtime_id,
-                "allow_fallback": False,
+                "allow_runtime_substitution": False,
                 "preference_source": "executor_route",
                 "binding_runtime_id": None,
                 "binding_state": "configured",
@@ -509,14 +519,19 @@ async def test_fetch_direct_codex_auth_bundle_allows_pool_fallback_for_preferred
             self,
             *,
             preferred_runtime_id: str | None = None,
-            allow_fallback: bool = False,
+            allow_runtime_substitution: bool = False,
+            excluded_runtime_ids=None,
+            excluded_quota_scope_keys=None,
+            require_probe_available=False,
         ):
             call_kwargs["preferred_runtime_id"] = preferred_runtime_id
-            call_kwargs["allow_fallback"] = allow_fallback
+            call_kwargs["allow_runtime_substitution"] = allow_runtime_substitution
             return {
                 "env": {"CODEX_HOME": "/tmp/acct-b"},
                 "selected_runtime_id": "runtime-preferred",
                 "available_quota_scope_count": 2,
+                "probe_state": "available",
+                "last_probe_success_at": "2026-05-08T00:00:00+00:00",
             }
 
     class _FakeAdmissionService:
@@ -524,7 +539,8 @@ async def test_fetch_direct_codex_auth_bundle_allows_pool_fallback_for_preferred
             self,
             *,
             preferred_runtime_id=None,
-            allow_fallback=True,
+            allow_runtime_substitution=True,
+            require_probe_available=False,
         ):
             return SimpleNamespace(
                 admissible=True,
@@ -562,7 +578,7 @@ async def test_fetch_direct_codex_auth_bundle_allows_pool_fallback_for_preferred
     assert bundle["preference_source"] == "executor_route"
     assert call_kwargs == {
         "preferred_runtime_id": "runtime-preferred",
-        "allow_fallback": False,
+        "allow_runtime_substitution": False,
     }
     assert binding_calls == [
         {
@@ -591,7 +607,12 @@ async def test_fetch_direct_codex_auth_bundle_pins_workspace_pool_selection(
 
     class _FakeResolver:
         def resolve(self, **kwargs):
-            assert kwargs == {"surface": "codex_cli", "workspace_id": "ws-123"}
+            assert kwargs == {
+                "surface": "codex_cli",
+                "workspace_id": "ws-123",
+                "auth_workspace_id": None,
+                "source_workspace_id": None,
+            }
             return ExecutorRouteSelection(
                 surface="codex_cli",
                 executor_runtime="codex_cli",
@@ -636,7 +657,7 @@ async def test_fetch_direct_codex_auth_bundle_pins_workspace_pool_selection(
             )
             return {
                 "preferred_runtime_id": None,
-                "allow_fallback": True,
+                "allow_runtime_substitution": True,
                 "preference_source": "pool_rotation",
                 "binding_runtime_id": None,
                 "binding_state": "configured",
@@ -678,15 +699,20 @@ async def test_fetch_direct_codex_auth_bundle_pins_workspace_pool_selection(
             self,
             *,
             preferred_runtime_id: str | None = None,
-            allow_fallback: bool = False,
+            allow_runtime_substitution: bool = False,
+            excluded_runtime_ids=None,
+            excluded_quota_scope_keys=None,
+            require_probe_available=False,
         ):
             pool_calls.append(1)
             assert preferred_runtime_id is None
-            assert allow_fallback is True
+            assert allow_runtime_substitution is True
             return {
                 "env": {"CODEX_HOME": "/tmp/acct-a"},
                 "selected_runtime_id": "runtime-a",
                 "available_quota_scope_count": 4,
+                "probe_state": "available",
+                "last_probe_success_at": "2026-05-08T00:00:00+00:00",
             }
 
     class _FakeAdmissionService:
@@ -694,7 +720,8 @@ async def test_fetch_direct_codex_auth_bundle_pins_workspace_pool_selection(
             self,
             *,
             preferred_runtime_id=None,
-            allow_fallback=True,
+            allow_runtime_substitution=True,
+            require_probe_available=False,
         ):
             return SimpleNamespace(
                 admissible=True,
@@ -764,7 +791,12 @@ async def test_fetch_direct_codex_auth_bundle_rebinds_sticky_runtime_when_unavai
 
     class _FakeResolver:
         def resolve(self, **kwargs):
-            assert kwargs == {"surface": "codex_cli", "workspace_id": "ws-123"}
+            assert kwargs == {
+                "surface": "codex_cli",
+                "workspace_id": "ws-123",
+                "auth_workspace_id": None,
+                "source_workspace_id": None,
+            }
             return ExecutorRouteSelection(
                 surface="codex_cli",
                 executor_runtime="codex_cli",
@@ -787,7 +819,7 @@ async def test_fetch_direct_codex_auth_bundle_rebinds_sticky_runtime_when_unavai
         ):
             return {
                 "preferred_runtime_id": "runtime-old",
-                "allow_fallback": False,
+                "allow_runtime_substitution": False,
                 "preference_source": "binding_snapshot",
                 "binding_runtime_id": "runtime-old",
                 "binding_state": "resolved",
@@ -828,12 +860,15 @@ async def test_fetch_direct_codex_auth_bundle_rebinds_sticky_runtime_when_unavai
             self,
             *,
             preferred_runtime_id: str | None = None,
-            allow_fallback: bool = False,
+            allow_runtime_substitution: bool = False,
+            excluded_runtime_ids=None,
+            excluded_quota_scope_keys=None,
+            require_probe_available=False,
         ):
             pool_calls.append(
                 {
                     "preferred_runtime_id": preferred_runtime_id,
-                    "allow_fallback": allow_fallback,
+                    "allow_runtime_substitution": allow_runtime_substitution,
                 }
             )
             if preferred_runtime_id == "runtime-old":
@@ -842,6 +877,8 @@ async def test_fetch_direct_codex_auth_bundle_rebinds_sticky_runtime_when_unavai
                 "env": {"CODEX_HOME": "/tmp/acct-b"},
                 "selected_runtime_id": "runtime-new",
                 "available_quota_scope_count": 2,
+                "probe_state": "available",
+                "last_probe_success_at": "2026-05-08T00:00:00+00:00",
             }
 
     class _FakeAdmissionService:
@@ -849,7 +886,8 @@ async def test_fetch_direct_codex_auth_bundle_rebinds_sticky_runtime_when_unavai
             self,
             *,
             preferred_runtime_id=None,
-            allow_fallback=True,
+            allow_runtime_substitution=True,
+            require_probe_available=False,
         ):
             return SimpleNamespace(
                 admissible=True,
@@ -885,11 +923,11 @@ async def test_fetch_direct_codex_auth_bundle_rebinds_sticky_runtime_when_unavai
     assert pool_calls == [
         {
             "preferred_runtime_id": "runtime-old",
-            "allow_fallback": False,
+            "allow_runtime_substitution": False,
         },
         {
             "preferred_runtime_id": None,
-            "allow_fallback": True,
+            "allow_runtime_substitution": True,
         },
     ]
     assert binding_calls == [
@@ -942,7 +980,7 @@ async def test_fetch_direct_codex_auth_bundle_rebinds_session_lease_when_pool_fa
         ):
             return {
                 "preferred_runtime_id": "runtime-old",
-                "allow_fallback": True,
+                "allow_runtime_substitution": True,
                 "preference_source": "session_lease",
                 "binding_runtime_id": "runtime-old",
                 "binding_state": "resolved",
@@ -990,20 +1028,25 @@ async def test_fetch_direct_codex_auth_bundle_rebinds_session_lease_when_pool_fa
             self,
             *,
             preferred_runtime_id: str | None = None,
-            allow_fallback: bool = False,
+            allow_runtime_substitution: bool = False,
+            excluded_runtime_ids=None,
+            excluded_quota_scope_keys=None,
+            require_probe_available=False,
         ):
             pool_calls.append(
                 {
                     "preferred_runtime_id": preferred_runtime_id,
-                    "allow_fallback": allow_fallback,
+                    "allow_runtime_substitution": allow_runtime_substitution,
                 }
             )
             assert preferred_runtime_id == "runtime-old"
-            assert allow_fallback is True
+            assert allow_runtime_substitution is True
             return {
                 "env": {"CODEX_HOME": "/tmp/acct-b"},
                 "selected_runtime_id": "runtime-new",
                 "available_quota_scope_count": 2,
+                "probe_state": "available",
+                "last_probe_success_at": "2026-05-08T00:00:00+00:00",
             }
 
     class _FakeAdmissionService:
@@ -1011,7 +1054,8 @@ async def test_fetch_direct_codex_auth_bundle_rebinds_session_lease_when_pool_fa
             self,
             *,
             preferred_runtime_id=None,
-            allow_fallback=True,
+            allow_runtime_substitution=True,
+            require_probe_available=False,
         ):
             return SimpleNamespace(
                 admissible=True,
@@ -1047,7 +1091,7 @@ async def test_fetch_direct_codex_auth_bundle_rebinds_session_lease_when_pool_fa
     assert pool_calls == [
         {
             "preferred_runtime_id": "runtime-old",
-            "allow_fallback": True,
+            "allow_runtime_substitution": True,
         }
     ]
     assert bundle["selected_runtime_id"] == "runtime-new"
@@ -1098,7 +1142,7 @@ async def test_fetch_direct_codex_auth_bundle_blocks_when_admission_finds_no_hea
         ):
             return {
                 "preferred_runtime_id": None,
-                "allow_fallback": True,
+                "allow_runtime_substitution": True,
                 "preference_source": "pool_rotation",
                 "binding_runtime_id": None,
                 "binding_state": "configured",
@@ -1124,7 +1168,13 @@ async def test_fetch_direct_codex_auth_bundle_blocks_when_admission_finds_no_hea
             }
 
     class _FakeAdmissionService:
-        def evaluate_execution_admission(self, *, preferred_runtime_id=None, allow_fallback=True):
+        def evaluate_execution_admission(
+            self,
+            *,
+            preferred_runtime_id=None,
+            allow_runtime_substitution=True,
+            require_probe_available=False,
+        ):
             return _FakeAdmissionDecision()
 
     async def _fake_to_thread(func, *args, **kwargs):

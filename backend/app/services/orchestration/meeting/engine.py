@@ -649,16 +649,18 @@ class MeetingEngine(
         converged = False
         run_error: Optional[Exception] = None
         require_full_review = self._requires_full_deliberation_review()
-        single_turn_native_pd = self._should_use_single_turn_native_pd(user_message)
+        single_turn_native_spatial = self._should_use_single_turn_native_spatial_planner(
+            user_message
+        )
 
         try:
-            if single_turn_native_pd:
+            if single_turn_native_spatial:
                 round_num = 1
                 self.orchestrator.record_iteration()
                 self._emit_round_event(round_num, status="started")
                 await self._emit_meeting_stage(
                     "deliberation",
-                    "Round 1/1 - Native spatial PD planner closure in progress...",
+                    "Round 1/1 - Native spatial planner closure in progress...",
                 )
                 planner_turn = await self._role_turn(
                     "planner",
@@ -670,16 +672,16 @@ class MeetingEngine(
                 planner_proposals.append(planner_turn.content)
                 self._emit_turn(planner_turn)
                 self._emit_decision_proposal(planner_turn)
-                native_pd_payload = self._extract_native_spatial_pd_payload(
+                native_spatial_payload = self._extract_native_spatial_payload(
                     planner_turn.content
                 )
-                if native_pd_payload:
+                if native_spatial_payload:
                     if self.session.metadata is None:
                         self.session.metadata = {}
-                    self.session.metadata["native_spatial_pd_decision"] = (
-                        native_pd_payload
+                    self.session.metadata["native_spatial_decision"] = (
+                        native_spatial_payload
                     )
-                    self.session.metadata["native_spatial_pd_source"] = (
+                    self.session.metadata["native_spatial_source"] = (
                         "planner_single_turn"
                     )
                 await self._try_coverage_audit(planner_turn.content, round_num)
@@ -817,7 +819,7 @@ class MeetingEngine(
         if not isinstance(governance_constraints, dict):
             governance_constraints = contract.get("constraints")
         if not isinstance(governance_constraints, dict):
-            return False
+            governance_constraints = {}
 
         for key in (
             "meeting_review",
@@ -834,37 +836,49 @@ class MeetingEngine(
             ):
                 if bool(candidate.get(flag_name)):
                     return True
+        quality_requirements = self._quality_requirements_from_contract_metadata(contract)
+        if quality_requirements:
+            content_quality = quality_requirements.get("content_quality")
+            if not isinstance(content_quality, dict):
+                content_quality = {}
+            if any(
+                bool(content_quality.get(key))
+                for key in (
+                    "require_per_scene_judge",
+                    "require_reference_grounding",
+                    "require_concrete_scene_copy",
+                )
+            ):
+                return True
+            if any(
+                bool(quality_requirements.get(key))
+                for key in (
+                    "rewrite_until_quality_passed",
+                    "producer_review_required",
+                    "human_review_required_before_publish",
+                )
+            ):
+                return True
+            target_scene_count = self._target_scene_count_from_quality_requirements(
+                quality_requirements
+            )
+            if target_scene_count >= 10:
+                return True
         return False
 
-    def _should_use_single_turn_native_pd(self, user_message: str) -> bool:
+    def _should_use_single_turn_native_spatial_planner(self, user_message: str) -> bool:
         if self._requires_full_deliberation_review():
+            return False
+        affordance_guard = getattr(self, "_has_external_playbook_affordance_contract", None)
+        if callable(affordance_guard) and affordance_guard():
             return False
         runtime_id = str(getattr(self, "executor_runtime", "") or "").strip().lower()
         if runtime_id != "codex_cli":
             return False
-        text = " ".join(
-            [
-                str(user_message or ""),
-                " ".join(str(item or "") for item in (self.session.agenda or [])),
-                str(getattr(self.session, "title", "") or ""),
-            ]
-        ).lower()
-        keywords = (
-            "spatial",
-            "schedule",
-            "scene",
-            "world",
-            "handoff",
-            "counter",
-            "tray",
-            "camera",
-            "anchor",
-            "blender",
-            "downstream",
-            "blocking",
-            "performance",
-        )
-        return any(word in text for word in keywords)
+        topic_matcher = getattr(self, "_matches_native_spatial_topic", None)
+        if callable(topic_matcher):
+            return bool(topic_matcher(user_message))
+        return False
 
     async def _stage_extract_actions(
         self,
@@ -879,10 +893,10 @@ class MeetingEngine(
             (action_intents, action_items) where action_items are legacy dicts.
         """
         await self._emit_meeting_stage("action_items", "Expanding action items...")
-        if self._should_use_single_turn_native_pd(
+        if self._should_use_single_turn_native_spatial_planner(
             user_message
-        ) or self._is_full_review_native_spatial_pd_meeting(user_message):
-            native_action_intents = self._build_native_spatial_pd_action_intents(
+        ) or self._is_full_review_native_spatial_meeting(user_message):
+            native_action_intents = self._build_native_spatial_action_intents(
                 decision=decision,
                 user_message=user_message,
             )
@@ -1131,7 +1145,97 @@ class MeetingEngine(
         elif isinstance(metadata.get("playbook_input_defaults"), list):
             metadata["playbook_input_defaults"] = []
 
+        self._apply_quality_target_to_request_contract_metadata(metadata)
         return metadata
+
+    @classmethod
+    def _apply_quality_target_to_request_contract_metadata(
+        cls,
+        metadata: Dict[str, Any],
+    ) -> None:
+        quality_requirements = cls._quality_requirements_from_contract_metadata(metadata)
+        scene_count = cls._target_scene_count_from_quality_requirements(
+            quality_requirements
+        )
+        if scene_count <= 1:
+            return
+
+        deliverables = metadata.get("deliverables")
+        if not isinstance(deliverables, list) or not deliverables:
+            metadata["deliverables"] = [
+                {
+                    "id": "D1",
+                    "name": f"{scene_count}-scene storyboard",
+                    "quantity": scene_count,
+                    "requires": [],
+                    "acceptance_criteria": [],
+                }
+            ]
+        else:
+            total_quantity = 0
+            for item in deliverables:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    total_quantity += max(1, int(item.get("quantity", 1)))
+                except (TypeError, ValueError):
+                    total_quantity += 1
+            if total_quantity < scene_count:
+                first_deliverable = deliverables[0]
+                if isinstance(first_deliverable, dict):
+                    first_deliverable["quantity"] = scene_count
+                    if not str(first_deliverable.get("name") or "").strip():
+                        first_deliverable["name"] = f"{scene_count}-scene storyboard"
+
+        metadata["scale_estimate"] = cls._scale_estimate_from_total_units(scene_count)
+
+    @staticmethod
+    def _quality_requirements_from_contract_metadata(
+        metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        candidates = []
+        if isinstance(metadata, dict):
+            candidates.append(metadata.get("quality_requirements"))
+            constraints = metadata.get("constraints")
+            if isinstance(constraints, dict):
+                candidates.append(constraints.get("quality_requirements"))
+            addressable_object_layer = metadata.get("addressable_object_layer")
+            if isinstance(addressable_object_layer, dict):
+                candidates.append(addressable_object_layer.get("quality_requirements"))
+        for candidate in candidates:
+            if isinstance(candidate, dict) and candidate:
+                return candidate
+        return {}
+
+    @staticmethod
+    def _target_scene_count_from_quality_requirements(
+        quality_requirements: Dict[str, Any],
+    ) -> int:
+        target = (
+            quality_requirements.get("target")
+            if isinstance(quality_requirements, dict)
+            else None
+        )
+        if not isinstance(target, dict):
+            return 0
+        for key in ("scene_count_target", "scene_count", "min_scene_count", "scene_count_floor"):
+            try:
+                value = int(target.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                value = 0
+            if value > 1:
+                return value
+        return 0
+
+    @staticmethod
+    def _scale_estimate_from_total_units(total_units: int) -> str:
+        if total_units <= 3:
+            return "trivial"
+        if total_units <= 15:
+            return "standard"
+        if total_units <= 50:
+            return "program"
+        return "campaign"
 
     def _apply_request_contract_playbook_requests(
         self,

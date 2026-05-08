@@ -108,6 +108,7 @@ async def test_bridge_projects_aol_refs_and_carries_guidance_metadata(monkeypatc
             }
         ],
         metadata={
+            "raw_intent_text": "Short raw prompt",
             "selected_guidance_id": "selected-guidance",
             "selected_guidance_cards": [
                 {
@@ -159,6 +160,13 @@ async def test_bridge_projects_aol_refs_and_carries_guidance_metadata(monkeypatc
     assert aol_metadata["hard_playbook_request_allowed"] is False
     assert aol_metadata["hard_playbook_request_reason"] == "candidate_affordance_only"
     assert handoff.playbook_requests is None
+    assert handoff.human_instructions == "Draft the next shot plan"
+    assert handoff.playbook_input_defaults
+    assert any(
+        item.get("playbook_code") == "visual_audit"
+        and item.get("input_params", {}).get("addressable_object_layer") == aol_metadata
+        for item in handoff.playbook_input_defaults
+    )
 
 
 @pytest.mark.asyncio

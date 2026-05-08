@@ -297,6 +297,43 @@ def _collect_explicit_playbook_requests(
     return normalized
 
 
+def _collect_candidate_playbook_input_defaults(
+    *,
+    candidate_playbooks: List[Dict[str, Any]],
+    workspace_id: str,
+    command: MeetingCommandRecord,
+    context_attachments: List[Dict[str, Any]],
+    aol_metadata: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    defaults: List[Dict[str, Any]] = []
+    seen = set()
+    quality_requirements = _as_dict(aol_metadata.get("quality_requirements"))
+    for candidate in candidate_playbooks:
+        playbook_code = _clean_str(candidate.get("playbook_code"))
+        if not playbook_code or playbook_code in seen:
+            continue
+        seen.add(playbook_code)
+        input_params: Dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "meeting_session_id": command.meeting_id,
+            "task": command.intent_text,
+            "human_instructions": command.intent_text,
+            "addressable_object_layer": aol_metadata,
+        }
+        if quality_requirements:
+            input_params["quality_requirements"] = quality_requirements
+        if context_attachments:
+            input_params["context_attachments"] = context_attachments
+        defaults.append(
+            {
+                "playbook_code": playbook_code,
+                "input_params": input_params,
+                "request_contract_source": "candidate_playbook_defaults",
+            }
+        )
+    return defaults
+
+
 def _merge_dict(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
     merged = dict(base or {})
     for key, value in dict(overlay or {}).items():
@@ -563,6 +600,13 @@ class AOLMeetingOrchestrationBridge:
             context_attachments=context_attachments,
             aol_metadata=aol_metadata,
         )
+        playbook_input_defaults = _collect_candidate_playbook_input_defaults(
+            candidate_playbooks=candidate_playbooks,
+            workspace_id=workspace_id,
+            command=command,
+            context_attachments=context_attachments,
+            aol_metadata=aol_metadata,
+        )
         governance_constraints = {
             "addressable_object_layer": aol_metadata,
             "quality_requirements": quality_requirements,
@@ -575,8 +619,11 @@ class AOLMeetingOrchestrationBridge:
             goals=[command.intent_text],
             governance_constraints=governance_constraints,
             context_attachments=context_attachments,
-            human_instructions=metadata.get("raw_intent_text") or command.intent_text,
+            human_instructions=command.intent_text
+            or metadata.get("raw_intent_text")
+            or canonical.intent_text,
             playbook_requests=playbook_requests or None,
+            playbook_input_defaults=playbook_input_defaults or None,
             metadata={
                 "addressable_object_layer": aol_metadata,
                 "quality_requirements": quality_requirements,

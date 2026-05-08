@@ -642,29 +642,6 @@ class DispatchOrchestrator:
                 )
         self._apply_meeting_command_transport_context(inputs)
 
-        # v3.1: Resolve per-agent model from capability_profile
-        _cap_profile = action_item.get("capability_profile")
-        if _cap_profile:
-            try:
-                from backend.app.services.capability_profile_resolver import (
-                    CapabilityProfileResolver,
-                )
-
-                _resolved_model, _ = CapabilityProfileResolver().resolve(
-                    _cap_profile
-                )
-                if _resolved_model:
-                    inputs["_model_override"] = _resolved_model
-                    logger.info(
-                        "Injected _model_override=%s from capability_profile=%s",
-                        _resolved_model,
-                        _cap_profile,
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "capability_profile resolve failed (non-fatal): %s", exc
-                )
-
         ctx = LocalDomainContext(
             actor_id=self.profile_id,
             workspace_id=target_workspace_id,
@@ -810,7 +787,6 @@ class DispatchOrchestrator:
             inputs["meeting_session_id"] = getattr(self.session, "id", None)
         meeting_command_context = self._apply_meeting_command_transport_context(inputs)
 
-        model_override = self._resolve_capability_profile_model(action_item)
         conversation_context = self._build_agent_conversation_context(
             action_item=action_item,
             inputs=inputs,
@@ -845,9 +821,6 @@ class DispatchOrchestrator:
                 target_workspace_id,
                 exc_info=True,
             )
-        if model_override:
-            context_overrides["model"] = model_override
-
         result = await executor.execute(
             task=task,
             agent_id=runtime_id,
@@ -1113,23 +1086,7 @@ class DispatchOrchestrator:
 
     @staticmethod
     def _resolve_capability_profile_model(action_item: Dict[str, Any]) -> Optional[str]:
-        cap_profile = action_item.get("capability_profile")
-        if not cap_profile:
-            return None
-
-        try:
-            from backend.app.services.capability_profile_resolver import (
-                CapabilityProfileResolver,
-            )
-
-            resolved_model, _ = CapabilityProfileResolver().resolve(cap_profile)
-            if isinstance(resolved_model, str) and resolved_model.strip():
-                return resolved_model.strip()
-        except Exception as exc:
-            logger.warning(
-                "capability_profile resolve failed for agent dispatch (non-fatal): %s",
-                exc,
-            )
+        del action_item
         return None
 
     def _normalize_phase_inputs(

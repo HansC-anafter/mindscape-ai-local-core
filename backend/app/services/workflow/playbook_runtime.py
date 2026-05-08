@@ -60,49 +60,14 @@ def restore_checkpoint_state(
     return step_outputs, completed_steps
 
 
-def apply_execution_profile_model_override(
+def apply_execution_profile_registry_route(
     *,
     playbook_json: Any,
     playbook_inputs: Dict[str, Any],
     resolve_model_fn: Optional[Callable[..., Tuple[Optional[str], Any]]] = None,
 ) -> Optional[str]:
-    """Populate `_model_override` from execution_profile when it is absent."""
-    if (
-        not hasattr(playbook_json, "execution_profile")
-        or not playbook_json.execution_profile
-        or playbook_inputs.get("_model_override")
-    ):
-        return None
-
-    if resolve_model_fn is None:
-        from backend.app.services.capability_profile_resolver import (
-            CapabilityProfileResolver,
-        )
-
-        resolve_model_fn = CapabilityProfileResolver().resolve
-
-    try:
-        execution_profile = playbook_json.execution_profile
-        capability_profile = execution_profile.get("reasoning", "standard")
-        resolved_model, _variant = resolve_model_fn(
-            capability_profile,
-            execution_profile=execution_profile,
-            deployment_scope="local",
-        )
-        if resolved_model:
-            playbook_inputs["_model_override"] = resolved_model
-            logger.info(
-                "v3.1: execution_profile resolved _model_override=%s "
-                "(profile=%s, modalities=%s, locality=%s)",
-                resolved_model,
-                capability_profile,
-                execution_profile.get("modalities"),
-                execution_profile.get("locality"),
-            )
-            return resolved_model
-    except Exception as exc:
-        logger.warning("v3.1: execution_profile resolve failed (non-fatal): %s", exc)
-
+    """Execution profiles do not inject model routing into tool inputs."""
+    del playbook_json, playbook_inputs, resolve_model_fn
     return None
 
 

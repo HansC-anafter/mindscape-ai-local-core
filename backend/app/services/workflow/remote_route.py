@@ -72,57 +72,15 @@ def resolve_remote_tool_route(
     return None
 
 
-def resolve_tool_model_override(
+def resolve_tool_model_route(
     *,
     tool_id: str,
     playbook_inputs: Optional[Dict[str, Any]],
     remote_route: Optional[Dict[str, Any]] = None,
     execution_profile: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
-    """Resolve model override for a tool execution."""
-    if not (tool_id.startswith("core_llm.") or "llm" in tool_id.lower()):
-        return None
-
-    local_override = None
-    if isinstance(playbook_inputs, dict):
-        local_override = playbook_inputs.get("_model_override")
-
-    if isinstance(remote_route, dict):
-        explicit_override = (
-            remote_route.get("model_override") or remote_route.get("_model_override")
-        )
-        if explicit_override:
-            return str(explicit_override)
-
-        if execution_profile:
-            try:
-                from backend.app.services.capability_profile_resolver import (
-                    CapabilityProfileResolver,
-                )
-
-                cap_profile = execution_profile.get("reasoning", "standard")
-                deployment_scope = str(
-                    remote_route.get("model_deployment_scope", "cloud")
-                )
-                resolved_model, _variant = CapabilityProfileResolver().resolve(
-                    cap_profile,
-                    execution_profile=execution_profile,
-                    deployment_scope=deployment_scope,
-                )
-                if resolved_model:
-                    return str(resolved_model)
-            except Exception as exc:
-                logger.warning(
-                    "remote deployment-scoped model resolve failed (non-fatal): %s",
-                    exc,
-                )
-
-        if remote_route.get("inherit_model_override") and local_override:
-            return str(local_override)
-        return None
-
-    if local_override:
-        return str(local_override)
+    """Model routing is owned by model-routing-registry, not workflow inputs."""
+    del tool_id, playbook_inputs, remote_route, execution_profile
     return None
 
 

@@ -12,16 +12,22 @@ from typing import Any, Dict, List, Optional
 
 from backend.app.services.external_agents.bridge.codex_cli_runner import (
     DEFAULT_CLI_STALL_TIMEOUT_SECONDS,
-    looks_like_codex_auth_failure as _looks_like_codex_auth_failure,
-    looks_like_codex_quota_exhaustion as _looks_like_codex_quota_exhaustion,
     resolve_codex_cli_binary as _resolve_codex_cli_binary,
     resolve_codex_cli_cwd as _resolve_codex_cli_cwd,
     run_codex_cli_subprocess as _run_shared_codex_cli_subprocess,
     sanitize_codex_last_message as _sanitize_direct_codex_last_message,
+    should_use_direct_codex_cli_subprocess as _should_use_direct_codex_cli_subprocess,
+)
+from backend.app.services.codex_runtime_failure_classifier import (
+    classify_codex_cli_runtime_failure as _classify_codex_cli_runtime_failure,
     should_retry_codex_runtime_fault as _should_retry_codex_runtime_fault,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class CodexPoolAdmissionBlockedError(RuntimeError):
+    pass
 
 
 _NON_RETRIABLE_RUNTIME_PATTERNS = (
@@ -36,6 +42,41 @@ _NON_RETRIABLE_RUNTIME_PATTERNS = (
     "not supported when using codex",
 )
 
+_RETRYABLE_RUNTIME_PATTERNS = (
+    "no websocket client connected",
+    "websocket client",
+    "ws client",
+    "not connected",
+    "connection closed",
+    "temporarily unavailable",
+    "unavailable",
+    "timed out",
+    "timeout",
+    "no available codex runtimes in pool",
+    "codex pool admission blocked",
+    "no_runnable_runtimes",
+    "preferred codex runtime unavailable",
+)
+
+_CODEX_POOL_RETRYABLE_RUNTIME_PATTERNS = (
+    "you've hit your usage limit",
+    "usage limit",
+    "rate limit",
+    "quota exceeded",
+    "quota exhausted",
+    "insufficient quota",
+    "too many requests",
+    "resource_exhausted",
+    "resource exhausted",
+    "deactivated_workspace",
+    'code":"deactivated_workspace"',
+    "access token could not be refreshed",
+    "refresh token was already used",
+    "please log out and sign in again",
+)
+
+_EXECUTOR_RUNTIME_RETRY_DELAYS_SECONDS = (2.0, 4.0, 8.0, 16.0, 30.0)
+
 
 def _is_non_retriable_runtime_error(exc: Exception) -> bool:
     """Return True when the runtime error should fail fast.
@@ -46,6 +87,88 @@ def _is_non_retriable_runtime_error(exc: Exception) -> bool:
     """
     text = str(exc or "").lower()
     return any(pattern in text for pattern in _NON_RETRIABLE_RUNTIME_PATTERNS)
+
+
+def _is_retryable_runtime_error_text(error: Optional[str]) -> bool:
+    text = str(error or "").lower()
+    if not text:
+        return False
+    if any(pattern in text for pattern in _NON_RETRIABLE_RUNTIME_PATTERNS):
+        return False
+    return any(pattern in text for pattern in _RETRYABLE_RUNTIME_PATTERNS)
+
+
+def _is_codex_pool_retryable_runtime_error_text(error: Optional[str]) -> bool:
+    text = str(error or "").lower()
+    if not text:
+        return False
+    if _is_retryable_runtime_error_text(text):
+        return True
+    return any(pattern in text for pattern in _CODEX_POOL_RETRYABLE_RUNTIME_PATTERNS)
+
+
+def _is_runtime_error_retryable_for_executor(
+    executor_runtime: Optional[str],
+    error: Optional[str],
+) -> bool:
+    if str(executor_runtime or "").strip().lower() == "codex_cli":
+        return _is_codex_pool_retryable_runtime_error_text(error)
+    return _is_retryable_runtime_error_text(error)
+
+
+def _is_runtime_error_non_retriable_for_executor(
+    executor_runtime: Optional[str],
+    exc: Exception,
+) -> bool:
+    if isinstance(exc, CodexPoolAdmissionBlockedError):
+        return True
+    if (
+        str(executor_runtime or "").strip().lower() == "codex_cli"
+        and _is_codex_pool_retryable_runtime_error_text(str(exc))
+    ):
+        return False
+    return _is_non_retriable_runtime_error(exc)
+
+
+def _executor_runtime_attempt_count() -> int:
+    raw = os.environ.get("MINDSCAPE_MEETING_EXECUTOR_RUNTIME_ATTEMPTS", "").strip()
+    if not raw:
+        return 6
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 6
+
+
+def _executor_runtime_retry_delay(attempt_index: int) -> float:
+    if attempt_index < len(_EXECUTOR_RUNTIME_RETRY_DELAYS_SECONDS):
+        return _EXECUTOR_RUNTIME_RETRY_DELAYS_SECONDS[attempt_index]
+    return _EXECUTOR_RUNTIME_RETRY_DELAYS_SECONDS[-1]
+
+
+def _codex_pool_wait_attempt_count() -> int:
+    raw = os.environ.get("MINDSCAPE_CODEX_POOL_WAIT_ATTEMPTS", "6").strip()
+    try:
+        return max(1, min(12, int(raw)))
+    except ValueError:
+        return 6
+
+
+def _codex_pool_admission_error_text(admission: Dict[str, Any]) -> str:
+    reason = str(admission.get("reason") or "no_runnable_runtimes").strip()
+    runnable = admission.get("runnable_runtime_count", 0)
+    healthy = admission.get("healthy_runtime_count", 0)
+    probation = admission.get("probation_runtime_count", 0)
+    quarantined = admission.get("quarantined_runtime_count", 0)
+    cooldown = admission.get("cooldown_runtime_count", 0)
+    failures = admission.get("failure_counts")
+    failure_text = f", failures={failures}" if failures else ""
+    return (
+        "Codex pool admission blocked: "
+        f"{reason} "
+        f"(runnable={runnable}, healthy={healthy}, probation={probation}, "
+        f"quarantined={quarantined}, cooldown={cooldown}{failure_text})"
+    )
 
 
 class MeetingGenerationMixin:
@@ -130,13 +253,20 @@ class MeetingGenerationMixin:
                 )
             except Exception as exc:
                 last_error = exc
-                if _is_non_retriable_runtime_error(exc):
-                    # OP-6: Emit structured RuntimeUnavailableEvent before fail-fast
+                if _is_runtime_error_non_retriable_for_executor(
+                    getattr(self, "executor_runtime", None),
+                    exc,
+                ):
+                    reason = (
+                        "codex_pool_admission_blocked"
+                        if isinstance(exc, CodexPoolAdmissionBlockedError)
+                        else "non_retriable_quota_or_rate_limit"
+                    )
                     self._emit_runtime_unavailable_event(
                         runtime_id=getattr(self, "executor_runtime", None)
                         or "llm_provider",
                         error=str(exc),
-                        reason="non_retriable_quota_or_rate_limit",
+                        reason=reason,
                     )
                     break
                 if attempt >= attempts:
@@ -163,7 +293,7 @@ class MeetingGenerationMixin:
 
         if (
             str(self.executor_runtime).strip().lower() == "codex_cli"
-            and self._meeting_codex_direct_enabled()
+            and _should_use_direct_codex_cli_subprocess()
         ):
             return await self._generate_text_via_direct_codex_cli(
                 messages, model=model
@@ -175,31 +305,6 @@ class MeetingGenerationMixin:
             )
 
             self._agent_executor = WorkspaceAgentExecutor(self.workspace)
-
-        available = False
-        for attempt in range(3):
-            available = await self._agent_executor.check_agent_available(
-                self.executor_runtime
-            )
-            if available:
-                break
-            if attempt < 2:
-                logger.warning(
-                    "Agent '%s' unavailable (attempt %d/3), retrying...",
-                    self.executor_runtime,
-                    attempt + 1,
-                )
-                await asyncio.sleep(2 * (attempt + 1))
-        if not available:
-            # OP-6: Emit structured event before fail-fast
-            self._emit_runtime_unavailable_event(
-                runtime_id=self.executor_runtime,
-                error=f"Preferred agent '{self.executor_runtime}' unavailable after 3 attempts",
-                reason="executor_runtime_unavailable",
-            )
-            raise RuntimeError(
-                f"Preferred agent '{self.executor_runtime}' is unavailable in meeting mode"
-            )
 
         system_prompt = ""
         user_prompt = ""
@@ -244,12 +349,47 @@ class MeetingGenerationMixin:
                 exc_info=True,
             )
 
-        result = await self._agent_executor.execute(
-            task=task,
-            agent_id=self.executor_runtime,
-            context_overrides=context_overrides,
-        )
-        if not result.success:
+        attempts = _executor_runtime_attempt_count()
+        result = None
+        for attempt in range(attempts):
+            admission = await self._evaluate_executor_runtime_admission()
+            if not bool(admission.get("admissible", True)):
+                error_text = _codex_pool_admission_error_text(admission)
+                if (
+                    attempt < attempts - 1
+                    and _is_runtime_error_retryable_for_executor(
+                        self.executor_runtime,
+                        error_text,
+                    )
+                ):
+                    logger.warning(
+                        "Preferred agent '%s' blocked by admission gate "
+                        "(attempt %d/%d): %s",
+                        self.executor_runtime,
+                        attempt + 1,
+                        attempts,
+                        error_text,
+                    )
+                    await asyncio.sleep(_executor_runtime_retry_delay(attempt))
+                    continue
+                self._emit_runtime_unavailable_event(
+                    runtime_id=self.executor_runtime,
+                    error=f"Preferred agent '{self.executor_runtime}' failed: {error_text}",
+                    reason="codex_pool_admission_blocked",
+                    metadata={"codex_pool_admission": admission},
+                )
+                raise CodexPoolAdmissionBlockedError(
+                    f"Preferred agent '{self.executor_runtime}' failed: {error_text}"
+                )
+
+            result = await self._agent_executor.execute(
+                task=task,
+                agent_id=self.executor_runtime,
+                context_overrides=context_overrides,
+            )
+            if result.success:
+                break
+
             # Surface clarification requests as decision events, not fatal errors
             if result.needs_clarification:
                 await self._emit_clarification_event(result.clarification_questions)
@@ -257,9 +397,45 @@ class MeetingGenerationMixin:
                     f"[Meeting paused] Awaiting user confirmation: "
                     f"{'; '.join(result.clarification_questions)}"
                 )
+
+            error_text = result.error or "unknown error"
+            if (
+                attempt < attempts - 1
+                and _is_runtime_error_retryable_for_executor(
+                    self.executor_runtime,
+                    error_text,
+                )
+            ):
+                logger.warning(
+                    "Preferred agent '%s' transient failure during meeting turn "
+                    "(attempt %d/%d): %s",
+                    self.executor_runtime,
+                    attempt + 1,
+                    attempts,
+                    error_text,
+                )
+                await asyncio.sleep(_executor_runtime_retry_delay(attempt))
+                continue
+
+            self._emit_runtime_unavailable_event(
+                runtime_id=self.executor_runtime,
+                error=f"Preferred agent '{self.executor_runtime}' failed: {error_text}",
+                reason=(
+                    "executor_runtime_transient_unavailable"
+                    if _is_runtime_error_retryable_for_executor(
+                        self.executor_runtime,
+                        error_text,
+                    )
+                    else "executor_runtime_failed"
+                ),
+            )
             raise RuntimeError(
-                f"Preferred agent '{self.executor_runtime}' failed: "
-                f"{result.error or 'unknown error'}"
+                f"Preferred agent '{self.executor_runtime}' failed: {error_text}"
+            )
+
+        if result is None or not result.success:
+            raise RuntimeError(
+                f"Preferred agent '{self.executor_runtime}' failed: unknown error"
             )
         if not result.output or not result.output.strip():
             raise RuntimeError(
@@ -298,10 +474,8 @@ class MeetingGenerationMixin:
 
         return output_text
 
-    @staticmethod
-    def _meeting_codex_direct_enabled() -> bool:
-        raw = os.environ.get("MINDSCAPE_MEETING_CODEX_DIRECT", "").strip().lower()
-        return raw in {"1", "true", "yes", "on"}
+    async def _evaluate_executor_runtime_admission(self) -> Dict[str, Any]:
+        return {"admissible": True, "reason": "executor_bridge_runtime"}
 
     @staticmethod
     def _executor_model_hint(executor_runtime: Optional[str], model: Optional[str]) -> Optional[str]:
@@ -321,7 +495,7 @@ class MeetingGenerationMixin:
         messages: List[Dict[str, str]],
         model: Optional[str] = None,
     ) -> str:
-        """Execute Codex CLI directly on host, bypassing fragile bridge paths."""
+        """Execute Codex CLI through the pool-managed runtime path."""
         system_prompt = ""
         user_prompt = ""
         for msg in messages:
@@ -346,12 +520,18 @@ class MeetingGenerationMixin:
         binary = _resolve_codex_cli_binary(os.environ.get("CODEX_CLI_PATH", "").strip())
         cwd = _resolve_codex_cli_cwd(os.environ.get("HOST_PROJECT_PATH", "").strip())
         attempted_runtime_ids: set[str] = set()
+        excluded_quota_scope_keys: set[str] = set()
         max_attempts = 1
         attempt = 1
+        pool_wait_attempts = _codex_pool_wait_attempt_count()
+        pool_wait_index = 0
         last_runtime_error = ""
 
         while attempt <= max_attempts:
-            auth_bundle = await self._fetch_direct_codex_auth_bundle()
+            auth_bundle = await self._fetch_direct_codex_auth_bundle(
+                excluded_runtime_ids=set(attempted_runtime_ids),
+                excluded_quota_scope_keys=set(excluded_quota_scope_keys),
+            )
             pool_error = ""
             if isinstance(auth_bundle, dict):
                 pool_error = str(
@@ -369,6 +549,27 @@ class MeetingGenerationMixin:
                 except (TypeError, ValueError):
                     pass
             if pool_error:
+                if (
+                    _is_retryable_runtime_error_text(pool_error)
+                    and pool_wait_index < pool_wait_attempts - 1
+                ):
+                    logger.warning(
+                        "Codex pool temporarily unavailable for meeting turn "
+                        "(wait %d/%d): %s",
+                        pool_wait_index + 1,
+                        pool_wait_attempts,
+                        pool_error,
+                    )
+                    await asyncio.sleep(_executor_runtime_retry_delay(pool_wait_index))
+                    pool_wait_index += 1
+                    continue
+                if (
+                    "codex pool admission blocked" in pool_error.lower()
+                    or "no_runnable_runtimes" in pool_error.lower()
+                ):
+                    raise CodexPoolAdmissionBlockedError(
+                        f"Preferred agent 'codex_cli' failed: {pool_error}"
+                    )
                 if attempt > 1 and last_runtime_error:
                     raise RuntimeError(
                         f"Preferred agent 'codex_cli' failed: "
@@ -400,7 +601,19 @@ class MeetingGenerationMixin:
                 raise RuntimeError(
                     f"Preferred agent 'codex_cli' failed: "
                     f"{last_runtime_error or 'pool failover unavailable'} "
-                    f"(pool reused exhausted runtime {selected_runtime_id})"
+                    f"(pool_reused_excluded_runtime: pool reused exhausted runtime "
+                    f"{selected_runtime_id})"
+                )
+            selected_quota_scope_key = (
+                str(auth_bundle.get("quota_scope_key") or "").strip()
+                if isinstance(auth_bundle, dict)
+                else ""
+            )
+            if selected_quota_scope_key and selected_quota_scope_key in excluded_quota_scope_keys:
+                raise RuntimeError(
+                    f"Preferred agent 'codex_cli' failed: "
+                    f"{last_runtime_error or 'pool failover unavailable'} "
+                    f"(pool_reused_excluded_quota_scope: {selected_quota_scope_key})"
                 )
 
             progress_message = f"正在透過 codex_cli 直接執行中（runtime={selected_runtime_id}）..."
@@ -459,14 +672,20 @@ class MeetingGenerationMixin:
             error_text = (
                 combined_output or stderr_text or output_text or "unknown error"
             ).strip()
-            quota_fault = _looks_like_codex_quota_exhaustion(error_text)
-            auth_fault = _looks_like_codex_auth_failure(error_text)
+            runtime_fault = _classify_codex_cli_runtime_failure(error_text)
+            fault_kind = str(runtime_fault.get("fault_kind") or "runtime").strip()
+            fault_error_code = str(
+                runtime_fault.get("error_code") or "runtime_error"
+            ).strip()
+            quota_fault = fault_kind == "quota"
+            auth_fault = fault_kind == "auth"
             retryable_runtime_fault = _should_retry_codex_runtime_fault(error_text)
             auth_error_code = self._extract_direct_codex_auth_error_code(error_text)
             if quota_fault:
                 await self._report_direct_codex_runtime_quota_exhausted(
                     selected_runtime_id,
                     workspace_id=effective_workspace_id or getattr(self.workspace, "id", ""),
+                    error_text=error_text,
                 )
             elif auth_fault or retryable_runtime_fault:
                 await self._report_direct_codex_runtime_auth_failure(
@@ -474,7 +693,7 @@ class MeetingGenerationMixin:
                     error_code=(
                         "timeout"
                         if retryable_runtime_fault and not auth_fault
-                        else auth_error_code
+                        else (auth_error_code or fault_error_code)
                     ),
                     workspace_id=effective_workspace_id or getattr(self.workspace, "id", ""),
                 )
@@ -489,6 +708,9 @@ class MeetingGenerationMixin:
 
             last_runtime_error = error_text
             attempted_runtime_ids.add(selected_runtime_id)
+            if quota_fault:
+                quota_scope_key = selected_quota_scope_key or f"runtime:{selected_runtime_id}"
+                excluded_quota_scope_keys.add(quota_scope_key)
             if attempt >= max_attempts:
                 raise RuntimeError(
                     f"Preferred agent 'codex_cli' failed on bound runtime "
@@ -523,185 +745,84 @@ class MeetingGenerationMixin:
             == str(runtime_id or "").strip()
         )
 
-    async def _fetch_direct_codex_auth_bundle(self) -> Dict[str, Any]:
+    async def _fetch_direct_codex_auth_bundle(
+        self,
+        *,
+        excluded_runtime_ids: Optional[set[str]] = None,
+        excluded_quota_scope_keys: Optional[set[str]] = None,
+    ) -> Dict[str, Any]:
         try:
-            from backend.app.services.codex_pool_service import CodexPoolService
-            from backend.app.services.codex_pool_admission_service import (
-                CodexPoolAdmissionService,
+            from backend.app.services.codex_pool_runtime_router import (
+                resolve_codex_pool_runtime_bundle,
             )
             from backend.app.services.executor_binding_service import (
                 ExecutorBindingService,
             )
-            from backend.app.services.executor_route_resolver import (
-                ExecutorRouteResolver,
-            )
 
-            selection = None
             binding_service = ExecutorBindingService()
             workspace_id = str(getattr(getattr(self, "workspace", None), "id", "") or "")
             lease_owner_type, lease_owner_id = self._direct_codex_lease_identity()
+            normalized_excluded_runtime_ids = {
+                str(runtime_id).strip()
+                for runtime_id in (excluded_runtime_ids or set())
+                if str(runtime_id).strip()
+            }
+            normalized_excluded_quota_scope_keys = {
+                str(scope_key).strip()
+                for scope_key in (excluded_quota_scope_keys or set())
+                if str(scope_key).strip()
+            }
             cached_bundle = getattr(self, "_bound_direct_codex_auth_bundle", None)
             if isinstance(cached_bundle, dict) and cached_bundle.get("selected_runtime_id"):
                 cached_runtime_id = str(
                     cached_bundle.get("selected_runtime_id") or ""
                 ).strip()
-                if not (workspace_id and lease_owner_type and lease_owner_id):
-                    return dict(cached_bundle)
-                binding_snapshot = await asyncio.to_thread(
-                    binding_service.load_binding_snapshot,
-                    workspace_id=workspace_id,
-                    surface="codex_cli",
-                )
-                if self._binding_snapshot_matches_direct_codex_lease(
-                    binding_snapshot,
-                    lease_owner_type=lease_owner_type,
-                    lease_owner_id=lease_owner_id,
-                    runtime_id=cached_runtime_id,
+                cached_quota_scope_key = str(
+                    cached_bundle.get("quota_scope_key") or ""
+                ).strip()
+                cached_probe_state = str(
+                    cached_bundle.get("probe_state") or ""
+                ).strip().lower()
+                cached_probe_success_at = str(
+                    cached_bundle.get("last_probe_success_at") or ""
+                ).strip()
+                if (
+                    cached_runtime_id in normalized_excluded_runtime_ids
+                    or (
+                        cached_quota_scope_key
+                        and cached_quota_scope_key in normalized_excluded_quota_scope_keys
+                    )
+                    or cached_probe_state != "available"
+                    or not cached_probe_success_at
                 ):
+                    self._bound_direct_codex_auth_bundle = None
+                elif not (workspace_id and lease_owner_type and lease_owner_id):
                     return dict(cached_bundle)
-                self._bound_direct_codex_auth_bundle = None
-
-            if workspace_id:
-                try:
-                    selection = await asyncio.to_thread(
-                        ExecutorRouteResolver().resolve,
-                        surface="codex_cli",
+                else:
+                    binding_snapshot = await asyncio.to_thread(
+                        binding_service.load_binding_snapshot,
                         workspace_id=workspace_id,
+                        surface="codex_cli",
                     )
-                except ValueError:
-                    logger.debug(
-                        "Workspace-scoped Codex pool selection not configured for meeting workspace %s",
-                        workspace_id,
-                    )
+                    if self._binding_snapshot_matches_direct_codex_lease(
+                        binding_snapshot,
+                        lease_owner_type=lease_owner_type,
+                        lease_owner_id=lease_owner_id,
+                        runtime_id=cached_runtime_id,
+                    ):
+                        return dict(cached_bundle)
+                    self._bound_direct_codex_auth_bundle = None
 
-            preference = (
-                await asyncio.to_thread(
-                    binding_service.resolve_pool_preference,
-                    selection=selection,
-                    lease_owner_type=lease_owner_type,
-                    lease_owner_id=lease_owner_id,
-                )
-                if selection
-                else {
-                    "preferred_runtime_id": None,
-                    "allow_runtime_substitution": False,
-                    "preference_source": "no_bound_runtime",
-                    "binding_runtime_id": None,
-                    "binding_state": None,
-                    "lease_runtime_id": None,
-                    "lease_state": None,
-                }
+            pool_result = await resolve_codex_pool_runtime_bundle(
+                workspace_id=workspace_id,
+                lease_owner_type=lease_owner_type,
+                lease_owner_id=lease_owner_id,
+                excluded_runtime_ids=normalized_excluded_runtime_ids,
+                excluded_quota_scope_keys=normalized_excluded_quota_scope_keys,
+                require_probe_available=True,
+                fail_closed_session_lease=False,
+                record_runtime_lease=True,
             )
-            preferred_runtime_id = preference.get("preferred_runtime_id")
-            allow_runtime_substitution = bool(
-                preference.get("allow_runtime_substitution", False)
-            )
-            preference_source = str(preference.get("preference_source") or "no_bound_runtime")
-            pool_service = CodexPoolService()
-            admission = await asyncio.to_thread(
-                CodexPoolAdmissionService().evaluate_execution_admission,
-                preferred_runtime_id=preferred_runtime_id,
-                allow_runtime_substitution=allow_runtime_substitution,
-            )
-            if not admission.admissible:
-                if (
-                    preference_source == "session_lease"
-                    and selection
-                    and workspace_id
-                    and lease_owner_type
-                    and lease_owner_id
-                ):
-                    try:
-                        await asyncio.to_thread(
-                            binding_service.clear_runtime_lease,
-                            workspace_id=workspace_id,
-                            surface=selection.surface,
-                            lease_owner_type=lease_owner_type,
-                            lease_owner_id=lease_owner_id,
-                            runtime_id=preferred_runtime_id,
-                            reason=f"admission:{admission.reason}",
-                        )
-                    except Exception:
-                        logger.warning(
-                            "Failed to clear stale meeting runtime lease for workspace %s",
-                            workspace_id,
-                            exc_info=True,
-                        )
-                return {
-                    "error": admission.blocker_message(),
-                    "admission": admission.to_payload(),
-                    "preferred_runtime_id": preferred_runtime_id,
-                    "binding_runtime_id": preference.get("binding_runtime_id"),
-                    "binding_state": preference.get("binding_state"),
-                    "preference_source": preference_source,
-                }
-            pool_result = await asyncio.to_thread(
-                pool_service.get_active_auth_bundle,
-                preferred_runtime_id=preferred_runtime_id,
-                allow_runtime_substitution=allow_runtime_substitution,
-            )
-            if "env" in pool_result and preference_source == "session_lease":
-                selected_runtime_id = str(
-                    pool_result.get("selected_runtime_id") or ""
-                ).strip()
-                if (
-                    selected_runtime_id
-                    and preferred_runtime_id
-                    and selected_runtime_id != preferred_runtime_id
-                ):
-                    pool_result = {
-                        "error": (
-                            "Preferred Codex runtime mismatch under fail-closed policy; "
-                            "pool rebinding is disabled."
-                        )
-                    }
-            if "env" in pool_result and selection:
-                selected_runtime_id = str(
-                    pool_result.get("selected_runtime_id") or ""
-                ).strip()
-                pool_result.update(
-                    {
-                        "preferred_runtime_id": selection.preferred_runtime_id,
-                        "binding_runtime_id": preference.get("binding_runtime_id"),
-                        "binding_state": preference.get("binding_state"),
-                        "preference_source": preference_source,
-                        "policy_mode": selection.policy_mode,
-                        "requested_workspace_id": selection.requested_workspace_id,
-                        "effective_workspace_id": selection.effective_workspace_id,
-                        "auth_workspace_id": selection.auth_workspace_id,
-                        "source_workspace_id": selection.source_workspace_id,
-                        "selection_reason": selection.selection_reason,
-                        "selection_trace": list(selection.trace),
-                    }
-                )
-                try:
-                    await asyncio.to_thread(
-                        binding_service.record_route_resolution,
-                        selection=selection,
-                        resolved_runtime_id=selected_runtime_id,
-                    )
-                except Exception:
-                    logger.warning(
-                        "Failed to persist meeting Codex executor binding for workspace %s",
-                        selection.effective_workspace_id,
-                        exc_info=True,
-                    )
-                if workspace_id and lease_owner_type and lease_owner_id and selected_runtime_id:
-                    try:
-                        await asyncio.to_thread(
-                            binding_service.record_runtime_lease,
-                            workspace_id=workspace_id,
-                            surface=selection.surface,
-                            runtime_id=selected_runtime_id,
-                            lease_owner_type=lease_owner_type,
-                            lease_owner_id=lease_owner_id,
-                        )
-                    except Exception:
-                        logger.warning(
-                            "Failed to persist meeting runtime lease for workspace %s",
-                            workspace_id,
-                            exc_info=True,
-                        )
             if (
                 str(getattr(self, "executor_runtime", "") or "").strip().lower()
                 == "codex_cli"
@@ -714,7 +835,42 @@ class MeetingGenerationMixin:
                         pool_result.get("error")
                         or "Codex workspace route did not resolve a concrete pool runtime"
                     ).strip()
+                    if isinstance(pool_result, dict):
+                        result = dict(pool_result)
+                        result["error"] = reason
+                        return result
                     return {"error": reason}
+                selected_quota_scope_key = str(
+                    pool_result.get("quota_scope_key") or ""
+                ).strip()
+                if selected_runtime_id in normalized_excluded_runtime_ids:
+                    result = dict(pool_result)
+                    result["error"] = (
+                        "pool_reused_excluded_runtime: Codex pool resolver returned "
+                        f"excluded runtime {selected_runtime_id}"
+                    )
+                    return result
+                if (
+                    selected_quota_scope_key
+                    and selected_quota_scope_key in normalized_excluded_quota_scope_keys
+                ):
+                    result = dict(pool_result)
+                    result["error"] = (
+                        "pool_reused_excluded_quota_scope: Codex pool resolver returned "
+                        f"excluded quota scope {selected_quota_scope_key}"
+                    )
+                    return result
+                probe_state = str(pool_result.get("probe_state") or "").strip().lower()
+                last_probe_success_at = str(
+                    pool_result.get("last_probe_success_at") or ""
+                ).strip()
+                if probe_state != "available" or not last_probe_success_at:
+                    result = dict(pool_result)
+                    result["error"] = (
+                        "Codex pool admission blocked: probe_state_unavailable "
+                        f"(runtime={selected_runtime_id}, probe_state={probe_state or 'missing'})"
+                    )
+                    return result
                 self._bound_direct_codex_auth_bundle = dict(pool_result)
             return pool_result
         except Exception:
@@ -728,27 +884,22 @@ class MeetingGenerationMixin:
         runtime_id: str,
         *,
         workspace_id: str = "",
+        error_text: str = "",
     ) -> None:
         if not runtime_id:
             return
         try:
-            from backend.app.services.codex_pool_service import CodexPoolService
-            from backend.app.services.executor_binding_service import (
-                ExecutorBindingService,
+            from backend.app.services.codex_pool_runtime_router import (
+                report_codex_pool_runtime_fault,
             )
 
-            await asyncio.to_thread(
-                CodexPoolService().report_quota_exhausted,
-                runtime_id,
+            await report_codex_pool_runtime_fault(
+                runtime_id=runtime_id,
+                fault_kind="quota",
+                workspace_id=workspace_id,
+                error_code="429",
+                error_text=error_text,
             )
-            if workspace_id:
-                await asyncio.to_thread(
-                    ExecutorBindingService().record_runtime_fault,
-                    workspace_id=workspace_id,
-                    surface="codex_cli",
-                    runtime_id=runtime_id,
-                    error_code="429",
-                )
         except Exception:
             logger.exception(
                 "Failed to report direct codex quota exhaustion for runtime %s",
@@ -765,24 +916,16 @@ class MeetingGenerationMixin:
         if not runtime_id:
             return
         try:
-            from backend.app.services.codex_pool_service import CodexPoolService
-            from backend.app.services.executor_binding_service import (
-                ExecutorBindingService,
+            from backend.app.services.codex_pool_runtime_router import (
+                report_codex_pool_runtime_fault,
             )
 
-            await asyncio.to_thread(
-                CodexPoolService().report_auth_failure,
-                runtime_id,
+            await report_codex_pool_runtime_fault(
+                runtime_id=runtime_id,
+                fault_kind="auth",
+                workspace_id=workspace_id,
                 error_code=error_code,
             )
-            if workspace_id:
-                await asyncio.to_thread(
-                    ExecutorBindingService().record_runtime_fault,
-                    workspace_id=workspace_id,
-                    surface="codex_cli",
-                    runtime_id=runtime_id,
-                    error_code=error_code,
-                )
         except Exception:
             logger.exception(
                 "Failed to report direct codex auth failure for runtime %s",
@@ -796,12 +939,11 @@ class MeetingGenerationMixin:
         if not runtime_id:
             return
         try:
-            from backend.app.services.codex_pool_service import CodexPoolService
-
-            await asyncio.to_thread(
-                CodexPoolService().report_runtime_success,
-                runtime_id,
+            from backend.app.services.codex_pool_runtime_router import (
+                report_codex_pool_runtime_success,
             )
+
+            await report_codex_pool_runtime_success(runtime_id=runtime_id)
         except Exception:
             logger.exception(
                 "Failed to report direct codex success for runtime %s",
@@ -813,6 +955,8 @@ class MeetingGenerationMixin:
         normalized = str(error_text or "").strip().lower()
         if "deactivated_workspace" in normalized:
             return "deactivated_workspace"
+        if "refresh token was already used" in normalized:
+            return "stale_refresh_token"
         if "403" in normalized:
             return "403"
         return "401"
@@ -908,6 +1052,7 @@ class MeetingGenerationMixin:
         runtime_id: str,
         error: str,
         reason: str,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """OP-6: Emit structured RuntimeUnavailableEvent for observability.
 
@@ -916,15 +1061,18 @@ class MeetingGenerationMixin:
         per v3 constraint.
         """
         try:
+            payload = {
+                "runtime_id": runtime_id,
+                "error": error[:500],
+                "reason": reason,
+                "session_id": getattr(getattr(self, "session", None), "id", None),
+                "model_name": getattr(self, "model_name", None),
+            }
+            if metadata:
+                payload.update(metadata)
             self._emit_event(
                 "runtime_unavailable",
-                payload={
-                    "runtime_id": runtime_id,
-                    "error": error[:500],
-                    "reason": reason,
-                    "session_id": getattr(getattr(self, "session", None), "id", None),
-                    "model_name": getattr(self, "model_name", None),
-                },
+                payload=payload,
             )
         except Exception:
             pass  # observability must never crash the engine

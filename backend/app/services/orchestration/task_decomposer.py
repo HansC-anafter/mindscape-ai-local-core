@@ -308,8 +308,6 @@ class TaskDecomposer:
         available_tools: str,
     ) -> List[PhaseIR]:
         """Use LLM to decompose into detailed phases."""
-        from backend.app.shared.llm_utils import call_llm
-
         system_prompt = _DECOMPOSE_SYSTEM_PROMPT.format(
             max_phases=self._max_phases,
             playbooks=available_playbooks or "(none provided)",
@@ -344,17 +342,16 @@ class TaskDecomposer:
         ]
 
         try:
-            response = await call_llm(
+            response = await self._llm.chat_completion(
                 messages=messages,
-                llm_provider=self._llm,
                 model=self._model_name or None,
                 temperature=0.2,
                 max_tokens=4096,
-                purpose="task_decomposer_decompose",
-                stage_name="plan_generation",
-                risk_level="read",
             )
-            raw_output = str(response.get("text", "") or "").strip()
+            raw_output = (
+                response.get("text", "") if isinstance(response, dict) else response
+            )
+            raw_output = str(raw_output or "").strip()
 
             phases_data = self._extract_json_array(raw_output)
             if not phases_data:
@@ -387,8 +384,6 @@ class TaskDecomposer:
         available_playbooks: str,
     ) -> Optional[List[PhaseIR]]:
         """Use LLM to determine if wave results require additional phases."""
-        from backend.app.shared.llm_utils import call_llm
-
         # Summarize wave results for the prompt
         results_summary = json.dumps(
             {
@@ -424,17 +419,16 @@ class TaskDecomposer:
         ]
 
         try:
-            response = await call_llm(
+            response = await self._llm.chat_completion(
                 messages=messages,
-                llm_provider=self._llm,
                 model=self._model_name or None,
                 temperature=0.2,
                 max_tokens=2048,
-                purpose="task_decomposer_extend",
-                stage_name="plan_generation",
-                risk_level="read",
             )
-            raw_output = str(response.get("text", "") or "").strip()
+            raw_output = (
+                response.get("text", "") if isinstance(response, dict) else response
+            )
+            raw_output = str(raw_output or "").strip()
 
             phases_data = self._extract_json_array(raw_output)
             if not phases_data:

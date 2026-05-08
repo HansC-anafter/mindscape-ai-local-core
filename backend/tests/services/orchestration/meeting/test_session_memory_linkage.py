@@ -147,6 +147,44 @@ def test_close_session_records_canonical_memory_and_emits_memory_writeback(
     )
 
 
+def test_command_bounded_memory_policy_excludes_episodic_items():
+    session = MeetingSession.new(
+        workspace_id="ws-001",
+        project_id="proj-001",
+        thread_id="thread-001",
+        meeting_type="e2e_validation",
+        agenda=["Create a selected reference 90s storyboard E2E"],
+    )
+    session.metadata["request_contract"] = {
+        "addressable_object_layer": {
+            "selected_object_refs": [
+                {
+                    "uri": "mindscape://ig/reference/ref_001",
+                    "object_id": "ref_001",
+                }
+            ]
+        }
+    }
+    engine = _FakeEngine(session=session)
+    read_model = SimpleNamespace(
+        _build_policy_context=lambda workspace: {
+            "memory_scope": "standard",
+            "max_episodic_items": 3,
+        }
+    )
+
+    policy_context = engine._memory_policy_context_for_session(
+        read_model=read_model,
+        workspace=engine.workspace,
+    )
+
+    assert policy_context["memory_scope"] == "command_bounded"
+    assert policy_context["max_episodic_items"] == 0
+    assert policy_context["episodic_exclusion_reason"] == (
+        "explicit_source_reference_command"
+    )
+
+
 def test_close_session_writes_spatial_schedule_context_to_workspace():
     session = MeetingSession.new(
         workspace_id="ws-001",

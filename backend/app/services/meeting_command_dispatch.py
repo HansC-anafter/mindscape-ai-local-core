@@ -33,13 +33,20 @@ def meeting_orchestration_timeout_seconds(
         or metadata.get("orchestration_timeout_seconds")
         or os.environ.get("MEETING_COMMAND_ORCHESTRATION_TIMEOUT_SECONDS", "120")
     )
+    raw_cap = os.environ.get("MEETING_COMMAND_ORCHESTRATION_MAX_TIMEOUT_SECONDS", "3600")
     try:
-        return min(600.0, max(5.0, float(raw_value)))
+        timeout_cap = max(5.0, float(raw_cap))
+    except (TypeError, ValueError):
+        timeout_cap = 3600.0
+    try:
+        return min(timeout_cap, max(5.0, float(raw_value)))
     except (TypeError, ValueError):
         return 120.0
 
 
 def command_instruction(canonical: MeetingCommandEnvelope) -> str:
+    if isinstance(canonical.intent_text, str) and canonical.intent_text.strip():
+        return canonical.intent_text.strip()
     raw_intent = canonical.metadata.get("raw_intent_text")
     if isinstance(raw_intent, str) and raw_intent.strip():
         return raw_intent.strip()

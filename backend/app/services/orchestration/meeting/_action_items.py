@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 class MeetingActionItemsMixin:
     """Mixin providing action item methods for MeetingEngine."""
 
-    def _extract_native_spatial_pd_payload(
+    def _extract_native_spatial_payload(
         self,
         decision: str,
     ) -> Optional[Dict[str, Any]]:
-        """Extract the final native spatial PD JSON object from planner output."""
+        """Extract the final native spatial planner JSON object from planner output."""
         payload = self._extract_json_payload(decision)
         if not isinstance(payload, dict):
             return None
@@ -47,22 +47,22 @@ class MeetingActionItemsMixin:
             return None
         return payload
 
-    def _build_native_spatial_pd_action_intents(
+    def _build_native_spatial_action_intents(
         self,
         *,
         decision: str,
         user_message: str,
     ) -> List["ActionIntent"]:
-        """Materialize native spatial PD planner JSON into typed meeting phases."""
+        """Materialize native spatial planner JSON into typed meeting phases."""
         from backend.app.models.action_intent import ActionIntent, IntentConfidence
 
-        payload = self._extract_native_spatial_pd_payload(decision)
+        payload = self._extract_native_spatial_payload(decision)
         if not payload:
             return []
 
         workspace_id = getattr(self.session, "workspace_id", None)
         decision_summary = str(
-            payload.get("decision_summary") or user_message or "Native spatial PD plan"
+            payload.get("decision_summary") or user_message or "Native spatial plan"
         ).strip()
         actors = [
             item for item in list(payload.get("actors") or []) if isinstance(item, dict)
@@ -134,7 +134,7 @@ class MeetingActionItemsMixin:
             title = str(
                 verification_action.get("title")
                 or verification_action.get("deliverable")
-                or "Verify Native Spatial PD Gate"
+                or "Verify Native Spatial Gate"
             ).strip()
             description = "\n".join(
                 part
@@ -147,7 +147,7 @@ class MeetingActionItemsMixin:
             return [
                 ActionIntent(
                     intent_id="native.spatial.verification",
-                    title=title[:120] or "Verify Native Spatial PD Gate",
+                    title=title[:120] or "Verify Native Spatial Gate",
                     description=description,
                     assignee=str(
                         verification_action.get("owner")
@@ -171,7 +171,7 @@ class MeetingActionItemsMixin:
         intents: List[ActionIntent] = [
             ActionIntent(
                 intent_id="native.spatial.plan",
-                title="Freeze Native Spatial PD Plan",
+                title="Freeze Native Spatial Plan",
                 description=decision_summary,
                 assignee="planner",
                 confidence=IntentConfidence.HIGH,

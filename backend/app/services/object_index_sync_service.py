@@ -264,7 +264,8 @@ class ObjectIndexSyncService:
         workspace_id: str,
         request: ObjectInstanceSyncRequest,
     ) -> ObjectInstanceSyncResponse:
-        entries = self.catalog.list_entries(
+        entries = await asyncio.to_thread(
+            self.catalog.list_entries,
             owner_pack=request.owner_pack,
             object_kind=request.object_kind,
         )
@@ -305,7 +306,11 @@ class ObjectIndexSyncService:
                     owner_pack=owner_pack,
                     object_kind=object_kind,
                 )
-                indexed_count = self.instance_store.upsert_many(workspace_id, records)
+                indexed_count = await asyncio.to_thread(
+                    self.instance_store.upsert_many,
+                    workspace_id,
+                    records,
+                )
                 total_indexed_count += indexed_count
                 source_results.append(
                     ObjectInstanceSyncSourceResult(

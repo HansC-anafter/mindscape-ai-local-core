@@ -241,6 +241,60 @@ class MeetingSessionMixin:
 
         return node_ids
 
+    @staticmethod
+    def _has_selected_source_refs(value: Any) -> bool:
+        if isinstance(value, dict):
+            refs = value.get("selected_object_refs") or value.get("context_attachments")
+            if isinstance(refs, list) and refs:
+                return True
+            return any(
+                MeetingSessionMixin._has_selected_source_refs(item)
+                for item in value.values()
+            )
+        if isinstance(value, list):
+            return any(
+                MeetingSessionMixin._has_selected_source_refs(item) for item in value
+            )
+        return False
+
+    def _requires_command_bounded_memory(self) -> bool:
+        session = getattr(self, "session", None)
+        metadata = dict(getattr(session, "metadata", None) or {})
+        request_contract = metadata.get("request_contract")
+        if self._has_selected_source_refs(request_contract):
+            return True
+
+        meeting_type = str(getattr(session, "meeting_type", "") or "").lower()
+        if meeting_type in {"e2e_validation", "command_validation"}:
+            return True
+
+        agenda_text = " ".join(
+            str(item).lower()
+            for item in list(getattr(session, "agenda", None) or [])
+        )
+        user_message = str(getattr(self, "_last_user_message", "") or "").lower()
+        combined = f"{agenda_text} {user_message}"
+        return (
+            "selected" in combined
+            and "reference" in combined
+            and ("storyboard" in combined or "reels" in combined)
+        )
+
+    def _memory_policy_context_for_session(
+        self,
+        *,
+        read_model: Any,
+        workspace: Any,
+    ) -> Dict[str, Any]:
+        policy_context = dict(read_model._build_policy_context(workspace))
+        if self._requires_command_bounded_memory():
+            policy_context["memory_scope"] = "command_bounded"
+            policy_context["max_episodic_items"] = 0
+            policy_context["episodic_exclusion_reason"] = (
+                "explicit_source_reference_command"
+            )
+        return policy_context
+
     def _capture_selected_memory_packet_trace(self) -> Optional[Dict[str, Any]]:
         workspace = getattr(self, "workspace", None)
         session = getattr(self, "session", None)
@@ -284,7 +338,10 @@ class MeetingSessionMixin:
                     workspace_mode=getattr(workspace, "mode", None),
                     session_id=getattr(session, "id", None),
                 ),
-                policy_context=read_model._build_policy_context(workspace),
+                policy_context=self._memory_policy_context_for_session(
+                    read_model=read_model,
+                    workspace=workspace,
+                ),
                 workspace_mode=getattr(workspace, "mode", None),
             )
             route_plan = read_model.packet_compiler.build_route_plan(

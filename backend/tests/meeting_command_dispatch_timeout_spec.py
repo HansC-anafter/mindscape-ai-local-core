@@ -25,6 +25,33 @@ def _command() -> MeetingCommandRecord:
     )
 
 
+def test_command_instruction_preserves_canonical_intent_over_raw_summary() -> None:
+    envelope = MeetingCommandEnvelope(
+        workspace_id="ws_demo",
+        meeting_id="mtg_demo",
+        intent_text="Create a 90s reels storyboard with 45 scenes.",
+        thread_id="thread_demo",
+        metadata={"raw_intent_text": "Create storyboard."},
+    )
+
+    assert (
+        dispatch_module.command_instruction(envelope)
+        == "Create a 90s reels storyboard with 45 scenes."
+    )
+
+
+def test_meeting_orchestration_timeout_honors_long_running_metadata() -> None:
+    envelope = MeetingCommandEnvelope(
+        workspace_id="ws_demo",
+        meeting_id="mtg_demo",
+        intent_text="Create a 90s reels storyboard with 45 scenes.",
+        thread_id="thread_demo",
+        metadata={"meeting_orchestration_timeout_seconds": 1800},
+    )
+
+    assert dispatch_module.meeting_orchestration_timeout_seconds(envelope) == 1800.0
+
+
 @pytest.mark.asyncio
 async def test_dispatch_meeting_orchestration_times_out_with_explicit_result(monkeypatch):
     class _FakeBridge:

@@ -48,16 +48,12 @@ def build_tool_inputs(
     tool_id: str,
     resolved_inputs: Dict[str, Any],
     profile_id: Optional[str],
-    model_override: Optional[str],
 ) -> Dict[str, Any]:
     """Build the concrete tool input payload for a single workflow step."""
     tool_inputs = resolved_inputs.copy()
 
     if profile_id and is_llm_tool(tool_id):
         tool_inputs["profile_id"] = profile_id
-
-    if model_override:
-        tool_inputs["_model_override"] = model_override
 
     return tool_inputs
 
@@ -95,7 +91,7 @@ async def execute_tool_step(
     workspace_id: Optional[str],
     profile_id: Optional[str],
     resolve_remote_tool_route_fn: Callable[..., Optional[Dict[str, Any]]],
-    resolve_tool_model_override_fn: Callable[..., Optional[str]],
+    resolve_tool_model_route_fn: Callable[..., Optional[str]],
     maybe_execute_tool_via_remote_route_fn: Callable[..., Awaitable[tuple[bool, Any]]],
     execute_tool_fn: Callable[..., Awaitable[Any]],
 ) -> Any:
@@ -113,17 +109,10 @@ async def execute_tool_step(
         step_id=step.id,
         tool_id=tool_id,
     )
-    model_override = resolve_tool_model_override_fn(
-        tool_id=tool_id,
-        playbook_inputs=playbook_inputs,
-        remote_route=remote_route,
-        execution_profile=execution_profile,
-    )
     tool_inputs = build_tool_inputs(
         tool_id=tool_id,
         resolved_inputs=resolved_inputs,
         profile_id=profile_id,
-        model_override=model_override,
     )
 
     handled_remotely, remote_tool_result = (

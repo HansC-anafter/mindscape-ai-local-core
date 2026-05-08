@@ -283,6 +283,64 @@ def test_build_workflow_evidence_context_renders_recent_sections():
     assert "narrative_cohesion" in context
 
 
+def test_command_bounded_workflow_evidence_does_not_fallback_to_project_scope():
+    project_task = _make_task(
+        task_id="task-project",
+        execution_id="exec-project",
+        summary="Old project execution that must not enter this E2E meeting.",
+    )
+    intent_log = IntentLog(
+        id="intent-old",
+        raw_input="Old project route that must not enter this E2E meeting.",
+        channel="local_chat",
+        profile_id="profile-001",
+        project_id="proj-001",
+        workspace_id="ws-001",
+        pipeline_steps={},
+        final_decision={"playbook_code": "old.playbook"},
+        user_override=None,
+        metadata={},
+    )
+    lens_patch = LensPatch(
+        id="patch-old",
+        lens_id="lens-001",
+        meeting_session_id="meeting-old",
+        delta={"old": {"before": "x", "after": "y"}},
+        confidence=0.9,
+        status=PatchStatus.APPROVED,
+    )
+    meeting = SimpleNamespace(
+        workspace=SimpleNamespace(id="ws-001"),
+        session=SimpleNamespace(
+            workspace_id="ws-001",
+            project_id="proj-001",
+            thread_id="thread-new",
+            meeting_type="e2e_validation",
+            agenda=["Create a selected reference 90s storyboard E2E"],
+            metadata={},
+        ),
+        project_id="proj-001",
+        thread_id="thread-new",
+        tasks_store=_FakeTasksStore(
+            [],
+            project_tasks=[project_task],
+            workspace_tasks=[project_task],
+        ),
+        _artifacts_store_for_evidence=_FakeArtifactsStore({}),
+        _stage_results_store_for_evidence=_FakeStageResultsStore({}),
+        _intent_logs_store_for_evidence=_FakeIntentLogsStore([intent_log]),
+        _governance_store_for_evidence=_FakeGovernanceStore({}),
+        _lens_patch_store_for_evidence=_FakeLensPatchStore(lens_patch),
+        _effective_lens=SimpleNamespace(global_preset_id="lens-001"),
+    )
+
+    context = build_workflow_evidence_context(meeting)
+
+    assert context == ""
+    assert meeting._workflow_evidence_diagnostics["scope"] == "thread_bounded_empty"
+    assert meeting._workflow_evidence_diagnostics["total_candidate_count"] == 0
+
+
 def test_build_turn_prompt_injects_workflow_evidence_block():
     harness = _PromptHarness(
         workflow_evidence_context=(
@@ -306,7 +364,7 @@ def test_build_turn_prompt_injects_workflow_evidence_block():
     assert "=== End Workflow Evidence ===" in prompt
 
 
-def test_full_review_native_pd_prompt_uses_minimal_context_and_non_native_planner_directive():
+def test_full_review_native_spatial_prompt_uses_minimal_context_and_non_native_planner_directive():
     harness = _PromptHarness(
         workflow_evidence_context=(
             "Use these recent workflow materials as supporting evidence when they help the meeting agenda.\n"
@@ -332,14 +390,14 @@ def test_full_review_native_pd_prompt_uses_minimal_context_and_non_native_planne
     assert "=== Workflow Evidence ===" not in prompt
     assert "=== Contract Deliverables ===" not in prompt
     assert "=== Uploaded Files ===" not in prompt
-    assert "sole PD decision-maker" not in prompt
+    assert "sole spatial planning decision-maker" not in prompt
     assert "Output ONE final JSON object that can drive downstream spatial execution." not in prompt
     assert "structured program draft in JSON" not in prompt
-    assert "As planner, output ONE JSON object describing a bounded spatial PD proposal" in prompt
+    assert "As planner, output ONE JSON object describing a bounded spatial planning proposal" in prompt
     assert "Required top-level keys: decision_summary, actors, objects, anchors" in prompt
 
 
-def test_full_review_native_pd_system_message_overrides_generic_planner_style():
+def test_full_review_native_spatial_system_message_overrides_generic_planner_style():
     harness = _PromptHarness(workflow_evidence_context="")
     harness._full_review_required = True
     role_def = AgentDefinition(
@@ -361,7 +419,7 @@ def test_full_review_native_pd_system_message_overrides_generic_planner_style():
         user_message="Design a spatial handoff scene for Blender downstream playback.",
     )
 
-    assert "You design bounded spatial PD proposals for downstream replay and staging." in system_message
+    assert "You design bounded spatial planning proposals for downstream replay and staging." in system_message
     assert "Spatial scene planner. Produce compact machine-readable JSON for spatial execution." in system_message
     assert "Structured planner. Use numbered steps with ownership and deliverables." not in system_message
 

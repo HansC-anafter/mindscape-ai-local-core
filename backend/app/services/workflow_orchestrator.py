@@ -29,10 +29,10 @@ from backend.app.services.workflow.remote_route import (
     get_cloud_connector as workflow_get_cloud_connector,
     maybe_execute_tool_via_remote_route as workflow_maybe_execute_tool_via_remote_route,
     resolve_remote_tool_route as workflow_resolve_remote_tool_route,
-    resolve_tool_model_override as workflow_resolve_tool_model_override,
+    resolve_tool_model_route as workflow_resolve_tool_model_route,
 )
 from backend.app.services.workflow.playbook_runtime import (
-    apply_execution_profile_model_override as workflow_apply_execution_profile_model_override,
+    apply_execution_profile_registry_route as workflow_apply_execution_profile_registry_route,
     ensure_execution_sandbox as workflow_ensure_execution_sandbox,
     resolve_resume_checkpoint as workflow_resolve_resume_checkpoint,
     restore_checkpoint_state as workflow_restore_checkpoint_state,
@@ -115,7 +115,7 @@ class WorkflowOrchestrator:
             tool_id=tool_id,
         )
 
-    def _resolve_tool_model_override(
+    def _resolve_tool_model_route(
         self,
         *,
         tool_id: str,
@@ -123,7 +123,7 @@ class WorkflowOrchestrator:
         remote_route: Optional[Dict[str, Any]] = None,
         execution_profile: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
-        return workflow_resolve_tool_model_override(
+        return workflow_resolve_tool_model_route(
             tool_id=tool_id,
             playbook_inputs=playbook_inputs,
             remote_route=remote_route,
@@ -214,7 +214,7 @@ class WorkflowOrchestrator:
             workspace_id=workspace_id,
             profile_id=profile_id,
             resolve_remote_tool_route_fn=self._resolve_remote_tool_route,
-            resolve_tool_model_override_fn=self._resolve_tool_model_override,
+            resolve_tool_model_route_fn=self._resolve_tool_model_route,
             maybe_execute_tool_via_remote_route_fn=self._maybe_execute_tool_via_remote_route,
             execute_tool_fn=self.tool_executor.execute_tool,
         )
@@ -243,13 +243,13 @@ class WorkflowOrchestrator:
             resume_checkpoint=resume_checkpoint,
         )
 
-    def _apply_execution_profile_model_override(
+    def _apply_execution_profile_registry_route(
         self,
         *,
         playbook_json: Any,
         playbook_inputs: Dict[str, Any],
     ) -> Optional[str]:
-        return workflow_apply_execution_profile_model_override(
+        return workflow_apply_execution_profile_registry_route(
             playbook_json=playbook_json,
             playbook_inputs=playbook_inputs,
         )
@@ -534,7 +534,7 @@ class WorkflowOrchestrator:
             resume_checkpoint=resume_checkpoint,
         )
 
-        self._apply_execution_profile_model_override(
+        self._apply_execution_profile_registry_route(
             playbook_json=playbook_json,
             playbook_inputs=playbook_inputs,
         )

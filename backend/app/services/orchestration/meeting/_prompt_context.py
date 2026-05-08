@@ -367,6 +367,7 @@ def build_workflow_evidence_context(meeting: Any) -> str:
         _build_lens_patch_store,
     )
     meeting_profile = _infer_workflow_evidence_profile(meeting)
+    thread_bounded = _workflow_evidence_requires_thread_scope(meeting)
 
     parts: List[str] = [
         "Use these recent workflow materials as supporting evidence when they help the meeting agenda."
@@ -479,7 +480,7 @@ def build_workflow_evidence_context(meeting: Any) -> str:
             for decision in ranked_governance[:3]
         ]
 
-    if intent_logs_store:
+    if intent_logs_store and not thread_bounded:
         try:
             intent_logs = intent_logs_store.list_intent_logs(
                 workspace_id=workspace_id,
@@ -498,7 +499,7 @@ def build_workflow_evidence_context(meeting: Any) -> str:
             for intent_log in ranked_intent_logs[:3]
         ]
 
-    if lens_patch_store:
+    if lens_patch_store and not thread_bounded:
         lens_id = getattr(getattr(meeting, "_effective_lens", None), "global_preset_id", None)
         if lens_id:
             try:
@@ -603,6 +604,7 @@ def _list_recent_execution_tasks(
     tasks: List[Any] = []
     selected_scope = "none"
     fetch_attempts = []
+    thread_bounded = _workflow_evidence_requires_thread_scope(meeting)
     if thread_id and hasattr(tasks_store, "list_tasks_by_thread"):
         fetch_attempts.append(
             (
@@ -615,7 +617,7 @@ def _list_recent_execution_tasks(
                 ),
             )
         )
-    if project_id and hasattr(tasks_store, "list_executions_by_project"):
+    if not thread_bounded and project_id and hasattr(tasks_store, "list_executions_by_project"):
         fetch_attempts.append(
             (
                 "project",
@@ -626,7 +628,7 @@ def _list_recent_execution_tasks(
                 ),
             )
         )
-    if hasattr(tasks_store, "list_executions_by_workspace"):
+    if not thread_bounded and hasattr(tasks_store, "list_executions_by_workspace"):
         fetch_attempts.append(
             (
                 "workspace",
@@ -670,8 +672,42 @@ def _list_recent_execution_tasks(
             filtered,
             lambda item: _score_task_execution(item, meeting_profile),
         )[:4],
-        selected_scope,
+        selected_scope if selected_scope != "none" else (
+            "thread_bounded_empty" if thread_bounded else selected_scope
+        ),
     )
+
+
+def _workflow_evidence_requires_thread_scope(meeting: Any) -> bool:
+    session = getattr(meeting, "session", None)
+    meeting_type = str(getattr(session, "meeting_type", "") or "").lower()
+    if meeting_type in {"e2e_validation", "command_validation"}:
+        return True
+
+    metadata = dict(getattr(session, "metadata", None) or {})
+    request_contract = metadata.get("request_contract")
+    if _value_has_selected_source_refs(request_contract):
+        return True
+
+    agenda_text = " ".join(
+        str(item).lower() for item in list(getattr(session, "agenda", None) or [])
+    )
+    return (
+        "selected" in agenda_text
+        and "reference" in agenda_text
+        and ("storyboard" in agenda_text or "reels" in agenda_text)
+    )
+
+
+def _value_has_selected_source_refs(value: Any) -> bool:
+    if isinstance(value, dict):
+        refs = value.get("selected_object_refs") or value.get("context_attachments")
+        if isinstance(refs, list) and refs:
+            return True
+        return any(_value_has_selected_source_refs(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_value_has_selected_source_refs(item) for item in value)
+    return False
 
 
 def _append_section(parts: List[str], title: str, lines: List[str]) -> None:
