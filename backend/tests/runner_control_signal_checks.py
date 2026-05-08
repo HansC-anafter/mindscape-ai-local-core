@@ -121,3 +121,87 @@ async def test_trace_heartbeat_context_does_not_abort_after_subprocess_start(mon
     )
 
     assert marked == {"task_id": task.id}
+
+
+@pytest.mark.asyncio
+async def test_unexpected_orchestration_error_waits_for_live_subprocess(monkeypatch):
+    task = _task(
+        TaskStatus.RUNNING,
+        execution_context={"inputs": {}},
+    )
+    marked = {}
+
+    class FakeTasksStore:
+        def get_task(self, task_id):
+            return task
+
+        def update_task(self, task_id, **kwargs):
+            if "execution_context" in kwargs:
+                task.execution_context = kwargs["execution_context"]
+            if "status" in kwargs:
+                task.status = kwargs["status"]
+
+        def update_task_heartbeat(self, task_id, *, runner_id):
+            return None
+
+    class FakeProcess:
+        pid = 4321
+        exitcode = 0
+
+        def __init__(self):
+            self.alive_checks = 0
+            self.killed = False
+
+        def start(self):
+            return None
+
+        def is_alive(self):
+            self.alive_checks += 1
+            return self.alive_checks == 1
+
+        def join(self, timeout=None):
+            return None
+
+        def terminate(self):
+            return None
+
+        def kill(self):
+            self.killed = True
+
+    fake_process = FakeProcess()
+
+    class FakeMpContext:
+        def Process(self, target, args, daemon):
+            return fake_process
+
+    async def fail_wait(*args, **kwargs):
+        raise RuntimeError("orchestration interrupted")
+
+    async def _mark_succeeded(tasks_store, task_id, runner_id, result_file, redis_queue):
+        marked["task_id"] = task_id
+
+    monkeypatch.setattr(task_executor.mp, "get_context", lambda method: FakeMpContext())
+    monkeypatch.setattr(task_executor.asyncio, "wait", fail_wait)
+    monkeypatch.setattr(
+        task_executor,
+        "_resolve_execution_attempt_inputs",
+        lambda task, ctx: ({}, ExecutionIntentResolution(effective_inputs={})),
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "_apply_runtime_binding_to_playbook_task",
+        lambda task, ctx, inputs, profile_id: (inputs, ctx, object()),
+    )
+    monkeypatch.setattr(task_executor, "_mark_task_succeeded", _mark_succeeded)
+
+    with pytest.raises(RuntimeError, match="orchestration interrupted"):
+        await task_executor._run_single_task(
+            FakeTasksStore(),
+            "runner-1",
+            task.id,
+            redis_queue=None,
+            lock_owner_id="runner-1:task-1",
+        )
+
+    assert marked == {"task_id": task.id}
+    assert fake_process.killed is False

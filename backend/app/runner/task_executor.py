@@ -752,6 +752,10 @@ async def _run_single_task(
     lock_renew_thread = None
     proc = None
     result_file = None
+    exec_task = None
+    control_task = None
+    timeout_task = None
+    task_finalized = False
     
     # Lock has ALREADY been acquired by runner/worker.py in the Redis store.
     # We clear any leftover UI lock status metadata as this task is executing now.
@@ -1140,6 +1144,7 @@ async def _run_single_task(
                         await redis_queue.ack_task(task.id)
                     except Exception:
                         pass
+                task_finalized = True
             elif latest and latest.status in (TaskStatus.FAILED, TaskStatus.EXPIRED):
                 _emit_run_state_changed_for_task(
                     latest,
@@ -1152,9 +1157,11 @@ async def _run_single_task(
                         await redis_queue.ack_task(task.id)
                     except Exception:
                         pass
+                task_finalized = True
             else:
                 msg = signal.get("message") or "Runner control signal requested abort"
                 await _mark_task_failed(tasks_store, task.id, runner_id, msg, redis_queue)
+                task_finalized = True
         elif timeout_task in done and timeout_task.result() is True:
             # --- Hard timeout ---
             try:
@@ -1176,6 +1183,7 @@ async def _run_single_task(
                 f"Runner task timeout ({task_timeout_seconds}s) - subprocess terminated"
             )
             await _mark_task_failed(tasks_store, task.id, runner_id, msg, redis_queue)
+            task_finalized = True
         else:
             # --- Process finished ---
             control_task.cancel()
@@ -1209,7 +1217,64 @@ async def _run_single_task(
                 )
             else:
                 await _mark_task_succeeded(tasks_store, task.id, runner_id, result_file, redis_queue)
+            task_finalized = True
     finally:
+        if proc and proc.is_alive() and not task_finalized:
+            logger.warning(
+                "Runner orchestration reached cleanup before subprocess exit; "
+                "waiting for child task_id=%s playbook=%s pid=%s timeout=%ss",
+                task.id,
+                task.pack_id,
+                proc.pid,
+                task_timeout_seconds,
+            )
+            try:
+                cleanup_deadline = time.monotonic() + max(1, int(task_timeout_seconds))
+                while proc.is_alive() and time.monotonic() < cleanup_deadline:
+                    await asyncio.sleep(0.5)
+                if not proc.is_alive():
+                    exitcode = proc.exitcode
+                    if exitcode is None:
+                        exitcode = -1
+                    if int(exitcode) == 0:
+                        await _mark_task_succeeded(
+                            tasks_store,
+                            task.id,
+                            runner_id,
+                            result_file,
+                            redis_queue,
+                        )
+                    else:
+                        msg = _build_subprocess_failure_message(result_file, int(exitcode))
+                        resource_source = classify_subprocess_resource_failure(
+                            int(exitcode), msg
+                        )
+                        resource_snapshot = None
+                        retry_delay_sec = 15
+                        if resource_source:
+                            retry_delay_sec = resource_failure_retry_delay_seconds()
+                            resource_snapshot = _build_resource_failure_snapshot(
+                                inflight=1
+                            )
+                        await _mark_task_failed(
+                            tasks_store,
+                            task.id,
+                            runner_id,
+                            msg,
+                            redis_queue,
+                            retry_delay_sec=retry_delay_sec,
+                            resource_pressure_source=resource_source,
+                            resource_snapshot=resource_snapshot,
+                        )
+                    task_finalized = True
+            except BaseException:
+                logger.exception(
+                    "Runner cleanup wait failed for task %s", task.id
+                )
+            finally:
+                for pending_task in (exec_task, control_task, timeout_task):
+                    if pending_task and not pending_task.done():
+                        pending_task.cancel()
         try:
             if result_file and os.path.exists(result_file):
                 os.unlink(result_file)
