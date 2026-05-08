@@ -2,6 +2,10 @@
 
 日期：2026-05-04
 
+## 2026-05-05 E2E Preflight Binding
+
+本報告涉及 PD storyboard / director guidance E2E 時，必須同時引用 `pd-storyboard-e2e-preflight-ledger-2026-05-05.md`。本提交前查驗可證明當輪 director guidance 與 generic runtime 邊界，不等同於 real IG refs 高品質 storyboard acceptance；正式 E2E 必須以 real IG refs、非空 cue map、45 scenes、逐鏡 LLM judge 與 visual scope gate 作為硬性 gate。
+
 ## 1. 查驗結論
 
 本次可提交範圍分成兩個 repo：

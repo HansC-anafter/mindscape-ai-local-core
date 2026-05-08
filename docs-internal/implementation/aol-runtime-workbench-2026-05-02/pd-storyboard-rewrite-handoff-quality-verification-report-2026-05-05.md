@@ -10,6 +10,10 @@ skill_alignment: evidence-based-reporting
 
 最後更新：2026-05-05。
 
+## E2E Preflight Binding
+
+本查驗報告受 `pd-storyboard-e2e-preflight-ledger-2026-05-05.md` 補強。本文可證明 rewrite handoff contract 和 focused tests，但正式 storyboard high-quality acceptance 仍必須從 real IG refs preflight 開始，並證明 cue map 非空、逐鏡 LLM judge 覆蓋全部 scenes、90s reels 45 scenes、visual scope gate 按需通過。
+
 ## 結論
 
 本次可閉環提交範圍包含 cloud `performance_direction` pack 的 storyboard content rewrite pass、producer-provided rewrite dispatch request、local-core generic Meeting quality gate/handoff、playbook output artifact materialization、capability metadata endpoint，以及 AOL host shell 的 installed capability lookup。cloud source commit 後已重新打包 `.mindpack`，並透過 local-core install API 正式安裝與重啟 backend。

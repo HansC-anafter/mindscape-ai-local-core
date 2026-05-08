@@ -2,6 +2,10 @@
 
 Date: 2026-05-04
 
+## 2026-05-05 PD E2E Ledger Override
+
+This audit record is bound by `pd-storyboard-e2e-preflight-ledger-2026-05-05.md` whenever it is used as evidence for PD storyboard E2E. Bridge plumbing evidence does not prove real IG refs content quality. Formal PD storyboard acceptance must start from `E2E-PD-PREFLIGHT-000` and must reject synthetic `codex_aol_e2e_ref_*` fixtures as high-quality content evidence.
+
 Scope: every changed hunk in the current AOL -> MeetingEngine bridge working tree, plus the new untracked regression specs. This record distinguishes source/runtime plumbing from the still-open storyboard/proposal deliverable E2E.
 
 ## Method

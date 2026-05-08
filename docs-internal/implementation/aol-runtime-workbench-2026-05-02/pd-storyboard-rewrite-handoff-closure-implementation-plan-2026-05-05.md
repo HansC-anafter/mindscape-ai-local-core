@@ -8,6 +8,10 @@ skill_alignment: evidence-based-planning
 
 # PD Storyboard Rewrite Handoff 閉環實作計劃
 
+## E2E Preflight Binding
+
+本計劃受 `pd-storyboard-e2e-preflight-ledger-2026-05-05.md` 補強。Rewrite handoff 只能在 real IG refs cue map 存在且 `cue_count > 0` 時作為正式內容品質路徑；若 input refs 是 `codex_aol_e2e_ref_*` 或 cue map 缺 reference analysis，rewrite closure 不得被標成 high-quality acceptance。
+
 ## 問題清單
 
 1. **重寫能力已被規劃但尚未落地**：grounded content-quality 計劃已列出 `storyboard_content_rewrite.py` 與 `pd_storyboard_content_rewrite.json`，但實作前 cloud pack 與 local-core installed pack 都沒有這兩個檔案。Evidence: E1, E2。

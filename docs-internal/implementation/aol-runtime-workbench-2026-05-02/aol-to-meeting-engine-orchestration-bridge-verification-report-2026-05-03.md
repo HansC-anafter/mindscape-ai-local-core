@@ -2,6 +2,10 @@
 
 日期：2026-05-03
 
+## 2026-05-05 PD E2E Ledger Override
+
+本報告若被用於 PD storyboard E2E 後續驗收，必須同時引用 `pd-storyboard-e2e-preflight-ledger-2026-05-05.md`。本報告的 bridge 方向查驗不等同於 real IG refs 高品質 storyboard 內容通過；正式 PD E2E 必須先證明 workspace executor 為 `codex_cli`、selected IG refs 為 real catalog refs、reference analysis 完成、cue map 非空、90s reels 為 45 scenes、逐鏡 LLM judge 與 visual scope gate 通過。
+
 本報告依據 `evidence-based-reporting`、`evidence-based-planning` 與 `deploy-pack` 三個 skill 查驗。查驗範圍包含 local-core source code、cloud pack source code、內部實作計劃與外部官方 agent workflow / graph orchestration 文檔。本輪未查 live API、DB row、runtime logs，因此不宣稱目前 running instance 與 source code 狀態完全一致。
 
 ## 1. 結論

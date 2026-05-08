@@ -10,6 +10,10 @@ skill_alignment: evidence-based-planning
 
 最後更新：2026-05-05。
 
+## E2E Preflight Binding
+
+本 todo 與資料範圍文件受 `pd-storyboard-e2e-preflight-ledger-2026-05-05.md` 補強。後續若新增 rewrite E2E todo，必須先列出 `E2E-PD-PREFLIGHT-000` 的 workspace executor、real IG refs、analysis status、cue map、scene density、LLM judge、visual scope 上下游資料範圍。
+
 ## 目標
 
 把 storyboard content-quality failure 從「只給人看」推進到「producer 可提出 bounded rewrite request，Meeting 可中性判斷，PD pack 可在明確要求下完成一次 rewrite pass」。

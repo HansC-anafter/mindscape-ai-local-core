@@ -1,8 +1,12 @@
 # AOL/PD Storyboard E2E 實作品質查驗報告（2026-05-04）
 
+## 2026-05-05 Ledger Override
+
+本文件受 `pd-storyboard-e2e-preflight-ledger-2026-05-05.md` 約束。本文原本查驗的是 `_021` 的 transport、artifact landing、session-scoped PD URL 缺口與 local-core 邊界；它不再構成 real IG refs 高品質 storyboard 內容驗收。任何新 E2E 必須先通過 `E2E-PD-PREFLIGHT-000`：workspace executor 為 `codex_cli`，selected refs 為 IG catalog real `ref_*`，analysis 為 `COMPLETED / visual_anatomy / 2.1`，`reference_cue_map.cue_count > 0`，90s reels target 為 45 scenes，且逐鏡 LLM judge 與 visual scope gate 都必須按要求通過。
+
 ## 結論
 
-本次 P0 AOL → MeetingEngine → PD storyboard artifact landing 主線可以收尾：`_021` 實跑資料證明 command 進入 `route_meeting_orchestration`，產生 TaskIR，dispatch 到 PD pack，並把 manifest、proposal、contact-sheet 三個 artifact 同時入庫與入檔。
+本次 P0 AOL → MeetingEngine → PD storyboard artifact landing 主線可以作為 legacy transport 收尾：`_021` 實跑資料證明 command 進入 `route_meeting_orchestration`，產生 TaskIR，dispatch 到 PD pack，並把 manifest、proposal、contact-sheet 三個 artifact 同時入庫與入檔。依 2026-05-05 ledger，此結論不得延伸為 real IG refs 高品質內容通過。
 
 新增查驗問題「PD 是否對各別 storyboard 做唯一 project URL」的答案是：目前沒有。PD 目前提供 session-scoped workbench/API route 與 proposal review route，但沒有以 `storyboard_id` 作為 URL identity 的正式 project URL。此項已補進實作計劃作為未完成能力，不得宣稱已完成。
 
@@ -294,4 +298,3 @@ local-core 只做 generic artifact/task/thread reconciliation；PD-specific evid
 - PD 已有 per-storyboard unique project URL。
 - PD editor 單檔 vitest 全量通過。
 - local-core 擁有 PD-specific evidence validation gate。
-

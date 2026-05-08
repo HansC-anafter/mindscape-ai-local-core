@@ -1,8 +1,12 @@
 # AOL Real File E2E Evidence - 2026-05-04
 
+## 2026-05-05 Ledger Override
+
+本文件受 `pd-storyboard-e2e-preflight-ledger-2026-05-05.md` 約束。`cmd_aol_real_e2e_files_20260504_021_tasklineage` 現在只保留為 Meeting -> PD transport、artifact DB/file landing、SVG contact sheet 的 legacy evidence；因為它使用 `codex_aol_e2e_ref_*` synthetic refs、輸出 9 scenes / 90s，沒有 real IG `visual_anatomy v2.1` cue map 與逐鏡 LLM judge evidence，所以不得再作為 real IG refs 高品質 storyboard 內容驗收。
+
 ## Final Verdict
 
-Fresh post-restart closure command `cmd_aol_real_e2e_files_20260504_021_tasklineage` is the current acceptance record for the original AOL -> MeetingEngine -> Performance Direction storyboard E2E.
+Fresh post-restart closure command `cmd_aol_real_e2e_files_20260504_021_tasklineage` is the historical transport/artifact-landing record for the original AOL -> MeetingEngine -> Performance Direction storyboard E2E. It is not a current high-quality content acceptance record under the 2026-05-05 ledger.
 
 Verified:
 
@@ -20,7 +24,7 @@ Verified:
 - DB lineage: all three artifact rows have `thread_id=0f2463d0-2f22-4016-9b5d-cb3b389eb8d1` and `task_id=task_f385ff20d3364399`
 - Pack-owned evidence: all three artifact rows include `metadata.acceptance_evidence`, `metadata.pd_storyboard_evidence`, and `metadata.provenance.eval_summary.passed=true`
 
-Content acceptance check:
+Legacy content surface check:
 
 ```json
 {
@@ -37,7 +41,7 @@ Content acceptance check:
 }
 ```
 
-This closes the two hard E2E lanes for the tested fixture:
+This previously closed the two hard E2E transport lanes for the tested fixture:
 
 - AOL object refs enter `route_meeting_orchestration`, MeetingEngine produces TaskIR, and downstream PD playbook dispatch lands successfully.
 - The resulting storyboard/proposal/contact-sheet artifacts are real files and artifacts table rows, queryable by the meeting thread id.
@@ -352,11 +356,11 @@ Observed: no matches. Pack-specific storyboard evidence is emitted by `capabilit
 
 ## Current Remaining Scope
 
-Closed for this tested fixture:
+Closed for this legacy tested fixture:
 
 - Meeting-led transport from AOL refs through MeetingEngine and downstream PD dispatch.
-- 90 秒 reels storyboard proposal: 9 scenes, 10 seconds each, total 90 seconds.
-- Storyboard frame/image artifact: contact-sheet SVG file plus per-scene `storyboard_frame` metadata.
+- Legacy 90 秒 reels storyboard proposal surface: 9 scenes, 10 seconds each, total 90 seconds. This no longer satisfies the 2026-05-05 real IG refs density gate.
+- Legacy storyboard frame/image artifact surface: contact-sheet SVG file plus per-scene `storyboard_frame` metadata. This is not final visual production QA.
 - DB/file landing: three artifacts table rows and three concrete files.
 - Meeting asset lane data path: `/artifacts?thread_id=0f2463d0-2f22-4016-9b5d-cb3b389eb8d1` returns the landed artifact rows.
 - Pack-owned review carrier: per-scene `meeting_discussion_prompt`, `decision_items`, `review_candidates`, and `approval_state=needs_review`.

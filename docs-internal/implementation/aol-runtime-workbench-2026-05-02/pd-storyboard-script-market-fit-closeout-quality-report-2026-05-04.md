@@ -2,6 +2,10 @@
 
 查驗時間：2026-05-04 21:45:41 CST
 
+## 2026-05-05 E2E Preflight Binding
+
+本報告受 `pd-storyboard-e2e-preflight-ledger-2026-05-05.md` 覆寫。本文可保留為 script market-fit stage closeout，但不得再被讀成 real IG refs 高品質 storyboard 內容驗收。任何重新驗收都必須先完成 `E2E-PD-PREFLIGHT-000`，並把 `codex_aol_e2e_ref_*` 紀錄標示為 legacy/synthetic baseline。
+
 ## 結論
 
 本次實作已可收斂到「提交前確認」狀態；核心設計目標在 cloud capability pack 範圍內已落地，並通過程式測試、UI 測試、pack 安裝、capability activation、MeetingEngine command E2E、artifact DB/file landing 與內容查驗。
@@ -24,7 +28,7 @@
 |---|---:|---|
 | pack-owned `ReelsScriptMarketFitIR` schema | 通過 | `schema/reels_script_market_fit.py:10` 定義 `ReelsScriptMarketFitIR`。 |
 | evaluator 與 policy snapshot | 通過 | `services/reels_script_market_fit.py:19` 內建 fallback policy sources；`:181` 載入 policy；`:378` 評估 blocking failures；`:393`/`:418` 檢查 hook 與非均勻 pacing。 |
-| 90s Reels storyboard script-aware scenes | 通過 | `storyboard_gen.py:230` 進入 scene spec builder；`:817-842` 產生 script market fit 與 manifest ref；runtime manifest 查驗為 9 scenes、90 秒、每 scene 有 `script_layer`。 |
+| 90s Reels storyboard script-aware scenes | legacy 通過；正式 high-quality false | `storyboard_gen.py:230` 進入 scene spec builder；`:817-842` 產生 script market fit 與 manifest ref；runtime manifest 查驗為 9 scenes、90 秒、每 scene 有 `script_layer`。依 2026-05-05 ledger，正式 90s reels high-quality acceptance 需要 real IG refs 與 45 scenes。 |
 | 0-3 秒 hook、3-6 秒 promise、CTA、sound、synthetic disclosure、originality risk | 通過 | runtime script artifact 查驗 `market_fit_passed=true`、blocking 空陣列、含 disclosure/originality；proposal 檔案查到 `## Script Market Fit`、`hook_0_3s`、`promise_3_6s`、`CTA`、`sound`。 |
 | 3 個 script variants | 通過 | runtime script artifact `variant_count=3`。 |
 | `pd_storyboard_gen.json` outputs/output_artifacts/file_write | 通過 | `pd_storyboard_gen.json:179-180` 宣告 outputs；`:220-228` 宣告 output payload；`:359-405` 新增兩個 file_write artifact。 |

@@ -1,5 +1,9 @@
 # AOL Runtime Workbench 里程碑查驗報告 2026-05-03
 
+## 2026-05-05 PD E2E Preflight Binding
+
+本報告若被引用到 PD storyboard / AOL E2E 驗收，必須同時引用 `pd-storyboard-e2e-preflight-ledger-2026-05-05.md`。Workbench / runtime 里程碑查驗不等於 real IG refs 高品質 storyboard acceptance；正式 PD storyboard E2E 必須先完成 `E2E-PD-PREFLIGHT-000`。
+
 ## 1. 查驗範圍
 
 本報告查驗 2026-05-03 這一輪「第一階段大檔拆分後的 Workbench UI i18n 合規與里程碑推進」。查驗範圍限於 `mindscape-ai-local-core` 本地工作站程式與內部文檔，未修改 VM，未修改 `mindscape-ai-cloud` 程式。
