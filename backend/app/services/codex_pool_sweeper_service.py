@@ -168,15 +168,18 @@ class CodexPoolSweeperService:
             summary.requalified_runtime_count
             or summary.cooldown_cleared_count
             or summary.manual_repair_required_count
+            or summary.retired_runtime_count
         ):
             logger.info(
                 "Codex pool sweeper cycle updated pool "
-                "(scanned=%s requalified=%s cooldown_cleared=%s manual_repair=%s updated=%s manual=%s)",
+                "(scanned=%s requalified=%s cooldown_cleared=%s retired=%s manual_repair=%s updated=%s retired_ids=%s manual=%s)",
                 summary.scanned_runtime_count,
                 summary.requalified_runtime_count,
                 summary.cooldown_cleared_count,
+                summary.retired_runtime_count,
                 summary.manual_repair_required_count,
                 list(summary.updated_runtime_ids),
+                list(summary.retired_runtime_ids),
                 list(summary.manual_repair_runtime_ids),
             )
         else:

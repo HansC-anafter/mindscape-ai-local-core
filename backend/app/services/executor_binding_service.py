@@ -174,7 +174,6 @@ class ExecutorBindingService:
             return {
                 "preferred_runtime_id": explicit_runtime_id,
                 "allow_runtime_substitution": False,
-                "allow_fallback": False,
                 "preference_source": "executor_route",
                 "binding_runtime_id": binding_runtime_id,
                 "binding_state": binding_state,
@@ -197,7 +196,6 @@ class ExecutorBindingService:
             return {
                 "preferred_runtime_id": binding_lease_runtime_id,
                 "allow_runtime_substitution": allow_pool_rotation,
-                "allow_fallback": allow_pool_rotation,
                 "preference_source": "session_lease",
                 "binding_runtime_id": binding_runtime_id,
                 "binding_state": binding_state,
@@ -208,11 +206,10 @@ class ExecutorBindingService:
                 "lease_owner_id": binding_lease_owner_id,
             }
 
-        if binding_runtime_id and binding_state != "faulted":
+        if binding_runtime_id and binding_state != "faulted" and not allow_pool_rotation:
             return {
                 "preferred_runtime_id": binding_runtime_id,
                 "allow_runtime_substitution": False,
-                "allow_fallback": False,
                 "preference_source": "binding_snapshot",
                 "binding_runtime_id": binding_runtime_id,
                 "binding_state": binding_state,
@@ -226,7 +223,6 @@ class ExecutorBindingService:
         return {
             "preferred_runtime_id": None,
             "allow_runtime_substitution": allow_pool_rotation,
-            "allow_fallback": allow_pool_rotation,
             "preference_source": (
                 "pool_rotation" if allow_pool_rotation else "no_bound_runtime"
             ),

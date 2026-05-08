@@ -13,15 +13,36 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from backend.app.services.codex_pool_health import (
+    auth_material_version_changed_since_failure,
     coerce_datetime,
+    is_executable_runtime_metadata,
+    is_pool_member_runtime_metadata,
     read_health_metadata,
     stamp_runtime_requalified,
+    stamp_runtime_retired,
 )
 
 
 _SUPPORTED_AUTH_TYPES = frozenset({"api_key", "host_session", "none"})
-_AUTH_FAILURE_CODES = frozenset({"401", "403", "deactivated_workspace", "unauthorized"})
+_AUTH_FAILURE_CODES = frozenset(
+    {
+        "401",
+        "403",
+        "auth_failure",
+        "deactivated_workspace",
+        "stale_refresh_token",
+        "unauthorized",
+    }
+)
 _PROBATION_FAILURE_CODES = frozenset({"timeout", "stall"})
+_RETRYABLE_AUTH_FAILURE_CODES = frozenset(
+    {
+        "401",
+        "auth_failure",
+        "stale_refresh_token",
+        "unauthorized",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -30,8 +51,10 @@ class CodexPoolRequalificationSummary:
     requalified_runtime_count: int
     cooldown_cleared_count: int
     manual_repair_required_count: int
+    retired_runtime_count: int
     updated_runtime_ids: tuple[str, ...]
     manual_repair_runtime_ids: tuple[str, ...]
+    retired_runtime_ids: tuple[str, ...]
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -39,8 +62,10 @@ class CodexPoolRequalificationSummary:
             "requalified_runtime_count": self.requalified_runtime_count,
             "cooldown_cleared_count": self.cooldown_cleared_count,
             "manual_repair_required_count": self.manual_repair_required_count,
+            "retired_runtime_count": self.retired_runtime_count,
             "updated_runtime_ids": list(self.updated_runtime_ids),
             "manual_repair_runtime_ids": list(self.manual_repair_runtime_ids),
+            "retired_runtime_ids": list(self.retired_runtime_ids),
         }
 
 
@@ -174,6 +199,7 @@ class CodexPoolRequalificationService:
         updated_runtimes: list[Any] = []
         updated_runtime_ids: list[str] = []
         manual_repair_runtime_ids: list[str] = []
+        retired_runtime_ids: list[str] = []
         requalified_count = 0
         cooldown_cleared_count = 0
 
@@ -216,8 +242,26 @@ class CodexPoolRequalificationService:
                 updated_runtimes.append(runtime)
                 updated_runtime_ids.append(runtime_id)
                 cooldown_cleared_count += 1
+            elif action == "auth_retry_requalified":
+                self._mark_runtime_requalified(
+                    runtime,
+                    reason="auth_cooldown_expired_retry",
+                    now=now,
+                )
+                updated_runtimes.append(runtime)
+                updated_runtime_ids.append(runtime_id)
+                requalified_count += 1
             elif action == "manual_repair_required":
                 manual_repair_runtime_ids.append(runtime_id)
+            elif action == "retire_non_executable_seed":
+                self._mark_runtime_retired(
+                    runtime,
+                    reason="legacy_token_copy_seed",
+                    now=now,
+                )
+                updated_runtimes.append(runtime)
+                updated_runtime_ids.append(runtime_id)
+                retired_runtime_ids.append(runtime_id)
 
         if updated_runtimes and persist_updates is not None:
             persist_updates(updated_runtimes)
@@ -227,8 +271,10 @@ class CodexPoolRequalificationService:
             requalified_runtime_count=requalified_count,
             cooldown_cleared_count=cooldown_cleared_count,
             manual_repair_required_count=len(manual_repair_runtime_ids),
+            retired_runtime_count=len(retired_runtime_ids),
             updated_runtime_ids=tuple(updated_runtime_ids),
             manual_repair_runtime_ids=tuple(manual_repair_runtime_ids),
+            retired_runtime_ids=tuple(retired_runtime_ids),
         )
 
     @staticmethod
@@ -244,6 +290,18 @@ class CodexPoolRequalificationService:
         cooldown_expired = bool(cooldown_until and cooldown_until <= now)
         cooldown_active = bool(cooldown_until and cooldown_until > now)
 
+        if not is_pool_member_runtime_metadata(metadata, auth_type=auth_type):
+            return "retire_non_executable_seed"
+        if failure_code == "429" and cooldown_expired:
+            return "cooldown_cleared"
+        if not is_executable_runtime_metadata(metadata, auth_type=auth_type):
+            if (
+                health_state == "quarantined"
+                and failure_code in _AUTH_FAILURE_CODES
+                and cooldown_expired
+            ):
+                return "manual_repair_required"
+            return None
         if (
             health_state == "quarantined"
             and failure_code in _AUTH_FAILURE_CODES
@@ -253,14 +311,18 @@ class CodexPoolRequalificationService:
             )
         ):
             return "stale_auth_scope_requalified"
+        if (
+            health_state == "quarantined"
+            and failure_code in _RETRYABLE_AUTH_FAILURE_CODES
+            and cooldown_expired
+        ):
+            return "auth_retry_requalified"
         if health_state == "quarantined" and failure_code in _AUTH_FAILURE_CODES and cooldown_expired:
             return "manual_repair_required"
         if health_state == "probation" and not failure_code and not cooldown_active:
             return "seed_probation_promoted"
         if health_state == "probation" and failure_code in _PROBATION_FAILURE_CODES and cooldown_expired:
             return "probation_requalified"
-        if health_state in {"healthy", "probation"} and failure_code == "429" and cooldown_expired:
-            return "cooldown_cleared"
         return None
 
     @staticmethod
@@ -285,6 +347,9 @@ class CodexPoolRequalificationService:
             ).strip()
             return bool(seed_home and failure_scope_key != f"seed:{seed_home}")
 
+        if failure_scope_key.startswith("runtime:"):
+            return auth_material_version_changed_since_failure(metadata, health)
+
         return False
 
     @staticmethod
@@ -300,6 +365,24 @@ class CodexPoolRequalificationService:
         runtime.extra_metadata = stamp_runtime_requalified(
             dict(getattr(runtime, "extra_metadata", None) or {}),
             reason=reason,
+            auth_type=auth_type,
+            now=now,
+        )
+
+    @staticmethod
+    def _mark_runtime_retired(
+        runtime: Any,
+        *,
+        reason: str,
+        now: datetime,
+    ) -> None:
+        auth_type = str(getattr(runtime, "auth_type", "") or "")
+        runtime.pool_enabled = False
+        runtime.cooldown_until = None
+        runtime.last_error_code = str(reason or "").strip() or "retired"
+        runtime.extra_metadata = stamp_runtime_retired(
+            dict(getattr(runtime, "extra_metadata", None) or {}),
+            reason=str(reason or "").strip() or "retired",
             auth_type=auth_type,
             now=now,
         )

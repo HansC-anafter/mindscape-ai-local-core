@@ -42,12 +42,13 @@ from backend.app.services.external_agents.bridge.codex_cli_runner import (
     clip_cli_stream,
     extract_codex_cli_error,
     resolve_codex_cli_binary,
-    looks_like_codex_auth_failure,
-    looks_like_codex_quota_exhaustion,
     resolve_codex_cli_output,
-    should_retry_codex_runtime_fault,
     tail_cli_stream,
     wait_for_cli_subprocess_activity,
+)
+from backend.app.services.codex_runtime_failure_classifier import (
+    classify_codex_cli_runtime_failure,
+    should_retry_codex_runtime_fault,
 )
 
 logger = logging.getLogger("task_executor")
@@ -456,6 +457,7 @@ class HostBridgeTaskExecutor:
         *,
         workspace_id: str = "",
         effective_workspace_id: str = "",
+        error_text: str = "",
     ) -> None:
         backend_urls = self._resolve_backend_api_urls()
         if not backend_urls:
@@ -465,6 +467,8 @@ class HostBridgeTaskExecutor:
             params["workspace_id"] = workspace_id
         if effective_workspace_id:
             params["effective_workspace_id"] = effective_workspace_id
+        if error_text:
+            params["error_text"] = error_text[:1000]
         query = urllib.parse.urlencode(params)
         timeout_seconds = self._parse_env_float(
             "MINDSCAPE_CLI_RUNTIME_QUOTA_REPORT_TIMEOUT_SECONDS",
@@ -653,6 +657,7 @@ class HostBridgeTaskExecutor:
         *,
         workspace_id: str = "",
         effective_workspace_id: str = "",
+        error_text: str = "",
     ) -> None:
         if not runtime_id:
             return
@@ -662,6 +667,7 @@ class HostBridgeTaskExecutor:
             runtime_id,
             workspace_id=workspace_id,
             effective_workspace_id=effective_workspace_id,
+            error_text=error_text,
         )
 
     async def _report_runtime_auth_failure(
@@ -710,6 +716,101 @@ class HostBridgeTaskExecutor:
         if action == "codex_logout":
             return [*base, "logout"]
         return []
+
+    @staticmethod
+    def _account_home_env(codex_home: str) -> Dict[str, str]:
+        home = str(codex_home or "").strip()
+        if not home:
+            return {}
+        return {
+            "CODEX_HOME": home,
+            "HOME": home,
+            "XDG_CONFIG_HOME": str(Path(home) / ".config"),
+            "XDG_DATA_HOME": str(Path(home) / ".local" / "share"),
+            "XDG_STATE_HOME": str(Path(home) / ".local" / "state"),
+        }
+
+    @classmethod
+    def _codex_control_extra_env(cls, ctx: ExecutionContext) -> Dict[str, str]:
+        inputs = ctx.inputs if isinstance(ctx.inputs, dict) else {}
+        if not inputs:
+            return {}
+        raw_env = inputs.get("env")
+        env = (
+            {
+                str(key): str(value)
+                for key, value in raw_env.items()
+                if value is not None and str(value).strip()
+            }
+            if isinstance(raw_env, dict)
+            else {}
+        )
+        codex_home = str(
+            inputs.get("codex_home")
+            or inputs.get("CODEX_HOME")
+            or env.get("CODEX_HOME")
+            or ""
+        ).strip()
+        if codex_home:
+            account_env = cls._account_home_env(codex_home)
+            account_env.update(env)
+            return account_env
+        return env
+
+    @classmethod
+    def _codex_control_identity_metadata_sync(
+        cls,
+        ctx: ExecutionContext,
+    ) -> Dict[str, Any]:
+        inputs = ctx.inputs if isinstance(ctx.inputs, dict) else {}
+        raw_env = inputs.get("env")
+        env = raw_env if isinstance(raw_env, dict) else {}
+        codex_home = str(
+            inputs.get("codex_home")
+            or inputs.get("CODEX_HOME")
+            or env.get("CODEX_HOME")
+            or ""
+        ).strip()
+        if not codex_home:
+            return {}
+
+        try:
+            from backend.app.services.codex_account_home_auth_source_service import (
+                CodexAccountHomeAuthSourceService,
+            )
+
+            observed: Dict[str, Any] = {"codex_home": codex_home}
+            deadline = time.monotonic() + 5.0
+            while True:
+                auth_metadata = CodexAccountHomeAuthSourceService.metadata_for_codex_home(
+                    codex_home
+                )
+                identity_details = (
+                    CodexAccountHomeAuthSourceService.identity_details_for_codex_home(
+                        codex_home
+                    )
+                )
+                observed.update(auth_metadata)
+                observed.update(identity_details)
+                if (
+                    observed.get("account_key")
+                    or observed.get("login_email")
+                    or time.monotonic() >= deadline
+                ):
+                    break
+                time.sleep(0.25)
+            return {"codex_account_identity": observed}
+        except Exception as exc:
+            logger.warning(
+                "[TaskExecutor] Failed to inspect Codex account-home identity after control action: %s",
+                exc,
+            )
+            return {
+                "codex_account_identity": {
+                    "codex_home": codex_home,
+                    "identity_error": str(exc),
+                }
+            }
 
     async def _execute_via_gemini_runtime_bridge(
         self,
@@ -932,8 +1033,9 @@ class HostBridgeTaskExecutor:
 
         control_cmd = self._build_codex_control_command(binary, ctx.control_action)
         if control_cmd:
+            control_extra_env = self._codex_control_extra_env(ctx)
             await self._report_progress(ctx.execution_id, 15, "Calling Codex CLI")
-            return await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 self._run_cli_agent_subprocess(
                     ctx,
                     control_cmd,
@@ -942,9 +1044,24 @@ class HostBridgeTaskExecutor:
                     snapshot_root=snapshot_root,
                     snapshot_paths=snapshot_paths,
                     stall_timeout=stall_timeout,
+                    extra_env=control_extra_env or None,
                 ),
                 timeout=timeout,
             )
+            if ctx.control_action in {
+                "codex_login",
+                "codex_login_status",
+                "codex_logout",
+            }:
+                identity_metadata = await asyncio.to_thread(
+                    self._codex_control_identity_metadata_sync,
+                    ctx,
+                )
+                if identity_metadata:
+                    merged_metadata = dict(result.metadata or {})
+                    merged_metadata.update(identity_metadata)
+                    result.metadata = merged_metadata
+            return result
 
         prompt = self._build_runtime_prompt(ctx)
         max_attempts = max(
@@ -1016,11 +1133,22 @@ class HostBridgeTaskExecutor:
                     and auth_bundle.get("error")
                     and not selected_runtime_id
                 ):
+                    pool_error = str(auth_bundle.get("error") or "").strip()
+                    error_text = (
+                        f"{last_quota_error} (pool failover unavailable: {pool_error})"
+                        if last_quota_error and attempt > 1
+                        else pool_error
+                    )
                     return ExecutionResult(
                         status="failed",
                         output="",
-                        error=str(auth_bundle.get("error")),
-                        metadata={"selected_runtime_id": None},
+                        error=error_text,
+                        metadata=self._codex_pool_failure_metadata(
+                            selected_runtime_id=None,
+                            attempted_runtime_ids=attempted_runtime_ids,
+                            last_runtime_error=last_quota_error,
+                            pool_error=pool_error,
+                        ),
                     )
                 if attempt > 1 and not selected_runtime_id:
                     pool_error = ""
@@ -1041,7 +1169,12 @@ class HostBridgeTaskExecutor:
                         status="failed",
                         output="",
                         error=error_text,
-                        metadata={"selected_runtime_id": None},
+                        metadata=self._codex_pool_failure_metadata(
+                            selected_runtime_id=None,
+                            attempted_runtime_ids=attempted_runtime_ids,
+                            last_runtime_error=last_quota_error,
+                            pool_error=pool_error,
+                        ),
                     )
                 if selected_runtime_id and selected_runtime_id in attempted_runtime_ids:
                     logger.warning(
@@ -1058,7 +1191,12 @@ class HostBridgeTaskExecutor:
                         status="failed",
                         output="",
                         error=error_text,
-                        metadata={"selected_runtime_id": selected_runtime_id},
+                        metadata=self._codex_pool_failure_metadata(
+                            selected_runtime_id=selected_runtime_id,
+                            attempted_runtime_ids=attempted_runtime_ids,
+                            last_runtime_error=last_quota_error,
+                            pool_error="reused_exhausted_runtime",
+                        ),
                     )
 
                 progress_message = "Calling Codex CLI"
@@ -1118,12 +1256,36 @@ class HostBridgeTaskExecutor:
                 status="failed",
                 output="",
                 error="Codex pool failover exhausted without a successful execution",
+                metadata=self._codex_pool_failure_metadata(
+                    selected_runtime_id=None,
+                    attempted_runtime_ids=attempted_runtime_ids,
+                    last_runtime_error=last_quota_error,
+                    pool_error="failover_exhausted",
+                ),
             )
         finally:
             try:
                 os.unlink(last_message_path)
             except OSError:
                 pass
+
+    @staticmethod
+    def _codex_pool_failure_metadata(
+        *,
+        selected_runtime_id: Optional[str],
+        attempted_runtime_ids: set[str],
+        last_runtime_error: str,
+        pool_error: str,
+    ) -> Dict[str, Any]:
+        metadata: Dict[str, Any] = {
+            "selected_runtime_id": selected_runtime_id or None,
+            "attempted_runtime_ids": sorted(attempted_runtime_ids),
+        }
+        if last_runtime_error:
+            metadata["last_runtime_error"] = last_runtime_error
+        if pool_error:
+            metadata["pool_error"] = pool_error
+        return metadata
 
     async def _execute_via_claude_code_cli(
         self,
@@ -1414,11 +1576,14 @@ class HostBridgeTaskExecutor:
                     selected_runtime_id,
                     workspace_id=workspace_id,
                     effective_workspace_id=effective_workspace_id,
+                    error_text=synthesized_error,
                 )
             elif selected_runtime_id and self._looks_like_auth_failure(synthesized_error):
+                classification = classify_codex_cli_runtime_failure(synthesized_error)
                 await self._report_runtime_auth_failure(
                     runtime_name,
                     selected_runtime_id,
+                    error_code=str(classification.get("error_code") or "auth_failure"),
                     workspace_id=workspace_id,
                     effective_workspace_id=effective_workspace_id,
                 )
@@ -1445,16 +1610,20 @@ class HostBridgeTaskExecutor:
                 },
             )
         if selected_runtime_id and self._looks_like_quota_exhaustion(stderr or stdout):
+            quota_error_text = stderr or stdout
             await self._report_runtime_quota_exhausted(
                 runtime_name,
                 selected_runtime_id,
                 workspace_id=workspace_id,
                 effective_workspace_id=effective_workspace_id,
+                error_text=quota_error_text,
             )
         elif selected_runtime_id and self._looks_like_auth_failure(stderr or stdout):
+            classification = classify_codex_cli_runtime_failure(stderr or stdout)
             await self._report_runtime_auth_failure(
                 runtime_name,
                 selected_runtime_id,
+                error_code=str(classification.get("error_code") or "auth_failure"),
                 workspace_id=workspace_id,
                 effective_workspace_id=effective_workspace_id,
             )
@@ -1595,11 +1764,13 @@ class HostBridgeTaskExecutor:
 
     @staticmethod
     def _looks_like_quota_exhaustion(message: str) -> bool:
-        return looks_like_codex_quota_exhaustion(message)
+        return (
+            classify_codex_cli_runtime_failure(message).get("fault_kind") == "quota"
+        )
 
     @classmethod
     def _looks_like_auth_failure(cls, message: str) -> bool:
-        return looks_like_codex_auth_failure(message)
+        return classify_codex_cli_runtime_failure(message).get("fault_kind") == "auth"
 
     @classmethod
     def _should_retry_codex_runtime_fault(cls, result: ExecutionResult) -> bool:

@@ -33,7 +33,6 @@ import logging
 import os
 from pathlib import Path
 import re
-import shutil
 import signal
 import sys
 import tempfile
@@ -360,10 +359,6 @@ class HostBridgeWSClient:
         self._result_spool_path = self._resolve_result_spool_path()
         self._codex_seed_registry_path = self._resolve_codex_seed_registry_path()
         self._codex_managed_pool_root = self._resolve_codex_managed_pool_root()
-        self._codex_managed_pool_size = max(
-            0,
-            _env_int("MINDSCAPE_CODEX_HOME_MANAGED_POOL_SIZE", 3),
-        )
         self._load_result_spool()
         self._host_session_runtime_registered = False
         self._host_session_runtime_last_attempt_fingerprint: Optional[str] = None
@@ -1622,7 +1617,10 @@ class HostBridgeWSClient:
             return {}
 
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            raw_payload = path.read_text(encoding="utf-8").strip()
+            if not raw_payload:
+                return {}
+            payload = json.loads(raw_payload)
         except Exception as exc:
             logger.warning("Failed to load Codex seed registry %s: %s", path, exc)
             return {}
@@ -1643,6 +1641,12 @@ class HostBridgeWSClient:
                 "sources": self._normalize_seed_sources(item.get("sources")),
                 "last_seen_at": str(item.get("last_seen_at") or "").strip(),
                 "account_key": str(item.get("account_key") or "").strip(),
+                "account_label": str(item.get("account_label") or "").strip(),
+                "login_email": str(item.get("login_email") or "").strip().lower(),
+                "auth_account_id": str(item.get("auth_account_id") or "").strip(),
+                "auth_chatgpt_user_id": str(
+                    item.get("auth_chatgpt_user_id") or ""
+                ).strip(),
             }
         return registry
 
@@ -1660,6 +1664,15 @@ class HostBridgeWSClient:
                     "sources": sorted(meta.get("sources") or []),
                     "last_seen_at": meta.get("last_seen_at"),
                     "account_key": str(meta.get("account_key") or "").strip() or None,
+                    "account_label": str(meta.get("account_label") or "").strip() or None,
+                    "login_email": str(meta.get("login_email") or "").strip().lower()
+                    or None,
+                    "auth_account_id": str(meta.get("auth_account_id") or "").strip()
+                    or None,
+                    "auth_chatgpt_user_id": str(
+                        meta.get("auth_chatgpt_user_id") or ""
+                    ).strip()
+                    or None,
                 }
                 for codex_home, meta in sorted(entries.items())
             ],
@@ -1667,10 +1680,13 @@ class HostBridgeWSClient:
 
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
+            serialized = json.dumps(payload, ensure_ascii=True, indent=2) + "\n"
+            temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+            temp_path.write_text(
+                serialized,
                 encoding="utf-8",
             )
+            os.replace(temp_path, path)
         except Exception as exc:
             logger.warning("Failed to persist Codex seed registry %s: %s", path, exc)
 
@@ -1721,6 +1737,26 @@ class HostBridgeWSClient:
         return payload if isinstance(payload, dict) else {}
 
     @staticmethod
+    def _codex_auth_file_signature(codex_home: str) -> Dict[str, Any]:
+        auth_path = Path(os.path.expanduser(codex_home)) / "auth.json"
+        try:
+            stat = auth_path.stat()
+        except OSError:
+            return {}
+        return {
+            "codex_auth_mtime_ns": str(stat.st_mtime_ns),
+            "codex_auth_size": str(stat.st_size),
+        }
+
+    @staticmethod
+    def _auth_payload_has_runtime_credentials(payload: Dict[str, Any]) -> bool:
+        tokens = payload.get("tokens") if isinstance(payload.get("tokens"), dict) else {}
+        return any(
+            str(payload.get(key) or tokens.get(key) or "").strip()
+            for key in ("OPENAI_API_KEY", "access_token", "refresh_token")
+        )
+
+    @staticmethod
     def _decode_jwt_payload(token: str) -> Dict[str, Any]:
         raw = str(token or "").strip()
         if raw.count(".") < 2:
@@ -1747,6 +1783,7 @@ class HostBridgeWSClient:
             else {}
         )
 
+        account_id = str(tokens.get("account_id") or "").strip()
         principal_candidates = (
             str(auth_claims.get("chatgpt_user_id") or "").strip(),
             str(auth_claims.get("user_id") or "").strip(),
@@ -1755,9 +1792,12 @@ class HostBridgeWSClient:
         )
         for principal in principal_candidates:
             if principal:
+                if account_id:
+                    return hashlib.sha256(
+                        f"account:{account_id}:user:{principal}".encode("utf-8")
+                    ).hexdigest()[:24]
                 return hashlib.sha256(f"user:{principal}".encode("utf-8")).hexdigest()[:24]
 
-        account_id = str(tokens.get("account_id") or "").strip()
         if account_id:
             return hashlib.sha256(f"account:{account_id}".encode("utf-8")).hexdigest()[:24]
 
@@ -1770,6 +1810,126 @@ class HostBridgeWSClient:
             return hashlib.sha256(f"refresh:{refresh_token}".encode("utf-8")).hexdigest()[:24]
 
         return ""
+
+    def _extract_codex_account_identity(self, codex_home: str) -> Dict[str, Any]:
+        payload = self._load_codex_auth_payload(codex_home)
+        seed_metadata = self._read_codex_managed_seed_metadata(codex_home)
+        tokens = payload.get("tokens") if isinstance(payload.get("tokens"), dict) else {}
+        id_token_payload = self._decode_jwt_payload(tokens.get("id_token"))
+        auth_claims = (
+            id_token_payload.get("https://api.openai.com/auth")
+            if isinstance(id_token_payload.get("https://api.openai.com/auth"), dict)
+            else {}
+        )
+
+        email = str(
+            id_token_payload.get("email")
+            or auth_claims.get("email")
+            or seed_metadata.get("login_email")
+            or ""
+        ).strip().lower()
+        account_id = str(
+            tokens.get("account_id")
+            or auth_claims.get("chatgpt_account_id")
+            or seed_metadata.get("auth_account_id")
+            or ""
+        ).strip()
+        user_id = str(
+            auth_claims.get("chatgpt_user_id")
+            or auth_claims.get("user_id")
+            or id_token_payload.get("sub")
+            or seed_metadata.get("auth_chatgpt_user_id")
+            or ""
+        ).strip()
+        account_label = str(
+            email
+            or seed_metadata.get("account_label")
+            or user_id
+            or account_id
+            or ""
+        ).strip()
+        plan_type = str(auth_claims.get("chatgpt_plan_type") or "").strip().lower()
+        organizations = (
+            auth_claims.get("organizations")
+            if isinstance(auth_claims.get("organizations"), list)
+            else []
+        )
+        default_org = next(
+            (
+                org
+                for org in organizations
+                if isinstance(org, dict) and bool(org.get("is_default"))
+            ),
+            None,
+        )
+        if default_org is None:
+            default_org = next((org for org in organizations if isinstance(org, dict)), {})
+        org_title = str(
+            default_org.get("title")
+            or default_org.get("name")
+            or ""
+            if isinstance(default_org, dict)
+            else ""
+        ).strip()
+        org_id = str(
+            default_org.get("id") or "" if isinstance(default_org, dict) else ""
+        ).strip()
+        org_role = str(
+            default_org.get("role") or "" if isinstance(default_org, dict) else ""
+        ).strip()
+        org_plan_type = str(
+            default_org.get("plan_type") or "" if isinstance(default_org, dict) else ""
+        ).strip().lower()
+        effective_plan_type = plan_type or org_plan_type
+        scope_type = "unknown"
+        if org_title.lower() == "personal" or effective_plan_type == "free":
+            scope_type = "personal"
+        elif org_title or org_id or effective_plan_type:
+            scope_type = "workspace"
+        scope_label = org_title or (
+            "Personal"
+            if scope_type == "personal"
+            else "Workspace"
+            if scope_type == "workspace"
+            else ""
+        )
+
+        identity: Dict[str, Any] = {}
+        if account_label:
+            identity["account_label"] = account_label
+        if email:
+            identity["login_email"] = email
+        if account_id:
+            identity["auth_account_id"] = account_id
+        if user_id:
+            identity["auth_chatgpt_user_id"] = user_id
+        if scope_type:
+            identity["account_scope_type"] = scope_type
+        if scope_label:
+            identity["account_scope_label"] = scope_label
+        if org_role:
+            identity["account_scope_role"] = org_role
+        if effective_plan_type:
+            identity["account_plan_type"] = effective_plan_type
+        if org_id:
+            identity["account_organization_id"] = org_id
+        if org_title:
+            identity["account_organization_title"] = org_title
+        identity["account_organization_count"] = len(organizations)
+        if self._auth_payload_has_runtime_credentials(payload):
+            identity["codex_auth_has_runtime_credentials"] = True
+            identity.update(self._codex_auth_file_signature(codex_home))
+        if identity:
+            identity["account_identity_source"] = "codex_auth_json"
+        return identity
+
+    def _codex_account_identity_for_home(self, codex_home: str) -> Dict[str, Any]:
+        normalized_home = str(Path(os.path.expanduser(codex_home)))
+        identity = self._extract_codex_account_identity(normalized_home)
+        account_key = self._extract_codex_account_key(normalized_home)
+        if account_key:
+            identity["account_key"] = account_key
+        return identity
 
     def _is_managed_codex_home(self, codex_home: str) -> bool:
         try:
@@ -1788,6 +1948,120 @@ class HostBridgeWSClient:
             return {}
         return payload if isinstance(payload, dict) else {}
 
+    @staticmethod
+    def _write_codex_managed_seed_metadata(
+        codex_home: str,
+        metadata: Dict[str, Any],
+    ) -> None:
+        metadata_path = Path(os.path.expanduser(codex_home)) / ".mindscape-seed.json"
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        serialized = json.dumps(metadata, ensure_ascii=True, indent=2) + "\n"
+        temp_path = metadata_path.with_name(f".{metadata_path.name}.{os.getpid()}.tmp")
+        temp_path.write_text(serialized, encoding="utf-8")
+        os.replace(temp_path, metadata_path)
+
+    def _is_token_copy_codex_home(self, codex_home: str) -> bool:
+        metadata = self._read_codex_managed_seed_metadata(codex_home)
+        if bool(metadata.get("managed_mirror")):
+            return True
+        return False
+
+    def _account_snapshot_is_adopted(
+        self,
+        codex_home: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        from backend.app.services.codex_pool_health import account_snapshot_is_adopted
+
+        seed_metadata = (
+            dict(metadata)
+            if isinstance(metadata, dict)
+            else self._read_codex_managed_seed_metadata(codex_home)
+        )
+        return account_snapshot_is_adopted(seed_metadata, codex_home=codex_home)
+
+    @staticmethod
+    def _apply_codex_home_isolated_env(
+        metadata: Dict[str, Any],
+        codex_home: str,
+    ) -> None:
+        home = str(Path(os.path.expanduser(codex_home)))
+        metadata["HOME"] = home
+        metadata["XDG_CONFIG_HOME"] = str(Path(home) / ".config")
+        metadata["XDG_DATA_HOME"] = str(Path(home) / ".local" / "share")
+        metadata["XDG_STATE_HOME"] = str(Path(home) / ".local" / "state")
+
+    def _codex_seed_runtime_metadata(self, codex_home: str) -> Dict[str, Any]:
+        seed_metadata = self._read_codex_managed_seed_metadata(codex_home)
+        if not seed_metadata:
+            return {}
+
+        runtime_metadata: Dict[str, Any] = {}
+        if bool(seed_metadata.get("account_snapshot")):
+            runtime_metadata["account_snapshot"] = True
+            runtime_metadata["codex_pool_membership_state"] = (
+                "account_home_registered"
+                if self._account_snapshot_is_adopted(codex_home, seed_metadata)
+                else "account_snapshot_registered"
+            )
+        if bool(seed_metadata.get("managed_mirror")):
+            runtime_metadata["managed_mirror"] = True
+            runtime_metadata["codex_pool_membership_state"] = "managed_mirror"
+        source_home = str(seed_metadata.get("source_home") or "").strip()
+        if source_home:
+            runtime_metadata["seed_source_home"] = source_home
+        updated_at = str(seed_metadata.get("updated_at") or "").strip()
+        if updated_at:
+            runtime_metadata["seed_updated_at"] = updated_at
+        auth_synced_at = str(seed_metadata.get("auth_synced_at") or "").strip()
+        if auth_synced_at:
+            runtime_metadata["seed_auth_synced_at"] = auth_synced_at
+        try:
+            from backend.app.services.codex_account_home_auth_source_service import (
+                CodexAccountHomeAuthSourceService,
+            )
+
+            runtime_metadata.update(
+                CodexAccountHomeAuthSourceService.metadata_for_codex_home(
+                    codex_home,
+                    metadata=seed_metadata,
+                )
+            )
+        except Exception:
+            logger.debug(
+                "Failed to load Codex account-home auth source metadata for %s",
+                codex_home,
+                exc_info=True,
+            )
+        return runtime_metadata
+
+    def _codex_home_seed_kind(self, codex_home: str) -> str:
+        metadata = self._read_codex_managed_seed_metadata(codex_home)
+        if metadata.get("account_snapshot"):
+            return (
+                "account_home"
+                if self._account_snapshot_is_adopted(codex_home, metadata)
+                else "account_snapshot"
+            )
+        if metadata.get("managed_mirror"):
+            return "managed_mirror"
+        normalized = str(Path(os.path.expanduser(codex_home))).replace("\\", "/")
+        if "/accounts/acct-" in normalized:
+            return "account_home"
+        return "real_home"
+
+    def _filter_executable_codex_home_entries(
+        self,
+        entries: Dict[str, set[str]],
+    ) -> Dict[str, set[str]]:
+        filtered: Dict[str, set[str]] = {}
+        for codex_home, sources in entries.items():
+            normalized = str(Path(os.path.expanduser(codex_home)))
+            if self._is_token_copy_codex_home(normalized):
+                continue
+            filtered[normalized] = set(sources)
+        return filtered
+
     def _codex_quota_scope_home(self, codex_home: str) -> str:
         normalized_home = str(Path(os.path.expanduser(codex_home)))
         if not self._is_managed_codex_home(normalized_home):
@@ -1805,140 +2079,6 @@ class HostBridgeWSClient:
         quota_scope_home = self._codex_quota_scope_home(codex_home)
         return hashlib.sha1(quota_scope_home.encode("utf-8")).hexdigest()[:16]
 
-    def _codex_managed_seed_copy_specs(self) -> tuple[tuple[str, str], ...]:
-        return (
-            ("auth.json", "auth.json"),
-            ("config.toml", "config.toml"),
-            ("installation_id", "installation_id"),
-            ("AGENTS.md", "AGENTS.md"),
-            (".personality_migration", ".personality_migration"),
-            ("rules/default.rules", "rules/default.rules"),
-        )
-
-    def _sync_codex_home_mirror(self, source_home: str, target_home: Path, *, slot: int) -> bool:
-        source_path = Path(os.path.expanduser(source_home))
-        if not self._codex_home_has_login_trace(str(source_path)):
-            return False
-
-        try:
-            target_home.mkdir(parents=True, exist_ok=True)
-            for relative_src, relative_dst in self._codex_managed_seed_copy_specs():
-                src_path = source_path / relative_src
-                if not src_path.exists():
-                    continue
-                dst_path = target_home / relative_dst
-                dst_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src_path, dst_path)
-
-            metadata_path = target_home / ".mindscape-seed.json"
-            metadata_path.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "managed_mirror": True,
-                        "slot": slot,
-                        "source_home": str(source_path),
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    },
-                    ensure_ascii=True,
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            return True
-        except Exception as exc:
-            logger.warning(
-                "Failed to materialize managed Codex home mirror %s from %s: %s",
-                target_home,
-                source_path,
-                exc,
-            )
-            return False
-
-    def _sync_codex_account_snapshot(
-        self,
-        source_home: str,
-        target_home: Path,
-        *,
-        account_key: str,
-    ) -> bool:
-        source_path = Path(os.path.expanduser(source_home))
-        if not self._codex_home_has_login_trace(str(source_path)):
-            return False
-        if not account_key:
-            return False
-
-        try:
-            target_home.mkdir(parents=True, exist_ok=True)
-            for relative_src, relative_dst in self._codex_managed_seed_copy_specs():
-                src_path = source_path / relative_src
-                if not src_path.exists():
-                    continue
-                dst_path = target_home / relative_dst
-                dst_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src_path, dst_path)
-
-            metadata_path = target_home / ".mindscape-seed.json"
-            metadata_path.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "account_snapshot": True,
-                        "account_key": account_key,
-                        "source_home": str(source_path),
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    },
-                    ensure_ascii=True,
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            return True
-        except Exception as exc:
-            logger.warning(
-                "Failed to materialize Codex account snapshot %s from %s: %s",
-                target_home,
-                source_path,
-                exc,
-            )
-            return False
-
-    def _materialize_managed_codex_home_mirrors(
-        self,
-        entries: Dict[str, set[str]],
-    ) -> Dict[str, set[str]]:
-        if self.surface != "codex_cli":
-            return {}
-        if self._codex_managed_pool_size <= 1:
-            return {}
-
-        real_homes = [
-            path
-            for path in entries.keys()
-            if not self._is_managed_codex_home(path)
-        ]
-        if len(real_homes) != 1:
-            return {}
-
-        target_total = max(self._codex_managed_pool_size, len(real_homes))
-        missing_count = max(0, target_total - len(entries))
-        if missing_count == 0:
-            return {}
-
-        primary_home = real_homes[0]
-        source_tag = f"{_safe_path_component(Path(primary_home).name)}-{hashlib.sha1(primary_home.encode('utf-8')).hexdigest()[:10]}"
-        base_dir = self._codex_managed_pool_root / source_tag
-
-        mirrors: Dict[str, set[str]] = {}
-        for slot in range(1, missing_count + 1):
-            target_home = base_dir / f"mirror-{slot:02d}"
-            if not self._sync_codex_home_mirror(primary_home, target_home, slot=slot):
-                continue
-            mirrors[str(target_home)] = {"managed_mirror", "registration"}
-        return mirrors
-
     def _discover_codex_home_candidates(self) -> Dict[str, set[str]]:
         discovered: Dict[str, set[str]] = {}
         if self.surface != "codex_cli":
@@ -1950,15 +2090,14 @@ class HostBridgeWSClient:
             for candidate in home_dir.glob(pattern):
                 candidate_paths.append((str(candidate), "home_glob"))
 
-        managed_accounts_dir = self._codex_managed_pool_root / "accounts"
-        if managed_accounts_dir.is_dir():
-            for candidate in managed_accounts_dir.iterdir():
-                if candidate.is_dir():
-                    candidate_paths.append((str(candidate), "managed_account_pool"))
-
         registry_entries = self._load_codex_seed_registry()
         for candidate_path in registry_entries.keys():
             candidate_paths.append((candidate_path, "seed_registry"))
+
+        account_pool_root = self._codex_managed_pool_root / "accounts"
+        if account_pool_root.exists():
+            for candidate in account_pool_root.glob("acct-*"):
+                candidate_paths.append((str(candidate), "managed_account_pool"))
 
         seen: set[str] = set()
         for raw_path, source in candidate_paths:
@@ -1966,6 +2105,8 @@ class HostBridgeWSClient:
             if normalized in seen:
                 continue
             seen.add(normalized)
+            if self._is_token_copy_codex_home(normalized):
+                continue
             if not self._codex_home_has_login_trace(normalized):
                 continue
             discovered.setdefault(normalized, set()).add(source)
@@ -1982,13 +2123,23 @@ class HostBridgeWSClient:
             if self._codex_home_has_login_trace(normalized):
                 last_seen_at = now_iso
                 account_key = self._extract_codex_account_key(normalized)
+                identity = self._extract_codex_account_identity(normalized)
             else:
                 last_seen_at = existing.get("last_seen_at", "")
                 account_key = str(existing.get("account_key") or "").strip()
+                identity = {
+                    "account_label": str(existing.get("account_label") or "").strip(),
+                    "login_email": str(existing.get("login_email") or "").strip().lower(),
+                    "auth_account_id": str(existing.get("auth_account_id") or "").strip(),
+                    "auth_chatgpt_user_id": str(
+                        existing.get("auth_chatgpt_user_id") or ""
+                    ).strip(),
+                }
             next_meta = {
                 "sources": merged_sources,
                 "last_seen_at": last_seen_at,
                 "account_key": account_key,
+                **{key: value for key, value in identity.items() if value},
             }
             if registry.get(normalized) != next_meta:
                 registry[normalized] = next_meta
@@ -2087,9 +2238,19 @@ class HostBridgeWSClient:
         pool_priority = _env_int("MINDSCAPE_CODEX_POOL_PRIORITY", 0)
         pool_enabled = _env_flag("MINDSCAPE_CODEX_POOL_ENABLED", True)
         if self.surface == "codex_cli" and isinstance(codex_home, str) and codex_home.strip():
+            metadata.update(self._codex_seed_runtime_metadata(codex_home))
+            metadata["codex_seed_kind"] = self._codex_home_seed_kind(codex_home)
+            account_key = self._extract_codex_account_key(codex_home)
+            if account_key:
+                metadata["account_key"] = account_key
+            metadata.update(self._extract_codex_account_identity(codex_home))
             quota_scope_home = self._codex_quota_scope_home(codex_home)
             metadata["quota_scope_home"] = quota_scope_home
-            metadata["quota_scope_key"] = self._codex_quota_scope_key(codex_home)
+            metadata["quota_scope_key"] = (
+                f"account:{account_key}"
+                if account_key
+                else self._codex_quota_scope_key(codex_home)
+            )
             if quota_scope_home != codex_home:
                 metadata["managed_seed_source_home"] = quota_scope_home
 
@@ -2130,90 +2291,9 @@ class HostBridgeWSClient:
             for path, sources in self._discover_codex_home_candidates().items():
                 entries.setdefault(path, set()).update(sources)
 
-        primary_codex_home = os.environ.get("CODEX_HOME", "").strip()
-        if not primary_codex_home:
-            default_codex_home = Path(
-                os.path.expanduser(os.environ.get("HOME", "").strip() or str(Path.home()))
-            ) / ".codex"
-            if default_codex_home.exists():
-                primary_codex_home = str(default_codex_home)
-
-        account_snapshots = self._materialize_codex_account_snapshots(
-            entries,
-            primary_codex_home=primary_codex_home,
-        )
-        if account_snapshots:
-            snapshot_registry_entries = {
-                **entries,
-                **{path: set(sources) for path, sources in account_snapshots.items()},
-            }
-            self._remember_codex_home_seeds(snapshot_registry_entries)
-        for path, sources in account_snapshots.items():
-            entries.setdefault(path, set()).update(sources)
-
-        entries = self._prune_duplicate_account_snapshots(entries)
-        for path, sources in self._materialize_managed_codex_home_mirrors(entries).items():
-            entries.setdefault(path, set()).update(sources)
+        entries = self._filter_executable_codex_home_entries(entries)
         self._remember_codex_home_seeds(entries)
         return list(entries.keys())
-
-    def _materialize_codex_account_snapshots(
-        self,
-        entries: Dict[str, set[str]],
-        *,
-        primary_codex_home: str,
-    ) -> Dict[str, set[str]]:
-        if self.surface != "codex_cli":
-            return {}
-        normalized_primary = str(
-            Path(os.path.expanduser(str(primary_codex_home or "").strip()))
-        )
-        if not normalized_primary or self._is_managed_codex_home(normalized_primary):
-            return {}
-        if not self._codex_home_has_login_trace(normalized_primary):
-            return {}
-
-        account_key = self._extract_codex_account_key(normalized_primary)
-        if not account_key:
-            return {}
-
-        snapshot_home = (
-            self._codex_managed_pool_root / "accounts" / f"acct-{account_key[:16]}"
-        )
-        if not self._sync_codex_account_snapshot(
-            normalized_primary,
-            snapshot_home,
-            account_key=account_key,
-        ):
-            return {}
-        return {str(snapshot_home): {"account_snapshot", "registration"}}
-
-    def _prune_duplicate_account_snapshots(
-        self,
-        entries: Dict[str, set[str]],
-    ) -> Dict[str, set[str]]:
-        real_account_keys: set[str] = set()
-        for codex_home in entries.keys():
-            normalized = str(Path(os.path.expanduser(codex_home)))
-            if self._is_managed_codex_home(normalized):
-                continue
-            account_key = self._extract_codex_account_key(normalized)
-            if account_key:
-                real_account_keys.add(account_key)
-
-        if not real_account_keys:
-            return entries
-
-        filtered: Dict[str, set[str]] = {}
-        for codex_home, sources in entries.items():
-            normalized = str(Path(os.path.expanduser(codex_home)))
-            metadata = self._read_codex_managed_seed_metadata(normalized)
-            if metadata.get("account_snapshot"):
-                account_key = str(metadata.get("account_key") or "").strip()
-                if account_key and account_key in real_account_keys:
-                    continue
-            filtered[normalized] = set(sources)
-        return filtered
 
     def _build_host_session_runtime_registration_payloads(self) -> list[Dict[str, Any]]:
         base_payload = self._build_host_session_runtime_registration_payload()
@@ -2223,7 +2303,12 @@ class HostBridgeWSClient:
         primary_codex_home = str(base_metadata.get("CODEX_HOME") or "").strip()
 
         codex_homes = self._codex_home_pool_entries()
-        if primary_codex_home and primary_codex_home not in codex_homes:
+        if (
+            primary_codex_home
+            and primary_codex_home not in codex_homes
+            and not self._is_token_copy_codex_home(primary_codex_home)
+            and self._codex_home_has_login_trace(primary_codex_home)
+        ):
             codex_homes.insert(0, primary_codex_home)
 
         remembered_entries: Dict[str, set[str]] = {}
@@ -2234,6 +2319,8 @@ class HostBridgeWSClient:
         self._remember_codex_home_seeds(remembered_entries)
 
         if not codex_homes:
+            if primary_codex_home and self._is_token_copy_codex_home(primary_codex_home):
+                return []
             return [base_payload]
 
         payloads: list[Dict[str, Any]] = []
@@ -2243,12 +2330,21 @@ class HostBridgeWSClient:
             metadata["CODEX_HOME"] = codex_home
             if home_value:
                 metadata["HOME"] = home_value
+            if self._is_managed_codex_home(codex_home):
+                self._apply_codex_home_isolated_env(metadata, codex_home)
             account_key = self._extract_codex_account_key(codex_home)
             if account_key:
                 metadata["account_key"] = account_key
+            metadata.update(self._codex_seed_runtime_metadata(codex_home))
+            metadata["codex_seed_kind"] = self._codex_home_seed_kind(codex_home)
+            metadata.update(self._extract_codex_account_identity(codex_home))
             quota_scope_home = self._codex_quota_scope_home(codex_home)
             metadata["quota_scope_home"] = quota_scope_home
-            metadata["quota_scope_key"] = self._codex_quota_scope_key(codex_home)
+            metadata["quota_scope_key"] = (
+                f"account:{account_key}"
+                if account_key
+                else self._codex_quota_scope_key(codex_home)
+            )
             if quota_scope_home != codex_home:
                 metadata["managed_seed_source_home"] = quota_scope_home
             metadata["seed_capture_managed"] = True
@@ -2258,6 +2354,7 @@ class HostBridgeWSClient:
             payload["pool_priority"] = base_priority + offset
             payload["runtime_name"] = f"codex_cli host session ({Path(codex_home).name})"
             payloads.append(payload)
+
         return payloads
 
     @staticmethod

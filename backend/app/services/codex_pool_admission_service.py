@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
-from backend.app.services.codex_pool_health import coerce_datetime, read_health_metadata
+from backend.app.services.codex_pool_health import (
+    coerce_datetime,
+    is_executable_runtime_metadata,
+    read_health_metadata,
+    runtime_probe_available,
+)
 
 
 _SUPPORTED_AUTH_TYPES = frozenset({"api_key", "host_session", "none"})
@@ -31,6 +36,8 @@ class CodexPoolAdmissionDecision:
     probation_runtime_count: int
     quarantined_runtime_count: int
     cooldown_runtime_count: int
+    account_home_candidate_count: int
+    probe_available_runtime_count: int
     failure_counts: dict[str, int]
     candidate_runtime_ids: tuple[str, ...]
 
@@ -57,6 +64,8 @@ class CodexPoolAdmissionDecision:
             "probation_runtime_count": self.probation_runtime_count,
             "quarantined_runtime_count": self.quarantined_runtime_count,
             "cooldown_runtime_count": self.cooldown_runtime_count,
+            "account_home_candidate_count": self.account_home_candidate_count,
+            "probe_available_runtime_count": self.probe_available_runtime_count,
             "failure_counts": dict(self.failure_counts),
             "candidate_runtime_ids": list(self.candidate_runtime_ids),
         }
@@ -81,13 +90,20 @@ class CodexPoolAdmissionService:
         *,
         preferred_runtime_id: Optional[str] = None,
         allow_runtime_substitution: bool = False,
+        require_probe_available: bool = False,
     ) -> CodexPoolAdmissionDecision:
         try:
             self._requalification_runner()
         except Exception:
             pass
         runtimes = self._runtime_loader()
-        summaries = [self._summarize_runtime(runtime) for runtime in runtimes]
+        summaries = [
+            self._summarize_runtime(
+                runtime,
+                require_probe_available=require_probe_available,
+            )
+            for runtime in runtimes
+        ]
         pool_enabled_runtime_count = len(summaries)
         runnable_candidates = [
             item for item in summaries if item["runnable_candidate"]
@@ -102,6 +118,12 @@ class CodexPoolAdmissionService:
             1 for item in summaries if item["health_state"] == "quarantined"
         )
         cooldown_runtime_count = sum(1 for item in summaries if item["cooldown_active"])
+        account_home_candidate_count = sum(
+            1 for item in summaries if item["account_home_candidate"]
+        )
+        probe_available_runtime_count = sum(
+            1 for item in summaries if item["probe_available"]
+        )
         failure_counts = Counter(
             item["last_failure_code"]
             for item in summaries
@@ -134,6 +156,8 @@ class CodexPoolAdmissionService:
                     probation_runtime_count=len(probation_candidates),
                     quarantined_runtime_count=quarantined_runtime_count,
                     cooldown_runtime_count=cooldown_runtime_count,
+                    account_home_candidate_count=account_home_candidate_count,
+                    probe_available_runtime_count=probe_available_runtime_count,
                     failure_counts=dict(failure_counts),
                     candidate_runtime_ids=(normalized_preferred_runtime_id,),
                 )
@@ -149,11 +173,31 @@ class CodexPoolAdmissionService:
                     probation_runtime_count=len(probation_candidates),
                     quarantined_runtime_count=quarantined_runtime_count,
                     cooldown_runtime_count=cooldown_runtime_count,
+                    account_home_candidate_count=account_home_candidate_count,
+                    probe_available_runtime_count=probe_available_runtime_count,
                     failure_counts=dict(failure_counts),
                     candidate_runtime_ids=tuple(
                         item["runtime_id"] for item in runnable_candidates
                     ),
                 )
+
+        if require_probe_available and account_home_candidate_count <= 0:
+            return CodexPoolAdmissionDecision(
+                admissible=False,
+                reason="no_account_home_candidates",
+                preferred_runtime_id=normalized_preferred_runtime_id,
+                allow_runtime_substitution=allow_runtime_substitution,
+                pool_enabled_runtime_count=pool_enabled_runtime_count,
+                runnable_runtime_count=len(runnable_candidates),
+                healthy_runtime_count=len(healthy_candidates),
+                probation_runtime_count=len(probation_candidates),
+                quarantined_runtime_count=quarantined_runtime_count,
+                cooldown_runtime_count=cooldown_runtime_count,
+                account_home_candidate_count=account_home_candidate_count,
+                probe_available_runtime_count=probe_available_runtime_count,
+                failure_counts=dict(failure_counts),
+                candidate_runtime_ids=(),
+            )
 
         if healthy_candidates:
             return CodexPoolAdmissionDecision(
@@ -167,6 +211,8 @@ class CodexPoolAdmissionService:
                 probation_runtime_count=len(probation_candidates),
                 quarantined_runtime_count=quarantined_runtime_count,
                 cooldown_runtime_count=cooldown_runtime_count,
+                account_home_candidate_count=account_home_candidate_count,
+                probe_available_runtime_count=probe_available_runtime_count,
                 failure_counts=dict(failure_counts),
                 candidate_runtime_ids=tuple(
                     item["runtime_id"] for item in healthy_candidates
@@ -184,15 +230,22 @@ class CodexPoolAdmissionService:
                 probation_runtime_count=len(probation_candidates),
                 quarantined_runtime_count=quarantined_runtime_count,
                 cooldown_runtime_count=cooldown_runtime_count,
+                account_home_candidate_count=account_home_candidate_count,
+                probe_available_runtime_count=probe_available_runtime_count,
                 failure_counts=dict(failure_counts),
                 candidate_runtime_ids=tuple(
                     item["runtime_id"] for item in runnable_candidates
                 ),
             )
 
+        blocked_reason = (
+            "no_probe_available_runtimes"
+            if require_probe_available and account_home_candidate_count > 0
+            else "no_runnable_runtimes"
+        )
         return CodexPoolAdmissionDecision(
             admissible=False,
-            reason="no_runnable_runtimes",
+            reason=blocked_reason,
             preferred_runtime_id=normalized_preferred_runtime_id,
             allow_runtime_substitution=allow_runtime_substitution,
             pool_enabled_runtime_count=pool_enabled_runtime_count,
@@ -201,6 +254,8 @@ class CodexPoolAdmissionService:
             probation_runtime_count=len(probation_candidates),
             quarantined_runtime_count=quarantined_runtime_count,
             cooldown_runtime_count=cooldown_runtime_count,
+            account_home_candidate_count=account_home_candidate_count,
+            probe_available_runtime_count=probe_available_runtime_count,
             failure_counts=dict(failure_counts),
             candidate_runtime_ids=(),
         )
@@ -236,7 +291,11 @@ class CodexPoolAdmissionService:
         CodexPoolRequalificationService().sweep_due_runtimes()
 
     @staticmethod
-    def _summarize_runtime(runtime: Any) -> dict[str, Any]:
+    def _summarize_runtime(
+        runtime: Any,
+        *,
+        require_probe_available: bool = False,
+    ) -> dict[str, Any]:
         auth_type = str(getattr(runtime, "auth_type", "") or "")
         metadata = dict(getattr(runtime, "extra_metadata", None) or {})
         health = read_health_metadata(metadata, auth_type=auth_type)
@@ -244,16 +303,39 @@ class CodexPoolAdmissionService:
         now = datetime.now(timezone.utc)
         cooldown_active = bool(cooldown_until and cooldown_until > now)
         health_state = str(health.get("health_state") or "").strip().lower() or "healthy"
+        executable_seed = is_executable_runtime_metadata(metadata, auth_type=auth_type)
+        seed_kind = str(health.get("seed_kind") or "").strip().lower()
         runtime_id = str(getattr(runtime, "id", "") or "").strip()
-        healthy_candidate = health_state == "healthy" and not cooldown_active
-        probation_candidate = health_state == "probation" and not cooldown_active
-        runnable_candidate = health_state != "quarantined" and not cooldown_active
+        probe_available = runtime_probe_available(metadata)
+        probe_gate_passed = (not require_probe_available) or probe_available
+        account_home_candidate = executable_seed and seed_kind == "account_home"
+        healthy_candidate = (
+            executable_seed
+            and health_state == "healthy"
+            and not cooldown_active
+            and probe_gate_passed
+        )
+        probation_candidate = (
+            executable_seed
+            and health_state == "probation"
+            and not cooldown_active
+            and probe_gate_passed
+        )
+        runnable_candidate = (
+            executable_seed
+            and health_state != "quarantined"
+            and not cooldown_active
+            and probe_gate_passed
+        )
         return {
             "runtime_id": runtime_id,
             "health_state": health_state,
+            "seed_kind": seed_kind,
             "cooldown_active": cooldown_active,
             "last_failure_code": str(health.get("last_failure_code") or "").strip().lower()
             or None,
+            "account_home_candidate": account_home_candidate,
+            "probe_available": probe_available,
             "runnable_candidate": runnable_candidate,
             "healthy_candidate": healthy_candidate,
             "probation_candidate": probation_candidate,

@@ -20,9 +20,14 @@ from .codex_pool_health import (
     auth_failure_scope_key,
     coerce_datetime,
     health_state_rank,
+    is_executable_runtime_metadata,
+    read_probe_metadata,
     read_health_metadata,
+    runtime_probe_available,
     seed_kind_rank,
     stamp_runtime_failure,
+    stamp_runtime_probe_failure,
+    stamp_runtime_probe_success,
     stamp_runtime_selected,
     stamp_runtime_success,
 )
@@ -71,18 +76,24 @@ class CodexPoolService:
         *,
         preferred_runtime_id: Optional[str] = None,
         allow_runtime_substitution: Optional[bool] = None,
-        allow_fallback: Optional[bool] = None,
         excluded_runtime_ids: Optional[set[str]] = None,
+        excluded_quota_scope_keys: Optional[set[str]] = None,
+        require_probe_available: bool = False,
     ) -> Dict[str, Any]:
         """Return env/auth metadata for the best available Codex runtime."""
         if allow_runtime_substitution is None:
-            allow_runtime_substitution = True if allow_fallback is None else bool(allow_fallback)
+            allow_runtime_substitution = False
         else:
             allow_runtime_substitution = bool(allow_runtime_substitution)
         excluded_runtime_ids = {
             str(runtime_id).strip()
             for runtime_id in (excluded_runtime_ids or set())
             if str(runtime_id).strip()
+        }
+        excluded_quota_scope_keys = {
+            str(scope_key).strip()
+            for scope_key in (excluded_quota_scope_keys or set())
+            if str(scope_key).strip()
         }
         try:
             self._requalification_runner()
@@ -114,6 +125,20 @@ class CodexPoolService:
                         for runtime in runtimes
                         if str(getattr(runtime, "id", "") or "") not in excluded_runtime_ids
                     ]
+                if excluded_quota_scope_keys:
+                    runtimes = [
+                        runtime
+                        for runtime in runtimes
+                        if (
+                            self._quota_scope_key(runtime)
+                            or f"runtime:{getattr(runtime, 'id', '')}"
+                        )
+                        not in excluded_quota_scope_keys
+                    ]
+                runtimes = self._filter_runnable_candidate_runtimes(
+                    runtimes,
+                    require_probe_available=require_probe_available,
+                )
                 runtimes = self._sort_candidate_runtimes(runtimes)
 
                 if not preferred_runtime_id and not allow_runtime_substitution:
@@ -161,6 +186,12 @@ class CodexPoolService:
                     bundle["selected_runtime_id"] = runtime.id
                     bundle["available_runtime_count"] = available_runtime_count
                     bundle["available_quota_scope_count"] = available_quota_scope_count
+                    bundle["quota_scope_key"] = self._quota_scope_key(runtime)
+                    bundle["runtime_account_identity"] = (
+                        self._runtime_account_identity_payload(
+                            dict(getattr(runtime, "extra_metadata", None) or {})
+                        )
+                    )
                     bundle.update(
                         self._bundle_health_payload(
                             runtime.extra_metadata,
@@ -195,11 +226,18 @@ class CodexPoolService:
                     allow_runtime_substitution=allow_runtime_substitution,
                     auth_service=RuntimeAuthService(),
                     excluded_runtime_ids=excluded_runtime_ids,
+                    excluded_quota_scope_keys=excluded_quota_scope_keys,
+                    require_probe_available=require_probe_available,
                 )
         finally:
             db.close()
 
-    def report_quota_exhausted(self, runtime_id: str) -> Optional[Dict[str, Any]]:
+    def report_quota_exhausted(
+        self,
+        runtime_id: str,
+        *,
+        reset_at: Optional[datetime] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Mark a runtime as temporarily cooled down after quota exhaustion."""
         db = self._get_db()
         RuntimeEnvironment = self._get_model()
@@ -223,6 +261,10 @@ class CodexPoolService:
                     MAX_COOLDOWN_SECONDS,
                 )
                 cooldown_until = now + timedelta(seconds=cooldown_secs)
+                reset_until = coerce_datetime(reset_at)
+                if reset_until and reset_until > cooldown_until:
+                    cooldown_until = reset_until
+                    cooldown_secs = max(1, int((cooldown_until - now).total_seconds()))
                 quota_scope_key = self._quota_scope_key(runtime)
                 affected_runtimes = [runtime]
                 if quota_scope_key:
@@ -251,6 +293,10 @@ class CodexPoolService:
                             f"quota:{quota_scope_key}" if quota_scope_key else f"runtime:{candidate.id}"
                         ),
                     )
+                    candidate.extra_metadata = stamp_runtime_probe_failure(
+                        dict(getattr(candidate, "extra_metadata", None) or {}),
+                        error_code="429",
+                    )
                 db.commit()
                 db.refresh(runtime)
                 logger.info(
@@ -272,7 +318,11 @@ class CodexPoolService:
                     runtime_id,
                     exc_info=True,
                 )
-                return self._report_quota_exhausted_sql(db, runtime_id)
+                return self._report_quota_exhausted_sql(
+                    db,
+                    runtime_id,
+                    reset_at=reset_at,
+                )
         finally:
             db.close()
 
@@ -339,6 +389,10 @@ class CodexPoolService:
                         auth_type=str(getattr(candidate, "auth_type", "") or ""),
                         failure_scope_key=failure_scope_key,
                     )
+                    candidate.extra_metadata = stamp_runtime_probe_failure(
+                        dict(getattr(candidate, "extra_metadata", None) or {}),
+                        error_code=normalized_error_code,
+                    )
                 db.commit()
                 db.refresh(runtime)
                 logger.warning(
@@ -392,6 +446,10 @@ class CodexPoolService:
                     dict(getattr(runtime, "extra_metadata", None) or {}),
                     auth_type=str(getattr(runtime, "auth_type", "") or ""),
                 )
+                runtime.extra_metadata = stamp_runtime_probe_success(
+                    dict(getattr(runtime, "extra_metadata", None) or {}),
+                    returncode=0,
+                )
                 db.commit()
                 db.refresh(runtime)
                 return runtime.to_dict(include_sensitive=False)
@@ -409,16 +467,24 @@ class CodexPoolService:
         finally:
             db.close()
 
+    @staticmethod
+    def _truthy_metadata_value(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        return str(value or "").strip().lower() in {"1", "true", "yes", "present"}
+
     def _report_quota_exhausted_sql(
         self,
         db: Any,
         runtime_id: str,
+        *,
+        reset_at: Optional[datetime] = None,
     ) -> Optional[Dict[str, Any]]:
         runtime = (
             db.execute(
                 text(
                     """
-                    SELECT id, user_id, extra_metadata, cooldown_until, last_error_code
+                    SELECT id, user_id, auth_type, extra_metadata, cooldown_until, last_error_code
                     FROM runtime_environments
                     WHERE id = :runtime_id
                       AND pool_group = :pool_group
@@ -443,6 +509,10 @@ class CodexPoolService:
             MAX_COOLDOWN_SECONDS,
         )
         cooldown_until = now + timedelta(seconds=cooldown_secs)
+        reset_until = coerce_datetime(reset_at)
+        if reset_until and reset_until > cooldown_until:
+            cooldown_until = reset_until
+            cooldown_secs = max(1, int((cooldown_until - now).total_seconds()))
         quota_scope_key = self._quota_scope_key_from_metadata(runtime.get("extra_metadata"))
         affected_ids = [runtime_id]
         if quota_scope_key:
@@ -450,7 +520,7 @@ class CodexPoolService:
                 db.execute(
                     text(
                         """
-                        SELECT id, extra_metadata
+                        SELECT id, auth_type, extra_metadata
                         FROM runtime_environments
                         WHERE pool_group = :pool_group
                           AND user_id = :user_id
@@ -472,20 +542,30 @@ class CodexPoolService:
             ] or [runtime_id]
 
         for candidate_id in affected_ids:
-            candidate_metadata = next(
-                (
-                    self._coerce_json_dict(candidate.get("extra_metadata"))
-                    for candidate in sibling_rows
-                    if str(candidate.get("id")) == candidate_id
-                ),
-                self._coerce_json_dict(runtime.get("extra_metadata")),
-            ) if quota_scope_key else self._coerce_json_dict(runtime.get("extra_metadata"))
+            candidate_row = None
+            if quota_scope_key:
+                candidate_row = next(
+                    (
+                        candidate
+                        for candidate in sibling_rows
+                        if str(candidate.get("id")) == candidate_id
+                    ),
+                    None,
+                )
+            candidate_metadata = self._coerce_json_dict(
+                (candidate_row or runtime).get("extra_metadata")
+            )
             updated_metadata = stamp_runtime_failure(
                 candidate_metadata,
                 error_code="429",
+                auth_type=str((candidate_row or runtime).get("auth_type") or ""),
                 failure_scope_key=(
                     f"quota:{quota_scope_key}" if quota_scope_key else f"runtime:{candidate_id}"
                 ),
+            )
+            updated_metadata = stamp_runtime_probe_failure(
+                updated_metadata,
+                error_code="429",
             )
             db.execute(
                 text(
@@ -527,12 +607,19 @@ class CodexPoolService:
         allow_runtime_substitution: bool,
         auth_service: Any,
         excluded_runtime_ids: Optional[set[str]] = None,
+        excluded_quota_scope_keys: Optional[set[str]] = None,
+        require_probe_available: bool = False,
     ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
         excluded_runtime_ids = {
             str(runtime_id).strip()
             for runtime_id in (excluded_runtime_ids or set())
             if str(runtime_id).strip()
+        }
+        excluded_quota_scope_keys = {
+            str(scope_key).strip()
+            for scope_key in (excluded_quota_scope_keys or set())
+            if str(scope_key).strip()
         }
         runtimes = (
             db.execute(
@@ -569,6 +656,20 @@ class CodexPoolService:
                 for runtime in runtimes
                 if str(runtime.get("id") or "") not in excluded_runtime_ids
             ]
+        if excluded_quota_scope_keys:
+            runtimes = [
+                runtime
+                for runtime in runtimes
+                if (
+                    self._quota_scope_key_from_metadata(runtime.get("extra_metadata"))
+                    or f"runtime:{runtime.get('id')}"
+                )
+                not in excluded_quota_scope_keys
+            ]
+        runtimes = self._filter_runnable_candidate_runtime_rows(
+            runtimes,
+            require_probe_available=require_probe_available,
+        )
         runtimes = self._sort_candidate_runtime_rows(runtimes)
 
         if not preferred_runtime_id and not allow_runtime_substitution:
@@ -632,6 +733,12 @@ class CodexPoolService:
             bundle["selected_runtime_id"] = runtime_id
             bundle["available_runtime_count"] = available_runtime_count
             bundle["available_quota_scope_count"] = available_quota_scope_count
+            bundle["quota_scope_key"] = self._quota_scope_key_from_metadata(
+                runtime.get("extra_metadata")
+            )
+            bundle["runtime_account_identity"] = self._runtime_account_identity_payload(
+                runtime.get("extra_metadata")
+            )
             bundle.update(
                 self._bundle_health_payload(
                     updated_metadata,
@@ -730,6 +837,10 @@ class CodexPoolService:
                 auth_type=str(candidate.get("auth_type") or ""),
                 failure_scope_key=failure_scope_key,
             )
+            updated_metadata = stamp_runtime_probe_failure(
+                updated_metadata,
+                error_code=normalized_error_code,
+            )
             db.execute(
                 text(
                     """
@@ -790,6 +901,10 @@ class CodexPoolService:
         updated_metadata = stamp_runtime_success(
             self._coerce_json_dict(runtime.get("extra_metadata")),
             auth_type=str(runtime.get("auth_type") or ""),
+        )
+        updated_metadata = stamp_runtime_probe_success(
+            updated_metadata,
+            returncode=0,
         )
         db.execute(
             text(
@@ -947,14 +1062,65 @@ class CodexPoolService:
     @staticmethod
     def _quota_scope_key(runtime: Any) -> Optional[str]:
         metadata = dict(getattr(runtime, "extra_metadata", None) or {})
-        value = str(metadata.get("quota_scope_key") or "").strip()
-        return value or None
+        return CodexPoolService._quota_scope_key_from_metadata(metadata)
 
     @staticmethod
     def _quota_scope_key_from_metadata(metadata: Any) -> Optional[str]:
         metadata = CodexPoolService._coerce_json_dict(metadata)
+        account_key = str(metadata.get("account_key") or "").strip()
+        if account_key:
+            return f"account:{account_key}"
+
         value = str(metadata.get("quota_scope_key") or "").strip()
-        return value or None
+        if value:
+            return value
+
+        for key in (
+            "CODEX_HOME",
+            "codex_home",
+            "host_session_home",
+            "quota_scope_home",
+            "managed_seed_source_home",
+            "XDG_CONFIG_HOME",
+            "HOME",
+        ):
+            value = str(metadata.get(key) or "").strip()
+            if value:
+                return f"host_session:{value}"
+        return None
+
+    @staticmethod
+    def _runtime_account_identity_payload(metadata: Any) -> Dict[str, Any]:
+        metadata = CodexPoolService._coerce_json_dict(metadata)
+        login_email = str(
+            metadata.get("login_email")
+            or metadata.get("account_email")
+            or metadata.get("email")
+            or ""
+        ).strip().lower()
+        account_label = str(metadata.get("account_label") or "").strip()
+        auth_account_id = str(metadata.get("auth_account_id") or "").strip()
+        auth_chatgpt_user_id = str(metadata.get("auth_chatgpt_user_id") or "").strip()
+        account_key = str(metadata.get("account_key") or "").strip()
+        quota_scope_key = str(metadata.get("quota_scope_key") or "").strip()
+
+        if not account_label:
+            account_label = (
+                login_email
+                or auth_chatgpt_user_id
+                or auth_account_id
+                or account_key
+            )
+
+        return {
+            "identity_status": "email_verified" if login_email else "email_missing",
+            "account_label": account_label or None,
+            "login_email": login_email or None,
+            "auth_account_id": auth_account_id or None,
+            "auth_chatgpt_user_id": auth_chatgpt_user_id or None,
+            "account_key": account_key or None,
+            "quota_scope_key": quota_scope_key or None,
+        }
 
     @classmethod
     def _count_distinct_quota_scopes(cls, runtimes: list[Any]) -> int:
@@ -972,6 +1138,56 @@ class CodexPoolService:
             for runtime in runtimes
         }
         return len(scopes)
+
+    @classmethod
+    def _filter_runnable_candidate_runtimes(
+        cls,
+        runtimes: list[Any],
+        *,
+        require_probe_available: bool = False,
+    ) -> list[Any]:
+        return [
+            runtime
+            for runtime in runtimes
+            if cls._is_runnable_candidate(
+                auth_type=str(getattr(runtime, "auth_type", "") or ""),
+                metadata=dict(getattr(runtime, "extra_metadata", None) or {}),
+                require_probe_available=require_probe_available,
+            )
+        ]
+
+    @classmethod
+    def _filter_runnable_candidate_runtime_rows(
+        cls,
+        runtimes: list[Dict[str, Any]],
+        *,
+        require_probe_available: bool = False,
+    ) -> list[Dict[str, Any]]:
+        return [
+            runtime
+            for runtime in runtimes
+            if cls._is_runnable_candidate(
+                auth_type=str(runtime.get("auth_type") or ""),
+                metadata=cls._coerce_json_dict(runtime.get("extra_metadata")),
+                require_probe_available=require_probe_available,
+            )
+        ]
+
+    @staticmethod
+    def _is_runnable_candidate(
+        *,
+        auth_type: str,
+        metadata: Dict[str, Any],
+        require_probe_available: bool = False,
+    ) -> bool:
+        health = read_health_metadata(metadata, auth_type=auth_type)
+        if not is_executable_runtime_metadata(metadata, auth_type=auth_type):
+            return False
+        if str(health.get("health_state") or "").strip().lower() == "quarantined":
+            return False
+        if require_probe_available and not runtime_probe_available(metadata):
+            return False
+        return True
 
     @classmethod
     def _sort_candidate_runtimes(cls, runtimes: list[Any]) -> list[Any]:
@@ -1031,10 +1247,17 @@ class CodexPoolService:
         auth_type: str,
     ) -> Dict[str, Any]:
         health = read_health_metadata(metadata, auth_type=auth_type)
+        probe = read_probe_metadata(metadata)
         return {
             "runtime_seed_kind": health.get("seed_kind"),
             "runtime_health_state": health.get("health_state"),
+            "metadata_health_state": health.get("health_state"),
             "runtime_failure_scope_key": health.get("failure_scope_key"),
+            "probe_state": probe.get("probe_state"),
+            "last_probe_success_at": probe.get("last_probe_success_at"),
+            "last_probe_error_code": probe.get("last_probe_error_code"),
+            "last_probe_runtime_returncode": probe.get("last_probe_runtime_returncode"),
+            "last_probe_source_event_id": probe.get("last_probe_source_event_id"),
         }
 
     @classmethod

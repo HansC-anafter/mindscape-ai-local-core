@@ -13,10 +13,12 @@ Flow:
 import asyncio
 import json
 import logging
+import mimetypes
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from pathlib import Path
+from typing import Dict, Any, Optional, List
 
 from websockets.client import WebSocketClientProtocol
 
@@ -26,6 +28,332 @@ logger = logging.getLogger(__name__)
 def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
+_ASSET_UPLOAD_BASE_ENV_KEYS = (
+    "MINDSCAPE_CLOUD_INTEGRATION_API_BASE",
+    "MINDSCAPE_CLOUD_GENERATION_API_BASE",
+    "CLOUD_PROVIDER_API_BASE",
+    "SITE_HUB_API_BASE",
+    "SITE_HUB_API_URL",
+    "EXECUTION_CONTROL_API_URL",
+    "CLOUD_API_URL",
+)
+
+_ASSET_UPLOAD_TOKEN_ENV_KEYS = (
+    "MINDSCAPE_CLOUD_INTEGRATION_UPLOAD_TOKEN",
+    "CLOUD_PROVIDER_UPLOAD_TOKEN",
+    "SITE_HUB_UPLOAD_TOKEN",
+    "SITE_HUB_API_TOKEN",
+)
+
+
+def _clean_text(value: Any) -> Optional[str]:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _as_mapping(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump(exclude_none=True)
+        return dict(dumped) if isinstance(dumped, dict) else {}
+    return {}
+
+
+def _append_unique_text(values: List[str], value: Optional[str]) -> None:
+    if value and value not in values:
+        values.append(value)
+
+
+def _is_public_url(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith(("http://", "https://"))
+
+
+def _resolve_asset_upload_base() -> Optional[str]:
+    for key in _ASSET_UPLOAD_BASE_ENV_KEYS:
+        value = os.getenv(key)
+        if value and value.strip():
+            return value.strip().rstrip("/")
+    return None
+
+
+def _resolve_asset_upload_token() -> Optional[str]:
+    for key in _ASSET_UPLOAD_TOKEN_ENV_KEYS:
+        value = os.getenv(key)
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
+def _candidate_file_path(payload: Dict[str, Any]) -> Optional[str]:
+    metadata = _as_mapping(payload.get("metadata"))
+    for key in ("actual_file_path", "file_path", "storage_ref", "path", "uri"):
+        value = payload.get(key) or metadata.get(key)
+        if _is_public_url(value):
+            continue
+        cleaned = _clean_text(value)
+        if cleaned and (cleaned.startswith("/") or "/" in cleaned):
+            return cleaned
+    return None
+
+
+def _candidate_public_url(payload: Dict[str, Any]) -> Optional[str]:
+    metadata = _as_mapping(payload.get("metadata"))
+    for key in ("public_url", "url", "external_url", "asset_url", "download_url"):
+        value = payload.get(key) or metadata.get(key)
+        if _is_public_url(value):
+            return str(value).strip()
+    storage_ref = payload.get("storage_ref") or metadata.get("storage_ref")
+    return str(storage_ref).strip() if _is_public_url(storage_ref) else None
+
+
+def _asset_candidate_from_payload(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    metadata = _as_mapping(payload.get("metadata"))
+    file_path = _candidate_file_path(payload)
+    public_url = _candidate_public_url(payload)
+    artifact_id = _clean_text(
+        payload.get("artifact_id")
+        or payload.get("id")
+        or metadata.get("artifact_id")
+    )
+    artifact_kind = _clean_text(
+        payload.get("artifact_kind")
+        or payload.get("artifact_type")
+        or payload.get("type")
+        or metadata.get("artifact_kind")
+        or metadata.get("artifact_type")
+    )
+
+    has_asset_shape = bool(file_path or public_url) or any(
+        key in payload or key in metadata
+        for key in (
+            "artifact_id",
+            "artifact_kind",
+            "artifact_type",
+            "actual_file_path",
+            "file_path",
+            "storage_ref",
+            "external_url",
+        )
+    )
+    if not has_asset_shape:
+        return None
+
+    title = _clean_text(
+        payload.get("title")
+        or payload.get("name")
+        or metadata.get("title")
+        or metadata.get("name")
+    )
+    if not title and file_path:
+        title = Path(file_path).name
+    if not title and public_url:
+        title = Path(public_url.split("?", 1)[0]).name or "artifact"
+    if not title and artifact_id:
+        title = artifact_id
+
+    return {
+        "artifact_id": artifact_id,
+        "artifact_kind": artifact_kind,
+        "title": title,
+        "file_path": file_path,
+        "url": public_url,
+    }
+
+
+def _collect_asset_candidates(value: Any, *, depth: int = 0) -> List[Dict[str, Any]]:
+    if depth > 8:
+        return []
+
+    found: List[Dict[str, Any]] = []
+    if isinstance(value, dict):
+        candidate = _asset_candidate_from_payload(value)
+        if candidate:
+            found.append(candidate)
+        for key, nested in value.items():
+            if key == "metadata":
+                continue
+            found.extend(_collect_asset_candidates(nested, depth=depth + 1))
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(_collect_asset_candidates(item, depth=depth + 1))
+    return _dedupe_asset_candidates(found)
+
+
+def _collect_execution_ids(value: Any, *, depth: int = 0) -> List[str]:
+    if depth > 8:
+        return []
+    found: List[str] = []
+    if isinstance(value, dict):
+        _append_unique_text(found, _clean_text(value.get("execution_id")))
+        for nested in value.values():
+            for execution_id in _collect_execution_ids(nested, depth=depth + 1):
+                _append_unique_text(found, execution_id)
+    elif isinstance(value, list):
+        for item in value:
+            for execution_id in _collect_execution_ids(item, depth=depth + 1):
+                _append_unique_text(found, execution_id)
+    return found
+
+
+def _dedupe_asset_candidates(
+    candidates: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    deduped: List[Dict[str, Any]] = []
+    seen: Dict[Any, Dict[str, Any]] = {}
+    for candidate in candidates:
+        key = candidate.get("artifact_id") or (
+            candidate.get("file_path"),
+            candidate.get("url"),
+            candidate.get("title"),
+        )
+        existing = seen.get(key)
+        if existing:
+            for field in ("file_path", "url", "title", "artifact_kind"):
+                if not existing.get(field) and candidate.get(field):
+                    existing[field] = candidate[field]
+            continue
+        seen[key] = candidate
+        deduped.append(candidate)
+    return deduped
+
+
+def _asset_candidate_from_model(artifact: Any) -> Optional[Dict[str, Any]]:
+    if artifact is None:
+        return None
+    metadata = _as_mapping(getattr(artifact, "metadata", None))
+    storage_ref = _clean_text(getattr(artifact, "storage_ref", None))
+    payload = {
+        "artifact_id": _clean_text(getattr(artifact, "id", None)),
+        "artifact_kind": _clean_text(
+            getattr(getattr(artifact, "artifact_type", None), "value", None)
+            or getattr(artifact, "artifact_type", None)
+        ),
+        "title": _clean_text(getattr(artifact, "title", None)),
+        "storage_ref": storage_ref,
+        "metadata": metadata,
+    }
+    return _asset_candidate_from_payload(payload)
+
+
+async def _upload_page_asset(
+    file_path: Path,
+    *,
+    workspace_id: str,
+) -> Optional[str]:
+    if not file_path.exists() or not file_path.is_file():
+        return None
+
+    base = _resolve_asset_upload_base()
+    if not base:
+        return None
+
+    upload_url = f"{base}/api/v1/assets/upload"
+    token = _resolve_asset_upload_token()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    mime_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            with file_path.open("rb") as file_handle:
+                response = await client.post(
+                    upload_url,
+                    headers=headers,
+                    files={"file": (file_path.name, file_handle, mime_type)},
+                    data={
+                        "workspace_id": workspace_id,
+                        "media_type": "meeting_artifact",
+                        "filename": file_path.name,
+                    },
+                )
+        response.raise_for_status()
+        payload = response.json()
+        return _clean_text(payload.get("url"))
+    except Exception as exc:
+        logger.warning(
+            "[MessagingHandler] Result page asset upload failed: file=%s error=%s",
+            file_path,
+            exc,
+        )
+        return None
+
+
+async def _materialize_page_assets(
+    candidates: List[Dict[str, Any]],
+    *,
+    workspace_id: str,
+) -> List[Dict[str, Any]]:
+    assets: List[Dict[str, Any]] = []
+    for candidate in _dedupe_asset_candidates(candidates)[:12]:
+        file_path_text = _clean_text(candidate.get("file_path"))
+        public_url = _clean_text(candidate.get("url"))
+        file_name = Path(file_path_text).name if file_path_text else None
+
+        if not public_url and file_path_text:
+            public_url = await _upload_page_asset(
+                Path(file_path_text),
+                workspace_id=workspace_id,
+            )
+
+        title = (
+            _clean_text(candidate.get("title"))
+            or file_name
+            or _clean_text(candidate.get("artifact_id"))
+            or "artifact"
+        )
+        assets.append(
+            {
+                "title": title,
+                "filename": file_name,
+                "url": public_url,
+                "artifact_id": _clean_text(candidate.get("artifact_id")),
+                "artifact_kind": _clean_text(candidate.get("artifact_kind")),
+            }
+        )
+    return assets
+
+
+def _escape_markdown_label(value: str) -> str:
+    return value.replace("[", "\\[").replace("]", "\\]")
+
+
+def _format_page_assets_md(assets: List[Dict[str, Any]]) -> str:
+    if not assets:
+        return ""
+
+    lines = ["## 📎 產出檔案", ""]
+    for asset in assets:
+        label = _escape_markdown_label(
+            _clean_text(asset.get("title"))
+            or _clean_text(asset.get("filename"))
+            or _clean_text(asset.get("artifact_id"))
+            or "artifact"
+        )
+        details = [
+            item
+            for item in (
+                _clean_text(asset.get("artifact_kind")),
+                (
+                    f"`{asset.get('artifact_id')}`"
+                    if _clean_text(asset.get("artifact_id"))
+                    else None
+                ),
+            )
+            if item
+        ]
+        suffix = f" — {' · '.join(details)}" if details else ""
+        url = _clean_text(asset.get("url"))
+        if url:
+            lines.append(f"- [{label}]({url}){suffix}")
+        else:
+            lines.append(f"- {label}{suffix}（已產出，尚未建立公開下載連結）")
+    lines.append("")
+    return "\n".join(lines)
 
 
 class MessagingHandler:
@@ -579,6 +907,12 @@ class MessagingHandler:
                     sections.append(f"- Task IR: `{task_ir}`")
                 sections.append("")
 
+            assets_md = await self._build_meeting_assets_md(
+                store, workspace_id, pipeline_result
+            )
+            if assets_md:
+                sections.append(assets_md)
+
             # Only return if we captured meaningful content
             if len(sections) <= 3:
                 return ""
@@ -588,6 +922,96 @@ class MessagingHandler:
         except Exception as e:
             logger.warning(f"[MessagingHandler] Failed to build meeting detail: {e}")
             return ""
+
+    async def _build_meeting_assets_md(
+        self,
+        store,
+        workspace_id: str,
+        pipeline_result,
+    ) -> str:
+        """Build a public-result-page section for meeting/AOL artifacts."""
+        candidates: List[Dict[str, Any]] = []
+
+        for attr in ("task_ir_artifacts", "artifact_assets"):
+            raw_items = getattr(pipeline_result, attr, None) or []
+            if isinstance(raw_items, list):
+                for item in raw_items:
+                    candidates.extend(_collect_asset_candidates(item))
+
+        for file_path in list(
+            getattr(pipeline_result, "artifact_file_paths", None) or []
+        ):
+            candidates.append(
+                {"file_path": file_path, "title": Path(str(file_path)).name}
+            )
+
+        artifact_ids = [
+            item
+            for item in list(getattr(pipeline_result, "artifact_ids", None) or [])
+            if _clean_text(item)
+        ]
+        for artifact_id in artifact_ids:
+            candidates.append({"artifact_id": artifact_id, "title": artifact_id})
+
+        dispatch_result = getattr(pipeline_result, "dispatch_result", None)
+        candidates.extend(_collect_asset_candidates(dispatch_result))
+
+        artifacts_store = getattr(store, "artifacts", None)
+        if artifacts_store:
+            for artifact_id in artifact_ids:
+                try:
+                    artifact = await asyncio.to_thread(
+                        artifacts_store.get_artifact, artifact_id
+                    )
+                    candidate = _asset_candidate_from_model(artifact)
+                    if candidate:
+                        candidates.append(candidate)
+                except Exception as exc:
+                    logger.warning(
+                        "[MessagingHandler] Failed to load artifact %s: %s",
+                        artifact_id,
+                        exc,
+                    )
+
+            execution_ids = _collect_execution_ids(dispatch_result)
+            for execution_id in execution_ids[:12]:
+                try:
+                    artifacts = await asyncio.to_thread(
+                        artifacts_store.list_by_execution_id, execution_id
+                    )
+                    for artifact in artifacts or []:
+                        candidate = _asset_candidate_from_model(artifact)
+                        if candidate:
+                            candidates.append(candidate)
+                except Exception as exc:
+                    logger.warning(
+                        "[MessagingHandler] Failed to load execution artifacts %s: %s",
+                        execution_id,
+                        exc,
+                    )
+
+            task_ir_id = _clean_text(getattr(pipeline_result, "task_ir_id", None))
+            if task_ir_id and hasattr(artifacts_store, "list_artifacts_by_task"):
+                try:
+                    artifacts = await asyncio.to_thread(
+                        artifacts_store.list_artifacts_by_task, task_ir_id
+                    )
+                    for artifact in artifacts or []:
+                        candidate = _asset_candidate_from_model(artifact)
+                        if candidate:
+                            candidates.append(candidate)
+                except Exception as exc:
+                    logger.warning(
+                        "[MessagingHandler] Failed to load task artifacts %s: %s",
+                        task_ir_id,
+                        exc,
+                    )
+
+        assets = await _materialize_page_assets(
+            _dedupe_asset_candidates(candidates),
+            workspace_id=workspace_id,
+        )
+        return _format_page_assets_md(assets)
 
     async def _send_reply(
         self,

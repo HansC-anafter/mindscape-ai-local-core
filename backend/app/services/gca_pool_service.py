@@ -206,7 +206,6 @@ class GCAPoolService:
         self,
         preferred_runtime_id: Optional[str] = None,
         allow_runtime_substitution: Optional[bool] = None,
-        allow_fallback: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Select the best available token from the pool.
 
@@ -214,7 +213,7 @@ class GCAPoolService:
         Returns dict with 'env' and 'selected_runtime_id', or 'error'.
         """
         if allow_runtime_substitution is None:
-            allow_runtime_substitution = True if allow_fallback is None else bool(allow_fallback)
+            allow_runtime_substitution = False
         else:
             allow_runtime_substitution = bool(allow_runtime_substitution)
         db = self._get_db()

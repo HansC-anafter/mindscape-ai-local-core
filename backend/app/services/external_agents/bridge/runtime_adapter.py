@@ -48,6 +48,19 @@ def parse_dispatch_response(
     """
     status = raw.get("status", "failed")
     duration = raw.get("duration_seconds", time.monotonic() - start_time)
+    dispatch_metadata = raw.get("metadata", {})
+    if not isinstance(dispatch_metadata, dict):
+        dispatch_metadata = {}
+    agent_metadata = {
+        "transport": dispatch_metadata.get("transport", "unknown"),
+        "execution_id": raw.get("execution_id", ""),
+        "governance": raw.get("governance", {}),
+        "dispatch_metadata": dispatch_metadata,
+    }
+    if "codex_account_identity" in dispatch_metadata:
+        agent_metadata["codex_account_identity"] = dispatch_metadata.get(
+            "codex_account_identity"
+        )
 
     return RuntimeExecResponse(
         success=status in ("completed", "dispatched_to_ide"),
@@ -58,11 +71,7 @@ def parse_dispatch_response(
         files_created=raw.get("files_created", []),
         error=raw.get("error"),
         exit_code=0 if status in ("completed", "dispatched_to_ide") else 1,
-        agent_metadata={
-            "transport": raw.get("metadata", {}).get("transport", "unknown"),
-            "execution_id": raw.get("execution_id", ""),
-            "governance": raw.get("governance", {}),
-        },
+        agent_metadata=agent_metadata,
     )
 
 
@@ -239,12 +248,18 @@ class HostBridgeRuntimeAdapter(PollingRuntimeAdapter):
         if self.RUNTIME_NAME != "codex_cli":
             return False
         try:
-            from backend.app.services.codex_pool_service import CodexPoolService
+            from backend.app.services.codex_pool_runtime_router import (
+                resolve_codex_pool_runtime_bundle_sync,
+            )
             from backend.app.services.external_agents.bridge.codex_cli_runner import (
                 resolve_codex_cli_binary,
             )
 
-            bundle = CodexPoolService().get_active_auth_bundle()
+            bundle = resolve_codex_pool_runtime_bundle_sync(
+                workspace_id=workspace_id or "",
+                lease_owner_type=None,
+                lease_owner_id=None,
+            )
             if "env" not in bundle or bundle.get("error"):
                 return False
             env = dict(bundle.get("env") or {})

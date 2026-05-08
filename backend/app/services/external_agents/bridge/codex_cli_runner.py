@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import hashlib
+import logging
 import os
 import re
 import shutil
@@ -8,16 +9,37 @@ import subprocess
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from backend.app.services.codex_runtime_failure_classifier import (
+    classify_codex_cli_runtime_failure,
+    extract_codex_quota_reset_at,
+    looks_like_codex_auth_failure,
+    looks_like_codex_quota_exhaustion,
+    looks_like_codex_version_incompatible,
+    should_retry_codex_runtime_fault,
+)
 
 
 MAX_CLI_OUTPUT_SIZE = 100_000
 DEFAULT_CLI_STALL_TIMEOUT_SECONDS = 180.0
 CODEX_APP_BUNDLE_BINARY = "/Applications/Codex.app/Contents/Resources/codex"
+logger = logging.getLogger("codex_cli_runner")
 _CODEX_CLI_VERSION_RE = re.compile(
     r"codex-cli\s+(\d+)\.(\d+)\.(\d+)(?:[-+.]?([0-9A-Za-z.-]+))?",
     flags=re.IGNORECASE,
 )
+
+
+def should_use_direct_codex_cli_subprocess() -> bool:
+    override = str(os.environ.get("MINDSCAPE_CODEX_CLI_DIRECT_SUBPROCESS", "")).strip().lower()
+    if override in {"1", "true", "yes", "on"}:
+        return True
+    if override in {"0", "false", "no", "off"}:
+        return False
+    if os.path.exists("/.dockerenv") or os.environ.get("MINDSCAPE_BACKEND_ROLE"):
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -164,57 +186,6 @@ def clip_cli_stream(text: str, *, max_size: int) -> str:
         + f"\n\n[... clipped {len(normalized) - (half * 2)} characters ...]\n\n"
         + normalized[-half:]
     )
-
-
-def looks_like_codex_quota_exhaustion(message: str) -> bool:
-    normalized = str(message or "").lower()
-    if not normalized:
-        return False
-    return any(
-        marker in normalized
-        for marker in (
-            "usage limit",
-            "rate limit",
-            "quota",
-            "too many requests",
-            "resource_exhausted",
-            "429",
-        )
-    )
-
-
-def looks_like_codex_auth_failure(message: str) -> bool:
-    normalized = str(message or "").lower()
-    if not normalized:
-        return False
-    markers = (
-        "401 unauthorized",
-        "unauthorized",
-        "missing bearer",
-        "missing bearer or basic authentication",
-        "authentication failed",
-        "invalid api key",
-        "incorrect api key",
-        "missing api key",
-        "deactivated_workspace",
-        'code":"deactivated_workspace"',
-    )
-    return any(marker in normalized for marker in markers) and not looks_like_codex_quota_exhaustion(
-        normalized
-    )
-
-
-def should_retry_codex_runtime_fault(message: str) -> bool:
-    normalized = str(message or "").strip().lower()
-    if not normalized:
-        return False
-    if looks_like_codex_quota_exhaustion(normalized):
-        return True
-    if looks_like_codex_auth_failure(normalized):
-        return True
-    if "subprocess stalled after" in normalized:
-        return True
-    return "no such file or directory (os error 2)" in normalized
 
 
 def looks_like_codex_transcript(text: str) -> bool:
