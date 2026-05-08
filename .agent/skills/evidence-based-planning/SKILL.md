@@ -53,6 +53,16 @@ For each relevant component:
 3. Record evidence with file paths, line numbers, or command outputs.
 4. Delay conclusions until evidence is collected.
 
+For unfamiliar, AI-generated, outsourced, or inherited code, first build a review map before proposing changes:
+
+- feature purpose and acceptance criteria
+- module boundaries and main dataflow
+- source of truth for important data
+- high-risk zones that need targeted line review
+- current test, deploy, logging, and rollback coverage
+
+For Mindscape capability packs, anchor the map to actual pack surfaces: `manifest.yaml`, `playbooks/specs/`, `tools/`, `services/`, `api/`, `schema/` or `schemas/`, `ui/`, `migrations/`, `jobs/`, `workflows/`, `evals/`, and `tests/`.
+
 Minimum evidence standards:
 
 | Claim Type | Required Evidence |
@@ -62,6 +72,7 @@ Minimum evidence standards:
 | Config source | actual config file plus runtime confirmation when relevant |
 | Missing caller / dead code | full-project grep with explicit scope |
 | Data availability | actual rows/files/index contents, not just schema |
+| Dataflow / source of truth | caller/route trace + writer and reader code + runtime/API/DB evidence when relevant |
 
 ### Phase 2: Define Problems
 
@@ -92,6 +103,8 @@ Use:
 - Priority = `Severity x Detection`
 
 This prevents a plan from focusing on low-value cleanup while structural failures remain.
+
+Default high-risk zones: auth, permissions, workspace/tenant boundaries, migrations, DB writes, file/artifact writes, pack API endpoints, jobs, cache invalidation, AI output persisted to storage, object resolvers/projections, and deployment/rollback paths.
 
 ### Phase 4: Verify Assumptions
 
@@ -197,6 +210,8 @@ Specify:
 
 If automation is not feasible, say why and propose a concrete monitoring or manual regression check instead.
 
+For high-risk changes, include the relevant test layer explicitly: unit for core logic, integration for module/API propagation, regression for previously working behavior, and failure-mode tests for retries, duplicate execution, rollback, or third-party/API failure.
+
 ## Backup Rule
 
 If the implementation or verification touches mutable user data, DB rows, generated artifacts, or installed pack state that could be overwritten, put backup instructions at the start of the plan, before any mutation step.
@@ -243,6 +258,7 @@ Do not bury backup steps inside the testing section.
 - [ ] Every referenced data source was checked for real contents
 - [ ] Every runtime claim has runtime evidence
 - [ ] Every "not used / not called" claim uses full-project grep scope
+- [ ] Inherited or AI-generated code has a review map before targeted line review
 - [ ] The plan maps each change to a specific problem ID
 - [ ] The verification SOP contains exact commands or UI actions
 - [ ] The automated test section names concrete scenarios and assertions

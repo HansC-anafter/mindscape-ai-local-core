@@ -24,6 +24,7 @@ Violation of this rule produces garbage reports that waste the user's time and d
 | Log evidence (event happened at time T) | `docker compose logs` grep output | "It probably logged something" |
 | Connection state (WS connected, API reachable) | `curl` / `ps aux` / backend log grep | UI screenshot alone (could be cached/stale) |
 | Network identity (IP belongs to X) | `host <IP>` or `nslookup` reverse DNS output | Guessing from IP range ownership |
+| Dataflow / source of truth (where data comes from, who writes it, who reads it) | Caller/route trace + writer code + reader code + runtime/API/DB evidence when relevant | Seeing a helper function and assuming it is used |
 
 ---
 
@@ -158,6 +159,16 @@ FOR a task execution investigation:
 
 **RIGHT**: Any specific runtime quantity (row counts, list sizes, process counts) requires a runtime verification command. Run the query and paste the output before citing the number.
 
+### 14. Integration Assumption
+
+**WRONG**: "Feature X is implemented" because a function, component, or script exists.
+
+**RIGHT**: Verify the feature is connected to the real execution path:
+
+1. Find the caller, route, hook, job, or UI action that invokes it
+2. Verify the input and output cross the expected boundary
+3. Re-check the original user-facing path or API path
+
 ---
 
 ## Mandatory Workflow
@@ -230,6 +241,7 @@ Before delivering any report or plan to the user, verify:
 - [ ] "X is not called / dead code" claims use full-project grep scope, with scope explicitly stated
 - [ ] Runtime quantities (counts, sizes) have runtime evidence (command output), not code inference
 - [ ] DB field values have been traced to the code that writes them before being interpreted as evidence
+- [ ] "Feature X exists / is implemented" claims verify the real caller or user-facing path, not just an isolated helper
 
 ---
 
