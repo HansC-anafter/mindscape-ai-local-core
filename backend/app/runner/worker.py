@@ -455,6 +455,10 @@ def _build_parked_task_update(
     next_eligible_at = base_now + timedelta(seconds=delay_seconds)
 
     ctx2 = dict(task_ctx) if isinstance(task_ctx, dict) else {}
+    previous_runner_id = ctx2.pop("runner_id", None)
+    ctx2.pop("heartbeat_at", None)
+    if previous_runner_id and not ctx2.get("last_runner_id"):
+        ctx2["last_runner_id"] = previous_runner_id
     ctx2["resume_after"] = next_eligible_at.isoformat()
 
     blocked_payload: dict = {}

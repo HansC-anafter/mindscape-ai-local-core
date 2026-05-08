@@ -491,7 +491,7 @@ async def _mark_task_failed(
                 else {}
             )
             ctxf = dict(ctxf)
-            resource_wait = resource_pressure_source == "browser_resource_lease"
+            resource_wait = bool(resource_pressure_source)
             if resource_wait:
                 retry_count = int(ctxf.get("retry_count", 0) or 0)
                 ctxf["resource_wait_count"] = int(ctxf.get("resource_wait_count", 0) or 0) + 1
@@ -499,7 +499,6 @@ async def _mark_task_failed(
                 retry_count = int(ctxf.get("retry_count", 0) or 0) + 1
                 ctxf["retry_count"] = retry_count
             ctxf["error"] = msg
-            ctxf["runner_id"] = runner_id
             ctxf["failed_at"] = _utc_now().isoformat()
             if resource_pressure_source:
                 ctxf["resource_pressure"] = True
@@ -514,6 +513,12 @@ async def _mark_task_failed(
             # Otherwise we keep it as PENDING but defer it to delayed queue.
             new_status = TaskStatus.FAILED if is_deadletter else TaskStatus.PENDING
             ctxf["status"] = "failed" if is_deadletter else "queued"
+            if is_deadletter:
+                ctxf["runner_id"] = runner_id
+            else:
+                ctxf["last_runner_id"] = runner_id
+                ctxf.pop("runner_id", None)
+                ctxf.pop("heartbeat_at", None)
 
             # Invoke on_fail hook (best-effort, may create follow-up tasks).
             hook_invoked = False

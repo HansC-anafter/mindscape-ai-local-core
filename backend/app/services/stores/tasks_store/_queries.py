@@ -1055,7 +1055,7 @@ class TasksStoreQueryMixin:
             query_parts.append("AND workspace_id = :workspace_id")
             params["workspace_id"] = workspace_id
 
-        query_parts.append("ORDER BY started_at ASC NULLS LAST, created_at ASC")
+        query_parts.append("ORDER BY started_at ASC NULLS LAST, created_at ASC, id ASC")
         query_parts.append("LIMIT :limit")
         params["limit"] = limit
 

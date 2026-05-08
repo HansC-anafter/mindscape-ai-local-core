@@ -68,6 +68,8 @@ STATEMENTS = [
     "UPDATE tasks SET frontier_enqueued_at = CASE WHEN frontier_state = 'ready' THEN COALESCE(frontier_enqueued_at, created_at) ELSE NULL END",
     "CREATE INDEX IF NOT EXISTS idx_tasks_frontier_cold ON tasks (queue_shard, next_eligible_at, created_at, id) WHERE status = 'pending' AND frontier_state = 'cold'",
     "CREATE INDEX IF NOT EXISTS idx_tasks_frontier_ready ON tasks (queue_shard, frontier_enqueued_at, created_at, id) WHERE status = 'pending' AND frontier_state = 'ready'",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_frontier_running_pending ON tasks (started_at ASC NULLS LAST, created_at, id) WHERE status = 'pending' AND frontier_state = 'running' AND task_type IN ('playbook_execution', 'tool_execution')",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_pending_runner_ownership_cleanup ON tasks (queue_shard, next_eligible_at, created_at, id) WHERE status = 'pending' AND task_type IN ('playbook_execution', 'tool_execution') AND ((execution_context->>'runner_id') IS NOT NULL OR (execution_context->>'heartbeat_at') IS NOT NULL OR started_at IS NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_pending_concurrency_key ON tasks (concurrency_key, created_at, id) WHERE status = 'pending' AND concurrency_key IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_tasks_pending_queue_position ON tasks (queue_shard, next_eligible_at, created_at, id) WHERE status = 'pending' AND task_type IN ('playbook_execution', 'tool_execution')",
 ]

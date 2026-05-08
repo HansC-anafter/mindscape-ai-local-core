@@ -15,6 +15,37 @@ from ._base import _utc_now
 
 logger = logging.getLogger(__name__)
 
+_CLAIM_CONTEXT_STALE_KEYS = (
+    "dependency_hold",
+    "error",
+    "failed_at",
+    "heartbeat_at",
+    "resource_pressure",
+    "resource_pressure_source",
+    "resource_retry_delay_sec",
+    "resource_snapshot",
+    "resume_after",
+    "runner_reaper",
+    "runner_skip_conflict_lock_key",
+    "runner_skip_lock_key",
+    "runner_skip_reason",
+)
+
+
+def _build_claim_execution_context(
+    existing_ctx: Dict[str, Any],
+    *,
+    runner_id: str,
+    now: datetime,
+) -> Dict[str, Any]:
+    ctx = dict(existing_ctx) if isinstance(existing_ctx, dict) else {}
+    for key in _CLAIM_CONTEXT_STALE_KEYS:
+        ctx.pop(key, None)
+    ctx["runner_id"] = runner_id
+    ctx["heartbeat_at"] = now.isoformat()
+    ctx["status"] = "running"
+    return ctx
+
 
 class TasksStoreRunnerMixin:
     """Runner lifecycle operations for TasksStore."""
@@ -45,9 +76,11 @@ class TasksStoreRunnerMixin:
             if raw_ctx:
                 existing_ctx = self.deserialize_json(raw_ctx, {})
 
-            ctx = dict(existing_ctx) if isinstance(existing_ctx, dict) else {}
-            ctx["runner_id"] = runner_id
-            ctx["heartbeat_at"] = now.isoformat()
+            ctx = _build_claim_execution_context(
+                existing_ctx,
+                runner_id=runner_id,
+                now=now,
+            )
 
             result = conn.execute(
                 text(

@@ -202,3 +202,37 @@ async def test_browser_resource_lease_wait_does_not_consume_workflow_retry():
     assert queue.delayed == ("task-1", 300)
     assert queue.deadlettered is False
     assert queue.acked is False
+
+
+@pytest.mark.asyncio
+async def test_subprocess_sigkill_resource_wait_clears_runner_ownership():
+    store = _FakeTasksStore()
+    store.task.execution_context = {
+        "retry_count": 2,
+        "runner_id": "previous-runner",
+        "heartbeat_at": "2026-05-08T03:00:00+00:00",
+    }
+    queue = _FakeRedisQueue()
+
+    await _mark_task_failed(
+        store,
+        "task-1",
+        "runner-browser",
+        "Runner subprocess exited with code -9",
+        queue,
+        retry_delay_sec=300,
+        resource_pressure_source="subprocess_sigkill",
+    )
+
+    updated_context = store.update_kwargs["execution_context"]
+    assert store.update_kwargs["status"] == TaskStatus.PENDING
+    assert store.update_kwargs["frontier_state"] == "cold"
+    assert store.update_kwargs["started_at"] is None
+    assert updated_context["retry_count"] == 2
+    assert updated_context["resource_wait_count"] == 1
+    assert updated_context["resource_pressure_source"] == "subprocess_sigkill"
+    assert updated_context["last_runner_id"] == "runner-browser"
+    assert "runner_id" not in updated_context
+    assert "heartbeat_at" not in updated_context
+    assert queue.delayed == ("task-1", 300)
+    assert queue.deadlettered is False

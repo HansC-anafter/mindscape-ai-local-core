@@ -1,7 +1,10 @@
 import asyncio
 
 from backend.app.models.workspace import Task, TaskStatus, _utc_now
-from backend.app.runner.worker import _dequeue_preferred_different_playbook
+from backend.app.runner.worker import (
+    _build_parked_task_update,
+    _dequeue_preferred_different_playbook,
+)
 from backend.app.services.runner_topology.profile_registry import RunnerProfile
 
 
@@ -126,3 +129,25 @@ def test_dequeue_preferred_different_playbook_falls_back_when_only_same_lane():
     assert task_id is None
     assert queue_store is None
     assert queue.promoted == []
+
+
+def test_parked_pending_update_clears_live_runner_ownership():
+    update = _build_parked_task_update(
+        {
+            "playbook_code": "ig_batch_pin_references",
+            "runner_id": "runner-old",
+            "heartbeat_at": "2026-05-08T03:00:00+00:00",
+        },
+        reason="concurrency_locked",
+        delay_seconds=30,
+        lock_key="ig:source:a",
+        conflicting_lock_key="ig:source:a",
+        current_queue_shard="browser_local",
+    )
+
+    ctx = update["execution_context"]
+    assert ctx["last_runner_id"] == "runner-old"
+    assert "runner_id" not in ctx
+    assert "heartbeat_at" not in ctx
+    assert update["frontier_state"] == "cold"
+    assert update["queue_shard"] == "browser_local"
