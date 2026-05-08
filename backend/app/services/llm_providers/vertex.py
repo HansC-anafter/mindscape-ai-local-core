@@ -121,13 +121,10 @@ class VertexAIProvider(LLMProvider):
 
     def _get_model_instance(self, model: str, system_instruction: Optional[str] = None):
         """Get or create model instance with optional system instruction"""
-        # [Fallback Remapping] Map generic/OpenAI model names to Gemini equivalents
-        # This handles cases where system defaults (gpt-4o-mini) are passed to Vertex provider
         if model and ("gpt" in model.lower() or "openai" in model.lower()):
-            original_model = model
-            model = "gemini-2.0-flash"  # Updated from deprecated gemini-1.5-flash-001
-            logger.info(
-                f"VertexAIProvider: Remapping requested model '{original_model}' to '{model}'"
+            raise ValueError(
+                f"VertexAIProvider received non-Vertex model '{model}'. "
+                "Fix model-routing-registry provider/model binding."
             )
 
         cache_key = f"{model}:{system_instruction}" if system_instruction else model

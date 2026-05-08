@@ -337,7 +337,7 @@ Please generate the summary in English, keep it within 300 words."""
             # Model must be configured - no fallback allowed
             if not self.model_name or self.model_name.strip() == "":
                 raise ValueError(
-                    "LLM model not configured. Please select a model in the system settings panel."
+                    "LLM model not configured in model-routing-registry."
                 )
 
             summary_response = await chat_completion_with_workspace_route(

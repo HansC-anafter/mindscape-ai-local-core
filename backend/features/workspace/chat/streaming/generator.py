@@ -36,6 +36,7 @@ from .prompt_builder import (
 from .execution_plan_handler import handle_execution_plan
 from .quick_qa_handler import stream_quick_qa_response
 from .llm_streaming import stream_llm_response
+from .llm_streaming import create_assistant_event
 from ..playbook.executor import execute_playbook_for_execution_mode
 from ..utils.llm_provider import (
     get_llm_provider_manager,
@@ -138,6 +139,7 @@ async def generate_streaming_response(
                 locale=session.locale,
                 model_name=model_name,
                 profile_id=profile_id,
+                workspace_id=workspace_id,
                 db_path=orchestrator.store.db_path,
             ):
                 yield event
@@ -254,11 +256,50 @@ async def generate_streaming_response(
 
         # 15. Check model availability
         if not model_name:
-            yield f"data: {json.dumps({'type': 'error', 'message': 'Cannot generate response: chat_model not configured in system settings'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Cannot generate response: chat_model not configured in model-routing-registry'})}\n\n"
             return
 
         # 16. Stream LLM response
         try:
+            workspace_executor_runtime = str(
+                getattr(workspace, "resolved_executor_runtime", "") or ""
+            ).strip()
+            if workspace_executor_runtime:
+                from backend.app.services.llm.workspace_routed_chat import (
+                    chat_completion_with_workspace_route,
+                )
+
+                full_text = await chat_completion_with_workspace_route(
+                    messages=messages,
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    model=model_name,
+                    purpose="workspace_chat.streaming_main_response",
+                    stage_name="response_formatting",
+                    risk_level="read",
+                    temperature=0.7,
+                )
+                full_text = str(full_text or "")
+                if full_text:
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': full_text, 'model_name': model_name})}\n\n"
+                assistant_event = create_assistant_event(
+                    full_text,
+                    session.user_event.id,
+                    profile_id,
+                    session.project_id,
+                    workspace_id,
+                    session.thread_id,
+                    orchestrator.store,
+                )
+                yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_final': True})}\n\n"
+                _trigger_thread_summarization(
+                    orchestrator.store,
+                    workspace_id,
+                    session.thread_id,
+                    model_name=model_name,
+                )
+                return
+
             llm_provider_manager = get_llm_provider_manager(
                 profile_id=profile_id,
                 db_path=orchestrator.store.db_path,
@@ -310,7 +351,6 @@ async def generate_streaming_response(
                 store=orchestrator.store,
                 context_token_count=context_token_count,
                 execution_playbook_result=None,  # already emitted above
-                openai_key=None,
             ):
                 yield event
 
@@ -332,17 +372,17 @@ async def generate_streaming_response(
 
 
 def _resolve_model_name(request) -> Optional[str]:
-    """Resolve model name from request or system settings."""
+    """Resolve model name from request or model-routing-registry."""
     model_name = getattr(request, "model_name", None)
     if not model_name:
         try:
             model_name = get_model_name_from_chat_model()
         except Exception as e:
-            logger.warning("Failed to fetch model_name from settings: %s", e)
+            logger.warning("Failed to fetch model_name from model-routing-registry: %s", e)
 
     if not model_name or str(model_name).strip() == "":
         logger.error(
-            "No chat_model configured in system settings and no model in request"
+            "No chat_model configured in model-routing-registry and no model in request"
         )
         return None  # Caller (step 15) handles None -> error SSE
 

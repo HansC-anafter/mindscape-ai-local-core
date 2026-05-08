@@ -36,9 +36,51 @@ class PipelineResult:
     meeting_session_id: Optional[str] = None
     task_ir_id: Optional[str] = None
     dispatch_result: Optional[Dict[str, Any]] = None
+    task_ir_artifacts: List[Dict[str, Any]] = field(default_factory=list)
+    artifact_ids: List[str] = field(default_factory=list)
+    artifact_file_paths: List[str] = field(default_factory=list)
     completion_status: Optional[str] = None  # ExecutionCompletionStatus value
     success: bool = True
     error: Optional[str] = None
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump(exclude_none=True)
+        return dict(dumped) if isinstance(dumped, dict) else {}
+    return {}
+
+
+def _clean_string(value: Any) -> Optional[str]:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _append_unique(values: List[str], value: Optional[str]) -> None:
+    if value and value not in values:
+        values.append(value)
+
+
+def _artifact_file_path(payload: Dict[str, Any]) -> Optional[str]:
+    metadata = _as_dict(payload.get("metadata"))
+    for key in ("actual_file_path", "file_path", "storage_ref"):
+        value = payload.get(key) or metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    uri = payload.get("uri")
+    if isinstance(uri, str) and uri.startswith("/"):
+        return uri
+    return None
+
+
+def _task_ir_artifact_payloads(task_ir: Any) -> List[Dict[str, Any]]:
+    return [
+        _as_dict(artifact)
+        for artifact in list(getattr(task_ir, "artifacts", []) or [])
+    ]
 
 
 class PipelineCore:
@@ -356,6 +398,18 @@ class PipelineCore:
                 if meeting_result.task_ir:
                     await persist_meeting_task_ir(meeting_result.task_ir)
                     result.task_ir_id = meeting_result.task_ir.task_id
+                    result.task_ir_artifacts = _task_ir_artifact_payloads(
+                        meeting_result.task_ir
+                    )
+                    for artifact_payload in result.task_ir_artifacts:
+                        _append_unique(
+                            result.artifact_ids,
+                            _clean_string(artifact_payload.get("id")),
+                        )
+                        _append_unique(
+                            result.artifact_file_paths,
+                            _artifact_file_path(artifact_payload),
+                        )
                     # Dispatch is handled inside engine.run() via DispatchOrchestrator
                     if meeting_result.dispatch_result:
                         result.dispatch_result = meeting_result.dispatch_result

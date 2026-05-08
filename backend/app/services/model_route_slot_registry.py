@@ -50,7 +50,7 @@ _SYSTEM_SETTING_SLOTS = (
         "stage_profile_gate",
         "basic:models-and-quota",
     ),
-    ("chat_model", "Legacy Chat Model", "chat_model_default", "basic:llm-chat"),
+    ("chat_model", "Chat Model", "chat_model_default", "basic:llm-chat"),
     (
         "embedding_model",
         "Embedding Model",

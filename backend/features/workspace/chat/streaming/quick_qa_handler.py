@@ -10,7 +10,7 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Optional
 
-from backend.app.shared.llm_utils import build_prompt
+from backend.app.shared.llm_utils import build_prompt, call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ async def stream_quick_qa_response(
     locale: str,
     model_name: str,
     profile_id: str,
+    workspace_id: str,
     db_path: str,
 ) -> AsyncGenerator[str, None]:
     """
@@ -40,25 +41,7 @@ async def stream_quick_qa_response(
     Yields:
         SSE event strings (chunk events).
     """
-    from ..utils.llm_provider import (
-        get_llm_provider_manager,
-        get_provider_name_from_model_config,
-    )
-
     try:
-        provider_name, _ = get_provider_name_from_model_config(model_name)
-        if not provider_name:
-            return
-
-        llm_provider_manager = get_llm_provider_manager(
-            profile_id=profile_id,
-            db_path=db_path,
-            use_default_user=True,
-        )
-        provider = llm_provider_manager.get_provider(provider_name)
-        if not provider or not hasattr(provider, "chat_completion_stream"):
-            return
-
         quick_system_prompt = (
             f'You are a helpful AI assistant. The user has asked: "{request.message}"\n\n'
             f"Your task: Provide a brief (2-3 sentences), understanding response that:\n"
@@ -74,15 +57,20 @@ async def stream_quick_qa_response(
         )
 
         quick_response_text = ""
-        async for chunk_content in provider.chat_completion_stream(
+        del db_path
+        llm_result = await call_llm(
             messages=quick_messages,
             model=model_name,
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            purpose="workspace_chat.quick_qa",
+            stage_name="response_formatting",
             temperature=0.7,
             max_tokens=500,
-        ):
-            if chunk_content:
-                quick_response_text += chunk_content
-                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'message_id': user_event_id, 'is_final': False})}\n\n"
+        )
+        quick_response_text = str(llm_result.get("text") or "")
+        if quick_response_text:
+            yield f"data: {json.dumps({'type': 'chunk', 'content': quick_response_text, 'message_id': user_event_id, 'is_final': False})}\n\n"
 
         # Signal quick response completion (not final -- main response follows)
         yield f"data: {json.dumps({'type': 'chunk', 'content': '', 'message_id': user_event_id, 'is_final': False})}\n\n"

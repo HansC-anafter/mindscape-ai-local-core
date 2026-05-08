@@ -1,7 +1,7 @@
 """
 Execution chat agent service.
 
-Runs execution-scoped chat through the existing provider + tool loop stack.
+Runs execution-scoped chat through the routed tool-loop stack.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ from typing import Dict, Optional
 
 from backend.app.core.domain_context import LocalDomainContext
 from backend.app.models.playbook import PlaybookMetadata
-from backend.app.services.config_store import ConfigStore
 from backend.app.services.conversation.execution_chat_conversation_manager import (
     ExecutionChatConversationManager,
 )
@@ -32,7 +31,7 @@ from backend.app.services.llm.workspace_routed_chat import (
     chat_completion_with_workspace_route,
 )
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.services.playbook import PlaybookLLMProviderManager, PlaybookToolExecutor
+from backend.app.services.playbook import PlaybookToolExecutor
 from backend.app.services.stores.tasks_store import TasksStore
 
 logger = logging.getLogger(__name__)
@@ -80,9 +79,6 @@ async def handle_execution_chat_agent_turn(
     )
     conv_manager.add_user_message(user_message)
 
-    llm_provider_manager = PlaybookLLMProviderManager(ConfigStore())
-    llm_manager = llm_provider_manager.get_llm_manager(profile_id)
-    provider = llm_provider_manager.get_llm_provider(llm_manager)
     route_context = await load_executor_route_context(ctx.workspace_id)
     setattr(conv_manager, "executor_route_context", route_context)
     stage_route_decisions: list[dict[str, object]] = []
@@ -93,8 +89,8 @@ async def handle_execution_chat_agent_turn(
         workspace_id=ctx.workspace_id,
         profile_id=profile_id,
         max_tokens=8192,
-        provider=provider,
-        llm_provider_manager=llm_provider_manager,
+        provider=None,
+        llm_provider_manager=None,
         route_context=route_context,
         purpose="execution_chat_agent.initial",
         decision_log=stage_route_decisions,
@@ -124,7 +120,7 @@ async def handle_execution_chat_agent_turn(
         assistant_response=assistant_response,
         execution_id=execution_id,
         profile_id=profile_id,
-        provider=provider,
+        provider=None,
         model_name=None,
         workspace_id=ctx.workspace_id,
         max_iterations=chat_config.max_tool_iterations,

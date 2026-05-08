@@ -13,7 +13,7 @@ from backend.app.services.system_settings_store import SystemSettingsStore
 logger = logging.getLogger(__name__)
 
 
-def determine_provider_from_model(model_name: str) -> Optional[str]:
+def resolve_registered_provider_for_model(model_name: str) -> Optional[str]:
     """Resolve the provider through the model routing registry."""
     provider_name, _ = get_provider_name_from_model_config(model_name)
     return provider_name

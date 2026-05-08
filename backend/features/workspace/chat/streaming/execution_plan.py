@@ -83,27 +83,18 @@ async def generate_and_execute_plan(
 
     try:
         if not model_name:
-            error_msg = "Cannot generate execution plan: chat_model not configured in system settings"
+            error_msg = "Cannot generate execution plan: chat_model not configured in model-routing-registry"
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        from ..utils.llm_provider import determine_provider_from_model
+        from ..utils.llm_provider import resolve_registered_provider_for_model
 
-        provider_name = determine_provider_from_model(model_name)
+        provider_name = resolve_registered_provider_for_model(model_name)
 
         if not provider_name:
             error_msg = (
                 f"Cannot determine provider for model '{model_name}'. "
-                f"Supported models: gemini-*, gpt-*, o1-*, o3-*, claude-*"
-            )
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        plan_llm_provider = llm_provider_manager.get_provider(provider_name)
-        if not plan_llm_provider:
-            error_msg = (
-                f"Provider '{provider_name}' not available for model '{model_name}'. "
-                f"Please check your API configuration."
+                "Configure the model provider in model-routing-registry."
             )
             logger.error(error_msg)
             raise ValueError(error_msg)

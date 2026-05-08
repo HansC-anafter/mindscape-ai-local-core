@@ -19,7 +19,11 @@ async def extract(
     llm_provider: Optional[Any] = None,
     locale: Optional[str] = None,
     target_language: Optional[str] = None,
-    profile_id: Optional[str] = None  # Accept but not used (for compatibility with workflow_orchestrator)
+    profile_id: Optional[str] = None,  # Accept but not used (for compatibility with workflow_orchestrator)
+    workspace_id: Optional[str] = None,
+    route_context: Optional[Dict[str, Any]] = None,
+    stage_name: Optional[str] = "structured_extract",
+    purpose: str = "core_llm.structured_extract",
 ) -> Dict[str, Any]:
     """
     Extract structured JSON from long text based on schema/description
@@ -39,12 +43,6 @@ async def extract(
             - confidence: Confidence score (0-1)
     """
     try:
-        if not llm_provider:
-            # Use the standard system method for creating LLM provider (same as workspace chat)
-            from ....shared.llm_provider_helper import create_llm_provider_manager, get_llm_provider_from_settings
-            llm_manager = create_llm_provider_manager()
-            llm_provider = get_llm_provider_from_settings(llm_manager)
-
         target_lang = target_language or locale
 
         system_prompt = f"""You are a professional data extraction assistant. Please extract structured data from the provided text.
@@ -91,6 +89,11 @@ Please output the extraction result in JSON format."""
             model=model_to_use,
             temperature=0.3,
             max_tokens=8192,
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            route_context=route_context,
+            stage_name=stage_name,
+            purpose=purpose,
         )
 
         # Extract JSON from response

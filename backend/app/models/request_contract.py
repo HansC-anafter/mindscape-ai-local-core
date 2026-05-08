@@ -149,44 +149,110 @@ class RequestContract(BaseModel):
                 return str(_cn_to_int(m.group(1))) + m.group(2)
 
             return re.sub(
-                r"([一二三四五六七八九十百千兩]+)\s*([篇張個支則條筆])", _repl, text
+                r"([一二三四五六七八九十百千兩]+)\s*(鏡頭|[篇張個支則條筆鏡場幕])",
+                _repl,
+                text,
             )
 
+        def _has_countable_unit(unit: str) -> bool:
+            normalized = (unit or "").strip().lower()
+            return normalized in {
+                "篇",
+                "張",
+                "個",
+                "支",
+                "則",
+                "條",
+                "筆",
+                "鏡",
+                "鏡頭",
+                "場",
+                "幕",
+                "post",
+                "posts",
+                "image",
+                "images",
+                "item",
+                "items",
+                "article",
+                "articles",
+                "scene",
+                "scenes",
+                "shot",
+                "shots",
+                "frame",
+                "frames",
+                "storyboard",
+                "storyboards",
+            }
+
         def _extract_quantity(text: str) -> int:
-            """Extract the first explicit quantity from text."""
+            """Extract the first explicit deliverable quantity from text."""
             text = _normalize_cn_nums(text)
             m = re.search(
-                r"(\d+)\s*[篇張個支則條筆]|(\d+)\s*(?:posts?|images?|items?|articles?)",
+                r"(\d+)\s*(篇|張|個|支|則|條|筆|鏡頭|鏡|場|幕)"
+                r"|(\d+)\s*(posts?|images?|items?|articles?|scenes?|shots?|frames?|storyboards?)\b",
                 text,
                 re.IGNORECASE,
             )
-            if m:
-                return int(m.group(1) or m.group(2))
+            if m and _has_countable_unit(m.group(2) or m.group(4) or ""):
+                return int(m.group(1) or m.group(3))
             return 1
 
         def _split_compound(text: str) -> List[Dict[str, Any]]:
             """Heuristic: split a compound sentence into sub-deliverables."""
             text = _normalize_cn_nums(text)
-            # Find all numeric-noun segments
-            segments = re.findall(
-                r"(\d+)\s*[篇張個支則條筆]?\s*([^\d,，、。]+?)(?=[,，、。]|\d|\Z)",
-                text,
-            )
+            cjk_segments = [
+                (qty, unit, name)
+                for qty, unit, name in re.findall(
+                    r"(\d+)\s*(篇|張|個|支|則|條|筆|鏡頭|鏡|場|幕)\s*([^,，、。]*)",
+                    text,
+                )
+                if _has_countable_unit(unit)
+            ]
+            english_segments = [
+                (qty, unit, name)
+                for qty, unit, name in re.findall(
+                    r"(\d+)\s*(posts?|images?|items?|articles?|scenes?|shots?|frames?|storyboards?)\b\s*([^,，、。]*)",
+                    text,
+                    re.IGNORECASE,
+                )
+                if _has_countable_unit(unit)
+            ]
+            segments = cjk_segments + english_segments
             if len(segments) >= 2:
                 results = []
-                for qty_str, name in segments:
-                    name = name.strip().rstrip("的並且和及要")
-                    if name and len(name) >= 2:
-                        results.append({"name": name, "quantity": int(qty_str)})
+                for qty_str, unit, name in segments:
+                    label = (name or "").strip().rstrip("的並且和及要")
+                    if not label:
+                        label = unit
+                    if label and len(label) >= 2:
+                        results.append({"name": label, "quantity": int(qty_str)})
                 if results:
                     return results
             return []
 
-        deliverables: List[DeliverableSpec] = []
+        def _looks_like_tracking_agenda_item(text: str) -> bool:
+            normalized = (text or "").strip()
+            return bool(
+                re.search(r"\bE2E[-_]", normalized, re.IGNORECASE)
+                or re.search(r"\b20\d{6}\b", normalized)
+                or re.search(r"\b[A-Z]{2,}(?:[-_][A-Z0-9]+){2,}\b", normalized)
+            )
 
-        if len(agenda) == 1 and agenda[0]:
+        deliverables: List[DeliverableSpec] = []
+        agenda_items = [item for item in agenda if str(item or "").strip()]
+        if (
+            len(agenda_items) == 1
+            and user_message
+            and user_message.strip()
+            and _looks_like_tracking_agenda_item(agenda_items[0])
+        ):
+            agenda_items = [user_message]
+
+        if len(agenda_items) == 1 and agenda_items[0]:
             # Single compound sentence — try heuristic split
-            sub_items = _split_compound(agenda[0])
+            sub_items = _split_compound(agenda_items[0])
             if sub_items:
                 for i, sub in enumerate(sub_items, start=1):
                     deliverables.append(
@@ -201,13 +267,13 @@ class RequestContract(BaseModel):
                 deliverables.append(
                     DeliverableSpec(
                         id="D1",
-                        name=agenda[0].strip(),
-                        quantity=_extract_quantity(agenda[0]),
+                        name=agenda_items[0].strip(),
+                        quantity=_extract_quantity(agenda_items[0]),
                     )
                 )
         else:
             # Multi-item agenda — each item is a deliverable
-            for i, item in enumerate(agenda, start=1):
+            for i, item in enumerate(agenda_items, start=1):
                 deliverables.append(
                     DeliverableSpec(
                         id=f"D{i}",
@@ -217,7 +283,7 @@ class RequestContract(BaseModel):
                 )
 
         return cls(
-            goals=[item.strip() for item in agenda] if agenda else [user_message],
+            goals=[item.strip() for item in agenda_items] if agenda_items else [user_message],
             deliverables=deliverables,
             source_message=user_message,
             workspace_scope=workspace_id,
@@ -253,10 +319,17 @@ class RequestContract(BaseModel):
         """
         import json as _json
         import logging
+        import re as _re
 
         _log = logging.getLogger(__name__)
 
-        combined = " | ".join(agenda) if agenda else user_message
+        combined_parts = []
+        if user_message and user_message.strip():
+            combined_parts.append(f"User request: {user_message.strip()}")
+        agenda_items = [str(item).strip() for item in agenda if str(item).strip()]
+        if agenda_items:
+            combined_parts.append("Agenda: " + " | ".join(agenda_items))
+        combined = "\n".join(combined_parts) if combined_parts else user_message
 
         try:
             if not model_name or llm_generate_fn is None:
@@ -271,6 +344,10 @@ class RequestContract(BaseModel):
                         "Return ONLY a JSON array of objects. Each object: "
                         '{"name": "short label", "quantity": number, '
                         '"requires": ["dependency1", "dependency2"]}. '
+                        "Use quantity only for countable deliverable units such as "
+                        "posts, images, scenes, shots, frames, articles, 篇, 張, 鏡, 鏡頭. "
+                        "Do not treat tracking IDs, dates, version numbers, or durations "
+                        "such as 90s as deliverable quantities. "
                         "Example for '調研十篇研究，做30篇IG post，要配圖': "
                         '[{"name":"前沿研究調研","quantity":10,"requires":[]},'
                         '{"name":"IG post 貼文","quantity":30,'
@@ -303,11 +380,25 @@ class RequestContract(BaseModel):
                     name = str(item.get("name", "")).strip()
                     if not name:
                         continue
+                    quantity = max(1, int(item.get("quantity", 1)))
+                    has_countable_unit = bool(
+                        _re.search(
+                            r"\b(posts?|images?|items?|articles?|scenes?|shots?|frames?|storyboards?)\b"
+                            r"|[篇張個支則條筆鏡場幕]",
+                            name,
+                            _re.IGNORECASE,
+                        )
+                    )
+                    if not has_countable_unit:
+                        if quantity > 1000 or _re.search(
+                            rf"\b{quantity}\s*s\b", combined, _re.IGNORECASE
+                        ):
+                            quantity = 1
                     deliverables.append(
                         DeliverableSpec(
                             id=f"D{i}",
                             name=name,
-                            quantity=max(1, int(item.get("quantity", 1))),
+                            quantity=quantity,
                             requires=item.get("requires", []),
                         )
                     )

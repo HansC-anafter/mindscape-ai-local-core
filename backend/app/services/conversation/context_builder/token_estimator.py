@@ -57,7 +57,7 @@ class TokenEstimator:
             if not effective_model or effective_model.strip() == "":
                 raise ValueError(
                     "LLM model not configured for token estimation. "
-                    "Please select a model in the system settings panel."
+                    "Configure chat_model in model-routing-registry."
                 )
 
             encoding_name = "cl100k_base"

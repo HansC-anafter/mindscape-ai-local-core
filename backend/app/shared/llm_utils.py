@@ -126,34 +126,32 @@ async def call_llm(
         normalized_messages = messages if messages is not None else prompt
         if normalized_messages is None:
             raise Exception("No messages provided")
-        if llm_provider is None:
-            raise Exception("No LLM provider available")
 
         resolved_model_name = model_name or model
         provider = None
         llm_provider_manager = None
 
-        from backend.app.shared.llm_provider_helper import (
-            get_llm_provider_from_settings,
-            resolve_llm_selection,
-        )
-
-        if hasattr(llm_provider, "get_llm_manager") and hasattr(
+        if llm_provider is None:
+            pass
+        elif hasattr(llm_provider, "get_llm_manager") and hasattr(
             llm_provider, "get_llm_provider"
         ):
             llm_provider_manager = llm_provider
         elif hasattr(llm_provider, "get_provider"):
+            from backend.app.shared.llm_provider_helper import (
+                get_llm_provider_from_settings,
+                resolve_llm_selection,
+            )
+
             try:
                 selection = resolve_llm_selection(
                     model_name=resolved_model_name,
-                    default_model="gpt-4o-mini",
                     purpose=purpose,
                 )
                 resolved_model_name = selection.model_name
                 provider = get_llm_provider_from_settings(
                     llm_provider,
                     model_name=resolved_model_name,
-                    default_model="gpt-4o-mini",
                     purpose=purpose,
                 )
             except ValueError as e:
@@ -166,14 +164,12 @@ async def call_llm(
         else:
             provider = llm_provider
             if not resolved_model_name:
+                from backend.app.shared.llm_provider_helper import resolve_llm_selection
+
                 resolved_model_name = resolve_llm_selection(
                     model_name=None,
-                    default_model="gpt-4o-mini",
                     purpose=purpose,
                 ).model_name
-
-        if provider is None and llm_provider_manager is None:
-            raise Exception("No LLM provider available")
 
         if provider is not None:
             logger.info(

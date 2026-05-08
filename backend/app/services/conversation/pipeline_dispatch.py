@@ -276,7 +276,6 @@ async def dispatch_to_llm(
     workspace: Any,
     profile: Any,
     result: Any,
-    is_fallback: bool = False,
 ) -> Any:
     """Dispatch to LLM streaming (pure generation, no decisions).
 
@@ -316,12 +315,12 @@ async def dispatch_to_llm(
 
             model_name = get_model_name_from_chat_model()
         except Exception as e:
-            logger.warning(f"Failed to fetch default chat model: {e}")
+            logger.warning(f"Failed to fetch registry chat model: {e}")
 
     if not model_name or str(model_name).strip() == "":
         result.success = False
         result.error = (
-            "No chat model configured. Set chat_model in system settings."
+            "No chat model configured in model-routing-registry."
         )
         return result
 
@@ -387,9 +386,7 @@ async def dispatch_to_llm(
             store=store,
             context_token_count=context_token_count,
             execution_playbook_result=None,
-            openai_key=None,
             meeting_session_id=result.meeting_session_id,
-            is_fallback=is_fallback,
         ):
             # Accumulate full text from chunks
             if chunk.startswith("data: "):

@@ -25,25 +25,6 @@ class ResolvedLLMSelection:
     managed_llm_allowed: bool
 
 
-def _infer_provider_name_from_model(model_name: str) -> Optional[str]:
-    """Infer provider from model name when metadata is unavailable."""
-    if not model_name:
-        return None
-
-    model_lower = model_name.lower()
-    if "gemini" in model_lower:
-        return "vertex-ai"
-    if "gpt" in model_lower or "text-" in model_lower or "o1" in model_lower or "o3" in model_lower:
-        return "openai"
-    if "claude" in model_lower:
-        return "anthropic"
-    if any(
-        x in model_lower for x in ["llama", "mistral", "gemma", "deepseek", "qwen", "phi"]
-    ):
-        return "ollama"
-    return None
-
-
 def resolve_executor_runtime(
     *,
     workspace: Optional[Any] = None,
@@ -63,8 +44,6 @@ def resolve_llm_selection(
     executor_runtime: Optional[str] = None,
     model_name: Optional[str] = None,
     provider_name: Optional[str] = None,
-    default_model: Optional[str] = None,
-    allow_model_inference: bool = True,
     allow_with_executor_runtime: bool = False,
     purpose: str = "general",
 ) -> ResolvedLLMSelection:
@@ -81,9 +60,7 @@ def resolve_llm_selection(
 
     chat_route = None
     if model_name is None or provider_name is None:
-        chat_route = ModelRoutingPolicyService().resolve_chat_default(
-            default=default_model
-        )
+        chat_route = ModelRoutingPolicyService().resolve_chat_default()
 
     resolved_model_name = model_name
     if not resolved_model_name and chat_route and chat_route.model_name:
@@ -91,7 +68,7 @@ def resolve_llm_selection(
     if not resolved_model_name:
         raise ValueError(
             f"chat_model not configured for purpose '{purpose}'. "
-            "Please configure chat_model in Settings."
+            "Configure chat_model in model-routing-registry."
         )
 
     resolved_runtime = resolve_executor_runtime(
@@ -107,14 +84,21 @@ def resolve_llm_selection(
         )
 
     resolved_provider_name = provider_name
-    if not resolved_provider_name and chat_route:
+    if not resolved_provider_name and model_name:
+        from backend.app.models.model_provider import ModelType as ProviderModelType
+
+        model_route = ModelRoutingPolicyService().resolve_registered_model(
+            model_name=resolved_model_name,
+            model_type=ProviderModelType.CHAT,
+            source=f"resolve_llm_selection.{purpose}",
+        )
+        resolved_provider_name = model_route.provider
+    elif not resolved_provider_name and chat_route:
         resolved_provider_name = chat_route.provider
-    if not resolved_provider_name and allow_model_inference:
-        resolved_provider_name = _infer_provider_name_from_model(resolved_model_name)
     if not resolved_provider_name:
         raise ValueError(
             f"Cannot determine LLM provider for model '{resolved_model_name}' "
-            f"(purpose='{purpose}'). Configure provider in chat_model metadata."
+            f"(purpose='{purpose}'). Configure provider in model-routing-registry."
         )
 
     return ResolvedLLMSelection(
@@ -130,7 +114,6 @@ def get_provider_name_from_chat_model(
     workspace: Optional[Any] = None,
     executor_runtime: Optional[str] = None,
     model_name: Optional[str] = None,
-    allow_model_inference: bool = True,
     allow_with_executor_runtime: bool = False,
     purpose: str = "general",
 ) -> Optional[str]:
@@ -147,7 +130,6 @@ def get_provider_name_from_chat_model(
         workspace=workspace,
         executor_runtime=executor_runtime,
         model_name=model_name,
-        allow_model_inference=allow_model_inference,
         allow_with_executor_runtime=allow_with_executor_runtime,
         purpose=purpose,
     )
@@ -166,8 +148,6 @@ def get_llm_provider_from_settings(
     executor_runtime: Optional[str] = None,
     model_name: Optional[str] = None,
     provider_name: Optional[str] = None,
-    default_model: Optional[str] = None,
-    allow_model_inference: bool = True,
     allow_with_executor_runtime: bool = False,
     purpose: str = "general",
 ) -> Optional[object]:
@@ -188,8 +168,6 @@ def get_llm_provider_from_settings(
         executor_runtime=executor_runtime,
         model_name=model_name,
         provider_name=provider_name,
-        default_model=default_model,
-        allow_model_inference=allow_model_inference,
         allow_with_executor_runtime=allow_with_executor_runtime,
         purpose=purpose,
     )
@@ -243,18 +221,18 @@ def get_llm_provider_from_settings(
     return provider
 
 
-def get_model_name_from_chat_model(default: Optional[str] = None) -> Optional[str]:
+def get_model_name_from_chat_model() -> Optional[str]:
     """
     Get model name from system chat_model setting
 
     Returns:
-        Model name (e.g., 'gemini-2.5-pro', 'gpt-4o-mini') or None if not configured
+        Model name from model-routing-registry, or None if not configured
     """
     from backend.app.services.model_routing_policy_service import (
         ModelRoutingPolicyService,
     )
 
-    return ModelRoutingPolicyService().resolve_chat_default(default=default).model_name
+    return ModelRoutingPolicyService().resolve_chat_default().model_name
 
 
 import functools
@@ -293,15 +271,15 @@ def create_llm_provider_manager(
     provider_name: Optional[str] = None,
 ):
     """
-    Create LLMProviderManager with unified configuration from system settings
+    Create LLMProviderManager with registry-selected provider credentials.
 
     This function provides a unified way to create LLMProviderManager across the codebase.
-    It reads configuration from system settings first, then falls back to environment variables,
-    and finally uses provided parameters.
+    Provider selection must already be resolved by model-routing-registry; this helper
+    only loads credentials for that selected provider.
 
     Args:
-        openai_key: OpenAI API key (optional, will be read from system settings or env if not provided)
-        anthropic_key: Anthropic API key (optional, will be read from system settings or env if not provided)
+        openai_key: OpenAI API key (optional credential input)
+        anthropic_key: Anthropic API key (optional credential input)
         vertex_api_key: Vertex AI service account JSON or file path (optional)
         vertex_project_id: Vertex AI project ID (optional)
         vertex_location: Vertex AI location (optional, defaults to us-central1)
@@ -313,7 +291,7 @@ def create_llm_provider_manager(
 
     settings_store = SystemSettingsStore()
 
-    # Get OpenAI key: parameter > system settings > environment variable
+    # Load OpenAI credentials only when the registry-selected provider needs them.
     if provider_name in (None, "openai") and not openai_key:
         openai_setting = settings_store.get_setting("openai_api_key")
         openai_key = openai_setting.value if openai_setting else None
@@ -327,14 +305,14 @@ def create_llm_provider_manager(
         if openai_base_url and not openai_key:
             openai_key = "dummy-key-for-local-endpoint"
 
-    # Get Anthropic key: parameter > system settings > environment variable
+    # Load Anthropic credentials only when the registry-selected provider needs them.
     if provider_name in (None, "anthropic") and not anthropic_key:
         anthropic_setting = settings_store.get_setting("anthropic_api_key")
         anthropic_key = anthropic_setting.value if anthropic_setting else None
     if provider_name in (None, "anthropic") and not anthropic_key:
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
 
-    # Get Vertex AI config: parameter > system settings > environment variable
+    # Load Vertex AI credentials only when the registry-selected provider needs them.
     if provider_name in (None, "vertex-ai") and not vertex_api_key:
         # UI / settings route writes the JSON credential to vertex_ai_service_account_json
         vertex_service_account = settings_store.get_setting(
@@ -357,14 +335,14 @@ def create_llm_provider_manager(
     if provider_name in (None, "vertex-ai") and not vertex_location:
         vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")
 
-    # Get Llama model path: parameter > system settings > environment variable
+    # Load Llama credentials only when the registry-selected provider needs them.
     if provider_name in (None, "llama") and not llama_model_path:
         llama_setting = settings_store.get_setting("llama_model_path")
         llama_model_path = llama_setting.value if llama_setting else None
     if provider_name in (None, "llama") and not llama_model_path:
         llama_model_path = os.getenv("LLAMA_MODEL_PATH")
 
-    # Get Ollama base URL: parameter > system settings > environment variable
+    # Load Ollama endpoint only when the registry-selected provider needs it.
     if provider_name in (None, "ollama") and not ollama_base_url:
         ollama_setting = settings_store.get_setting("ollama_base_url")
         ollama_base_url = ollama_setting.value if ollama_setting else None
@@ -389,8 +367,6 @@ def build_managed_llm_provider(
     executor_runtime: Optional[str] = None,
     model_name: Optional[str] = None,
     provider_name: Optional[str] = None,
-    default_model: Optional[str] = None,
-    allow_model_inference: bool = True,
     allow_with_executor_runtime: bool = False,
     purpose: str = "general",
 ):
@@ -406,8 +382,6 @@ def build_managed_llm_provider(
         executor_runtime=executor_runtime,
         model_name=model_name,
         provider_name=provider_name,
-        default_model=default_model,
-        allow_model_inference=allow_model_inference,
         allow_with_executor_runtime=allow_with_executor_runtime,
         purpose=purpose,
     )
@@ -424,8 +398,6 @@ def build_managed_llm_provider(
         executor_runtime=executor_runtime,
         model_name=selection.model_name,
         provider_name=selection.provider_name,
-        default_model=default_model,
-        allow_model_inference=allow_model_inference,
         allow_with_executor_runtime=allow_with_executor_runtime,
         purpose=purpose,
     )

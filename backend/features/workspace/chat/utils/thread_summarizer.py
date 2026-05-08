@@ -4,23 +4,17 @@ Generates concise titles for conversation threads using lightweight LLM models.
 """
 
 import logging
-from typing import Optional, List, Dict
-import json
-
-from backend.app.services.stores.conversation_threads_store import (
-    ConversationThreadsStore,
-)
-from .llm_provider import (
-    get_llm_provider_manager,
-    get_llm_provider,
-)
-from backend.app.shared.llm_utils import build_prompt
+from typing import Optional
+from backend.app.shared.llm_utils import build_prompt, call_llm
 
 logger = logging.getLogger(__name__)
 
 
 async def summarize_thread(
-    workspace_id: str, thread_id: str, store, model_name: str = "gemini-2.5-flash-lite"
+    workspace_id: str,
+    thread_id: str,
+    store,
+    model_name: Optional[str] = None,
 ) -> Optional[str]:
     """
     Generate a summary title for a thread and update it.
@@ -29,7 +23,7 @@ async def summarize_thread(
         workspace_id: Workspace ID
         thread_id: Thread ID
         store: MindscapeStore instance
-        model_name: Model to use for summarization (default: lightweight model)
+        model_name: Optional requested model; registry route is used when omitted.
 
     Returns:
         Generated title or None if failed
@@ -81,46 +75,26 @@ Language: Detect the language of the conversation and output the title in the sa
 
         user_prompt = f"""Generate a concise title for this conversation:\n\n{conversation_text}"""
 
-        # Get provider
         profile_id = None
-        # Try to find a profile id from events if possible, else use None (system default)
         for e in events:
             if e.profile_id:
                 profile_id = e.profile_id
                 break
 
-        llm_provider_manager = get_llm_provider_manager(
-            profile_id=profile_id, db_path=store.db_path, use_default_user=True
-        )
-
-        # Resolve provider from model config — respects enabled/disabled settings.
-        # Do NOT hardcode "vertex-ai"; let the model config store decide.
-        from .llm_provider import get_provider_name_from_model_config
-
-        provider_name, _ = get_provider_name_from_model_config(model_name)
-        provider = (
-            llm_provider_manager.get_provider(provider_name) if provider_name else None
-        )
-        if not provider:
-            # All models disabled or provider unavailable → skip summarization
-            logger.info(
-                "No LLM provider available for summarization (model=%s, "
-                "provider=%s), skipping.",
-                model_name,
-                provider_name,
-            )
-            return None
-
         messages = build_prompt(system_prompt=system_prompt, user_prompt=user_prompt)
 
         try:
-            # Use non-streaming completion
-            response_text = await provider.chat_completion(
+            llm_result = await call_llm(
                 messages=messages,
                 model=model_name,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                purpose="workspace_chat.thread_summary",
+                stage_name="response_formatting",
                 temperature=0.3,  # Low temp for deterministic titles
                 max_tokens=20,
             )
+            response_text = str(llm_result.get("text") or "")
 
             title = response_text.strip().strip('"').strip("'")
 

@@ -7,10 +7,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
-from backend.app.services.conversation.capability_profile import (
-    CapabilityProfile,
-    CapabilityProfileRegistry,
-)
+from backend.app.models.model_provider import ModelType as ProviderModelType
 from backend.app.services.conversation.stage_profile_mapper import StageProfileMapper
 from backend.app.services.executor_route_context import load_executor_route_context
 
@@ -24,6 +21,7 @@ class StageRouteDecision:
     concrete_runtime_id: Optional[str]
     capability_profile: Optional[str]
     model_name: Optional[str]
+    provider_name: Optional[str]
     decision_reason: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,6 +65,52 @@ def resolve_stage_capability_profile(stage_name: str, risk_level: str) -> Option
     return getattr(profile, "value", None) or str(profile)
 
 
+def resolve_stage_model_route(
+    *,
+    requested_model: Optional[str],
+    capability_profile: Optional[str],
+    llm_provider_manager: Any = None,
+    profile_id: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    from backend.app.services.model_routing_policy_service import (
+        ModelRoutingPolicyService,
+    )
+
+    routing_service = ModelRoutingPolicyService()
+    chat_route = routing_service.resolve_chat_default()
+
+    if requested_model:
+        try:
+            route = routing_service.resolve_registered_model(
+                model_name=requested_model,
+                model_type=ProviderModelType.CHAT,
+                source="requested_model",
+            )
+            return route.model_name, route.provider
+        except ValueError:
+            if requested_model == chat_route.model_name:
+                return chat_route.model_name, chat_route.provider
+            return requested_model, None
+
+    if not capability_profile:
+        return chat_route.model_name, chat_route.provider
+
+    try:
+        profile_route = routing_service.resolve_profile_model(
+            profile=str(capability_profile),
+            scope="local",
+            model_type=ProviderModelType.CHAT,
+        )
+        if profile_route.model_name:
+            return profile_route.model_name, profile_route.provider
+    except ValueError:
+        raise
+    except Exception:
+        pass
+
+    return chat_route.model_name, chat_route.provider
+
+
 def resolve_stage_model_name(
     *,
     requested_model: Optional[str],
@@ -74,32 +118,13 @@ def resolve_stage_model_name(
     llm_provider_manager: Any = None,
     profile_id: Optional[str] = None,
 ) -> Optional[str]:
-    if requested_model:
-        return requested_model
-
-    def _global_chat_model_name() -> Optional[str]:
-        try:
-            from backend.app.shared.llm_provider_helper import (
-                get_model_name_from_chat_model,
-            )
-
-            return get_model_name_from_chat_model()
-        except Exception:
-            return None
-
-    if not capability_profile or llm_provider_manager is None:
-        return _global_chat_model_name()
-
-    try:
-        profile = CapabilityProfile(str(capability_profile))
-        llm_manager = llm_provider_manager.get_llm_manager(profile_id or "default-user")
-        return CapabilityProfileRegistry().select_model(
-            profile,
-            llm_manager,
-            profile_id=profile_id or "default-user",
-        ) or _global_chat_model_name()
-    except Exception:
-        return _global_chat_model_name()
+    model_name, _provider_name = resolve_stage_model_route(
+        requested_model=requested_model,
+        capability_profile=capability_profile,
+        llm_provider_manager=llm_provider_manager,
+        profile_id=profile_id,
+    )
+    return model_name
 
 
 async def resolve_governed_stage_route(
@@ -132,7 +157,7 @@ async def resolve_governed_stage_route(
         (resolved_route_context or {}).get("concrete_runtime_id") or ""
     ).strip() or None
     capability_profile = resolve_stage_capability_profile(resolved_stage, risk_level)
-    resolved_model_name = resolve_stage_model_name(
+    resolved_model_name, resolved_provider_name = resolve_stage_model_route(
         requested_model=requested_model,
         capability_profile=capability_profile,
         llm_provider_manager=llm_provider_manager,
@@ -149,6 +174,7 @@ async def resolve_governed_stage_route(
             concrete_runtime_id=concrete_runtime_id,
             capability_profile=capability_profile,
             model_name=resolved_model_name,
+            provider_name=resolved_provider_name,
             decision_reason="workspace_runtime_stage",
         )
 
@@ -161,6 +187,7 @@ async def resolve_governed_stage_route(
         concrete_runtime_id=None,
         capability_profile=capability_profile,
         model_name=resolved_model_name,
+        provider_name=resolved_provider_name,
         decision_reason="no_workspace_runtime",
     )
 

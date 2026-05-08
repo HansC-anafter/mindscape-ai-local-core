@@ -184,7 +184,6 @@ class PlanBuilder:
 
             timeline_items_store = PostgresTimelineItemsStore()
 
-            # Use _select_model_for_plan to select model (with fallback to chat_model)
             # Determine risk_level from project_assignment_decision or default to "read"
             risk_level = "read"
             if project_assignment_decision:
@@ -197,7 +196,7 @@ class PlanBuilder:
             )
             if not model_name or model_name.strip() == "":
                 raise ValueError(
-                    "LLM model is empty. Please select a valid model in the system settings panel."
+                    "LLM model is empty. Configure chat_model in model-routing-registry."
                 )
 
             context_builder = ContextBuilder(

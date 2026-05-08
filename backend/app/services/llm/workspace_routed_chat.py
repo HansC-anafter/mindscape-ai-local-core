@@ -1,6 +1,4 @@
-"""
-Workspace-aware chat completion entrypoint for managed tool-planning loops.
-"""
+"""Workspace-aware chat completion entrypoint for routed tool-planning loops."""
 
 from __future__ import annotations
 
@@ -16,9 +14,6 @@ from backend.app.services.llm.governed_stage_router import (
 from backend.app.shared.inference_config import InferenceConfig
 
 logger = logging.getLogger(__name__)
-
-
-_AGENTIC_EXECUTOR_RUNTIMES = frozenset({"codex_cli", "gemini_cli", "claude_code_cli"})
 
 
 def _prepare_provider_chat_kwargs(
@@ -67,6 +62,75 @@ def _prepare_provider_chat_kwargs(
     return call_kwargs
 
 
+async def _load_workspace(workspace_id: Optional[str]) -> Optional[Any]:
+    if not workspace_id:
+        return None
+    from backend.app.services.stores.postgres.workspaces_store import (
+        PostgresWorkspacesStore,
+    )
+
+    return await PostgresWorkspacesStore().get_workspace(workspace_id)
+
+
+def _build_runtime_chat_task(messages: list[dict[str, str]]) -> str:
+    rendered_messages: list[str] = []
+    for message in messages:
+        role = str(message.get("role") or "message").strip() or "message"
+        content = str(message.get("content") or "")
+        rendered_messages.append(f"[{role}]\n{content}")
+    return (
+        "Continue the workspace conversation and return only the assistant response.\n\n"
+        + "\n\n".join(rendered_messages)
+    )
+
+
+async def _call_via_workspace_runtime(
+    *,
+    workspace_id: Optional[str],
+    executor_runtime: str,
+    messages: list[dict[str, str]],
+    model_name: Optional[str],
+) -> str:
+    workspace = await _load_workspace(workspace_id)
+    if workspace is None:
+        raise RuntimeError(
+            "Workspace runtime route selected but workspace context is unavailable"
+        )
+    normalized_runtime = str(executor_runtime or "").strip().lower()
+    if normalized_runtime == "codex_cli":
+        from backend.app.services.llm.core_llm import core_llm_call
+
+        return str(
+            await core_llm_call(
+                user_message=_build_runtime_chat_task(messages),
+                response_format="text",
+                workspace_id=workspace_id,
+                executor_runtime="codex_cli",
+                model=model_name,
+                purpose="workspace_routed_chat",
+            )
+        ).strip()
+
+    from backend.app.services.workspace_agent_executor import WorkspaceAgentExecutor
+
+    executor = WorkspaceAgentExecutor(workspace)
+    if not await executor.check_agent_available(normalized_runtime):
+        raise RuntimeError(
+            f"Executor runtime '{normalized_runtime}' is not available for workspace "
+            f"{workspace_id or ''}"
+        )
+
+    result = await executor.execute(
+        task=_build_runtime_chat_task(messages),
+        agent_id=normalized_runtime,
+        skip_preflight=True,
+        context_overrides={"model": model_name},
+    )
+    if not result.success:
+        raise RuntimeError(result.error or f"{normalized_runtime} execution failed")
+    return str(result.output or "").strip()
+
+
 async def chat_completion_with_workspace_route(
     *,
     messages: list[dict[str, str]],
@@ -86,10 +150,9 @@ async def chat_completion_with_workspace_route(
     """
     Centralized chat-completion entrypoint for playbook/execution-chat loops.
 
-    These loops still use managed provider chat-completion semantics because the
-    current executor runtimes are agentic CLI surfaces, not plain text-only chat
-    adapters. We still load and propagate workspace route context here so the
-    remaining managed path is centralized and observable.
+    If model-route-registry resolves a workspace executor runtime, that runtime
+    owns generation. Managed provider chat completion is only used when no
+    workspace executor runtime is configured.
     """
 
     resolved_route_context = route_context
@@ -116,50 +179,48 @@ async def chat_completion_with_workspace_route(
         profile_id=profile_id,
     )
     append_stage_route_decision(decision_log, decision)
-
-    if provider is None:
-        if llm_provider_manager is None:
-            from backend.app.services.config_store import ConfigStore
-            from backend.app.services.playbook.llm_provider_manager import (
-                PlaybookLLMProviderManager,
-            )
-
-            llm_provider_manager = PlaybookLLMProviderManager(ConfigStore())
-
-        llm_manager = llm_provider_manager.get_llm_manager(profile_id or "default-user")
-        provider = llm_provider_manager.get_llm_provider(llm_manager)
+    if provider is not None:
+        logger.debug(
+            "Ignoring caller-supplied provider object; provider construction is owned by model-routing-registry"
+        )
+        provider = None
 
     executor_runtime = str(decision.executor_runtime or "").strip().lower()
-    if executor_runtime in _AGENTIC_EXECUTOR_RUNTIMES:
-        logger.info(
-            "workspace_routed_chat stage route %s "
-            "(workspace=%s stage=%s runtime=%s concrete_runtime=%s reason=%s)",
-            purpose,
-            workspace_id,
-            decision.stage_name,
-            executor_runtime,
-            decision.concrete_runtime_id,
-            decision.decision_reason,
+    if decision.route_mode == "workspace_runtime":
+        return await _call_via_workspace_runtime(
+            workspace_id=workspace_id,
+            executor_runtime=executor_runtime,
+            messages=messages,
+            model_name=decision.model_name,
         )
-    elif executor_runtime:
-        logger.info(
-            "workspace_routed_chat stage route %s "
-            "(workspace=%s stage=%s runtime=%s reason=%s)",
-            purpose,
-            workspace_id,
-            decision.stage_name,
-            executor_runtime,
-            decision.decision_reason,
+
+    if decision.executor_runtime:
+        raise RuntimeError(
+            "Managed provider route is not allowed when workspace executor runtime is configured"
         )
-    else:
-        logger.info(
-            "workspace_routed_chat stage route %s "
-            "(workspace=%s stage=%s runtime=managed reason=%s)",
-            purpose,
-            workspace_id,
-            decision.stage_name,
-            decision.decision_reason,
+
+    if provider is None:
+        if not decision.model_name or not decision.provider_name:
+            raise ValueError(
+                "Managed provider route requires model and provider from "
+                "model-routing-registry"
+            )
+        from backend.app.shared.llm_provider_helper import build_managed_llm_provider
+
+        provider, _selection = build_managed_llm_provider(
+            model_name=decision.model_name,
+            provider_name=decision.provider_name,
+            purpose=purpose,
         )
+
+    logger.info(
+        "workspace_routed_chat managed provider route %s "
+        "(workspace=%s stage=%s reason=%s)",
+        purpose,
+        workspace_id,
+        decision.stage_name,
+        decision.decision_reason,
+    )
 
     call_kwargs = _prepare_provider_chat_kwargs(
         provider=provider,

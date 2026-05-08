@@ -23,8 +23,6 @@ async def stream_openai_response(
     provider: Any,
     messages: List[Dict[str, Any]],
     model_name: str,
-    openai_key: Optional[str] = None,
-    is_fallback: bool = False,
 ) -> AsyncGenerator[str, None]:
     """
     Stream response from OpenAI provider
@@ -33,24 +31,14 @@ async def stream_openai_response(
         provider: OpenAI provider instance
         messages: Messages list
         model_name: Model name
-        openai_key: Optional OpenAI API key for fallback
-
     Yields:
         SSE event strings with chunk content
     """
     use_provider_stream = hasattr(provider, "chat_completion_stream")
 
     if not use_provider_stream:
-        # Fallback to direct client
-        logger.warning(
-            "Provider does not support chat_completion_stream, using direct client"
-        )
-        import openai
-
-        openai_key_for_streaming = (
-            provider.api_key if hasattr(provider, "api_key") else openai_key
-        )
-        client = openai.AsyncOpenAI(api_key=openai_key_for_streaming)
+        yield f"data: {json.dumps({'type': 'error', 'message': 'Selected registry provider does not support chat_completion_stream'})}\n\n"
+        return
 
     full_text = ""
 
@@ -63,41 +51,13 @@ async def stream_openai_response(
             messages=messages, model=model_name, temperature=0.7, max_tokens=resolved_max
         ):
             full_text += chunk_content
-            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'model_name': model_name, 'is_fallback': is_fallback})}\n\n"
-    else:
-        # Fallback: direct client usage
-        request_params = {
-            "model": model_name,
-            "messages": messages,
-            "temperature": 0.7,
-            "stream": True,
-        }
-
-        # Handle max_completion_tokens for newer models
-        model_lower = model_name.lower()
-        is_newer_model = (
-            "gpt-5" in model_lower or "o1" in model_lower or "o3" in model_lower
-        )
-        if is_newer_model:
-            request_params["extra_body"] = {"max_completion_tokens": resolved_max}
-        else:
-            request_params["max_tokens"] = resolved_max
-
-        # Create streaming request
-        stream = await client.chat.completions.create(**request_params)
-        async for chunk in stream:
-            if chunk.choices and len(chunk.choices) > 0:
-                delta = chunk.choices[0].delta
-                if hasattr(delta, "content") and delta.content:
-                    full_text += delta.content
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': delta.content, 'model_name': model_name, 'is_fallback': is_fallback})}\n\n"
+            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'model_name': model_name})}\n\n"
 
 
 async def stream_vertexai_response(
     provider: Any,
     messages: List[Dict[str, Any]],
     model_name: str,
-    is_fallback: bool = False,
 ) -> AsyncGenerator[str, None]:
     """
     Stream response from VertexAI provider
@@ -110,12 +70,9 @@ async def stream_vertexai_response(
     Yields:
         SSE event strings with chunk content
     """
-    # CRITICAL FIX: Ensure model_name is never None
     if not model_name:
-        model_name = "gemini-2.0-flash"
-        logger.warning(
-            f"[stream_vertexai_response] model_name was None, using fallback: {model_name}"
-        )
+        yield f"data: {json.dumps({'type': 'error', 'message': 'No chat model configured in model-routing-registry'})}\n\n"
+        return
 
     logger.info(f"Starting stream_llm_response for model {model_name}")
     full_text = ""
@@ -128,21 +85,10 @@ async def stream_vertexai_response(
             messages=messages, model=model_name, temperature=0.7, max_tokens=resolved_max
         ):
             full_text += chunk_content
-            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'model_name': model_name, 'is_fallback': is_fallback})}\n\n"
+            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content, 'model_name': model_name})}\n\n"
     else:
-        # Fallback: use non-streaming and simulate streaming
-        logger.warning(
-            "VertexAIProvider does not support streaming, using non-streaming mode"
-        )
-        response_text = await provider.chat_completion(
-            messages=messages, model=model_name, temperature=0.7, max_tokens=resolved_max
-        )
-        # Simulate streaming by sending chunks
-        chunk_size = 10
-        for i in range(0, len(response_text), chunk_size):
-            chunk = response_text[i : i + chunk_size]
-            full_text += chunk
-            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk, 'model_name': model_name, 'is_fallback': is_fallback})}\n\n"
+        yield f"data: {json.dumps({'type': 'error', 'message': 'Selected registry provider does not support chat_completion_stream'})}\n\n"
+        return
 
 
 def create_assistant_event(
@@ -378,9 +324,7 @@ async def stream_llm_response(
     store: MindscapeStore,
     context_token_count: int,
     execution_playbook_result: Optional[Dict[str, Any]] = None,
-    openai_key: Optional[str] = None,
     meeting_session_id: Optional[str] = None,
-    is_fallback: bool = False,
 ) -> AsyncGenerator[str, None]:
     """
     Stream LLM response based on provider type and handle post-processing
@@ -402,22 +346,59 @@ async def stream_llm_response(
         store: MindscapeStore instance
         context_token_count: Context token count
         execution_playbook_result: Optional direct execution result
-        openai_key: Optional OpenAI key for fallback
-
     Yields:
         SSE event strings
     """
-    # CRITICAL FIX: Ensure model_name is never None
     if not model_name:
-        yield f"data: {json.dumps({'type': 'error', 'message': 'No chat model configured. Set chat_model in system settings.'})}\n\n"
+        yield f"data: {json.dumps({'type': 'error', 'message': 'No chat model configured in model-routing-registry'})}\n\n"
         return
 
     full_text = ""
+    workspace_executor_runtime = str(
+        getattr(workspace, "resolved_executor_runtime", "") or ""
+    ).strip()
+    if workspace_executor_runtime:
+        from backend.app.services.llm.workspace_routed_chat import (
+            chat_completion_with_workspace_route,
+        )
+
+        full_text = str(
+            await chat_completion_with_workspace_route(
+                messages=messages,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                model=model_name,
+                purpose="workspace_chat.streaming_response",
+                stage_name="response_formatting",
+                risk_level="read",
+                temperature=0.7,
+            )
+            or ""
+        )
+        if full_text:
+            yield f"data: {json.dumps({'type': 'chunk', 'content': full_text, 'model_name': model_name})}\n\n"
+
+        assistant_event = create_assistant_event(
+            full_text,
+            user_event_id,
+            profile_id,
+            project_id,
+            workspace_id,
+            thread_id,
+            store,
+            meeting_session_id=meeting_session_id,
+        )
+        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_final': True})}\n\n"
+        logger.info(
+            "[LLMStreaming] Sent final complete event via workspace runtime, full_text length: %d chars",
+            len(full_text),
+        )
+        return
 
     if provider_type == "OpenAIProvider":
         # Stream OpenAI response
         async for event in stream_openai_response(
-            provider, messages, model_name, openai_key, is_fallback=is_fallback
+            provider, messages, model_name
         ):
             yield event
             # Extract chunk content to accumulate full_text
@@ -465,7 +446,7 @@ async def stream_llm_response(
                 yield event
 
         # Send final completion event (main response is complete)
-        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_fallback': is_fallback, 'is_final': True})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_final': True})}\n\n"
         logger.info(
             f"[LLMStreaming] Sent final complete event (OpenAI), full_text length: {len(full_text)} chars"
         )
@@ -478,7 +459,7 @@ async def stream_llm_response(
     elif provider_type == "VertexAIProvider":
         # Stream VertexAI response
         async for event in stream_vertexai_response(
-            provider, messages, model_name, is_fallback=is_fallback
+            provider, messages, model_name
         ):
             yield event
             # Extract chunk content to accumulate full_text
@@ -525,7 +506,7 @@ async def stream_llm_response(
                 yield event
 
         # Send final completion event (main response is complete)
-        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_fallback': is_fallback, 'is_final': True})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_final': True})}\n\n"
         logger.info(
             f"[LLMStreaming] Sent final complete event (VertexAI), full_text length: {len(full_text)} chars"
         )
@@ -534,7 +515,7 @@ async def stream_llm_response(
         # Ollama exposes an OpenAI-compatible streaming interface through the
         # provider abstraction, so the OpenAI streaming wrapper can consume it.
         async for event in stream_openai_response(
-            provider, messages, model_name, openai_key, is_fallback=is_fallback
+            provider, messages, model_name
         ):
             yield event
             if event.startswith("data: "):
@@ -556,7 +537,7 @@ async def stream_llm_response(
             meeting_session_id=meeting_session_id,
         )
 
-        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_fallback': is_fallback, 'is_final': True})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'event_id': assistant_event.id, 'context_tokens': context_token_count, 'model_name': model_name, 'is_final': True})}\n\n"
         logger.info(
             f"[LLMStreaming] Sent final complete event (Ollama), full_text length: {len(full_text)} chars"
         )

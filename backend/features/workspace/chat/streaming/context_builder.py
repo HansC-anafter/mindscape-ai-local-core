@@ -42,7 +42,7 @@ async def build_streaming_context(
     Returns:
         Context string or None
     """
-    # Resolve model_name from workspace preference or system settings if not provided
+    # Resolve model_name through model-routing-registry if not provided.
     if not model_name or str(model_name).strip() == "":
         try:
             from backend.app.services.conversation.chat_model_resolution import (

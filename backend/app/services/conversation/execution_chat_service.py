@@ -338,7 +338,7 @@ async def generate_execution_chat_reply(
         target_language = detect_language_from_text(user_message)
 
         # Call LLM
-        # Note: generate_text (run) function gets model from system settings internally
+        # generate_text resolves model/provider through model-routing-registry.
         result = await generate_text(
             prompt=prompt,
             workspace_id=ctx.workspace_id,

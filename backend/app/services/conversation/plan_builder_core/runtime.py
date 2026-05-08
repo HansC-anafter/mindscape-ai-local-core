@@ -31,30 +31,15 @@ def select_model_for_plan(
                 risk_level=risk_level,
             )
             registry = CapabilityProfileRegistry()
-            cache_key = profile_id or "default-user"
-            if cache_key not in builder._llm_manager_cache:
-                from backend.app.shared.llm_provider_helper import (
-                    create_llm_provider_manager,
-                )
-
-                config = builder.config_store.get_or_create_config(cache_key)
-                builder._llm_manager_cache[cache_key] = create_llm_provider_manager(
-                    openai_key=config.agent_backend.openai_api_key,
-                    anthropic_key=config.agent_backend.anthropic_api_key,
-                    vertex_api_key=config.agent_backend.vertex_api_key,
-                    vertex_project_id=config.agent_backend.vertex_project_id,
-                    vertex_location=config.agent_backend.vertex_location,
-                )
-            llm_manager = builder._llm_manager_cache[cache_key]
             model_name = registry.select_model(
                 profile,
-                llm_manager,
+                None,
                 profile_id=profile_id,
             )
             if model_name:
                 return model_name
         except Exception as exc:
-            logger.debug("Failed to use stage_router: %s, trying next option", exc)
+            logger.debug("Stage-router profile model route unavailable: %s", exc)
 
     if builder.capability_profile:
         try:
@@ -65,31 +50,16 @@ def select_model_for_plan(
 
             profile = CapabilityProfile(builder.capability_profile)
             registry = CapabilityProfileRegistry()
-            cache_key = profile_id or "default-user"
-            if cache_key not in builder._llm_manager_cache:
-                from backend.app.shared.llm_provider_helper import (
-                    create_llm_provider_manager,
-                )
-
-                config = builder.config_store.get_or_create_config(cache_key)
-                builder._llm_manager_cache[cache_key] = create_llm_provider_manager(
-                    openai_key=config.agent_backend.openai_api_key,
-                    anthropic_key=config.agent_backend.anthropic_api_key,
-                    vertex_api_key=config.agent_backend.vertex_api_key,
-                    vertex_project_id=config.agent_backend.vertex_project_id,
-                    vertex_location=config.agent_backend.vertex_location,
-                )
-            llm_manager = builder._llm_manager_cache[cache_key]
             model_name = registry.select_model(
                 profile,
-                llm_manager,
+                None,
                 profile_id=profile_id,
             )
             if model_name:
                 return model_name
         except Exception as exc:
             logger.debug(
-                "Failed to use capability_profile: %s, trying next option",
+                "Capability-profile model route unavailable: %s",
                 exc,
             )
 
@@ -105,43 +75,28 @@ def select_model_for_plan(
         profile_name = mapping.get("plan_generation", "precise")
         profile = CapabilityProfile(profile_name)
         registry = CapabilityProfileRegistry()
-        cache_key = profile_id or "default-user"
-        if cache_key not in builder._llm_manager_cache:
-            from backend.app.shared.llm_provider_helper import (
-                create_llm_provider_manager,
-            )
-
-            config = builder.config_store.get_or_create_config(cache_key)
-            builder._llm_manager_cache[cache_key] = create_llm_provider_manager(
-                openai_key=config.agent_backend.openai_api_key,
-                anthropic_key=config.agent_backend.anthropic_api_key,
-                vertex_api_key=config.agent_backend.vertex_api_key,
-                vertex_project_id=config.agent_backend.vertex_project_id,
-                vertex_location=config.agent_backend.vertex_location,
-            )
-        llm_manager = builder._llm_manager_cache[cache_key]
         model_name = registry.select_model(
             profile,
-            llm_manager,
+            None,
             profile_id=profile_id,
         )
         if model_name:
             return model_name
     except Exception as exc:
-        logger.debug("Failed to use SystemSettings: %s, trying next option", exc)
+        logger.debug("Plan-generation profile model route unavailable: %s", exc)
 
     from backend.app.shared.llm_provider_helper import get_model_name_from_chat_model
 
     model_name = get_model_name_from_chat_model()
     if model_name:
-        logger.debug("Using chat_model fallback: %s", model_name)
+        logger.debug("Using registry chat_model: %s", model_name)
         return model_name
 
     logger.error(
-        "PlanBuilder: All model selection methods failed. "
-        "Configure chat_model in system settings."
+        "PlanBuilder: no model route is configured. "
+        "Configure chat_model in model-routing-registry."
     )
-    raise ValueError("No chat model configured. Set chat_model in system settings.")
+    raise ValueError("No chat model configured in model-routing-registry.")
 
 
 async def ensure_external_backend_loaded(

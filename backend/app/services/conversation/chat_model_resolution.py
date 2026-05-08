@@ -19,9 +19,9 @@ def resolve_conversational_model_name(
     The workspace and db_path parameters are accepted for compatibility with
     callers that may later add scoped model selection.
     """
-    del workspace, db_path
+    del workspace, db_path, default
 
     if requested_model_name and requested_model_name.strip():
         return requested_model_name.strip()
 
-    return get_model_name_from_chat_model(default=default)
+    return get_model_name_from_chat_model()

@@ -2,12 +2,8 @@
 Core LLM: Multimodal Analyze Service
 
 Unified middleware for multimodal (vision) analysis.
-Routes to cloud LLM or local HF model based on system settings.
-
-Three-layer routing:
-  Layer 1 (Settings):  Global policy — provider availability, model map
-  Layer 2 (Playbook):  Declarative needs — modalities, reasoning, locality
-  Layer 3 (Resolver):  Runtime decision — _model_override from resolver chain
+Model selection is owned by model-routing-registry:
+  profile_model_bindings.local.vision -> enabled multimodal model.
 """
 
 import asyncio
@@ -27,11 +23,11 @@ logger = logging.getLogger(__name__)
 # Local OpenAI-compatible VLM endpoints may only handle one heavy vision call at a time.
 _MLX_SEMAPHORE = asyncio.Semaphore(1)
 _MLX_CONNECT_TIMEOUT_SECONDS = float(os.getenv("VLM_CONNECT_TIMEOUT_SECONDS", "30"))
-_MLX_READ_TIMEOUT_SECONDS = float(os.getenv("VLM_READ_TIMEOUT_SECONDS", "1200"))
+_MLX_READ_TIMEOUT_SECONDS = float(os.getenv("VLM_READ_TIMEOUT_SECONDS", "2400"))
 _MLX_WRITE_TIMEOUT_SECONDS = float(os.getenv("VLM_WRITE_TIMEOUT_SECONDS", "120"))
 _MLX_POOL_TIMEOUT_SECONDS = float(os.getenv("VLM_POOL_TIMEOUT_SECONDS", "30"))
 _MLX_MAX_OUTPUT_TOKENS_CAP_DEFAULT = 12288
-_WATCHDOG_STATE_DIR = Path(os.getenv("VLM_WATCHDOG_STATE_DIR", "/tmp/mindscape-vlm-watchdog"))
+_WATCHDOG_STATE_DIR = Path(os.getenv("VLM_WATCHDOG_STATE_DIR", "/app/data/runtime/mlx-watchdog"))
 _WATCHDOG_STATE_FILE = _WATCHDOG_STATE_DIR / "inflight_request.json"
 _WATCHDOG_HEARTBEAT_INTERVAL_SECONDS = float(
     os.getenv("VLM_WATCHDOG_HEARTBEAT_INTERVAL_SECONDS", "5")
@@ -48,9 +44,21 @@ def _coerce_positive_int(value: Any) -> Optional[int]:
     return coerced if coerced > 0 else None
 
 
-def _cap_local_vlm_max_tokens(value: int) -> int:
-    cap = _coerce_positive_int(
-        os.getenv("VLM_MAX_OUTPUT_TOKENS_CAP", str(_MLX_MAX_OUTPUT_TOKENS_CAP_DEFAULT))
+def _cap_local_vlm_max_tokens(
+    value: int,
+    *,
+    route_metadata: Optional[Dict[str, Any]] = None,
+) -> int:
+    metadata = route_metadata or {}
+    cap = (
+        _coerce_positive_int(metadata.get("local_max_output_tokens_cap"))
+        or _coerce_positive_int(metadata.get("max_output_tokens_cap"))
+        or _coerce_positive_int(
+            os.getenv(
+                "VLM_MAX_OUTPUT_TOKENS_CAP",
+                str(_MLX_MAX_OUTPUT_TOKENS_CAP_DEFAULT),
+            )
+        )
     )
     if cap is None or value <= cap:
         return value
@@ -145,24 +153,21 @@ async def vision_analyze(
     ),
     temperature: Optional[float] = None,
     workspace_id: Optional[str] = None,
-    _model_override: Optional[str] = None,
     max_tokens: Optional[int] = None,
     **kwargs,  # absorb extra playbook inputs (profile_id, etc.)
 ) -> Dict[str, Any]:
     """
     Unified multimodal analysis — routes to cloud or local model.
 
-    Routing priority:
-      1. _model_override (injected by resolver chain / workflow_orchestrator)
-      2. 'multimodal_model' from SystemSettingsStore
-      3. Fallback: Qwen2-VL-9B via HF
+    Routing authority:
+      model-routing-registry profile binding `local.vision`.
 
     Args:
         images: List of dicts with 'shortcode' and 'base64_jpeg' keys.
         prompt: Text prompt for the analysis.
         temperature: Sampling temperature.
         workspace_id: Optional workspace context.
-        _model_override: Model override from resolver chain (takes priority).
+        workspace_id: Optional workspace context.
 
     Returns:
         Dict with status, analyzed_count, model_id, and results.
@@ -216,7 +221,7 @@ async def vision_analyze(
     )
 
     # ── Resolve model ──
-    model_name, provider_name = _resolve_multimodal_model(_model_override)
+    model_name, provider_name, route_metadata = _resolve_vision_route()
     
     if not model_name or not provider_name:
         return {
@@ -227,22 +232,13 @@ async def vision_analyze(
         }
 
     logger.info(
-        f"[MultimodalAnalyze] Resolved model={model_name}, provider={provider_name}"
+        "[MultimodalAnalyze] Resolved registry model=%s provider=%s",
+        model_name,
+        provider_name,
     )
-
-    from ....services.model_config_store import ModelConfigStore
-    store = ModelConfigStore()
 
     # Route request to specific provider
     if provider_name == "vertex-ai":
-        # Resolve temperature default from DB if not provided
-        if temperature is None:
-            m = store.get_model_by_name(model_name)
-            if m and m.metadata and "temperature" in m.metadata:
-                temperature = float(m.metadata["temperature"])
-        if temperature is None:
-            temperature = 0.4
-            
         return await _route_cloud_llm(
             images,
             prompt,
@@ -254,14 +250,6 @@ async def vision_analyze(
         )
 
     elif provider_name == "openai" or provider_name == "anthropic":
-        # Resolve temperature default from DB if not provided
-        if temperature is None:
-            m = store.get_model_by_name(model_name)
-            if m and m.metadata and "temperature" in m.metadata:
-                temperature = float(m.metadata["temperature"])
-        if temperature is None:
-            temperature = 0.4
-            
         return await _route_cloud_llm(
             images,
             prompt,
@@ -273,18 +261,13 @@ async def vision_analyze(
         )
 
     elif provider_name == "mlx":
-        if temperature is None:
-            m = store.get_model_by_name(model_name)
-            if m and m.metadata and "temperature" in m.metadata:
-                temperature = float(m.metadata["temperature"])
-        if temperature is None:
-            temperature = 0.6
-            
         return await _route_mlx_server(
             images,
             prompt,
             model_name,
             temperature,
+            base_url=_resolve_multimodal_base_url(route_metadata),
+            route_metadata=route_metadata,
             request_id=request_id,
             reference_id=reference_id,
             analysis_profile=analysis_profile,
@@ -294,13 +277,6 @@ async def vision_analyze(
         )
 
     elif provider_name == "huggingface":
-        if temperature is None:
-            m = store.get_model_by_name(model_name)
-            if m and m.metadata and "temperature" in m.metadata:
-                temperature = float(m.metadata["temperature"])
-        if temperature is None:
-            temperature = 0.6
-            
         return await _route_huggingface(
             images,
             prompt,
@@ -309,267 +285,84 @@ async def vision_analyze(
             max_tokens=requested_max_tokens,
         )
 
-    # Fallback for any other provider_name that might be passed
-    return await _route_cloud_llm(
-        images,
-        prompt,
-        model_name,
-        provider_name,
-        temperature,
-        workspace_id,
-        max_tokens=requested_max_tokens,
+    raise ValueError(
+        f"Unsupported multimodal provider '{provider_name}' in model-routing-registry"
     )
 
 
-def _resolve_multimodal_model(
-    _model_override: Optional[str] = None,
-) -> tuple:
-    """Resolve model with priority: _model_override > settings > fallback."""
+def _resolve_vision_route() -> tuple[str, str, Dict[str, Any]]:
+    """Resolve the vision model through model-routing-registry only."""
+    from ....models.model_provider import ModelType
+    from ....services.model_routing_policy_service import ModelRoutingPolicyService
 
-    # Priority 1: Resolver chain override (already resolved by workflow_orchestrator)
-    if _model_override:
-        try:
-            from ....services.model_config_store import ModelConfigStore
-            store = ModelConfigStore()
-            
-            # Since model_override is just a name (e.g. 'mlx-community/Qwen3.5-9B-4bit'),
-            # we try to find it by scanning models if no exact getter exists
-            m = None
-            if hasattr(store, 'get_model_by_name_and_provider'):
-                from ....models.model_provider import ModelType
-                # Best effort: try common vision providers
-                for test_prov in ["mlx", "openai", "vertex-ai", "huggingface"]:
-                    m = store.get_model_by_name_and_provider(_model_override, test_prov, ModelType.MULTIMODAL)
-                    if m:
-                        break
-                        
-            if m:
-                db_provider = getattr(m, 'provider_name', None)
-                meta = getattr(m, 'metadata', None)
-                provider = _determine_runtime_provider(_model_override, db_provider, meta)
-            else:
-                provider = _determine_runtime_provider(_model_override)
-        except Exception as e:
-            logger.warning("[MultimodalAnalyze] Failed to get model config for override %s: %s", _model_override, e)
-            provider = _guess_provider(_model_override)
-
-        logger.info(
-            "[MultimodalAnalyze] Using _model_override=%s (provider=%s)",
-            _model_override, provider,
+    route = ModelRoutingPolicyService().resolve_profile_model(
+        profile="vision",
+        scope="local",
+        model_type=ModelType.MULTIMODAL,
+    )
+    if not route.model_name or not route.provider:
+        raise ValueError(
+            "Vision model route is not configured in "
+            "model-routing-registry profile_model_bindings.local.vision"
         )
-        return _model_override, provider
-
-    # Priority 2: Delegate to system CapabilityProfileResolver (Gap-C fix)
-    try:
-        from ....services.capability_profile_resolver import (
-            CapabilityProfileResolver,
-        )
-
-        # Vision modality — let resolver pick the model
-        resolved_model, _variant = CapabilityProfileResolver().resolve(
-            "vision",
-            execution_profile={"modalities": ["vision"]},
-        )
-        if resolved_model:
-            db_provider = _get_db_provider(resolved_model)
-            meta = _get_db_metadata(resolved_model)
-            provider = _determine_runtime_provider(resolved_model, db_provider, meta)
-            logger.info(
-                "[MultimodalAnalyze] Resolver chose model=%s (provider=%s)",
-                resolved_model, provider,
-            )
-            return resolved_model, provider
-    except Exception as e:
-        logger.warning(
-            "[MultimodalAnalyze] CapabilityProfileResolver failed, "
-            "trying settings fallback: %s", e,
-        )
-
-    # Priority 3: System settings (legacy fallback)
-    try:
-        from ....services.system_settings_store import SystemSettingsStore
-        from ....services.model_config_store import ModelConfigStore
-        from ....models.model_provider import ModelType
-
-        settings_store = SystemSettingsStore()
-        mm_setting = settings_store.get_setting("multimodal_model")
-
-        if mm_setting and mm_setting.value:
-            model_name = str(mm_setting.value)
-
-            # Try to find provider from model config
-            model_store = ModelConfigStore()
-            all_models = model_store.get_all_models(
-                model_type=ModelType.MULTIMODAL, enabled=True
-            )
-            for m in all_models:
-                if m.model_name == model_name:
-                    return model_name, _determine_runtime_provider(model_name, m.provider_name, m.metadata)
-
-            return model_name, _determine_runtime_provider(model_name)
-
-    except Exception as e:
-        logger.warning(
-            "[MultimodalAnalyze] Settings lookup failed: %s", e,
-        )
-
-    # Priority 4: Auto-discover enabled multimodal model
-    try:
-        from ....services.model_config_store import ModelConfigStore
-        from ....models.model_provider import ModelType
-        store = ModelConfigStore()
-        enabled = store.get_all_models(model_type=ModelType.MULTIMODAL, enabled=True)
-        if enabled:
-            model = enabled[0]
-            provider = _determine_runtime_provider(model.model_name, model.provider_name, model.metadata)
-            logger.info(
-                "[MultimodalAnalyze] Auto-discovered model: %s (provider=%s)",
-                model.model_name, provider,
-            )
-            return model.model_name, provider
-    except Exception as e:
-        logger.warning("[MultimodalAnalyze] Auto-discovery failed: %s", e)
-
-    # Priority 5: Hardcoded fallback
-    return None, None
-
-
-def _determine_runtime_provider(model_name: str, db_provider: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> str:
-    """
-    Determine the runtime execution provider (routing engine).
-    Priority:
-      1. metadata.runtime_engine (user override from UI)
-      2. Heuristics (if DB provider is huggingface, but name implies MLX, force MLX)
-      3. db_provider
-      4. _guess_provider
-    """
-    if metadata and metadata.get("runtime_engine") and metadata.get("runtime_engine") != "auto":
-        engine = metadata.get("runtime_engine")
-        logger.info("[MultimodalAnalyze] Resolved runtime_engine '%s' from metadata override", engine)
-        return engine
-        
-    name = model_name.lower()
-    if "mlx-community" in name or "mlx" in name:
-        return "mlx"
-    
-    if db_provider:
-        return db_provider
-        
-    return _guess_provider(model_name)
-
-def _get_db_metadata(model_name: str) -> Optional[Dict[str, Any]]:
-    """Helper to fetch metadata from database."""
-    try:
-        from ....services.model_config_store import ModelConfigStore
-        store = ModelConfigStore()
-        model = store.get_model_by_name(model_name)
-        if model:
-            return model.metadata
-    except Exception as e:
-        logger.warning("[MultimodalAnalyze] Failed to get db metadata: %s", e)
-    return None
-
-def _get_db_provider(model_name: str) -> Optional[str]:
-    """Helper to fetch provider from database."""
-    try:
-        from ....services.model_config_store import ModelConfigStore
-        store = ModelConfigStore()
-        model = store.get_model_by_name(model_name)
-        if model:
-            return model.provider_name
-    except Exception as e:
-        logger.warning("[MultimodalAnalyze] Failed to get db provider: %s", e)
-    return None
-
-
-def _guess_provider(model_name: str) -> str:
-    """Guess provider from model name heuristics."""
-    name = model_name.lower()
-    if "mlx-community" in name or "mlx" in name:
-        return "mlx"
-    if "qwen" in name or "llama" in name or "mistral" in name:
-        return "huggingface"
-    if "gemini" in name:
-        return "vertex-ai"
-    if "gpt" in name:
-        return "openai"
-    if "claude" in name:
-        return "anthropic"
-    return "huggingface"
-
-
-def _resolve_multimodal_base_url_from_env() -> tuple[Optional[str], Optional[str]]:
-    """Resolve multimodal endpoint base URL from environment aliases."""
-    for env_name in ("VISION_MODEL_BASE_URL", "VLM_BASE_URL", "MLX_SERVER_HOST"):
-        env_host = os.getenv(env_name)
-        if env_host:
-            return env_host.rstrip("/"), env_name
-    return None, None
-
-
-def _resolve_multimodal_base_url(model_name: str) -> str:
-    """Resolve multimodal endpoint base URL from config.
-
-    Priority:
-      1. ModelConfig.metadata['base_url'] for the specific model
-      2. 'huggingface_base_url' system setting (provider-level)
-      3. VISION_MODEL_BASE_URL environment variable
-      4. VLM_BASE_URL environment variable
-      5. MLX_SERVER_HOST environment variable (legacy fallback)
-      6. Fallback: http://host.docker.internal:8210
-    """
-    _FALLBACK = "http://host.docker.internal:8210"
-
-    # Priority 1: Model-level metadata.base_url
-    try:
-        from ....services.model_config_store import ModelConfigStore
-        from ....models.model_provider import ModelType
-
-        store = ModelConfigStore()
-        # Try exact match first
-        models = store.get_all_models(model_type=ModelType.MULTIMODAL, enabled=True)
-        for m in models:
-            if m.model_name == model_name and m.metadata:
-                base_url = m.metadata.get("base_url")
-                if base_url:
-                    logger.info(
-                        "[MultimodalAnalyze] Resolved base_url from model metadata: %s",
-                        base_url,
-                    )
-                    return base_url.rstrip("/")
-    except Exception as e:
-        logger.debug("[MultimodalAnalyze] Model metadata lookup failed: %s", e)
-
-    # Priority 2: Provider-level system setting
-    try:
-        from ....services.system_settings_store import SystemSettingsStore
-
-        settings = SystemSettingsStore()
-        setting = settings.get_setting("huggingface_base_url")
-        if setting and setting.value:
-            logger.info(
-                "[MultimodalAnalyze] Resolved base_url from huggingface_base_url setting: %s",
-                setting.value,
-            )
-            return setting.value.rstrip("/")
-    except Exception as e:
-        logger.debug("[MultimodalAnalyze] System setting lookup failed: %s", e)
-
-    # Priority 3: Environment variable
-    env_host, env_name = _resolve_multimodal_base_url_from_env()
-    if env_host:
-        logger.info(
-            "[MultimodalAnalyze] Resolved base_url from %s env: %s",
-            env_name,
-            env_host,
-        )
-        return env_host
-
-    # Priority 6: Hardcoded fallback
     logger.info(
-        "[MultimodalAnalyze] Using fallback multimodal base_url: %s", _FALLBACK
+        "[MultimodalAnalyze] Registry route source=%s model=%s provider=%s",
+        route.source,
+        route.model_name,
+        route.provider,
     )
-    return _FALLBACK
+    metadata = dict(route.metadata or {})
+    return (
+        route.model_name,
+        _resolve_multimodal_runtime_provider(route.provider, metadata),
+        metadata,
+    )
+
+
+def _resolve_multimodal_runtime_provider(provider: str, metadata: Dict[str, Any]) -> str:
+    """Normalize source-provider metadata to the concrete multimodal runtime."""
+    normalized_provider = str(provider or "").strip()
+    runtime_provider = str(
+        (metadata or {}).get("runtime_provider")
+        or (metadata or {}).get("runtime_engine")
+        or (metadata or {}).get("inference_provider")
+        or ""
+    ).strip()
+    if runtime_provider and runtime_provider != "auto":
+        return runtime_provider
+
+    hf_format = str((metadata or {}).get("hf_format") or "").strip().lower()
+    hf_tags = [
+        str(tag or "").strip().lower()
+        for tag in ((metadata or {}).get("hf_tags") or [])
+        if str(tag or "").strip()
+    ]
+    if normalized_provider == "huggingface" and (
+        hf_format == "mlx" or "mlx" in hf_tags
+    ):
+        return "mlx"
+
+    return normalized_provider
+
+
+def _resolve_multimodal_base_url(route_metadata: Dict[str, Any]) -> str:
+    """Resolve the local multimodal endpoint from the selected registry model."""
+    metadata = route_metadata or {}
+    base_url = str(
+        metadata.get("base_url")
+        or metadata.get("endpoint_url")
+        or metadata.get("openai_base_url")
+        or metadata.get("api_base")
+        or metadata.get("server_url")
+        or ""
+    ).strip()
+    if not base_url:
+        raise ValueError(
+            "MLX multimodal route requires model metadata.base_url "
+            "(or endpoint_url/openai_base_url/api_base/server_url) in "
+            "model-routing-registry"
+        )
+    return base_url.rstrip("/")
 
 
 async def _route_mlx_server(
@@ -578,6 +371,8 @@ async def _route_mlx_server(
     model_name: str,
     temperature: float,
     *,
+    base_url: str,
+    route_metadata: Optional[Dict[str, Any]] = None,
     request_id: str = "",
     reference_id: str = "",
     analysis_profile: str = "",
@@ -585,19 +380,9 @@ async def _route_mlx_server(
     reasoning_trace_mode: str = "suppress",
     max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Route to an OpenAI-compatible vision endpoint.
-
-    Base URL resolution priority:
-      1. Model metadata 'base_url' from model_configs DB table
-      2. 'huggingface_base_url' system setting
-      3. VISION_MODEL_BASE_URL environment variable
-      4. VLM_BASE_URL environment variable
-      5. MLX_SERVER_HOST environment variable
-      6. Fallback: http://host.docker.internal:8210
-    """
+    """Route to the OpenAI-compatible vision endpoint selected by registry."""
     import httpx
 
-    base_url = _resolve_multimodal_base_url(model_name)
     url = f"{base_url}/v1/chat/completions"
     reasoning_trace_mode = _normalize_reasoning_trace_mode(reasoning_trace_mode)
     payload_stats = payload_stats or {}
@@ -673,7 +458,10 @@ async def _route_mlx_server(
                 model_name,
                 caller_default=requested_max_tokens or 12288,
             )
-            resolved_max = _cap_local_vlm_max_tokens(resolved_max)
+            resolved_max = _cap_local_vlm_max_tokens(
+                resolved_max,
+                route_metadata=route_metadata,
+            )
             
             first_b64 = images[0].get("base64_jpeg", "")
             mime = _detect_image_mime(first_b64) if first_b64 else "unknown"
@@ -689,6 +477,7 @@ async def _route_mlx_server(
             mlx_post_ms = 0.0
             watchdog_payload = {
                 "status": "active",
+                "phase": "generating",
                 "request_id": request_id,
                 "reference_id": reference_id,
                 "analysis_profile": analysis_profile,
@@ -799,8 +588,10 @@ async def _route_mlx_server(
                 )
         except Exception as e:
             logger.warning(
-                "[MultimodalAnalyze] Multimodal endpoint call failed for %s: %s",
-                main_shortcode, e,
+                "[MultimodalAnalyze] Multimodal endpoint call failed for %s: %s: %s",
+                main_shortcode,
+                e.__class__.__name__,
+                e,
             )
 
     if not results:
@@ -960,41 +751,9 @@ async def _route_cloud_llm(
     *,
     max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Route to cloud LLM (OpenAI / Anthropic / Vertex AI) via call_llm."""
+    """Route to managed multimodal provider selected by model-routing-registry."""
     from ....shared.llm_utils import call_llm
-    from ....services.agent_runner import LLMProviderManager
-    from ....services.system_settings_store import SystemSettingsStore
-
-    settings_store = SystemSettingsStore()
-
-    # Build LLM provider
-    openai_key = os.getenv("OPENAI_API_KEY")
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    vertex_sa = None
-    vertex_project = None
-    vertex_location = None
-
-    if provider_name == "vertex-ai" or "gemini" in model_name.lower():
-        sa_setting = settings_store.get_setting("vertex_ai_service_account_json")
-        proj_setting = settings_store.get_setting("vertex_ai_project_id")
-        loc_setting = settings_store.get_setting("vertex_ai_location")
-        vertex_sa = (sa_setting.value if sa_setting else None) or os.getenv(
-            "GOOGLE_APPLICATION_CREDENTIALS"
-        )
-        vertex_project = (proj_setting.value if proj_setting else None) or os.getenv(
-            "GOOGLE_CLOUD_PROJECT"
-        )
-        vertex_location = (loc_setting.value if loc_setting else None) or os.getenv(
-            "VERTEX_LOCATION", "us-central1"
-        )
-
-    llm_provider = LLMProviderManager(
-        openai_key=openai_key,
-        anthropic_key=anthropic_key,
-        vertex_api_key=vertex_sa,
-        vertex_project_id=vertex_project,
-        vertex_location=vertex_location,
-    )
+    from ....shared.llm_provider_helper import build_managed_llm_provider
 
     results = []
     
@@ -1036,12 +795,32 @@ async def _route_cloud_llm(
     ]
 
     try:
+        route_context = None
+        if workspace_id:
+            from ....services.executor_route_context import load_executor_route_context
+
+            route_context = await load_executor_route_context(workspace_id)
+        executor_runtime = (
+            str((route_context or {}).get("executor_runtime") or "").strip()
+            or None
+        )
+        llm_provider = None
+        if not executor_runtime:
+            llm_provider, _selection = build_managed_llm_provider(
+                model_name=model_name,
+                provider_name=provider_name,
+                purpose="core_llm.multimodal_analyze",
+            )
         resp = await call_llm(
             messages=messages,
             llm_provider=llm_provider,
             model=model_name,
             temperature=temperature,
             max_tokens=_coerce_positive_int(max_tokens),
+            workspace_id=workspace_id,
+            route_context=route_context,
+            purpose="core_llm.multimodal_analyze",
+            stage_name="multimodal_analyze",
         )
         description = resp.get("text", "").strip()
         if description:
@@ -1064,16 +843,3 @@ async def _route_cloud_llm(
         "provider": provider_name,
         "results": results,
     }
-
-
-def _get_db_provider(model_name: str) -> Optional[str]:
-    from ....services.model_config_store import ModelConfigStore
-    from ....models.model_provider import ModelType
-    try:
-        models = ModelConfigStore().get_all_models(model_type=ModelType.MULTIMODAL, enabled=True)
-        for m in models:
-            if m.model_name == model_name:
-                return m.provider_name
-    except Exception:
-        pass
-    return None

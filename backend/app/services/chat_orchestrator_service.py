@@ -395,14 +395,11 @@ class ChatOrchestratorService:
         profile_id,
         session,
         model_name_override: str = None,
-        is_fallback: bool = False,
     ):
         """Generate response via default LLM streaming path.
 
         Args:
             model_name_override: If set, use this model instead of request.model_name.
-            is_fallback: True when this LLM path is entered from an explicit
-                upstream fallback decision.
         """
         from backend.features.workspace.chat.streaming.llm_streaming import (
             stream_llm_response,
@@ -422,14 +419,14 @@ class ChatOrchestratorService:
 
                 model_name = get_model_name_from_chat_model()
             except Exception as e:
-                logger.warning("Failed to fetch default chat model: %s", e)
+                logger.warning("Failed to fetch registry chat model: %s", e)
 
         if not model_name or str(model_name).strip() == "":
             await self._create_error_event(
                 workspace_id,
                 profile_id,
                 session.thread_id,
-                "No chat model configured. Set chat_model in system settings.",
+                "No chat model configured in model-routing-registry.",
             )
             return
 
@@ -517,8 +514,6 @@ class ChatOrchestratorService:
             store=self.orchestrator.store,
             context_token_count=context_token_count,
             execution_playbook_result=None,
-            openai_key=None,
-            is_fallback=is_fallback,
         ):
             pass  # Consume stream to trigger internal logic
 

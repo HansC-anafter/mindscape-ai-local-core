@@ -75,19 +75,13 @@ Return in JSON format:
 """
 
         try:
-            # Get model name from system settings
-            from backend.app.services.system_settings_store import SystemSettingsStore
             from backend.app.shared.llm_provider_helper import (
                 get_model_name_from_chat_model,
             )
 
-            try:
-                # Use provided model, or system setting, or fallback
-                model_name = (
-                    model_name or get_model_name_from_chat_model() or "gpt-4o-mini"
-                )
-            except:
-                model_name = model_name or "gpt-4o-mini"
+            model_name = model_name or get_model_name_from_chat_model()
+            if not model_name:
+                raise ValueError("chat_model is not configured in model-routing-registry")
 
             # Build messages using build_prompt
             messages = build_prompt(
@@ -183,13 +177,9 @@ Return in JSON format:
                 get_model_name_from_chat_model,
             )
 
-            try:
-                # Use provided model, or system setting, or fallback
-                model_name = (
-                    model_name or get_model_name_from_chat_model() or "gpt-4o-mini"
-                )
-            except:
-                model_name = model_name or "gpt-4o-mini"
+            model_name = model_name or get_model_name_from_chat_model()
+            if not model_name:
+                raise ValueError("chat_model is not configured in model-routing-registry")
 
             # Build messages using build_prompt
             messages = build_prompt(

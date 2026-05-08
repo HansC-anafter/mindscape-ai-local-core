@@ -174,21 +174,14 @@ If no playbook matches well, return {{"playbook_code": null, "confidence": 0.0, 
                 user_prompt=prompt,
             )
 
-            # Get model name from system settings, or use None to let llm_provider use its default
             from backend.app.shared.llm_provider_helper import (
                 get_model_name_from_chat_model,
             )
 
-            model_name = None
-            try:
-                model_name = get_model_name_from_chat_model()
-            except Exception as e:
-                logger.debug(
-                    f"Failed to get model name from chat_model: {e}, using llm_provider default"
-                )
+            model_name = get_model_name_from_chat_model()
+            if not model_name:
+                raise ValueError("chat_model is not configured in model-routing-registry")
 
-            # Use unified call_llm tool with existing llm_provider
-            # If model_name is None, call_llm will use llm_provider's default model
             response_dict = await call_llm(
                 messages=messages, llm_provider=self.llm_provider, model=model_name
             )
