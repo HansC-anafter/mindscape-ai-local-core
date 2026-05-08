@@ -92,6 +92,10 @@ __all__ = [
 ]
 
 
+def _runner_lock_ttl_seconds() -> int:
+    return _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
+
+
 # ============================================================
 #  Startup backfill — Redis has no persistence, so after a
 #  reboot / container restart every pending task vanishes from
@@ -662,6 +666,7 @@ async def run_forever() -> None:
     runner_id = _runner_id()
     os.environ["LOCAL_CORE_RUNNER_ID"] = runner_id
     visibility_timeout_sec = _env_int("LOCAL_CORE_RUNNER_VISIBILITY_TIMEOUT_SECONDS", 180)
+    lock_ttl_seconds = _runner_lock_ttl_seconds()
     runner_profile = resolve_runner_profile_from_env(default_max_inflight=max_inflight)
     max_inflight = runner_profile.max_inflight
     capacity = resolve_runner_capacity_snapshot(
@@ -981,7 +986,7 @@ async def run_forever() -> None:
                 conflicting_key: Optional[str] = None
                 for candidate_key in lock_keys:
                     acquired = await redis_queue.acquire_lock(
-                        candidate_key, lock_owner_id, ttl_seconds=120
+                        candidate_key, lock_owner_id, ttl_seconds=lock_ttl_seconds
                     )
                     if not acquired:
                         conflicting_key = candidate_key

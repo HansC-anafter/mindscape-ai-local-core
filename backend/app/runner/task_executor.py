@@ -942,9 +942,24 @@ async def _run_single_task(
                             ),
                             main_loop,
                         )
-                        fut.result(timeout=10)
-                except Exception:
-                    pass
+                        renew_ok = fut.result(timeout=10)
+                        if not renew_ok:
+                            logger.warning(
+                                "Runner concurrency lock renew returned false task_id=%s playbook=%s lock_key=%s owner_id=%s",
+                                task.id,
+                                task.pack_id,
+                                held_key,
+                                lock_owner_id,
+                            )
+                except Exception as e:
+                    logger.warning(
+                        "Runner concurrency lock renew failed task_id=%s playbook=%s owner_id=%s: %s",
+                        task.id,
+                        task.pack_id,
+                        lock_owner_id,
+                        e,
+                        exc_info=True,
+                    )
                 stop_event.wait(interval_s)
 
         lock_renew_thread = threading.Thread(target=_renew_thread, daemon=True)
@@ -970,7 +985,7 @@ async def _run_single_task(
         async def _wait_for_control_signal() -> Optional[Dict[str, str]]:
             while True:
                 try:
-                    latest = tasks_store.get_task(task.id)
+                    latest = await asyncio.to_thread(tasks_store.get_task, task.id)
                     signal = _get_task_control_signal(latest)
                     if signal:
                         return signal
@@ -1114,7 +1129,7 @@ async def _run_single_task(
             signal_kind = signal.get("kind")
             latest = None
             try:
-                latest = tasks_store.get_task(task.id)
+                latest = await asyncio.to_thread(tasks_store.get_task, task.id)
             except Exception:
                 latest = None
 

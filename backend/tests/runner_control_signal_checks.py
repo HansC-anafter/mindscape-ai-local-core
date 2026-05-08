@@ -205,3 +205,94 @@ async def test_unexpected_orchestration_error_waits_for_live_subprocess(monkeypa
 
     assert marked == {"task_id": task.id}
     assert fake_process.killed is False
+
+
+@pytest.mark.asyncio
+async def test_control_signal_task_lookup_uses_threadpool(monkeypatch):
+    running_task = _task(
+        TaskStatus.RUNNING,
+        execution_context={"inputs": {}},
+    )
+    cancelled_task = _task(
+        TaskStatus.CANCELLED_BY_USER,
+        error="Cancelled by user",
+        execution_context={"inputs": {}},
+    )
+    to_thread_calls = []
+
+    class FakeTasksStore:
+        def __init__(self):
+            self.get_count = 0
+
+        def get_task(self, task_id):
+            self.get_count += 1
+            if self.get_count == 1:
+                return running_task
+            return cancelled_task
+
+        def update_task(self, task_id, **kwargs):
+            if "execution_context" in kwargs:
+                cancelled_task.execution_context = kwargs["execution_context"]
+            if "status" in kwargs:
+                cancelled_task.status = kwargs["status"]
+
+        def update_task_heartbeat(self, task_id, *, runner_id):
+            return None
+
+    class FakeProcess:
+        pid = 5678
+        exitcode = None
+
+        def __init__(self):
+            self.alive = True
+            self.terminated = False
+
+        def start(self):
+            return None
+
+        def is_alive(self):
+            return self.alive
+
+        def join(self, timeout=None):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+            self.alive = False
+
+        def kill(self):
+            self.alive = False
+
+    fake_process = FakeProcess()
+
+    class FakeMpContext:
+        def Process(self, target, args, daemon):
+            return fake_process
+
+    async def fake_to_thread(func, *args, **kwargs):
+        to_thread_calls.append(getattr(func, "__name__", str(func)))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(task_executor.mp, "get_context", lambda method: FakeMpContext())
+    monkeypatch.setattr(task_executor.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(
+        task_executor,
+        "_resolve_execution_attempt_inputs",
+        lambda task, ctx: ({}, ExecutionIntentResolution(effective_inputs={})),
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "_apply_runtime_binding_to_playbook_task",
+        lambda task, ctx, inputs, profile_id: (inputs, ctx, object()),
+    )
+
+    await task_executor._run_single_task(
+        FakeTasksStore(),
+        "runner-1",
+        running_task.id,
+        redis_queue=None,
+        lock_owner_id="runner-1:task-1",
+    )
+
+    assert "get_task" in to_thread_calls
+    assert fake_process.terminated is True

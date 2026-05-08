@@ -1,6 +1,7 @@
 import asyncio
 
 from backend.app.models.workspace import Task, TaskStatus, _utc_now
+from backend.app.runner import worker
 from backend.app.runner.worker import (
     _build_parked_task_update,
     _dequeue_preferred_different_playbook,
@@ -151,3 +152,9 @@ def test_parked_pending_update_clears_live_runner_ownership():
     assert "heartbeat_at" not in ctx
     assert update["frontier_state"] == "cold"
     assert update["queue_shard"] == "browser_local"
+
+
+def test_runner_lock_ttl_uses_runtime_configuration(monkeypatch):
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", "3600")
+
+    assert worker._runner_lock_ttl_seconds() == 3600
