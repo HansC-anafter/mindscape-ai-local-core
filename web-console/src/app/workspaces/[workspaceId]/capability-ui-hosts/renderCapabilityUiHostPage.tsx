@@ -64,9 +64,14 @@ export async function renderCapabilityUiHostPage({
   HostComponent,
 }: RenderCapabilityUiHostPageOptions) {
   const encodedCapabilityCode = encodeURIComponent(capabilityCode);
-  const capabilityResponse = await fetchBackendJson<CapabilityInfo>(
-    `/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}`,
-  );
+  const [capabilityResponse, componentsByCodeResponse] = await Promise.all([
+    fetchBackendJson<CapabilityInfo>(
+      `/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}`,
+    ),
+    fetchBackendJson<UIComponentInfo[]>(
+      `/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}/ui-components`,
+    ),
+  ]);
 
   if (!capabilityResponse.ok || !capabilityResponse.data) {
     return (
@@ -90,10 +95,16 @@ export async function renderCapabilityUiHostPage({
   }
 
   const capabilityInfo = capabilityResponse.data;
-  const capabilityId = encodeURIComponent(capabilityInfo.id || capabilityCode);
-  const componentsResponse = await fetchBackendJson<UIComponentInfo[]>(
-    `/api/v1/capability-packs/installed-capabilities/${capabilityId}/ui-components`,
-  );
+  const capabilityId = capabilityInfo.id || capabilityCode;
+  const shouldRetryComponentsById =
+    (!componentsByCodeResponse.ok || !Array.isArray(componentsByCodeResponse.data)) &&
+    capabilityId &&
+    capabilityId !== capabilityCode;
+  const componentsResponse = shouldRetryComponentsById
+    ? await fetchBackendJson<UIComponentInfo[]>(
+        `/api/v1/capability-packs/installed-capabilities/${encodeURIComponent(capabilityId)}/ui-components`,
+      )
+    : componentsByCodeResponse;
   const uiComponents = Array.isArray(componentsResponse.data) ? componentsResponse.data : [];
 
   if (!componentsResponse.ok || uiComponents.length === 0) {

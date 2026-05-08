@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../../components/Header';
 import { t } from '../../lib/i18n';
 import { getApiBaseUrl } from '../../lib/api-url';
+import { sharedGetFetch } from '../../lib/resilient-fetch';
 import SkillDiscoveryChat from '../../components/skill/SkillDiscoveryChat';
 
 const API_URL = getApiBaseUrl();
@@ -145,7 +146,7 @@ export default function SkillsPage() {
             setLoading(true);
             setError(null);
             const apiUrl = API_URL.startsWith('http') ? API_URL : '';
-            const response = await fetch(`${apiUrl}/api/v1/skills/`);
+            const response = await sharedGetFetch(`${apiUrl}/api/v1/skills/`, { method: 'GET' });
             if (!response.ok) {
                 throw new Error(`Failed to load skills: ${response.statusText}`);
             }

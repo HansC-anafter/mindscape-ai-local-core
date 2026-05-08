@@ -1,12 +1,14 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { usePathname } from 'next/navigation';
 
-import PerformanceDirectionStoryboardEditorPage from '@/app/capabilities/performance_direction/components/PerformanceDirectionStoryboardEditorPage';
 import {
   AOLRuntimeShell,
+} from '@/components/capabilities/aol-runtime-shell/AOLRuntimeShell';
+import {
   buildCapabilitySurfaceId,
-} from '@/components/capabilities/aol-runtime-shell';
+} from '@/components/capabilities/aol-runtime-shell/runtimeShellState';
 import { getApiBaseUrl } from '@/lib/api-url';
 
 type PerformanceDirectionWorkbenchHostProps = {
@@ -15,6 +17,19 @@ type PerformanceDirectionWorkbenchHostProps = {
   routeSessionId?: string;
   sessionRouteBasePath: string;
 };
+
+const PerformanceDirectionStoryboardEditorPage = dynamic(
+  () =>
+    import('@/app/capabilities/performance_direction/components/PerformanceDirectionStoryboardEditorPage'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center bg-white dark:bg-gray-950">
+        <div className="text-sm text-gray-500 dark:text-gray-400">Loading PD workbench...</div>
+      </div>
+    ),
+  },
+);
 
 export default function PerformanceDirectionWorkbenchHost({
   workspaceId,
@@ -38,7 +53,7 @@ export default function PerformanceDirectionWorkbenchHost({
     >
       {(aolHost) => (
         <div
-          className="h-full overflow-y-auto overflow-x-hidden bg-white dark:bg-gray-950"
+          className="h-full overflow-hidden bg-white dark:bg-gray-950"
           data-testid="capability-mainpage-scroll-shell"
         >
           <PerformanceDirectionStoryboardEditorPage

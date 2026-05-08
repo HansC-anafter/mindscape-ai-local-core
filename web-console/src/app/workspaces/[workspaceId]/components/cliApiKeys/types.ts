@@ -94,6 +94,36 @@ export interface AgentAuthActionResponse {
   note?: string | null;
 }
 
+export interface CodexAccountHomeTarget {
+  runtime_id: string;
+  login_email: string | null;
+  account_key: string | null;
+  account_scope_type: 'personal' | 'workspace' | 'unknown' | string | null;
+  account_scope_label: string | null;
+  account_scope_role: string | null;
+  account_plan_type: string | null;
+  account_organization_id: string | null;
+  account_organization_title: string | null;
+  account_organization_count: number | null;
+  codex_home: string;
+  auth_json_path: string | null;
+  auth_mtime_ns: string | null;
+  auth_size: string | null;
+  has_access: boolean;
+  has_refresh: boolean;
+  probe_state: string | null;
+  last_probe_error_code: string | null;
+  last_probe_success_at: string | null;
+  cooldown_until: string | null;
+  last_error_code: string | null;
+}
+
+export interface CodexAccountHomeTargetsResponse {
+  agent_id: string;
+  workspace_id: string;
+  targets: CodexAccountHomeTarget[];
+}
+
 export type AgentTab = 'gemini' | 'claude' | 'codex';
 export type AgentMode = 'api' | 'gca' | 'host_session' | 'host_token';
 

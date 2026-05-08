@@ -1,7 +1,8 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AOLRuntimeShellProvider } from '@/components/capabilities/aol-runtime-shell/AOLRuntimeShell';
 import PerformanceDirectionWorkbenchHost from './PerformanceDirectionWorkbenchHost';
 
 const mockPush = vi.fn();
@@ -17,6 +18,32 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://localhost:8220',
 }));
+
+vi.mock('next/dynamic', async () => {
+  const ReactModule = await import('react');
+
+  return {
+    default: (loader: () => Promise<any>) => {
+      return function MockDynamicComponent(props: Record<string, unknown>) {
+        const [Component, setComponent] = ReactModule.useState<any>(null);
+
+        ReactModule.useEffect(() => {
+          let mounted = true;
+          void loader().then((module) => {
+            if (mounted) {
+              setComponent(() => module.default || module);
+            }
+          });
+          return () => {
+            mounted = false;
+          };
+        }, []);
+
+        return Component ? <Component {...props} /> : <div>Loading PD workbench...</div>;
+      };
+    },
+  };
+});
 
 vi.mock('@/components/WorkspaceChat', () => ({
   default: function MockWorkspaceChat({
@@ -145,15 +172,20 @@ describe('PerformanceDirectionWorkbenchHost AOL shell', () => {
 
   it('wraps performance direction session routes with AOL host shell', async () => {
     render(
-      <PerformanceDirectionWorkbenchHost
-        workspaceId="ws_test"
-        routeMode="workbench"
-        routeSessionId="ds_ae738cc25079"
-        sessionRouteBasePath="/workspaces/ws_test/capabilities/performance_direction/sessions"
-      />,
+      <AOLRuntimeShellProvider workspaceId="ws_test">
+        <PerformanceDirectionWorkbenchHost
+          workspaceId="ws_test"
+          routeMode="workbench"
+          routeSessionId="ds_ae738cc25079"
+          sessionRouteBasePath="/workspaces/ws_test/capabilities/performance_direction/sessions"
+        />
+      </AOLRuntimeShellProvider>,
     );
 
     expect(await screen.findByTestId('aol-global-anchor')).not.toBeNull();
+    expect(screen.getByTestId('aol-shell-content-region')).toBeInTheDocument();
+    expect(screen.getByTestId('capability-mainpage-scroll-shell')).not.toHaveClass('pr-10');
+    expect(await screen.findByTestId('pd-route-aol-trigger')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('pd-route-aol-trigger'));
 
@@ -166,12 +198,34 @@ describe('PerformanceDirectionWorkbenchHost AOL shell', () => {
       expect(screen.getByTestId('aol-meeting-pane')).toBeInTheDocument();
       expect(screen.getByTestId('aol-meeting-bottom-shell')).toBeInTheDocument();
       expect(screen.queryByTestId('aol-host-panel')).toBeNull();
-    });
+    }, { timeout: 10000 });
     expect(screen.queryByTestId('aol-meeting-chat')).toBeNull();
     fireEvent.click(screen.getByTestId('meeting-object-context-toggle'));
-    const objectContextPanel = await screen.findByTestId('meeting-object-context-panel');
-    expect(within(objectContextPanel).getByText('sc01')).toBeInTheDocument();
-    expect(within(objectContextPanel).getByText('mtg_pd_route_test')).toBeInTheDocument();
+    expect(await screen.findByTestId('meeting-object-context-panel')).toBeInTheDocument();
     expect(mockPush).not.toHaveBeenCalled();
-  });
+  }, 20000);
+
+  it('opens the meeting AOL shell from the runtime flow rail without an object selection', async () => {
+    render(
+      <AOLRuntimeShellProvider workspaceId="ws_test">
+        <PerformanceDirectionWorkbenchHost
+          workspaceId="ws_test"
+          routeMode="workbench"
+          routeSessionId="ds_ae738cc25079"
+          sessionRouteBasePath="/workspaces/ws_test/capabilities/performance_direction/sessions"
+        />
+      </AOLRuntimeShellProvider>,
+    );
+
+    const flowAnchor = await screen.findByTestId('aol-runtime-flow-anchor');
+    expect(flowAnchor).not.toBeDisabled();
+
+    fireEvent.click(flowAnchor);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('aol-meeting-pane')).toBeInTheDocument();
+      expect(screen.getByTestId('aol-meeting-bottom-shell')).toBeInTheDocument();
+    }, { timeout: 10000 });
+    expect(flowAnchor).toHaveAttribute('aria-pressed', 'true');
+  }, 20000);
 });

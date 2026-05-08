@@ -7,7 +7,6 @@ import { useToast } from '@/components/Toast';
 import { t } from '@/lib/i18n';
 import { parseServerTimestamp } from '@/lib/time';
 import SandboxModalWrapper from '../../components/execution-inspector/SandboxModalWrapper';
-import { loadCapabilityUIComponent, artifactsMatchComponent, createLazyCapabilityComponent } from '@/lib/capability-ui-loader';
 
 interface Artifact {
   id: string;
@@ -68,6 +67,7 @@ export default function OutcomesPanel({
   // Dynamic capability UI components (boundary: no hardcoded external components)
   const [installedCapabilities, setInstalledCapabilities] = useState<any[]>([]);
   const [capabilityUIComponents, setCapabilityUIComponents] = useState<Map<string, React.ComponentType<any>>>(new Map());
+  const [matchingComponentKeys, setMatchingComponentKeys] = useState<string[]>([]);
   const [openModalKey, setOpenModalKey] = useState<string | null>(null);
 
   const loadArtifacts = useCallback(async () => {
@@ -149,12 +149,23 @@ export default function OutcomesPanel({
 
   // Load UI components when artifacts change and match component criteria (boundary: lazy loading)
   useEffect(() => {
+    let cancelled = false;
+
     const loadMatchingComponents = async () => {
       if (artifacts.length === 0 || installedCapabilities.length === 0) {
+        setMatchingComponentKeys([]);
         return;
       }
 
-      const componentMap = new Map<string, React.ComponentType<any>>();
+      const {
+        artifactsMatchComponent,
+        loadCapabilityUIComponent,
+      } = await import('@/lib/capability-ui-loader');
+      if (cancelled) {
+        return;
+      }
+
+      const nextMatchingKeys: string[] = [];
 
       for (const capability of installedCapabilities) {
         if (capability.ui_components && capability.ui_components.length > 0) {
@@ -162,6 +173,7 @@ export default function OutcomesPanel({
             // Check if artifacts match this component's criteria (boundary: generic check)
             if (artifactsMatchComponent(artifacts, componentInfo)) {
               const key = `${capability.code}:${componentInfo.code}`;
+              nextMatchingKeys.push(key);
 
               // Check if already loaded to avoid duplicate loading
               setCapabilityUIComponents(prev => {
@@ -177,6 +189,9 @@ export default function OutcomesPanel({
                 componentInfo.code,
                 apiUrl
               ).then(Component => {
+                if (cancelled) {
+                  return;
+                }
                 if (Component) {
                   setCapabilityUIComponents(prev => {
                     // Double-check to avoid race conditions
@@ -195,9 +210,14 @@ export default function OutcomesPanel({
           }
         }
       }
+
+      setMatchingComponentKeys(nextMatchingKeys);
     };
 
     loadMatchingComponents();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifacts.length, installedCapabilities.length, apiUrl]);
 
@@ -390,25 +410,6 @@ export default function OutcomesPanel({
         <div className="text-xs text-gray-500 dark:text-gray-400">{t('noOutcomes' as any) || 'No outcomes yet'}</div>
       </div>
     );
-  }
-
-
-  // Find matching capability UI components for current artifacts (boundary: generic, no hardcoded logic)
-  const matchingComponentKeys: string[] = [];
-
-  for (const capability of installedCapabilities) {
-    if (capability.ui_components && capability.ui_components.length > 0) {
-      for (const componentInfo of capability.ui_components) {
-        const matches = artifactsMatchComponent(artifacts, componentInfo);
-
-        if (matches) {
-          const key = `${capability.code}:${componentInfo.code}`;
-          if (capabilityUIComponents.has(key)) {
-            matchingComponentKeys.push(key);
-          }
-        }
-      }
-    }
   }
 
   return (

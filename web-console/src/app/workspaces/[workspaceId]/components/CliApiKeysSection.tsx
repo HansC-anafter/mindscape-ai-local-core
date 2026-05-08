@@ -1,6 +1,16 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+    AlertTriangle,
+    Building2,
+    CheckCircle2,
+    Clock3,
+    RefreshCw,
+    ShieldCheck,
+    UserRound,
+    XCircle,
+} from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/api-url';
 
 import { GcaPoolPane } from './cliApiKeys/GcaPoolPane';
@@ -12,6 +22,8 @@ import {
     AgentMode,
     AgentTab,
     CliAgent,
+    CodexAccountHomeTarget,
+    CodexAccountHomeTargetsResponse,
     PoolAccount,
     WorkspaceAgentInfo,
     WorkspaceAgentListResponse,
@@ -22,6 +34,123 @@ import {
 interface CliApiKeysSectionProps {
     workspaceId?: string;
 }
+
+type CodexTargetActionMessage = {
+    kind: 'success' | 'error' | 'info';
+    text: string;
+};
+
+const CODEX_LOGIN_TIMEOUT_MS = 120_000;
+const CODEX_LOGOUT_TIMEOUT_MS = 45_000;
+
+const fetchWithTimeout = async (
+    input: RequestInfo | URL,
+    init: RequestInit,
+    timeoutMs: number
+) => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(input, {
+            ...init,
+            signal: controller.signal,
+        });
+    } finally {
+        window.clearTimeout(timeoutId);
+    }
+};
+
+const isAbortError = (value: unknown) => value instanceof Error && value.name === 'AbortError';
+
+const errorMessageFromPayload = (
+    payload: unknown,
+    fallback: string
+) => {
+    if (payload && typeof payload === 'object') {
+        const record = payload as Record<string, unknown>;
+        const detail = record.detail;
+        if (typeof detail === 'string' && detail.trim()) return detail;
+        const error = record.error;
+        if (typeof error === 'string' && error.trim()) return error;
+        const note = record.note;
+        if (typeof note === 'string' && note.trim()) return note;
+    }
+    return fallback;
+};
+
+const shortRuntimeId = (value: string | null | undefined) => {
+    const raw = value || '';
+    return raw.replace(/^runtime-codex_cli-/, 'codex:');
+};
+
+const shortKey = (value: string | null | undefined) => {
+    const raw = value || '';
+    return raw.length > 14 ? `${raw.slice(0, 8)}...${raw.slice(-6)}` : raw;
+};
+
+const codexStatusMeta = (target: CodexAccountHomeTarget) => {
+    const errorCode = target.last_probe_error_code || target.last_error_code;
+    if (target.probe_state === 'available') {
+        return {
+            label: 'Available',
+            detail: 'External probe passed',
+            icon: CheckCircle2,
+            badge: 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300',
+            row: 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10',
+        };
+    }
+    if (target.probe_state === 'quota_limited' || errorCode === '429') {
+        return {
+            label: 'Quota limited',
+            detail: errorCode || '429',
+            icon: Clock3,
+            badge: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300',
+            row: 'border-amber-200 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-900/10',
+        };
+    }
+    if (target.probe_state === 'auth_failed' || errorCode) {
+        return {
+            label: 'Auth failed',
+            detail: errorCode || 'auth_failed',
+            icon: XCircle,
+            badge: 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300',
+            row: 'border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-900/10',
+        };
+    }
+    return {
+        label: 'Unknown',
+        detail: 'Not probed',
+        icon: AlertTriangle,
+        badge: 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
+        row: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800',
+    };
+};
+
+const codexScopeMeta = (target: CodexAccountHomeTarget) => {
+    const scopeType = (target.account_scope_type || '').toLowerCase();
+    if (scopeType === 'personal') {
+        return {
+            label: target.account_scope_label || 'Personal',
+            sublabel: target.account_plan_type || 'personal',
+            icon: UserRound,
+            badge: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-900/20 dark:text-sky-300',
+        };
+    }
+    if (scopeType === 'workspace') {
+        return {
+            label: target.account_scope_label || target.account_organization_title || 'Workspace',
+            sublabel: [target.account_scope_role, target.account_plan_type].filter(Boolean).join(' / ') || 'workspace',
+            icon: Building2,
+            badge: 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-300',
+        };
+    }
+    return {
+        label: 'Unknown scope',
+        sublabel: target.account_plan_type || 'unclassified',
+        icon: ShieldCheck,
+        badge: 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
+    };
+};
 
 export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProps) {
     const [activeTab, setActiveTab] = useState<AgentTab>('gemini');
@@ -50,7 +179,10 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
     const [workspaceAgents, setWorkspaceAgents] = useState<Record<string, WorkspaceAgentInfo>>({});
     const [authStatuses, setAuthStatuses] = useState<Record<string, AgentAuthStatusResponse>>({});
     const [authStatusLoading, setAuthStatusLoading] = useState<Record<string, boolean>>({});
-    const [authActionLoading, setAuthActionLoading] = useState<Record<string, string | null>>({});
+    const [codexAccountHomes, setCodexAccountHomes] = useState<CodexAccountHomeTarget[]>([]);
+    const [codexTargetsLoading, setCodexTargetsLoading] = useState(false);
+    const [codexTargetActionLoading, setCodexTargetActionLoading] = useState<Record<string, string | null>>({});
+    const [codexTargetActionMessages, setCodexTargetActionMessages] = useState<Record<string, CodexTargetActionMessage>>({});
 
     const agentMap = useMemo(
         () => Object.fromEntries(CLI_AGENTS.map((agent) => [agent.id, agent])) as Record<AgentTab, CliAgent>,
@@ -231,6 +363,32 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
         }
     }, [agentMap, workspaceId]);
 
+    const loadCodexAccountHomes = useCallback(async () => {
+        const codexAgent = agentMap.codex;
+        if (!workspaceId || !codexAgent?.runtimeAgentId) {
+            setCodexAccountHomes([]);
+            return;
+        }
+        setCodexTargetsLoading(true);
+        try {
+            const base = getApiBaseUrl();
+            const resp = await fetch(
+                `${base}/api/v1/workspaces/${workspaceId}/agents/${codexAgent.runtimeAgentId}/account-homes`
+            );
+            if (!resp.ok) {
+                const payload = await resp.json().catch(() => ({}));
+                throw new Error((payload as Record<string, string>).detail || 'Failed to load Codex account homes');
+            }
+            const data: CodexAccountHomeTargetsResponse = await resp.json();
+            setCodexAccountHomes(data.targets || []);
+        } catch (e: unknown) {
+            setCodexAccountHomes([]);
+            setError(e instanceof Error ? e.message : 'Failed to load Codex account homes');
+        } finally {
+            setCodexTargetsLoading(false);
+        }
+    }, [agentMap, workspaceId]);
+
     useEffect(() => {
         loadSettings();
         loadPoolAccounts();
@@ -257,11 +415,12 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
     useEffect(() => {
         if (activeTab === 'codex' && agentModes.codex === 'host_session') {
             loadAgentAuthStatus('codex');
+            loadCodexAccountHomes();
         }
         if (activeTab === 'claude' && agentModes.claude === 'host_token') {
             loadAgentAuthStatus('claude');
         }
-    }, [activeTab, agentModes.codex, agentModes.claude, loadAgentAuthStatus]);
+    }, [activeTab, agentModes.codex, agentModes.claude, loadAgentAuthStatus, loadCodexAccountHomes]);
 
     const handleModeChange = useCallback(async (agent: CliAgent, nextMode: AgentMode) => {
         setAgentModes((prev) => ({ ...prev, [agent.id]: nextMode }));
@@ -275,6 +434,7 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
             await saveSetting(agent.modeSettingKey, storedValue);
             if (agent.id === 'codex' && nextMode === 'host_session') {
                 loadAgentAuthStatus('codex');
+                loadCodexAccountHomes();
             }
             if (agent.id === 'claude' && nextMode === 'host_token') {
                 loadAgentAuthStatus('claude');
@@ -282,7 +442,7 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : 'Failed to switch mode');
         }
-    }, [loadAgentAuthStatus, saveSetting]);
+    }, [loadAgentAuthStatus, loadCodexAccountHomes, saveSetting]);
 
     const handleSave = async (agent: CliAgent) => {
         const key = agent.settingsKey;
@@ -458,22 +618,46 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
 
     const handleAgentAuthAction = useCallback(async (
         agentId: Extract<AgentTab, 'codex'>,
-        action: 'login' | 'logout'
+        action: 'login' | 'logout',
+        target?: CodexAccountHomeTarget
     ) => {
         const agent = agentMap[agentId];
         if (!workspaceId || !agent.runtimeAgentId) {
             setError('Workspace runtime context is required for host-session actions.');
             return;
         }
-        setAuthActionLoading((prev) => ({ ...prev, [agentId]: action }));
+        if (!target || (!target.runtime_id && !target.account_key && !target.codex_home)) {
+            setError('Select a Codex account-home target before login or logout.');
+            return;
+        }
+        const targetKey = target.runtime_id || target.account_key || target.codex_home;
+        setCodexTargetActionLoading((prev) => ({ ...prev, [targetKey]: action }));
+        setCodexTargetActionMessages((prev) => ({
+            ...prev,
+            [targetKey]: {
+                kind: 'info',
+                text: action === 'login'
+                    ? 'Login started. Complete the browser flow for this account-home target.'
+                    : 'Logout started for this account-home target.',
+            },
+        }));
         setError(null);
         try {
             const base = getApiBaseUrl();
-            const resp = await fetch(
+            const resp = await fetchWithTimeout(
                 `${base}/api/v1/workspaces/${workspaceId}/agents/${agent.runtimeAgentId}/${action}`,
-                { method: 'POST' }
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        runtime_id: target.runtime_id,
+                        account_key: target.account_key,
+                        codex_home: target.codex_home,
+                    }),
+                },
+                action === 'login' ? CODEX_LOGIN_TIMEOUT_MS : CODEX_LOGOUT_TIMEOUT_MS
             );
-            const payload: AgentAuthActionResponse = await resp.json().catch(() => ({
+            const payload = await resp.json().catch(() => ({
                 agent_id: agent.runtimeAgentId!,
                 workspace_id: workspaceId,
                 action,
@@ -482,18 +666,41 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                 error: `${action} failed`,
             }));
             if (!resp.ok) {
-                throw new Error(payload.error || `Failed to ${action}`);
+                throw new Error(errorMessageFromPayload(payload, `Failed to ${action}`));
             }
-            if (payload.note) {
-                setError(payload.note);
+            const typedPayload = payload as AgentAuthActionResponse;
+            if (typedPayload.success === false) {
+                throw new Error(errorMessageFromPayload(typedPayload, `Failed to ${action}`));
             }
+            setCodexTargetActionMessages((prev) => ({
+                ...prev,
+                [targetKey]: {
+                    kind: 'success',
+                    text: action === 'login'
+                        ? 'Login command completed. Refreshing this account-home status.'
+                        : 'Logout command completed. Refreshing this account-home status.',
+                },
+            }));
             await loadAgentAuthStatus(agentId);
+            await loadCodexAccountHomes();
         } catch (e: unknown) {
-            setError(e instanceof Error ? e.message : `Failed to ${action}`);
+            const message = isAbortError(e)
+                ? `${action === 'login' ? 'Login' : 'Logout'} request timed out or was interrupted. The row was unlocked; refresh homes to re-check the account state.`
+                : e instanceof Error
+                    ? e.message
+                    : `Failed to ${action}`;
+            setCodexTargetActionMessages((prev) => ({
+                ...prev,
+                [targetKey]: {
+                    kind: 'error',
+                    text: message,
+                },
+            }));
+            setError(message);
         } finally {
-            setAuthActionLoading((prev) => ({ ...prev, [agentId]: null }));
+            setCodexTargetActionLoading((prev) => ({ ...prev, [targetKey]: null }));
         }
-    }, [agentMap, loadAgentAuthStatus, workspaceId]);
+    }, [agentMap, loadAgentAuthStatus, loadCodexAccountHomes, workspaceId]);
 
     const connectedCount = poolAccounts.filter((a) => a.auth_status === 'connected').length;
     const activeAgent = agentMap[activeTab];
@@ -639,7 +846,6 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
         const runtimeInfo = agent.runtimeAgentId ? workspaceAgents[agent.runtimeAgentId] : null;
         const status = authStatuses[agent.id];
         const loading = authStatusLoading[agent.id];
-        const busyAction = authActionLoading[agent.id];
 
         return (
             <div className="space-y-4">
@@ -684,24 +890,15 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                         <>
                             <div className="flex items-center gap-2 flex-wrap">
                                 {agent.id === 'codex' && (
-                                    <>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleAgentAuthAction('codex', 'login')}
-                                            disabled={busyAction === 'login' || runtimeInfo?.status !== 'available'}
-                                            className="px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-                                        >
-                                            {busyAction === 'login' ? 'Logging in...' : 'Login'}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleAgentAuthAction('codex', 'logout')}
-                                            disabled={busyAction === 'logout' || runtimeInfo?.status !== 'available'}
-                                            className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                                        >
-                                            {busyAction === 'logout' ? 'Logging out...' : 'Logout'}
-                                        </button>
-                                    </>
+                                    <button
+                                        type="button"
+                                        onClick={() => loadCodexAccountHomes()}
+                                        disabled={codexTargetsLoading || runtimeInfo?.status !== 'available'}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                                    >
+                                        <RefreshCw className={`h-3.5 w-3.5 ${codexTargetsLoading ? 'animate-spin' : ''}`} />
+                                        {codexTargetsLoading ? 'Refreshing homes...' : 'Refresh Homes'}
+                                    </button>
                                 )}
                                 <button
                                     type="button"
@@ -744,6 +941,155 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                                     {status.manual_command && (
                                         <div className="mt-2">
                                             Manual command: <code className="font-mono">{status.manual_command}</code>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {agent.id === 'codex' && (
+                                <div className="space-y-3">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <div className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                                                Account homes
+                                            </div>
+                                            <div className="mt-1 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
+                                                Scope is read from OpenAI token claims. Login is rejected when the selected row and returned account identity do not match.
+                                            </div>
+                                        </div>
+                                        <span className="shrink-0 rounded-full border border-gray-200 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">
+                                            {codexAccountHomes.length} targets
+                                        </span>
+                                    </div>
+
+                                    {codexAccountHomes.length === 0 ? (
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                                            {codexTargetsLoading ? 'Loading account homes...' : 'No account-home targets found.'}
+                                        </p>
+                                    ) : (
+                                        <div className="space-y-2.5">
+                                            {codexAccountHomes.map((target) => {
+                                                const targetKey = target.runtime_id || target.account_key || target.codex_home;
+                                                const targetAction = codexTargetActionLoading[targetKey];
+                                                const actionMessage = codexTargetActionMessages[targetKey];
+                                                const errorCode = target.last_probe_error_code || target.last_error_code;
+                                                const statusMeta = codexStatusMeta(target);
+                                                const StatusIcon = statusMeta.icon;
+                                                const scopeMeta = codexScopeMeta(target);
+                                                const ScopeIcon = scopeMeta.icon;
+                                                const tokenState = target.has_refresh
+                                                    ? 'refresh token present'
+                                                    : target.has_access
+                                                        ? 'access token only'
+                                                        : 'no token material';
+                                                const homeName = target.codex_home.split('/').filter(Boolean).slice(-1)[0] || target.codex_home;
+                                                return (
+                                                    <div
+                                                        key={targetKey}
+                                                        className={`rounded-md border p-3 ${statusMeta.row}`}
+                                                    >
+                                                        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(150px,0.65fr)_minmax(170px,0.75fr)_auto] lg:items-start">
+                                                            <div className="min-w-0 space-y-1">
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    <div className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                                                        {target.login_email || target.runtime_id}
+                                                                    </div>
+                                                                    <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-mono text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
+                                                                        {homeName}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="font-mono text-[11px] text-gray-500 dark:text-gray-400">
+                                                                    {shortRuntimeId(target.runtime_id)}
+                                                                </div>
+                                                                {target.account_key && (
+                                                                    <div className="font-mono text-[11px] text-gray-600 dark:text-gray-300" title={target.account_key}>
+                                                                        account_key {shortKey(target.account_key)}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            <div className={`inline-flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-xs ${scopeMeta.badge}`}>
+                                                                <ScopeIcon className="h-4 w-4 shrink-0" />
+                                                                <div className="min-w-0">
+                                                                    <div className="truncate font-semibold">
+                                                                        {scopeMeta.label}
+                                                                    </div>
+                                                                    <div className="truncate text-[11px] opacity-80">
+                                                                        {scopeMeta.sublabel}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className={`inline-flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-xs ${statusMeta.badge}`}>
+                                                                <StatusIcon className="h-4 w-4 shrink-0" />
+                                                                <div className="min-w-0">
+                                                                    <div className="truncate font-semibold">
+                                                                        {statusMeta.label}
+                                                                    </div>
+                                                                    <div className="truncate text-[11px] opacity-80">
+                                                                        {statusMeta.detail}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-1.5 lg:justify-end">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleAgentAuthAction('codex', 'login', target)}
+                                                                    disabled={!!targetAction}
+                                                                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                                                                >
+                                                                    {targetAction === 'login' ? 'Logging in...' : 'Login'}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleAgentAuthAction('codex', 'logout', target)}
+                                                                    disabled={!!targetAction}
+                                                                    className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+                                                                >
+                                                                    {targetAction === 'logout' ? 'Logging out...' : 'Logout'}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                        <div className="mt-3 grid gap-2 text-[11px] text-gray-500 dark:text-gray-400 sm:grid-cols-2 lg:grid-cols-4">
+                                                            <span>
+                                                                {tokenState}
+                                                            </span>
+                                                            {target.last_probe_success_at && (
+                                                                <span>
+                                                                    passed {target.last_probe_success_at}
+                                                                </span>
+                                                            )}
+                                                            {errorCode && (
+                                                                <span className="text-amber-700 dark:text-amber-300">
+                                                                    error {errorCode}
+                                                                </span>
+                                                            )}
+                                                            {target.cooldown_until && (
+                                                                <span>
+                                                                    cooldown {target.cooldown_until}
+                                                                </span>
+                                                            )}
+                                                            {target.account_organization_id && (
+                                                                <span className="truncate font-mono" title={target.account_organization_id}>
+                                                                    org {shortKey(target.account_organization_id)}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {actionMessage && (
+                                                            <div className={`mt-3 rounded-md border px-3 py-2 text-[11px] ${
+                                                                actionMessage.kind === 'success'
+                                                                    ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300'
+                                                                    : actionMessage.kind === 'error'
+                                                                        ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300'
+                                                                        : 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
+                                                            }`}>
+                                                                {actionMessage.text}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>

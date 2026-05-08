@@ -13,7 +13,6 @@ import type {
 } from './types/execution';
 import { deriveAllSteps } from './utils/execution-inspector';
 import { getStepStatusColor, getEffectiveStepStatus } from './utils/execution-inspector';
-import { loadCapabilityUIComponent, artifactsMatchComponent } from '@/lib/capability-ui-loader';
 import { parseServerTimestamp } from '@/lib/time';
 import { GovernedMemoryPreview } from '@/components/workspace/governance/GovernedMemoryPreview';
 
@@ -90,6 +89,7 @@ export default function StepDetailPanel({
 }: StepDetailPanelProps) {
   const [installedCapabilities, setInstalledCapabilities] = useState<any[]>([]);
   const [capabilityUIComponents, setCapabilityUIComponents] = useState<Map<string, React.ComponentType<any>>>(new Map());
+  const [matchingComponentKeys, setMatchingComponentKeys] = useState<string[]>([]);
   const [openModalKey, setOpenModalKey] = useState<string | null>(null);
   const [selectedReviewBundleId, setSelectedReviewBundleId] = useState<string | null>(null);
 
@@ -115,44 +115,70 @@ export default function StepDetailPanel({
   // Load UI components when artifacts match (boundary: lazy loading)
   useEffect(() => {
     if (apiUrl == null || artifacts.length === 0 || installedCapabilities.length === 0) {
+      setMatchingComponentKeys([]);
       return;
     }
 
-    for (const capability of installedCapabilities) {
-      if (capability.ui_components && capability.ui_components.length > 0) {
-        for (const componentInfo of capability.ui_components) {
-          // Check if artifacts match this component's criteria (boundary: generic check)
-          if (artifactsMatchComponent(artifacts, componentInfo)) {
-            const key = `${capability.code}:${componentInfo.code}`;
+    let cancelled = false;
 
-            // Only load if not already loaded
-            setCapabilityUIComponents(prev => {
-              if (prev.has(key)) {
-                return prev; // Already loaded
-              }
-              return prev;
-            });
+    const loadMatchingComponents = async () => {
+      const {
+        artifactsMatchComponent,
+        loadCapabilityUIComponent,
+      } = await import('@/lib/capability-ui-loader');
+      if (cancelled) {
+        return;
+      }
 
-            // Load component asynchronously
-            loadCapabilityUIComponent(
-              capability.code,
-              componentInfo.code,
-              apiUrl
-            ).then(Component => {
-              if (Component) {
-                setCapabilityUIComponents(prev => {
-                  const newMap = new Map(prev);
-                  newMap.set(key, Component);
-                  return newMap;
-                });
-              }
-            }).catch(err => {
-              console.warn(`Failed to load component ${key}:`, err);
-            });
+      const nextMatchingKeys: string[] = [];
+
+      for (const capability of installedCapabilities) {
+        if (capability.ui_components && capability.ui_components.length > 0) {
+          for (const componentInfo of capability.ui_components) {
+            // Check if artifacts match this component's criteria (boundary: generic check)
+            if (artifactsMatchComponent(artifacts, componentInfo)) {
+              const key = `${capability.code}:${componentInfo.code}`;
+              nextMatchingKeys.push(key);
+
+              // Only load if not already loaded
+              setCapabilityUIComponents(prev => {
+                if (prev.has(key)) {
+                  return prev; // Already loaded
+                }
+                return prev;
+              });
+
+              // Load component asynchronously
+              loadCapabilityUIComponent(
+                capability.code,
+                componentInfo.code,
+                apiUrl
+              ).then(Component => {
+                if (cancelled) {
+                  return;
+                }
+                if (Component) {
+                  setCapabilityUIComponents(prev => {
+                    const newMap = new Map(prev);
+                    newMap.set(key, Component);
+                    return newMap;
+                  });
+                }
+              }).catch(err => {
+                console.warn(`Failed to load component ${key}:`, err);
+              });
+            }
           }
         }
       }
-    }
+
+      setMatchingComponentKeys(nextMatchingKeys);
+    };
+
+    loadMatchingComponents();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifacts.length, installedCapabilities.length, apiUrl]);
   const allSteps = deriveAllSteps({
@@ -417,53 +443,37 @@ export default function StepDetailPanel({
       )}
 
       {/* Dynamic Capability UI Components (boundary: loaded via API, not hardcoded) */}
-      {workspaceId && apiUrl && (() => {
-        const matchingComponentKeys: string[] = [];
-        for (const capability of installedCapabilities) {
-          if (capability.ui_components && capability.ui_components.length > 0) {
-            for (const componentInfo of capability.ui_components) {
-              if (artifactsMatchComponent(artifacts, componentInfo)) {
-                const key = `${capability.code}:${componentInfo.code}`;
-                if (capabilityUIComponents.has(key)) {
-                  matchingComponentKeys.push(key);
-                }
-              }
-            }
-          }
+      {workspaceId && apiUrl && matchingComponentKeys.map((key) => {
+        const [capabilityCode, componentCode] = key.split(':');
+        const Component = capabilityUIComponents.get(key);
+        const capability = installedCapabilities.find(c => c.code === capabilityCode);
+        const componentInfo = capability?.ui_components?.find((c: any) => c.code === componentCode);
+        const isOpen = openModalKey === key;
+
+        if (!Component || !componentInfo) {
+          return null;
         }
 
-        return matchingComponentKeys.map((key) => {
-          const [capabilityCode, componentCode] = key.split(':');
-          const Component = capabilityUIComponents.get(key);
-          const capability = installedCapabilities.find(c => c.code === capabilityCode);
-          const componentInfo = capability?.ui_components?.find((c: any) => c.code === componentCode);
-          const isOpen = openModalKey === key;
-
-          if (!Component || !componentInfo) {
-            return null;
-          }
-
-          return (
-            <div key={key} className="mb-3 p-2 border-b border-gray-200 dark:border-gray-700">
-              <button
-                onClick={() => setOpenModalKey(key)}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm font-medium"
-              >
-                <span>{componentInfo.description || `View ${componentInfo.code}`}</span>
-              </button>
-              {isOpen && (
-                <Suspense fallback={<div className="p-4 text-center">Loading...</div>}>
-                  <Component
-                    isOpen={isOpen}
-                    onClose={() => setOpenModalKey(null)}
-                    workspaceId={workspaceId}
-                  />
-                </Suspense>
-              )}
-            </div>
-          );
-        });
-      })()}
+        return (
+          <div key={key} className="mb-3 p-2 border-b border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => setOpenModalKey(key)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm font-medium"
+            >
+              <span>{componentInfo.description || `View ${componentInfo.code}`}</span>
+            </button>
+            {isOpen && (
+              <Suspense fallback={<div className="p-4 text-center">Loading...</div>}>
+                <Component
+                  isOpen={isOpen}
+                  onClose={() => setOpenModalKey(null)}
+                  workspaceId={workspaceId}
+                />
+              </Suspense>
+            )}
+          </div>
+        );
+      })}
 
       {/* Artifacts for this step */}
       <div className="mt-4">

@@ -1,4 +1,4 @@
-import PerformanceDirectionWorkbenchHost from '../PerformanceDirectionWorkbenchHost';
+import PerformanceDirectionLauncherHost from '../PerformanceDirectionLauncherHost';
 import { buildPerformanceDirectionSessionBasePath } from '../routePaths';
 
 type PerformanceDirectionStartPageProps = {
@@ -13,9 +13,8 @@ export default function PerformanceDirectionStartPage({
   const workspaceId = String(params.workspaceId || '').trim();
 
   return (
-    <PerformanceDirectionWorkbenchHost
+    <PerformanceDirectionLauncherHost
       workspaceId={workspaceId}
-      routeMode="launcher"
       sessionRouteBasePath={buildPerformanceDirectionSessionBasePath(workspaceId)}
     />
   );

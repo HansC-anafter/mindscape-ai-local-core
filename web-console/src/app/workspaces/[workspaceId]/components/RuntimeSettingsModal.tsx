@@ -48,18 +48,18 @@ export default function RuntimeSettingsModal({
 
     return (
         <div
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-6"
             onClick={onClose}
             role="dialog"
             aria-modal="true"
             aria-labelledby="runtime-settings-modal-title"
         >
             <div
-                className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] flex flex-col"
+                className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-6xl max-h-[92vh] flex flex-col"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between p-5 border-b dark:border-gray-700 flex-shrink-0">
+                <div className="flex items-center justify-between px-6 py-5 border-b dark:border-gray-700 flex-shrink-0">
                     <div>
                         <h2
                             id="runtime-settings-modal-title"
@@ -83,7 +83,7 @@ export default function RuntimeSettingsModal({
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b border-gray-200 dark:border-gray-700 flex-shrink-0 px-5">
+                <div className="flex border-b border-gray-200 dark:border-gray-700 flex-shrink-0 px-6">
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}
@@ -104,7 +104,7 @@ export default function RuntimeSettingsModal({
                 </div>
 
                 {/* Content - Scrollable */}
-                <div className="flex-1 overflow-y-auto p-5">
+                <div className="flex-1 overflow-y-auto px-6 py-5">
                     {activeTab === 'channel' && (
                         <CapabilityExtensionSlot
                             section="runtime-environments"
