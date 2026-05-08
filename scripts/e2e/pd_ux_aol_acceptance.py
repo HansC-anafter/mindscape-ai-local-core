@@ -13,6 +13,8 @@ proof.
 from __future__ import annotations
 
 import argparse
+import asyncio
+import importlib.util
 import json
 import os
 import sys
@@ -349,6 +351,87 @@ def _wait_workspace_runtime_available(
     return evidence
 
 
+def _load_codex_quota_preflight_runner() -> Callable[[argparse.Namespace], Any]:
+    module_path = Path(__file__).with_name("codex_pool_quota_preflight.py")
+    spec = importlib.util.spec_from_file_location(
+        "mindscape_codex_pool_quota_preflight",
+        module_path,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load Codex quota preflight from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    runner = getattr(module, "run_preflight", None)
+    if not callable(runner):
+        raise RuntimeError("Codex quota preflight runner is unavailable")
+    return runner
+
+
+def _run_codex_quota_preflight(
+    args: argparse.Namespace,
+    workspace_id: str,
+) -> dict[str, Any]:
+    if args.skip_codex_quota_preflight:
+        return {
+            "status": "skipped",
+            "reason": "skip_codex_quota_preflight",
+            "workspace_id": workspace_id,
+        }
+    runner = _load_codex_quota_preflight_runner()
+    preflight_args = argparse.Namespace(
+        workspace_id=workspace_id,
+        max_runtime_probes=args.codex_quota_max_runtime_probes,
+        timeout_seconds=args.codex_quota_timeout_seconds,
+        stall_timeout_seconds=args.codex_quota_stall_timeout_seconds,
+        required_login_email="",
+        exclude_runtime_id=[],
+        target_successes=1,
+        continue_after_success=False,
+        compact_output=False,
+    )
+    return asyncio.run(runner(preflight_args))
+
+
+def _write_acceptance_result(
+    *,
+    started: float,
+    output_dir: Path,
+    stages: dict[str, dict[str, Any]],
+    workspace_id: str,
+    session_id: str,
+    scene_id: str,
+    artifact_id: str,
+    project_id: str | None,
+    object_ref: dict[str, Any],
+    browser_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    _add_evidence(stages, "S0", "workspace_id", workspace_id)
+    _add_evidence(stages, "S0", "session_id", session_id)
+    _add_evidence(stages, "S0", "scene_id", scene_id)
+    _add_evidence(stages, "S0", "artifact_id", artifact_id)
+    _finalize_stages(stages)
+    failed = [stage_id for stage_id, stage in stages.items() if not stage["passed"]]
+    result = {
+        "status": "passed" if not failed else "failed",
+        "duration_ms": round((time.time() - started) * 1000),
+        "failed_stages": failed,
+        "context": {
+            "workspace_id": workspace_id,
+            "session_id": session_id,
+            "scene_id": scene_id,
+            "artifact_id": artifact_id,
+            "project_id": project_id,
+            "object_ref": object_ref,
+        },
+        "stages": stages,
+        "browser": browser_result,
+    }
+    result_path = output_dir / "pd-ux-aol-acceptance-result.json"
+    result_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+    result["result_json"] = str(result_path)
+    return result
+
+
 def _meeting_runtime_evidence(api_url: str, workspace_id: str, meeting_id: str) -> dict[str, Any]:
     events_payload = _json_get(
         f"{api_url}/api/v1/workspaces/{workspace_id}/meeting-sessions/{meeting_id}/events?limit=120",
@@ -397,6 +480,8 @@ def _meeting_runtime_evidence(api_url: str, workspace_id: str, meeting_id: str) 
         "minutes_length": len(str(session_payload.get("minutes_md") or "")),
         "action_item_count": len(action_items),
         "completion_status": metadata.get("completion_status"),
+        "native_spatial_source": metadata.get("native_spatial_source"),
+        "native_spatial_decision_present": bool(metadata.get("native_spatial_decision")),
         "execution_ids": metadata.get("execution_ids") or [],
         "executor_runtime_id": (
             (metadata.get("execution_context_snapshot") or {}).get("executor_runtime_id")
@@ -971,6 +1056,22 @@ def _run_browser_acceptance(
                     evidence=runtime_evidence,
                     failure="Meeting runtime produced failed/error/blocked execution graph nodes",
                 )
+                _add_check(
+                    stages,
+                    "S7",
+                    "Meeting command does not enter native spatial shortcut",
+                    not runtime_evidence.get("native_spatial_source")
+                    and not runtime_evidence.get("native_spatial_decision_present"),
+                    evidence={
+                        "native_spatial_source": runtime_evidence.get(
+                            "native_spatial_source"
+                        ),
+                        "native_spatial_decision_present": runtime_evidence.get(
+                            "native_spatial_decision_present"
+                        ),
+                    },
+                    failure="Meeting command was handled by the native spatial shortcut",
+                )
     else:
         _add_check(
             stages,
@@ -1020,6 +1121,50 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         scene_id=scene_id,
         frontend_url=frontend_url,
     )
+
+    codex_quota_preflight = _safe_call(
+        stages,
+        "S7",
+        "Codex CLI quota preflight has a runnable pool runtime before expensive E2E",
+        lambda: _run_codex_quota_preflight(args, workspace_id),
+        lambda payload: payload.get("status") in {"available", "skipped"},
+        lambda payload: {
+            "status": payload.get("status"),
+            "selected_runtime_id": payload.get("selected_runtime_id"),
+            "attempts": payload.get("attempts"),
+        },
+    )
+    if (
+        not args.skip_codex_quota_preflight
+        and not args.continue_on_codex_quota_failure
+        and (
+            not isinstance(codex_quota_preflight, dict)
+            or codex_quota_preflight.get("status") != "available"
+        )
+    ):
+        _add_check(
+            stages,
+            "S7",
+            "Codex CLI quota preflight fail-fast blocks meeting dispatch",
+            False,
+            evidence=codex_quota_preflight,
+            failure=(
+                "Codex quota preflight did not find a runnable runtime; "
+                "meeting E2E was stopped before dispatch"
+            ),
+        )
+        return _write_acceptance_result(
+            started=started,
+            output_dir=output_dir,
+            stages=stages,
+            workspace_id=workspace_id,
+            session_id=session_id,
+            scene_id=scene_id,
+            artifact_id=artifact_id,
+            project_id=project_id,
+            object_ref=object_ref,
+            browser_result=None,
+        )
 
     manifest = _manifest()
     _add_check(
@@ -1316,32 +1461,18 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         failure="Legacy shared.schemas mirror path still exists or installed pack path is missing",
     )
 
-    _add_evidence(stages, "S0", "workspace_id", workspace_id)
-    _add_evidence(stages, "S0", "session_id", session_id)
-    _add_evidence(stages, "S0", "scene_id", scene_id)
-    _add_evidence(stages, "S0", "artifact_id", artifact_id)
-    _finalize_stages(stages)
-    failed = [stage_id for stage_id, stage in stages.items() if not stage["passed"]]
-
-    result = {
-        "status": "passed" if not failed else "failed",
-        "duration_ms": round((time.time() - started) * 1000),
-        "failed_stages": failed,
-        "context": {
-            "workspace_id": workspace_id,
-            "session_id": session_id,
-            "scene_id": scene_id,
-            "artifact_id": artifact_id,
-            "project_id": project_id,
-            "object_ref": object_ref,
-        },
-        "stages": stages,
-        "browser": browser_result,
-    }
-    result_path = output_dir / "pd-ux-aol-acceptance-result.json"
-    result_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
-    result["result_json"] = str(result_path)
-    return result
+    return _write_acceptance_result(
+        started=started,
+        output_dir=output_dir,
+        stages=stages,
+        workspace_id=workspace_id,
+        session_id=session_id,
+        scene_id=scene_id,
+        artifact_id=artifact_id,
+        project_id=project_id,
+        object_ref=object_ref,
+        browser_result=browser_result,
+    )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -1356,6 +1487,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--artifact-id", default=os.getenv("PD_UX_E2E_ARTIFACT_ID"))
     parser.add_argument("--output-dir", default=os.getenv("PD_UX_E2E_OUTPUT_DIR", ".tmp/e2e/pd-ux-aol"))
     parser.add_argument("--timeout-ms", type=int, default=int(os.getenv("PD_UX_E2E_TIMEOUT_MS", "45000")))
+    parser.add_argument("--skip-codex-quota-preflight", action="store_true")
+    parser.add_argument("--continue-on-codex-quota-failure", action="store_true")
+    parser.add_argument(
+        "--codex-quota-max-runtime-probes",
+        type=int,
+        default=int(os.getenv("PD_UX_E2E_CODEX_QUOTA_MAX_RUNTIME_PROBES", "8")),
+    )
+    parser.add_argument(
+        "--codex-quota-timeout-seconds",
+        type=float,
+        default=float(os.getenv("PD_UX_E2E_CODEX_QUOTA_TIMEOUT_SECONDS", "90")),
+    )
+    parser.add_argument(
+        "--codex-quota-stall-timeout-seconds",
+        type=float,
+        default=float(os.getenv("PD_UX_E2E_CODEX_QUOTA_STALL_TIMEOUT_SECONDS", "30")),
+    )
     parser.add_argument("--headed", action="store_true")
     return parser.parse_args(argv)
 

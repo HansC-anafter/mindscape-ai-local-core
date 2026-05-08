@@ -117,7 +117,39 @@ bridge_curl_first_success() {
             return 0
         fi
     done < <(build_host_candidates "$CONTROL_PLANE_HOST_RAW")
+    while IFS= read -r candidate; do
+        [[ -z "$candidate" ]] && continue
+        url="http://$candidate$path"
+        if bridge_curl "$url" "$@"; then
+            return 0
+        fi
+    done < <(build_host_candidates "$BACKEND_HOST_RAW")
     return 1
+}
+
+resolve_bridge_api_url() {
+    local candidate url
+    if [[ -n "${MINDSCAPE_BACKEND_API_URL:-}" ]]; then
+        echo "$MINDSCAPE_BACKEND_API_URL"
+        return 0
+    fi
+    while IFS= read -r candidate; do
+        [[ -z "$candidate" ]] && continue
+        url="http://$candidate"
+        if bridge_curl "$url/health" &>/dev/null || bridge_curl "$url/healthz" &>/dev/null; then
+            echo "$url"
+            return 0
+        fi
+    done < <(build_host_candidates "$CONTROL_PLANE_HOST_RAW")
+    while IFS= read -r candidate; do
+        [[ -z "$candidate" ]] && continue
+        url="http://$candidate"
+        if bridge_curl "$url/health" &>/dev/null || bridge_curl "$url/healthz" &>/dev/null; then
+            echo "$url"
+            return 0
+        fi
+    done < <(build_host_candidates "$BACKEND_HOST_RAW")
+    echo "http://$CONTROL_PLANE_HOST"
 }
 
 BACKEND_HOST="$BACKEND_HOST_RAW"
@@ -271,7 +303,7 @@ fi
 
 # 4. Check backend/control plane is reachable
 BACKEND_HTTP="http://$BACKEND_HOST"
-CONTROL_HTTP="${MINDSCAPE_BACKEND_API_URL:-http://$CONTROL_PLANE_HOST}"
+CONTROL_HTTP="$(resolve_bridge_api_url)"
 if [[ -z "${MINDSCAPE_BACKEND_API_URL:-}" ]]; then
     if ! bridge_curl_first_success "/health" &>/dev/null; then
         log_warn "Control plane at $CONTROL_HTTP may not be ready (health check failed)"
@@ -415,7 +447,7 @@ fi
 
 # --- Gemini auth (resolved by backend /api/v1/auth/cli-token) ---
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
-export MINDSCAPE_BACKEND_API_URL="${MINDSCAPE_BACKEND_API_URL:-http://$CONTROL_PLANE_HOST}"
+export MINDSCAPE_BACKEND_API_URL="${CONTROL_HTTP}"
 
 # --- Start bridge ---
 if [[ "$ALL_MODE" == "true" ]]; then

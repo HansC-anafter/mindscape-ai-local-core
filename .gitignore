@@ -88,6 +88,9 @@ test_*.yaml
 !backend/tests/test_gitignore_pack_neutrality.py
 !backend/tests/test_aol_target_only_attach.py
 !backend/tests/test_capability_runtime_contract_paths.py
+!backend/tests/test_governed_stage_router_workspace_runtime.py
+!backend/tests/test_workspace_routed_chat_runtime.py
+!backend/tests/test_multimodal_registry_routing.py
 !backend/tests/test_post_install_playbook_validator_pythonpath.py
 !backend/tests/test_retired_shared_schema_import_guard.py
 !backend/tests/test_runtime_contract_registry_data_root.py
@@ -127,12 +130,8 @@ test_*.yaml
 
 # Internal documentation (not for open source)
 docs-internal/*
-!docs-internal/implementation/
 docs-internal/implementation/*
-!docs-internal/implementation/runtime/
 docs-internal/implementation/runtime/*
-!docs-internal/implementation/runtime/ig-runtime-resource-settings-worktree-closure-todos-2026-05-05.md
-!docs-internal/implementation/runtime/ig-runtime-resource-settings-worktree-quality-report-2026-05-05.zh-TW.md
 .agent/workflows/
 .agent/skills/**/*.md
 !.agent/skills/*/SKILL.md

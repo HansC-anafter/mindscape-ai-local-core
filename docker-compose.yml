@@ -56,6 +56,12 @@ x-runner-volumes: &runner-volumes
   - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
   - ./web-console:/app/web-console:rw
 
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${LOCAL_CORE_DOCKER_LOG_MAX_SIZE:-50m}"
+    max-file: "${LOCAL_CORE_DOCKER_LOG_MAX_FILE:-10}"
+
 x-runner-common: &runner-common
   image: ${LOCAL_CORE_RUNNER_IMAGE:-mindscape-ai-local-core-runner}
   build:
@@ -64,6 +70,7 @@ x-runner-common: &runner-common
   init: true
   shm_size: "2gb"
   restart: unless-stopped
+  logging: *default-logging
   environment: *runner-environment
   volumes: *runner-volumes
   deploy:
@@ -93,8 +100,10 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     container_name: mindscape-ai-local-core-backend
+    init: true
     shm_size: "2gb"
     restart: unless-stopped
+    logging: *default-logging
     command: ["sh", "-c", "exec sh /app/backend/scripts/run_backend_server.sh"]
     ports:
       - "8200:8200"
@@ -229,8 +238,10 @@ services:
       dockerfile: Dockerfile.backend
     container_name: mindscape-ai-local-core-backend-control
     profiles: ["control-plane"]
+    init: true
     shm_size: "2gb"
     restart: unless-stopped
+    logging: *default-logging
     command: ["sh", "-c", "exec sh /app/backend/scripts/run_backend_server.sh"]
     ports:
       - "${MINDSCAPE_CONTROL_PLANE_HOST_PORT:-8220}:8210"
@@ -379,6 +390,7 @@ services:
       dockerfile: Dockerfile.frontend
     container_name: mindscape-ai-local-core-frontend
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "8300:3000"
     environment:
@@ -404,11 +416,9 @@ services:
       test:
         [
           "CMD",
-          "wget",
-          "--quiet",
-          "--tries=1",
-          "--spider",
-          "http://localhost:3000",
+          "node",
+          "-e",
+          "const http=require('http');const req=http.get('http://127.0.0.1:3000/healthz',(res)=>{res.resume();process.exit(res.statusCode===200?0:1)});req.setTimeout(8000,()=>{req.destroy();process.exit(1)});req.on('error',()=>process.exit(1));",
         ]
       interval: 30s
       timeout: 10s
@@ -423,6 +433,7 @@ services:
     image: pgvector/pgvector:pg16
     container_name: mindscape-ai-local-core-postgres
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "5433:5432"
     environment:
@@ -449,6 +460,7 @@ services:
     image: redis:7-alpine
     container_name: mindscape-ai-local-core-redis
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "6379:6379"
     command:
@@ -478,6 +490,7 @@ services:
     profiles:
       - ocr
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "8001:8001"
     environment:
@@ -511,6 +524,7 @@ services:
       dockerfile: Dockerfile
     container_name: mindscape-ai-local-core-media-proxy
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "8202:8000"
     environment:
@@ -538,6 +552,7 @@ services:
       dockerfile: Dockerfile
     container_name: mindscape-ai-local-core-xtts
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "8020:8020"
     environment:
@@ -572,6 +587,7 @@ services:
       dockerfile: Dockerfile
     container_name: mindscape-ai-local-core-whisper
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "8006:8006"
     networks:

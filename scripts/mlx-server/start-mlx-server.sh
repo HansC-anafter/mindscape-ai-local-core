@@ -51,14 +51,23 @@ fi
 # Health check interval in seconds
 WATCHDOG_INTERVAL="${MLX_WATCHDOG_INTERVAL:-60}"
 # Consecutive failures before kill (60s x 10 = 10 min threshold)
-# This is safely above the runner's httpx timeout of 300s (5 min),
-# so a normal long inference won't be killed.
+# Inflight state gates long Qwen3.5 12288-token generations; timeout must stay
+# above the backend VLM read timeout so a normal long inference is not killed.
 WATCHDOG_MAX_FAILURES="${MLX_WATCHDOG_MAX_FAILURES:-10}"
 # Health check curl timeout (must be < WATCHDOG_INTERVAL)
 WATCHDOG_CURL_TIMEOUT=5
+# The backend/runner writes this through the Docker bind mount at
+# /app/data/runtime/mlx-watchdog/inflight_request.json.
+WATCHDOG_STATE_FILE="${MLX_WATCHDOG_STATE_FILE:-/Volumes/OWC Ultra 4T/mindscape-ai-local-core-runtime/data/runtime/mlx-watchdog/inflight_request.json}"
+WATCHDOG_INFLIGHT_HARD_TIMEOUT="${MLX_WATCHDOG_INFLIGHT_HARD_TIMEOUT:-2700}"
+WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT="${MLX_WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT:-120}"
+WATCHDOG_STATE_HELPER="$(dirname "$0")/watchdog_state.py"
+mkdir -p "$(dirname "$WATCHDOG_STATE_FILE")" 2>/dev/null || true
+rm -f "$WATCHDOG_STATE_FILE" 2>/dev/null || true
 
 echo "[mlx-server] Starting MLX VLM server: host=$HOST port=$PORT (model loaded on first request)"
 echo "[mlx-server] Watchdog enabled: check every ${WATCHDOG_INTERVAL}s, kill after ${WATCHDOG_MAX_FAILURES} consecutive failures"
+echo "[mlx-server] Watchdog inflight state: ${WATCHDOG_STATE_FILE}"
 
 # Start MLX in background (instead of exec) so watchdog can monitor it
 "$PYTHON" -m mlx_vlm.server \
@@ -107,7 +116,14 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
     # Health check failed - did MLX complete any request or emit progress since last check?
     current_ok_count=$(_count_ok_lines)
     current_stderr_size=$(_file_size "$STDERR_LOG")
-    if [ "$current_ok_count" -gt "$last_ok_count" ]; then
+    if [ -f "$WATCHDOG_STATE_HELPER" ] && state_msg="$("$PYTHON" "$WATCHDOG_STATE_HELPER" --state-file "$WATCHDOG_STATE_FILE" --hard-timeout "$WATCHDOG_INFLIGHT_HARD_TIMEOUT" --heartbeat-timeout "$WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT" 2>&1)"; then
+      # A VLM request is actively heartbeating from the runner. Qwen3.5 can block
+      # /v1/models during long generation, so do not count this as a hung server.
+      echo "[mlx-watchdog] Health check failed but inflight request is still active (${state_msg}) - not counting"
+      failures=0
+      last_ok_count=$current_ok_count
+      last_stderr_size=$current_stderr_size
+    elif [ "$current_ok_count" -gt "$last_ok_count" ]; then
       # New 200 OK lines appeared - MLX completed work, just busy with next request
       echo "[mlx-watchdog] Health check failed but MLX completed requests (${last_ok_count}->${current_ok_count}) - not counting"
       failures=0
