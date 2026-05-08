@@ -13,6 +13,7 @@ import React, {
 // Get API URL - for 'use client' components, always use browser-accessible URL
 // In browser, NEXT_PUBLIC_API_URL points to host's localhost
 import { getApiBaseUrl, getApiUrl as getDynamicApiUrl } from '../lib/api-url';
+import { sharedGetFetch } from '../lib/resilient-fetch';
 
 // This is evaluated at runtime, not module load time
 // Use synchronous version for immediate use, but prefer async version when possible
@@ -213,13 +214,10 @@ export function WorkspaceDataProvider({
     try {
       const startTime = Date.now();
 
-      // Use a unique request ID to avoid browser request deduplication
-      const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
       // Directly use base URL to avoid any blocking from getDynamicApiUrl
       // This ensures the fetch request can be sent immediately
       const apiUrl = getApiBaseUrl();
-      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}?t=${requestId}`;
+      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}`;
 
       let response: Response;
       try {
@@ -227,7 +225,7 @@ export function WorkspaceDataProvider({
         // Use a shorter timeout to fail fast if there's a network issue
         // Fetch with minimal config to avoid CORS preflight
         // Use same-origin mode since frontend and backend are on different ports
-        const fetchPromise = fetch(url, {
+        const fetchPromise = sharedGetFetch(url, {
           method: 'GET',
           signal: controller.signal,
           // Configure fetch for same-origin requests
@@ -310,9 +308,9 @@ export function WorkspaceDataProvider({
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
     try {
-      const response = await fetch(
+      const response = await sharedGetFetch(
         `${getApiUrl()}/api/v1/workspaces/${workspaceId}/tasks?limit=20&include_completed=true`,
-        { signal: controller.signal }
+        { method: 'GET', signal: controller.signal }
       );
 
       clearTimeout(timeoutId);
@@ -357,9 +355,9 @@ export function WorkspaceDataProvider({
       // Optimization: use /tasks endpoint (which we patched to strip heavy results)
       // instead of /executions-with-steps (which returns huge payloads).
       // This prevents the "Infinite Loading" issue.
-      const response = await fetch(
+      const response = await sharedGetFetch(
         `${getApiUrl()}/api/v1/workspaces/${workspaceId}/tasks?limit=100&include_completed=true&task_type=execution`,
-        { signal: controller.signal }
+        { method: 'GET', signal: controller.signal }
       );
 
       clearTimeout(timeoutId);
@@ -408,9 +406,9 @@ export function WorkspaceDataProvider({
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
     try {
-      const response = await fetch(
+      const response = await sharedGetFetch(
         `${getApiUrl()}/api/v1/workspaces/${workspaceId}/health`,
-        { signal: controller.signal }
+        { method: 'GET', signal: controller.signal }
       );
 
       clearTimeout(timeoutId);
@@ -449,7 +447,10 @@ export function WorkspaceDataProvider({
   // Debounced refresh for event handlers (2 second debounce)
   const debouncedRefresh = useDebounce(async () => {
     if (!mountedRef.current) return;
-    await Promise.all([loadTasks(), loadExecutions(), loadSystemStatus()]);
+    await Promise.all([loadTasks(), loadExecutions()]);
+    window.setTimeout(() => {
+      if (mountedRef.current) void loadSystemStatus();
+    }, 750);
   }, 2000);
 
   // Update workspace
@@ -538,23 +539,43 @@ export function WorkspaceDataProvider({
         }
       }
 
-      // Load other data in parallel after workspace loads
-      // Use workspaceId instead of workspace state since state updates are async
+      // Load non-first-viewport workspace data after the route has had a
+      // chance to paint. System health is kept, but staggered so it does not
+      // compete with route-critical PD/capability API calls.
+      let auxiliaryLoadTimeoutId: ReturnType<typeof setTimeout> | null = null;
+      let healthLoadTimeoutId: ReturnType<typeof setTimeout> | null = null;
       if (mountedRef.current && workspaceId && workspaceId !== 'new') {
-        await new Promise(resolve => setTimeout(resolve, 300));
-        await Promise.all([
-          loadTasks(),
-          loadExecutions(),
-          loadSystemStatus()
-        ]);
+        auxiliaryLoadTimeoutId = setTimeout(() => {
+          if (!mountedRef.current || isCancelled) return;
+          void Promise.allSettled([
+            loadTasks(),
+            loadExecutions()
+          ]).finally(() => {
+            if (!mountedRef.current || isCancelled) return;
+            healthLoadTimeoutId = setTimeout(() => {
+              if (mountedRef.current && !isCancelled) void loadSystemStatus();
+            }, 1200);
+          });
+        }, 750);
       }
+
+      return () => {
+        if (auxiliaryLoadTimeoutId) clearTimeout(auxiliaryLoadTimeoutId);
+        if (healthLoadTimeoutId) clearTimeout(healthLoadTimeoutId);
+      };
     };
 
-    loadData();
+    let cleanupScheduledLoads: (() => void) | undefined;
+    void loadData().then((cleanup) => {
+      if (typeof cleanup === 'function') {
+        cleanupScheduledLoads = cleanup;
+      }
+    });
 
     return () => {
       isCancelled = true;
       mountedRef.current = false;
+      cleanupScheduledLoads?.();
       // Abort any pending requests
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();

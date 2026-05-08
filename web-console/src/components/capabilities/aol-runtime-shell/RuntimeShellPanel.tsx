@@ -1,14 +1,15 @@
 'use client';
 
-import type React from 'react';
+import React, { Suspense, lazy, type ComponentType } from 'react';
 import { Maximize2, Minimize2, PanelBottom } from 'lucide-react';
 
 import type { AOLRuntimeShellState } from './AOLRuntimeShellContext';
-import AOLMeetingBottomShell from '../meeting-workbench/AOLMeetingBottomShell';
+import { RuntimeShellPanelFallbackBody } from './RuntimeShellPanelFallback';
+import type { AOLMeetingBottomShellProps } from '../meeting-workbench/meetingWorkbenchTypes';
 
 export type MeetingPaneSizePreset = 'compact' | 'default' | 'expanded';
 
-interface RuntimeShellPanelProps {
+export interface RuntimeShellPanelProps {
   state: AOLRuntimeShellState;
   paneHeight: number;
   onClose: () => void;
@@ -16,6 +17,21 @@ interface RuntimeShellPanelProps {
   onSizePreset: (preset: MeetingPaneSizePreset) => void;
   onSwitchObject: () => void;
 }
+
+type AOLMeetingBottomShellModule = {
+  default: ComponentType<AOLMeetingBottomShellProps>;
+};
+
+let meetingBottomShellPromise: Promise<AOLMeetingBottomShellModule> | null = null;
+
+export function preloadRuntimeShellPanelBody(): Promise<AOLMeetingBottomShellModule> {
+  meetingBottomShellPromise ??= import('../meeting-workbench/AOLMeetingBottomShell').then((module) => ({
+    default: module.AOLMeetingBottomShell,
+  }));
+  return meetingBottomShellPromise;
+}
+
+const AOLMeetingBottomShellLazy = lazy(preloadRuntimeShellPanelBody);
 
 export function RuntimeShellPanel({
   state,
@@ -94,16 +110,18 @@ export function RuntimeShellPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        <AOLMeetingBottomShell
-          workspaceId={state.activeSurface.workspaceId}
-          apiUrl={state.activeSurface.apiUrl}
-          meetingId={state.currentMeetingId}
-          summary={summary}
-          selection={state.selection}
-          attachResponse={state.attachResponse}
-          surfaceRoute={state.activeSurface.route}
-          onSwitchObject={onSwitchObject}
-        />
+        <Suspense fallback={<RuntimeShellPanelFallbackBody state={state} />}>
+          <AOLMeetingBottomShellLazy
+            workspaceId={state.activeSurface.workspaceId}
+            apiUrl={state.activeSurface.apiUrl}
+            meetingId={state.currentMeetingId}
+            summary={summary}
+            selection={state.selection}
+            attachResponse={state.attachResponse}
+            surfaceRoute={state.activeSurface.route}
+            onSwitchObject={onSwitchObject}
+          />
+        </Suspense>
       </div>
     </section>
   );

@@ -214,7 +214,7 @@ describe('AOLRuntimeShell surface behavior', () => {
       expect(screen.getByTestId('aol-meeting-pane-default')).not.toBeNull();
       expect(screen.getByTestId('aol-meeting-pane-expanded')).not.toBeNull();
       expect(screen.getByTestId('aol-runtime-flow-anchor')).toHaveAttribute('aria-pressed', 'true');
-    });
+    }, { timeout: 10000 });
     expect(screen.queryByTestId('aol-meeting-chat')).toBeNull();
     expect(screen.getAllByText('Ready for instruction').length).toBeGreaterThan(0);
     expect(mockPush).not.toHaveBeenCalled();

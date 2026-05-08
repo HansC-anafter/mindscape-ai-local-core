@@ -25,6 +25,11 @@ let apiUrlPromise: Promise<string> | null = null;
 let lastValidationTime: number = 0;
 let isValidating: boolean = false; // Lock to prevent concurrent validation races
 const VALIDATION_INTERVAL = 60000; // Validate at most once per 60 seconds (was 30s)
+export const BACKEND_LIVENESS_PATH = '/healthz';
+
+export const buildBackendLivenessUrl = (baseUrl: string): string => (
+  `${baseUrl.replace(/\/$/, '')}${BACKEND_LIVENESS_PATH}`
+);
 
 const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
   const now = Date.now();
@@ -41,13 +46,14 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
       return apiUrlCache;
     }
 
-    // Quick health check on cached URL (skip if using same-origin proxy)
+    // Quick liveness check on cached URL (skip if using same-origin proxy).
+    // Readiness/system health remains on /health and workspace health panels.
     if (apiUrlCache !== '') {
       isValidating = true;
       try {
         const testController = new AbortController();
         const testTimeoutId = setTimeout(() => testController.abort(), 500);
-        const testResponse = await fetch(`${apiUrlCache}/health`, {
+        const testResponse = await fetch(buildBackendLivenessUrl(apiUrlCache), {
           signal: testController.signal,
           method: 'GET',
         });
@@ -57,10 +63,10 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
         if (testResponse.ok) {
           return apiUrlCache;
         }
-        // Health check failed but DON'T clear cache — keep using it
+        // Liveness check failed but DON'T clear cache — keep using it
         // The actual API calls will fail on their own if the backend is truly down
       } catch (e) {
-        // Health check timed out — DON'T clear cache, just update timestamp
+        // Liveness check timed out — DON'T clear cache, just update timestamp
         lastValidationTime = now;
         isValidating = false;
       }
@@ -159,7 +165,7 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
           try {
             const testController = new AbortController();
             const testTimeoutId = setTimeout(() => testController.abort(), 1000);
-            const testResponse = await fetch(`${backendUrl}/health`, {
+            const testResponse = await fetch(buildBackendLivenessUrl(backendUrl), {
               signal: testController.signal,
             });
             clearTimeout(testTimeoutId);

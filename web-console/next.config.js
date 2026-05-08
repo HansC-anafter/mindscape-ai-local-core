@@ -11,46 +11,9 @@ const nextConfig = {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
   },
   async rewrites() {
-    const backendUrl =
-      process.env.WEB_CONSOLE_BACKEND_URL ||
-      process.env.BACKEND_URL ||
-      process.env.NEXT_PUBLIC_BACKEND_URL ||
-      'http://localhost:8220';
-    const mediaProxyUrl = process.env.MEDIA_PROXY_URL || 'http://127.0.0.1:8202';
-    return [
-      {
-        source: '/health',
-        destination: `${backendUrl}/health`,
-      },
-      {
-        source: '/api/v1/media/:path*',
-        destination: `${mediaProxyUrl}/api/v1/media/:path*`,
-      },
-      {
-        source: '/api/v1/playbooks/',
-        destination: `${backendUrl}/api/v1/playbooks/`,
-      },
-      {
-        source: '/api/v1/capability-packs',
-        destination: `${backendUrl}/api/v1/capability-packs/`,
-      },
-      {
-        source: '/api/v1/capability-packs/',
-        destination: `${backendUrl}/api/v1/capability-packs/`,
-      },
-      {
-        source: '/api/v1/capability-suites',
-        destination: `${backendUrl}/api/v1/capability-suites/`,
-      },
-      {
-        source: '/api/v1/capability-suites/',
-        destination: `${backendUrl}/api/v1/capability-suites/`,
-      },
-      {
-        source: '/api/:path*',
-        destination: `${backendUrl}/api/:path*`,
-      },
-    ];
+    // /api/* and /health are handled by App Route proxy code so retry,
+    // no-store, and upstream selection are explicit and testable.
+    return [];
   },
   webpack: (config, { isServer }) => {
     const corePackagePath = path.resolve(__dirname, '../packages/core/src');

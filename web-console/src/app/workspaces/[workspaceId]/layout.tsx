@@ -1,17 +1,17 @@
 'use client';
 
-import React from 'react';
-import { WorkspaceDataProvider } from '@/contexts/WorkspaceDataContext';
-import { ExecutionContextProvider } from '@/contexts/ExecutionContextContext';
-import { AOLRuntimeShellProvider } from '@/components/capabilities/aol-runtime-shell';
-import Header from '../../../components/Header';
-import UpdateBanner from '../../../components/sync/UpdateBanner';
-import BrandNavigation from '../../../components/brand/BrandNavigation';
+import React, { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 
 interface WorkspaceLayoutProps {
   children: React.ReactNode;
   params: { workspaceId: string };
 }
+
+type WorkspaceChromeComponent = React.ComponentType<{
+  workspaceId: string;
+  children: React.ReactNode;
+}>;
 
 /**
  * WorkspaceLayout - Root layout for workspace pages
@@ -25,23 +25,69 @@ export default function WorkspaceLayout({
   params
 }: WorkspaceLayoutProps) {
   const { workspaceId } = params;
+  const pathname = usePathname();
+  const isCapabilityEntryPath = Boolean(
+    pathname?.match(/^\/workspaces\/[^/]+\/capabilities\/[^/]+$/)
+  );
+  const isPerformanceDirectionCapabilityPath = Boolean(
+    pathname?.match(/^\/workspaces\/[^/]+\/capabilities\/performance_direction(?:\/.*)?$/)
+  );
+  const isPerformanceDirectionStaticHostPath = Boolean(
+    pathname?.match(/^\/workspaces\/[^/]+\/capability-ui-hosts\/performance_direction(?:\/.*)?$/)
+  );
+  const shouldBypassWorkspaceChrome =
+    isCapabilityEntryPath ||
+    isPerformanceDirectionCapabilityPath ||
+    isPerformanceDirectionStaticHostPath;
+  const [WorkspaceChrome, setWorkspaceChrome] = useState<WorkspaceChromeComponent | null>(null);
+
+  useEffect(() => {
+    if (shouldBypassWorkspaceChrome) {
+      setWorkspaceChrome(null);
+      return;
+    }
+
+    let cancelled = false;
+    void import('./components/WorkspaceChrome')
+      .then((module) => {
+        if (!cancelled) {
+          setWorkspaceChrome(() => module.default);
+        }
+      })
+      .catch((error) => {
+        console.error('[WorkspaceLayout] Failed to load workspace chrome:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldBypassWorkspaceChrome]);
+
+  if (shouldBypassWorkspaceChrome) {
+    return (
+      <div className="flex h-screen flex-col">
+        <div className="relative flex flex-1 overflow-hidden">
+          <main className="flex-1 overflow-hidden">
+            {children}
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  if (!WorkspaceChrome) {
+    return (
+      <div className="flex h-screen flex-col">
+        <div className="relative flex flex-1 overflow-hidden" />
+      </div>
+    );
+  }
 
   return (
-    <WorkspaceDataProvider workspaceId={workspaceId}>
-      <ExecutionContextProvider workspaceId={workspaceId}>
-        <div className="flex flex-col h-screen">
-          <Header />
-          <UpdateBanner clientVersion="1.0.0" />
-          <AOLRuntimeShellProvider workspaceId={workspaceId}>
-            <div className="relative flex flex-1 overflow-hidden">
-              <BrandNavigation workspaceId={workspaceId} />
-              <main className="flex-1 overflow-hidden pr-10">
-                {children}
-              </main>
-            </div>
-          </AOLRuntimeShellProvider>
-        </div>
-      </ExecutionContextProvider>
-    </WorkspaceDataProvider>
+    <div className="flex h-screen flex-col">
+      <WorkspaceChrome workspaceId={workspaceId}>
+        {children}
+      </WorkspaceChrome>
+    </div>
   );
 }

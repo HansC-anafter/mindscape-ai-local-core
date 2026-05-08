@@ -4,8 +4,12 @@
  */
 
 import { getApiBaseUrl } from './api-url';
+import { fetchWithIdempotentRetry, sharedGetFetch } from './resilient-fetch';
 
-const API_URL = getApiBaseUrl();
+function buildApiUrl(path: string): string {
+  const baseUrl = getApiBaseUrl().replace(/\/$/, '');
+  return `${baseUrl}${path}`;
+}
 
 // Helper function to create fetch with timeout
 async function fetchWithTimeout(
@@ -17,8 +21,13 @@ async function fetchWithTimeout(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(url, {
+    const method = (options.method || 'GET').toUpperCase();
+    const fetcher = method === 'GET' || method === 'HEAD'
+      ? sharedGetFetch
+      : fetchWithIdempotentRetry;
+    const response = await fetcher(url, {
       ...options,
+      method,
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -111,7 +120,7 @@ export interface ChangeSummary {
  */
 export async function getSyncStatus(): Promise<SyncStatus> {
   const response = await fetchWithTimeout(
-    `${API_URL}/api/v1/cloud-sync/status`,
+    buildApiUrl('/api/v1/cloud-sync/status'),
     {
       method: 'GET',
       headers: {
@@ -133,7 +142,7 @@ export async function getSyncStatus(): Promise<SyncStatus> {
  */
 export async function checkVersions(request: VersionCheckRequest): Promise<VersionCheckResponse> {
   const response = await fetchWithTimeout(
-    `${API_URL}/api/v1/cloud-sync/versions/check`,
+    buildApiUrl('/api/v1/cloud-sync/versions/check'),
     {
       method: 'POST',
       headers: {
@@ -161,7 +170,7 @@ export async function syncPendingChanges(): Promise<{
   conflicts: number;
 }> {
   const response = await fetchWithTimeout(
-    `${API_URL}/api/v1/cloud-sync/sync/pending`,
+    buildApiUrl('/api/v1/cloud-sync/sync/pending'),
     {
       method: 'POST',
       headers: {
@@ -183,7 +192,7 @@ export async function syncPendingChanges(): Promise<{
  */
 export async function getPendingChanges(): Promise<PendingChange[]> {
   const response = await fetchWithTimeout(
-    `${API_URL}/api/v1/cloud-sync/changes/pending`,
+    buildApiUrl('/api/v1/cloud-sync/changes/pending'),
     {
       method: 'GET',
       headers: {
@@ -205,7 +214,7 @@ export async function getPendingChanges(): Promise<PendingChange[]> {
  */
 export async function getChangeSummary(): Promise<ChangeSummary> {
   const response = await fetchWithTimeout(
-    `${API_URL}/api/v1/cloud-sync/changes/summary`,
+    buildApiUrl('/api/v1/cloud-sync/changes/summary'),
     {
       method: 'GET',
       headers: {
@@ -227,7 +236,7 @@ export async function getChangeSummary(): Promise<ChangeSummary> {
  */
 export async function cleanupCache(): Promise<{ cleared: number }> {
   const response = await fetchWithTimeout(
-    `${API_URL}/api/v1/cloud-sync/cache/cleanup`,
+    buildApiUrl('/api/v1/cloud-sync/cache/cleanup'),
     {
       method: 'POST',
       headers: {
@@ -243,4 +252,3 @@ export async function cleanupCache(): Promise<{ cleared: number }> {
 
   return response.json();
 }
-

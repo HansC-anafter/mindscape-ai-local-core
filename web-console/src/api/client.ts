@@ -11,6 +11,7 @@
  */
 
 import { ExecutionContext } from '@/types/execution-context';
+import { fetchWithIdempotentRetry, sharedGetFetch } from '@/lib/resilient-fetch';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -27,9 +28,6 @@ const BACKOFF_CAP_MS = 30_000;
 export class MindscapeAPIClient {
   private baseUrl: string;
   private context: ExecutionContext;
-
-  /** GET dedup: key → inflight promise */
-  private inflightGets: Map<string, Promise<Response>> = new Map();
 
   constructor(context: ExecutionContext) {
     this.context = context;
@@ -158,6 +156,14 @@ export class MindscapeAPIClient {
    * Uses exponential backoff: 1s → 2s → 4s, capped at 30s.
    */
   private async fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+    if ((init.method || 'GET').toUpperCase() === 'GET') {
+      return fetchWithIdempotentRetry(url, init, {
+        maxAttempts: MAX_RETRIES + 1,
+        retryBaseMs: BACKOFF_BASE_MS,
+        retryCapMs: BACKOFF_CAP_MS,
+      });
+    }
+
     let attempt = 0;
     while (true) {
       const res = await fetch(url, init);
@@ -192,22 +198,16 @@ export class MindscapeAPIClient {
     const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
     const key = this.buildDedupKey(endpoint);
 
-    // Dedup: if an identical GET is already inflight, return a clone of the same response
-    const existing = this.inflightGets.get(key);
-    if (existing) {
-      return existing.then(r => r.clone());
-    }
-
-    const promise = this.fetchWithRetry(url, {
+    return sharedGetFetch(url, {
       ...options,
       method: 'GET',
       headers: this.buildHeaders(options?.headers),
-    }).finally(() => {
-      this.inflightGets.delete(key);
+    }, {
+      dedupKey: key,
+      maxAttempts: MAX_RETRIES + 1,
+      retryBaseMs: BACKOFF_BASE_MS,
+      retryCapMs: BACKOFF_CAP_MS,
     });
-
-    this.inflightGets.set(key, promise);
-    return promise;
   }
 
   /**

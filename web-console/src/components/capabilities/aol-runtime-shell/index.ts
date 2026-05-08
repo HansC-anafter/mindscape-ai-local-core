@@ -5,6 +5,7 @@ export {
   default,
   useAOLRuntimeShellController,
 } from './AOLRuntimeShell';
+export { AOLRuntimeShellBridge } from './AOLRuntimeShellBridge';
 export { RuntimeShellPanel } from './RuntimeShellPanel';
 export type { MeetingPaneSizePreset } from './RuntimeShellPanel';
 export { RuntimeShellToolRail } from './RuntimeShellToolRail';
