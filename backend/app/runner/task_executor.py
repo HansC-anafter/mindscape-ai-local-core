@@ -36,6 +36,21 @@ from backend.app.runner.utils import _env_int, _utc_now
 
 logger = logging.getLogger(__name__)
 
+_TERMINAL_SUCCESS_STALE_KEYS = (
+    "dependency_hold",
+    "error",
+    "failed_at",
+    "resource_pressure",
+    "resource_pressure_source",
+    "resource_retry_delay_sec",
+    "resource_snapshot",
+    "resume_after",
+    "runner_reaper",
+    "runner_skip_conflict_lock_key",
+    "runner_skip_lock_key",
+    "runner_skip_reason",
+)
+
 
 def _resolve_execution_attempt_inputs(
     task: Task,
@@ -621,6 +636,8 @@ async def _mark_task_succeeded(
                 else {}
             )
             ctxs = dict(ctxs)
+            for key in _TERMINAL_SUCCESS_STALE_KEYS:
+                ctxs.pop(key, None)
             ctxs["status"] = "succeeded"
             ctxs["runner_id"] = runner_id
             ctxs["completed_at"] = _utc_now().isoformat()

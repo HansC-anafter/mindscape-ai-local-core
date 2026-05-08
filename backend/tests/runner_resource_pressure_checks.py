@@ -1,9 +1,10 @@
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
 from backend.app.runner import resource_pressure
-from backend.app.runner.task_executor import _mark_task_failed
+from backend.app.runner.task_executor import _mark_task_failed, _mark_task_succeeded
 from backend.app.models.workspace import TaskStatus
 
 
@@ -236,3 +237,43 @@ async def test_subprocess_sigkill_resource_wait_clears_runner_ownership():
     assert "heartbeat_at" not in updated_context
     assert queue.delayed == ("task-1", 300)
     assert queue.deadlettered is False
+
+
+@pytest.mark.asyncio
+async def test_success_clears_stale_resource_pressure_metadata():
+    store = _FakeTasksStore()
+    store.task.execution_context = {
+        "retry_count": 1,
+        "resource_pressure": True,
+        "resource_pressure_source": "subprocess_sigkill",
+        "resource_retry_delay_sec": 300,
+        "resource_snapshot": {"memory": {"working_set_ratio": 0.9}},
+        "error": "previous resource failure",
+        "failed_at": "2026-05-08T03:00:00+00:00",
+    }
+    queue = _FakeRedisQueue()
+
+    with patch("backend.app.runner.task_executor._emit_run_state_changed_for_task"):
+        await _mark_task_succeeded(
+            store,
+            "task-1",
+            "runner-browser",
+            result_file=None,
+            redis_queue=queue,
+        )
+
+    updated_context = store.update_kwargs["execution_context"]
+    assert store.update_kwargs["status"] == TaskStatus.SUCCEEDED
+    assert updated_context["status"] == "succeeded"
+    assert updated_context["runner_id"] == "runner-browser"
+    assert updated_context["retry_count"] == 1
+    for stale_key in (
+        "resource_pressure",
+        "resource_pressure_source",
+        "resource_retry_delay_sec",
+        "resource_snapshot",
+        "error",
+        "failed_at",
+    ):
+        assert stale_key not in updated_context
+    assert queue.acked is True
