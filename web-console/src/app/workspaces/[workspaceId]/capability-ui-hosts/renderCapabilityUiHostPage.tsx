@@ -129,7 +129,7 @@ export async function renderCapabilityUiHostPage({
       capabilityCode={capabilityCode}
       capabilityInfo={capabilityInfo}
       uiComponents={uiComponents}
-      aolRoutePath={`/workspaces/${workspaceId}/capabilities/${capabilityCode}/ui/loaded`}
+      aolRoutePath={`/workspaces/${workspaceId}/capability-ui-hosts/${capabilityCode}`}
     />
   );
 }

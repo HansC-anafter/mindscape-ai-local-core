@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { ThinkingPanel } from '@/components/workspace/ThinkingPanel';
 import { useT } from '@/lib/i18n';
+import { buildStaticCapabilityHostPath } from '@/lib/capability-static-hosts';
 
 interface InstalledCapability {
   id?: string;
@@ -71,9 +72,14 @@ export function PackPanel({
       params.set('component', componentCode);
     }
     const query = params.toString();
-    const url = query
+    const legacyUrl = query
       ? `/workspaces/${workspaceId}/capabilities/${capabilityCode}?${query}`
       : `/workspaces/${workspaceId}/capabilities/${capabilityCode}`;
+    const url = buildStaticCapabilityHostPath(
+      workspaceId,
+      capabilityCode,
+      Object.fromEntries(params.entries()),
+    ) || legacyUrl;
     window.open(url, '_blank');
   };
 

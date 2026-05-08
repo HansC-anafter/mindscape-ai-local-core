@@ -15,6 +15,7 @@ import { deriveAllSteps } from './utils/execution-inspector';
 import { getStepStatusColor, getEffectiveStepStatus } from './utils/execution-inspector';
 import { parseServerTimestamp } from '@/lib/time';
 import { GovernedMemoryPreview } from '@/components/workspace/governance/GovernedMemoryPreview';
+import { buildStaticCapabilityHostPath } from '@/lib/capability-static-hosts';
 
 function buildCapabilityWorkbenchHref({
   workspaceId,
@@ -45,7 +46,11 @@ function buildCapabilityWorkbenchHref({
     params.set('scene_id', sceneId);
   }
   const query = params.toString();
-  return `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/capabilities/${encodeURIComponent(normalizedCapabilityCode)}${query ? `?${query}` : ''}`;
+  return buildStaticCapabilityHostPath(
+    normalizedWorkspaceId,
+    normalizedCapabilityCode,
+    Object.fromEntries(params.entries()),
+  ) || `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/capabilities/${encodeURIComponent(normalizedCapabilityCode)}${query ? `?${query}` : ''}`;
 }
 
 export interface StepDetailPanelProps {

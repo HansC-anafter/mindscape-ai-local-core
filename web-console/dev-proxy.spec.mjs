@@ -7,6 +7,7 @@ import {
   isDevApiProxyPath,
   isFrontendLivenessPath,
   normalizeProxyLogPath,
+  resolveFrontendPrewarmPaths,
   resolveDevApiProxyTarget,
   shouldWriteProxyTimingLog,
 } from './dev-proxy.mjs';
@@ -77,6 +78,19 @@ describe('frontend dev proxy', () => {
     expect(computeNextDevRestartDelayMs(1)).toBe(2000);
     expect(computeNextDevRestartDelayMs(5)).toBe(30000);
     expect(computeNextDevRestartDelayMs(99)).toBe(30000);
+  });
+
+  it('resolves default and explicit frontend prewarm paths', () => {
+    expect(resolveFrontendPrewarmPaths('', 'ws/one')).toEqual([
+      '/workspaces/ws%2Fone/capability-ui-hosts/ig',
+      '/workspaces/ws%2Fone/capabilities/performance_direction/start',
+      '/workspaces/ws%2Fone',
+      '/workspaces',
+    ]);
+    expect(resolveFrontendPrewarmPaths('/a/{workspaceId}, /b', 'ws one')).toEqual([
+      '/a/ws%20one',
+      '/b',
+    ]);
   });
 
   it('keeps default proxy timing logs to slow and error completions', () => {

@@ -14,6 +14,16 @@ const PROXY_SLOW_LOG_THRESHOLD_MS = Number.parseInt(
   process.env.FRONTEND_PROXY_SLOW_LOG_THRESHOLD_MS || '1000',
   10,
 );
+const PREWARM_WORKSPACE_ID = process.env.FRONTEND_PREWARM_WORKSPACE_ID || '__prewarm__';
+const PREWARM_ENABLED = process.env.FRONTEND_PREWARM_ENABLED !== '0';
+const PREWARM_DELAY_MS = Number.parseInt(process.env.FRONTEND_PREWARM_DELAY_MS || '15000', 10);
+const PREWARM_TIMEOUT_MS = Number.parseInt(process.env.FRONTEND_PREWARM_TIMEOUT_MS || '180000', 10);
+const DEFAULT_PREWARM_PATHS = [
+  '/workspaces/{workspaceId}/capability-ui-hosts/ig',
+  '/workspaces/{workspaceId}/capabilities/performance_direction/start',
+  '/workspaces/{workspaceId}',
+  '/workspaces',
+];
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'keep-alive',
@@ -132,6 +142,67 @@ export function classifyProxyUpstream(requestUrl = '/') {
 
 function roundedDurationMs(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
+}
+
+export function resolveFrontendPrewarmPaths(
+  rawPaths = process.env.FRONTEND_PREWARM_PATHS,
+  workspaceId = PREWARM_WORKSPACE_ID,
+) {
+  const sourcePaths = String(rawPaths || '').trim()
+    ? String(rawPaths).split(/[\n,]/)
+    : DEFAULT_PREWARM_PATHS;
+  return sourcePaths
+    .map((pathValue) => String(pathValue || '').trim())
+    .filter(Boolean)
+    .map((pathValue) => pathValue.replaceAll('{workspaceId}', encodeURIComponent(workspaceId)));
+}
+
+function prewarmNextDevPath(pathValue) {
+  return new Promise((resolve) => {
+    const startedAt = performance.now();
+    const request = http.request(
+      {
+        hostname: NEXT_HOST,
+        port: NEXT_PORT,
+        method: 'GET',
+        path: pathValue,
+        headers: {
+          host: `${NEXT_HOST}:${NEXT_PORT}`,
+          'x-mindscape-frontend-prewarm': '1',
+        },
+      },
+      (response) => {
+        response.resume();
+        response.on('end', () => {
+          console.log(`[frontend-proxy] prewarm ${JSON.stringify({
+            path: pathValue,
+            status: response.statusCode || null,
+            duration_ms: roundedDurationMs(startedAt),
+          })}`);
+          resolve();
+        });
+      },
+    );
+
+    request.setTimeout(PREWARM_TIMEOUT_MS, () => {
+      request.destroy(new Error('prewarm_timeout'));
+    });
+    request.on('error', (error) => {
+      console.error(`[frontend-proxy] prewarm_failed ${JSON.stringify({
+        path: pathValue,
+        duration_ms: roundedDurationMs(startedAt),
+        error: error?.code || error?.message || 'unknown',
+      })}`);
+      resolve();
+    });
+    request.end();
+  });
+}
+
+async function prewarmNextDevRoutes(paths = resolveFrontendPrewarmPaths()) {
+  for (const pathValue of paths) {
+    await prewarmNextDevPath(pathValue);
+  }
 }
 
 export function shouldWriteProxyTimingLog(
@@ -310,6 +381,7 @@ export function start() {
   const nextRunningRef = { current: false };
   let nextProcess = null;
   let restartTimer = null;
+  let prewarmTimer = null;
   let restartCount = 0;
   let shuttingDown = false;
   const server = createFrontendProxyServer({ nextRunningRef });
@@ -332,10 +404,20 @@ export function start() {
 
     nextProcess.on('spawn', () => {
       nextRunningRef.current = true;
+      if (PREWARM_ENABLED) {
+        prewarmTimer = setTimeout(() => {
+          prewarmTimer = null;
+          void prewarmNextDevRoutes();
+        }, PREWARM_DELAY_MS);
+      }
     });
 
     nextProcess.on('exit', (code, signal) => {
       nextRunningRef.current = false;
+      if (prewarmTimer) {
+        clearTimeout(prewarmTimer);
+        prewarmTimer = null;
+      }
       console.error(`[frontend-proxy] next dev exited code=${code ?? 'null'} signal=${signal ?? 'null'}`);
 
       if (shuttingDown) {
@@ -363,6 +445,10 @@ export function start() {
     if (restartTimer) {
       clearTimeout(restartTimer);
       restartTimer = null;
+    }
+    if (prewarmTimer) {
+      clearTimeout(prewarmTimer);
+      prewarmTimer = null;
     }
     server.close(() => {
       nextProcess?.kill('SIGTERM');

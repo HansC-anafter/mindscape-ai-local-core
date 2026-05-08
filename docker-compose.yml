@@ -404,6 +404,7 @@ services:
       - TZ=${TZ:-UTC}
     volumes:
       - ./web-console/src:/app/web-console/src:ro
+      - ./web-console/dev-proxy.mjs:/app/web-console/dev-proxy.mjs:ro
       - ./web-console/tsconfig.json:/app/web-console/tsconfig.json:ro
       - ./web-console/next.config.js:/app/web-console/next.config.js:ro
       - ./web-console/tailwind.config.js:/app/web-console/tailwind.config.js:ro

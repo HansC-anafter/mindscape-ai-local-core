@@ -1,5 +1,68 @@
 const path = require('path');
 
+const staticCapabilityHostCodes = [
+  'blender_bridge',
+  'brand_identity',
+  'character_training',
+  'chat_capture',
+  'comfyui_runtime',
+  'content_scheduler',
+  'demo_aol_pack',
+  'expert_network',
+  'ig',
+  'layer_asset_forge',
+  'mindscape_cloud_integration',
+  'multi_media_studio',
+  'newsletter',
+  'practice_companion',
+  'public_persona_studio',
+  'video_chapter_studio',
+  'video_renderer',
+  'web_generation',
+  'world_asset_forge',
+  'yogacoach',
+];
+
+function capabilityRouteSources(capabilityCode) {
+  const variants = new Set([
+    capabilityCode,
+    capabilityCode.replace(/_/g, '-'),
+  ]);
+  return Array.from(variants).flatMap((variant) => [
+    `/workspaces/:workspaceId/capabilities/${variant}`,
+    `/workspaces/:workspaceId/capabilities/${variant}/ui`,
+    `/workspaces/:workspaceId/capabilities/${variant}/ui/loaded`,
+  ]);
+}
+
+function staticCapabilityRedirects() {
+  return staticCapabilityHostCodes.flatMap((capabilityCode) =>
+    capabilityRouteSources(capabilityCode).map((source) => ({
+      source,
+      destination: `/workspaces/:workspaceId/capability-ui-hosts/${capabilityCode}`,
+      permanent: false,
+    })),
+  );
+}
+
+function performanceDirectionRedirects() {
+  return ['performance_direction', 'performance-direction'].flatMap((capabilityCode) =>
+    [
+      `/workspaces/:workspaceId/capabilities/${capabilityCode}`,
+      `/workspaces/:workspaceId/capabilities/${capabilityCode}/ui`,
+      `/workspaces/:workspaceId/capabilities/${capabilityCode}/ui/loaded`,
+    ].map((source) => ({
+      source,
+      destination: '/workspaces/:workspaceId/capabilities/performance_direction/start',
+      permanent: false,
+      missing: [
+        { type: 'query', key: 'sessionId' },
+        { type: 'query', key: 'session_id' },
+      ],
+    })),
+  );
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false,
@@ -9,6 +72,12 @@ const nextConfig = {
   skipTrailingSlashRedirect: true,
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+  },
+  async redirects() {
+    return [
+      ...performanceDirectionRedirects(),
+      ...staticCapabilityRedirects(),
+    ];
   },
   async rewrites() {
     // /api/* and /health are handled by App Route proxy code so retry,
@@ -63,7 +132,6 @@ const nextConfig = {
     config.module = config.module || {};
     config.module.rules = config.module.rules || [];
     config.plugins = config.plugins || [];
-
     return config;
   },
   experimental: {

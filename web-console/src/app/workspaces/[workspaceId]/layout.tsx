@@ -26,19 +26,11 @@ export default function WorkspaceLayout({
 }: WorkspaceLayoutProps) {
   const { workspaceId } = params;
   const pathname = usePathname();
-  const isCapabilityEntryPath = Boolean(
-    pathname?.match(/^\/workspaces\/[^/]+\/capabilities\/[^/]+$/)
-  );
-  const isPerformanceDirectionCapabilityPath = Boolean(
-    pathname?.match(/^\/workspaces\/[^/]+\/capabilities\/performance_direction(?:\/.*)?$/)
-  );
-  const isPerformanceDirectionStaticHostPath = Boolean(
-    pathname?.match(/^\/workspaces\/[^/]+\/capability-ui-hosts\/performance_direction(?:\/.*)?$/)
+  const isCapabilitySurfacePath = Boolean(
+    pathname?.match(/^\/workspaces\/[^/]+\/(?:capabilities|capability-ui-hosts)\/[^/]+(?:\/.*)?$/)
   );
   const shouldBypassWorkspaceChrome =
-    isCapabilityEntryPath ||
-    isPerformanceDirectionCapabilityPath ||
-    isPerformanceDirectionStaticHostPath;
+    isCapabilitySurfacePath;
   const [WorkspaceChrome, setWorkspaceChrome] = useState<WorkspaceChromeComponent | null>(null);
 
   useEffect(() => {
