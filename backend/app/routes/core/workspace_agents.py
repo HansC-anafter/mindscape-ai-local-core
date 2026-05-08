@@ -421,27 +421,29 @@ def _persist_codex_account_home_login_metadata(
             return
 
         runtime, metadata = candidates[0]
-        previous_auth_mtime = str(
-            metadata.get("auth_mtime_ns")
-            or metadata.get("codex_auth_mtime_ns")
-            or ""
-        )
         for key, value in observed_identity.items():
             if value is not None and key != "identity_error":
                 metadata[key] = value
-        next_auth_mtime = str(
-            metadata.get("auth_mtime_ns")
-            or metadata.get("codex_auth_mtime_ns")
-            or ""
-        )
         metadata["last_account_home_login_at"] = datetime.now(
             timezone.utc
         ).isoformat()
         metadata["last_account_home_login_state"] = "succeeded"
-        if previous_auth_mtime and next_auth_mtime and previous_auth_mtime != next_auth_mtime:
-            metadata["probe_state"] = "unknown"
-            metadata["last_probe_error_code"] = None
-            metadata["last_probe_runtime_returncode"] = None
+        metadata["probe_state"] = "unknown"
+        metadata["last_probe_error_code"] = None
+        metadata["last_probe_success_at"] = None
+        metadata["last_probe_runtime_returncode"] = None
+        metadata["last_probe_invalidated_by_login_at"] = metadata[
+            "last_account_home_login_at"
+        ]
+        if str(getattr(runtime, "last_error_code", "") or "").strip().lower() in {
+            "401",
+            "403",
+            "auth_failed",
+            "invalid_grant",
+            "stale_refresh_token",
+        }:
+            runtime.last_error_code = None
+            runtime.cooldown_until = None
         runtime.extra_metadata = metadata
         db.commit()
     except Exception:

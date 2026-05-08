@@ -6,6 +6,7 @@ import {
     Building2,
     CheckCircle2,
     Clock3,
+    Plus,
     RefreshCw,
     ShieldCheck,
     UserRound,
@@ -77,6 +78,32 @@ const errorMessageFromPayload = (
     }
     return fallback;
 };
+
+const codexAccountHomesRoot = (targets: CodexAccountHomeTarget[]) => {
+    const home = targets.find((target) => target.codex_home)?.codex_home || '';
+    const marker = '/accounts/';
+    const markerIndex = home.indexOf(marker);
+    if (markerIndex >= 0) {
+        return home.slice(0, markerIndex + marker.length - 1);
+    }
+    return '/Users/shock/.mindscape/runtime/codex-home-pool/accounts';
+};
+
+const newCodexAccountHomePath = (targets: CodexAccountHomeTarget[]) => {
+    const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+        : `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`;
+    return `${codexAccountHomesRoot(targets)}/acct-${suffix}`;
+};
+
+const codexAccountHomeEnv = (codexHome: string) => ({
+    CODEX_HOME: codexHome,
+    HOME: codexHome,
+    XDG_CONFIG_HOME: `${codexHome}/.config`,
+    XDG_DATA_HOME: `${codexHome}/.local/share`,
+    XDG_STATE_HOME: `${codexHome}/.local/state`,
+    codex_seed_kind: 'account_home',
+});
 
 const shortRuntimeId = (value: string | null | undefined) => {
     const raw = value || '';
@@ -183,6 +210,10 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
     const [codexTargetsLoading, setCodexTargetsLoading] = useState(false);
     const [codexTargetActionLoading, setCodexTargetActionLoading] = useState<Record<string, string | null>>({});
     const [codexTargetActionMessages, setCodexTargetActionMessages] = useState<Record<string, CodexTargetActionMessage>>({});
+    const [showCodexHomeCreator, setShowCodexHomeCreator] = useState(false);
+    const [newCodexHome, setNewCodexHome] = useState('');
+    const [addingCodexHome, setAddingCodexHome] = useState(false);
+    const [addCodexHomeMessage, setAddCodexHomeMessage] = useState<CodexTargetActionMessage | null>(null);
 
     const agentMap = useMemo(
         () => Object.fromEntries(CLI_AGENTS.map((agent) => [agent.id, agent])) as Record<AgentTab, CliAgent>,
@@ -388,6 +419,57 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
             setCodexTargetsLoading(false);
         }
     }, [agentMap, workspaceId]);
+
+    const openCodexHomeCreator = useCallback(() => {
+        setNewCodexHome((prev) => prev.trim() || newCodexAccountHomePath(codexAccountHomes));
+        setAddCodexHomeMessage(null);
+        setShowCodexHomeCreator(true);
+    }, [codexAccountHomes]);
+
+    const handleAddCodexHome = useCallback(async () => {
+        if (!workspaceId) {
+            setAddCodexHomeMessage({ kind: 'error', text: 'Workspace context is required.' });
+            return;
+        }
+        const codexHome = newCodexHome.trim().replace(/\/+$/, '');
+        if (!codexHome) {
+            setAddCodexHomeMessage({ kind: 'error', text: 'Account-home path is required.' });
+            return;
+        }
+        setAddingCodexHome(true);
+        setAddCodexHomeMessage(null);
+        setError(null);
+        try {
+            const base = getApiBaseUrl();
+            const resp = await fetch(`${base}/api/v1/auth/cli-runtime/register-host-session`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    workspace_id: workspaceId,
+                    surface: 'codex_cli',
+                    runtime_name: `Codex account home ${codexHome.split('/').filter(Boolean).slice(-1)[0] || ''}`.trim(),
+                    metadata: codexAccountHomeEnv(codexHome),
+                }),
+            });
+            const payload = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                throw new Error(errorMessageFromPayload(payload, 'Failed to add Codex account home'));
+            }
+            setNewCodexHome('');
+            setShowCodexHomeCreator(false);
+            setAddCodexHomeMessage({
+                kind: 'success',
+                text: 'Account home added. Use Login on the new row.',
+            });
+            await loadCodexAccountHomes();
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : 'Failed to add Codex account home';
+            setAddCodexHomeMessage({ kind: 'error', text: message });
+            setError(message);
+        } finally {
+            setAddingCodexHome(false);
+        }
+    }, [loadCodexAccountHomes, newCodexHome, workspaceId]);
 
     useEffect(() => {
         loadSettings();
@@ -681,6 +763,19 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                         : 'Logout command completed. Refreshing this account-home status.',
                 },
             }));
+            setCodexTargetActionLoading((prev) => ({ ...prev, [targetKey]: null }));
+            if (action === 'login') {
+                setCodexAccountHomes((prev) => prev.map((item) => {
+                    const itemKey = item.runtime_id || item.account_key || item.codex_home;
+                    if (itemKey !== targetKey) return item;
+                    return {
+                        ...item,
+                        probe_state: 'unknown',
+                        last_probe_error_code: null,
+                        last_error_code: null,
+                    };
+                }));
+            }
             await loadAgentAuthStatus(agentId);
             await loadCodexAccountHomes();
         } catch (e: unknown) {
@@ -893,7 +988,7 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                                     <button
                                         type="button"
                                         onClick={() => loadCodexAccountHomes()}
-                                        disabled={codexTargetsLoading || runtimeInfo?.status !== 'available'}
+                                        disabled={codexTargetsLoading}
                                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                                     >
                                         <RefreshCw className={`h-3.5 w-3.5 ${codexTargetsLoading ? 'animate-spin' : ''}`} />
@@ -957,10 +1052,74 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                                                 Scope is read from OpenAI token claims. Login is rejected when the selected row and returned account identity do not match.
                                             </div>
                                         </div>
-                                        <span className="shrink-0 rounded-full border border-gray-200 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">
-                                            {codexAccountHomes.length} targets
-                                        </span>
+                                        <div className="flex shrink-0 items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={openCodexHomeCreator}
+                                                className="inline-flex items-center gap-1.5 rounded-md bg-gray-900 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
+                                            >
+                                                <Plus className="h-3.5 w-3.5" />
+                                                Add Home
+                                            </button>
+                                            <span className="rounded-full border border-gray-200 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">
+                                                {codexAccountHomes.length} targets
+                                            </span>
+                                        </div>
                                     </div>
+
+                                    {showCodexHomeCreator && (
+                                        <div className="rounded-md border border-blue-200 bg-blue-50/60 p-3 dark:border-blue-800 dark:bg-blue-900/10">
+                                            <label className="block text-[11px] font-semibold text-blue-800 dark:text-blue-200">
+                                                New account-home path
+                                            </label>
+                                            <div className="mt-2 flex flex-col gap-2 lg:flex-row">
+                                                <input
+                                                    type="text"
+                                                    value={newCodexHome}
+                                                    onChange={(event) => setNewCodexHome(event.target.value)}
+                                                    className="min-w-0 flex-1 rounded-md border border-blue-200 bg-white px-3 py-2 font-mono text-xs text-gray-900 outline-none focus:border-blue-500 dark:border-blue-800 dark:bg-gray-950 dark:text-gray-100"
+                                                />
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setNewCodexHome(newCodexAccountHomePath(codexAccountHomes))}
+                                                        disabled={addingCodexHome}
+                                                        className="rounded-md border border-blue-200 bg-white px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-800 dark:bg-gray-950 dark:text-blue-300 dark:hover:bg-blue-900/20"
+                                                    >
+                                                        Generate
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleAddCodexHome}
+                                                        disabled={addingCodexHome || !newCodexHome.trim()}
+                                                        className="rounded-md bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                                                    >
+                                                        {addingCodexHome ? 'Adding...' : 'Create'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowCodexHomeCreator(false)}
+                                                        disabled={addingCodexHome}
+                                                        className="rounded-md border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300 dark:hover:bg-gray-900"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {addCodexHomeMessage && (
+                                        <div className={`rounded-md border px-3 py-2 text-[11px] ${
+                                            addCodexHomeMessage.kind === 'success'
+                                                ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300'
+                                                : addCodexHomeMessage.kind === 'error'
+                                                    ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300'
+                                                    : 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
+                                        }`}>
+                                            {addCodexHomeMessage.text}
+                                        </div>
+                                    )}
 
                                     {codexAccountHomes.length === 0 ? (
                                         <p className="text-xs text-gray-500 dark:text-gray-400">
