@@ -11,12 +11,13 @@
 
 ## 結論
 
-本輪修復已解決兩類明確缺口：
+本輪修復已解決三類明確缺口：
 
 1. UI read endpoint 會被 default executor / DB 慢讀拖住，造成 `/health`、sync status、tasks feed、progress snapshot 互相阻塞。
 2. `/api/v1/workspaces/:workspaceId/tasks?limit=50` 在 `include_completed=false` 時先讀出所有 pending / running 再切片；目前 workspace pending 數量已達十幾萬，導致頁面入口直接卡住。
+3. request-time capability API activation 在 middleware 內同步 import/register router，第一個 IG API request 會阻塞整個 backend event loop，連 `/healthz` 都可能 30 秒無回應。
 
-本輪未宣稱完全解決 Next dev 冷編譯。`/workspaces/:workspaceId` 最新 warm 驗證仍為 6.31s，早先冷編譯曾達分鐘級；這是剩餘問題，不是已完成項。
+本輪未宣稱完全解決 Next dev 冷編譯或 root client graph 重量。`/workspaces/:workspaceId` 最新 warm 驗證仍為 4.03s；frontend proxy log 顯示剩餘慢點主要在 `next_dev`，這是待修項，不是已完成項。
 
 ## 證據
 
@@ -83,23 +84,67 @@
 > root_after_taskfix status=200 total=6.314628 size=9382
 > ```
 
-### E8. PostgreSQL 最近 30 分鐘沒有 recovery fatal；只看到人工錯 DB 名稱造成的錯誤
+### E8. PostgreSQL 曾出現 recovery fatal，不能再宣稱沒有 recovery
 
-> **Evidence**: `docker logs --since 30m --tail 120 mindscape-ai-local-core-postgres`
+> **Evidence**: first post-commit runtime curl 與 Postgres log
 > ```text
-> 2026-05-09 18:05:47.060 UTC [35378] FATAL:  database "mindscape" does not exist
+> FATAL: the database system is not yet accepting connections
+> DETAIL: Consistent recovery state has not been yet reached.
+> 2026-05-09 18:20:17.133 UTC [1] LOG:  database system is ready to accept connections
+> ```
+>
+> **Evidence**: recovery 後查驗
+> ```text
+> pg_is_in_recovery = f
 > ```
 
-### E9. Source 邊界查驗
+### E9. Request-time capability activation 修復前會阻塞 liveness
+
+> **Evidence**: 修復前重啟後 curl
+> ```text
+> backend_health_retry status=000 total=30.006434
+> tasks_proxy_retry status=000 total=30.006738
+> ```
+>
+> **Evidence**: backend log 同期間仍在 request-time activation / capability loading
+> ```text
+> Loaded API router from ig/api/avatar_proxy.py
+> Registered capability API router for ig with prefix: /api/v1/ig
+> Loaded capability: ig (38 tools)
+> ```
+
+### E10. Request-time capability activation 修復後不再拖死 `/healthz`
+
+> **Evidence**: 修復後重啟，IG activation 同時 healthz 持續 200
+> ```text
+> Request-time capability activation completed for ig in 2151ms
+> GET /healthz HTTP/1.1" 200 OK
+> after_restart_healthz_2 status=200 total=0.017286
+> healthz_post_activation status=200 total=0.019578
+> ```
+>
+> **Evidence**: 修復後主要 API runtime curl
+> ```text
+> tasks_proxy_post_activation status=200 total=0.688464
+> references_proxy_post_activation status=200 total=1.219273
+> ig_sidebar_repeat1 status=200 total=0.165088
+> ig_active_executions status=200 total=0.349243
+> ig_sidebar_counts_endpoint status=200 total=1.749660
+> workspace_root_warm2 status=200 total=4.025387
+> workspace_health_warm2 status=200 total=1.618280
+> cloud_sync_warm2 status=200 total=1.940110
+> ```
+
+### E11. Source 邊界查驗
 
 > **Evidence**: `git diff -- 'web-console/src/app/workspaces/[workspaceId]/page.tsx'`
 > ```text
 > <no output>
 > ```
 >
-> **Evidence**: `docker exec mindscape-ai-local-core-frontend printenv NEXT_DEV_TURBO`
+> **Evidence**: `web-console/src/app/workspaces/[workspaceId]/page.tsx`
 > ```text
-> 0
+> return <WorkspacePageClient workspaceId={workspaceId} />;
 > ```
 
 ## 修復內容與為何不是降級
@@ -166,17 +211,29 @@ Source: `web-console/dev-proxy.mjs:92-120`
 
 為何不是降級：不改 image 產生、抓取、分析能力；只是避免已存在的靜態/半靜態圖片每次頁面載入都重新拉。
 
+### 8. Request-time capability activation 移出 backend event loop
+
+Source: `backend/app/app_bootstrap/capability_activation_middleware.py:46-67`
+
+修復前：seed-only activation 在 middleware 內同步呼叫 `activate_capability_api_code()`，第一個 IG API request 會在 event loop 內 import/register 多個 router。
+
+修復後：同一個 `activate_capability_api_code()` 仍完整執行，但透過 `asyncio.to_thread()` 等待結果，讓 backend event loop 可繼續處理 `/healthz` 與其他 read request。
+
+為何不是降級：沒有少載 capability、沒有跳過 router registration、沒有改 pack enablement、沒有改 scheduler 或 runner；只改 activation 執行位置，保留同一套能力與同一個 activation 成功/失敗紀錄。
+
 ## 已查驗但不納入本次修復的項目
 
 - root route loader/server page 邊界實驗：目前 `web-console/src/app/workspaces/[workspaceId]/page.tsx` 無 diff，沒有用新入口覆蓋原本 workspace chat。
 - Docker `.next` named volume：目前 diff 內沒有 named `.next` volume。
 - Turbopack：runtime `NEXT_DEV_TURBO=0`，沒有啟用為預設。早先測試出現 Next package resolution 500，因此不作為本次修復。
-- Next dev 冷編譯：仍是未解問題。最新 warm root 為 6.31s；冷啟動分鐘級問題需要另開 import graph / production mode / dev server 編譯策略修復，不能宣稱已完成。
+- Next dev / root client graph：仍是未解問題。最新 warm root 為 4.03s；proxy log 顯示 `/workspaces/:workspaceId` upstream 是 `next_dev`，需要另開 import graph / dev server 編譯策略修復，不能宣稱已完成。
 
 ## 驗證結果
 
 > **Evidence**: Python tests
 > ```text
+> backend/tests/capability_activation_middleware_spec.py . 1 passed
+>
 > backend/tests/workspace_tasks_route_limits_spec.py ..
 > backend/tests/cloud_sync_offline_changes_spec.py ..
 > backend/tests/system_health_checker_ollama_spec.py ....
@@ -211,6 +268,6 @@ Source: `web-console/dev-proxy.mjs:92-120`
 
 ## 後續待辦
 
-1. 針對 Next dev 冷編譯另開修復：用 bundle/import graph 實證拆解 `/workspaces/[workspaceId]` 的首屏模組重量。
-2. 針對 `sidebar-summary` 仍可能 2-5 秒，繼續查 IG summary SQL 與 materialized summary refresh 路徑。
+1. 針對 Next dev / root client graph 另開修復：用 bundle/import graph 實證拆解 `/workspaces/[workspaceId]` 的首屏模組重量。
+2. 針對 `sidebar-summary` 冷 counts 仍約 1.7-1.9 秒，繼續查 IG summary SQL 與 materialized summary refresh 路徑。
 3. 針對 runner 高 CPU 與 Postgres checkpoint / IO 負載，另做 runtime capacity report；不得用調低 inflight 當第一手段。

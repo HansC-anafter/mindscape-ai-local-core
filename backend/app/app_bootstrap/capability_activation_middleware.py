@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Optional
 
 from fastapi import Request
@@ -44,12 +46,21 @@ async def ensure_capability_activation_for_request(
     ) or PackActivationService()
 
     try:
-        activate_capability_api_code(
+        started_at = time.monotonic()
+        await asyncio.to_thread(
+            activate_capability_api_code,
             app=request.app,
             capability_code=capability_code,
             activation_mode="request_activate",
             activation_service=activation_service,
         )
+        elapsed_ms = int((time.monotonic() - started_at) * 1000)
+        if elapsed_ms >= 1000:
+            logger.info(
+                "Request-time capability activation completed for %s in %dms",
+                capability_code,
+                elapsed_ms,
+            )
     except Exception as exc:
         logger.error(
             "Request-time capability activation failed for %s (%s): %s",
