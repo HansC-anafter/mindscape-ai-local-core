@@ -82,9 +82,7 @@ describe('frontend dev proxy', () => {
   });
 
   it('resolves default and explicit frontend prewarm paths', () => {
-    expect(resolveFrontendPrewarmPaths('', 'ws/one')).toEqual([
-      '/workspace-shell/ws%2Fone',
-    ]);
+    expect(resolveFrontendPrewarmPaths('', 'ws/one')).toEqual([]);
     expect(resolveFrontendPrewarmPaths('/a/{workspaceId}, /b', 'ws one')).toEqual([
       '/a/ws%20one',
       '/b',

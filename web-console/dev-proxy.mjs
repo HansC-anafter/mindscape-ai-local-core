@@ -15,13 +15,11 @@ const PROXY_SLOW_LOG_THRESHOLD_MS = Number.parseInt(
   10,
 );
 const PREWARM_WORKSPACE_ID = process.env.FRONTEND_PREWARM_WORKSPACE_ID || '__prewarm__';
-const PREWARM_ENABLED = process.env.FRONTEND_PREWARM_ENABLED !== '0';
+const PREWARM_ENABLED = process.env.FRONTEND_PREWARM_ENABLED === '1';
 const PREWARM_DELAY_MS = Number.parseInt(process.env.FRONTEND_PREWARM_DELAY_MS || '15000', 10);
 const PREWARM_TIMEOUT_MS = Number.parseInt(process.env.FRONTEND_PREWARM_TIMEOUT_MS || '180000', 10);
 const NEXT_DEV_TURBO_ENABLED = process.env.NEXT_DEV_TURBO === '1';
-const DEFAULT_PREWARM_PATHS = [
-  '/workspace-shell/{workspaceId}',
-];
+const DEFAULT_PREWARM_PATHS = [];
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'keep-alive',
