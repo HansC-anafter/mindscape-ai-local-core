@@ -63,11 +63,6 @@ export const workspaceZhTW = {
   errorLoadingWorkspace: 'Error Loading Workspace',
   workspaceNotFound: 'Workspace not found',
   loadingWorkspace: 'Loading workspace...',
-  workspaceFastShellInstagramWorkbench: 'Instagram Workbench',
-  workspaceFastShellPerformanceDirection: 'Performance Direction',
-  workspaceFastShellExecutionTimeline: 'Execution Timeline',
-  workspaceFastShellInstructions: '指令',
-  workspaceFastShellMeetings: '會議',
 
   workspaceInstructionTitle: 'Workspace 指令',
   workspaceInstructionUnsavedChanges: '● 未儲存的變更',
