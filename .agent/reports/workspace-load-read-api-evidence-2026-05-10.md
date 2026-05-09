@@ -266,6 +266,134 @@
 > No TypeScript error in the files changed by this visibility/read-path iteration was listed.
 > ```
 
+### E19. IG references list 修復前 counts 會拖垮首屏 read
+
+> **Evidence**: 修復前 `curl -m 20 ... /api/v1/ig/references/?workspace_id=bac7ce63-e768-454d-96f3-3a00e8e1df69&limit=20&offset=0`
+> ```text
+> curl: (28) Operation timed out after 20006 milliseconds with 0 bytes received
+> ig_refs status=000 total=20.006359 size=0
+> ```
+>
+> **Evidence**: source inspection
+> ```text
+> capabilities/ig/api/references_api_query_routes.py
+> include_counts=true 時，unfiltered list path 會落入 index.query(**query_kwargs)，再用 Python 對 count_results 全量計數。
+> ```
+>
+> **Impact**: 目前同 workspace reference catalog 已達十幾萬筆，首屏只需要 20 筆 page 時卻把 counts 綁到全量 read，會和 runner / Postgres 負載疊加造成頁面卡住。
+
+### E20. IG references counts 修復後改走既有 snapshot，不再全表 Python 掃描
+
+> **Evidence**: cloud commit
+> ```text
+> 0d989e8 Optimize IG references counts read path
+> ```
+>
+> **Evidence**: unit gate
+> ```text
+> pytest capabilities/ig/tests/workbench_api_test.py::test_unfiltered_reference_list_with_counts_uses_paged_query_and_snapshot -q
+> 1 passed in 0.51s
+> ```
+>
+> **Evidence**: full file residual environment issue
+> ```text
+> pytest capabilities/ig/tests/workbench_api_test.py -q
+> Existing TestClient tests fail before route logic because starlette 0.27.0 passes app= to httpx 0.28.1 Client.
+> ```
+
+### E21. IG pack 依規範從 cloud source 打包並安裝到 local-core
+
+> **Evidence**: pack build
+> ```text
+> python3 scripts/package_capability.py ig
+> Packaging 658 files from .../mindscape-ai-cloud/capabilities/ig
+> Created .mindpack file: .../mindscape-ai-cloud/ig.mindpack
+> Package size: 1212.62 KB
+> ```
+>
+> **Evidence**: archive root check
+> ```text
+> tar tzf ig.mindpack | head -20
+> ig/manifest.yaml
+> ig/playbooks/specs/ig_pin_post_detail.json
+> ig/playbooks/specs/ig_refresh_reference_post_detail.json
+> ```
+>
+> **Evidence**: install path and recovery
+> ```text
+> POST http://localhost:8220/api/v1/capability-packs/install-from-file
+> install request timed out after 20s after receiving 100 Continue.
+> backend log showed mindpack extraction and uvicorn reload.
+> backend became unhealthy during reload and was restored with docker restart mindscape-ai-local-core-backend.
+> ```
+>
+> **Evidence**: capability visible after restart
+> ```text
+> /api/v1/capability-packs/ contains:
+> { "id": "ig", "name": "Instagram", "version": "1.0.4" }
+> ```
+
+### E22. IG references runtime 修復結果
+
+> **Evidence**: backend direct after pack install
+> ```text
+> ig_refs_backend status=200 total=3.863413 size=208824
+> ig_sidebar_backend status=200 total=3.882858 size=68174
+> ```
+>
+> **Evidence**: frontend proxy after backend restart
+> ```text
+> ig_refs_frontend status=200 total=1.252236 size=208824
+> ```
+>
+> **Evidence**: response count payload retained
+> ```text
+> returned=20
+> total=174562
+> counts={
+>   "total": 174562,
+>   "completed": 6994,
+>   "running": 1,
+>   "pending": 167563,
+>   "failed": 4
+> }
+> ```
+>
+> **Evidence**: hot route timing after fix
+> ```text
+> ig_host_hot status=200 total=2.886014 size=15489
+> workspace_root_hot status=200 total=2.762112 size=8622
+> frontend_healthz status=200 total=0.078947 size=57
+> backend_health status=200 total=0.106863 size=65
+> control_health_final status=200 total=0.438208 size=62
+> ```
+
+### E23. Docker health 與 app liveness 不同步的現況
+
+> **Evidence**: frontend app liveness
+> ```text
+> frontend_healthz status=200 total=0.078947 size=57
+> ```
+>
+> **Evidence**: Docker frontend healthcheck
+> ```text
+> Status=unhealthy
+> Output=OCI runtime exec failed: exec failed: unable to start container process:
+> error starting setns process: fork/exec /proc/self/fd/6: no such file or directory
+> ```
+>
+> **Assessment**: frontend app 目前可回 `/healthz`，Docker healthcheck unhealthy 來自 Docker exec/setns 失敗；不能把它解讀為 Next app `/healthz` 不通，但仍需後續追 Docker healthcheck 執行環境。
+
+### E24. Playbooks 總表仍是剩餘慢讀路徑
+
+> **Evidence**: post-deploy verification
+> ```text
+> /api/v1/tools/ status=200 total=0.425492 size=263029
+> /api/v1/playbooks/ timed out after 20.009891s with 0 bytes received
+> ```
+>
+> **Assessment**: `tools` registry 已可快速回應；`playbooks` 總表不是本次 `ig/references` 修補範圍，列為剩餘 read path 缺口。
+
 ## 修復內容與為何不是降級
 
 ### 1. Dedicated UI read executor
@@ -362,6 +490,16 @@ Source: `web-console/src/lib/resilient-fetch.ts` 既有 `sharedGetFetch()`、本
 
 為何不是降級：資料仍來自同一 API；只合併同一時間相同 GET 的 in-flight request，避免同頁多 component 重複打同一個 read endpoint。
 
+### 12. IG references unfiltered counts 改走既有 count snapshot
+
+Source: `mindscape-ai-cloud/capabilities/ig/api/references_api_query_routes.py`
+
+修復前：`/api/v1/ig/references/` 預設 `include_counts=true`，即使只請求第一頁 20 筆，也會在 unfiltered path 呼叫 `index.query(**query_kwargs)` 全量讀回 reference catalog，再用 Python 算 status counts。
+
+修復後：沒有 filter 的 list request 用 `index.query_page()` 取當頁資料，counts 改用既有 `load_reference_counts(workspace_id)`，也就是 DB count snapshot 與 live task overlay 的同一條統計來源。
+
+為何不是降級：回傳仍包含 `references`、`total`、`counts`；資料來源仍是 IG catalog 與 live task state；沒有減少 reference 範圍、沒有跳過狀態統計、沒有調低任務併發。這只是把原本不必要的全表 Python 掃描改成既有 snapshot 讀取。
+
 ## 已查驗但不納入本次修復的項目
 
 - root route loader/server page 邊界實驗：目前 `web-console/src/app/workspaces/[workspaceId]/page.tsx` 無 diff，沒有用新入口覆蓋原本 workspace chat。
@@ -412,3 +550,5 @@ Source: `web-console/src/lib/resilient-fetch.ts` 既有 `sharedGetFetch()`、本
 1. 針對 Next dev / root client graph 另開修復：用 bundle/import graph 實證拆解 `/workspaces/[workspaceId]` 的首屏模組重量。
 2. 針對 `sidebar-summary` 冷 counts 仍約 1.7-1.9 秒，繼續查 IG summary SQL 與 materialized summary refresh 路徑。
 3. 針對 runner 高 CPU 與 Postgres checkpoint / IO 負載，另做 runtime capacity report；不得用調低 inflight 當第一手段。
+4. 針對 `/api/v1/playbooks/` 總表 20 秒超時另查 registry read path。
+5. 針對 frontend Docker healthcheck `OCI runtime exec failed` 另查 Docker exec/setns 失敗原因；目前 app `/healthz` 已可回應，不能混為 Next app liveness failure。
