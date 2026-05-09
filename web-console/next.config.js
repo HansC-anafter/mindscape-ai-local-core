@@ -85,9 +85,6 @@ const nextConfig = {
         {
           source: '/workspaces/:workspaceId',
           destination: '/workspace-shell/:workspaceId',
-          missing: [
-            { type: 'query', key: 'view', value: 'chat' },
-          ],
         },
       ],
       afterFiles: [],

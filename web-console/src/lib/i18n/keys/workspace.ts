@@ -29,7 +29,6 @@ export const workspaceKeys = {
   workspaceFileAnalysisFailed: true,
   failedToLoadWorkspace: true,
   loadingWorkspace: true,
-  workspaceFastShellWorkspaceChat: true,
   workspaceFastShellInstagramWorkbench: true,
   workspaceFastShellPerformanceDirection: true,
   workspaceFastShellExecutionTimeline: true,

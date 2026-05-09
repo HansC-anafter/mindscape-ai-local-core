@@ -63,7 +63,6 @@ export const workspaceJa = {
   errorLoadingWorkspace: 'ワークスペース読み込みエラー',
   workspaceNotFound: 'ワークスペースが見つかりません',
   loadingWorkspace: 'ワークスペースを読み込み中...',
-  workspaceFastShellWorkspaceChat: 'ワークスペースチャット',
   workspaceFastShellInstagramWorkbench: 'Instagram Workbench',
   workspaceFastShellPerformanceDirection: 'Performance Direction',
   workspaceFastShellExecutionTimeline: 'Execution Timeline',

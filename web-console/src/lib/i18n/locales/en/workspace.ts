@@ -63,7 +63,6 @@ export const workspaceEn = {
   errorLoadingWorkspace: 'Error Loading Workspace',
   workspaceNotFound: 'Workspace not found',
   loadingWorkspace: 'Loading workspace...',
-  workspaceFastShellWorkspaceChat: 'Workspace Chat',
   workspaceFastShellInstagramWorkbench: 'Instagram Workbench',
   workspaceFastShellPerformanceDirection: 'Performance Direction',
   workspaceFastShellExecutionTimeline: 'Execution Timeline',

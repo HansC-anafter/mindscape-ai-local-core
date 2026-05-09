@@ -55,10 +55,8 @@ export default function WorkspaceFastShell({ workspaceId }: { workspaceId: strin
 
   const instagramWorkbenchPath =
     buildStaticCapabilityHostPath(workspaceId, 'ig') || `/workspaces/${workspaceId}/capability-ui-hosts/ig`;
-  const workspaceChatPath = `/workspaces/${encodeURIComponent(workspaceId)}?view=chat`;
 
   const links = [
-    { href: workspaceChatPath, label: t('workspaceFastShellWorkspaceChat') },
     { href: instagramWorkbenchPath, label: t('workspaceFastShellInstagramWorkbench') },
     { href: `/workspaces/${workspaceId}/capabilities/performance_direction/start`, label: t('workspaceFastShellPerformanceDirection') },
     { href: `/workspaces/${workspaceId}/executions/timeline`, label: t('workspaceFastShellExecutionTimeline') },
