@@ -4,11 +4,14 @@ API endpoints for cloud sync functionality
 """
 
 import logging
+import time
+import asyncio
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from ...services.cloud_sync.service import get_cloud_sync_service
+from .read_executor import run_ui_read
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +34,13 @@ class SyncStatusResponse(BaseModel):
     pending_changes: int
 
 
-@router.get("/status", response_model=SyncStatusResponse)
-async def get_sync_status():
-    """Get cloud sync status"""
+_SYNC_STATUS_CACHE_TTL_SECONDS = 15.0
+_SYNC_STATUS_CACHE_LOCK = asyncio.Lock()
+_SYNC_STATUS_CACHE: tuple[float, SyncStatusResponse] | None = None
+_SYNC_STATUS_INFLIGHT: asyncio.Task | None = None
+
+
+def _read_sync_status() -> SyncStatusResponse:
     service = get_cloud_sync_service()
     if not service:
         return SyncStatusResponse(
@@ -42,13 +49,39 @@ async def get_sync_status():
             pending_changes=0,
         )
 
-    pending_changes = len(service.offline_change_tracker.get_pending_changes())
+    pending_changes = service.offline_change_tracker.get_pending_change_count()
 
     return SyncStatusResponse(
         configured=service.is_configured(),
         online=service.is_online(),
         pending_changes=pending_changes,
     )
+
+
+@router.get("/status", response_model=SyncStatusResponse)
+async def get_sync_status():
+    """Get cloud sync status"""
+    global _SYNC_STATUS_CACHE, _SYNC_STATUS_INFLIGHT
+
+    now = time.monotonic()
+    async with _SYNC_STATUS_CACHE_LOCK:
+        if _SYNC_STATUS_CACHE and now - _SYNC_STATUS_CACHE[0] < _SYNC_STATUS_CACHE_TTL_SECONDS:
+            return _SYNC_STATUS_CACHE[1]
+        if _SYNC_STATUS_INFLIGHT is not None:
+            inflight = _SYNC_STATUS_INFLIGHT
+        else:
+            inflight = asyncio.create_task(run_ui_read(_read_sync_status))
+            _SYNC_STATUS_INFLIGHT = inflight
+
+    try:
+        status = await inflight
+        async with _SYNC_STATUS_CACHE_LOCK:
+            _SYNC_STATUS_CACHE = (time.monotonic(), status)
+        return status
+    finally:
+        async with _SYNC_STATUS_CACHE_LOCK:
+            if _SYNC_STATUS_INFLIGHT is inflight:
+                _SYNC_STATUS_INFLIGHT = None
 
 
 @router.post("/versions/check")
@@ -75,12 +108,15 @@ async def check_versions(request: VersionCheckRequest):
 @router.post("/sync/pending")
 async def sync_pending_changes():
     """Sync all pending changes"""
+    global _SYNC_STATUS_CACHE
     service = get_cloud_sync_service()
     if not service or not service.is_configured():
         raise HTTPException(status_code=503, detail="Cloud sync service not configured")
 
     try:
         result = await service.sync_pending_changes()
+        async with _SYNC_STATUS_CACHE_LOCK:
+            _SYNC_STATUS_CACHE = None
         return result
     except Exception as e:
         logger.error(f"Failed to sync pending changes: {e}")
@@ -134,4 +170,3 @@ async def cleanup_cache():
     except Exception as e:
         logger.error(f"Failed to cleanup cache: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to cleanup cache: {str(e)}")
-

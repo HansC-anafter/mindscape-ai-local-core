@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { clearSharedGetInflightForTests } from './resilient-fetch';
-import { getPendingChanges, getSyncStatus } from './sync-api';
+import { clearSyncStatusCacheForTests, getPendingChanges, getSyncStatus } from './sync-api';
 
 const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
@@ -9,6 +9,7 @@ const originalEnv = { ...process.env };
 afterEach(() => {
   vi.restoreAllMocks();
   clearSharedGetInflightForTests();
+  clearSyncStatusCacheForTests();
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
     value: originalFetch,
@@ -39,6 +40,24 @@ describe('sync-api', () => {
     );
     expect(first).toEqual({ configured: true, online: true, pending_changes: 0 });
     expect(second).toEqual({ configured: true, online: true, pending_changes: 0 });
+  });
+
+  it('reuses the latest sync status for sequential chrome probes', async () => {
+    process.env.NEXT_PUBLIC_API_URL = 'http://backend.test/';
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({ configured: false, online: false, pending_changes: 0 })
+    );
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: fetchMock,
+    });
+
+    const first = await getSyncStatus();
+    const second = await getSyncStatus();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(first).toEqual({ configured: false, online: false, pending_changes: 0 });
+    expect(second).toEqual({ configured: false, online: false, pending_changes: 0 });
   });
 
   it('resolves the API base at call time instead of pinning a module-load value', async () => {

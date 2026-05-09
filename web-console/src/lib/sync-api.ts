@@ -6,6 +6,8 @@
 import { getApiBaseUrl } from './api-url';
 import { fetchWithIdempotentRetry, sharedGetFetch } from './resilient-fetch';
 
+const SYNC_STATUS_CACHE_MS = 15_000;
+
 function buildApiUrl(path: string): string {
   const baseUrl = getApiBaseUrl().replace(/\/$/, '');
   return `${baseUrl}${path}`;
@@ -42,6 +44,22 @@ export interface SyncStatus {
   configured: boolean;
   online: boolean;
   pending_changes: number;
+}
+
+interface SyncStatusCacheEntry {
+  data: SyncStatus;
+  timestamp: number;
+  url: string;
+}
+
+let syncStatusCache: SyncStatusCacheEntry | null = null;
+
+export function clearSyncStatusCacheForTests(): void {
+  syncStatusCache = null;
+}
+
+export function invalidateSyncStatusCache(): void {
+  syncStatusCache = null;
 }
 
 export interface VersionCheckRequest {
@@ -118,9 +136,19 @@ export interface ChangeSummary {
 /**
  * Get sync status
  */
-export async function getSyncStatus(): Promise<SyncStatus> {
+export async function getSyncStatus(options?: { force?: boolean }): Promise<SyncStatus> {
+  const url = buildApiUrl('/api/v1/cloud-sync/status');
+  if (
+    !options?.force &&
+    syncStatusCache &&
+    syncStatusCache.url === url &&
+    Date.now() - syncStatusCache.timestamp < SYNC_STATUS_CACHE_MS
+  ) {
+    return { ...syncStatusCache.data };
+  }
+
   const response = await fetchWithTimeout(
-    buildApiUrl('/api/v1/cloud-sync/status'),
+    url,
     {
       method: 'GET',
       headers: {
@@ -134,7 +162,13 @@ export async function getSyncStatus(): Promise<SyncStatus> {
     throw new Error(`Failed to get sync status: ${response.statusText}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  syncStatusCache = {
+    data,
+    timestamp: Date.now(),
+    url,
+  };
+  return { ...data };
 }
 
 /**
@@ -184,7 +218,9 @@ export async function syncPendingChanges(): Promise<{
     throw new Error(`Failed to sync pending changes: ${response.statusText}`);
   }
 
-  return response.json();
+  const result = await response.json();
+  invalidateSyncStatusCache();
+  return result;
 }
 
 /**

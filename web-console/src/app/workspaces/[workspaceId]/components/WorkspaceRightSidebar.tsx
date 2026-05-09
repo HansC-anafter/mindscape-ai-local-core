@@ -1,21 +1,32 @@
 'use client';
 
 import React from 'react';
-import MindscapeAIWorkbench from '../../../../components/MindscapeAIWorkbench';
-import ResearchModePanel from '../../../../components/ResearchModePanel';
-import PublishingModePanel from '../../../../components/PublishingModePanel';
-import PlanningModePanel from '../../../../components/PlanningModePanel';
+import dynamic from 'next/dynamic';
 import ConversationsList from './ConversationsList';
-import ExecutionModeSelector from '../../../../components/execution/ExecutionModeSelector';
-import ThinkingContext from '../../../../components/execution/ThinkingContext';
-import AITeamPanel from '../../../../components/execution/AITeamPanel';
-import { ArtifactsSummary } from '../../../../components/workspace/ArtifactsSummary';
-import { DecisionPanel } from '../../../../components/workspace/DecisionPanel';
-import { WorkflowEvidenceHealthSummary } from '../../../../components/workspace/meeting/WorkflowEvidenceHealthSummary';
 import { ResizablePanel } from '../../../../components/ui/ResizablePanel';
 import type { Artifact } from './OutcomesPanel';
 import { t } from '@/lib/i18n';
 import type { Workspace } from '../workspace-page.types';
+
+const MindscapeAIWorkbench = dynamic(() => import('../../../../components/MindscapeAIWorkbench'), { ssr: false });
+const ResearchModePanel = dynamic(() => import('../../../../components/ResearchModePanel'), { ssr: false });
+const PublishingModePanel = dynamic(() => import('../../../../components/PublishingModePanel'), { ssr: false });
+const PlanningModePanel = dynamic(() => import('../../../../components/PlanningModePanel'), { ssr: false });
+const ExecutionModeSelector = dynamic(() => import('../../../../components/execution/ExecutionModeSelector'), { ssr: false });
+const ThinkingContext = dynamic(() => import('../../../../components/execution/ThinkingContext'), { ssr: false });
+const AITeamPanel = dynamic(() => import('../../../../components/execution/AITeamPanel'), { ssr: false });
+const ArtifactsSummary = dynamic(
+    () => import('../../../../components/workspace/ArtifactsSummary').then((module) => module.ArtifactsSummary),
+    { ssr: false }
+);
+const DecisionPanel = dynamic(
+    () => import('../../../../components/workspace/DecisionPanel').then((module) => module.DecisionPanel),
+    { ssr: false }
+);
+const WorkflowEvidenceHealthSummary = dynamic(
+    () => import('../../../../components/workspace/meeting/WorkflowEvidenceHealthSummary').then((module) => module.WorkflowEvidenceHealthSummary),
+    { ssr: false }
+);
 
 interface WorkspaceRightSidebarProps {
     workspace: Workspace | null;

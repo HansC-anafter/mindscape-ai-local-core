@@ -6,6 +6,7 @@ import { useMessages } from '@/contexts/MessagesContext';
 
 interface UseWorkspaceDataOptions {
   enabled?: boolean;
+  loadSystemHealthOnMount?: boolean;
   onWorkspaceLoaded?: (data: any) => void;
   onSystemHealthLoaded?: (health: any) => void;
   onTokenCountLoaded?: (count: number | null) => void;
@@ -39,6 +40,7 @@ export function useWorkspaceData(
 
   const {
     enabled = true,
+    loadSystemHealthOnMount = true,
     onWorkspaceLoaded,
     onSystemHealthLoaded,
     onTokenCountLoaded,
@@ -150,9 +152,11 @@ export function useWorkspaceData(
   useEffect(() => {
     if (enabled && workspaceId && apiUrl) {
       loadWorkspaceInfo();
-      loadSystemHealth();
+      if (loadSystemHealthOnMount) {
+        loadSystemHealth();
+      }
     }
-  }, [workspaceId, apiUrl, enabled, loadWorkspaceInfo, loadSystemHealth]);
+  }, [workspaceId, apiUrl, enabled, loadSystemHealthOnMount, loadWorkspaceInfo, loadSystemHealth]);
 
   useEffect(() => {
     if (enabled && workspaceId && apiUrl && !messagesLoading) {

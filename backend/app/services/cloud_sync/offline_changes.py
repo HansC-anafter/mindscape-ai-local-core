@@ -65,6 +65,35 @@ class OfflineChangeTracker:
 
         return sorted(all_changes, key=lambda x: x.get("created_at", ""))
 
+    def get_pending_change_count(
+        self,
+        instance_type: Optional[str] = None,
+        instance_id: Optional[str] = None,
+    ) -> int:
+        """
+        Count pending changes without constructing the full change payload.
+
+        Status endpoints only need the number. Keeping this separate prevents
+        route-level status probes from sorting and retaining every change record.
+        """
+        if instance_type and instance_id:
+            return len(self.instance_store.get_local_changes(instance_type, instance_id))
+
+        instances = self.instance_store.list_instances(instance_type)
+        total_changes = 0
+
+        for instance_info in instances:
+            if not instance_info.get("has_local_changes", False):
+                continue
+            total_changes += len(
+                self.instance_store.get_local_changes(
+                    instance_info["instance_type"],
+                    instance_info["instance_id"],
+                )
+            )
+
+        return total_changes
+
     def get_change_summary(self) -> Dict[str, Any]:
         """
         Get summary of pending changes
@@ -325,4 +354,3 @@ class OfflineChangeTracker:
             metadata_file = instance_path / "metadata.json"
             with open(metadata_file, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=2, ensure_ascii=False)
-

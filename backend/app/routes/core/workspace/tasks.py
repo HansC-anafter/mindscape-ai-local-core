@@ -32,6 +32,7 @@ from ....services.remote_step_resend_service import (
     extract_remote_step_resend_payload,
     resend_remote_workflow_step_child_task,
 )
+from ..read_executor import run_ui_read
 from ....services.task_execution_projection import (
     build_execution_group_summary,
     project_execution_for_api,
@@ -43,6 +44,14 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 store = MindscapeStore()
 _ARTIFACT_PROGRESS_CONTENT_MARKER = '%"progress"%'
+_WORKSPACE_TASKS_CACHE_TTL_SECONDS = 2.0
+_PROGRESS_SNAPSHOT_CACHE_TTL_SECONDS = 1.0
+_WORKSPACE_TASKS_CACHE: dict[tuple[Any, ...], tuple[float, Dict[str, Any]]] = {}
+_WORKSPACE_TASKS_INFLIGHT: dict[tuple[Any, ...], asyncio.Task[Dict[str, Any]]] = {}
+_WORKSPACE_TASKS_CACHE_LOCK = asyncio.Lock()
+_PROGRESS_SNAPSHOT_CACHE: dict[tuple[str, str], tuple[float, Dict[str, Any]]] = {}
+_PROGRESS_SNAPSHOT_INFLIGHT: dict[tuple[str, str], asyncio.Task[Dict[str, Any]]] = {}
+_PROGRESS_SNAPSHOT_CACHE_LOCK = asyncio.Lock()
 
 
 def _build_workspace_execution_order_clause(order_by: str, order: str) -> str:
@@ -365,6 +374,83 @@ async def _unsubscribe_execution_stream(
     await _cleanup_stream_state_if_idle(execution_id, state)
 
 
+def _workspace_tasks_cache_key(
+    workspace_id: str,
+    limit: int,
+    include_completed: bool,
+    task_type: Optional[str],
+) -> tuple[Any, ...]:
+    return (
+        workspace_id,
+        int(limit),
+        bool(include_completed),
+        (task_type or "").strip().lower(),
+    )
+
+
+async def _load_workspace_tasks_payload(
+    workspace_id: str,
+    limit: int,
+    include_completed: bool,
+    task_type: Optional[str],
+) -> Dict[str, Any]:
+    tasks_store = TasksStore()
+    normalized_task_type = (task_type or "").strip().lower()
+
+    if normalized_task_type == "execution":
+        execution_tasks = await run_ui_read(
+            tasks_store.list_executions_by_workspace,
+            workspace_id,
+            limit,
+            include_completed,
+        )
+        return {"tasks": [task.model_dump() for task in execution_tasks]}
+
+    if include_completed:
+        running = await run_ui_read(
+            tasks_store.list_tasks_by_workspace,
+            workspace_id,
+            TaskStatus.RUNNING,
+            None,
+            False,
+            task_type,
+        )
+        remaining_limit = max(0, limit - len(running))
+        rest = await run_ui_read(
+            tasks_store.list_tasks_by_workspace,
+            workspace_id,
+            None,
+            remaining_limit,
+            False,
+            task_type,
+        )
+        running_ids = {t.id for t in running}
+        all_tasks = running + [t for t in rest if t.id not in running_ids]
+    else:
+        pending = await run_ui_read(
+            tasks_store.list_tasks_by_workspace,
+            workspace_id,
+            TaskStatus.PENDING,
+            limit,
+            False,
+            task_type,
+        )
+        running = []
+        remaining_limit = max(0, limit - len(pending))
+        if remaining_limit:
+            running = await run_ui_read(
+                tasks_store.list_tasks_by_workspace,
+                workspace_id,
+                TaskStatus.RUNNING,
+                remaining_limit,
+                False,
+                task_type,
+            )
+        all_tasks = pending + running
+
+    return {"tasks": [task.model_dump() for task in all_tasks]}
+
+
 @router.get("/{workspace_id}/tasks")
 async def get_workspace_tasks(
     workspace_id: str = PathParam(..., description="Workspace ID"),
@@ -373,62 +459,42 @@ async def get_workspace_tasks(
     task_type: Optional[str] = Query(None, description="Optional task type filter"),
 ):
     """Get tasks for a workspace"""
+    cache_key = _workspace_tasks_cache_key(
+        workspace_id,
+        limit,
+        include_completed,
+        task_type,
+    )
     try:
-        tasks_store = TasksStore()
-        normalized_task_type = (task_type or "").strip().lower()
+        now = time.monotonic()
+        async with _WORKSPACE_TASKS_CACHE_LOCK:
+            cached = _WORKSPACE_TASKS_CACHE.get(cache_key)
+            if cached and now - cached[0] < _WORKSPACE_TASKS_CACHE_TTL_SECONDS:
+                return cached[1]
 
-        if normalized_task_type == "execution":
-            execution_tasks = await asyncio.to_thread(
-                tasks_store.list_executions_by_workspace,
-                workspace_id,
-                limit,
-                include_completed,
-            )
-            return {"tasks": [task.model_dump() for task in execution_tasks]}
+            task = _WORKSPACE_TASKS_INFLIGHT.get(cache_key)
+            if task is None:
+                task = asyncio.create_task(
+                    _load_workspace_tasks_payload(
+                        workspace_id,
+                        limit,
+                        include_completed,
+                        task_type,
+                    )
+                )
+                _WORKSPACE_TASKS_INFLIGHT[cache_key] = task
 
-        if include_completed:
-            # Always include running tasks first — they must never be cut off
-            # by ORDER BY created_at DESC LIMIT even if they were created long ago.
-            running = await asyncio.to_thread(
-                tasks_store.list_tasks_by_workspace,
-                workspace_id,
-                TaskStatus.RUNNING,
-                None,
-                False,
-                task_type,
-            )
-            remaining_limit = max(0, limit - len(running))
-            rest = await asyncio.to_thread(
-                tasks_store.list_tasks_by_workspace,
-                workspace_id,
-                None,
-                remaining_limit,
-                False,
-                task_type,
-            )
-            running_ids = {t.id for t in running}
-            all_tasks = running + [t for t in rest if t.id not in running_ids]
-        else:
-            pending = await asyncio.to_thread(
-                tasks_store.list_tasks_by_workspace,
-                workspace_id,
-                TaskStatus.PENDING,
-                None,
-                False,
-                task_type,
-            )
-            running = await asyncio.to_thread(
-                tasks_store.list_tasks_by_workspace,
-                workspace_id,
-                TaskStatus.RUNNING,
-                None,
-                False,
-                task_type,
-            )
-            all_tasks = (pending + running)[:limit]
+        payload = await task
 
-        return {"tasks": [task.model_dump() for task in all_tasks]}
+        async with _WORKSPACE_TASKS_CACHE_LOCK:
+            if _WORKSPACE_TASKS_INFLIGHT.get(cache_key) is task:
+                _WORKSPACE_TASKS_INFLIGHT.pop(cache_key, None)
+            _WORKSPACE_TASKS_CACHE[cache_key] = (time.monotonic(), payload)
+
+        return payload
     except Exception as e:
+        async with _WORKSPACE_TASKS_CACHE_LOCK:
+            _WORKSPACE_TASKS_INFLIGHT.pop(cache_key, None)
         logger.error(f"Failed to get workspace tasks: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -608,7 +674,7 @@ def _load_execution_progress_snapshot_payload(
                     WHERE workspace_id = :workspace_id
                       AND execution_id = :execution_id
                       AND content IS NOT NULL
-                      AND content LIKE :progress_marker
+                      AND CAST(content AS TEXT) LIKE :progress_marker
                     ORDER BY updated_at DESC
                     LIMIT 1
                     """
@@ -689,15 +755,40 @@ async def get_execution_progress_snapshot(
     This endpoint avoids returning full artifact `content` payloads while still exposing
     the latest `progress` object and metadata needed by UI status/debug cards.
     """
+    cache_key = (workspace_id, execution_id)
     try:
-        return await asyncio.to_thread(
-            _load_execution_progress_snapshot_payload,
-            workspace_id,
-            execution_id,
-        )
+        now = time.monotonic()
+        async with _PROGRESS_SNAPSHOT_CACHE_LOCK:
+            cached = _PROGRESS_SNAPSHOT_CACHE.get(cache_key)
+            if cached and now - cached[0] < _PROGRESS_SNAPSHOT_CACHE_TTL_SECONDS:
+                return cached[1]
+
+            task = _PROGRESS_SNAPSHOT_INFLIGHT.get(cache_key)
+            if task is None:
+                task = asyncio.create_task(
+                    run_ui_read(
+                        _load_execution_progress_snapshot_payload,
+                        workspace_id,
+                        execution_id,
+                    )
+                )
+                _PROGRESS_SNAPSHOT_INFLIGHT[cache_key] = task
+
+        payload = await task
+
+        async with _PROGRESS_SNAPSHOT_CACHE_LOCK:
+            if _PROGRESS_SNAPSHOT_INFLIGHT.get(cache_key) is task:
+                _PROGRESS_SNAPSHOT_INFLIGHT.pop(cache_key, None)
+            _PROGRESS_SNAPSHOT_CACHE[cache_key] = (time.monotonic(), payload)
+
+        return payload
     except HTTPException:
+        async with _PROGRESS_SNAPSHOT_CACHE_LOCK:
+            _PROGRESS_SNAPSHOT_INFLIGHT.pop(cache_key, None)
         raise
     except Exception as e:
+        async with _PROGRESS_SNAPSHOT_CACHE_LOCK:
+            _PROGRESS_SNAPSHOT_INFLIGHT.pop(cache_key, None)
         logger.error(
             f"Failed to get execution progress snapshot for {execution_id}: {e}",
             exc_info=True,

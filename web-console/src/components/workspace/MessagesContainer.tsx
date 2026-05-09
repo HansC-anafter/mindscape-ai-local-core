@@ -9,7 +9,7 @@ import { useScrollManagement } from '@/hooks/useScrollManagement';
 import { ChatMessage } from '@/hooks/useChatEvents';
 import { MessageWithSuggestions } from './MessageWithSuggestions';
 import type { Suggestion } from './SuggestionChip';
-import { ExecutionTree } from '../execution';
+import ExecutionTree from '../execution/ExecutionTree';
 import { ExecutionModeNotice } from './ExecutionModeNotice';
 import { ErrorDisplay } from './ErrorDisplay';
 import { ProcessingIndicator } from './ProcessingIndicator';

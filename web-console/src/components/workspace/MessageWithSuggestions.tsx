@@ -1,10 +1,15 @@
 'use client';
 
 import React, { useState } from 'react';
-import { MessageItem } from '../MessageItem';
+import dynamic from 'next/dynamic';
 import { ChatMessage } from '@/hooks/useChatEvents';
 import { SuggestionChip, type Suggestion } from './SuggestionChip';
 import './MessageWithSuggestions.css';
+
+const MessageItem = dynamic(
+  () => import('../MessageItem').then((module) => module.MessageItem),
+  { ssr: false, loading: () => <div className="text-xs text-secondary">Loading...</div> }
+);
 
 interface MessageWithSuggestionsProps {
   message: ChatMessage;

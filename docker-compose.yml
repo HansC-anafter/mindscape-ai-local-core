@@ -396,11 +396,16 @@ services:
     environment:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_DEV_TURBO=${NEXT_DEV_TURBO:-0}
       - NEXT_PUBLIC_API_URL=http://localhost:8200
       - NEXT_PUBLIC_BACKEND_URL=http://localhost:8200
       - WEB_CONSOLE_BACKEND_URL=http://backend:8200
       - BACKEND_URL=http://backend:8200
       - MEDIA_PROXY_URL=http://media-proxy:8000
+      - FRONTEND_PREWARM_ENABLED=${FRONTEND_PREWARM_ENABLED:-0}
+      - FRONTEND_PREWARM_DELAY_MS=${FRONTEND_PREWARM_DELAY_MS:-12000}
+      - FRONTEND_PREWARM_TIMEOUT_MS=${FRONTEND_PREWARM_TIMEOUT_MS:-360000}
+      - FRONTEND_PREWARM_WORKSPACE_ID=${FRONTEND_PREWARM_WORKSPACE_ID:-__prewarm__}
       - TZ=${TZ:-UTC}
     volumes:
       - ./web-console/src:/app/web-console/src:ro

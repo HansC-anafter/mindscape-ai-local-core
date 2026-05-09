@@ -41,7 +41,7 @@ interface WorkspaceChatProps {
   executionMode?: ExecutionMode;
   expectedArtifacts?: string[];
   projectId?: string;  // Current project ID (if user is in a project context)
-  threadId?: string | null;  // 🆕 Current conversation thread ID
+  threadId?: string | null;
   layoutVariant?: WorkspaceChatLayoutVariant;
 }
 
@@ -52,7 +52,7 @@ function WorkspaceChatContent({
   executionMode,
   expectedArtifacts,
   projectId,
-  threadId,  // 🆕
+  threadId,
   layoutVariant = 'default',
 }: WorkspaceChatProps) {
   // Use Context for state management
@@ -74,8 +74,6 @@ function WorkspaceChatContent({
   const {
     workspaceTitle,
     setWorkspaceTitle,
-    systemHealth,
-    setSystemHealth,
     contextTokenCount,
     setContextTokenCount,
     currentChatModel,
@@ -109,7 +107,6 @@ function WorkspaceChatContent({
 
   const selectedMessageRef = useRef<string | null>(null);
   const prevMessagesLoadingRef = useRef<boolean>(true);
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Use new Hooks for LLM configuration and chat model
   useLLMConfiguration(apiUrl, {
@@ -125,7 +122,7 @@ function WorkspaceChatContent({
   // Use new Hooks for message handling, workspace data, and textarea auto-resize
   const messageHandling = useMessageHandling(workspaceId, apiUrl, {
     projectId,
-    threadId,  // 🆕 傳遞 threadId
+    threadId,
     onFileAnalyzed,
   });
   const {
@@ -137,7 +134,7 @@ function WorkspaceChatContent({
   } = messageHandling;
 
   // Get sendMessage from useSendMessage for suggestion execution
-  const { sendMessage } = useSendMessage(workspaceId, apiUrl, projectId, threadId);  // 🆕 傳遞 threadId
+  const { sendMessage } = useSendMessage(workspaceId, apiUrl, projectId, threadId);
 
   const handleExecuteSuggestion = async (suggestion: Suggestion) => {
     try {
@@ -168,6 +165,7 @@ function WorkspaceChatContent({
 
   useWorkspaceData(workspaceId, apiUrl, {
     enabled: true,
+    loadSystemHealthOnMount: false,
   });
 
   useTextareaAutoResize(textareaRef, input, {
@@ -282,18 +280,6 @@ function WorkspaceChatContent({
       // Cleanup is handled by InputArea's useFileHandling instance
     };
   }, []);
-
-
-
-  // Cleanup scroll timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-      }
-    };
-  }, []);
-
 
 
   // Wrapper for handleAnalyzeFile to add error message handling
@@ -469,7 +455,7 @@ function WorkspaceChatContent({
               {t('workspaceAnalysisNoResults' as any)}
             </p>
             <details className="mt-2">
-              <summary className="text-xs text-yellow-600 dark:text-yellow-400 cursor-pointer">{t('viewOriginalResponse' as any) || '查看原始回應'}</summary>
+              <summary className="text-xs text-yellow-600 dark:text-yellow-400 cursor-pointer">{t('viewOriginalResponse' as any) || 'View original response'}</summary>
               <pre className="text-xs mt-2 overflow-auto text-primary dark:text-gray-100">{JSON.stringify(fileAnalysisResult, null, 2)}</pre>
             </details>
           </div>
@@ -610,7 +596,7 @@ export default function WorkspaceChat(props: WorkspaceChatProps) {
     <WorkspaceChatProvider
       workspaceId={props.workspaceId}
       apiUrl={props.apiUrl || ''}
-      threadId={props.threadId}  // 🆕 傳遞 threadId
+      threadId={props.threadId}
     >
       {props.layoutVariant === 'meeting_pane' ? (
         <div className="flex h-full min-h-0 min-w-0">

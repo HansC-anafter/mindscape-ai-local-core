@@ -99,6 +99,8 @@ interface SystemStatus {
   has_issues: boolean;
 }
 
+const SYSTEM_STATUS_CACHE_MS = 30_000;
+
 interface WorkspaceDataContextType {
   // Data
   workspace: Workspace | null;
@@ -179,6 +181,8 @@ export function WorkspaceDataProvider({
   const loadingWorkspaceDetailsRef = useRef(false);
   const loadingTasksRef = useRef(false);
   const loadingExecutionsRef = useRef(false);
+  const loadingSystemStatusRef = useRef(false);
+  const systemStatusCacheRef = useRef<{ data: SystemStatus; timestamp: number } | null>(null);
   const mountedRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -446,16 +450,25 @@ export function WorkspaceDataProvider({
   }, [workspaceId]);
 
   // Load system status (from health endpoint) with timeout
-  const loadSystemStatus = useCallback(async () => {
+  const loadSystemStatus = useCallback(async (options?: { force?: boolean }) => {
     if (!mountedRef.current) return;
+    if (loadingSystemStatusRef.current) return;
 
+    const cached = systemStatusCacheRef.current;
+    if (!options?.force && cached && Date.now() - cached.timestamp < SYSTEM_STATUS_CACHE_MS) {
+      setSystemStatus(cached.data);
+      return;
+    }
+
+    loadingSystemStatusRef.current = true;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
     try {
       const response = await sharedGetFetch(
         `${getApiUrl()}/api/v1/workspaces/${workspaceId}/health`,
-        { method: 'GET', signal: controller.signal }
+        { method: 'GET', signal: controller.signal },
+        { dedupKey: `workspace-health:${workspaceId}` }
       );
 
       clearTimeout(timeoutId);
@@ -464,20 +477,27 @@ export function WorkspaceDataProvider({
 
       const data = await response.json();
       if (mountedRef.current) {
-        setSystemStatus({
+        const nextStatus = {
           llm_configured: data.llm_configured,
           llm_provider: data.llm_provider,
           vector_db_connected: data.vector_db_connected,
           tools: data.tools || {},
           critical_issues_count: data.issues?.filter((i: any) => i.severity === 'error')?.length || 0,
           has_issues: (data.issues?.length || 0) > 0
-        });
+        };
+        systemStatusCacheRef.current = {
+          data: nextStatus,
+          timestamp: Date.now(),
+        };
+        setSystemStatus(nextStatus);
       }
     } catch (err: any) {
       clearTimeout(timeoutId);
       if (err.name !== 'AbortError') {
         console.error('[WorkspaceDataContext] Failed to load system status:', err);
       }
+    } finally {
+      loadingSystemStatusRef.current = false;
     }
   }, [workspaceId]);
 
@@ -487,7 +507,7 @@ export function WorkspaceDataProvider({
       loadWorkspace(),
       loadTasks(),
       loadExecutions(),
-      loadSystemStatus()
+      loadSystemStatus({ force: true })
     ]);
   }, [loadWorkspace, loadTasks, loadExecutions, loadSystemStatus]);
 
@@ -537,6 +557,8 @@ export function WorkspaceDataProvider({
     loadingWorkspaceDetailsRef.current = false;
     loadingTasksRef.current = false;
     loadingExecutionsRef.current = false;
+    loadingSystemStatusRef.current = false;
+    systemStatusCacheRef.current = null;
 
     // Track loading state to prevent duplicate loads during hot reload
     let isCancelled = false;
@@ -567,6 +589,7 @@ export function WorkspaceDataProvider({
       loadingWorkspaceDetailsRef.current = false;
       loadingTasksRef.current = false;
       loadingExecutionsRef.current = false;
+      loadingSystemStatusRef.current = false;
 
       // Load workspace first (most important) - with retry logic
       if (mountedRef.current) {
@@ -635,6 +658,7 @@ export function WorkspaceDataProvider({
       loadingWorkspaceDetailsRef.current = false;
       loadingTasksRef.current = false;
       loadingExecutionsRef.current = false;
+      loadingSystemStatusRef.current = false;
       setIsLoadingWorkspace(false);
       setIsLoadingWorkspaceDetails(false);
       setIsLoadingTasks(false);

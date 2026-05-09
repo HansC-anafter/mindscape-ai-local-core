@@ -17,9 +17,12 @@ const PROXY_SLOW_LOG_THRESHOLD_MS = Number.parseInt(
 const PREWARM_WORKSPACE_ID = process.env.FRONTEND_PREWARM_WORKSPACE_ID || '__prewarm__';
 const PREWARM_ENABLED = process.env.FRONTEND_PREWARM_ENABLED === '1';
 const PREWARM_DELAY_MS = Number.parseInt(process.env.FRONTEND_PREWARM_DELAY_MS || '8000', 10);
-const PREWARM_TIMEOUT_MS = Number.parseInt(process.env.FRONTEND_PREWARM_TIMEOUT_MS || '150000', 10);
+const PREWARM_TIMEOUT_MS = Number.parseInt(process.env.FRONTEND_PREWARM_TIMEOUT_MS || '360000', 10);
 const NEXT_DEV_TURBO_ENABLED = process.env.NEXT_DEV_TURBO === '1';
-const DEFAULT_PREWARM_PATHS = [];
+const DEFAULT_PREWARM_PATHS = [
+  '/capability-ui-hosts/ig/{workspaceId}',
+  '/workspaces/{workspaceId}/capabilities/performance_direction/start',
+];
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'keep-alive',
@@ -86,14 +89,34 @@ function copyProxyRequestHeaders(headers, target) {
   return nextHeaders;
 }
 
-function copyProxyResponseHeaders(headers) {
+function shouldPreserveDevApiCacheControl(requestUrl = '/', method = 'GET') {
+  if (method !== 'GET' && method !== 'HEAD') {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(requestUrl, 'http://localhost');
+    return (
+      parsed.pathname.startsWith('/api/v1/media/') ||
+      /^\/api\/v1\/ig\/references\/[^/]+\/image$/.test(parsed.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function copyProxyResponseHeaders(headers, requestUrl = '/', method = 'GET') {
   const nextHeaders = {};
   for (const [key, value] of Object.entries(headers || {})) {
     if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
       nextHeaders[key] = value;
     }
   }
-  nextHeaders['cache-control'] = 'no-store';
+  if (!shouldPreserveDevApiCacheControl(requestUrl, method)) {
+    nextHeaders['cache-control'] = 'no-store';
+  } else if (!nextHeaders['cache-control']) {
+    nextHeaders['cache-control'] = 'public, max-age=86400, immutable';
+  }
   return nextHeaders;
 }
 
@@ -225,12 +248,70 @@ function prewarmNextDevPath(pathValue) {
   });
 }
 
+function waitForNextDevReady(timeoutMs = PREWARM_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    const startedAt = performance.now();
+    let settled = false;
+
+    const finish = (ready) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(ready);
+    };
+
+    const probe = () => {
+      if (performance.now() - startedAt >= timeoutMs) {
+        console.error(`[frontend-proxy] prewarm_wait_failed ${JSON.stringify({
+          duration_ms: roundedDurationMs(startedAt),
+          reason: 'timeout',
+        })}`);
+        finish(false);
+        return;
+      }
+
+      const request = http.request(
+        {
+          hostname: NEXT_HOST,
+          port: NEXT_PORT,
+          method: 'GET',
+          path: '/healthz',
+          headers: {
+            host: `${NEXT_HOST}:${NEXT_PORT}`,
+            'x-mindscape-frontend-prewarm-probe': '1',
+          },
+        },
+        (response) => {
+          response.resume();
+          finish(true);
+        },
+      );
+
+      request.setTimeout(1000, () => {
+        request.destroy(new Error('prewarm_probe_timeout'));
+      });
+      request.on('error', () => {
+        setTimeout(probe, 500);
+      });
+      request.end();
+    };
+
+    probe();
+  });
+}
+
 async function prewarmNextDevRoutes(paths = resolveFrontendPrewarmPaths()) {
   if (!paths.length) {
     console.log('[frontend-proxy] prewarm_skipped {"reason":"no_paths"}');
     return;
   }
   console.log(`[frontend-proxy] prewarm_start ${JSON.stringify({ paths })}`);
+  const ready = await waitForNextDevReady();
+  if (!ready) {
+    console.log('[frontend-proxy] prewarm_skipped {"reason":"next_dev_unavailable"}');
+    return;
+  }
   for (const pathValue of paths) {
     await prewarmNextDevPath(pathValue);
   }
@@ -343,7 +424,10 @@ function proxyHttpRequest(req, res) {
     (upstreamRes) => {
       upstreamStatus = upstreamRes.statusCode || null;
       upstreamHeaderMs = roundedDurationMs(startedAt);
-      res.writeHead(upstreamRes.statusCode || 502, copyProxyResponseHeaders(upstreamRes.headers));
+      res.writeHead(
+        upstreamRes.statusCode || 502,
+        copyProxyResponseHeaders(upstreamRes.headers, req.url, req.method),
+      );
       upstreamRes.pipe(res);
     },
   );
