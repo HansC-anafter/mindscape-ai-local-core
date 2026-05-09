@@ -2,15 +2,17 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import IntegratedSystemStatusCard from '../../../../components/IntegratedSystemStatusCard';
-import StoragePathConfigModal from '@/components/StoragePathConfigModal';
-import TimelinePanel from '../../components/TimelinePanel';
+import dynamic from 'next/dynamic';
 import LeftSidebarTabs from './LeftSidebarTabs';
 import ProjectSubTabs from './ProjectSubTabs';
-import { PackPanel } from './PackPanel';
-import RuntimeSettingsModal from './RuntimeSettingsModal';
-import { Project } from '@/types/project';
-import { Workspace } from '../workspace-page.types';
+import type { Project } from '@/types/project';
+import type { Workspace } from '../workspace-page.types';
+
+const IntegratedSystemStatusCard = dynamic(() => import('../../../../components/IntegratedSystemStatusCard'), { ssr: false });
+const StoragePathConfigModal = dynamic(() => import('@/components/StoragePathConfigModal'), { ssr: false });
+const TimelinePanel = dynamic(() => import('../../components/TimelinePanel'), { ssr: false });
+const PackPanel = dynamic(() => import('./PackPanel').then((module) => module.PackPanel), { ssr: false });
+const RuntimeSettingsModal = dynamic(() => import('./RuntimeSettingsModal'), { ssr: false });
 
 interface WorkspaceLeftSidebarProps {
     workspace: Workspace | null;
@@ -105,19 +107,23 @@ export default function WorkspaceLeftSidebar({
                         </div>
                     }
                     outcomesContent={
-                        <TimelinePanel
-                            workspaceId={workspaceId}
-                            apiUrl={apiUrl}
-                            isInSettingsPage={false}
-                            showArchivedOnly={true}
-                        />
+                        leftSidebarTab === 'outcomes' ? (
+                            <TimelinePanel
+                                workspaceId={workspaceId}
+                                apiUrl={apiUrl}
+                                isInSettingsPage={false}
+                                showArchivedOnly={true}
+                            />
+                        ) : null
                     }
                     packContent={
-                        <PackPanel
-                            workspaceId={workspaceId}
-                            apiUrl={apiUrl}
-                            storyThreadId={workspace?.primary_project_id ? undefined : undefined}
-                        />
+                        leftSidebarTab === 'pack' ? (
+                            <PackPanel
+                                workspaceId={workspaceId}
+                                apiUrl={apiUrl}
+                                storyThreadId={workspace?.primary_project_id ? undefined : undefined}
+                            />
+                        ) : null
                     }
                 />
             </div>
@@ -196,22 +202,26 @@ export default function WorkspaceLeftSidebar({
             {/* Settings Modals */}
             {workspace && (
                 <>
-                    <StoragePathConfigModal
-                        isOpen={showDataSourcesModal}
-                        onClose={() => setShowDataSourcesModal(false)}
-                        workspace={workspace as any}
-                        workspaceId={workspaceId}
-                        apiUrl={apiUrl}
-                        toolConnections={systemStatus?.tools}
-                        onSuccess={() => {
-                            window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
-                        }}
-                    />
-                    <RuntimeSettingsModal
-                        isOpen={showRuntimeModal}
-                        onClose={() => setShowRuntimeModal(false)}
-                        workspaceId={workspaceId}
-                    />
+                    {showDataSourcesModal && (
+                        <StoragePathConfigModal
+                            isOpen={showDataSourcesModal}
+                            onClose={() => setShowDataSourcesModal(false)}
+                            workspace={workspace as any}
+                            workspaceId={workspaceId}
+                            apiUrl={apiUrl}
+                            toolConnections={systemStatus?.tools}
+                            onSuccess={() => {
+                                window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
+                            }}
+                        />
+                    )}
+                    {showRuntimeModal && (
+                        <RuntimeSettingsModal
+                            isOpen={showRuntimeModal}
+                            onClose={() => setShowRuntimeModal(false)}
+                            workspaceId={workspaceId}
+                        />
+                    )}
                 </>
             )}
         </div>

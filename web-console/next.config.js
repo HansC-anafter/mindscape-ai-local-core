@@ -81,12 +81,7 @@ const nextConfig = {
   },
   async rewrites() {
     return {
-      beforeFiles: [
-        {
-          source: '/workspaces/:workspaceId',
-          destination: '/workspace-shell/:workspaceId',
-        },
-      ],
+      beforeFiles: [],
       afterFiles: [],
       fallback: [],
     };

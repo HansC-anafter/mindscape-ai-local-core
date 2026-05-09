@@ -3,7 +3,7 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { DeviceStatusIndicator } from '../../components/DeviceStatusIndicator';
-import { TrainHeader } from '../../../../components/execution';
+import TrainHeader from '../../../../components/execution/TrainHeader';
 import VisibilityBadge from './VisibilityBadge';
 import WorkspaceGroupIndicator from './WorkspaceGroupIndicator';
 import type { WorkspaceVisibility } from '../workspace-page.types';

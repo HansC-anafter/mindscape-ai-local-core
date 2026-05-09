@@ -7,18 +7,16 @@ import PublishingModePanel from '../../../../components/PublishingModePanel';
 import PlanningModePanel from '../../../../components/PlanningModePanel';
 import ConversationsList from './ConversationsList';
 import ExecutionChatPanel from '../../components/ExecutionChatPanel';
-import {
-    ExecutionModeSelector,
-    ThinkingContext,
-} from '../../../../components/execution';
+import ExecutionModeSelector from '../../../../components/execution/ExecutionModeSelector';
+import ThinkingContext from '../../../../components/execution/ThinkingContext';
 import AITeamPanel from '../../../../components/execution/AITeamPanel';
 import { ArtifactsSummary } from '../../../../components/workspace/ArtifactsSummary';
 import { DecisionPanel } from '../../../../components/workspace/DecisionPanel';
 import { WorkflowEvidenceHealthSummary } from '../../../../components/workspace/meeting/WorkflowEvidenceHealthSummary';
 import { ResizablePanel } from '../../../../components/ui/ResizablePanel';
-import { Artifact } from './OutcomesPanel';
+import type { Artifact } from './OutcomesPanel';
 import { t } from '@/lib/i18n';
-import { Workspace } from '../workspace-page.types';
+import type { Workspace } from '../workspace-page.types';
 
 interface WorkspaceRightSidebarProps {
     workspace: Workspace | null;

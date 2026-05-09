@@ -2,19 +2,11 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { t } from '@/lib/i18n';
-import SystemHealthCard from './SystemHealthCard';
-import MultiAICollaborationCard from './MultiAICollaborationCard';
-import { MessageItem } from './MessageItem';
-import { MessageWithSuggestions } from './workspace/MessageWithSuggestions';
 import type { Suggestion } from './workspace/SuggestionChip';
 import { useChatEvents, ChatMessage } from '@/hooks/useChatEvents';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { UploadedFile } from '@/hooks/useFileUpload';
-import { useExecutionState } from '@/hooks/useExecutionState';
-import IntentChips from '../app/workspaces/components/IntentChips';
-import { ExecutionTree } from './execution';
 import { CurrentExecutionBar } from './workspace/CurrentExecutionBar';
-import { useCurrentExecution } from '@/hooks/useCurrentExecution';
 import { DataPromptCard } from './workspace/DataPromptCard';
 import { WorkspaceChatProvider } from '@/contexts/WorkspaceChatContext';
 import { useUIState } from '@/contexts/UIStateContext';
@@ -30,18 +22,17 @@ import { useChatModel } from '@/hooks/useChatModel';
 import { useMessageHandling } from '@/hooks/useMessageHandling';
 import { useWorkspaceData } from '@/hooks/useWorkspaceData';
 import { useTextareaAutoResize } from '@/hooks/useTextareaAutoResize';
-import { eventBus } from '@/services/EventBus';
 import { LLMNotConfiguredOverlay } from './workspace/LLMNotConfiguredOverlay';
 import { MessagesContainer } from './workspace/MessagesContainer';
 import { InputArea } from './workspace/InputArea';
-import { WorkspaceChatRuntimeControls } from './workspace/WorkspaceChatRuntimeControls';
-import { ExecutionModeNotice } from './workspace/ExecutionModeNotice';
-import { ErrorDisplay } from './workspace/ErrorDisplay';
-import { ProcessingIndicator } from './workspace/ProcessingIndicator';
 import { formatExecutionSummary, createPlaybookErrorMessage, createAgentModeMessage, createExecutionModeMessage } from '@/utils/messageUtils';
 
 type ExecutionMode = 'qa' | 'execution' | 'hybrid' | 'meeting' | null;
 type WorkspaceChatLayoutVariant = 'default' | 'meeting_pane';
+type WorkspaceChatMeetingSidebarComponent = React.ComponentType<{
+  workspaceId: string;
+  apiUrl?: string;
+}>;
 
 interface WorkspaceChatProps {
   workspaceId: string;
@@ -116,7 +107,6 @@ function WorkspaceChatContent({
     handleCancel,
   } = useMessages();
 
-  const [showHealthCard, setShowHealthCard] = useState(false);
   const selectedMessageRef = useRef<string | null>(null);
   const prevMessagesLoadingRef = useRef<boolean>(true);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -591,80 +581,31 @@ function WorkspaceChatContent({
   );
 }
 
-function WorkspaceChatMeetingSidebar({
-  workspaceId,
-  apiUrl = '',
-}: {
-  workspaceId: string;
-  apiUrl?: string;
-}) {
-  const { quickStartSuggestions } = useMessages();
-  const { setInput } = useUIState();
-  const { textareaRef } = useWorkspaceRefs();
-  const resolvedApiUrl =
-    apiUrl || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':8220') : '');
-
-  const queueSuggestion = useCallback((suggestion: string) => {
-    setInput(suggestion);
-    window.setTimeout(() => {
-      textareaRef.current?.focus();
-    }, 100);
-  }, [setInput, textareaRef]);
-
-  return (
-    <aside
-      className="flex h-full w-[min(272px,25vw)] shrink-0 flex-col border-l border-[#dcc9a5] bg-[linear-gradient(180deg,#f7f0df_0%,#f6edd8_52%,#f2e6cd_100%)] dark:border-slate-800 dark:bg-slate-950"
-      data-testid="workspace-chat-meeting-sidebar"
-    >
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        <section className="sticky top-0 z-10 rounded-[18px] border border-[#d9c39c] bg-white/90 p-3 shadow-[0_10px_24px_rgba(166,139,94,0.10)] backdrop-blur dark:border-slate-800 dark:bg-slate-900/90">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8b6c33] dark:text-slate-400">
-            Runtime
-          </div>
-          <div className="mt-2">
-            <WorkspaceChatRuntimeControls
-              workspaceId={workspaceId}
-              apiUrl={resolvedApiUrl}
-              layout="panel"
-            />
-          </div>
-        </section>
-
-        {quickStartSuggestions.length > 0 ? (
-          <section className="mt-3 rounded-[18px] border border-[#d9c39c] bg-white/75 p-3 shadow-[0_10px_24px_rgba(166,139,94,0.08)] dark:border-slate-800 dark:bg-slate-900/80">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8b6c33] dark:text-slate-400">
-              Prompts
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {quickStartSuggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  onClick={() => queueSuggestion(suggestion)}
-                  className="rounded-full border border-[#c7af7d] bg-white/95 px-2.5 py-1 text-[11px] font-medium leading-4 text-slate-700 transition-colors hover:bg-[#fff8ea] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  {suggestion.startsWith('suggestion.') || suggestion.startsWith('suggestions.')
-                    ? t(suggestion as any) || suggestion
-                    : suggestion}
-                </button>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        <section className="mt-3 rounded-[18px] border border-[#d9c39c] bg-white/75 p-3 shadow-[0_10px_24px_rgba(166,139,94,0.08)] dark:border-slate-800 dark:bg-slate-900/80">
-          <IntentChips
-            workspaceId={workspaceId}
-            apiUrl={resolvedApiUrl || 'http://localhost:8220'}
-            compact
-          />
-        </section>
-      </div>
-    </aside>
-  );
-}
-
 export default function WorkspaceChat(props: WorkspaceChatProps) {
+  const [MeetingSidebar, setMeetingSidebar] = useState<WorkspaceChatMeetingSidebarComponent | null>(null);
+
+  useEffect(() => {
+    if (props.layoutVariant !== 'meeting_pane') {
+      setMeetingSidebar(null);
+      return;
+    }
+
+    let cancelled = false;
+    void import('./workspace/WorkspaceChatMeetingSidebar')
+      .then((module) => {
+        if (!cancelled) {
+          setMeetingSidebar(() => module.default);
+        }
+      })
+      .catch((error) => {
+        console.error('[WorkspaceChat] Failed to load meeting sidebar:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [props.layoutVariant]);
+
   return (
     <WorkspaceChatProvider
       workspaceId={props.workspaceId}
@@ -676,10 +617,17 @@ export default function WorkspaceChat(props: WorkspaceChatProps) {
           <div className="min-w-0 flex-1">
             <WorkspaceChatContent {...props} />
           </div>
-          <WorkspaceChatMeetingSidebar
-            workspaceId={props.workspaceId}
-            apiUrl={props.apiUrl}
-          />
+          {MeetingSidebar ? (
+            <MeetingSidebar
+              workspaceId={props.workspaceId}
+              apiUrl={props.apiUrl}
+            />
+          ) : (
+            <aside
+              className="h-full w-[min(272px,25vw)] shrink-0 border-l border-[#dcc9a5] bg-[#f6edd8] dark:border-slate-800 dark:bg-slate-950"
+              aria-hidden="true"
+            />
+          )}
         </div>
       ) : (
         <WorkspaceChatContent {...props} />
