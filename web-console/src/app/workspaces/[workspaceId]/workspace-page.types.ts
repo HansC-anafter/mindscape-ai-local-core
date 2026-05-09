@@ -35,8 +35,10 @@ export interface Workspace {
     associated_intent?: AssociatedIntent | null;
     storage_base_path?: string;
     artifacts_dir?: string;
+    uploads_dir?: string;
     storage_config?: any;
     playbook_storage_config?: Record<string, { base_path?: string; artifacts_dir?: string }>;
+    playbook_auto_execution_config?: Record<string, any>;
     visibility?: WorkspaceVisibility;
     group_id?: string | null;
     workspace_role?: string | null;

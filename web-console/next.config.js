@@ -80,9 +80,16 @@ const nextConfig = {
     ];
   },
   async rewrites() {
-    // /api/* and /health are handled by App Route proxy code so retry,
-    // no-store, and upstream selection are explicit and testable.
-    return [];
+    return {
+      beforeFiles: [
+        {
+          source: '/workspaces/:workspaceId',
+          destination: '/workspace-shell/:workspaceId',
+        },
+      ],
+      afterFiles: [],
+      fallback: [],
+    };
   },
   webpack: (config, { isServer }) => {
     const corePackagePath = path.resolve(__dirname, '../packages/core/src');

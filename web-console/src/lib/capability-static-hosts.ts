@@ -21,6 +21,10 @@ const staticHostCapabilityCodes = new Set([
   'yogacoach',
 ]);
 
+const topLevelStaticHostCapabilityCodes = new Set([
+  'ig',
+]);
+
 function capabilityCodeVariants(capabilityCode: string): string[] {
   const variants = new Set<string>();
   const trimmed = capabilityCode.trim();
@@ -69,6 +73,9 @@ export function buildStaticCapabilityHostPath(
   const hostCode = resolveStaticCapabilityHostCode(capabilityCode);
   if (!hostCode) {
     return null;
+  }
+  if (topLevelStaticHostCapabilityCodes.has(hostCode)) {
+    return `/capability-ui-hosts/${hostCode}/${encodeURIComponent(workspaceId)}${encodeSearchParams(searchParams)}`;
   }
   return `/workspaces/${encodeURIComponent(workspaceId)}/capability-ui-hosts/${hostCode}${encodeSearchParams(searchParams)}`;
 }

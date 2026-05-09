@@ -1,5 +1,5 @@
-import ComfyuiRuntimeCapabilityUiHost from './ComfyuiRuntimeCapabilityUiHost';
-import { renderCapabilityUiHostPage } from '../renderCapabilityUiHostPage';
+import { renderCapabilityUiHostPage } from '@/app/workspaces/[workspaceId]/capability-ui-hosts/renderCapabilityUiHostPage';
+import IgCapabilityUiHost from './IgCapabilityUiHost';
 
 interface CapabilityUiHostPageProps {
   params: {
@@ -12,7 +12,7 @@ export default async function CapabilityUiHostPage({
 }: CapabilityUiHostPageProps) {
   return renderCapabilityUiHostPage({
     workspaceId: params.workspaceId,
-    capabilityCode: 'comfyui_runtime',
-    HostComponent: ComfyuiRuntimeCapabilityUiHost,
+    capabilityCode: 'ig',
+    HostComponent: IgCapabilityUiHost,
   });
 }

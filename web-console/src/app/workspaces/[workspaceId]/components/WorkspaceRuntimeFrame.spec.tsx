@@ -16,22 +16,16 @@ vi.mock('@/contexts/ExecutionContextContext', () => ({
   ),
 }));
 
-vi.mock('@/components/brand/BrandNavigation', () => ({
-  default: ({ workspaceId }: { workspaceId: string }) => (
-    <aside data-testid="brand-navigation">{workspaceId}</aside>
-  ),
-}));
-
 describe('WorkspaceRuntimeFrame', () => {
-  it('lets the AOL runtime shell own right rail spacing for workspace pages', async () => {
+  it('keeps route-level workspace providers without preloading capability runtime chrome', async () => {
     render(
       <WorkspaceRuntimeFrame workspaceId="ws_test">
         <section data-testid="workspace-page">Workspace page</section>
       </WorkspaceRuntimeFrame>,
     );
 
-    expect(screen.getByTestId('aol-shell-content-region')).toBeInTheDocument();
-    expect(screen.getByTestId('aol-shell-region')).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-data-provider')).toBeInTheDocument();
+    expect(screen.getByTestId('execution-context-provider')).toBeInTheDocument();
     expect(screen.getByRole('main')).not.toHaveClass('pr-10');
     expect(screen.getByTestId('workspace-page')).toBeInTheDocument();
   });

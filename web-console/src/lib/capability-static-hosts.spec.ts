@@ -19,5 +19,10 @@ describe('capability static host routing', () => {
         tag: ['a', 'b'],
       }),
     ).toBe('/workspaces/ws%2Fone/capability-ui-hosts/brand_identity?component=StoryboardPage&tag=a&tag=b');
+    expect(
+      buildStaticCapabilityHostPath('ws/one', 'ig', {
+        component: 'IGWorkbench',
+      }),
+    ).toBe('/capability-ui-hosts/ig/ws%2Fone?component=IGWorkbench');
   });
 });

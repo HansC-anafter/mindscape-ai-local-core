@@ -7,6 +7,7 @@ import {
   isDevApiProxyPath,
   isFrontendLivenessPath,
   normalizeProxyLogPath,
+  resolveNextDevArgs,
   resolveFrontendPrewarmPaths,
   resolveDevApiProxyTarget,
   shouldWriteProxyTimingLog,
@@ -82,14 +83,33 @@ describe('frontend dev proxy', () => {
 
   it('resolves default and explicit frontend prewarm paths', () => {
     expect(resolveFrontendPrewarmPaths('', 'ws/one')).toEqual([
-      '/workspaces/ws%2Fone/capability-ui-hosts/ig',
-      '/workspaces/ws%2Fone/capabilities/performance_direction/start',
-      '/workspaces/ws%2Fone',
-      '/workspaces',
+      '/workspace-shell/ws%2Fone',
     ]);
     expect(resolveFrontendPrewarmPaths('/a/{workspaceId}, /b', 'ws one')).toEqual([
       '/a/ws%20one',
       '/b',
+    ]);
+  });
+
+  it('keeps Turbopack available as an explicit local Next dev opt-in', () => {
+    expect(resolveNextDevArgs('127.0.0.1', 3010, true)).toEqual([
+      'run',
+      'dev',
+      '--',
+      '--turbo',
+      '-H',
+      '127.0.0.1',
+      '-p',
+      '3010',
+    ]);
+    expect(resolveNextDevArgs('127.0.0.1', 3010, false)).toEqual([
+      'run',
+      'dev',
+      '--',
+      '-H',
+      '127.0.0.1',
+      '-p',
+      '3010',
     ]);
   });
 

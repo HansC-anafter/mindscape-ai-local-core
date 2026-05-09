@@ -20,7 +20,7 @@ import { getApiBaseUrl } from '../../../../../lib/api-url';
 const API_URL = getApiBaseUrl();
 
 function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: string; executionId: string }) {
-  const workspace = useWorkspaceData().workspace;
+  const { workspace, refreshWorkspaceDetails } = useWorkspaceData();
   const router = useRouter();
   const [focusedExecution, setFocusedExecution] = useState<any>(null);
   const [focusedPlaybookMetadata, setFocusedPlaybookMetadata] = useState<any>(null);
@@ -153,7 +153,12 @@ function ExecutionPageContent({ workspaceId, executionId }: { workspaceId: strin
                 <div className="border-t dark:border-gray-700">
                   <div
                     className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 transition-colors"
-                    onClick={() => setShowSystemTools(!showSystemTools)}
+                    onClick={() => {
+                      if (!showSystemTools && !workspace.data_sources) {
+                        void refreshWorkspaceDetails();
+                      }
+                      setShowSystemTools(!showSystemTools);
+                    }}
                   >
                     <div className="flex items-center gap-2">
                       <svg className="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">

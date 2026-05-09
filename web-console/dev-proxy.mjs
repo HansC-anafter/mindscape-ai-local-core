@@ -18,11 +18,9 @@ const PREWARM_WORKSPACE_ID = process.env.FRONTEND_PREWARM_WORKSPACE_ID || '__pre
 const PREWARM_ENABLED = process.env.FRONTEND_PREWARM_ENABLED !== '0';
 const PREWARM_DELAY_MS = Number.parseInt(process.env.FRONTEND_PREWARM_DELAY_MS || '15000', 10);
 const PREWARM_TIMEOUT_MS = Number.parseInt(process.env.FRONTEND_PREWARM_TIMEOUT_MS || '180000', 10);
+const NEXT_DEV_TURBO_ENABLED = process.env.NEXT_DEV_TURBO === '1';
 const DEFAULT_PREWARM_PATHS = [
-  '/workspaces/{workspaceId}/capability-ui-hosts/ig',
-  '/workspaces/{workspaceId}/capabilities/performance_direction/start',
-  '/workspaces/{workspaceId}',
-  '/workspaces',
+  '/workspace-shell/{workspaceId}',
 ];
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -155,6 +153,23 @@ export function resolveFrontendPrewarmPaths(
     .map((pathValue) => String(pathValue || '').trim())
     .filter(Boolean)
     .map((pathValue) => pathValue.replaceAll('{workspaceId}', encodeURIComponent(workspaceId)));
+}
+
+export function resolveNextDevArgs(
+  host = NEXT_HOST,
+  port = NEXT_PORT,
+  turboEnabled = NEXT_DEV_TURBO_ENABLED,
+) {
+  return [
+    'run',
+    'dev',
+    '--',
+    ...(turboEnabled ? ['--turbo'] : []),
+    '-H',
+    host,
+    '-p',
+    String(port),
+  ];
 }
 
 function prewarmNextDevPath(pathValue) {
@@ -394,7 +409,7 @@ export function start() {
     nextRunningRef.current = false;
     nextProcess = spawn(
       'pnpm',
-      ['run', 'dev', '--', '-H', NEXT_HOST, '-p', String(NEXT_PORT)],
+      resolveNextDevArgs(),
       {
         cwd: process.cwd(),
         env: process.env,

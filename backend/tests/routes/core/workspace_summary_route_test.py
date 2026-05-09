@@ -41,6 +41,32 @@ class FakeWorkspaceStore:
             }
         ]
 
+    async def get_workspace_summary(self, workspace_id):
+        self.calls.append({"workspace_id": workspace_id})
+        now = datetime(2026, 5, 8, tzinfo=timezone.utc)
+        return {
+            "id": workspace_id,
+            "owner_user_id": "default-user",
+            "title": "Workspace 1",
+            "description": "Summary only",
+            "workspace_type": "personal",
+            "storage_base_path": "/tmp/ws",
+            "artifacts_dir": "artifacts",
+            "playbook_auto_execution_config": {"ig": {"auto_execute": True}},
+            "workspace_blueprint": {"instruction": {"persona": "operator"}},
+            "execution_mode": "hybrid",
+            "meeting_enabled": False,
+            "expected_artifacts": [],
+            "execution_priority": "medium",
+            "project_assignment_mode": "auto_silent",
+            "launch_status": "active",
+            "visibility": "private",
+            "created_at": now,
+            "updated_at": now,
+            "data_sources": {"heavy": "must not leak into summary response"},
+            "metadata": {"heavy": "must not leak into summary response"},
+        }
+
 
 def test_workspace_summary_uses_lightweight_store_and_omits_heavy_fields(monkeypatch):
     fake_store = FakeWorkspaceStore()
@@ -71,3 +97,30 @@ def test_workspace_summary_uses_lightweight_store_and_omits_heavy_fields(monkeyp
     assert body[0]["title"] == "Workspace 1"
     assert "data_sources" not in body[0]
     assert "metadata" not in body[0]
+
+
+def test_single_workspace_summary_uses_lightweight_store_and_omits_heavy_fields(
+    monkeypatch,
+):
+    fake_store = FakeWorkspaceStore()
+    import backend.app.services.mindscape_store as mindscape_store
+
+    monkeypatch.setattr(mindscape_store, "MindscapeStore", lambda: fake_store)
+    crud = importlib.import_module("backend.app.routes.core.workspace.crud")
+    monkeypatch.setattr(crud, "store", fake_store)
+
+    app = FastAPI()
+    app.include_router(crud.router, prefix="/api/v1/workspaces")
+    client = TestClient(app)
+
+    response = client.get("/api/v1/workspaces/ws-1/summary")
+
+    assert response.status_code == 200
+    assert fake_store.calls == [{"workspace_id": "ws-1"}]
+    body = response.json()
+    assert body["id"] == "ws-1"
+    assert body["storage_base_path"] == "/tmp/ws"
+    assert body["playbook_auto_execution_config"] == {"ig": {"auto_execute": True}}
+    assert body["workspace_blueprint"] == {"instruction": {"persona": "operator"}}
+    assert "data_sources" not in body
+    assert "metadata" not in body

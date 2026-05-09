@@ -179,6 +179,40 @@ class PostgresWorkspacesStore(PostgresStoreBase):
         import anyio
         return await anyio.to_thread.run_sync(self.get_workspace_sync, workspace_id)
 
+    def get_workspace_summary_sync(self, workspace_id: str) -> Optional[Dict[str, Any]]:
+        """Get workspace by ID without heavy data_sources and metadata columns."""
+        with self.get_connection() as conn:
+            query = text(
+                """
+                SELECT
+                    id, owner_user_id, title, description, workspace_type,
+                    group_id, workspace_role, primary_project_id,
+                    default_playbook_id, default_locale, mode,
+                    storage_base_path, artifacts_dir, uploads_dir, storage_config,
+                    playbook_storage_config, playbook_auto_execution_config,
+                    workspace_blueprint, execution_mode, meeting_enabled,
+                    expected_artifacts, execution_priority, project_assignment_mode,
+                    launch_status, starter_kit_type, ttl_hours, expires_at,
+                    parent_workspace_id, visibility, created_at, updated_at
+                FROM workspaces
+                WHERE id = :id
+                """
+            )
+            result = conn.execute(query, {"id": workspace_id})
+            row = result.fetchone()
+            if not row:
+                return None
+            return self._row_to_workspace_summary(row)
+
+    async def get_workspace_summary(
+        self, workspace_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get workspace by ID without heavy data_sources and metadata columns."""
+        import anyio
+        return await anyio.to_thread.run_sync(
+            self.get_workspace_summary_sync, workspace_id
+        )
+
     def list_workspaces(
         self,
         owner_user_id: str,
@@ -213,7 +247,9 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     id, owner_user_id, title, description, workspace_type,
                     group_id, workspace_role, primary_project_id,
                     default_playbook_id, default_locale, mode,
-                    execution_mode, meeting_enabled, expected_artifacts,
+                    storage_base_path, artifacts_dir, uploads_dir, storage_config,
+                    playbook_storage_config, playbook_auto_execution_config,
+                    workspace_blueprint, execution_mode, meeting_enabled, expected_artifacts,
                     execution_priority, project_assignment_mode, launch_status,
                     starter_kit_type, ttl_hours, expires_at, parent_workspace_id,
                     visibility, created_at, updated_at
@@ -399,6 +435,21 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             "default_playbook_id": row.default_playbook_id,
             "default_locale": row.default_locale,
             "mode": row.mode,
+            "storage_base_path": getattr(row, "storage_base_path", None),
+            "artifacts_dir": getattr(row, "artifacts_dir", None),
+            "uploads_dir": getattr(row, "uploads_dir", None),
+            "storage_config": self.deserialize_json(
+                getattr(row, "storage_config", None)
+            ),
+            "playbook_storage_config": self.deserialize_json(
+                getattr(row, "playbook_storage_config", None)
+            ),
+            "playbook_auto_execution_config": self.deserialize_json(
+                getattr(row, "playbook_auto_execution_config", None)
+            ),
+            "workspace_blueprint": self.deserialize_json(
+                getattr(row, "workspace_blueprint", None)
+            ),
             "execution_mode": row.execution_mode or "qa",
             "meeting_enabled": bool(getattr(row, "meeting_enabled", False)),
             "expected_artifacts": self.deserialize_json(

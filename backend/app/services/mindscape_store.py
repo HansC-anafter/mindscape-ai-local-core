@@ -751,6 +751,13 @@ class MindscapeStore:
         """Get workspace by ID"""
         return await self.workspaces.get_workspace(workspace_id)
 
+    async def get_workspace_summary(self, workspace_id: str) -> Optional[Dict[str, Any]]:
+        """Get lightweight workspace data for shell rendering."""
+        if hasattr(self.workspaces, "get_workspace_summary"):
+            return await self.workspaces.get_workspace_summary(workspace_id)
+        workspace = await self.workspaces.get_workspace(workspace_id)
+        return workspace.model_dump() if workspace else None
+
     def list_workspaces(
         self,
         owner_user_id: str,

@@ -12,7 +12,7 @@ import React, {
 
 // Get API URL - for 'use client' components, always use browser-accessible URL
 // In browser, NEXT_PUBLIC_API_URL points to host's localhost
-import { getApiBaseUrl, getApiUrl as getDynamicApiUrl } from '../lib/api-url';
+import { getApiBaseUrl } from '../lib/api-url';
 import { sharedGetFetch } from '../lib/resilient-fetch';
 
 // This is evaluated at runtime, not module load time
@@ -38,6 +38,7 @@ interface Workspace {
   associated_intent?: any;
   storage_base_path?: string;
   artifacts_dir?: string;
+  uploads_dir?: string;
   storage_config?: any;
   playbook_storage_config?: Record<string, any>;
   playbook_auto_execution_config?: Record<string, any>;
@@ -108,6 +109,7 @@ interface WorkspaceDataContextType {
   // Loading states
   isLoading: boolean;
   isLoadingWorkspace: boolean;
+  isLoadingWorkspaceDetails: boolean;
   isLoadingTasks: boolean;
   isLoadingExecutions: boolean;
 
@@ -116,6 +118,7 @@ interface WorkspaceDataContextType {
 
   // Actions
   refreshWorkspace: () => Promise<void>;
+  refreshWorkspaceDetails: () => Promise<void>;
   refreshTasks: () => Promise<void>;
   refreshExecutions: () => Promise<void>;
   refreshAll: () => Promise<void>;
@@ -133,17 +136,18 @@ function useDebounce<T extends (...args: any[]) => any>(
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
 
-  return useCallback(
-    ((...args: Parameters<T>) => {
+  const debounced = useCallback(
+    (...args: Parameters<T>) => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
       timeoutRef.current = setTimeout(() => {
         callbackRef.current(...args);
       }, delay);
-    }) as T,
+    },
     [delay]
   );
+  return debounced as T;
 }
 
 interface WorkspaceDataProviderProps {
@@ -163,6 +167,7 @@ export function WorkspaceDataProvider({
 
   // Loading states
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
+  const [isLoadingWorkspaceDetails, setIsLoadingWorkspaceDetails] = useState(false);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [isLoadingExecutions, setIsLoadingExecutions] = useState(false);
 
@@ -171,6 +176,7 @@ export function WorkspaceDataProvider({
 
   // Refs to prevent duplicate requests
   const loadingWorkspaceRef = useRef(false);
+  const loadingWorkspaceDetailsRef = useRef(false);
   const loadingTasksRef = useRef(false);
   const loadingExecutionsRef = useRef(false);
   const mountedRef = useRef(true);
@@ -209,15 +215,11 @@ export function WorkspaceDataProvider({
 
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 30000); // 30 second timeout (backend may be under heavy load)
+    }, 15000);
 
     try {
-      const startTime = Date.now();
-
-      // Directly use base URL to avoid any blocking from getDynamicApiUrl
-      // This ensures the fetch request can be sent immediately
       const apiUrl = getApiBaseUrl();
-      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}`;
+      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/summary`;
 
       let response: Response;
       try {
@@ -259,12 +261,11 @@ export function WorkspaceDataProvider({
 
       if (mountedRef.current) {
         if (!data || !data.id) {
-          // API returned success but no valid workspace data
           console.error(`[WorkspaceDataContext:${tabId}] Invalid workspace data received:`, data);
           setError('Workspace not found or invalid');
           setWorkspace(null);
         } else {
-          setWorkspace(data);
+          setWorkspace(prev => (prev?.id === data.id ? { ...prev, ...data } : data));
           setError(null);
         }
       }
@@ -290,6 +291,52 @@ export function WorkspaceDataProvider({
       loadingWorkspaceRef.current = false;
       if (mountedRef.current) {
         setIsLoadingWorkspace(false);
+      }
+    }
+  }, [workspaceId]);
+
+  const loadWorkspaceDetails = useCallback(async () => {
+    if (loadingWorkspaceDetailsRef.current || !mountedRef.current) return;
+    if (!workspaceId || workspaceId === 'new') return;
+
+    loadingWorkspaceDetailsRef.current = true;
+    setIsLoadingWorkspaceDetails(true);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await sharedGetFetch(
+        `${getApiBaseUrl()}/api/v1/workspaces/${workspaceId}`,
+        {
+          method: 'GET',
+          signal: controller.signal,
+          cache: 'no-store',
+          headers: {
+            'Accept': 'application/json',
+          },
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Failed to load workspace details: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (mountedRef.current && data?.id) {
+        setWorkspace(prev => (prev?.id === data.id ? { ...prev, ...data } : data));
+      }
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err.name !== 'AbortError' && mountedRef.current) {
+        console.error('[WorkspaceDataContext] Failed to load workspace details:', err);
+      }
+    } finally {
+      loadingWorkspaceDetailsRef.current = false;
+      if (mountedRef.current) {
+        setIsLoadingWorkspaceDetails(false);
       }
     }
   }, [workspaceId]);
@@ -487,6 +534,7 @@ export function WorkspaceDataProvider({
     // Reset all loading flags when workspaceId changes
     mountedRef.current = true;
     loadingWorkspaceRef.current = false;
+    loadingWorkspaceDetailsRef.current = false;
     loadingTasksRef.current = false;
     loadingExecutionsRef.current = false;
 
@@ -516,6 +564,7 @@ export function WorkspaceDataProvider({
 
       // Reset flags to ensure fresh start
       loadingWorkspaceRef.current = false;
+      loadingWorkspaceDetailsRef.current = false;
       loadingTasksRef.current = false;
       loadingExecutionsRef.current = false;
 
@@ -583,9 +632,11 @@ export function WorkspaceDataProvider({
       }
       // Clear loading flags on unmount
       loadingWorkspaceRef.current = false;
+      loadingWorkspaceDetailsRef.current = false;
       loadingTasksRef.current = false;
       loadingExecutionsRef.current = false;
       setIsLoadingWorkspace(false);
+      setIsLoadingWorkspaceDetails(false);
       setIsLoadingTasks(false);
       setIsLoadingExecutions(false);
     };
@@ -626,10 +677,12 @@ export function WorkspaceDataProvider({
     systemStatus,
     isLoading,
     isLoadingWorkspace,
+    isLoadingWorkspaceDetails,
     isLoadingTasks,
     isLoadingExecutions,
     error,
     refreshWorkspace: loadWorkspace,
+    refreshWorkspaceDetails: loadWorkspaceDetails,
     refreshTasks: loadTasks,
     refreshExecutions: loadExecutions,
     refreshAll,

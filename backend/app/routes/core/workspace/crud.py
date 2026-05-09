@@ -55,6 +55,13 @@ class WorkspaceSummary(BaseModel):
     default_playbook_id: Optional[str] = None
     default_locale: Optional[str] = None
     mode: Optional[str] = None
+    storage_base_path: Optional[str] = None
+    artifacts_dir: Optional[str] = None
+    uploads_dir: Optional[str] = None
+    storage_config: Optional[Dict[str, Any]] = None
+    playbook_storage_config: Optional[Dict[str, Any]] = None
+    playbook_auto_execution_config: Optional[Dict[str, Any]] = None
+    workspace_blueprint: Optional[Dict[str, Any]] = None
     execution_mode: Optional[str] = None
     meeting_enabled: bool = False
     expected_artifacts: Optional[List[str]] = None
@@ -88,6 +95,17 @@ def _workspace_to_summary(workspace: Workspace) -> WorkspaceSummary:
         default_playbook_id=workspace.default_playbook_id,
         default_locale=workspace.default_locale,
         mode=workspace.mode,
+        storage_base_path=workspace.storage_base_path,
+        artifacts_dir=workspace.artifacts_dir,
+        uploads_dir=workspace.uploads_dir,
+        storage_config=workspace.storage_config,
+        playbook_storage_config=workspace.playbook_storage_config,
+        playbook_auto_execution_config=workspace.playbook_auto_execution_config,
+        workspace_blueprint=(
+            workspace.workspace_blueprint.model_dump()
+            if workspace.workspace_blueprint
+            else None
+        ),
         execution_mode=workspace.execution_mode,
         meeting_enabled=bool(getattr(workspace, "meeting_enabled", False)),
         expected_artifacts=workspace.expected_artifacts,
@@ -199,6 +217,35 @@ async def list_workspace_summaries(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to list workspace summaries: {str(e)}",
+        )
+
+
+@router.get("/{workspace_id}/summary", response_model=WorkspaceSummary)
+async def get_workspace_summary(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+):
+    """
+    Get lightweight workspace data for route-critical shell rendering.
+
+    Full workspace configuration remains available from GET /workspaces/{workspace_id}.
+    """
+    try:
+        if hasattr(store, "get_workspace_summary"):
+            summary = await store.get_workspace_summary(workspace_id)
+        else:
+            workspace = await store.get_workspace(workspace_id)
+            summary = _workspace_to_summary(workspace) if workspace else None
+
+        if not summary:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        return summary
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get workspace summary: {str(e)}",
         )
 
 
